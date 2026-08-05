@@ -24,7 +24,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -38,10 +37,11 @@ func log() *slog.Logger {
 // Instrumenter finds and instrument a service/process, and forwards the traces as
 // configured by the user
 type Instrumenter struct {
-	config    *obi.Config
-	ctxInfo   *global.ContextInfo
-	tracersWg *sync.WaitGroup
-	bp        *appolly.Instrumenter
+	config      *obi.Config
+	ctxInfo     *global.ContextInfo
+	tracersWg   *sync.WaitGroup
+	eventLoopWg sync.WaitGroup
+	bp          *appolly.Instrumenter
 
 	// tracesInput is used to communicate the found traces between the ProcessFinder and
 	// the ProcessTracer.
@@ -57,6 +57,7 @@ type Instrumenter struct {
 	// dynamicPIDSelector is the runtime PID set; from WithDynamicPIDSelector or created in New. Finder preloads from config.
 	dynamicPIDSelector *discover.DynamicPIDSelector
 	finishers          []finisher
+	cancelEvents       context.CancelFunc
 }
 
 type finisher struct {
@@ -148,29 +149,53 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 	opts := []discover.ProcessFinderStartOpt{
 		discover.WithDynamicPIDSelector(i.dynamicPIDSelector),
 	}
-	processEvents, err := finder.Start(ctx, opts...)
+	eventCtx, cancelEvents := context.WithCancel(ctx)
+	processEvents, err := finder.Start(eventCtx, opts...)
 	if err != nil {
+		cancelEvents()
 		return fmt.Errorf("couldn't start Process Finder: %w", err)
 	}
+	i.cancelEvents = cancelEvents
+	dispatchReady := make(chan struct{})
+	i.startInstrumentedEventLoop(eventCtx, processEvents, dispatchReady)
 
 	// In the background process any process found events and annotate them with
 	// the Host or Kubernetes metadata
 	graph, err := i.peGraphBuilder.Instance(ctx)
 	if err != nil {
+		cancelEvents()
+		close(dispatchReady)
+		if stopErr := i.stop(); stopErr != nil {
+			return errors.Join(
+				fmt.Errorf("couldn't start Process Event pipeline: %w", err),
+				stopErr,
+			)
+		}
 		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
 	}
 	i.processEventsPipeline(ctx, graph)
+	close(dispatchReady)
 
 	// registers resources that must be done before exiting OBI
 	i.finishers = append(i.finishers,
 		finisher{name: "process finder", done: finder.Done()},
 		finisher{name: "process instrumenter", done: graph.Done()})
 
-	// In background, listen indefinitely for each new process and run its
-	// associated ebpf.ProcessTracer once it is found.
-	go i.instrumentedEventLoop(ctx, processEvents)
-
 	return nil
+}
+
+func (i *Instrumenter) startInstrumentedEventLoop(
+	ctx context.Context,
+	processEvents <-chan discover.Event[*ebpf.Instrumentable],
+	dispatchReady <-chan struct{},
+) {
+	tracerCtx, cancelTracers := context.WithCancel(context.WithoutCancel(ctx))
+	i.eventLoopWg.Add(1)
+	go func() {
+		defer i.eventLoopWg.Done()
+		defer cancelTracers()
+		i.instrumentedEventLoop(ctx, tracerCtx, processEvents, dispatchReady)
+	}()
 }
 
 func (i *Instrumenter) WaitUntilFinished() error {
@@ -188,34 +213,64 @@ func (i *Instrumenter) WaitUntilFinished() error {
 	return nil
 }
 
-func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents <-chan discover.Event[*ebpf.Instrumentable]) {
+func (i *Instrumenter) instrumentedEventLoop(
+	dispatchCtx context.Context,
+	tracerCtx context.Context,
+	processEvents <-chan discover.Event[*ebpf.Instrumentable],
+	dispatchReady <-chan struct{},
+) {
 	log := log()
-	swarms.ForEachInput(ctx, processEvents, log.Debug, func(ev discover.Event[*ebpf.Instrumentable]) {
+	log.Debug("starting instrumented event loop")
+	for ev := range processEvents {
 		switch ev.Type {
-		case discover.EventCreated:
+		case discover.EventTracerInitialized:
 			pt := ev.Obj
-			log.Debug("running tracer for new process",
+			log.Debug("running initialized tracer",
 				"inode", pt.FileInfo.Ino(), "pid", pt.FileInfo.Pid(), "exec", pt.FileInfo.CmdExePath())
 			if pt.Tracer != nil {
 				i.tracersWg.Go(func() {
-					pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
+					pt.Tracer.Run(tracerCtx, i.ebpfEventContext, i.tracesInput)
 				})
 			}
-			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: pt.FileInfo})
+		case discover.EventCreated:
+			pt := ev.Obj
+			log.Debug("notifying creation of instrumented process",
+				"inode", pt.FileInfo.Ino(), "pid", pt.FileInfo.Pid(), "exec", pt.FileInfo.CmdExePath())
+			waitForProcessEventDispatch(dispatchCtx, dispatchReady)
+			i.handleAndDispatchProcessEvent(
+				dispatchCtx,
+				exec.ProcessEvent{Type: exec.ProcessEventCreated, File: pt.FileInfo},
+			)
 		case discover.EventDeleted:
 			dp := ev.Obj
 			log.Debug("stopping ProcessTracer because there are no more instances of such process",
 				"inode", dp.FileInfo.Ino(), "pid", dp.FileInfo.Pid(), "exec", dp.FileInfo.CmdExePath())
-			if dp.Tracer != nil {
-				dp.Tracer.UnlinkExecutable(dp.FileInfo, dp.ExecutableGeneration)
-			}
-			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: dp.FileInfo})
+			waitForProcessEventDispatch(dispatchCtx, dispatchReady)
+			i.handleAndDispatchProcessEvent(
+				dispatchCtx,
+				exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: dp.FileInfo},
+			)
 		case discover.EventInstanceDeleted:
-			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: ev.Obj.FileInfo})
+			waitForProcessEventDispatch(dispatchCtx, dispatchReady)
+			i.handleAndDispatchProcessEvent(
+				dispatchCtx,
+				exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: ev.Obj.FileInfo},
+			)
 		default:
 			log.Error("BUG ALERT! unknown event type", "type", ev.Type)
 		}
-	})
+	}
+	log.Debug("instrumented event input closed, stopping node")
+}
+
+func waitForProcessEventDispatch(ctx context.Context, ready <-chan struct{}) {
+	if ready == nil {
+		return
+	}
+	select {
+	case <-ready:
+	case <-ctx.Done():
+	}
 }
 
 // ReadAndForward keeps listening for traces in the BPF map, then reads,
@@ -243,11 +298,16 @@ func (i *Instrumenter) ReadAndForward(ctx context.Context) error {
 
 func (i *Instrumenter) stop() error {
 	log := log()
+	if i.cancelEvents != nil {
+		i.cancelEvents()
+	}
 
 	stopped := make(chan struct{})
 	go func() {
 		log.Debug("stopped searching for new processes to instrument. Waiting for the eBPF tracers to be unloaded")
+		i.eventLoopWg.Wait()
 		i.tracersWg.Wait()
+		ebpf.ShutdownSharedMaps(i.ebpfEventContext)
 		close(stopped)
 		log.Debug("tracers unloaded, exiting FindAndInstrument")
 	}()
@@ -260,8 +320,11 @@ func (i *Instrumenter) stop() error {
 	}
 }
 
-func (i *Instrumenter) handleAndDispatchProcessEvent(pe exec.ProcessEvent) {
-	i.processEventInput.Send(pe)
+func (i *Instrumenter) handleAndDispatchProcessEvent(
+	ctx context.Context,
+	pe exec.ProcessEvent,
+) {
+	i.processEventInput.SendCtx(ctx, pe)
 }
 
 func setupFeatureContextInfo(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) {

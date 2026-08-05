@@ -110,12 +110,6 @@ func newGraphBuilder(
 		containerDecoratorToNameResolver, nameResolverToAttrFilter),
 		swarm.WithID("NameResolution"))
 
-	// In vendored mode, the invoker might want to override the export queue for connecting their
-	// own exporters, otherwise we create a new queue
-	exportableSpans := ctxInfo.OverrideAppExportQueue
-	if exportableSpans == nil {
-		exportableSpans = msg2.QueueFromConfig[[]request.Span](config, "exportableSpans")
-	}
 	attrFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, "attrFilteredSpans")
 	swi.Add(filter.ByAttribute(config.Filters.Application,
 		nil,
@@ -124,9 +118,19 @@ func newGraphBuilder(
 		nameResolverToAttrFilter,
 		attrFilteredSpans),
 		swarm.WithID("AttributesFilter"))
-	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicPIDSelector, attrFilteredSpans, exportableSpans),
+
+	rawSpans := msg2.QueueFromConfig[[]request.Span](config, "rawSpans")
+	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicPIDSelector, attrFilteredSpans, rawSpans),
 		swarm.WithID("DynamicSignalSpanGate"))
 
+	// In vendored mode, the invoker might want to override the export queue for connecting their
+	// own exporters, otherwise we create a new queue.
+	exportableSpans := ctxInfo.OverrideAppExportQueue
+	if exportableSpans == nil {
+		exportableSpans = msg2.QueueFromConfig[[]request.Span](config, "exportableSpans")
+	}
+	swi.Add(filter.BySamplingDecision(rawSpans, exportableSpans),
+		swarm.WithID("HeadSamplingFilter"))
 	swi.Add(otel.TracesReceiver(
 		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,
 	), swarm.WithID("OTELTracesReceiver"))
@@ -134,13 +138,13 @@ func newGraphBuilder(
 		swarm.WithID("PrinterNode"))
 
 	// some nodes (ipNodesFilter, span name limiter...) are only passed to the metrics export nodes.
-	// The exportableSpans queue already carries any dynamic per-signal trace/metrics gating.
+	// The rawSpans queue already carries any dynamic per-signal trace/metrics gating.
 	// If no metrics exporter is configured, we will not start the metrics subpipeline to save resources.
 	jointMetricsConfig := JoinMetricsConfig(config)
 	exportingMetrics := jointMetricsConfig.Features.AnyAppO11yMetric() &&
 		(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled())
 	if exportingMetrics {
-		setupMetricsSubPipeline(config, ctxInfo, swi, exportableSpans, selectorCfg, processEventsCh, jointMetricsConfig, runtimeMetrics)
+		setupMetricsSubPipeline(config, ctxInfo, swi, rawSpans, selectorCfg, processEventsCh, jointMetricsConfig, runtimeMetrics)
 	}
 
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus, jointMetricsConfig),
@@ -157,7 +161,7 @@ func setupMetricsSubPipeline(
 	config *obi.Config,
 	ctxInfo *global.ContextInfo,
 	swi *swarm.Instancer,
-	exportableSpans *msg.Queue[[]request.Span],
+	rawSpans *msg.Queue[[]request.Span],
 	selectorCfg *attributes.SelectorConfig,
 	processEventsCh *msg.Queue[exec.ProcessEvent],
 	jointMetricsConfig *perapp.MetricsConfig,
@@ -182,7 +186,7 @@ func setupMetricsSubPipeline(
 			OTEL:       &config.OTELMetrics,
 			Prom:       &config.Prometheus,
 			MetricsCfg: jointMetricsConfig,
-		}, exportableSpans, spanNameAggregatedMetrics))
+		}, rawSpans, spanNameAggregatedMetrics))
 
 		swi.Add(otel.ReportMetrics(
 			ctxInfo,

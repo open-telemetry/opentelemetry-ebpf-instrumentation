@@ -12,6 +12,8 @@ import (
 
 	"github.com/cilium/ebpf"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -253,6 +255,12 @@ func (p *Tracer) readGPUMallocIntoSpan(record *ringbuf.Record) (request.Span, bo
 	return request.Span{
 		Type:          request.EventTypeGPUCudaMalloc,
 		ContentLength: event.Size,
+		TraceID:       trace.TraceID(event.Tp.TraceId),
+		SpanID:        trace.SpanID(event.Tp.SpanId),
+		ParentSpanID:  trace.SpanID(event.Tp.ParentId),
+		TraceFlags:    event.Tp.Flags,
+		ParentRemote:  event.Tp.ParentRemote != 0,
+		BPFDecision:   event.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.PidInfo.HostPid),
 			UserPID:   app.PID(event.PidInfo.UserPid),
@@ -274,6 +282,12 @@ func (p *Tracer) readGPUMemcpyIntoSpan(record *ringbuf.Record) (request.Span, bo
 		Type:          request.EventTypeGPUCudaMemcpy,
 		ContentLength: event.Size,
 		SubType:       int(event.Kind),
+		TraceID:       trace.TraceID(event.Tp.TraceId),
+		SpanID:        trace.SpanID(event.Tp.SpanId),
+		ParentSpanID:  trace.SpanID(event.Tp.ParentId),
+		TraceFlags:    event.Tp.Flags,
+		ParentRemote:  event.Tp.ParentRemote != 0,
+		BPFDecision:   event.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.PidInfo.HostPid),
 			UserPID:   app.PID(event.PidInfo.UserPid),
@@ -295,6 +309,12 @@ func (p *Tracer) readGPUKernelLaunchIntoSpan(record *ringbuf.Record) (request.Sp
 		Type:          request.EventTypeGPUCudaKernelLaunch,
 		ContentLength: int64(event.GridX * event.GridY * event.GridZ),
 		SubType:       int(event.BlockX * event.BlockY * event.BlockZ),
+		TraceID:       trace.TraceID(event.Tp.TraceId),
+		SpanID:        trace.SpanID(event.Tp.SpanId),
+		ParentSpanID:  trace.SpanID(event.Tp.ParentId),
+		TraceFlags:    event.Tp.Flags,
+		ParentRemote:  event.Tp.ParentRemote != 0,
+		BPFDecision:   event.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.PidInfo.HostPid),
 			UserPID:   app.PID(event.PidInfo.UserPid),
@@ -313,7 +333,13 @@ func (p *Tracer) readGPUGraphLaunchIntoSpan(record *ringbuf.Record) (request.Spa
 	p.log.Debug("GPU Graph Launch", "event", event)
 
 	return request.Span{
-		Type: request.EventTypeGPUCudaGraphLaunch,
+		Type:         request.EventTypeGPUCudaGraphLaunch,
+		TraceID:      trace.TraceID(event.Tp.TraceId),
+		SpanID:       trace.SpanID(event.Tp.SpanId),
+		ParentSpanID: trace.SpanID(event.Tp.ParentId),
+		TraceFlags:   event.Tp.Flags,
+		ParentRemote: event.Tp.ParentRemote != 0,
+		BPFDecision:  event.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.PidInfo.HostPid),
 			UserPID:   app.PID(event.PidInfo.UserPid),

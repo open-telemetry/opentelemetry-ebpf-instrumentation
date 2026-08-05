@@ -11,6 +11,8 @@
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/lw_thread.h>
+#include <common/outgoing_trace_handoff.h>
+#include <common/process_incarnation.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
@@ -18,6 +20,7 @@
 #include <common/trace_parent.h>
 
 #include <maps/ongoing_tcp_req.h>
+#include <maps/connection_tracker.h>
 #include <maps/tp_info_mem.h>
 
 #include <generictracer/failed_connect.h>
@@ -26,6 +29,7 @@
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
 #include <generictracer/protocol_mssql.h>
+#include <generictracer/protocol_tcp_persistence.h>
 
 #include <generictracer/maps/tcp_req_mem.h>
 
@@ -57,8 +61,8 @@ static __always_inline void set_tcp_trace_info(u32 type,
     make_tp_string(tp_buf, tp);
     bpf_d_printk("tp_buf=[%s] [%s]", tp_buf, __FUNCTION__);
 
+    apply_sampling_decision(tp, valid_span(tp->parent_id), type == TRACE_TYPE_SERVER);
     tp_p->tp = *tp;
-    tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->pid = pid; // used for avoiding finding stale server requests with client port reuse
     tp_p->req_type = EVENT_TCP_REQUEST;
@@ -69,16 +73,65 @@ static __always_inline void set_tcp_trace_info(u32 type,
     server_or_client_trace(type, conn, lw_thread, tp_p, ssl, orig_dport, 0, BPF_ANY);
 }
 
-static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
-                                                      pid_connection_info_t *pid_conn,
-                                                      lw_thread_t lw_thread,
-                                                      u8 ssl,
-                                                      u16 orig_dport) {
+static __always_inline u8 tcp_get_or_set_trace_info(tcp_req_t *req,
+                                                    pid_connection_info_t *pid_conn,
+                                                    lw_thread_t lw_thread,
+                                                    u8 ssl,
+                                                    u16 orig_dport,
+                                                    const outgoing_trace_token_t *expected_token,
+                                                    u8 handoff_expected) {
     if (req->direction == TCP_SEND) { // Client
+        const egress_key_t egress = make_egress_key(&pid_conn->conn, pid_conn->pid, 0);
+        tp_info_pid_t *snapshot = (tp_info_pid_t *)tp_info_mem();
+        if (!snapshot) {
+            return k_tcp_trace_setup_fail_closed;
+        }
+        __builtin_memset(snapshot, 0, sizeof(*snapshot));
+        if (handoff_expected) {
+            if (expected_token) {
+                req->handoff_token = *expected_token;
+            }
+            if (!expected_token || !claim_outgoing_trace_handoff(&egress,
+                                                                 &req->handoff_token,
+                                                                 pid_conn->pid,
+                                                                 EVENT_HTTP_CLIENT,
+                                                                 NULL,
+                                                                 1,
+                                                                 1,
+                                                                 snapshot)) {
+                return k_tcp_trace_setup_fail_closed;
+            }
+        } else {
+            const u8 resolution =
+                resolve_and_claim_current_outgoing_trace_handoff(&egress,
+                                                                 pid_conn->pid,
+                                                                 EVENT_HTTP_CLIENT,
+                                                                 NULL,
+                                                                 1,
+                                                                 1,
+                                                                 &req->handoff_token,
+                                                                 snapshot);
+            if (resolution == k_outgoing_trace_fail_closed) {
+                return k_tcp_trace_setup_fail_closed;
+            }
+            if (resolution == k_outgoing_trace_absent) {
+                goto normal_client_trace;
+            }
+        }
+
+        if (handoff_expected || outgoing_trace_token_valid(&req->handoff_token)) {
+            req->tp = snapshot->tp;
+            req->handoff_expected = 1;
+            return k_tcp_trace_setup_handoff;
+        }
+
+    normal_client_trace:;
         const u8 found = find_trace_for_client_request(pid_conn, orig_dport, lw_thread, &req->tp);
         bpf_dbg_printk("Looking up client trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
+        } else if (req->tp.sampling_decision == k_sampling_decision_fail_closed) {
+            init_new_trace_fail_closed(&req->tp);
         } else {
             init_new_trace(&req->tp);
         }
@@ -107,9 +160,10 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
                            ssl,
                            orig_dport);
     }
+    return k_tcp_trace_setup_normal;
 }
 
-static __always_inline void cleanup_trace_info(tcp_req_t *tcp, pid_connection_info_t *pid_conn) {
+static __always_inline u8 cleanup_trace_info(tcp_req_t *tcp, pid_connection_info_t *pid_conn) {
     if (tcp->direction == TCP_RECV) {
         trace_key_t t_key = {0};
         task_tid(&t_key.p_key);
@@ -120,8 +174,20 @@ static __always_inline void cleanup_trace_info(tcp_req_t *tcp, pid_connection_in
 
         delete_server_trace(pid_conn, &t_key);
     } else {
+        const egress_key_t egress = make_egress_key(&pid_conn->conn, pid_conn->pid, 0);
+        const tp_info_pid_t expected = {
+            .tp = tcp->tp,
+            .pid = pid_conn->pid,
+            .req_type = EVENT_TCP_REQUEST,
+        };
+        delete_outgoing_trace_if_matches(&egress, &expected);
+        if (tcp->handoff_expected) {
+            cleanup_outgoing_trace_handoff_token(
+                &egress, pid_conn->pid, EVENT_HTTP_CLIENT, &tcp->handoff_token);
+        }
         delete_client_trace_info(pid_conn);
     }
+    return 1;
 }
 
 static __always_inline void cleanup_tcp_trace_info_if_needed(pid_connection_info_t *pid_conn) {
@@ -241,13 +307,37 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
         pid_info pid = {};
         task_pid(&pid);
         const u64 event_ts = bpf_ktime_get_ns();
+        const u64 process_start_time = OBI_CURRENT_PROCESS_START_BOOTTIME_NS();
+        const u32 connection_netns = task_netns();
+        const tracked_connection_t *tracked =
+            bpf_map_lookup_elem(&connection_tracker, &pid_conn->conn);
+        const u64 connection_time =
+            tracked && tracked->netns == connection_netns ? tracked->time : 0;
         const u64 extra_id = extra_runtime_id();
-        init_failed_connect_tcp_req(
-            req, pid_conn, orig_dport, connect_ts, event_ts, event_ts, extra_id, &pid);
+        init_failed_connect_tcp_req(req,
+                                    pid_conn,
+                                    orig_dport,
+                                    connect_ts,
+                                    event_ts,
+                                    event_ts,
+                                    process_start_time,
+                                    connection_time,
+                                    connection_netns,
+                                    extra_id,
+                                    &pid);
 
         bpf_dbg_printk("TCP connect failed event");
 
-        tcp_get_or_set_trace_info(req, pid_conn, lw_thread, 0, orig_dport);
+        const u8 trace_setup =
+            tcp_get_or_set_trace_info(req, pid_conn, lw_thread, 0, orig_dport, NULL, 0);
+        if (trace_setup == k_tcp_trace_setup_fail_closed) {
+            bpf_ringbuf_discard(req, 0);
+            return;
+        }
+        if (trace_setup == k_tcp_trace_setup_handoff) {
+            const egress_key_t egress = make_egress_key(&pid_conn->conn, pid_conn->pid, 0);
+            consume_claimed_outgoing_trace_handoff(&egress, &req->handoff_token);
+        }
         bpf_ringbuf_submit(req, get_flags());
     }
 }
@@ -259,20 +349,23 @@ static __always_inline bool is_unix_sock_server(u8 direction, u16 orig_dport) {
     return (direction == TCP_RECV && orig_dport == 0);
 }
 
-static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t *pid_conn,
-                                                          void *u_buf,
-                                                          int bytes_len,
-                                                          u8 direction,
-                                                          u8 ssl,
-                                                          u16 orig_dport,
-                                                          lw_thread_t lw_thread,
-                                                          enum protocol_type protocol_type) {
+static __always_inline void
+handle_unknown_tcp_connection(pid_connection_info_t *pid_conn,
+                              void *u_buf,
+                              int bytes_len,
+                              u8 direction,
+                              u8 ssl,
+                              u16 orig_dport,
+                              lw_thread_t lw_thread,
+                              enum protocol_type protocol_type,
+                              const outgoing_trace_token_t *handoff_token,
+                              u8 handoff_expected) {
     tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
     // NOTE: this shouldn't happen, but the is_server value may be incorrect,
     // for example if an unrelated service is bound to the process port (like the metrics server)
     const u32 netns = task_netns();
     if (existing) {
-        if (existing->direction == direction && existing->end_monotime_ns != 0) {
+        if (tcp_request_ready_for_replacement(existing, direction)) {
             bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
             existing = 0;
         }
@@ -331,6 +424,12 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->ssl = ssl;
             req->direction = direction;
             req->start_monotime_ns = bpf_ktime_get_ns();
+            req->process_start_time = OBI_CURRENT_PROCESS_START_BOOTTIME_NS();
+            req->connection_netns = task_netns();
+            const tracked_connection_t *tracked =
+                bpf_map_lookup_elem(&connection_tracker, &pid_conn->conn);
+            req->connection_time =
+                tracked && tracked->netns == req->connection_netns ? tracked->time : 0;
             req->end_monotime_ns = 0;
             req->resp_len = 0;
             req->len = bytes_len;
@@ -352,7 +451,45 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                            ssl,
                            protocol_type);
 
-            tcp_get_or_set_trace_info(req, pid_conn, lw_thread, ssl, orig_dport);
+            const u8 trace_setup = tcp_get_or_set_trace_info(
+                req, pid_conn, lw_thread, ssl, orig_dport, handoff_token, handoff_expected);
+            if (trace_setup == k_tcp_trace_setup_fail_closed) {
+                return;
+            }
+
+            if (trace_setup == k_tcp_trace_setup_handoff) {
+                const egress_key_t egress = make_egress_key(&pid_conn->conn, pid_conn->pid, 0);
+                if (bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY)) {
+                    release_claimed_outgoing_trace_handoff(&egress, &req->handoff_token);
+                    return;
+                }
+
+                const outgoing_trace_handoff_key_t exact =
+                    outgoing_trace_handoff_key(&egress, &req->handoff_token);
+                const outgoing_trace_handoff_t *handoff =
+                    lookup_outgoing_trace_handoff_exact(&exact);
+                tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+                if (!handoff || !tp_p) {
+                    bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
+                    release_claimed_outgoing_trace_handoff(&egress, &req->handoff_token);
+                    return;
+                }
+                *tp_p = handoff->tp;
+                if (try_set_trace_info_for_connection(&pid_conn->conn, TRACE_TYPE_CLIENT, tp_p)) {
+                    bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
+                    release_claimed_outgoing_trace_handoff(&egress, &req->handoff_token);
+                    return;
+                }
+                server_or_client_trace(TRACE_TYPE_CLIENT,
+                                       &pid_conn->conn,
+                                       lw_thread,
+                                       tp_p,
+                                       ssl,
+                                       orig_dport,
+                                       0,
+                                       BPF_NOEXIST);
+                consume_claimed_outgoing_trace_handoff(&egress, &req->handoff_token);
+            }
 
             tcp_send_large_buffer(req,
                                   pid_conn,
@@ -362,7 +499,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                   protocol_type,
                                   k_large_buf_action_init);
 
-            bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
+            tcp_persist_post_capture_request(&ongoing_tcp_req, pid_conn, req, trace_setup);
         }
     } else if (existing->direction != direction) {
         const enum large_buf_action response_action =
@@ -376,22 +513,24 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         if (existing->end_monotime_ns == 0) {
             bpf_clamp_umax(bytes_len, k_tcp_res_len);
-            existing->end_monotime_ns = bpf_ktime_get_ns();
-            existing->resp_len = bytes_len;
+            const u64 end_monotime_ns = bpf_ktime_get_ns();
             tcp_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
             if (trace) {
-                bpf_dbg_printk("Sending TCP trace: existing=%lx, resp_length=%d",
-                               existing,
-                               existing->resp_len);
+                bpf_dbg_printk(
+                    "Sending TCP trace: existing=%lx, resp_length=%d", existing, bytes_len);
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
+                trace->end_monotime_ns = end_monotime_ns;
+                trace->resp_len = bytes_len;
                 bpf_probe_read(trace->rbuf, bytes_len, u_buf);
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {
                 bpf_dbg_printk("failed to reserve space on the ringbuf");
             }
-            cleanup_trace_info(existing, pid_conn);
+            const u8 trace_cleanup_complete = cleanup_trace_info(existing, pid_conn);
+            tcp_publish_response_completion(
+                existing, end_monotime_ns, bytes_len, trace_cleanup_complete);
         }
     } else {
         if (existing->len > 0 && existing->len < (k_tcp_max_len / 2)) {
@@ -447,7 +586,9 @@ int obi_protocol_tcp(void *ctx) {
                                   args->ssl,
                                   args->orig_dport,
                                   args->lw_thread,
-                                  args->protocol_type);
+                                  args->protocol_type,
+                                  &args->handoff_token,
+                                  args->handoff_expected);
 
     return 0;
 }

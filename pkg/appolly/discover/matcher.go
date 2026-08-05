@@ -205,6 +205,13 @@ func (m *Matcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 		m.Log.Debug("deleted untracked process. Ignoring", "pid", obj.pid)
 		return Event[ProcessMatch]{}, false
 	}
+	if !sameProcessIncarnation(obj.startTime, procMatch.Process.StartTime) {
+		m.Log.Debug("ignoring deletion for an older process incarnation",
+			"pid", obj.pid,
+			"deletedStartTime", obj.startTime,
+			"currentStartTime", procMatch.Process.StartTime)
+		return Event[ProcessMatch]{}, false
+	}
 	delete(m.ProcessHistory, obj.pid)
 	m.Log.Debug("stopped process", "pid", procMatch.Process.Pid, "comm", procMatch.Process.ExePath)
 	return Event[ProcessMatch]{
@@ -519,8 +526,13 @@ func logDeprecationAndConflicts(cfg *obi.Config) {
 	}
 }
 
-// replaceable function to allow unit tests with faked processes
-var processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+func readProcessInfo(pp ProcessAttrs) (*services.ProcessInfo, error) {
+	if pp.startTime == 0 {
+		return nil, fmt.Errorf("process %d start time is unavailable", pp.pid)
+	}
+	if !processStartTimeMatches(pp.pid, pp.startTime) {
+		return nil, fmt.Errorf("process %d was replaced before discovery", pp.pid)
+	}
 	proc, err := process.NewProcess(int32(pp.pid))
 	if err != nil {
 		return nil, fmt.Errorf("can't read process: %w", err)
@@ -541,11 +553,27 @@ var processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 	if err == nil {
 		_, cmdLine, _ = strings.Cut(cmdLine, " ")
 	}
+	startTime := processStartTimeFunc(pp.pid)
+	if pp.startTime != 0 && startTime != pp.startTime {
+		return nil, fmt.Errorf("process %d was replaced during discovery", pp.pid)
+	}
 	return &services.ProcessInfo{
 		Pid:       app.PID(proc.Pid),
 		PPid:      app.PID(ppid),
+		StartTime: startTime,
 		ExePath:   exePath,
 		CmdArgs:   cmdLine,
 		OpenPorts: pp.openPorts,
 	}, nil
+}
+
+// replaceable function to allow unit tests with faked processes
+var processInfo = readProcessInfo
+
+func sameProcessIncarnation(expected, actual uint64) bool {
+	return expected != 0 && actual != 0 && expected == actual
+}
+
+func processStartTimeMatches(pid app.PID, expected uint64) bool {
+	return expected != 0 && processStartTimeFunc(pid) == expected
 }

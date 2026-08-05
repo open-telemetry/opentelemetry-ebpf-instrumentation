@@ -19,6 +19,7 @@
 #include <bpfcore/bpf_builtins.h>
 
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 
 #include <gotracer/go_common.h>
 
@@ -27,6 +28,8 @@
 #include <gotracer/types/kafka.h>
 
 #include <logger/bpf_dbg.h>
+
+SCRATCH_MEM_TYPED(sarama_req, kafka_client_req_t);
 
 SEC("uprobe/sarama_sendInternal")
 int obi_uprobe_sarama_sendInternal(struct pt_regs *ctx) {
@@ -46,6 +49,7 @@ int obi_uprobe_sarama_sendInternal(struct pt_regs *ctx) {
         .start_monotime_ns = bpf_ktime_get_ns(),
         .promise = (u64)promise,
     };
+    client_trace_parent(goroutine_addr, &event.tp);
 
     if (b_ptr) {
         bpf_probe_read(&event.correlation_id,
@@ -88,10 +92,15 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
         // We only care about fetch and produce
         if (api_key == k_kafka_api_fetch || api_key == k_kafka_api_produce) {
             u32 correlation_id = invocation->correlation_id;
-            kafka_client_req_t req = {
-                .type = EVENT_GO_KAFKA,
-                .start_monotime_ns = invocation->start_monotime_ns,
-            };
+            kafka_client_req_t *req = sarama_req_mem();
+            if (!req) {
+                bpf_map_delete_elem(&ongoing_kafka_requests, &g_key);
+                return 0;
+            }
+            __builtin_memset(req, 0, sizeof(*req));
+            req->type = EVENT_GO_KAFKA;
+            req->start_monotime_ns = invocation->start_monotime_ns;
+            __builtin_memcpy(&req->tp, &invocation->tp, sizeof(req->tp));
 
             void *conn_conn_ptr =
                 (void *)(b_ptr + go_offset_of(ot, (go_offset){.v = _sarama_broker_conn_pos}));
@@ -111,9 +120,9 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
                         &conn_ptr, sizeof(conn_ptr), (void *)(tcp_conn_ptr + 8)); // find conn
                     bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
                     if (conn_ptr) {
-                        const u8 ok = get_conn_info(conn_ptr, &req.conn);
+                        const u8 ok = get_conn_info(conn_ptr, &req->conn);
                         if (!ok) {
-                            __builtin_memset(&req.conn, 0, sizeof(connection_info_t));
+                            __builtin_memset(&req->conn, 0, sizeof(connection_info_t));
                         }
                     }
                 }
@@ -121,25 +130,25 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
 
             bpf_dbg_printk("correlation_id=%d, promise=%llx", correlation_id, invocation->promise);
 
-            bpf_probe_read(req.buf, k_kafka_max_len, buf_ptr);
+            bpf_probe_read(req->buf, k_kafka_max_len, buf_ptr);
 
             // if there's no callback we report the event right away, there's no
             // easy way to correlate with the response
             if (!invocation->promise) {
-                req.end_monotime_ns = bpf_ktime_get_ns();
+                req->end_monotime_ns = bpf_ktime_get_ns();
                 kafka_client_req_t *trace =
                     bpf_ringbuf_reserve(&events, sizeof(kafka_client_req_t), 0);
                 if (trace) {
                     bpf_dbg_printk("Sending kafka client go trace");
 
-                    bpf_memcpy(trace, &req, sizeof(kafka_client_req_t));
+                    bpf_memcpy(trace, req, sizeof(kafka_client_req_t));
                     task_pid(&trace->pid);
                     bpf_ringbuf_submit(trace, get_flags());
                 }
             } else {
                 go_addr_key_t k_key = {};
                 go_addr_key_from_id(&k_key, (void *)(uintptr_t)invocation->promise);
-                bpf_map_update_elem(&kafka_requests, &k_key, &req, BPF_ANY);
+                bpf_map_update_elem(&kafka_requests, &k_key, req, BPF_ANY);
             }
         }
     }

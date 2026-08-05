@@ -63,6 +63,20 @@ int main(void) {
     expect(f, k_h2_skip_app_propagates, "self-propagating socket skips");
 
     f = request();
+    f.opener = 0x7e; // literal value whose name is dynamic index 62
+    f.sk_app_tp = true;
+    expect(f,
+           k_h2_skip_app_propagates,
+           "dynamic-name reuse cannot bypass the app traceparent socket latch");
+
+    f = request();
+    f.opener = 0xbe; // fully indexed dynamic entry 62
+    f.sk_app_tp = true;
+    expect(f,
+           k_h2_skip_app_propagates,
+           "fully indexed reuse cannot inject twice after the socket latch");
+
+    f = request();
     f.opener = 0x20; // dynamic table size update, never skipped past
     expect(f, k_h2_skip_not_request, "unskipped size update is not a request opener");
 

@@ -56,6 +56,9 @@ type ringBufForwarder[T any] struct {
 	itemsLen   int
 	access     sync.Mutex
 	ticker     *time.Ticker
+	// beforeWorkerWait is an optional per-forwarder synchronization hook invoked
+	// immediately before joining background workers.
+	beforeWorkerWait func()
 
 	// parse reads one record and returns (item, ignore, err).
 	// Callers close over whatever context they need (parse ctx, filter, etc.)
@@ -161,9 +164,23 @@ func (rbf *ringBufForwarder[T]) readAndForward(ctx context.Context, out *msg.Que
 	defer rbf.closeAllResources()
 
 	// If the underlying context is closed, it closes the events reader
-	// so the function can exit.
-	go rbf.bgListenContextCancelation(ctx, eventsReader)
-	rbf.readAndForwardInner(ctx, eventsReader, out)
+	// so the function can exit. Join the listener before returning so a Close
+	// callback cannot race deferred resource teardown.
+	readerCtx, cancelReader := context.WithCancel(ctx)
+	var listenerDone sync.WaitGroup
+	listenerDone.Go(func() {
+		rbf.bgListenContextCancelation(readerCtx, eventsReader)
+	})
+	rbf.readAndForwardInner(readerCtx, eventsReader, out)
+	cancelAndWaitRingbufWorkers(cancelReader, rbf.beforeWorkerWait, listenerDone.Wait)
+}
+
+func cancelAndWaitRingbufWorkers(cancel func(), beforeWait func(), wait func()) {
+	cancel()
+	if beforeWait != nil {
+		beforeWait()
+	}
+	wait()
 }
 
 func (rbf *ringBufForwarder[T]) flushOnAvailableBytes(ctx context.Context, eventsReader ringBufReader) {
@@ -185,11 +202,24 @@ func (rbf *ringBufForwarder[T]) flushOnAvailableBytes(ctx context.Context, event
 }
 
 func (rbf *ringBufForwarder[T]) readAndForwardInner(ctx context.Context, eventsReader ringBufReader, out *msg.Queue[[]T]) {
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	defer func() {
+		cancelAndWaitRingbufWorkers(cancelWorkers, rbf.beforeWorkerWait, workers.Wait)
+		if rbf.ticker != nil {
+			rbf.ticker.Stop()
+		}
+	}()
+
 	if rbf.cfg.BatchTimeout > 0 {
 		rbf.ticker = time.NewTicker(rbf.cfg.BatchTimeout)
-		go rbf.bgFlushOnTimeout(ctx, out)
+		workers.Go(func() {
+			rbf.bgFlushOnTimeout(workerCtx, out)
+		})
 	}
-	go rbf.flushOnAvailableBytes(ctx, eventsReader)
+	workers.Go(func() {
+		rbf.flushOnAvailableBytes(workerCtx, eventsReader)
+	})
 
 	rbf.items = make([]T, rbf.cfg.BatchLength)
 	rbf.itemsLen = 0
@@ -204,10 +234,12 @@ func (rbf *ringBufForwarder[T]) readAndForwardInner(ctx context.Context, eventsR
 		freeIdx <- i
 	}
 
-	go rbf.parserLoop(ctx, records, freeIdx, workIdx, out)
+	workers.Go(func() {
+		rbf.parserLoop(workerCtx, records, freeIdx, workIdx, out)
+	})
 
 	rbf.logger.Debug("starting to read ring buffer")
-	rbf.readerLoop(ctx, eventsReader, records, freeIdx, workIdx)
+	rbf.readerLoop(workerCtx, eventsReader, records, freeIdx, workIdx)
 }
 
 func (rbf *ringBufForwarder[T]) readerLoop(

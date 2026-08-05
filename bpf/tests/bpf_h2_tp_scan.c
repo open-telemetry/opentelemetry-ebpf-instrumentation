@@ -13,9 +13,8 @@ typedef struct h2_tp_scan_result {
     bool exhausted; // retry budget ran out before the block was fully walked
 } h2_tp_scan_result_t;
 
-// Mirrors the find_existing_h2_tp / validate_h2_tp tail-call ping-pong over a plain buffer.
-// Models its retry cap too, or tests would pass for blocks where the real chain gives up and
-// injects a duplicate.
+// Exercises the legacy bounded scanner over a plain buffer. Production tpinjector validation uses
+// the map-backed scanner and decoder in common/hpack.h.
 static h2_tp_scan_result_t h2_tp_scan(const unsigned char *data, u32 len, u32 max_scan) {
     h2_tp_scan_result_t r = {.offset = max_scan};
     u32 start = 0;

@@ -896,6 +896,112 @@ func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
 	testutil.DrainUntilClosed(filteredProcesses)
 }
 
+func TestDynamicMatcher_IgnoresStaleRemoveAfterReAdd(t *testing.T) {
+	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector.AddPIDs(42)
+	processMatch := ProcessMatch{
+		Process: &services.ProcessInfo{Pid: 42, StartTime: 100, ExePath: "/any/exe"},
+	}
+	matcher := DynamicMatcher{
+		Log:                slog.Default(),
+		DynamicPIDSelector: dynamicSelector.appSignals(),
+		ProcessHistory: map[app.PID]ProcessMatch{
+			42: processMatch,
+		},
+	}
+
+	dynamicSelector.RemovePIDs(42)
+	dynamicSelector.AddPIDs(42)
+	replacement := ProcessMatch{
+		Process: &services.ProcessInfo{Pid: 42, StartTime: 200, ExePath: "/new/exe"},
+	}
+	matcher.ProcessHistory[42] = replacement
+
+	assert.Empty(t, matcher.syntheticDeletesForRemovedPIDs([]app.PID{42}))
+	assert.Equal(t, replacement, matcher.ProcessHistory[42])
+
+	dynamicSelector.RemovePIDs(42)
+	deletes := matcher.syntheticDeletesForRemovedPIDs([]app.PID{42})
+	require.Len(t, deletes, 1)
+	assert.Equal(t, EventDeleted, deletes[0].Type)
+	assert.NotContains(t, matcher.ProcessHistory, app.PID(42))
+}
+
+func TestDynamicMatcherReconcilesPIDReuse(t *testing.T) {
+	originalProcessInfo := processInfo
+	t.Cleanup(func() { processInfo = originalProcessInfo })
+	processInfo = func(attrs ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{
+			Pid:       attrs.pid,
+			StartTime: attrs.startTime,
+			ExePath:   "/any/exe",
+		}, nil
+	}
+
+	for _, tc := range []struct {
+		name   string
+		events []Event[ProcessAttrs]
+	}{
+		{
+			name: "replacement arrives before stale deletion",
+			events: []Event[ProcessAttrs]{
+				{Type: EventCreated, Obj: ProcessAttrs{pid: 42, startTime: 200}},
+				{Type: EventDeleted, Obj: ProcessAttrs{pid: 42, startTime: 100}},
+			},
+		},
+		{
+			name: "deletion arrives before replacement",
+			events: []Event[ProcessAttrs]{
+				{Type: EventDeleted, Obj: ProcessAttrs{pid: 42, startTime: 100}},
+				{Type: EventCreated, Obj: ProcessAttrs{pid: 42, startTime: 200}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dynamicSelector := NewDynamicPIDSelector()
+			dynamicSelector.AddPIDs(42)
+			matcher := DynamicMatcher{
+				Log:                slog.Default(),
+				DynamicPIDSelector: dynamicSelector.appSignals(),
+				ProcessHistory:     map[app.PID]ProcessMatch{},
+			}
+
+			created := matcher.filter([]Event[ProcessAttrs]{
+				{Type: EventCreated, Obj: ProcessAttrs{pid: 42, startTime: 100}},
+			})
+			require.Len(t, created, 1)
+			require.Equal(t, EventCreated, created[0].Type)
+
+			reconciled := matcher.filter(tc.events)
+			require.Len(t, reconciled, 2)
+			assert.Equal(t, EventDeleted, reconciled[0].Type)
+			assert.Equal(t, uint64(100), reconciled[0].Obj.Process.StartTime)
+			assert.Equal(t, EventCreated, reconciled[1].Type)
+			assert.Equal(t, uint64(200), reconciled[1].Obj.Process.StartTime)
+			assert.Equal(t, uint64(200), matcher.ProcessHistory[42].Process.StartTime)
+		})
+	}
+}
+
+func TestDynamicMatcherIgnoresSameIncarnationCreate(t *testing.T) {
+	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector.AddPIDs(42)
+	matcher := DynamicMatcher{
+		Log:                slog.Default(),
+		DynamicPIDSelector: dynamicSelector.appSignals(),
+		ProcessHistory: map[app.PID]ProcessMatch{
+			42: {
+				Process: &services.ProcessInfo{Pid: 42, StartTime: 100, ExePath: "/any/exe"},
+			},
+		},
+	}
+
+	assert.Empty(t, matcher.filter([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 42, startTime: 100}},
+	}))
+	assert.Equal(t, uint64(100), matcher.ProcessHistory[42].Process.StartTime)
+}
+
 func TestCriteriaMatcher_DynamicTargetPIDs_WithOptions(t *testing.T) {
 	dynamicSelector := NewDynamicPIDSelector()
 	dynamicSelector.Traces().AddPID(42, selection.DynamicPIDOptions{
@@ -1062,4 +1168,11 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 	assert.True(t, asteroidAttrs.ExportModes.CanExportTraces())
 	assert.True(t, asteroidAttrs.ExportModes.CanExportMetrics())
 	require.Nil(t, asteroidAttrs.Sampler)
+}
+
+func TestReadProcessInfoRejectsUnknownIncarnation(t *testing.T) {
+	_, err := readProcessInfo(ProcessAttrs{pid: 42})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "start time is unavailable")
 }

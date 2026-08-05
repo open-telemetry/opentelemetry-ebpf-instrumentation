@@ -22,6 +22,7 @@ import (
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,15 +40,19 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-// TestHTTP1ClientTraceparentNotDuplicated attaches the eBPF gotracer to a live Go process that
-// issues an HTTP/1 request to its own loopback server, and checks how many
-// `Traceparent` header values reach the receiver:
-//
-//   - WITH_TP: the client already wrote its own traceparent, so OBI must skip
-//     injection -> exactly ONE arrives (before the fix this was TWO).
-//   - NO_TP: no traceparent present, so OBI injects -> exactly ONE arrives,
-//     proving injection still happens when the header is absent.
-func TestHTTP1ClientTraceparentNotDuplicated(t *testing.T) {
+const (
+	testStaticTraceparent    = "00-0102030405060708090a0b0c0d0e0f10-1112131415161718-86"
+	testDuplicateTraceparent = "00-2122232425262728292a2b2c2d2e2f30-3132333435363738-01"
+	testInvalidTraceparent   = "00-00000000000000000000000000000000-1112131415161718-01"
+)
+
+type traceparentWireResult struct {
+	values []string
+}
+
+// TestHTTP1ClientTraceparentAuthority attaches the real eBPF gotracer to a live
+// Go process and verifies both the HTTP/1 wire field and the emitted client span.
+func TestHTTP1ClientTraceparentAuthority(t *testing.T) {
 	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
 	require.NoError(t, rlimit.RemoveMemlock())
 
@@ -56,21 +61,59 @@ func TestHTTP1ClientTraceparentNotDuplicated(t *testing.T) {
 	}
 
 	targetBin := buildHTTPClientTarget(t)
-	send := startHTTPClientTarget(t, targetBin)
+	send, spans := startHTTPClientTarget(t, targetBin)
 
 	// Readiness: instead of a fixed sleep, poll until OBI's injection is
-	// effective. NO_TP returns "1" only once the uprobe is attached and
+	// effective. NO_TP returns one value only once the uprobe is attached and
 	// injecting, so this doubles as the "OBI still injects" assertion and
-	// guarantees the probe is live before the no-duplicate check below.
+	// guarantees the probe is live before the authority checks below.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Equal(c, "1", send(t, "NO_TP"),
+		assert.True(c, strings.HasPrefix(send(t, "NO_TP"), "1|"),
 			"OBI must inject a traceparent when the client didn't write one")
 	}, 20*time.Second, 200*time.Millisecond)
 
-	// With injection confirmed live, a client that already wrote its own
-	// traceparent must not get a second one appended.
-	assert.Equal(t, "1", send(t, "WITH_TP"),
-		"OBI must not append a second traceparent when the client already wrote one")
+	valid := parseTraceparentWireResult(t, send(t, "VALID_TP"))
+	require.Equal(t,
+		[]string{testStaticTraceparent},
+		valid.values,
+		"valid application field must suppress both direct and stale-map fallback injection")
+	assertSpanTraceparent(t, waitForHTTPClientSpan(t, spans, "/valid-tp"), testStaticTraceparent)
+
+	tls := parseTraceparentWireResult(t, send(t, "VALID_TLS_TP"))
+	require.Equal(t, []string{testStaticTraceparent}, tls.values)
+	assertSpanTraceparent(
+		t, waitForHTTPClientSpan(t, spans, "/valid-tls-tp"), testStaticTraceparent,
+	)
+
+	duplicate := parseTraceparentWireResult(t, send(t, "DUPLICATE_TP"))
+	require.Equal(t,
+		[]string{testStaticTraceparent, testDuplicateTraceparent},
+		duplicate.values,
+		"application duplicate fields must remain unchanged without OBI injection")
+	assertGeneratedSpanTraceparent(
+		t,
+		waitForHTTPClientSpan(t, spans, "/duplicate-tp"),
+		testStaticTraceparent,
+		testDuplicateTraceparent,
+	)
+
+	invalidThenValid := parseTraceparentWireResult(t, send(t, "INVALID_THEN_VALID_TP"))
+	require.Equal(t,
+		[]string{testInvalidTraceparent, testStaticTraceparent},
+		invalidThenValid.values,
+		"ambiguous application fields must remain unchanged without OBI injection")
+	assertGeneratedSpanTraceparent(
+		t,
+		waitForHTTPClientSpan(t, spans, "/invalid-then-valid-tp"),
+		testStaticTraceparent,
+	)
+
+	invalid := parseTraceparentWireResult(t, send(t, "INVALID_TP"))
+	require.Equal(t,
+		[]string{testInvalidTraceparent},
+		invalid.values,
+		"invalid application field must remain unchanged without OBI injection")
+	assertGeneratedSpanTraceparent(t, waitForHTTPClientSpan(t, spans, "/invalid-tp"))
 }
 
 // buildHTTPClientTarget compiles the self-contained helper binary. Its single
@@ -86,11 +129,12 @@ func buildHTTPClientTarget(t *testing.T) string {
 	return bin
 }
 
-// startHTTPClientTarget starts the target, attaches the gotracer, and returns a
-// send function that issues one request in the given mode ("WITH_TP"/"NO_TP")
-// and returns the number of Traceparent headers the receiver reported. The
-// target loops over stdin, so send can be called repeatedly (e.g. for polling).
-func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode string) string {
+// startHTTPClientTarget starts the target, attaches the gotracer, and returns
+// both a command function and the emitted-span stream.
+func startHTTPClientTarget(
+	t *testing.T,
+	bin string,
+) (func(t *testing.T, mode string) string, <-chan []request.Span) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -113,20 +157,21 @@ func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode str
 	_ = collectClientLines(t, "target stderr", stderr)
 	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
 
-	attachGoTracer(t, app.PID(cmd.Process.Pid))
+	spans := attachGoTracer(t, app.PID(cmd.Process.Pid))
 
-	return func(t *testing.T, mode string) string {
+	send := func(t *testing.T, mode string) string {
 		t.Helper()
 		_, err := io.WriteString(stdin, mode+"\n")
 		require.NoError(t, err)
-		line := waitForClientLine(t, stdoutLines, "TP_COUNT=", 30*time.Second)
-		return strings.TrimPrefix(strings.TrimSpace(line), "TP_COUNT=")
+		line := waitForClientLine(t, stdoutLines, "TP_RESULT=", 30*time.Second)
+		return strings.TrimPrefix(strings.TrimSpace(line), "TP_RESULT=")
 	}
+	return send, spans
 }
 
 // attachGoTracer wires up the real ProcessTracer with the gotracer against the
 // given PID, mirroring the production discovery/attach path.
-func attachGoTracer(t *testing.T, pid app.PID) {
+func attachGoTracer(t *testing.T, pid app.PID) <-chan []request.Span {
 	t.Helper()
 
 	cfg := obi.DefaultConfig
@@ -156,7 +201,8 @@ func attachGoTracer(t *testing.T, pid app.PID) {
 		Offsets:  offsets,
 	}))
 
-	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
+	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1000))
+	received := spans.Subscribe(msg.SubscriberName("tphttp-test"))
 	runCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -172,6 +218,97 @@ func attachGoTracer(t *testing.T, pid app.PID) {
 		}
 		spans.Close()
 	})
+	return received
+}
+
+func parseTraceparentWireResult(t *testing.T, result string) traceparentWireResult {
+	t.Helper()
+	countAndValues := strings.SplitN(result, "|", 2)
+	require.Len(t, countAndValues, 2, "malformed target result %q", result)
+	count, err := strconv.Atoi(countAndValues[0])
+	require.NoError(t, err)
+
+	var values []string
+	if countAndValues[1] != "" {
+		values = strings.Split(countAndValues[1], ",")
+	}
+	require.Len(t, values, count, "target traceparent count did not match its values")
+	return traceparentWireResult{values: values}
+}
+
+func validVersion00Traceparent(value string) bool {
+	if len(value) != 55 || !strings.HasPrefix(value, "00-") ||
+		value[35] != '-' || value[52] != '-' {
+		return false
+	}
+	for _, field := range []string{value[3:35], value[36:52], value[53:55]} {
+		for i := range len(field) {
+			if !strings.ContainsRune("0123456789abcdef", rune(field[i])) {
+				return false
+			}
+		}
+	}
+	return value[3:35] != strings.Repeat("0", 32) &&
+		value[36:52] != strings.Repeat("0", 16)
+}
+
+func assertSpanTraceparent(t *testing.T, span request.Span, traceparent string) {
+	t.Helper()
+	require.True(t, validVersion00Traceparent(traceparent))
+	assert.Equal(t, traceparent[3:35], span.TraceID.String(), "client span trace ID")
+	assert.Equal(t, traceparent[36:52], span.SpanID.String(), "client span ID")
+	flags, err := strconv.ParseUint(traceparent[53:55], 16, 8)
+	require.NoError(t, err)
+	assert.Equal(t, uint8(flags), span.TraceFlags, "client span trace flags")
+	assert.True(t, span.BPFDecision, "application wire flags must be an authoritative BPF decision")
+	assert.False(t, span.ParentSpanID.IsValid(), "application traceparent adoption clears parent ID")
+}
+
+func assertGeneratedSpanTraceparent(
+	t *testing.T,
+	span request.Span,
+	rejectedTraceparents ...string,
+) {
+	t.Helper()
+	require.True(t, span.TraceID.IsValid(), "generated client trace ID")
+	require.True(t, span.SpanID.IsValid(), "generated client span ID")
+	assert.True(t, span.BPFDecision, "generated context must carry an authoritative BPF decision")
+	assert.False(t, span.ParentSpanID.IsValid(), "generated client context must be a root span")
+
+	spanContext := span.TraceID.String() + "-" + span.SpanID.String()
+	for _, traceparent := range rejectedTraceparents {
+		require.True(t, validVersion00Traceparent(traceparent))
+		assert.NotEqual(
+			t,
+			traceparent[3:52],
+			spanContext,
+			"non-authoritative application traceparent must not be adopted",
+		)
+	}
+}
+
+func waitForHTTPClientSpan(
+	t *testing.T,
+	spans <-chan []request.Span,
+	path string,
+) request.Span {
+	t.Helper()
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+
+	for {
+		select {
+		case batch, ok := <-spans:
+			require.True(t, ok, "span stream closed while waiting for HTTP client path %q", path)
+			for _, span := range batch {
+				if span.Type == request.EventTypeHTTPClient && span.Path == path {
+					return span
+				}
+			}
+		case <-timeout.C:
+			t.Fatalf("timed out waiting for HTTP client span path %q", path)
+		}
+	}
 }
 
 // goFunctionNames returns the union of Go symbols the gotracer probes, matching
@@ -215,6 +352,14 @@ func goProcessFileInfo(t *testing.T, pid app.PID) *discexec.FileInfo {
 	ns, err := procs.FindNamespace(pid)
 	require.NoError(t, err)
 
+	proc, err := procfs.NewProc(int(pid))
+	require.NoError(t, err)
+	procStat, err := proc.Stat()
+	require.NoError(t, err)
+	const nanosecondsPerClockTick = uint64(time.Second) / 100
+	startTime := procStat.Starttime * nanosecondsPerClockTick
+	require.NotZero(t, startTime)
+
 	// Go offset resolution (goexec.InspectOffsets) reads the executable's ELF,
 	// so it must be opened and attached to the FileInfo, like the real typer.
 	elfFile, err := elf.Open(procExeLinkPath)
@@ -233,6 +378,7 @@ func goProcessFileInfo(t *testing.T, pid app.PID) *discexec.FileInfo {
 		Dev:            uint64(stat.Dev),
 		Ino:            stat.Ino,
 		Ns:             ns,
+		StartTime:      startTime,
 	})
 }
 

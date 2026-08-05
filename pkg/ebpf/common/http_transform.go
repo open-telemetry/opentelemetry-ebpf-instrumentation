@@ -6,6 +6,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"log/slog"
@@ -32,15 +33,33 @@ func swapConnectionInfoOrder(info *BpfConnectionInfoT) {
 	info.S_addr, info.D_addr = info.D_addr, info.S_addr
 }
 
-func sortConnectionInfo(info *BpfConnectionInfoT) {
+// SortConnectionInfo canonicalizes a connection exactly as
+// bpf/common/connection_info.h does for shared BPF map keys.
+func SortConnectionInfo(info *BpfConnectionInfoT) {
 	if likelyEphemeralPort(info.S_port) && !likelyEphemeralPort(info.D_port) {
 		return
 	}
 
 	if (likelyEphemeralPort(info.D_port) && !likelyEphemeralPort(info.S_port)) ||
-		info.D_port > info.S_port {
+		info.D_port > info.S_port ||
+		(info.D_port == info.S_port && sourceAddressAfterDestination(info)) {
 		swapConnectionInfoOrder(info)
 	}
+}
+
+func sortConnectionInfo(info *BpfConnectionInfoT) {
+	SortConnectionInfo(info)
+}
+
+func sourceAddressAfterDestination(info *BpfConnectionInfoT) bool {
+	for offset := 0; offset < len(info.S_addr); offset += 4 {
+		source := binary.LittleEndian.Uint32(info.S_addr[offset : offset+4])
+		destination := binary.LittleEndian.Uint32(info.D_addr[offset : offset+4])
+		if source != destination {
+			return source > destination
+		}
+	}
+	return false
 }
 
 func removeQuery(url string) string {
@@ -87,6 +106,8 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 		SpanID:         info.Tp.SpanId,
 		ParentSpanID:   info.Tp.ParentId,
 		TraceFlags:     info.Tp.Flags,
+		ParentRemote:   info.Tp.ParentRemote != 0,
+		BPFDecision:    info.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(info.Pid.HostPid),
 			UserPID:   app.PID(info.Pid.UserPid),
@@ -150,6 +171,8 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		SpanID:         event.Tp.SpanId,
 		ParentSpanID:   event.Tp.ParentId,
 		TraceFlags:     event.Tp.Flags,
+		ParentRemote:   event.Tp.ParentRemote != 0,
+		BPFDecision:    event.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),
 			UserPID:   app.PID(event.Pid.UserPid),

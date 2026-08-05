@@ -31,6 +31,7 @@
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/grpc.h>
+#include <gotracer/maps/hpack.h>
 
 #include <gotracer/types/grpc.h>
 #include <gotracer/types/stream_key.h>
@@ -131,7 +132,7 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
             }
         }
 
-        server_trace_parent(goroutine_addr, &invocation.tp, tp_ptr);
+        server_trace_parent(goroutine_addr, &invocation.tp, tp_ptr, 0);
     }
 
     if (bpf_map_update_elem(&ongoing_grpc_server_requests, &g_key, &invocation, BPF_ANY)) {
@@ -207,11 +208,12 @@ int obi_uprobe_server_handler_transport_handle_streams(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     void *parent_go = (void *)find_parent_goroutine(&g_key);
-    if (parent_go) {
+    if (parent_go && (u64)parent_go != k_go_parent_error) {
         bpf_dbg_printk("found parent goroutine for transport handler, parent_go=%llx", parent_go);
         go_addr_key_t p_key = {};
         go_addr_key_from_id(&p_key, parent_go);
-        connection_info_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, &p_key);
+        go_server_connection_t *server_state = go_server_connection_lookup_current(&p_key);
+        connection_info_t *conn = server_state ? &server_state->conn : NULL;
         bpf_dbg_printk("conn=%llx", conn);
         if (conn) {
             grpc_transports_t t = {
@@ -316,9 +318,13 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    if (invocation) {
+        pop_go_trace(&g_key, &invocation->tp);
+    } else {
+        poison_and_revoke_go_trace(&g_key);
+    }
     bpf_map_delete_elem(&ongoing_grpc_server_requests, &g_key);
     bpf_map_delete_elem(&ongoing_grpc_request_status, &g_key);
-    bpf_map_delete_elem(&go_trace_map, &g_key);
     obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
@@ -362,6 +368,189 @@ int obi_uprobe_transport_writeStatus(struct pt_regs *ctx) {
 }
 
 /* GRPC client */
+static __always_inline u8 grpc_client_current_process_addr_key(void *addr,
+                                                               go_exact_process_addr_key_t *key) {
+    return go_exact_process_addr_key_from_id(key, addr);
+}
+
+static __always_inline u8
+grpc_client_transport_stream_key(const grpc_client_request_id_t *request_id,
+                                 u64 conn_ptr,
+                                 u32 stream_id,
+                                 go_exact_process_stream_key_t *key) {
+    if (!key || !grpc_client_request_id_is_current(request_id)) {
+        return 0;
+    }
+    *key = go_exact_process_stream_key(
+        (u32)request_id->creator.pid, request_id->process_start_time, conn_ptr, stream_id);
+    return 1;
+}
+
+static __always_inline u8 grpc_client_current_transport_stream_key(
+    u64 conn_ptr, u32 stream_id, go_exact_process_stream_key_t *key) {
+    return go_exact_process_stream_key_from_id(key, (void *)conn_ptr, stream_id);
+}
+
+static __always_inline void
+update_grpc_client_traceparent(const grpc_client_request_id_t *request_id,
+                               const go_hpack_block_t *traceparent) {
+    if (!grpc_client_request_id_is_current(request_id)) {
+        return;
+    }
+    grpc_client_func_invocation_t *canonical =
+        bpf_map_lookup_elem(&grpc_client_request_states, request_id);
+    if (canonical && !canonical->terminal) {
+        go_hpack_adopt_traceparent(&canonical->tp, traceparent);
+    }
+}
+
+static __always_inline void
+update_grpc_client_connection(const grpc_client_request_id_t *request_id,
+                              const connection_info_t *conn) {
+    if (!grpc_client_request_id_is_current(request_id)) {
+        return;
+    }
+    grpc_client_func_invocation_t *canonical =
+        bpf_map_lookup_elem(&grpc_client_request_states, request_id);
+    if (canonical && !canonical->terminal && conn) {
+        canonical->conn = *conn;
+        canonical->has_conn = 1;
+    }
+}
+
+// request_id's exact claim must be held. terminal_emitted is changed before
+// reserving the event, so competing completion hooks can never emit twice.
+static __noinline void
+emit_claimed_grpc_client_request(const grpc_client_request_id_t *request_id) {
+    if (!mark_grpc_client_request_terminal_emitted(request_id)) {
+        return;
+    }
+    grpc_client_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&grpc_client_request_states, request_id);
+    if (!invocation) {
+        return;
+    }
+
+    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
+    if (!trace) {
+        bpf_dbg_printk("can't reserve space in the ringbuffer");
+        return;
+    }
+
+    task_pid(&trace->pid);
+    trace->type = EVENT_GRPC_CLIENT;
+    trace->start_monotime_ns = invocation->start_monotime_ns;
+    trace->go_start_monotime_ns = invocation->start_monotime_ns;
+    trace->end_monotime_ns = bpf_ktime_get_ns();
+    trace->content_length = 0;
+    trace->method[0] = '\0';
+    trace->host[0] = '\0';
+    trace->scheme[0] = '\0';
+    trace->pattern[0] = '\0';
+    trace->path[0] = '\0';
+    trace->is_jsonrpc = false;
+
+    void *method_ptr = (void *)invocation->method;
+    void *method_len = (void *)invocation->method_len;
+    if (!read_go_str_n("method", method_ptr, (u64)method_len, trace->path, sizeof(trace->path))) {
+        bpf_dbg_printk("can't read grpc client method");
+        bpf_ringbuf_discard(trace, 0);
+        return;
+    }
+
+    if (invocation->has_conn) {
+        __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
+    } else {
+        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
+    }
+    trace->tp = invocation->tp;
+    trace->status = invocation->terminal_error ? 2 : 0;
+    bpf_ringbuf_submit(trace, get_flags());
+}
+
+static __noinline u8 publish_grpc_hpack_traceparent(const connection_info_t *conn,
+                                                    u32 stream_id,
+                                                    const grpc_client_func_invocation_t *invocation,
+                                                    u32 pid,
+                                                    outgoing_trace_token_t *published_token) {
+    if (!conn || !invocation || !published_token ||
+        !grpc_client_request_id_is_current(&invocation->request_id) ||
+        invocation->request_id.creator.pid != pid ||
+        !claim_grpc_client_request_handoffs(&invocation->request_id)) {
+        return 0;
+    }
+
+    grpc_client_func_invocation_t *canonical =
+        bpf_map_lookup_elem(&grpc_client_request_states, &invocation->request_id);
+    if (!canonical || canonical->terminal) {
+        if (canonical && canonical->terminal) {
+            emit_claimed_grpc_client_request(&invocation->request_id);
+            cleanup_claimed_grpc_client_request(&invocation->request_id);
+        }
+        release_grpc_client_request_handoffs(&invocation->request_id);
+        return 0;
+    }
+
+    const egress_key_t egress = make_egress_key(conn, pid, stream_id);
+    const tp_info_pid_t outgoing = {
+        .tp = invocation->tp,
+        .pid = pid,
+        .valid = 1,
+        .written = k_outbound_trace_pending,
+        .req_type = EVENT_HTTP_CLIENT,
+    };
+    outgoing_trace_token_t token = {};
+    if (!reserve_outgoing_trace_handoff(&egress, &outgoing, &token)) {
+        release_grpc_client_request_handoffs(&invocation->request_id);
+        return 0;
+    }
+
+    const u8 registration =
+        register_claimed_grpc_client_request_handoff(&invocation->request_id, &egress, &token);
+    u8 published = 0;
+    if (registration == k_grpc_client_handoff_registered) {
+        bpf_map_update_elem(&outgoing_trace_map, &egress, &outgoing, BPF_NOEXIST);
+        canonical = bpf_map_lookup_elem(&grpc_client_request_states, &invocation->request_id);
+        if (canonical && !canonical->terminal) {
+            *published_token = token;
+            published = 1;
+        }
+    }
+
+    canonical = bpf_map_lookup_elem(&grpc_client_request_states, &invocation->request_id);
+    if (canonical && canonical->terminal) {
+        emit_claimed_grpc_client_request(&invocation->request_id);
+        cleanup_claimed_grpc_client_request(&invocation->request_id);
+        published = 0;
+    }
+    if (!published) {
+        request_outgoing_trace_handoff_retirement(&egress, &token, &outgoing, 1);
+    }
+    release_grpc_client_request_handoffs(&invocation->request_id);
+
+    // Close the terminal-store/final-check/release window. A completion that
+    // lost the claim stores its outcome before retrying. If its retry also
+    // loses just before our release, this post-release observation either
+    // finalizes it or sees the completion already doing so.
+    canonical = bpf_map_lookup_elem(&grpc_client_request_states, &invocation->request_id);
+    if (!canonical) {
+        if (published) {
+            request_outgoing_trace_handoff_retirement(&egress, &token, &outgoing, 1);
+        }
+        return 0;
+    }
+    if (canonical->terminal) {
+        if (claim_grpc_client_request_handoffs(&invocation->request_id)) {
+            emit_claimed_grpc_client_request(&invocation->request_id);
+            cleanup_claimed_grpc_client_request(&invocation->request_id);
+            release_grpc_client_request_handoffs(&invocation->request_id);
+        }
+        request_outgoing_trace_handoff_retirement(&egress, &token, &outgoing, 1);
+        return 0;
+    }
+    return published;
+}
+
 static __always_inline void clientConnStart(
     void *goroutine_addr, void *cc_ptr, void *ctx_ptr, void *method_ptr, void *method_len) {
     grpc_client_func_invocation_t invocation = {
@@ -375,6 +564,11 @@ static __always_inline void clientConnStart(
     off_table_t *ot = get_offsets_table();
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+    invocation.request_key = g_key;
+    if (!allocate_grpc_client_request_id(&g_key, &invocation.request_id)) {
+        bpf_dbg_printk("can't allocate grpc client request identity");
+        return;
+    }
 
     if (ctx_ptr) {
         void *val_ptr = 0;
@@ -391,9 +585,19 @@ static __always_inline void clientConnStart(
         bpf_dbg_printk("No ctx_ptr: %llx", ctx_ptr);
     }
 
-    // Write event
-    if (bpf_map_update_elem(&ongoing_grpc_client_requests, &g_key, &invocation, BPF_ANY)) {
+    if (bpf_map_update_elem(
+            &grpc_client_request_states, &invocation.request_id, &invocation, BPF_NOEXIST)) {
+        bpf_dbg_printk("can't update grpc canonical client map element");
+        return;
+    }
+
+    // Creator-goroutine staging is replaceable only while holding its
+    // non-evicting locator claim. On contention, remove the unpublished
+    // canonical generation so it cannot survive without a return locator.
+    if (!publish_grpc_client_creator_request(&g_key, &invocation)) {
         bpf_dbg_printk("can't update grpc client map element");
+        bpf_map_delete_elem(&grpc_client_request_states, &invocation.request_id);
+        return;
     }
 
     obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
@@ -434,75 +638,58 @@ int obi_uprobe_ClientConn_NewStream(struct pt_regs *ctx) {
     return 0;
 }
 
-static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+static __noinline int grpc_connect_done(const grpc_client_request_id_t *request_id,
+                                        const go_addr_key_t *stream_key,
+                                        void *err,
+                                        u8 clear_current_context) {
+    if (!request_id) {
+        return 0;
+    }
+    const grpc_client_request_id_t exact_id = *request_id;
+    if (!grpc_client_request_id_is_current(&exact_id)) {
+        if (stream_key) {
+            delete_grpc_client_stream_request_exact(stream_key, &exact_id);
+        }
+        delete_grpc_client_creator_request_exact(&exact_id.creator, &exact_id);
+        if (clear_current_context) {
+            obi_ctx__del(bpf_get_current_pid_tgid());
+        }
+        return 0;
+    }
+
+    if (!claim_grpc_client_request_handoffs(&exact_id)) {
+        // A publisher owns the exact request through secondary publication.
+        // Store the terminal outcome first. Either that publisher observes it
+        // while still holding the claim, or this completion acquires the claim
+        // after publication and emits it itself.
+        defer_grpc_client_request_terminal(&exact_id, err != NULL);
+        if (clear_current_context) {
+            obi_ctx__del(bpf_get_current_pid_tgid());
+            clear_current_context = 0;
+        }
+        if (!claim_grpc_client_request_handoffs(&exact_id)) {
+            return 0;
+        }
+    }
 
     grpc_client_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-
-    if (invocation == NULL) {
+        bpf_map_lookup_elem(&grpc_client_request_states, &exact_id);
+    if (!invocation) {
         bpf_dbg_printk("can't read grpc client invocation metadata");
         goto done;
     }
-
-    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
-    if (!trace) {
-        bpf_dbg_printk("can't reserve space in the ringbuffer");
-        goto done;
-    }
-
-    task_pid(&trace->pid);
-    trace->type = EVENT_GRPC_CLIENT;
-    trace->start_monotime_ns = invocation->start_monotime_ns;
-    trace->go_start_monotime_ns = invocation->start_monotime_ns;
-    trace->end_monotime_ns = bpf_ktime_get_ns();
-    trace->content_length = 0;
-    trace->method[0] = '\0';
-    trace->host[0] = '\0';
-    trace->scheme[0] = '\0';
-    trace->pattern[0] = '\0';
-    trace->path[0] = '\0';
-    trace->is_jsonrpc = false;
-
-    // Read arguments from the original set of registers
-
-    // Get client request value pointers
-    void *method_ptr = (void *)invocation->method;
-    void *method_len = (void *)invocation->method_len;
-
-    bpf_dbg_printk("method_ptr=%lx, method_len=%d", method_ptr, method_len);
-
-    // Get method from the incoming call arguments
-    if (!read_go_str_n("method", method_ptr, (u64)method_len, trace->path, sizeof(trace->path))) {
-        bpf_dbg_printk("can't read grpc client method");
-        bpf_ringbuf_discard(trace, 0);
-        goto done;
-    }
-
-    connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
-
-    if (info) {
-        __builtin_memcpy(&trace->conn, info, sizeof(connection_info_t));
-    } else {
-        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
-    }
-
-    trace->tp = invocation->tp;
-
-    trace->status =
-        (err)
-            ? 2
-            : 0; // Getting the gRPC client status is complex, if there's an error we set Code.Unknown = 2
-
-    // submit the completed trace via ringbuffer
-    bpf_ringbuf_submit(trace, get_flags());
+    defer_grpc_client_request_terminal(&exact_id, err != NULL);
+    emit_claimed_grpc_client_request(&exact_id);
 
 done:
-    bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+    cleanup_claimed_grpc_client_request(&exact_id);
+    if (stream_key) {
+        delete_grpc_client_stream_request_exact(stream_key, &exact_id);
+    }
+    release_grpc_client_request_handoffs(&exact_id);
+    if (clear_current_context) {
+        obi_ctx__del(bpf_get_current_pid_tgid());
+    }
     return 0;
 }
 
@@ -511,27 +698,62 @@ SEC("uprobe/ClientConn_NewStream")
 int obi_uprobe_ClientConn_NewStream_return(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_NewStream ===");
 
-    void *stream = GO_PARAM1(ctx);
-
-    if (!stream) {
-        return grpc_connect_done(ctx, (void *)1);
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t creator_key = {};
+    go_addr_key_from_id(&creator_key, goroutine_addr);
+    grpc_client_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &creator_key);
+    if (!invocation) {
+        return 0;
+    }
+    const grpc_client_request_id_t exact_id = invocation->request_id;
+    if (!grpc_client_request_id_is_current(&exact_id)) {
+        delete_grpc_client_creator_request_exact(&creator_key, &exact_id);
+        obi_ctx__del(bpf_get_current_pid_tgid());
+        return 0;
     }
 
+    // ClientStream is an interface return: word 1 is the itab and word 2 is
+    // the stable *clientStream data pointer.
+    void *stream_type = GO_PARAM1(ctx);
+    void *stream = GO_PARAM2(ctx);
+    if (!stream_type || !stream) {
+        return grpc_connect_done(&exact_id, NULL, (void *)1, 1);
+    }
+
+    go_addr_key_t stream_key = {};
+    go_addr_key_from_id(&stream_key, stream);
+    if (!claim_grpc_client_request_handoffs(&exact_id)) {
+        return grpc_connect_done(&exact_id, NULL, (void *)1, 1);
+    }
+    grpc_client_func_invocation_t *canonical =
+        bpf_map_lookup_elem(&grpc_client_request_states, &exact_id);
+    if (!canonical || canonical->terminal) {
+        release_grpc_client_request_handoffs(&exact_id);
+        return grpc_connect_done(&exact_id, NULL, (void *)1, 1);
+    }
+    canonical->stream_key = stream_key;
+    canonical->has_stream = 1;
+    const u8 stream_reserved = reserve_grpc_client_stream_request(&stream_key, &exact_id);
+    release_grpc_client_request_handoffs(&exact_id);
+    if (!stream_reserved) {
+        // Reused live pointer ownership is ambiguous. Complete this request
+        // fail-closed rather than overwriting another stream generation.
+        return grpc_connect_done(&exact_id, NULL, (void *)1, 1);
+    }
+    delete_grpc_client_creator_request_exact(&creator_key, &exact_id);
+    obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
 
 SEC("uprobe/ClientConn_Close")
 int obi_uprobe_ClientConn_Close(struct pt_regs *ctx) {
+    (void)ctx;
     bpf_dbg_printk("=== uprobe/ClientConn_Close ===");
 
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
-
-    bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
-
+    // Connection close can run on a goroutine unrelated to any live stream.
+    // Per-stream finish/cancel probes and the exact userspace reaper own
+    // request retirement; never guess ownership from this goroutine.
     return 0;
 }
 
@@ -539,21 +761,79 @@ SEC("uprobe/ClientConn_Invoke")
 int obi_uprobe_ClientConn_Invoke_return(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_Invoke ===");
 
-    void *err = GO_PARAM1(ctx);
-
-    if (err) {
-        return grpc_connect_done(ctx, err);
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t creator_key = {};
+    go_addr_key_from_id(&creator_key, goroutine_addr);
+    grpc_client_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &creator_key);
+    if (!invocation) {
+        return 0;
     }
-
-    return 0;
+    const grpc_client_request_id_t exact_id = invocation->request_id;
+    if (!grpc_client_request_id_is_current(&exact_id)) {
+        delete_grpc_client_creator_request_exact(&creator_key, &exact_id);
+        obi_ctx__del(bpf_get_current_pid_tgid());
+        return 0;
+    }
+    return grpc_connect_done(&exact_id, NULL, (void *)GO_PARAM1(ctx), 1);
 }
 
 // google.golang.org/grpc.(*clientStream).RecvMsg
 SEC("uprobe/clientStream_RecvMsg")
+int obi_uprobe_clientStream_RecvMsg(struct pt_regs *ctx) {
+    void *stream = GO_PARAM1(ctx);
+    if (!stream) {
+        return 0;
+    }
+    go_exact_process_addr_key_t goroutine_key = {};
+    if (!grpc_client_current_process_addr_key(GOROUTINE_PTR(ctx), &goroutine_key)) {
+        return 0;
+    }
+    go_addr_key_t stream_key = {};
+    go_addr_key_from_id(&stream_key, stream);
+    bpf_map_update_elem(&grpc_client_recv_streams, &goroutine_key, &stream_key, BPF_ANY);
+    return 0;
+}
+
+SEC("uprobe/clientStream_RecvMsg_ret")
 int obi_uprobe_clientStream_RecvMsg_return(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/clientStream_RecvMsg ===");
     void *err = (void *)GO_PARAM1(ctx);
-    return grpc_connect_done(ctx, err);
+    go_exact_process_addr_key_t goroutine_key = {};
+    if (!grpc_client_current_process_addr_key(GOROUTINE_PTR(ctx), &goroutine_key)) {
+        return 0;
+    }
+    go_addr_key_t *stream_key = bpf_map_lookup_elem(&grpc_client_recv_streams, &goroutine_key);
+    if (!stream_key) {
+        return 0;
+    }
+    const go_addr_key_t stable_key = *stream_key;
+    bpf_map_delete_elem(&grpc_client_recv_streams, &goroutine_key);
+    if (!err) {
+        return 0;
+    }
+    grpc_client_request_id_t exact_id = {};
+    if (!load_current_grpc_client_stream_request(&stable_key, &exact_id)) {
+        return 0;
+    }
+    return grpc_connect_done(&exact_id, &stable_key, err, 0);
+}
+
+// finish is the single terminal path used for successful completion,
+// cancellation, transport errors, and explicit stream teardown.
+SEC("uprobe/clientStream_finish")
+int obi_uprobe_clientStream_finish(struct pt_regs *ctx) {
+    void *stream = GO_PARAM1(ctx);
+    if (!stream) {
+        return 0;
+    }
+    go_addr_key_t stream_key = {};
+    go_addr_key_from_id(&stream_key, stream);
+    grpc_client_request_id_t exact_id = {};
+    if (!load_current_grpc_client_stream_request(&stream_key, &exact_id)) {
+        return 0;
+    }
+    return grpc_connect_done(&exact_id, &stream_key, (void *)GO_PARAM2(ctx), 0);
 }
 
 // The gRPC client stream is written on another goroutine in transport loopyWriter (controlbuf.go).
@@ -565,8 +845,11 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *t_ptr = GO_PARAM1(ctx);
     off_table_t *ot = get_offsets_table();
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+    go_exact_process_addr_key_t process_g_key = {};
+    if (!grpc_client_current_process_addr_key(goroutine_addr, &process_g_key)) {
+        return 0;
+    }
+    const go_addr_key_t g_key = process_g_key.address;
 
     const u64 grpc_t_conn_pos = go_offset_of(ot, (go_offset){.v = _grpc_t_scheme_pos});
     bpf_dbg_printk(
@@ -582,11 +865,12 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             bpf_probe_read(&conn_ptr_key, sizeof(conn_ptr_key), conn_ptr);
         }
 
-        // PID-scoped cache key: uses the transport pointer as the address
-        // component to avoid stale entries when pointer values are recycled
-        // across different processes.
-        go_addr_key_t cache_key = {};
-        go_addr_key_from_id(&cache_key, t_ptr);
+        // Full process-incarnation scope prevents PID + pointer reuse from
+        // adopting connection state left by a dead process.
+        go_exact_process_addr_key_t cache_key = {};
+        if (!grpc_client_current_process_addr_key(t_ptr, &cache_key)) {
+            return 0;
+        }
 
         connection_info_t *cached_conn =
             bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
@@ -619,23 +903,29 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                     connection_info_t conn = {0};
                     const u8 ok = get_conn_info(conn_conn_ptr, &conn);
                     if (ok) {
-                        bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
+                        bpf_map_update_elem(
+                            &ongoing_client_connections, &process_g_key, &conn, BPF_ANY);
                         bpf_map_update_elem(
                             &cached_grpc_client_connections, &cache_key, &conn, BPF_ANY);
 
                         if (conn_ptr_key) {
-                            bpf_map_update_elem(
-                                &grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr_key}, &conn, BPF_ANY);
+                            go_exact_process_addr_key_t conn_key = {};
+                            if (grpc_client_current_process_addr_key(conn_ptr_key, &conn_key)) {
+                                bpf_map_update_elem(
+                                    &grpc_conn_ptr_to_conn, &conn_key, &conn, BPF_ANY);
+                            }
                         }
                     }
                 }
             }
         } else {
-            bpf_map_update_elem(&ongoing_client_connections, &g_key, cached_conn, BPF_ANY);
+            bpf_map_update_elem(&ongoing_client_connections, &process_g_key, cached_conn, BPF_ANY);
 
             if (conn_ptr_key) {
-                bpf_map_update_elem(
-                    &grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr_key}, cached_conn, BPF_ANY);
+                go_exact_process_addr_key_t conn_key = {};
+                if (grpc_client_current_process_addr_key(conn_ptr_key, &conn_key)) {
+                    bpf_map_update_elem(&grpc_conn_ptr_to_conn, &conn_key, cached_conn, BPF_ANY);
+                }
             }
         }
 
@@ -645,14 +935,27 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             grpc_client_func_invocation_t *invocation =
                 bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
 
-            if (invocation && conn_ptr_key) {
+            if (invocation && conn_ptr_key &&
+                grpc_client_request_id_is_current(&invocation->request_id)) {
+                connection_info_t *request_conn =
+                    bpf_map_lookup_elem(&ongoing_client_connections, &process_g_key);
+                if (request_conn) {
+                    invocation->conn = *request_conn;
+                    invocation->has_conn = 1;
+                    update_grpc_client_connection(&invocation->request_id, request_conn);
+                }
                 transport_new_client_invocation_t wrapper = {};
                 wrapper.inv = *invocation;
-                wrapper.s_key.stream_id = 0;
-                wrapper.s_key.conn_ptr = (u64)conn_ptr_key;
-
-                bpf_map_update_elem(&transport_new_client_invocations, &g_key, &wrapper, BPF_ANY);
+                if (grpc_client_transport_stream_key(
+                        &wrapper.inv.request_id, (u64)conn_ptr_key, 0, &wrapper.s_key)) {
+                    bpf_map_update_elem(
+                        &transport_new_client_invocations, &process_g_key, &wrapper, BPF_ANY);
+                }
             } else {
+                if (invocation) {
+                    const grpc_client_request_id_t stale_id = invocation->request_id;
+                    delete_grpc_client_creator_request_exact(&g_key, &stale_id);
+                }
                 bpf_dbg_printk(
                     "Couldn't find invocation metadata for goroutine=%lx, conn_ptr_key=%llx",
                     goroutine_addr,
@@ -685,13 +988,20 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
     }
 
     off_table_t *ot = get_offsets_table();
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+    go_exact_process_addr_key_t g_key = {};
+    if (!grpc_client_current_process_addr_key(goroutine_addr, &g_key)) {
+        return 0;
+    }
 
     transport_new_client_invocation_t *wrapper =
         bpf_map_lookup_elem(&transport_new_client_invocations, &g_key);
 
     if (!wrapper) {
+        return 0;
+    }
+    const grpc_client_request_id_t exact_id = wrapper->inv.request_id;
+    if (!grpc_client_request_id_is_current(&exact_id)) {
+        bpf_map_delete_elem(&transport_new_client_invocations, &g_key);
         return 0;
     }
 
@@ -715,15 +1025,19 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
     bpf_probe_read_user(&stream_id,
                         sizeof(stream_id),
                         stream + go_offset_of(ot, (go_offset){.v = _grpc_transport_stream_id_pos}));
-    wrapper->s_key.stream_id = stream_id;
+    go_exact_process_stream_key_t stream_key = {};
+    if (!grpc_client_transport_stream_key(
+            &exact_id, wrapper->s_key.conn_ptr, (u32)stream_id, &stream_key)) {
+        bpf_map_delete_elem(&transport_new_client_invocations, &g_key);
+        return 0;
+    }
 
-    bpf_dbg_printk("after return, stream_id=%d, conn_ptr=%llx",
-                   wrapper->s_key.stream_id,
-                   wrapper->s_key.conn_ptr);
+    bpf_dbg_printk(
+        "after return, stream_id=%d, conn_ptr=%llx", stream_key.stream_id, stream_key.conn_ptr);
 
     // This map is an LRU map, we can't be sure that all created streams are going to be
     // seen later by writeHeader to clean up this mapping.
-    bpf_map_update_elem(&ongoing_streams, &wrapper->s_key, &wrapper->inv, BPF_ANY);
+    bpf_map_update_elem(&ongoing_streams, &stream_key, &wrapper->inv, BPF_ANY);
     bpf_map_delete_elem(&transport_new_client_invocations, &g_key);
     return 0;
 }
@@ -765,8 +1079,12 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
         return 0;
     }
 
-    const u32 conn_ptr_pos =
+    const u64 conn_ptr_pos =
         go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_conn_pos});
+    if (!go_offset_is_present(conn_ptr_pos)) {
+        bpf_dbg_printk("grpc writer conn offset not found");
+        return 0;
+    }
     void *conn_ptr = 0;
     bpf_probe_read(&conn_ptr, sizeof(conn_ptr), (void *)(w_ptr + conn_ptr_pos + 8));
 
@@ -777,69 +1095,79 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
         bpf_dbg_printk("conn_ptr=%llx, stream_id=%d", conn_ptr, stream_id);
     }
 
-    stream_key_t key = {
-        .stream_id = (u32)stream_id,
-    };
-    key.conn_ptr = (u64)conn_ptr;
+    go_exact_process_stream_key_t key = {};
+    if (!grpc_client_current_transport_stream_key((u64)conn_ptr, (u32)stream_id, &key)) {
+        return 0;
+    }
 
     grpc_client_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_streams, &key);
-    connection_info_t *conn_info =
-        bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr});
+    go_exact_process_addr_key_t conn_key = {};
+    if (!grpc_client_current_process_addr_key(conn_ptr, &conn_key)) {
+        bpf_map_delete_elem(&ongoing_streams, &key);
+        return 0;
+    }
+    connection_info_t *conn_info = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &conn_key);
 
-    if (invocation) {
+    if (invocation && grpc_client_request_id_is_current(&invocation->request_id) &&
+        invocation->request_id.process_start_time == key.process_start_time &&
+        invocation->request_id.creator.pid == key.pid) {
         bpf_dbg_printk("Found invocation info: %llx", invocation);
-
-        // Per-stream trace for sk_msg, written=0 until the return probe confirms the bytes landed
-        if (conn_info && valid_trace(invocation->tp.trace_id)) {
-            tp_info_pid_t tp_p = {0};
-            tp_p.tp = invocation->tp;
-            tp_p.valid = 1;
-            tp_p.written = 0;
-            tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
-            tp_p.req_type = EVENT_HTTP_CLIENT;
-
-            egress_key_t e_key = {
-                .d_port = conn_info->d_port,
-                .s_port = conn_info->s_port,
-                .stream_id = (u32)stream_id,
-            };
-            sort_egress_key(&e_key);
-            bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
-
-            pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
-            sort_connection_info(&p_conn.conn);
-            mark_go_grpc_client_conn(&p_conn);
-        }
 
         void *goroutine_addr = GOROUTINE_PTR(ctx);
         go_addr_key_t g_key = {};
         go_addr_key_from_id(&g_key, goroutine_addr);
+        go_exact_process_addr_key_t framer_key = {};
+        const u8 framer_key_valid =
+            grpc_client_current_process_addr_key(goroutine_addr, &framer_key);
 
-        s64 offset;
-        bpf_probe_read(
-            &offset,
-            sizeof(offset),
-            (void *)(w_ptr +
-                     go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos})));
+        go_hpack_block_t app_traceparent = {};
+        const u8 traceparent_class = read_go_hpack_traceparent(&g_key, &app_traceparent);
+        const u8 can_inject_traceparent = go_hpack_can_inject_traceparent(traceparent_class);
+        clear_go_hpack_traceparent(&g_key);
+        if (traceparent_class == k_go_hpack_traceparent_authoritative) {
+            go_hpack_adopt_traceparent(&invocation->tp, &app_traceparent);
+            update_grpc_client_traceparent(&invocation->request_id, &app_traceparent);
+        }
 
-        bpf_dbg_printk("Found initial data offset: %d", offset);
+        const u8 should_publish =
+            can_inject_traceparent || traceparent_class == k_go_hpack_traceparent_authoritative;
+        const u32 pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
 
-        // The offset will be 0 on first connection through the stream and 9 on subsequent.
-        // If we read some very large offset, we don't do anything since it might be a situation
-        // we can't handle
-        if (offset < MAX_W_PTR_OFFSET) {
-            grpc_framer_func_invocation_t f_info = {
-                .tp = invocation->tp,
-                .framer_ptr = (u64)framer,
-                .offset = offset,
-                .s_port = conn_info ? conn_info->s_port : 0,
-                .d_port = conn_info ? conn_info->d_port : 0,
-                .stream_id = (u32)stream_id,
-            };
+        if (conn_info) {
+            pid_connection_info_t p_conn = {.conn = *conn_info, .pid = pid};
+            sort_connection_info(&p_conn.conn);
+            mark_go_h2_client_conn(&p_conn);
+        }
 
-            bpf_map_update_elem(&grpc_framer_invocation_map, &g_key, &f_info, BPF_ANY);
-        } else {
-            bpf_dbg_printk("Offset too large, ignoring...");
+        // Save the per-stream trace so sk_msg can pick it up.
+        outgoing_trace_token_t published_token = {};
+        u8 handoff_reserved = 0;
+        if (conn_info && valid_trace(invocation->tp.trace_id) && should_publish) {
+            handoff_reserved = publish_grpc_hpack_traceparent(
+                conn_info, (u32)stream_id, invocation, pid, &published_token);
+
+            // Route sk_msg through the H2 verifier. The uprobe prepares the
+            // expected traceparent, but only observed wire bytes mark it written.
+        }
+
+        if (conn_info && can_inject_traceparent && handoff_reserved) {
+            s64 offset = 0;
+            const u64 writer_offset_pos =
+                go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos});
+            if (go_offset_is_present(writer_offset_pos) &&
+                bpf_probe_read(&offset, sizeof(offset), (void *)(w_ptr + writer_offset_pos)) == 0 &&
+                offset >= 0 && offset < MAX_W_PTR_OFFSET) {
+                grpc_framer_func_invocation_t f_info = {
+                    .framer_ptr = (u64)framer,
+                    .tp = invocation->tp,
+                    .handoff_token = published_token,
+                    .egress = make_egress_key(conn_info, pid, (u32)stream_id),
+                    .offset = offset,
+                };
+                if (framer_key_valid) {
+                    bpf_map_update_elem(&grpc_framer_invocation_map, &framer_key, &f_info, BPF_ANY);
+                }
+            }
         }
     }
 
@@ -847,156 +1175,152 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     return 0;
 }
 
-#define HTTP2_ENCODED_HEADER_LEN                                                                   \
-    66 // 1 + 1 + 8 + 1 + 55 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(55) + generated traceparent id
-
 SEC("uprobe/grpcFramerWriteHeaders_returns")
 int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    clear_go_hpack_traceparent(&g_key);
+
     if (!g_bpf_header_propagation) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/grpcFramerWriteHeaders_returns ===");
-
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    off_table_t *ot = get_offsets_table();
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
-
+    go_exact_process_addr_key_t framer_key = {};
+    if (!grpc_client_current_process_addr_key(goroutine_addr, &framer_key)) {
+        return 0;
+    }
+    u8 handoff_claimed = 0;
     grpc_framer_func_invocation_t *f_info =
-        bpf_map_lookup_elem(&grpc_framer_invocation_map, &g_key);
-
-    if (f_info) {
-        void *w_ptr =
-            (void *)(f_info->framer_ptr + go_offset_of(ot, (go_offset){.v = _framer_w_pos}) + 16);
-        bpf_probe_read(
-            &w_ptr,
-            sizeof(w_ptr),
-            (void *)(f_info->framer_ptr + go_offset_of(ot, (go_offset){.v = _framer_w_pos}) + 8));
-
-        if (w_ptr) {
-            void *buf_arr = 0;
-            s64 n = 0;
-            s64 cap = 0;
-            u64 off = f_info->offset;
-
-            bpf_probe_read(
-                &buf_arr,
-                sizeof(buf_arr),
-                (void
-                     *)(w_ptr +
-                        go_offset_of(
-                            ot,
-                            (go_offset){
-                                .v =
-                                    _grpc_transport_buf_writer_buf_pos}))); // the buffer is the first field
-            bpf_probe_read(
-                &n,
-                sizeof(n),
-                (void *)(w_ptr + go_offset_of(
-                                     ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos})));
-            bpf_probe_read(
-                &cap,
-                sizeof(cap),
-                (void *)(w_ptr +
-                         go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_buf_pos}) +
-                         16)); // the offset of the capacity is 2 * 8 bytes from the buf
-
-            bpf_clamp_umax(off, MAX_W_PTR_OFFSET);
-
-            //bpf_dbg_printk("Found f_info, this is the place to write to w_ptr=%llx, buf_arr=%llx, n=%lld, cap=%lld", w_ptr, buf_arr, n, cap);
-            if (buf_arr && n < (cap - HTTP2_ENCODED_HEADER_LEN)) {
-                uint8_t tp_str[TP_MAX_VAL_LENGTH];
-
-                // http2 encodes the length of the headers in the first 3 bytes of buf, we need to update those
-                u8 size_1 = 0;
-                u8 size_2 = 0;
-                u8 size_3 = 0;
-
-                bpf_probe_read(&size_1, sizeof(size_1), (void *)(buf_arr + off));
-                bpf_probe_read(&size_2, sizeof(size_2), (void *)(buf_arr + off + 1));
-                bpf_probe_read(&size_3, sizeof(size_3), (void *)(buf_arr + off + 2));
-
-                bpf_dbg_printk("sizes: 1=%x, 2=%x, 3=%x", size_1, size_2, size_3);
-
-                const u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
-
-                // flush or CONTINUATION split moved the frame — patching stale offsets corrupts
-                if (original_size > 0 && (u64)n == off + k_h2_frame_header_len + original_size) {
-                    u8 type_byte = 0;
-                    const u8 key_len =
-                        sizeof(tp_encoded) | 0x80; // high tagged to signify hpack encoded value
-                    const u8 val_len = TP_MAX_VAL_LENGTH;
-
-                    // We don't hpack encode the value of the traceparent field, because that will require that
-                    // we use bpf_loop, which in turn increases the kernel requirement to 5.17+.
-                    make_tp_string(tp_str, &f_info->tp);
-                    //bpf_dbg_printk("Will write tp_str=[%s], type_byte=%d, key_len=%d, val_len=%d", tp_str, type_byte, key_len, val_len);
-
-                    long werr = bpf_probe_write_user(
-                        buf_arr + (n & 0x0ffff), &type_byte, sizeof(type_byte));
-                    n++;
-                    // Write the length of the key = 8
-                    werr |=
-                        bpf_probe_write_user(buf_arr + (n & 0x0ffff), &key_len, sizeof(key_len));
-                    n++;
-                    // Write 'traceparent' encoded as hpack
-                    werr |= bpf_probe_write_user(
-                        buf_arr + (n & 0x0ffff), tp_encoded, sizeof(tp_encoded));
-                    n += sizeof(tp_encoded);
-                    // Write the length of the hpack encoded traceparent field
-                    werr |=
-                        bpf_probe_write_user(buf_arr + (n & 0x0ffff), &val_len, sizeof(val_len));
-                    n++;
-                    werr |= bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_str, sizeof(tp_str));
-                    n += TP_MAX_VAL_LENGTH;
-
-                    // buffer length and frame length last: while they still describe the
-                    // original frame, a failed field write leaves bytes nobody reads
-                    if (!werr) {
-                        // Update the value of n in w to reflect the new size
-                        werr |= bpf_probe_write_user(
-                            (void *)(w_ptr +
-                                     go_offset_of(
-                                         ot,
-                                         (go_offset){.v = _grpc_transport_buf_writer_offset_pos})),
-                            &n,
-                            sizeof(n));
-
-                        const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
-
-                        bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
-                        size_1 = (u8)(new_size >> 16);
-                        size_2 = (u8)(new_size >> 8);
-                        size_3 = (u8)(new_size);
-
-                        werr |=
-                            bpf_probe_write_user((void *)(buf_arr + off), &size_1, sizeof(size_1));
-                        werr |= bpf_probe_write_user(
-                            (void *)(buf_arr + off + 1), &size_2, sizeof(size_2));
-                        werr |= bpf_probe_write_user(
-                            (void *)(buf_arr + off + 2), &size_3, sizeof(size_3));
-                    }
-
-                    // confirm so sk_msg skips this stream, but only if every byte landed
-                    if (!werr && (f_info->s_port || f_info->d_port)) {
-                        egress_key_t e_key = {
-                            .d_port = f_info->d_port,
-                            .s_port = f_info->s_port,
-                            .stream_id = f_info->stream_id,
-                        };
-                        sort_egress_key(&e_key);
-                        tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
-                        if (tp_p) {
-                            tp_p->written = 1;
-                        }
-                    }
-                }
-            }
-        }
+        bpf_map_lookup_elem(&grpc_framer_invocation_map, &framer_key);
+    if (!f_info) {
+        goto done;
     }
 
-    bpf_map_delete_elem(&grpc_framer_invocation_map, &g_key);
+    tp_info_pid_t snapshot = {};
+    handoff_claimed = claim_outgoing_trace_handoff(&f_info->egress,
+                                                   &f_info->handoff_token,
+                                                   f_info->egress.pid,
+                                                   EVENT_HTTP_CLIENT,
+                                                   NULL,
+                                                   0,
+                                                   1,
+                                                   &snapshot);
+    if (!handoff_claimed || snapshot.written != k_outbound_trace_pending ||
+        !outgoing_trace_identity_matches_tp(
+            &snapshot, &f_info->tp, f_info->egress.pid, EVENT_HTTP_CLIENT)) {
+        goto done;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    const u64 writer_buf_pos =
+        go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_buf_pos});
+    const u64 writer_offset_pos =
+        go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos});
+    // bufWriter.buf is at offset zero in grpc-go 1.40 through 1.57. Offset
+    // presence is represented explicitly by the all-ones sentinel installed
+    // by the loader; zero is a valid field address and must not disable the
+    // retained pre-TLS path.
+    if (!go_offset_is_present(framer_w_pos) || !go_offset_is_present(writer_buf_pos) ||
+        !go_offset_is_present(writer_offset_pos)) {
+        goto done;
+    }
+
+    void *w_ptr = 0;
+    if (bpf_probe_read(&w_ptr, sizeof(w_ptr), (void *)(f_info->framer_ptr + framer_w_pos + 8)) ||
+        !w_ptr) {
+        goto done;
+    }
+
+    void *buf_arr = 0;
+    s64 n = 0;
+    s64 cap = 0;
+    u64 off = f_info->offset;
+    if (bpf_probe_read(&buf_arr, sizeof(buf_arr), (void *)(w_ptr + writer_buf_pos)) ||
+        bpf_probe_read(&n, sizeof(n), (void *)(w_ptr + writer_offset_pos)) ||
+        bpf_probe_read(&cap, sizeof(cap), (void *)(w_ptr + writer_buf_pos + 16))) {
+        goto done;
+    }
+
+    bpf_clamp_umax(off, MAX_W_PTR_OFFSET);
+    if (!buf_arr || n < 0 || n >= MAX_W_PTR_OFFSET || cap < k_h2_tp_hpack_huffman_size ||
+        n > cap - k_h2_tp_hpack_huffman_size) {
+        goto done;
+    }
+
+    u8 size_1 = 0;
+    u8 size_2 = 0;
+    u8 size_3 = 0;
+    if (bpf_probe_read(&size_1, sizeof(size_1), (void *)(buf_arr + off)) ||
+        bpf_probe_read(&size_2, sizeof(size_2), (void *)(buf_arr + off + 1)) ||
+        bpf_probe_read(&size_3, sizeof(size_3), (void *)(buf_arr + off + 2))) {
+        goto done;
+    }
+
+    const u32 original_size = ((u32)size_1 << 16) | ((u32)size_2 << 8) | size_3;
+    if (!original_size || (u64)n != off + k_h2_frame_header_len + original_size) {
+        goto done;
+    }
+    if (!h2_frame_can_append(original_size, k_h2_tp_hpack_huffman_size)) {
+        goto done;
+    }
+
+    uint8_t tp_str[TP_MAX_VAL_LENGTH];
+    u8 type_byte = 0;
+    const u8 key_len = sizeof(tp_encoded) | 0x80;
+    const u8 val_len = TP_MAX_VAL_LENGTH;
+    make_tp_string(tp_str, &snapshot.tp);
+
+    long werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), &type_byte, sizeof(type_byte));
+    n++;
+    if (!werr) {
+        werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), &key_len, sizeof(key_len));
+    }
+    n++;
+    if (!werr) {
+        werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_encoded, sizeof(tp_encoded));
+    }
+    n += sizeof(tp_encoded);
+    if (!werr) {
+        werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), &val_len, sizeof(val_len));
+    }
+    n++;
+    if (!werr) {
+        werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_str, sizeof(tp_str));
+    }
+    n += TP_MAX_VAL_LENGTH;
+
+    // Keep the existing pre-TLS publication order. Every helper must report
+    // success before exact authority may transition to written.
+    if (!werr) {
+        werr = bpf_probe_write_user((void *)(w_ptr + writer_offset_pos), &n, sizeof(n));
+    }
+    const u32 new_size = original_size + k_h2_tp_hpack_huffman_size;
+    size_1 = (u8)(new_size >> 16);
+    size_2 = (u8)(new_size >> 8);
+    size_3 = (u8)new_size;
+    if (!werr) {
+        werr = bpf_probe_write_user((void *)(buf_arr + off), &size_1, sizeof(size_1));
+    }
+    if (!werr) {
+        werr = bpf_probe_write_user((void *)(buf_arr + off + 1), &size_2, sizeof(size_2));
+    }
+    if (!werr) {
+        werr = bpf_probe_write_user((void *)(buf_arr + off + 2), &size_3, sizeof(size_3));
+    }
+
+    if (!werr) {
+        commit_claimed_outgoing_trace_handoff(&f_info->egress, &f_info->handoff_token);
+        mirror_outgoing_trace_handoff_commit(&f_info->egress, &snapshot);
+        handoff_claimed = 0;
+    }
+
+done:
+    if (f_info && handoff_claimed) {
+        release_claimed_outgoing_trace_handoff(&f_info->egress, &f_info->handoff_token);
+    }
+    bpf_map_delete_elem(&grpc_framer_invocation_map, &framer_key);
     return 0;
 }
 
@@ -1012,20 +1336,29 @@ int obi_uprobe_grpc_controlBuffer_executeAndPut(struct pt_regs *ctx) {
         return 0;
     }
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+    go_exact_process_addr_key_t g_key = {};
+    if (!grpc_client_current_process_addr_key(goroutine_addr, &g_key)) {
+        return 0;
+    }
 
     transport_new_client_invocation_t *wrapper =
         bpf_map_lookup_elem(&transport_new_client_invocations, &g_key);
     if (!wrapper) {
         return 0; // not from a NewStream goroutine — ignore
     }
+    if (!grpc_client_request_id_is_current(&wrapper->inv.request_id)) {
+        bpf_map_delete_elem(&transport_new_client_invocations, &g_key);
+        return 0;
+    }
 
     void *hdr = (void *)GO_PARAM4(ctx); // it.data
     if (!hdr) {
         return 0;
     }
-    u64 hdr_key = (u64)hdr;
+    go_exact_process_addr_key_t hdr_key = {};
+    if (!grpc_client_current_process_addr_key(hdr, &hdr_key)) {
+        return 0;
+    }
     pending_h2_invocation_t pending = {
         .inv = wrapper->inv,
         .conn_ptr = wrapper->s_key.conn_ptr,
@@ -1048,49 +1381,55 @@ int obi_uprobe_grpc_loopyWriter_originateStream(struct pt_regs *ctx) {
     if (!str || !hdr) {
         return 0;
     }
-    u64 hdr_key = (u64)hdr;
+    go_exact_process_addr_key_t hdr_key = {};
+    if (!grpc_client_current_process_addr_key(hdr, &hdr_key)) {
+        return 0;
+    }
     pending_h2_invocation_t *pending = bpf_map_lookup_elem(&pending_h2_invocations, &hdr_key);
     if (!pending) {
+        return 0;
+    }
+    if (!grpc_client_request_id_is_current(&pending->inv.request_id)) {
+        bpf_map_delete_elem(&pending_h2_invocations, &hdr_key);
         return 0;
     }
 
     u32 stream_id = 0;
     bpf_probe_read_user(&stream_id, sizeof(stream_id), str); // outStream.id at offset 0
     if (stream_id == 0) {
+        bpf_map_delete_elem(&pending_h2_invocations, &hdr_key);
         return 0;
     }
 
-    stream_key_t key = {.conn_ptr = pending->conn_ptr, .stream_id = stream_id};
+    go_exact_process_stream_key_t key = {};
+    if (!grpc_client_transport_stream_key(
+            &pending->inv.request_id, pending->conn_ptr, stream_id, &key)) {
+        bpf_map_delete_elem(&pending_h2_invocations, &hdr_key);
+        return 0;
+    }
     bpf_map_update_elem(&ongoing_streams, &key, &pending->inv, BPF_ANY);
-
-    bpf_map_delete_elem(&pending_h2_invocations, &hdr_key);
 
     bpf_dbg_printk("originateStream: published ongoing_streams[conn=%llx, stream=%u]",
                    pending->conn_ptr,
                    stream_id);
 
     // written=0 fallback: if grpcFramerWriteHeaders misses, sk_msg injects this tp on the wire
-    connection_info_t *conn_info =
-        bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &(u64){pending->conn_ptr});
-    if (conn_info && valid_trace(pending->inv.tp.trace_id)) {
-        tp_info_pid_t tp_p = {0};
-        tp_p.tp = pending->inv.tp;
-        tp_p.valid = 1;
-        tp_p.written = 0;
-        tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
-        tp_p.req_type = EVENT_HTTP_CLIENT;
-
-        egress_key_t e_key = {
-            .d_port = conn_info->d_port,
-            .s_port = conn_info->s_port,
-            .stream_id = stream_id,
-        };
-        sort_egress_key(&e_key);
-        bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
-
-        pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
-        sort_connection_info(&p_conn.conn);
-        mark_go_grpc_client_conn(&p_conn);
+    go_exact_process_addr_key_t conn_key = {};
+    connection_info_t *conn_info = NULL;
+    if (grpc_client_current_process_addr_key((void *)pending->conn_ptr, &conn_key)) {
+        conn_info = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &conn_key);
     }
+    if (conn_info) {
+        const u32 pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+        pid_connection_info_t p_conn = {.conn = *conn_info, .pid = pid};
+        sort_connection_info(&p_conn.conn);
+        mark_go_h2_client_conn(&p_conn);
+    }
+    if (conn_info && valid_trace(pending->inv.tp.trace_id)) {
+        const u32 pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+        outgoing_trace_token_t published_token = {};
+        publish_grpc_hpack_traceparent(conn_info, stream_id, &pending->inv, pid, &published_token);
+    }
+    bpf_map_delete_elem(&pending_h2_invocations, &hdr_key);
     return 0;
 }

@@ -156,6 +156,11 @@ typedef enum {
     _runtime_sched_stw_total_time_gc_pos,
     _runtime_time_histogram_underflow_pos,
     _runtime_time_histogram_overflow_pos,
+    _tracer_timestamp_opt_off,
+    _buf_reader_r_pos,
+    _req_tls_pos,
+    _sc_max_client_stream_id_pos,
+    _sc_max_client_stream_id_vendored_pos,
     _last_go_offset,
 } go_offset_const;
 
@@ -179,17 +184,28 @@ typedef struct off_table {
     u64 table[_last_go_offset];
 } off_table_t;
 
+typedef struct go_executable_key {
+    u32 dev_major;
+    u32 dev_minor;
+    u64 ino;
+} go_executable_key_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64);           // key: inode
+    __type(key, go_executable_key_t);
     __type(value, off_table_t); // the offset table
     __uint(max_entries, MAX_GO_PROGRAMS);
 } go_offsets_map SEC(".maps");
 
 static __always_inline off_table_t *get_offsets_table() {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    const u64 ino = (u64)BPF_CORE_READ(task, mm, exe_file, f_inode, i_ino);
-    return (off_table_t *)bpf_map_lookup_elem(&go_offsets_map, &ino);
+    const u64 dev = (u64)BPF_CORE_READ(task, mm, exe_file, f_inode, i_sb, s_dev);
+    const go_executable_key_t executable = {
+        .dev_major = (u32)(dev >> 20),
+        .dev_minor = (u32)(dev & ((1ULL << 20) - 1)),
+        .ino = (u64)BPF_CORE_READ(task, mm, exe_file, f_inode, i_ino),
+    };
+    return (off_table_t *)bpf_map_lookup_elem(&go_offsets_map, &executable);
 }
 
 static __always_inline u64 go_offset_of(off_table_t *ot, go_offset off) {
@@ -198,4 +214,8 @@ static __always_inline u64 go_offset_of(off_table_t *ot, go_offset off) {
     }
 
     return -1;
+}
+
+static __always_inline u8 go_offset_is_present(u64 offset) {
+    return offset != (u64)-1;
 }

@@ -39,8 +39,7 @@ func TestProcessEventsLoopDoesntBlock(t *testing.T) {
 	)
 
 	events := make(chan discover.Event[*ebpf.Instrumentable])
-
-	go instr.instrumentedEventLoop(t.Context(), events)
+	instr.startInstrumentedEventLoop(t.Context(), events, nil)
 
 	for i := range app.PID(100) {
 		events <- discover.Event[*ebpf.Instrumentable]{
@@ -48,6 +47,8 @@ func TestProcessEventsLoopDoesntBlock(t *testing.T) {
 			Type: discover.EventCreated,
 		}
 	}
+	close(events)
+	instr.eventLoopWg.Wait()
 
 	assert.NoError(t, err)
 }

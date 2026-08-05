@@ -4,6 +4,7 @@
 package ebpfconvenience // import "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -19,6 +20,12 @@ import (
 // This wrapper has been deprecated in the main cilium/ebpf codebase.
 
 const PinInternal = ebpf.PinType(100)
+
+const (
+	outgoingTraceHandoffMap       = "outgoing_trace_handoff"
+	outgoingTraceHandoffEpochMap  = "outgoing_trace_handoff_epoch"
+	outgoingTraceHandoffCPUClaims = "outgoing_trace_handoff_cpu_claims"
+)
 
 func roundToNearestMultiple(x, n uint32) uint32 {
 	if x < n {
@@ -39,12 +46,85 @@ func alignMaxEntriesIfRingBuf(m *ebpf.MapSpec) {
 	}
 }
 
+// configureOutgoingTraceHandoffMaps keeps the allocation guard ABI identical
+// in every collection spec. The map is keyed by the kernel's possible CPU ID
+// range, including CPUs that are currently offline but may later be hot-added.
+func configureOutgoingTraceHandoffMaps(spec *ebpf.CollectionSpec) error {
+	claims := spec.Maps[outgoingTraceHandoffCPUClaims]
+	if claims == nil {
+		return nil
+	}
+
+	possibleCPUs, err := ebpf.PossibleCPU()
+	if err != nil {
+		return fmt.Errorf("querying possible CPUs for outgoing trace handoff: %w", err)
+	}
+	if possibleCPUs <= 0 {
+		return fmt.Errorf("querying possible CPUs for outgoing trace handoff: invalid count %d", possibleCPUs)
+	}
+	claims.MaxEntries = uint32(possibleCPUs)
+	return nil
+}
+
+// initializeOutgoingTraceHandoffEpoch binds every generated token to the live
+// authority map instance. ResolveMaps calls this while holding the shared map
+// lock, before any program in the collection can be attached. Later
+// collection loads validate and reuse the value; they never reset it or the
+// per-CPU counters.
+func initializeOutgoingTraceHandoffEpoch(sharedMaps map[string]*ebpf.Map) error {
+	authority := sharedMaps[outgoingTraceHandoffMap]
+	epoch := sharedMaps[outgoingTraceHandoffEpochMap]
+	if authority == nil && epoch == nil {
+		return nil
+	}
+	if authority == nil || epoch == nil {
+		return fmt.Errorf(
+			"outgoing trace handoff map group is incomplete: authority=%t epoch=%t",
+			authority != nil,
+			epoch != nil,
+		)
+	}
+
+	info, err := authority.Info()
+	if err != nil {
+		return fmt.Errorf("querying outgoing trace handoff authority map: %w", err)
+	}
+	id, ok := info.ID()
+	if !ok || id == 0 {
+		return errors.New("querying outgoing trace handoff authority map: kernel map ID unavailable")
+	}
+
+	key := uint32(0)
+	var current uint64
+	if err := epoch.Lookup(key, &current); err != nil {
+		return fmt.Errorf("reading outgoing trace handoff epoch: %w", err)
+	}
+	expected := uint64(id)
+	switch {
+	case current == 0:
+		if err := epoch.Put(key, expected); err != nil {
+			return fmt.Errorf("initializing outgoing trace handoff epoch: %w", err)
+		}
+	case current != expected:
+		return fmt.Errorf(
+			"outgoing trace handoff epoch mismatch: stored=%d authority_map_id=%d",
+			current,
+			expected,
+		)
+	}
+	return nil
+}
+
 // ResolveMaps sets up internal maps and ensures sane max entries values
 func ResolveMaps(spec *ebpf.CollectionSpec, sharedMaps map[string]*ebpf.Map, mu *sync.Mutex) (*ebpf.CollectionOptions, error) {
 	collOpts := ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{}}
 
 	mu.Lock()
 	defer mu.Unlock()
+
+	if err := configureOutgoingTraceHandoffMaps(spec); err != nil {
+		return nil, err
+	}
 
 	for k, v := range spec.Maps {
 		alignMaxEntriesIfRingBuf(v)
@@ -69,6 +149,10 @@ func ResolveMaps(spec *ebpf.CollectionSpec, sharedMaps map[string]*ebpf.Map, mu 
 		}
 
 		collOpts.MapReplacements[k] = internalMap
+	}
+
+	if err := initializeOutgoingTraceHandoffEpoch(sharedMaps); err != nil {
+		return nil, err
 	}
 
 	return &collOpts, nil

@@ -7,6 +7,7 @@
 
 #include <common/connection_info.h>
 #include <common/event_source.h>
+#include <common/lw_thread.h>
 #include <common/tp_info.h>
 
 #define FULL_BUF_SIZE 256
@@ -22,6 +23,9 @@ typedef struct http_info {
     u64 end_monotime_ns;
     u64 req_monotime_ns;
     u64 extra_id;
+    u64 owner_pid_tgid;
+    lw_thread_t owner_lw_thread;
+    connection_info_part_t server_conn_part;
     tp_info_t tp;
     pid_info pid;
     u32 len;
@@ -34,6 +38,11 @@ typedef struct http_info {
     u8 has_large_buffers;
     u8 direction;
     u8 submitted;
+    u8 awaiting_split_traceparent;
+    u8 suppress_large_buffers;
     enum event_source_type event_source;
-    u8 _pad[2];
+    outgoing_trace_token_t handoff_token;
+    u8 handoff_expected;
+    u8 handoff_state;
+    u8 _pad[6];
 } http_info_t;

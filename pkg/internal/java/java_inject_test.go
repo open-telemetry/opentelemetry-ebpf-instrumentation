@@ -6,11 +6,16 @@
 package javaagent
 
 import (
+	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -176,13 +181,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := tt.setupTempDir(t, tt.pid)
-
-			// Override the root directory function
-			originalRootFunc := rootDirForPID
-			defer func() { rootDirForPID = originalRootFunc }()
-			rootDirForPID = func(_ app.PID) string {
-				return filepath.Join(tmpDir, "proc", "root")
-			}
+			processRoot := filepath.Join(tmpDir, "proc", "root")
 
 			injector := &JavaInjector{
 				cfg: &obi.DefaultConfig,
@@ -199,7 +198,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				Type: svc.InstrumentableJava,
 			}
 
-			resultPath, err := injector.copyAgent(ie)
+			resultPath, err := injector.copyAgent(ie, processRoot)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -577,4 +576,177 @@ func TestEnsureEmbeddedAgent_PlaceholderBytesError(t *testing.T) {
 	err := ensureEmbeddedAgent()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
+}
+
+func TestJavaInjectorUsesSuppliedSignalProcess(t *testing.T) {
+	var attachCalls atomic.Int32
+	var callbackCalls atomic.Int32
+	attacher := &fakeJavaAttacher{
+		attachContext: func(
+			_ context.Context,
+			_ int,
+			args []string,
+			_ bool,
+			signalProcess func(syscall.Signal) error,
+		) (io.ReadCloser, error) {
+			attachCalls.Add(1)
+			require.NotNil(t, signalProcess)
+			require.NoError(t, signalProcess(0))
+
+			switch args[1] {
+			case "VM.version":
+				return io.NopCloser(strings.NewReader("JDK 17\n")), nil
+			case "VM.class_hierarchy":
+				return io.NopCloser(strings.NewReader("io.opentelemetry.obi.java.Agent/0x123\n")), nil
+			default:
+				t.Fatalf("unexpected JVM attach command: %v", args)
+				return nil, nil
+			}
+		},
+	}
+	injector := &JavaInjector{
+		cfg: &obi.Config{Java: obi.JavaConfig{Timeout: time.Second}},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		attacherFactory: func(*slog.Logger) javaAttacher {
+			return attacher
+		},
+	}
+	ie := javaTestInstrumentable()
+
+	err := injector.NewExecutable(ie, func(signal syscall.Signal) error {
+		require.Equal(t, syscall.Signal(0), signal)
+		callbackCalls.Add(1)
+		return nil
+	}, t.TempDir())
+
+	require.NoError(t, err)
+	require.EqualValues(t, 2, attachCalls.Load())
+	require.GreaterOrEqual(t, callbackCalls.Load(), int32(5))
+}
+
+func TestJavaInjectorFailsClosedWithoutSignalProcess(t *testing.T) {
+	var factoryCalls atomic.Int32
+	injector := &JavaInjector{
+		cfg: &obi.Config{Java: obi.JavaConfig{Timeout: time.Second}},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		attacherFactory: func(*slog.Logger) javaAttacher {
+			factoryCalls.Add(1)
+			return &fakeJavaAttacher{}
+		},
+	}
+
+	err := injector.NewExecutable(javaTestInstrumentable(), nil, t.TempDir())
+
+	require.ErrorContains(t, err, "signaling is unavailable")
+	require.Zero(t, factoryCalls.Load())
+}
+
+func TestJavaInjectorFailsClosedWithoutPinnedProcessRoot(t *testing.T) {
+	var factoryCalls atomic.Int32
+	var signalCalls atomic.Int32
+	injector := &JavaInjector{
+		cfg: &obi.Config{Java: obi.JavaConfig{Timeout: time.Second}},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		attacherFactory: func(*slog.Logger) javaAttacher {
+			factoryCalls.Add(1)
+			return &fakeJavaAttacher{}
+		},
+	}
+
+	err := injector.NewExecutable(javaTestInstrumentable(), func(syscall.Signal) error {
+		signalCalls.Add(1)
+		return nil
+	}, "")
+
+	require.ErrorContains(t, err, "pinned process filesystem root is unavailable")
+	require.Zero(t, factoryCalls.Load())
+	require.Zero(t, signalCalls.Load())
+}
+
+func TestJavaInjectorPropagatesUnsupportedSignalProcess(t *testing.T) {
+	injector := &JavaInjector{
+		cfg: &obi.Config{Java: obi.JavaConfig{Timeout: time.Second}},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	err := injector.NewExecutable(javaTestInstrumentable(), func(syscall.Signal) error {
+		return syscall.ENOSYS
+	}, t.TempDir())
+
+	require.ErrorIs(t, err, syscall.ENOSYS)
+}
+
+func TestJavaInjectorDoesNotSignalAfterNewExecutableReturns(t *testing.T) {
+	attachDone := make(chan struct{})
+	var returned atomic.Bool
+	var signaledAfterReturn atomic.Bool
+	attacher := &fakeJavaAttacher{
+		attachContext: func(
+			ctx context.Context,
+			_ int,
+			_ []string,
+			_ bool,
+			signalProcess func(syscall.Signal) error,
+		) (io.ReadCloser, error) {
+			<-ctx.Done()
+			_ = signalProcess(0)
+			close(attachDone)
+			return nil, ctx.Err()
+		},
+	}
+	injector := &JavaInjector{
+		cfg: &obi.Config{Java: obi.JavaConfig{Timeout: 10 * time.Millisecond}},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		attacherFactory: func(*slog.Logger) javaAttacher {
+			return attacher
+		},
+	}
+
+	err := injector.NewExecutable(javaTestInstrumentable(), func(syscall.Signal) error {
+		if returned.Load() {
+			signaledAfterReturn.Store(true)
+		}
+		return nil
+	}, t.TempDir())
+	returned.Store(true)
+
+	require.ErrorContains(t, err, "java attach timed out")
+	select {
+	case <-attachDone:
+	default:
+		t.Fatal("NewExecutable returned before the context-aware attach completed")
+	}
+	time.Sleep(20 * time.Millisecond)
+	require.False(t, signaledAfterReturn.Load())
+}
+
+func javaTestInstrumentable() *ebpf.Instrumentable {
+	return &ebpf.Instrumentable{
+		FileInfo: exec.New(exec.Init{Pid: 1234}),
+		Type:     svc.InstrumentableJava,
+	}
+}
+
+type fakeJavaAttacher struct {
+	attachContext func(
+		context.Context,
+		int,
+		[]string,
+		bool,
+		func(syscall.Signal) error,
+	) (io.ReadCloser, error)
+}
+
+func (*fakeJavaAttacher) Init() {}
+
+func (*fakeJavaAttacher) Cleanup() error { return nil }
+
+func (a *fakeJavaAttacher) AttachContext(
+	ctx context.Context,
+	pid int,
+	args []string,
+	ignoreOnJ9 bool,
+	signalProcess func(syscall.Signal) error,
+) (io.ReadCloser, error) {
+	return a.attachContext(ctx, pid, args, ignoreOnJ9, signalProcess)
 }

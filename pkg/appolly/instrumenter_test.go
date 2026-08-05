@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -147,6 +148,59 @@ func TestBasicPipeline(t *testing.T) {
 		FloatVal: 2 / float64(time.Second),
 		Count:    1,
 	}, event)
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestOverrideAppExportQueueAppliesSamplingWithoutDroppingMetrics(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+
+	tc, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exportedSpans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	exported := exportedSpans.Subscribe(msg.SubscriberName(t.Name()))
+	cfg := otelcfg.MetricsConfig{
+		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
+		ReportersCacheLen: 16,
+		TTL:               5 * time.Minute,
+		Instrumentations: []instrumentations.Instrumentation{
+			instrumentations.InstrumentationALL,
+		},
+	}
+	ctxInfo := gctx(0, &cfg)
+	ctxInfo.OverrideAppExportQueue = exportedSpans
+	gb := newGraphBuilder(&obi.Config{
+		NameResolver: obi.DefaultConfig.NameResolver,
+		Metrics:      mpConfig,
+		OTELMetrics:  cfg,
+		Attributes:   obi.Attributes{Select: allMetrics},
+	}, ctxInfo, tracesInput, processEvents, nil)
+
+	unsampled := newRequest("foo-svc", "/foo/bar", http.StatusOK)[0]
+	unsampled.BPFDecision = true
+	sampled := unsampled
+	sampled.TraceFlags = uint8(oteltrace.FlagsSampled)
+	tracesInput.Send([]request.Span{unsampled, sampled})
+
+	pipe, err := gb.buildGraph(ctx)
+	require.NoError(t, err)
+	done := pipe.Start(ctx)
+
+	exportedBatch := testutil.ReadChannel(t, exported, testTimeout)
+	require.Len(t, exportedBatch, 1)
+	assert.Equal(t, uint8(oteltrace.FlagsSampled), exportedBatch[0].TraceFlags)
+
+	for {
+		event := testutil.ReadChannel(t, tc.Records(), testTimeout)
+		if event.Name == "http.server.request.duration" {
+			assert.Equal(t, 2, event.Count)
+			break
+		}
+	}
 
 	cancel()
 	require.NoError(t, <-done)

@@ -6,11 +6,13 @@ package discover
 import (
 	"bytes"
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	gopsutilnet "github.com/shirou/gopsutil/v4/net"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -24,14 +26,29 @@ import (
 
 const testTimeout = 5 * time.Second
 
+func resetProcessWatcherFunctions(t *testing.T) {
+	t.Helper()
+
+	originalProcessAgeFunc := processAgeFunc
+	originalProcessStartTimeFunc := processStartTimeFunc
+	originalProcessPidsFunc := processPidsFunc
+	originalProcessConnectionsFunc := processConnectionsFunc
+	t.Cleanup(func() {
+		processAgeFunc = originalProcessAgeFunc
+		processStartTimeFunc = originalProcessStartTimeFunc
+		processPidsFunc = originalProcessPidsFunc
+		processConnectionsFunc = originalProcessConnectionsFunc
+	})
+}
+
 func TestWatcher_Poll(t *testing.T) {
 	// mocking a fake listProcesses method
-	p1_1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030}}
-	p1_2 := ProcessAttrs{pid: 1, openPorts: []uint32{3030, 3031}}
-	p2 := ProcessAttrs{pid: 2, openPorts: []uint32{123}}
-	p3 := ProcessAttrs{pid: 3, openPorts: []uint32{456}}
-	p4 := ProcessAttrs{pid: 4, openPorts: []uint32{789}}
-	p5 := ProcessAttrs{pid: 10}
+	p1_1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030}, startTime: 1}
+	p1_2 := ProcessAttrs{pid: 1, openPorts: []uint32{3030, 3031}, startTime: 1}
+	p2 := ProcessAttrs{pid: 2, openPorts: []uint32{123}, startTime: 2}
+	p3 := ProcessAttrs{pid: 3, openPorts: []uint32{456}, startTime: 3}
+	p4 := ProcessAttrs{pid: 4, openPorts: []uint32{789}, startTime: 4}
+	p5 := ProcessAttrs{pid: 10, startTime: 10}
 	invocation := 0
 	ctx, cancel := context.WithCancel(t.Context())
 	// GIVEN a pollAccounter
@@ -125,11 +142,11 @@ func TestWatcher_Poll(t *testing.T) {
 
 func TestProcessNotReady(t *testing.T) {
 	// mocking a fake listProcesses method
-	p1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030, 3031}}
-	p2 := ProcessAttrs{pid: 2, openPorts: []uint32{123}}
-	p3 := ProcessAttrs{pid: 3, openPorts: []uint32{456}}
-	p4 := ProcessAttrs{pid: 4, openPorts: []uint32{789}}
-	p5 := ProcessAttrs{pid: 10}
+	p1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030, 3031}, startTime: 1}
+	p2 := ProcessAttrs{pid: 2, openPorts: []uint32{123}, startTime: 2}
+	p3 := ProcessAttrs{pid: 3, openPorts: []uint32{456}, startTime: 3}
+	p4 := ProcessAttrs{pid: 4, openPorts: []uint32{789}, startTime: 4}
+	p5 := ProcessAttrs{pid: 10, startTime: 10}
 
 	acc := pollAccounter{
 		interval: time.Microsecond,
@@ -258,7 +275,166 @@ func sort(events []Event[ProcessAttrs]) []Event[ProcessAttrs] {
 	return events
 }
 
+func TestSnapshotDetectsPIDReuse(t *testing.T) {
+	const pid = app.PID(42)
+	oldProcess := ProcessAttrs{
+		pid:       pid,
+		openPorts: []uint32{8080},
+		startTime: 100,
+	}
+	newProcess := ProcessAttrs{
+		pid:       pid,
+		openPorts: []uint32{9090},
+		startTime: 200,
+	}
+	oldPidPort := pidPort{Pid: pid, Port: 8080}
+	newPidPort := pidPort{Pid: pid, Port: 9090}
+	cacheChecked := false
+	var acc pollAccounter
+	acc = pollAccounter{
+		cfg:  &obi.Config{},
+		pids: map[app.PID]ProcessAttrs{pid: oldProcess},
+		pidPorts: map[pidPort]ProcessAttrs{
+			oldPidPort: oldProcess,
+		},
+		executableReady: func(app.PID) (string, bool) {
+			_, oldPortCached := acc.pidPorts[oldPidPort]
+			assert.False(t, oldPortCached)
+			cacheChecked = true
+			return "", true
+		},
+	}
+
+	events := acc.snapshot(map[app.PID]ProcessAttrs{pid: newProcess})
+
+	require.Equal(t, []Event[ProcessAttrs]{
+		{Type: EventDeleted, Obj: oldProcess},
+		{Type: EventCreated, Obj: newProcess},
+	}, events)
+	assert.True(t, cacheChecked)
+	_, oldPortCached := acc.pidPorts[oldPidPort]
+	assert.False(t, oldPortCached)
+	assert.Equal(t, newProcess, acc.pidPorts[newPidPort])
+	assert.Equal(t, newProcess, acc.pids[pid])
+}
+
+func TestSnapshotDefersUnknownProcessGeneration(t *testing.T) {
+	const pid = app.PID(42)
+	unknownProcess := ProcessAttrs{
+		pid:       pid,
+		openPorts: []uint32{8080},
+	}
+	acc := pollAccounter{
+		cfg:      &obi.Config{},
+		pids:     map[app.PID]ProcessAttrs{},
+		pidPorts: map[pidPort]ProcessAttrs{},
+		executableReady: func(app.PID) (string, bool) {
+			t.Fatal("a process without an incarnation must not be inspected")
+			return "", false
+		},
+	}
+
+	assert.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{pid: unknownProcess}))
+	assert.Empty(t, acc.pids)
+	assert.Empty(t, acc.pidPorts)
+}
+
+func TestSnapshotDetectsPIDReuseAfterUnknownGeneration(t *testing.T) {
+	const pid = app.PID(42)
+	oldProcess := ProcessAttrs{
+		pid:       pid,
+		openPorts: []uint32{8080},
+		startTime: 100,
+	}
+	transientProcess := ProcessAttrs{
+		pid:       pid,
+		openPorts: []uint32{8080},
+		startTime: 0,
+	}
+	newProcess := transientProcess
+	newProcess.startTime = 200
+
+	acc := pollAccounter{
+		cfg:      &obi.Config{},
+		pids:     map[app.PID]ProcessAttrs{pid: oldProcess},
+		pidPorts: map[pidPort]ProcessAttrs{{Pid: pid, Port: 8080}: oldProcess},
+		executableReady: func(app.PID) (string, bool) {
+			return "", true
+		},
+	}
+
+	assert.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{pid: transientProcess}))
+	assert.Equal(t, oldProcess, acc.pids[pid])
+
+	assert.Equal(t, []Event[ProcessAttrs]{
+		{Type: EventDeleted, Obj: oldProcess},
+		{Type: EventCreated, Obj: newProcess},
+	}, acc.snapshot(map[app.PID]ProcessAttrs{pid: newProcess}))
+}
+
+func TestFetchProcessPortsPopulatesStartTime(t *testing.T) {
+	resetProcessWatcherFunctions(t)
+
+	const (
+		pid       = app.PID(42)
+		startTime = uint64(1234)
+	)
+	processPidsFunc = func() ([]int32, error) {
+		return []int32{int32(pid)}, nil
+	}
+	processAgeFunc = func(gotPID app.PID) time.Duration {
+		assert.Equal(t, pid, gotPID)
+		return 7 * time.Second
+	}
+	startTimeCalls := 0
+	processStartTimeFunc = func(gotPID app.PID) uint64 {
+		assert.Equal(t, pid, gotPID)
+		startTimeCalls++
+		return startTime
+	}
+	connectionCalls := 0
+	processConnectionsFunc = func(kind string, gotPID int32) ([]gopsutilnet.ConnectionStat, error) {
+		assert.Equal(t, "inet", kind)
+		assert.Equal(t, int32(pid), gotPID)
+		connectionCalls++
+		return []gopsutilnet.ConnectionStat{
+			{Laddr: gopsutilnet.Addr{Port: 8080}},
+		}, nil
+	}
+
+	withoutPorts, err := fetchProcessPorts(false)
+	require.NoError(t, err)
+	require.Contains(t, withoutPorts, pid)
+	assert.Equal(t, startTime, withoutPorts[pid].startTime)
+	assert.Equal(t, 7*time.Second, withoutPorts[pid].processAge)
+	assert.Empty(t, withoutPorts[pid].openPorts)
+	assert.True(t, withoutPorts[pid].portsUnknown)
+	assert.Zero(t, connectionCalls)
+
+	withPorts, err := fetchProcessPorts(true)
+	require.NoError(t, err)
+	require.Contains(t, withPorts, pid)
+	assert.Equal(t, startTime, withPorts[pid].startTime)
+	assert.Zero(t, withPorts[pid].processAge)
+	assert.Equal(t, []uint32{8080}, withPorts[pid].openPorts)
+	assert.False(t, withPorts[pid].portsUnknown)
+
+	processConnectionsFunc = func(string, int32) ([]gopsutilnet.ConnectionStat, error) {
+		return nil, errors.New("can't read connections")
+	}
+	withConnectionError, err := fetchProcessPorts(true)
+	require.NoError(t, err)
+	require.Contains(t, withConnectionError, pid)
+	assert.True(t, withConnectionError[pid].portsUnknown)
+	assert.Empty(t, withConnectionError[pid].openPorts)
+
+	assert.Equal(t, 3, startTimeCalls)
+	assert.Equal(t, 1, connectionCalls)
+}
+
 func TestMinProcessAge(t *testing.T) {
+	resetProcessWatcherFunctions(t)
+
 	count := 1
 	processAgeFunc = func(pid app.PID) time.Duration {
 		if pid == 3 {
@@ -270,6 +446,9 @@ func TestMinProcessAge(t *testing.T) {
 
 	processPidsFunc = func() ([]int32, error) {
 		return []int32{1, 2, 3}, nil
+	}
+	processStartTimeFunc = func(pid app.PID) uint64 {
+		return uint64(pid)
 	}
 
 	userConfig := bytes.NewBufferString("channel_buffer_len: 33")
@@ -333,8 +512,8 @@ func TestMinProcessAge(t *testing.T) {
 // sending it on addedPIDsNotify (forget) causes the next poll to emit EventCreated again.
 // This supports the use case of adding an existing process to the dynamic PID selector.
 func TestForgetPIDs_ReemitsExistingProcess(t *testing.T) {
-	p1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030}}
-	p2 := ProcessAttrs{pid: 2, openPorts: []uint32{123}}
+	p1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030}, startTime: 1}
+	p2 := ProcessAttrs{pid: 2, openPorts: []uint32{123}, startTime: 2}
 	addedCh := make(chan []app.PID, 1)
 	acc := pollAccounter{
 		interval: time.Hour,

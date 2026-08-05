@@ -36,6 +36,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
 
+const (
+	otlpSpanFlagContextHasIsRemote uint32 = 1 << 8
+	otlpSpanFlagContextIsRemote    uint32 = 1 << 9
+)
+
 // Attribute keys not yet available in semconv v1.41.0.
 // Replace with semconv helpers when the package is updated.
 var (
@@ -91,27 +96,41 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			continue
 		}
 
+		if span.BPFDecision && span.TraceFlags&uint8(trace2.FlagsSampled) == 0 {
+			continue
+		}
+
 		selectedAttrs := traceAttributesSelectorInternal(span, traceAttrs, redactSet)
 		samplerAttrs, responseErrorSelected := removeGenAIResponseErrorControl(selectedAttrs)
 
-		spanSampler := func() trace.Sampler {
-			if span.Service.Sampler != nil {
-				return span.Service.Sampler
+		if !span.BPFDecision {
+			spanSampler := func() trace.Sampler {
+				if span.Service.Sampler != nil {
+					return span.Service.Sampler
+				}
+
+				return sampler
 			}
 
-			return sampler
-		}
+			sr := spanSampler().ShouldSample(trace.SamplingParameters{
+				ParentContext: samplingParentContext(ctx, span),
+				Name:          span.TraceName(),
+				TraceID:       span.TraceID,
+				Kind:          spanKind(span),
+				Attributes:    samplerAttrs,
+			})
 
-		sr := spanSampler().ShouldSample(trace.SamplingParameters{
-			ParentContext: ctx,
-			Name:          span.TraceName(),
-			TraceID:       span.TraceID,
-			Kind:          spanKind(span),
-			Attributes:    samplerAttrs,
-		})
+			if sr.Decision == trace.Drop {
+				continue
+			}
 
-		if sr.Decision == trace.Drop {
-			continue
+			exportSpan := *span
+			span = &exportSpan
+			if sr.Decision == trace.RecordAndSample {
+				span.TraceFlags |= uint8(trace2.FlagsSampled)
+			} else {
+				span.TraceFlags &^= uint8(trace2.FlagsSampled)
+			}
 		}
 
 		group, ok := spanGroups[span.Service.UID]
@@ -127,6 +146,20 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 	}
 
 	return spanGroups
+}
+
+func samplingParentContext(ctx context.Context, span *request.Span) context.Context {
+	if !span.TraceID.IsValid() || !span.ParentSpanID.IsValid() {
+		return trace2.ContextWithSpanContext(ctx, trace2.SpanContext{})
+	}
+
+	parent := trace2.NewSpanContext(trace2.SpanContextConfig{
+		TraceID:    span.TraceID,
+		SpanID:     span.ParentSpanID,
+		TraceFlags: trace2.TraceFlags(span.TraceFlags),
+		Remote:     span.ParentRemote,
+	})
+	return trace2.ContextWithSpanContext(ctx, parent)
 }
 
 // GenerateTracesWithAttributes must remain public for collectors embedding OBI
@@ -181,7 +214,7 @@ func generateTracesWithAttributes(
 		attrs := spanWithAttributes.Attributes
 
 		if len(span.ManualOTelJSON) > 0 {
-			if err := appendManualOTelJSON(rs, span.ManualOTelJSON); err != nil {
+			if err := appendManualOTelJSON(rs, span.ManualOTelJSON, span.ParentRemote); err != nil {
 				slog.Error("dropping invalid Go Auto SDK span payload", "error", err)
 			}
 			continue
@@ -215,6 +248,11 @@ func generateTracesWithAttributes(
 		// Set trace and span IDs
 		s.SetSpanID(spanID)
 		s.SetTraceID(traceID)
+		s.SetFlags(otlpSpanFlags(
+			uint32(span.TraceFlags),
+			span.ParentSpanID.IsValid(),
+			span.ParentRemote,
+		))
 		if span.ParentSpanID.IsValid() {
 			s.SetParentSpanID(pcommon.SpanID(span.ParentSpanID))
 		}
@@ -260,13 +298,15 @@ func generateTracesWithAttributes(
 
 		// Create individual execute_tool child spans per tool call (OTel GenAI semconv compliance)
 		if toolCalls := getSpanToolCalls(span); len(toolCalls) > 0 {
-			createToolCallSpans(toolCalls, spanID, traceID, &ss, start, t.End)
+			createToolCallSpans(
+				toolCalls, spanID, traceID, uint32(span.TraceFlags), &ss, start, t.End,
+			)
 		}
 	}
 	return traces
 }
 
-func appendManualOTelJSON(rs ptrace.ResourceSpans, payload []byte) error {
+func appendManualOTelJSON(rs ptrace.ResourceSpans, payload []byte, parentRemote bool) error {
 	var unmarshaler ptrace.JSONUnmarshaler
 	traces, err := unmarshaler.UnmarshalTraces(payload)
 	if err != nil {
@@ -302,6 +342,11 @@ func appendManualOTelJSON(rs ptrace.ResourceSpans, payload []byte) error {
 		return errors.New("invalid Go Auto SDK span payload: invalid status")
 	}
 	span.SetKind(ptrace.SpanKind(trace2.ValidateSpanKind(trace2.SpanKind(span.Kind()))))
+	span.SetFlags(otlpSpanFlags(
+		span.Flags(),
+		!span.ParentSpanID().IsEmpty(),
+		parentRemote,
+	))
 
 	dst := rs.ScopeSpans().AppendEmpty()
 	scopeSpans.At(0).CopyTo(dst)
@@ -310,6 +355,20 @@ func appendManualOTelJSON(rs ptrace.ResourceSpans, payload []byte) error {
 
 func SpanDiscarded(span *request.Span, is instrumentations.InstrumentationSelection) bool {
 	return request.IgnoreTraces(span) || span.Service.ExportsOTelTraces() || !acceptSpan(is, span)
+}
+
+func otlpSpanFlags(traceFlags uint32, parentValid, parentRemote bool) uint32 {
+	const parentRemoteMask = otlpSpanFlagContextHasIsRemote | otlpSpanFlagContextIsRemote
+	flags := traceFlags &^ parentRemoteMask
+	if !parentValid {
+		return flags
+	}
+
+	flags |= otlpSpanFlagContextHasIsRemote
+	if parentRemote {
+		flags |= otlpSpanFlagContextIsRemote
+	}
+	return flags
 }
 
 // createSubSpans creates the internal spans for a request.Span
@@ -321,6 +380,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 	spQ.SetKind(ptrace.SpanKindInternal)
 	spQ.SetEndTimestamp(pcommon.NewTimestampFromTime(t.Start))
 	spQ.SetTraceID(traceID)
+	spQ.SetFlags(otlpSpanFlags(uint32(span.TraceFlags), !parentSpanID.IsEmpty(), false))
 	spQ.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	spQ.SetParentSpanID(parentSpanID)
 
@@ -331,6 +391,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 	spP.SetKind(ptrace.SpanKindInternal)
 	spP.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
 	spP.SetTraceID(traceID)
+	spP.SetFlags(otlpSpanFlags(uint32(span.TraceFlags), !parentSpanID.IsEmpty(), false))
 	if span.SpanID.IsValid() {
 		spP.SetSpanID(pcommon.SpanID(span.SpanID))
 	} else {
@@ -484,7 +545,7 @@ func getSpanToolCalls(span *request.Span) []request.ToolCall {
 // createToolCallSpans creates individual execute_tool child spans for each tool call,
 // following the OTel GenAI semantic conventions where gen_ai.tool.name is a single string
 // per span rather than an aggregated string array.
-func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, start, end time.Time) {
+func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, traceFlags uint32, ss *ptrace.ScopeSpans, start, end time.Time) {
 	for _, tc := range toolCalls {
 		if tc.Name == "" {
 			continue
@@ -493,6 +554,7 @@ func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.Span
 		sp.SetName("execute_tool " + tc.Name)
 		sp.SetKind(ptrace.SpanKindInternal)
 		sp.SetTraceID(traceID)
+		sp.SetFlags(otlpSpanFlags(traceFlags, !parentSpanID.IsEmpty(), false))
 		sp.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 		sp.SetParentSpanID(parentSpanID)
 		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(start))

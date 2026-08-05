@@ -2,10 +2,15 @@ routes:
   patterns:
     - /basic/:rnd
   unmatched: path
+ebpf:
+  track_request_headers: false
+  context_propagation: disabled
 otel_metrics_export:
   endpoint: http://otelcol:4018
 otel_traces_export:
   endpoint: http://jaeger:4318
+  sampler:
+    name: always_off
 discovery:
   disabled_route_harvesters: ["nodejs"]
   services:
@@ -14,12 +19,23 @@ discovery:
     - namespace: multi-k
       name: service-a
       open_ports: 5000
+      sampler:
+        name: always_on
+    - namespace: multi-k
+      name: service-b
+      open_ports: 5001
+      sampler:
+        name: parentbased_always_off
     - namespace: multi-k
       name: service-c
       open_ports: 5002
       sampler:
-        name: traceidratio
-        arg: "0.5"
+        name: always_off
+    - namespace: multi-k
+      name: service-d
+      open_ports: 5003
+      sampler:
+        name: parentbased_always_on
 attributes:
   kubernetes:
     cluster_name: my-kube

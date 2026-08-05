@@ -522,6 +522,8 @@ func TCPToMongoToSpan(trace *TCPRequestInfo, info *mongoSpanInfo) request.Span {
 		SpanID:        trace.Tp.SpanId,
 		ParentSpanID:  trace.Tp.ParentId,
 		TraceFlags:    trace.Tp.Flags,
+		ParentRemote:  trace.Tp.ParentRemote != 0,
+		BPFDecision:   trace.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(trace.Pid.HostPid),
 			UserPID:   app.PID(trace.Pid.UserPid),
@@ -662,6 +664,8 @@ func ReadGoMongoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, err
 		SpanID:        trace2.SpanID(event.Tp.SpanId),
 		ParentSpanID:  trace2.SpanID(event.Tp.ParentId),
 		TraceFlags:    event.Tp.Flags,
+		ParentRemote:  event.Tp.ParentRemote != 0,
+		BPFDecision:   event.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),
 			UserPID:   app.PID(event.Pid.UserPid),

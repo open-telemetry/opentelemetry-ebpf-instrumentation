@@ -7,7 +7,8 @@
         "Method",
         "URL",
         "ContentLength",
-        "Header"
+        "Header",
+        "TLS"
       ],
       "net/url.URL": ["Path", "Host", "Scheme"],
       "net/http.Response": ["StatusCode", "ContentLength"],
@@ -20,14 +21,24 @@
       "net/http.persistConn": ["conn", "tlsState"],
       "net/http.conn": ["rwc", "tlsState"],
       "net/http.http2ClientConn": ["nextStreamID", "tconn", "fr"],
-      "net/http.http2serverConn": ["conn"],
+      "net/http.http2serverConn": ["conn", "maxClientStreamID"],
       "net/http.http2Framer": ["w"],
       "net/http.http2MetaHeadersFrame": ["Fields"],
       "net/rpc.Request": ["ServiceMethod"],
       "database/sql.driverConn": ["ci"],
       "net/textproto.Reader": ["R"],
-      "bufio.Reader": ["buf", "w"],
-      "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"],
+      "bufio.Reader": ["buf", "r", "w"],
+      "runtime.moduledata": [
+        "pcHeader",
+        "pclntable",
+        "minpc",
+        "maxpc",
+        "text",
+        "etext",
+        "types",
+        "etypes",
+        "typelinks"
+      ],
       "runtime.mstats": [
         "numgc",
         "[1.23.0]heapStats",
@@ -86,7 +97,7 @@
       "golang.org/x/net/http2/hpack.Encoder": ["w"],
       "golang.org/x/net/http2.ClientConn": ["nextStreamID", "tconn", "fr"],
       "golang.org/x/net/http2.Framer": ["w"],
-      "golang.org/x/net/http2.serverConn": ["conn"],
+      "golang.org/x/net/http2.serverConn": ["conn", "maxClientStreamID"],
       "golang.org/x/net/http2.MetaHeadersFrame": ["Fields"]
     }
   },

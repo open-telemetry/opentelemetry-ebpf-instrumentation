@@ -512,6 +512,72 @@ func TestDynamicPIDSelector_SetPID_NotifiesFileInfoUpdate(t *testing.T) {
 	assert.Same(t, fi, notified)
 }
 
+func TestDynamicPIDSelector_SetPIDUpdatesOnlyExactPID(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(42, 43)
+
+	parent := exec.New(exec.Init{
+		Pid: 42,
+		Service: svc.Attrs{
+			UID:                svc.UID{Name: "parent"},
+			DynamicSelectorPID: 42,
+		},
+	})
+	child := exec.New(exec.Init{
+		Pid: 43,
+		Service: svc.Attrs{
+			UID:                svc.UID{Name: "child"},
+			DynamicSelectorPID: 42,
+		},
+	})
+	d.RegisterFileInfo(parent.Pid(), parent)
+	d.RegisterFileInfo(child.Pid(), child)
+
+	notified := map[app.PID]int{}
+	d.SetOnFileInfoUpdated(func(updated *exec.FileInfo) {
+		notified[updated.Pid()]++
+	})
+	require.True(t, d.SetPID(selection.DynamicPIDEntry{
+		PID:         42,
+		ServiceName: "parent-updated",
+	}))
+	assert.Equal(t, "parent-updated", parent.ServiceAttrs().UID.Name)
+	assert.Equal(t, "child", child.ServiceAttrs().UID.Name)
+	assert.Equal(t, map[app.PID]int{42: 1}, notified)
+
+	require.True(t, d.SetPID(selection.DynamicPIDEntry{
+		PID:         43,
+		ServiceName: "child-updated",
+	}))
+	assert.Equal(t, "parent-updated", parent.ServiceAttrs().UID.Name)
+	assert.Equal(t, "child-updated", child.ServiceAttrs().UID.Name)
+	assert.Equal(t, map[app.PID]int{42: 1, 43: 1}, notified)
+}
+
+func TestDynamicPIDSelector_UnregisterFileInfoKeepsReplacement(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(42)
+
+	old := exec.New(exec.Init{
+		Pid:     42,
+		Service: svc.Attrs{UID: svc.UID{Name: "old"}},
+	})
+	replacement := exec.New(exec.Init{
+		Pid:     42,
+		Service: svc.Attrs{UID: svc.UID{Name: "replacement"}},
+	})
+	d.RegisterFileInfo(42, old)
+	d.RegisterFileInfo(42, replacement)
+	d.UnregisterFileInfo(42, old)
+
+	require.True(t, d.SetPID(selection.DynamicPIDEntry{
+		PID:         42,
+		ServiceName: "updated",
+	}))
+	assert.Equal(t, "old", old.ServiceAttrs().UID.Name)
+	assert.Equal(t, "updated", replacement.ServiceAttrs().UID.Name)
+}
+
 func TestDynamicPIDSelector_SetPID_NotifiesAttrsUpdated(t *testing.T) {
 	d := NewDynamicPIDSelector()
 	d.AddPIDs(7)

@@ -72,6 +72,11 @@ func ExecTyperProvider(
 		in := input.Subscribe(msg.SubscriberName("ExecTyper"))
 		return func(ctx context.Context) {
 			defer output.Close()
+			defer func() {
+				if ctx.Err() != nil {
+					t.closeProcessRoots()
+				}
+			}()
 			swarms.ForEachInput(ctx, in, t.log.Debug, func(i []Event[ProcessMatch]) {
 				output.Send(t.FilterClassify(i))
 			})
@@ -89,12 +94,30 @@ type typer struct {
 	instrumentableCache *lru.Cache[cacheKey, instrumentedExecutable]
 }
 
+func (t *typer) closeProcessRoots() {
+	for pid, fileInfo := range t.currentPids {
+		_ = fileInfo.CloseProcessRoot()
+		delete(t.currentPids, pid)
+	}
+}
+
 func samplerFromConfig(s *services.SamplerConfig) trace.Sampler {
 	if s != nil {
 		return s.Implementation()
 	}
 
 	return nil
+}
+
+func canonicalSamplerFromConfig(s *services.SamplerConfig) *services.CanonicalSampler {
+	if s == nil {
+		return nil
+	}
+	canonical, err := s.Canonical()
+	if err != nil {
+		return nil
+	}
+	return &canonical
 }
 
 func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
@@ -153,6 +176,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		DynamicSelectorPID: processMatch.DynamicSelectorPID,
 		ExportModes:        exportModes,
 		Sampler:            samplerFromConfig(samplerConfig),
+		SamplerConfig:      canonicalSamplerFromConfig(samplerConfig),
 		Features:           svcFeatures,
 		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 	}
@@ -230,6 +254,13 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 			}
 		case EventDeleted:
 			if fInfo, ok := t.currentPids[ev.Obj.Process.Pid]; ok {
+				if !sameProcessIncarnation(ev.Obj.Process.StartTime, fInfo.StartTime()) {
+					t.log.Debug("ignoring deletion for an older process incarnation",
+						"pid", ev.Obj.Process.Pid,
+						"deletedStartTime", ev.Obj.Process.StartTime,
+						"currentStartTime", fInfo.StartTime())
+					continue
+				}
 				delete(t.currentPids, ev.Obj.Process.Pid)
 				if t.instrumentableCache != nil {
 					t.instrumentableCache.Remove(cacheKey{Dev: fInfo.Dev(), Ino: fInfo.Ino()})
@@ -285,14 +316,22 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 
 	// select the parent (or grandparent) of the executable, if any
 	var child []app.PID
+	var childFileInfos map[app.PID]*exec.FileInfo
 	parent, ok := t.currentPids[execElf.Ppid()]
 	for ok && execElf.Ppid() != execElf.Pid() &&
 		// we will ignore parent processes that are not the same executable. For example,
 		// to avoid wrongly instrumenting process launcher such as systemd or containerd-shimd
 		// when they launch an instrumentable service
-		execElf.CmdExePath() == parent.CmdExePath() {
+		execElf.CmdExePath() == parent.CmdExePath() &&
+		execElf.Dev() == parent.Dev() &&
+		execElf.Ino() == parent.Ino() {
 		log.Debug("replacing executable by its parent", "ppid", execElf.Ppid())
-		child = append(child, execElf.Pid())
+		childPID := execElf.Pid()
+		child = append(child, childPID)
+		if childFileInfos == nil {
+			childFileInfos = make(map[app.PID]*exec.FileInfo)
+		}
+		childFileInfos[childPID] = execElf
 		execElf = parent
 		parent, ok = t.currentPids[parent.Ppid()]
 	}
@@ -320,6 +359,7 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		Offsets:              nil,
 		FileInfo:             execElf,
 		ChildPids:            child,
+		ChildFileInfos:       childFileInfos,
 		InstrumentationError: err,
 		LogEnricherEnabled:   execElf.LogEnricherEnabled(),
 	}

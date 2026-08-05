@@ -14,14 +14,19 @@ import (
 
 type Offsets struct {
 	// Funcs key: function name
-	Funcs  map[string]FuncOffsets
-	Field  FieldOffsets
-	ITypes map[string]uint64
+	Funcs             map[string]FuncOffsets
+	SpanKindFunctions []FuncOffsets
+	NewRootFunctions  []FuncOffsets
+	Field             FieldOffsets
+	ITypes            map[string]uint64
+	AutoSDKTypes      GoAutoSDKTypeInfo
 }
 
 type FuncOffsets struct {
-	Start   uint64
-	Returns []uint64
+	Start     uint64
+	Admission uint64
+	Entry     uint64
+	Returns   []uint64
 }
 
 type FieldOffsets map[GoOffset]any
@@ -87,6 +92,21 @@ func InspectOffsets(execElf *exec.FileInfo, funcs []string) (*Offsets, error) {
 		return nil, fmt.Errorf("couldn't find any instrumentation point in %s", execElf.CmdExePath())
 	}
 
+	spanKindFunctions, err := functionOffsetsContaining(
+		execElf.ELF(),
+		".WithSpanKind.func",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("finding span-kind option functions: %w", err)
+	}
+	newRootFunctions, err := functionOffsetsContaining(
+		execElf.ELF(),
+		".WithNewRoot.func",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("finding new-root option functions: %w", err)
+	}
+
 	// check the offsets of the required fields from the method arguments
 	structFieldOffsets, err := structMemberOffsets(execElf.ELF())
 	if err != nil {
@@ -97,10 +117,17 @@ func InspectOffsets(execElf *exec.FileInfo, funcs []string) (*Offsets, error) {
 	if err != nil {
 		slog.Warn("error reading itab section in Go program, manual spans will not work", "error", err)
 	}
+	autoSDKTypes, err := findGoAutoSDKTypeInfo(execElf.ELF())
+	if err != nil {
+		slog.Debug("Go Auto SDK context types could not be resolved", "error", err)
+	}
 
 	return &Offsets{
-		Funcs:  found,
-		Field:  structFieldOffsets,
-		ITypes: itypes,
+		Funcs:             found,
+		SpanKindFunctions: spanKindFunctions,
+		NewRootFunctions:  newRootFunctions,
+		Field:             structFieldOffsets,
+		ITypes:            itypes,
+		AutoSDKTypes:      autoSDKTypes,
 	}, nil
 }

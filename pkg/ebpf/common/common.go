@@ -63,6 +63,7 @@ type (
 // Values from https://www.w3.org/TR/trace-context/
 const (
 	TPFlagSampled = 1
+	TPFlagRandom  = 2
 )
 
 const (
@@ -139,6 +140,11 @@ type ProbeDesc struct {
 
 	// Optional list of the offsets of every RET instruction in the symbol
 	ReturnOffsets []uint64
+
+	// AttachStartLast attaches every return probe before the start probe.
+	// Use it when the start probe acquires state that only the return probe
+	// can release.
+	AttachStartLast bool
 
 	// SymbolMatcher controls how the map key for this probe is matched against
 	// executable symbols. The zero value preserves exact symbol matching.
@@ -259,6 +265,24 @@ type MisclassifiedEvent struct {
 	TCPInfo   *TCPRequestInfo
 }
 
+// MisclassifiedEventHandler synchronously handles a parser recovery event for
+// one eBPF collection. It must not retain event-owned pointers.
+type MisclassifiedEventHandler func(context.Context, MisclassifiedEvent)
+
+// EBPFParseContextOption configures collection-scoped parser behavior.
+type EBPFParseContextOption func(*EBPFParseContext)
+
+// WithMisclassifiedEventHandler binds recovery to the parser's run context.
+func WithMisclassifiedEventHandler(
+	ctx context.Context,
+	handler MisclassifiedEventHandler,
+) EBPFParseContextOption {
+	return func(parseCtx *EBPFParseContext) {
+		parseCtx.misclassifiedContext = ctx
+		parseCtx.misclassifiedHandler = handler
+	}
+}
+
 // CouchbaseBucketInfo holds the bucket, scope, and collection for a Couchbase connection.
 type CouchbaseBucketInfo struct {
 	Bucket     string
@@ -300,6 +324,8 @@ type EBPFParseContext struct {
 	goHTTPClientMaxPendingTime  time.Duration
 	discardPendingGoHTTPClients atomic.Bool
 	emitSpans                   func([]request.Span)
+	misclassifiedContext        context.Context
+	misclassifiedHandler        MisclassifiedEventHandler
 }
 
 // sharedForwarder is implemented by ringBufForwarder[T] so that
@@ -311,22 +337,80 @@ type sharedForwarder interface {
 }
 
 type EBPFEventContext struct {
-	CommonPIDsFilter ServiceFilter
-	SharedRingBuffer sharedForwarder
-	RuntimeMetrics   RuntimeMetricSender
-	EBPFMaps         map[string]*ebpf.Map
-	RingBufLock      sync.Mutex
-	MapsLock         sync.Mutex
-	LoadLock         sync.Mutex
-	Capabilities     TracerCapability
+	CommonPIDsFilter          ServiceFilter
+	SharedRingBuffer          sharedForwarder
+	RuntimeMetrics            RuntimeMetricSender
+	EBPFMaps                  map[string]*ebpf.Map
+	RingBufLock               sync.Mutex
+	MapsLock                  sync.Mutex
+	LoadLock                  sync.Mutex
+	Capabilities              TracerCapability
+	retainResources           atomic.Bool
+	handoffReaperMu           sync.Mutex
+	handoffReaper             *outgoingTraceHandoffReaper
+	handoffReaperRun          int
+	handoffReaperErr          string
+	misclassifiedMu           sync.RWMutex
+	misclassifiedHandler      MisclassifiedEventHandler
+	misclassifiedRegistration uint64
 
 	internalEventHandlersMu sync.RWMutex
 	internalEventHandlers   map[uint8]func(*ringbuf.Record) error
 }
 
-var MisclassifiedEvents = make(chan MisclassifiedEvent)
+// RetainResources prevents teardown after a tracer reports an unsafe shutdown.
+func (ctx *EBPFEventContext) RetainResources() {
+	if ctx != nil {
+		ctx.retainResources.Store(true)
+	}
+}
+
+// ResourcesRetained reports whether teardown must leave shared resources attached.
+func (ctx *EBPFEventContext) ResourcesRetained() bool {
+	return ctx != nil && ctx.retainResources.Load()
+}
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
+
+// SetMisclassifiedEventHandler installs the recovery handler for this eBPF
+// collection. The returned function waits for in-flight calls before clearing
+// its own registration and cannot remove a newer rolling registration.
+func (ctx *EBPFEventContext) SetMisclassifiedEventHandler(
+	handler MisclassifiedEventHandler,
+) (unset func()) {
+	if ctx == nil {
+		return func() {}
+	}
+	ctx.misclassifiedMu.Lock()
+	ctx.misclassifiedRegistration++
+	registration := ctx.misclassifiedRegistration
+	ctx.misclassifiedHandler = handler
+	ctx.misclassifiedMu.Unlock()
+	return func() {
+		ctx.misclassifiedMu.Lock()
+		if ctx.misclassifiedRegistration == registration {
+			ctx.misclassifiedHandler = nil
+		}
+		ctx.misclassifiedMu.Unlock()
+	}
+}
+
+// HandleMisclassifiedEvent dispatches recovery within one collection. Holding
+// the read lock across the bounded callback gives teardown a synchronization
+// barrier without a global channel or goroutine.
+func (ctx *EBPFEventContext) HandleMisclassifiedEvent(
+	runCtx context.Context,
+	event MisclassifiedEvent,
+) {
+	if ctx == nil || runCtx == nil || runCtx.Err() != nil {
+		return
+	}
+	ctx.misclassifiedMu.RLock()
+	defer ctx.misclassifiedMu.RUnlock()
+	if ctx.misclassifiedHandler != nil && runCtx.Err() == nil {
+		ctx.misclassifiedHandler(runCtx, event)
+	}
+}
 
 func isASCIIAlnumByte(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
@@ -372,7 +456,12 @@ func isASCIIDecimal(field []byte) bool {
 	return true
 }
 
-func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.Span], filter ServiceFilter) *EBPFParseContext {
+func NewEBPFParseContext(
+	cfg *config.EBPFTracer,
+	spansChan *msg.Queue[[]request.Span],
+	filter ServiceFilter,
+	opts ...EBPFParseContextOption,
+) *EBPFParseContext {
 	var (
 		err                        error
 		protocolDebug              bool
@@ -487,7 +576,21 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		)
 	}
 
+	for _, opt := range opts {
+		if opt != nil {
+			opt(parseCtx)
+		}
+	}
+
 	return parseCtx
+}
+
+func (ctx *EBPFParseContext) handleMisclassifiedEvent(event MisclassifiedEvent) {
+	if ctx == nil || ctx.misclassifiedContext == nil || ctx.misclassifiedHandler == nil ||
+		ctx.misclassifiedContext.Err() != nil {
+		return
+	}
+	ctx.misclassifiedHandler(ctx.misclassifiedContext, event)
 }
 
 // Close discards pending asynchronous parse state.

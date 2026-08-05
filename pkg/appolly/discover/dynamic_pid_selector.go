@@ -399,20 +399,13 @@ func (d *DynamicPIDSelector) RegisterFileInfo(pid app.PID, fi *exec.FileInfo) {
 	}
 	d.fileInfoMu.Lock()
 	d.fileInfoByPID[pid] = fi
-	if owner := fi.ServiceAttrs().DynamicSelectorPID; owner != 0 && owner != pid {
-		d.fileInfoByPID[owner] = fi
-	}
 	d.fileInfoMu.Unlock()
 }
 
-// UnregisterFileInfo drops FileInfo references for pid and its dynamic selector owner PID.
 func (d *DynamicPIDSelector) UnregisterFileInfo(pid app.PID, fi *exec.FileInfo) {
 	d.fileInfoMu.Lock()
-	delete(d.fileInfoByPID, pid)
-	if fi != nil {
-		if owner := fi.ServiceAttrs().DynamicSelectorPID; owner != 0 {
-			delete(d.fileInfoByPID, owner)
-		}
+	if d.fileInfoByPID[pid] == fi {
+		delete(d.fileInfoByPID, pid)
 	}
 	d.fileInfoMu.Unlock()
 }

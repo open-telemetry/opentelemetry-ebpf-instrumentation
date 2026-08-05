@@ -5,6 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/utils.h>
 
 #include <common/http_buf_size.h>
 #include <common/tp_info.h>
@@ -47,18 +48,20 @@ enum {
     // max frames walked when sniffing mid-stream H2
     k_h2_sniff_max_frames = 8,
     k_h2_max_payload = k_kprobes_http2_buf_size - k_h2_frame_header_len,
-    // 33 tail-call budget: 7 hops per frame at worst, 5 plus 2 for its retry, 2 + 4*7 = 30
     k_h2_max_frames_per_packet = 4,
+    // Persistent HEADERS/CONTINUATION accumulation is bounded by retained
+    // framed bytes, not by the much smaller mid-stream sniffing loop.
+    k_h2_max_header_fragments = k_kprobes_http2_buf_size / k_h2_frame_header_len,
     k_h2_max_tp_retries = 2,
     k_h2_max_hpack_scan = 256,
     k_h2_default_max_frame_size = 16384,
-
     // --- W3C traceparent value layout: "00-<trace_id>-<span_id>-01" ---
     k_tp_val_dash1 = 2,
     k_tp_val_trace_id_start = k_tp_val_dash1 + 1,
     k_tp_val_dash2 = k_tp_val_trace_id_start + TRACE_ID_SIZE_BYTES * 2,
     k_tp_val_span_id_start = k_tp_val_dash2 + 1,
     k_tp_val_dash3 = k_tp_val_span_id_start + SPAN_ID_SIZE_BYTES * 2,
+    k_tp_val_flags_start = k_tp_val_dash3 + 1,
 
     // --- HPACK encoding ---
     k_hpack_literal_no_index = 0,       // RFC 7541 6.2.2
@@ -66,6 +69,7 @@ enum {
     k_hpack_literal_incr_index = 0x40,  // RFC 7541 6.2.1
     k_hpack_size_update = 0x20,         // RFC 7541 6.3
     k_hpack_size_update_mask = 0xe0,
+    k_hpack_static_table_size = 61,
     k_hpack_int_prefix5 = 0x1f,  // 5-bit integer prefix, all ones means continuation follows
     k_hpack_int_more = 0x80,     // set in every continuation octet but the last
     k_hpack_int_max_octets = 5,  // RFC 7541 5.1: a u32 needs at most five octets past a prefix
@@ -80,15 +84,94 @@ enum {
     k_hpack_tp_val_offset = k_hpack_tp_name_offset + k_hpack_tp_name_len + 1,
     k_hpack_tp_val_offset_huffman = k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len + 1,
     k_hpack_tp_max_scan = 256 - k_h2_frame_header_len,
+    k_h2_hpack_parse_steps_per_call = 16,
+    k_h2_hpack_decode_steps_per_call = 32,
+    k_h2_hpack_decode_calls_per_validation = 3,
+    k_h2_hpack_decode_steps_per_validation =
+        k_h2_hpack_decode_steps_per_call * k_h2_hpack_decode_calls_per_validation,
+    k_h2_hpack_max_validation_calls =
+        (k_hpack_tp_max_scan + k_h2_hpack_decode_steps_per_validation - 1) /
+        k_h2_hpack_decode_steps_per_validation,
+    // Fifteen parser steps per verifier-safe program require at most sixteen
+    // self-continuations to cover the complete 247-byte scan window. The
+    // initial detect-to-scanner call is part of the fixed frame cost below.
+    k_h2_hpack_max_scan_tail_calls = 16,
+    // Generic HTTP/2 entry uses two tail calls before frame scanning. One
+    // accepted block reserves the worst possible parser and decoder passes,
+    // plus the maintenance END_STREAM transition. Supporting a second block
+    // requires reducing those stages first; otherwise legal dense HPACK can
+    // exhaust the kernel's 33-call chain.
+    k_h2_server_entry_tail_calls = 2,
+    k_h2_server_fixed_tail_calls_per_block = 5,
+    k_h2_server_max_parser_passes = (k_hpack_tp_max_scan + k_h2_hpack_parse_steps_per_call - 1) /
+                                    k_h2_hpack_parse_steps_per_call,
+    k_h2_server_max_decoder_passes = (k_hpack_tp_max_scan + k_h2_hpack_decode_steps_per_call - 1) /
+                                     k_h2_hpack_decode_steps_per_call,
+    k_h2_max_coalesced_header_blocks = 1,
+    k_h2_tail_call_limit = 33,
+    k_h2_tail_calls_before_frames = 2,
+    k_h2_tail_calls_between_frames = k_h2_max_frames_per_packet - 1,
+    k_h2_tail_calls_per_max_existing_frame =
+        k_h2_hpack_max_validation_calls + 4 + k_h2_hpack_max_scan_tail_calls,
+    k_h2_tail_calls_per_rewrite_retry_frame = 1 + 4 + 2 + k_h2_hpack_max_scan_tail_calls,
+    // Four inexpensive frames remain supported. One individually maximal
+    // scanner/decoder path fits in a kernel chain; runtime accounting caps
+    // mixed-cost batches before a later frame exhausts the chain.
+    k_h2_max_worst_case_frames_per_packet = 1,
 
     // --- Full HPACK traceparent entry sizes ---
     k_h2_tp_hpack_size = k_hpack_tp_val_offset + k_hpack_value_len_tp,
     k_h2_tp_hpack_huffman_size = k_hpack_tp_val_offset_huffman + k_hpack_value_len_tp,
 };
 
+static __always_inline u32 h2_server_tail_depth(u32 blocks,
+                                                u32 parser_passes_per_block,
+                                                u32 decoder_passes_per_block) {
+    return k_h2_server_entry_tail_calls +
+           blocks * (k_h2_server_fixed_tail_calls_per_block + parser_passes_per_block +
+                     decoder_passes_per_block);
+}
+
+_Static_assert(k_h2_server_entry_tail_calls +
+                       k_h2_max_coalesced_header_blocks *
+                           (k_h2_server_fixed_tail_calls_per_block + k_h2_server_max_parser_passes +
+                            k_h2_server_max_decoder_passes) <=
+                   k_h2_tail_call_limit,
+               "one maximal server HPACK block must fit the tail-call budget");
+_Static_assert(k_h2_server_entry_tail_calls +
+                       (k_h2_max_coalesced_header_blocks + 1) *
+                           (k_h2_server_fixed_tail_calls_per_block + k_h2_server_max_parser_passes +
+                            k_h2_server_max_decoder_passes) >
+                   k_h2_tail_call_limit,
+               "a second maximal block must be rejected before its tail-call chain");
+
+_Static_assert(k_h2_tail_calls_before_frames +
+                       k_h2_max_worst_case_frames_per_packet *
+                           k_h2_tail_calls_per_max_existing_frame +
+                       (k_h2_max_worst_case_frames_per_packet - 1) <=
+                   k_h2_tail_call_limit,
+               "maximal H2 traceparents exceed the tail-call budget");
+_Static_assert(k_h2_tail_calls_before_frames +
+                       k_h2_max_worst_case_frames_per_packet *
+                           k_h2_tail_calls_per_rewrite_retry_frame +
+                       (k_h2_max_worst_case_frames_per_packet - 1) <=
+                   k_h2_tail_call_limit,
+               "H2 rewrite retries exceed the tail-call budget");
+_Static_assert(k_h2_tail_calls_before_frames +
+                       (k_h2_max_worst_case_frames_per_packet + 1) *
+                           k_h2_tail_calls_per_max_existing_frame +
+                       k_h2_max_worst_case_frames_per_packet >
+                   k_h2_tail_call_limit,
+               "worst-case H2 frame bound no longer models the tail-call limit");
+
 static const char k_hpack_tp_name[] = "traceparent";
 // huffman-encoded "traceparent" (grpc-go HPACK encoder)
 static const unsigned char k_hpack_tp_huffman[] = {0x4d, 0x83, 0x21, 0x6b, 0x1d, 0x85, 0xa9, 0x3f};
+
+static __always_inline u8 h2_frame_can_append(u32 payload_len, u32 append_len) {
+    return append_len <= k_h2_default_max_frame_size &&
+           payload_len <= k_h2_default_max_frame_size - append_len;
+}
 
 // PADDED/PRIORITY bytes that sit between the frame header and the HPACK block
 static __always_inline u32 h2_hpack_prefix_len(u8 flags) {
@@ -195,6 +278,358 @@ static __always_inline u8 h2_hpack_opens_response(u8 b) {
 
     return form == k_hpack_literal_incr_index || form == k_hpack_literal_never_index ||
            form == k_hpack_literal_no_index;
+}
+
+typedef struct h2_hpack_block {
+    u16 len;
+    u8 complete;
+    u8 valid;
+} h2_hpack_block_t;
+
+typedef struct h2_request_frame_cursor {
+    u32 payload_remaining;
+    unsigned char header[k_h2_frame_header_len];
+    u8 header_len;
+    u8 _pad[2];
+} h2_request_frame_cursor_t;
+
+static __always_inline void h2_request_frame_cursor_reset(h2_request_frame_cursor_t *cursor) {
+    cursor->payload_remaining = 0;
+    cursor->header_len = 0;
+}
+
+static __always_inline u8 h2_request_frame_cursor_active(const h2_request_frame_cursor_t *cursor) {
+    return cursor && (cursor->payload_remaining || cursor->header_len);
+}
+
+static __always_inline u32 h2_raw_frame_length(const unsigned char *header) {
+    return ((u32)header[0] << 16) | ((u32)header[1] << 8) | (u32)header[2];
+}
+
+static __always_inline u32 h2_raw_frame_stream_id(const unsigned char *header) {
+    return ((u32)(header[5] & ~(u8)k_h2_reserved_bit_mask) << 24) | ((u32)header[6] << 16) |
+           ((u32)header[7] << 8) | header[8];
+}
+
+// On an established connection the reserved stream bit is ignored and every
+// unknown 8-bit frame type is skippable. Only known stream-scoped frame types
+// require a nonzero stream identifier.
+static __always_inline u8 h2_tracked_frame_stream_valid(u8 type, u32 stream_id) {
+    switch (type) {
+    case k_h2_frame_data:
+    case k_h2_frame_headers:
+    case k_h2_frame_priority:
+    case k_h2_frame_rst_stream:
+    case k_h2_frame_push_promise:
+    case k_h2_frame_continuation:
+        return stream_id != 0;
+    default:
+        return 1;
+    }
+}
+
+// A request header block can span both frames and socket callbacks. Keep the
+// framing cursor and the bounded HPACK bytes together so a later callback can
+// resume without treating CONTINUATION payload as a new frame header.
+typedef struct h2_hpack_stream_state {
+    unsigned char block[k_hpack_tp_max_scan];
+    unsigned char raw[k_kprobes_http2_buf_size];
+    unsigned char frame_header[k_h2_frame_header_len];
+    u32 stream_id;
+    u32 frame_length;
+    u32 frame_offset;
+    u16 block_len;
+    u16 raw_len;
+    u8 frame_header_len;
+    u8 frame_type;
+    u8 frame_flags;
+    u8 frame_count;
+    u8 direction;
+    u8 padding;
+    u8 active;
+    u8 complete;
+    u8 invalid;
+    u8 framing_invalid;
+    u8 raw_truncated;
+    u8 end_stream;
+    u8 maintenance;
+    u8 _pad[3];
+} h2_hpack_stream_state_t;
+
+static __always_inline void h2_hpack_stream_reset(h2_hpack_stream_state_t *state) {
+    state->stream_id = 0;
+    state->frame_length = 0;
+    state->frame_offset = 0;
+    state->block_len = 0;
+    state->raw_len = 0;
+    state->frame_header_len = 0;
+    state->frame_type = 0;
+    state->frame_flags = 0;
+    state->frame_count = 0;
+    state->direction = 0;
+    state->padding = 0;
+    state->active = 0;
+    state->complete = 0;
+    state->invalid = 0;
+    state->framing_invalid = 0;
+    state->raw_truncated = 0;
+    state->end_stream = 0;
+    state->maintenance = 0;
+}
+
+static __always_inline void h2_hpack_stream_begin(h2_hpack_stream_state_t *state, u8 direction) {
+    h2_hpack_stream_reset(state);
+    state->direction = direction;
+    state->active = 1;
+}
+
+static __always_inline void h2_hpack_stream_fail_framing(h2_hpack_stream_state_t *state) {
+    state->invalid = 1;
+    state->framing_invalid = 1;
+    state->complete = 1;
+}
+
+static __always_inline void h2_hpack_stream_append_raw(h2_hpack_stream_state_t *state, u8 byte) {
+    if (state->raw_len >= k_kprobes_http2_buf_size) {
+        state->raw_truncated = 1;
+        return;
+    }
+    u32 pos = state->raw_len;
+    bpf_clamp_umax(pos, k_kprobes_http2_buf_size - 1);
+    state->raw[pos] = byte;
+    state->raw_len++;
+}
+
+static __always_inline void h2_hpack_stream_append_block(h2_hpack_stream_state_t *state, u8 byte) {
+    if (state->block_len >= k_hpack_tp_max_scan) {
+        // The bounded scanner cannot mirror insertions after this point. Keep
+        // consuming framing, but make the whole connection table fail closed.
+        state->invalid = 1;
+        return;
+    }
+    u32 pos = state->block_len;
+    bpf_clamp_umax(pos, k_hpack_tp_max_scan - 1);
+    state->block[pos] = byte;
+    state->block_len++;
+}
+
+static __always_inline void h2_hpack_stream_finish_frame(h2_hpack_stream_state_t *state) {
+    if (state->frame_flags & k_h2_flag_end_headers) {
+        state->complete = 1;
+        return;
+    }
+    state->frame_header_len = 0;
+    state->frame_length = 0;
+    state->frame_offset = 0;
+    state->frame_type = 0;
+    state->frame_flags = 0;
+    state->padding = 0;
+}
+
+static __always_inline void h2_hpack_stream_accept_header(h2_hpack_stream_state_t *state) {
+    const unsigned char *header = state->frame_header;
+    const u32 frame_length = h2_raw_frame_length(header);
+    const u8 type = header[3];
+    const u8 flags = header[4];
+    const u32 stream_id = h2_raw_frame_stream_id(header);
+    const u8 first = state->frame_count == 0;
+
+    if (frame_length > k_h2_max_frame_len || !stream_id ||
+        (first && (type != k_h2_frame_headers ||
+                   (flags & ~(u8)(k_h2_flag_end_stream | k_h2_flag_end_headers |
+                                  k_h2_flag_priority | k_h2_flag_padded)) ||
+                   frame_length < h2_hpack_prefix_len(flags))) ||
+        (!first && (type != k_h2_frame_continuation || stream_id != state->stream_id ||
+                    (flags & ~(u8)k_h2_flag_end_headers)))) {
+        h2_hpack_stream_fail_framing(state);
+        return;
+    }
+
+    if (first) {
+        state->stream_id = stream_id;
+        state->end_stream = !!(flags & k_h2_flag_end_stream);
+    }
+    if (state->frame_count < 0xff) {
+        state->frame_count++;
+    }
+    if (state->frame_count > k_h2_max_header_fragments) {
+        // Beyond this point even the frame headers do not fit in the bounded
+        // retained observation, so the table can no longer be authoritative.
+        state->invalid = 1;
+    }
+    state->frame_length = frame_length;
+    state->frame_offset = 0;
+    state->frame_type = type;
+    state->frame_flags = flags;
+    state->padding = 0;
+    if (!frame_length) {
+        h2_hpack_stream_finish_frame(state);
+    }
+}
+
+// Consume up to one bounded callback chunk. consumed tells the caller where
+// the logical header block ended when more frames follow in the same buffer.
+static __noinline __attribute__((unused)) void h2_hpack_stream_consume(
+    h2_hpack_stream_state_t *state, const unsigned char *chunk, u32 available, u16 *consumed) {
+    if (consumed) {
+        *consumed = 0;
+    }
+    if (!state || !chunk || !state->active || state->complete ||
+        available > k_kprobes_http2_buf_size) {
+        if (state && state->active && !state->complete) {
+            h2_hpack_stream_fail_framing(state);
+        }
+        return;
+    }
+
+#pragma clang loop unroll(disable)
+    for (u16 i = 0; i < k_kprobes_http2_buf_size; i++) {
+        if (i >= available || state->complete) {
+            break;
+        }
+        u32 chunk_pos = i;
+        bpf_clamp_umax(chunk_pos, k_kprobes_http2_buf_size - 1);
+        const u8 byte = chunk[chunk_pos];
+        h2_hpack_stream_append_raw(state, byte);
+
+        if (state->frame_header_len < k_h2_frame_header_len) {
+            u32 header_pos = state->frame_header_len;
+            bpf_clamp_umax(header_pos, k_h2_frame_header_len - 1);
+            state->frame_header[header_pos] = byte;
+            state->frame_header_len++;
+            if (state->frame_header_len == k_h2_frame_header_len) {
+                h2_hpack_stream_accept_header(state);
+            }
+        } else {
+            const u32 payload_pos = state->frame_offset;
+            if (state->frame_type == k_h2_frame_headers) {
+                const u32 prefix = h2_hpack_prefix_len(state->frame_flags);
+                if ((state->frame_flags & k_h2_flag_padded) && payload_pos == 0) {
+                    state->padding = byte;
+                    if ((u32)state->padding > state->frame_length - prefix) {
+                        h2_hpack_stream_fail_framing(state);
+                    }
+                }
+                if (!state->framing_invalid && payload_pos >= prefix &&
+                    payload_pos < state->frame_length - state->padding) {
+                    h2_hpack_stream_append_block(state, byte);
+                }
+            } else if (!state->framing_invalid) {
+                h2_hpack_stream_append_block(state, byte);
+            }
+
+            state->frame_offset++;
+            if (state->frame_offset == state->frame_length) {
+                h2_hpack_stream_finish_frame(state);
+            }
+        }
+
+        if (consumed) {
+            *consumed = i + 1;
+        }
+    }
+}
+
+static __always_inline u8 h2_hpack_stream_has_trailing_bytes(u32 available, u16 consumed) {
+    return (u32)consumed < available;
+}
+
+// Compact one HEADERS payload and its immediately following CONTINUATION
+// payloads into a single bounded HPACK block.
+static __noinline __attribute__((unused)) void h2_collect_hpack_block(const unsigned char *raw,
+                                                                      u32 available,
+                                                                      unsigned char *block,
+                                                                      h2_hpack_block_t *result) {
+    __builtin_memset(result, 0, sizeof(*result));
+    if (!raw || !block || available > k_kprobes_http2_buf_size) {
+        return;
+    }
+
+    u32 frame_pos = 0;
+    u32 block_pos = 0;
+    u32 continuation_stream = 0;
+
+#pragma clang loop unroll(disable)
+    for (u8 frame_index = 0; frame_index < k_h2_max_header_fragments; frame_index++) {
+        if (frame_pos > available || available - frame_pos < k_h2_frame_header_len) {
+            result->valid = frame_index != 0;
+            return;
+        }
+
+        u32 header_pos = frame_pos;
+        bpf_clamp_umax(header_pos, k_kprobes_http2_buf_size - k_h2_frame_header_len);
+        const u32 frame_len =
+            ((u32)raw[header_pos] << 16) | ((u32)raw[header_pos + 1] << 8) | raw[header_pos + 2];
+        const u8 type = raw[header_pos + 3];
+        const u8 flags = raw[header_pos + 4];
+        const u32 stream_id = ((u32)(raw[header_pos + 5] & ~k_h2_reserved_bit_mask) << 24) |
+                              ((u32)raw[header_pos + 6] << 16) | ((u32)raw[header_pos + 7] << 8) |
+                              raw[header_pos + 8];
+        if (!stream_id ||
+            (frame_index == 0 && (type != k_h2_frame_headers ||
+                                  (flags & ~(u8)(k_h2_flag_end_stream | k_h2_flag_end_headers |
+                                                 k_h2_flag_priority | k_h2_flag_padded)))) ||
+            (frame_index != 0 &&
+             (type != k_h2_frame_continuation || stream_id != continuation_stream ||
+              (flags & ~(u8)k_h2_flag_end_headers)))) {
+            result->valid = 0;
+            return;
+        }
+        if (!frame_index) {
+            continuation_stream = stream_id;
+        }
+
+        const u32 framed_len = k_h2_frame_header_len + frame_len;
+        if (frame_pos > available || framed_len > available - frame_pos) {
+            result->valid = 1;
+            return;
+        }
+
+        u32 prefix = 0;
+        u32 padding = 0;
+        if (!frame_index) {
+            prefix = h2_hpack_prefix_len(flags);
+            if (prefix > frame_len) {
+                return;
+            }
+            if (flags & k_h2_flag_padded) {
+                u32 pad_pos = frame_pos + k_h2_frame_header_len;
+                bpf_clamp_umax(pad_pos, k_kprobes_http2_buf_size - 1);
+                padding = raw[pad_pos];
+            }
+            if (padding > frame_len - prefix) {
+                return;
+            }
+        }
+
+        const u32 fragment_len = frame_len - prefix - padding;
+        if (fragment_len > k_hpack_tp_max_scan - block_pos) {
+            result->valid = 1;
+            return;
+        }
+        const u32 fragment_pos = frame_pos + k_h2_frame_header_len + prefix;
+
+#pragma clang loop unroll(disable)
+        for (u16 i = 0; i < k_hpack_tp_max_scan; i++) {
+            if (i >= fragment_len) {
+                break;
+            }
+            u32 source = fragment_pos + i;
+            u32 target = block_pos + i;
+            bpf_clamp_umax(source, k_kprobes_http2_buf_size - 1);
+            bpf_clamp_umax(target, k_hpack_tp_max_scan - 1);
+            block[target] = raw[source];
+        }
+        block_pos += fragment_len;
+
+        result->valid = 1;
+        result->len = block_pos;
+        if (flags & k_h2_flag_end_headers) {
+            result->complete = 1;
+            return;
+        }
+        frame_pos += framed_len;
+    }
 }
 
 // Shared state for the strict mid-stream H2 sniffers

@@ -12,10 +12,55 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
+
+func TestSpanOTELGetters_ManualServiceGraphEndpoints(t *testing.T) {
+	tests := []struct {
+		name       string
+		span       *Span
+		wantClient string
+		wantServer string
+	}{
+		{
+			name: "client span",
+			span: &Span{
+				Type:     EventTypeManualSpan,
+				SpanKind: trace.SpanKindClient,
+				HostName: "remote-service",
+				Service:  svc.Attrs{UID: svc.UID{Name: "local-service"}},
+			},
+			wantClient: "local-service",
+			wantServer: "remote-service",
+		},
+		{
+			name: "server span",
+			span: &Span{
+				Type:     EventTypeManualSpan,
+				SpanKind: trace.SpanKindServer,
+				PeerName: "remote-service",
+				Service:  svc.Attrs{UID: svc.UID{Name: "local-service"}},
+			},
+			wantClient: "remote-service",
+			wantServer: "local-service",
+		},
+	}
+
+	clientGetter, ok := spanOTELGetters(attr.Client)
+	require.True(t, ok)
+	serverGetter, ok := spanOTELGetters(attr.Server)
+	require.True(t, ok)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantClient, clientGetter(tt.span).Value.AsString())
+			assert.Equal(t, tt.wantServer, serverGetter(tt.span).Value.AsString())
+		})
+	}
+}
 
 func TestSpanOTELGetters_K8SClientNamespace(t *testing.T) {
 	tests := []struct {

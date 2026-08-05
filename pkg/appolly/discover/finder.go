@@ -34,6 +34,8 @@ type ProcessFinder struct {
 	doneChan         <-chan error
 }
 
+var _ ebpf.PIDAdmissionRetryController = (*gotracer.Tracer)(nil)
+
 func NewProcessFinder(
 	cfg *obi.Config,
 	ctxInfo *global.ContextInfo,

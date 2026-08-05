@@ -198,6 +198,8 @@ func TCPToSQLToSpan(trace *TCPRequestInfo, op string, tables []string, sql strin
 		SpanID:        trace.Tp.SpanId,
 		ParentSpanID:  trace.Tp.ParentId,
 		TraceFlags:    trace.Tp.Flags,
+		ParentRemote:  trace.Tp.ParentRemote != 0,
+		BPFDecision:   trace.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(trace.Pid.HostPid),
 			UserPID:   app.PID(trace.Pid.UserPid),

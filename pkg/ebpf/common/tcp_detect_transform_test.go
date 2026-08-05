@@ -5,6 +5,7 @@ package ebpfcommon
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +30,33 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
+
+func TestHTTP2MisclassificationHandlerHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var calls atomic.Int32
+	parseCtx := NewEBPFParseContext(
+		nil,
+		nil,
+		nil,
+		WithMisclassifiedEventHandler(ctx, func(context.Context, MisclassifiedEvent) {
+			calls.Add(1)
+		}),
+	)
+	frame := []byte{0, 0, 2, byte(FrameHeaders), 4, 0, 0, 0, 1, 0x82, 0x84}
+	event := &TCPRequestInfo{Len: uint32(len(frame))}
+
+	_, ignore, matched, err := matchHTTP2(
+		parseCtx,
+		event,
+		largebuf.NewLargeBufferFrom(frame),
+		largebuf.NewLargeBuffer(),
+	)
+	require.NoError(t, err)
+	require.True(t, matched)
+	require.True(t, ignore)
+	require.Zero(t, calls.Load(), "a canceled parser context does not enter recovery")
+}
 
 func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")

@@ -70,6 +70,9 @@ func readDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 			TraceID:       trace.TraceID(event.Tp.TraceId),
 			SpanID:        trace.SpanID(event.Tp.SpanId),
 			ParentSpanID:  trace.SpanID(event.Tp.ParentId),
+			TraceFlags:    event.Tp.Flags,
+			ParentRemote:  event.Tp.ParentRemote != 0,
+			BPFDecision:   event.Tp.SamplingDecision != 0,
 			Status:        int(-1),
 			Pid: request.PidInfo{
 				HostPID:   app.PID(event.Pid.HostPid),

@@ -7,6 +7,7 @@ package exec // import "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 import (
 	"debug/elf"
 	"maps"
+	"os"
 	"strings"
 	"sync"
 
@@ -31,9 +32,11 @@ type Init struct {
 	ELF            *elf.File
 	Pid            app.PID
 	Ppid           app.PID
+	StartTime      uint64
 	Dev            uint64
 	Ino            uint64
 	Ns             uint32
+	ProcessRoot    *os.File
 }
 
 type FileInfo struct {
@@ -44,9 +47,11 @@ type FileInfo struct {
 	elfFile        *elf.File
 	pid            app.PID
 	ppid           app.PID
+	startTime      uint64
 	dev            uint64
 	ino            uint64
 	ns             uint32
+	processRoot    *os.File
 }
 
 func New(init Init) *FileInfo {
@@ -57,9 +62,11 @@ func New(init Init) *FileInfo {
 		elfFile:        init.ELF,
 		pid:            init.Pid,
 		ppid:           init.Ppid,
+		startTime:      init.StartTime,
 		dev:            init.Dev,
 		ino:            init.Ino,
 		ns:             init.Ns,
+		processRoot:    init.ProcessRoot,
 	}
 }
 
@@ -68,12 +75,65 @@ func New(init Init) *FileInfo {
 
 func (fi *FileInfo) Pid() app.PID           { return fi.pid }
 func (fi *FileInfo) Ppid() app.PID          { return fi.ppid }
+func (fi *FileInfo) StartTime() uint64      { return fi.startTime }
 func (fi *FileInfo) Dev() uint64            { return fi.dev }
 func (fi *FileInfo) Ino() uint64            { return fi.ino }
 func (fi *FileInfo) Ns() uint32             { return fi.ns }
 func (fi *FileInfo) CmdExePath() string     { return fi.cmdExePath }
 func (fi *FileInfo) ProExeLinkPath() string { return fi.proExeLinkPath }
 func (fi *FileInfo) ELF() *elf.File         { return fi.elfFile }
+
+// CloseProcessRoot releases an unclaimed discovery-time process handle.
+func (fi *FileInfo) CloseProcessRoot() error {
+	root := fi.TakeProcessRoot()
+	if root == nil {
+		return nil
+	}
+	return root.Close()
+}
+
+// TakeProcessRoot transfers ownership of the discovery-time process handle.
+func (fi *FileInfo) TakeProcessRoot() *os.File {
+	if fi == nil {
+		return nil
+	}
+	fi.mu.Lock()
+	root := fi.processRoot
+	fi.processRoot = nil
+	fi.mu.Unlock()
+	return root
+}
+
+// InstallProcessRoot transfers ownership of root to fi when no process root is
+// currently installed. The caller retains ownership when this returns false.
+func (fi *FileInfo) InstallProcessRoot(root *os.File) bool {
+	if fi == nil || root == nil {
+		return false
+	}
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	if fi.processRoot != nil {
+		return false
+	}
+	fi.processRoot = root
+	return true
+}
+
+// TakeProcessRootIf transfers ownership only when root is still the installed
+// process root. It lets a temporary owner reclaim its exact unclaimed handle
+// without disturbing a handle installed by another owner.
+func (fi *FileInfo) TakeProcessRootIf(root *os.File) *os.File {
+	if fi == nil || root == nil {
+		return nil
+	}
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	if fi.processRoot != root {
+		return nil
+	}
+	fi.processRoot = nil
+	return root
+}
 
 func (fi *FileInfo) ExecutableName() string {
 	parts := strings.Split(fi.cmdExePath, "/")

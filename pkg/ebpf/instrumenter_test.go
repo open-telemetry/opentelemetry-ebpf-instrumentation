@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -265,7 +266,7 @@ func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 		}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbes(nil, probes)
 	require.NoError(t, err)
 	assert.Empty(t, closers)
 	assert.False(t, attached["skipped_optional_symbol"])
@@ -469,6 +470,311 @@ func TestGatherGoProbeGroupOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
 	assert.True(t, group.Probes[1].Probe.Skip)
 	assert.False(t, group.Probes[2].Probe.Skip)
 	assert.Equal(t, uint64(0x30), group.Probes[2].Probe.StartOffset)
+}
+
+func TestInstrumentProbesReportsOptionalReturnAttachmentFailure(t *testing.T) {
+	i := &instrumenter{}
+	probes := probeDescMap{
+		"optional_return": {{
+			End: &ebpf.Program{},
+		}},
+	}
+
+	closers, attached, err := i.instrumentProbes(nil, probes)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached["optional_return"])
+}
+
+func TestInstrumentProbesAggregatesDescriptorsBySymbol(t *testing.T) {
+	i := &instrumenter{}
+	probes := probeDescMap{
+		"partially_attached": {
+			{Skip: true},
+			{},
+		},
+	}
+
+	closers, attached, err := i.instrumentProbes(nil, probes)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached["partially_attached"])
+}
+
+type fakeGoAutoSDKAdmissionEntryRecorder struct {
+	admit       bool
+	beginCalls  int
+	finishCalls int
+	entry       io.Closer
+	attachErr   error
+}
+
+func (r *fakeGoAutoSDKAdmissionEntryRecorder) BeginGoAutoSDKAdmissionEntryAttachment(
+	*exec.FileInfo,
+	string,
+) bool {
+	r.beginCalls++
+	return r.admit
+}
+
+func (r *fakeGoAutoSDKAdmissionEntryRecorder) FinishGoAutoSDKAdmissionEntryAttachment(
+	_ *exec.FileInfo,
+	_ string,
+	entry io.Closer,
+	attachErr error,
+) {
+	r.finishCalls++
+	r.entry = entry
+	r.attachErr = attachErr
+}
+
+func TestInstrumentProbesGatesAdmissionEntryBeforeAttach(t *testing.T) {
+	recorder := &fakeGoAutoSDKAdmissionEntryRecorder{admit: false}
+	attachCalls := 0
+	i := &instrumenter{
+		attachUprobe: func(
+			*link.Executable,
+			*ebpfcommon.ProbeDesc,
+		) ([]io.Closer, error) {
+			attachCalls++
+			return nil, nil
+		},
+	}
+	probes := probeDescMap{
+		"go.opentelemetry.io/auto/sdk.tracer.Start": {{
+			Start: &ebpf.Program{},
+		}},
+	}
+
+	closers, attached, err := i.instrumentProbesWithAdmissionEntryRecorder(
+		nil,
+		probes,
+		exec.New(exec.Init{Ino: 1}),
+		recorder,
+	)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached["go.opentelemetry.io/auto/sdk.tracer.Start"])
+	assert.Equal(t, 1, recorder.beginCalls)
+	assert.Zero(t, recorder.finishCalls)
+	assert.Zero(t, attachCalls)
+}
+
+func TestInstrumentProbesHandsPartialAdmissionEntryToGate(t *testing.T) {
+	partialErr := errors.New("return attachment failed")
+	rawEntry := &countingCloser{}
+	recorder := &fakeGoAutoSDKAdmissionEntryRecorder{admit: true}
+	i := &instrumenter{
+		attachUprobe: func(
+			*link.Executable,
+			*ebpfcommon.ProbeDesc,
+		) ([]io.Closer, error) {
+			return []io.Closer{rawEntry}, partialErr
+		},
+	}
+	const symbol = "go.opentelemetry.io/auto/sdk.(*tracer).Start"
+	probes := probeDescMap{
+		symbol: {{
+			Start: &ebpf.Program{},
+			End:   &ebpf.Program{},
+		}},
+	}
+
+	closers, attached, err := i.instrumentProbesWithAdmissionEntryRecorder(
+		nil,
+		probes,
+		exec.New(exec.Init{Ino: 1}),
+		recorder,
+	)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached[symbol])
+	assert.Equal(t, 1, recorder.beginCalls)
+	assert.Equal(t, 1, recorder.finishCalls)
+	require.ErrorIs(t, recorder.attachErr, partialErr)
+	require.NotNil(t, recorder.entry)
+	assert.Zero(t, rawEntry.closes.Load(),
+		"the gate owns rollback of the partially attached entry")
+	require.NoError(t, recorder.entry.Close())
+	assert.Equal(t, int32(1), rawEntry.closes.Load())
+}
+
+func TestOrderedUprobeAttachmentsCanAttachStartLast(t *testing.T) {
+	start := &ebpf.Program{}
+	end := &ebpf.Program{}
+	attachments, err := orderedUprobeAttachments(&ebpfcommon.ProbeDesc{
+		Start:           start,
+		End:             end,
+		StartOffset:     10,
+		ReturnOffsets:   []uint64{20, 30},
+		AttachStartLast: true,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, attachments, 3)
+	assert.Same(t, end, attachments[0].program)
+	assert.Equal(t, uint64(20), attachments[0].offset)
+	assert.Same(t, end, attachments[1].program)
+	assert.Equal(t, uint64(30), attachments[1].offset)
+	assert.Same(t, start, attachments[2].program)
+	assert.Equal(t, uint64(10), attachments[2].offset)
+}
+
+func TestOrderedUprobeAttachmentsRejectsStartLastWithoutReturns(t *testing.T) {
+	attachments, err := orderedUprobeAttachments(&ebpfcommon.ProbeDesc{
+		Start:           &ebpf.Program{},
+		End:             &ebpf.Program{},
+		StartOffset:     10,
+		AttachStartLast: true,
+	})
+
+	require.Error(t, err)
+	assert.Empty(t, attachments)
+}
+
+func TestOrderedUprobeAttachmentsRejectsStartLastWithoutEnd(t *testing.T) {
+	attachments, err := orderedUprobeAttachments(&ebpfcommon.ProbeDesc{
+		Start:           &ebpf.Program{},
+		StartOffset:     10,
+		ReturnOffsets:   []uint64{20},
+		AttachStartLast: true,
+	})
+
+	require.Error(t, err)
+	assert.Empty(t, attachments)
+}
+
+func TestInstrumentProbesDoesNotRetainReturnAsStartLastEntry(t *testing.T) {
+	partialErr := errors.New("entry attachment failed")
+	rawReturn := &countingCloser{}
+	recorder := &fakeGoAutoSDKAdmissionEntryRecorder{admit: true}
+	i := &instrumenter{
+		attachUprobe: func(
+			*link.Executable,
+			*ebpfcommon.ProbeDesc,
+		) ([]io.Closer, error) {
+			return []io.Closer{rawReturn}, partialErr
+		},
+	}
+	const symbol = "go.opentelemetry.io/otel/internal/global.(*tracer).newSpan"
+	probes := probeDescMap{
+		symbol: {{
+			Start:           &ebpf.Program{},
+			End:             &ebpf.Program{},
+			AttachStartLast: true,
+		}},
+	}
+
+	closers, attached, err := i.instrumentProbesWithAdmissionEntryRecorder(
+		nil,
+		probes,
+		exec.New(exec.Init{Ino: 1}),
+		recorder,
+	)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached[symbol])
+	assert.Equal(t, 1, recorder.beginCalls)
+	assert.Equal(t, 1, recorder.finishCalls)
+	require.ErrorIs(t, recorder.attachErr, partialErr)
+	assert.Nil(t, recorder.entry)
+	assert.Equal(t, int32(1), rawReturn.closes.Load())
+}
+
+func TestInstrumentProbesHandsStartLastEntryToGate(t *testing.T) {
+	rawReturn := &countingCloser{}
+	rawEntry := &countingCloser{}
+	recorder := &fakeGoAutoSDKAdmissionEntryRecorder{admit: true}
+	i := &instrumenter{
+		attachUprobe: func(
+			*link.Executable,
+			*ebpfcommon.ProbeDesc,
+		) ([]io.Closer, error) {
+			return []io.Closer{rawReturn, rawEntry}, nil
+		},
+	}
+	const symbol = "go.opentelemetry.io/otel/internal/global.(*tracer).newSpan"
+	probes := probeDescMap{
+		symbol: {{
+			Start:           &ebpf.Program{},
+			End:             &ebpf.Program{},
+			AttachStartLast: true,
+		}},
+	}
+
+	closers, attached, err := i.instrumentProbesWithAdmissionEntryRecorder(
+		nil,
+		probes,
+		exec.New(exec.Init{Ino: 1}),
+		recorder,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, attached[symbol])
+	require.Len(t, closers, 2)
+	require.NotNil(t, recorder.entry)
+	require.NoError(t, recorder.entry.Close())
+	assert.Zero(t, rawReturn.closes.Load())
+	assert.Equal(t, int32(1), rawEntry.closes.Load())
+	closeAll(closers)
+	assert.Equal(t, int32(1), rawReturn.closes.Load())
+	assert.Equal(t, int32(1), rawEntry.closes.Load())
+}
+
+func TestCloseAllReversesAttachmentOrder(t *testing.T) {
+	var closed []int
+	closeAll([]io.Closer{
+		recordingCloser{id: 1, closed: &closed},
+		recordingCloser{id: 2, closed: &closed},
+		recordingCloser{id: 3, closed: &closed},
+	})
+
+	assert.Equal(t, []int{3, 2, 1}, closed)
+}
+
+type recordingCloser struct {
+	id     int
+	closed *[]int
+}
+
+func (c recordingCloser) Close() error {
+	*c.closed = append(*c.closed, c.id)
+	return nil
+}
+
+type retrySequenceCloser struct {
+	mu     sync.Mutex
+	errors []error
+	closes int
+}
+
+func (c *retrySequenceCloser) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closes++
+	if len(c.errors) == 0 {
+		return nil
+	}
+	err := c.errors[0]
+	c.errors = c.errors[1:]
+	return err
+}
+
+func TestRetryableSharedCloserRetriesOnlyFailures(t *testing.T) {
+	transientErr := errors.New("transient close failure")
+	raw := &retrySequenceCloser{errors: []error{transientErr, nil}}
+	closer := newRetryableSharedCloser(raw)
+
+	require.ErrorIs(t, closer.Close(), transientErr)
+	require.NoError(t, closer.Close())
+	require.NoError(t, closer.Close())
+
+	assert.Equal(t, 2, raw.closes)
 }
 
 func TestMatchVersionedUprobeLibrary(t *testing.T) {
@@ -742,6 +1048,28 @@ type processScopedGoProbeRecorder struct {
 	unregistered   []ExecutableKey
 }
 
+type readinessProcessScopedTracer struct {
+	stubTracer
+	ready          bool
+	registeredKeys []ExecutableKey
+	unregistered   []ExecutableKey
+}
+
+func (r *readinessProcessScopedTracer) ExecutableUnlinkReady(*exec.FileInfo) bool {
+	return r.ready
+}
+
+func (r *readinessProcessScopedTracer) RegisterProcessScopedGoProbe(
+	key ExecutableKey,
+	_ ebpfcommon.GoProbe,
+) {
+	r.registeredKeys = append(r.registeredKeys, key)
+}
+
+func (r *readinessProcessScopedTracer) UnregisterProcessScopedGoProbes(key ExecutableKey) {
+	r.unregistered = append(r.unregistered, key)
+}
+
 func (r *processScopedGoProbeRecorder) RegisterProcessScopedGoProbe(
 	key ExecutableKey,
 	_ ebpfcommon.GoProbe,
@@ -779,11 +1107,12 @@ func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
 	linkCloser := &countingCloser{}
 	groupCloser := &reverseCloser{closers: []io.Closer{linkCloser}}
 	i := &instrumenter{
-		optionalGoProbeGroupClosers: []io.Closer{groupCloser},
+		closables: []io.Closer{groupCloser},
 	}
 
-	i.rollbackOptionalGoProbeGroups()
-	i.rollbackOptionalGoProbeGroups()
+	pt := &ProcessTracer{}
+	require.NoError(t, pt.closeInstrumenter(i))
+	require.NoError(t, pt.closeInstrumenter(i))
 
 	assert.Equal(t, int32(1), linkCloser.closes.Load())
 }
@@ -800,12 +1129,10 @@ func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
 	oldInstrumenter := &instrumenter{
 		key:       key,
 		closables: []io.Closer{oldCloser},
-		modules:   map[uint64]struct{}{},
 	}
 	newInstrumenter := &instrumenter{
 		key:       key,
 		closables: []io.Closer{newCloser},
-		modules:   map[uint64]struct{}{},
 	}
 	oldExecutable := &Instrumentable{FileInfo: fileInfo}
 	newExecutable := &Instrumentable{FileInfo: fileInfo}
@@ -828,43 +1155,135 @@ func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
 	assert.Equal(t, int32(1), newCloser.closes.Load())
 }
 
-func TestGoInstrumenterSharedAcrossDevices(t *testing.T) {
+func TestGoInstrumenterIsNotSharedAcrossDevices(t *testing.T) {
 	firstKey := ExecutableKey{Dev: 5, Ino: 10}
 	secondKey := ExecutableKey{Dev: 6, Ino: 10}
 	firstFileInfo := exec.New(exec.Init{Dev: firstKey.Dev, Ino: firstKey.Ino})
 	secondFileInfo := exec.New(exec.Init{Dev: secondKey.Dev, Ino: secondKey.Ino})
-	closer := &countingCloser{}
+	firstCloser := &countingCloser{}
+	secondCloser := &countingCloser{}
 	pt := &ProcessTracer{
 		Type:            Go,
 		Instrumentables: map[ExecutableKey]*instrumenter{},
 	}
-	shared := &instrumenter{
+	firstInstrumenter := &instrumenter{
 		key:       firstKey,
-		closables: []io.Closer{closer},
-		modules:   map[uint64]struct{}{},
+		closables: []io.Closer{firstCloser},
+	}
+	secondInstrumenter := &instrumenter{
+		key:       secondKey,
+		closables: []io.Closer{secondCloser},
 	}
 	firstExecutable := &Instrumentable{FileInfo: firstFileInfo}
 	secondExecutable := &Instrumentable{FileInfo: secondFileInfo}
 
-	pt.commitInstrumenter(shared, firstExecutable)
-	require.NoError(t, pt.NewExecutable(nil, secondExecutable))
+	pt.commitInstrumenter(firstInstrumenter, firstExecutable)
+	assert.False(t, pt.reuseGoInstrumenterLocked(secondExecutable))
+	pt.commitInstrumenter(secondInstrumenter, secondExecutable)
 
-	assert.Same(t, shared, pt.Instrumentables[firstKey])
-	assert.Same(t, shared, pt.Instrumentables[secondKey])
-	assert.Equal(t, uint64(2), shared.references)
+	assert.Same(t, firstInstrumenter, pt.Instrumentables[firstKey])
+	assert.Same(t, secondInstrumenter, pt.Instrumentables[secondKey])
+	assert.Equal(t, uint64(1), firstInstrumenter.references)
+	assert.Equal(t, uint64(1), secondInstrumenter.references)
 	assert.NotEqual(t, firstExecutable.ExecutableGeneration, secondExecutable.ExecutableGeneration)
 
 	pt.UnlinkExecutable(firstFileInfo, firstExecutable.ExecutableGeneration)
 
 	assert.NotContains(t, pt.Instrumentables, firstKey)
 	assert.Contains(t, pt.Instrumentables, secondKey)
-	assert.Equal(t, int32(0), closer.closes.Load())
+	assert.Equal(t, int32(1), firstCloser.closes.Load())
+	assert.Equal(t, int32(0), secondCloser.closes.Load())
 
 	pt.UnlinkExecutable(secondFileInfo, secondExecutable.ExecutableGeneration)
 
 	assert.Empty(t, pt.Instrumentables)
-	assert.Empty(t, pt.goInstrumentablesByInode)
-	assert.Equal(t, int32(1), closer.closes.Load())
+	assert.Equal(t, int32(1), secondCloser.closes.Load())
+}
+
+func TestGoInstrumenterSameKeyReusePreservesLiveInstrumenter(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	fileInfo := exec.New(exec.Init{Dev: key.Dev, Ino: key.Ino})
+	closer := &countingCloser{}
+	program := &readinessProcessScopedTracer{ready: true}
+	shared := &instrumenter{
+		key:       key,
+		closables: []io.Closer{closer},
+		processScopedGoProbes: []processScopedGoProbeRegistration{{
+			tracer: program,
+			probe:  ebpfcommon.GoProbe{Symbol: "newSpan", ProcessScoped: true},
+		}},
+	}
+	pt := &ProcessTracer{
+		Type:            Go,
+		Programs:        []Tracer{program},
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	first := &Instrumentable{FileInfo: fileInfo}
+	second := &Instrumentable{FileInfo: fileInfo}
+
+	pt.commitInstrumenter(shared, first)
+	require.NoError(t, pt.NewExecutable(nil, second))
+
+	assert.NotEqual(t, first.ExecutableGeneration, second.ExecutableGeneration)
+	assert.Same(t, shared, pt.Instrumentables[key])
+	assert.Equal(t, uint64(1), shared.references)
+	assert.Zero(t, closer.closes.Load())
+	assert.Equal(t, []ExecutableKey{key}, program.registeredKeys)
+	assert.Empty(t, program.unregistered)
+}
+
+func TestGoInstrumentersOnDifferentDevicesWaitForTheirOwnCleanup(t *testing.T) {
+	firstKey := ExecutableKey{Dev: 5, Ino: 10}
+	secondKey := ExecutableKey{Dev: 6, Ino: 10}
+	firstFileInfo := exec.New(exec.Init{Dev: firstKey.Dev, Ino: firstKey.Ino})
+	secondFileInfo := exec.New(exec.Init{Dev: secondKey.Dev, Ino: secondKey.Ino})
+	firstCloser := &countingCloser{}
+	secondCloser := &countingCloser{}
+	program := &readinessProcessScopedTracer{}
+	firstInstrumenter := &instrumenter{
+		key:       firstKey,
+		closables: []io.Closer{firstCloser},
+		processScopedGoProbes: []processScopedGoProbeRegistration{{
+			tracer: program,
+			probe:  ebpfcommon.GoProbe{Symbol: "newSpan", ProcessScoped: true},
+		}},
+	}
+	secondInstrumenter := &instrumenter{
+		key:       secondKey,
+		closables: []io.Closer{secondCloser},
+		processScopedGoProbes: []processScopedGoProbeRegistration{{
+			tracer: program,
+			probe:  ebpfcommon.GoProbe{Symbol: "newSpan", ProcessScoped: true},
+		}},
+	}
+	pt := &ProcessTracer{
+		Type:            Go,
+		Programs:        []Tracer{program},
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	first := &Instrumentable{FileInfo: firstFileInfo}
+	second := &Instrumentable{FileInfo: secondFileInfo}
+
+	pt.commitInstrumenter(firstInstrumenter, first)
+	pt.commitInstrumenter(secondInstrumenter, second)
+
+	assert.False(t, pt.UnlinkExecutable(firstFileInfo, first.ExecutableGeneration))
+	assert.Contains(t, pt.Instrumentables, firstKey)
+	assert.Empty(t, program.unregistered)
+	assert.Zero(t, firstCloser.closes.Load())
+	assert.Zero(t, secondCloser.closes.Load())
+
+	program.ready = true
+	assert.True(t, pt.UnlinkExecutable(firstFileInfo, first.ExecutableGeneration))
+	assert.NotContains(t, pt.Instrumentables, firstKey)
+	assert.Contains(t, pt.Instrumentables, secondKey)
+	assert.Equal(t, []ExecutableKey{firstKey}, program.unregistered)
+	assert.Equal(t, int32(1), firstCloser.closes.Load())
+	assert.Zero(t, secondCloser.closes.Load())
+
+	assert.True(t, pt.UnlinkExecutable(secondFileInfo, second.ExecutableGeneration))
+	assert.Equal(t, []ExecutableKey{firstKey, secondKey}, program.unregistered)
+	assert.Equal(t, int32(1), secondCloser.closes.Load())
 }
 
 type countingUSDTIPMap struct {

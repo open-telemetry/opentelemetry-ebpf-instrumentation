@@ -59,6 +59,12 @@ func GoKafkaSaramaToSpan(event *GoSaramaClientInfo, data *KafkaInfo) request.Spa
 		RequestStart:  int64(event.StartMonotimeNs),
 		Start:         int64(event.StartMonotimeNs),
 		End:           int64(event.EndMonotimeNs),
+		TraceID:       trace.TraceID(event.Tp.TraceId),
+		SpanID:        trace.SpanID(event.Tp.SpanId),
+		ParentSpanID:  trace.SpanID(event.Tp.ParentId),
+		TraceFlags:    event.Tp.Flags,
+		ParentRemote:  event.Tp.ParentRemote != 0,
+		BPFDecision:   event.Tp.SamplingDecision != 0,
 		Status:        0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),
@@ -101,6 +107,9 @@ func ReadGoKafkaGoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, e
 		TraceID:       trace.TraceID(event.Tp.TraceId),
 		SpanID:        trace.SpanID(event.Tp.SpanId),
 		ParentSpanID:  trace.SpanID(event.Tp.ParentId),
+		TraceFlags:    event.Tp.Flags,
+		ParentRemote:  event.Tp.ParentRemote != 0,
+		BPFDecision:   event.Tp.SamplingDecision != 0,
 		Status:        0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),

@@ -16,6 +16,9 @@ static __always_inline void init_failed_connect_tcp_req(tcp_req_t *req,
                                                         u64 connect_ts,
                                                         u64 end_ts,
                                                         u64 trace_ts,
+                                                        u64 process_start_time,
+                                                        u64 connection_time,
+                                                        u32 connection_netns,
                                                         u64 extra_id,
                                                         const pid_info *pid) {
     __builtin_memset(req, 0, sizeof(*req));
@@ -27,6 +30,9 @@ static __always_inline void init_failed_connect_tcp_req(tcp_req_t *req,
     req->direction = TCP_SEND;
     req->start_monotime_ns = connect_ts;
     req->end_monotime_ns = end_ts;
+    req->process_start_time = process_start_time;
+    req->connection_time = connection_time;
+    req->connection_netns = connection_netns;
     req->resp_len = 0;
     req->len = 0;
     req->req_len = req->len;

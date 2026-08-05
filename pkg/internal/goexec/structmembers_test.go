@@ -28,9 +28,12 @@ var (
 	autoSDKSpanData     *dwarf.Data
 	smallELF            *elf.File
 	smallGRPCElf        *elf.File
+	spanContextELF      *elf.File
 	smallSpanContextELF *elf.File
 	autoSDKSpanELF      *elf.File
 	smallAutoSDKSpanELF *elf.File
+	pieSpanContextELF   *elf.File
+	minimalAutoSDKELF   *elf.File
 )
 
 func compileELF(source string, extraArgs ...string) *elf.File {
@@ -68,7 +71,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	smallGRPCElf = compileELF(baseDir+"/internal/test/cmd/grpc/server/server.go", "-ldflags", "-s -w")
-	spanContextData, err = compileELF(baseDir + "/configs/offsets/oteltrace/inspect.go").DWARF()
+	spanContextELF = compileELF(baseDir + "/configs/offsets/oteltrace/inspect.go")
+	spanContextData, err = spanContextELF.DWARF()
 	if err != nil {
 		panic(err)
 	}
@@ -79,6 +83,17 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	smallAutoSDKSpanELF = compileELF(baseDir+"/configs/offsets/autosdk/inspect.go", "-ldflags", "-s -w")
+	pieSpanContextELF = compileELF(
+		baseDir+"/configs/offsets/oteltrace/inspect.go",
+		"-buildmode=pie",
+		"-ldflags",
+		"-s -w",
+	)
+	minimalAutoSDKELF = compileELF(
+		baseDir+"/pkg/internal/goexec/testdata/auto_sdk_minimal/main.go",
+		"-ldflags",
+		"-s -w",
+	)
 	m.Run()
 }
 
@@ -135,7 +150,27 @@ func TestGoOffsetsFromDwarf(t *testing.T) {
 		HchanDataqsizPos:  uint64(8),
 		HchanSendxPos:     uint64(48),
 		HchanRecvxPos:     uint64(56),
+		BufReaderBufPos:   uint64(0),
+		BufReaderRPos:     uint64(40),
+		BufReaderWPos:     uint64(48),
 	}, offsets)
+}
+
+func TestGoOffsetAppendOnlyIDs(t *testing.T) {
+	assert.Equal(t, GoTracerTimestampOptOffset, GoOffset(127))
+	assert.Equal(t, BufReaderRPos, GoOffset(128))
+	assert.Equal(t, ReqTLSPos, GoOffset(129))
+	assert.Equal(t, ScMaxClientStreamIDPos, GoOffset(130))
+	assert.Equal(t, ScMaxClientStreamIDVendoredPos, GoOffset(131))
+}
+
+func TestHTTP2ServerImplementationsUseDistinctMaxStreamOffsets(t *testing.T) {
+	xNet := structMembers["golang.org/x/net/http2.serverConn"].fields["maxClientStreamID"]
+	vendored := structMembers["net/http.http2serverConn"].fields["maxClientStreamID"]
+
+	assert.Equal(t, ScMaxClientStreamIDPos, xNet)
+	assert.Equal(t, ScMaxClientStreamIDVendoredPos, vendored)
+	assert.NotEqual(t, xNet, vendored)
 }
 
 func TestNestedRuntimeOffsetsFromDwarf(t *testing.T) {
@@ -182,6 +217,9 @@ func TestGoOffsetsWithoutDwarf(t *testing.T) {
 		HchanRecvxPos:                     uint64(56),
 		RuntimeGCControllerMemoryLimitPos: uint64(8),
 		RuntimeGCControllerGCPercentPos:   uint64(0),
+		BufReaderBufPos:                   uint64(0),
+		BufReaderRPos:                     uint64(40),
+		BufReaderWPos:                     uint64(48),
 	}, offsets)
 }
 
@@ -620,6 +658,30 @@ func TestPrefetchedGoRuntimeGoroutineOffsets(t *testing.T) {
 	assert.False(t, found, "runtime.gList.size should be unavailable before Go 1.25")
 }
 
+func TestPrefetchedGRPCDirectTLSWriterOffsetsIncludeZero(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, grpcVersion := range []string{"1.40.0", "1.56.0"} {
+		offset, found := track.Find(
+			"google.golang.org/grpc/internal/transport.bufWriter",
+			"buf",
+			grpcVersion,
+		)
+		require.True(t, found, "bufWriter.buf missing for grpc-go %s", grpcVersion)
+		assert.Zero(t, offset,
+			"grpc-go %s must retain the offset-zero direct TLS path", grpcVersion)
+	}
+
+	offset, found := track.Find(
+		"google.golang.org/grpc/internal/transport.bufWriter",
+		"buf",
+		"1.58.0",
+	)
+	require.True(t, found)
+	assert.Equal(t, uint64(8), offset)
+}
+
 func TestPrefetchedGoRuntimeGCGoalFieldOffsets(t *testing.T) {
 	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	require.NoError(t, err)
@@ -643,6 +705,38 @@ func TestPrefetchedGoRuntimeGCGoalFieldOffsets(t *testing.T) {
 	heapGoal := track.Data["runtime.gcControllerState"]["heapGoal"]
 	assert.Equal(t, "1.17.0", heapGoal.Versions.Oldest)
 	assert.Equal(t, "1.18.10", heapGoal.Versions.Newest)
+}
+
+func TestPrefetchedHTTP2ServerOffsetsCoverSupportedRanges(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, field := range []struct {
+		structName string
+		fieldName  string
+		oldest     string
+	}{
+		{structName: "net/http.Request", fieldName: "TLS", oldest: "1.17.0"},
+		{
+			structName: "net/http.http2serverConn",
+			fieldName:  "maxClientStreamID",
+			oldest:     "1.17.0",
+		},
+		{
+			structName: "golang.org/x/net/http2.serverConn",
+			fieldName:  "maxClientStreamID",
+			oldest:     "0.12.0",
+		},
+	} {
+		tracked, ok := track.Data[field.structName][field.fieldName]
+		require.True(t, ok, "%s.%s is tracked", field.structName, field.fieldName)
+		assert.Equal(t, field.oldest, tracked.Versions.Oldest)
+		for _, version := range []string{tracked.Versions.Oldest, tracked.Versions.Newest} {
+			offset, found := track.Find(field.structName, field.fieldName, version)
+			require.True(t, found, "%s.%s missing for %s", field.structName, field.fieldName, version)
+			assert.NotZero(t, offset, "%s.%s offset for %s", field.structName, field.fieldName, version)
+		}
+	}
 }
 
 func TestResolveNestedStructPrefetchedOffsetsLogsMissingFields(t *testing.T) {

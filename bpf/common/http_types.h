@@ -59,6 +59,9 @@ typedef struct call_protocol_args {
     u64 u_buf;
     u64 self_ref_parent_id;
     lw_thread_t lw_thread;
+    outgoing_trace_token_t handoff_token;
+    u8 handoff_expected;
+    u8 _pad3[7];
 } call_protocol_args_t;
 
 static __always_inline void read_request_buf(http_info_t *info, const call_protocol_args_t *args) {
@@ -107,7 +110,12 @@ typedef struct http2_grpc_request {
     // with other instrumented processes
     pid_info pid;
     u64 new_conn_id;
+    u64 owner_pid_tgid;
     tp_info_t tp;
+    outgoing_trace_token_t handoff_token;
+    u8 handoff_expected;
+    u8 owner_vt_keyed;
+    u8 _pad1[6];
 } http2_grpc_request_t;
 
 // Force emitting struct http_info_t and http2_grpc_request_t into the ELF for automatic creation of Golang struct

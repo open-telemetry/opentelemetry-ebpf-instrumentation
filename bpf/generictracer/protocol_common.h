@@ -37,11 +37,6 @@ static __always_inline bool is_listening(const u16 port, const u32 netns) {
     return (is_listening != NULL && *is_listening);
 }
 
-static __always_inline u32 task_netns() {
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    return (u32)BPF_CORE_READ(task, nsproxy, net_ns, ns.inum);
-}
-
 static __always_inline u8 infer_packet_type(u8 direction, bool is_server) {
     if ((direction == TCP_RECV && is_server) || (direction == TCP_SEND && !is_server)) {
         return PACKET_TYPE_REQUEST;

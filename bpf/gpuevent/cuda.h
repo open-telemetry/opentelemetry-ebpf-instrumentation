@@ -10,6 +10,8 @@
 // LICENSE file in the root directory of this source tree.
 #pragma once
 
+#include <common/tp_info.h>
+
 #include <pid/types/pid_info.h>
 
 typedef struct cuda_kernel_launch {
@@ -23,6 +25,7 @@ typedef struct cuda_kernel_launch {
     int block_x;
     int block_y;
     int block_z;
+    tp_info_t tp;
 } cuda_kernel_launch_t;
 
 typedef struct cuda_malloc {
@@ -30,6 +33,7 @@ typedef struct cuda_malloc {
     u8 _pad[3];
     pid_info pid_info;
     s64 size;
+    tp_info_t tp;
 } cuda_malloc_t;
 
 typedef struct cuda_memcpy {
@@ -38,6 +42,7 @@ typedef struct cuda_memcpy {
     u8 _pad[2];
     pid_info pid_info;
     s64 size;
+    tp_info_t tp;
 } cuda_memcpy_t;
 
 typedef struct cuda_graph_launch {
@@ -45,4 +50,5 @@ typedef struct cuda_graph_launch {
     u8 kind;
     u8 _pad[2];
     pid_info pid_info;
+    tp_info_t tp;
 } cuda_graph_launch_t;

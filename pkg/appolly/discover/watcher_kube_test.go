@@ -277,17 +277,17 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("process deletion", func(t *testing.T) {
 		inputQueue.Send([]Event[ProcessAttrs]{
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 123}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 456}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 789}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 1011}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 12}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 34}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 42}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 43}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 44}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 45}},
-			{Type: EventDeleted, Obj: ProcessAttrs{pid: 56}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 123, startTime: 123}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 456, startTime: 456}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 789, startTime: 789}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 1011, startTime: 1011}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 12, startTime: 12}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 34, startTime: 34}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 42, startTime: 42}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 43, startTime: 43}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 44, startTime: 44}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 45, startTime: 45}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 56, startTime: 56}},
 		})
 		// only forwards the deletion of the processes that were already matched
 		matches := testutil.ReadChannel(t, outputCh, timeout)
@@ -427,7 +427,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid app.PID, ports []uint32) {
 	input.Send([]Event[ProcessAttrs]{{
 		Type: EventCreated,
-		Obj:  ProcessAttrs{pid: pid, openPorts: ports},
+		Obj:  ProcessAttrs{pid: pid, openPorts: ports, startTime: uint64(pid)},
 	}})
 }
 
@@ -472,6 +472,7 @@ func fakeContainerInfo(pid app.PID) (container.Info, error) {
 func fakeProcessInfo(pp ProcessAttrs) (*services.ProcessInfo, error) {
 	return &services.ProcessInfo{
 		Pid:       pp.pid,
+		StartTime: pp.startTime,
 		OpenPorts: pp.openPorts,
 		ExePath:   fmt.Sprintf("/bin/process%d", pp.pid),
 	}, nil

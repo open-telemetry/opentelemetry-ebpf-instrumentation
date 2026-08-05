@@ -18,11 +18,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
-	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -44,8 +44,21 @@ func (e *JavaInjectError) Error() string {
 }
 
 type JavaInjector struct {
-	log *slog.Logger
-	cfg *obi.Config
+	log             *slog.Logger
+	cfg             *obi.Config
+	attacherFactory func(*slog.Logger) javaAttacher
+}
+
+type javaAttacher interface {
+	Init()
+	Cleanup() error
+	AttachContext(
+		context.Context,
+		int,
+		[]string,
+		bool,
+		func(syscall.Signal) error,
+	) (io.ReadCloser, error)
 }
 
 func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
@@ -111,19 +124,31 @@ func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string
 	return "", errors.New("couldn't find suitable temp directory for injection")
 }
 
-func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
+func (i *JavaInjector) NewExecutable(
+	ie *ebpf.Instrumentable,
+	signalProcess func(syscall.Signal) error,
+	processRoot string,
+) (retErr error) {
+	if ie.Type != svc.InstrumentableJava {
+		return nil
+	}
+	if processRoot == "" {
+		return errors.New("pinned process filesystem root is unavailable")
+	}
+	if err := checkJavaProcessLiveness(signalProcess); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), i.cfg.Java.Timeout)
 	defer cancel()
 
-	// Channel to receive the result
-	type result struct {
-		attached bool
-		err      error
+	newAttacher := i.attacherFactory
+	if newAttacher == nil {
+		newAttacher = func(logger *slog.Logger) javaAttacher {
+			return jvm.NewJAttacher(logger)
+		}
 	}
-
-	resultChan := make(chan result, 1)
-
-	attacher := jvm.NewJAttacher(i.log)
+	attacher := newAttacher(i.log)
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -133,66 +158,75 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		}
 	}()
 
-	if ie.Type == svc.InstrumentableJava {
-		// Run the attach procedure in a goroutine, so that we can terminate on stuck attach
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					resultChan <- result{err: &JavaInjectError{Message: "attach failed"}}
-				}
-			}()
-
-			ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid())
-			if !ok {
-				resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
-				return
-			}
-
-			var loaded bool
-			var err error
-			if jdk8 {
-				loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid())
-			} else {
-				loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid())
-			}
-
-			if err != nil {
-				resultChan <- result{err: err}
-				return
-			}
-
-			if loaded {
-				i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
-				resultChan <- result{attached: false}
-				return
-			}
-
-			i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid())
-
-			agentPath, err := i.copyAgent(ie)
-			if err != nil {
-				i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid(), "error", err)
-				resultChan <- result{err: err}
-				return
-			}
-
-			if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid(), agentPath); err != nil {
-				i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
-				resultChan <- result{err: err}
-				return
-			}
-
-			resultChan <- result{attached: true}
-		}()
-
-		// Wait for either completion or timeout
-		select {
-		case result := <-resultChan:
-			return result.err
-		case <-ctx.Done():
-			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid())
-			return &JavaInjectError{Message: "java attach timed out"}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			retErr = &JavaInjectError{Message: "attach failed"}
 		}
+	}()
+
+	ok, jdk8, err := i.verifyJVMVersion(ctx, attacher, ie.FileInfo.Pid(), signalProcess)
+	if err != nil {
+		return i.javaAttachError(ctx, ie.FileInfo.Pid(), err)
+	}
+	if !ok {
+		return &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}
+	}
+
+	if err := checkJavaProcessLiveness(signalProcess); err != nil {
+		return err
+	}
+
+	var loaded bool
+	if jdk8 {
+		loaded, err = i.jdkAgentAlreadyLoadedHotspot8(ctx, attacher, ie.FileInfo.Pid(), signalProcess)
+	} else {
+		loaded, err = i.jdkAgentAlreadyLoaded(ctx, attacher, ie.FileInfo.Pid(), signalProcess)
+	}
+	if err != nil {
+		return i.javaAttachError(ctx, ie.FileInfo.Pid(), err)
+	}
+	if err := checkJavaProcessLiveness(signalProcess); err != nil {
+		return err
+	}
+	if loaded {
+		i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
+		return nil
+	}
+
+	i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid())
+
+	agentPath, err := i.copyAgent(ie, processRoot)
+	if err != nil {
+		i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid(), "error", err)
+		return err
+	}
+	if err := checkJavaProcessLiveness(signalProcess); err != nil {
+		return err
+	}
+
+	if err := i.attachJDKAgent(ctx, attacher, ie.FileInfo.Pid(), agentPath, signalProcess); err != nil {
+		i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
+		return i.javaAttachError(ctx, ie.FileInfo.Pid(), err)
+	}
+
+	return checkJavaProcessLiveness(signalProcess)
+}
+
+func (i *JavaInjector) javaAttachError(ctx context.Context, pid app.PID, err error) error {
+	if ctx.Err() != nil {
+		i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", pid)
+		return &JavaInjectError{Message: "java attach timed out"}
+	}
+
+	return err
+}
+
+func checkJavaProcessLiveness(signalProcess func(syscall.Signal) error) error {
+	if signalProcess == nil {
+		return errors.New("identity-stable process signaling is unavailable")
+	}
+	if err := signalProcess(0); err != nil {
+		return fmt.Errorf("identity-stable process liveness check failed: %w", err)
 	}
 
 	return nil
@@ -206,11 +240,7 @@ func ensureEmbeddedAgent() error {
 	return nil
 }
 
-// to be changed in tests
-var rootDirForPID func(app.PID) string = ebpfcommon.RootDirectoryForPID
-
-func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
-	root := rootDirForPID(ie.FileInfo.Pid())
+func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable, root string) (string, error) {
 	tempDir, err := i.findTempDir(root, ie)
 	if err != nil {
 		return "", fmt.Errorf("error accessing temp directory: %w", err)
@@ -286,7 +316,13 @@ func (i *JavaInjector) attachOpts() string {
 	return "=" + strings.Join(opts, ",")
 }
 
-func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid app.PID, path string) error {
+func (i *JavaInjector) attachJDKAgent(
+	ctx context.Context,
+	attacher javaAttacher,
+	pid app.PID,
+	path string,
+	signalProcess func(syscall.Signal) error,
+) error {
 	attacher.Init()
 
 	defer func() {
@@ -294,19 +330,28 @@ func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid app.PID, path
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
-	out, err := attacher.Attach(int(pid), []string{"load", "instrument", "false", path + i.attachOpts()}, false)
+	out, err := attacher.AttachContext(
+		ctx,
+		int(pid),
+		[]string{"load", "instrument", "false", path + i.attachOpts()},
+		false,
+		signalProcess,
+	)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return err
 	}
 
-	defer out.Close()
+	defer closeReaderOnContext(ctx, out)()
 
 	reader := bufio.NewReader(out)
 	buf := bytes.Buffer{}
 	for {
 		b, err := reader.ReadByte()
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if err == io.EOF { // hotspot terminates with EOF
 				_, err := returnCodeLine(buf.String())
 				if err != nil {
@@ -335,7 +380,12 @@ func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid app.PID, path
 	return nil
 }
 
-func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PID) (bool, error) {
+func (i *JavaInjector) jdkAgentAlreadyLoaded(
+	ctx context.Context,
+	attacher javaAttacher,
+	pid app.PID,
+	signalProcess func(syscall.Signal) error,
+) (bool, error) {
 	attacher.Init()
 
 	defer func() {
@@ -344,7 +394,13 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PI
 		}
 	}()
 	// OpenJ9 doesn't support listing loaded classes
-	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.class_hierarchy"}, true)
+	out, err := attacher.AttachContext(
+		ctx,
+		int(pid),
+		[]string{"jcmd", "VM.class_hierarchy"},
+		true,
+		signalProcess,
+	)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return false, err
@@ -353,6 +409,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PI
 	if out == nil {
 		return false, nil
 	}
+	defer closeReaderOnContext(ctx, out)()
 
 	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
@@ -362,13 +419,24 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PI
 			return true, nil
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		return false, err
+	}
 
 	return false, nil
 }
 
 // Hotspot version 8 doesn't support VM.class_hierarchy, we use GC.class_histogram and look for the class itself
 // without the address
-func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pid app.PID) (bool, error) {
+func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(
+	ctx context.Context,
+	attacher javaAttacher,
+	pid app.PID,
+	signalProcess func(syscall.Signal) error,
+) (bool, error) {
 	attacher.Init()
 
 	defer func() {
@@ -377,7 +445,13 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pi
 		}
 	}()
 	// OpenJ9 doesn't support listing loaded classes
-	out, err := attacher.Attach(int(pid), []string{"jcmd", "GC.class_histogram"}, true)
+	out, err := attacher.AttachContext(
+		ctx,
+		int(pid),
+		[]string{"jcmd", "GC.class_histogram"},
+		true,
+		signalProcess,
+	)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return false, err
@@ -386,6 +460,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pi
 	if out == nil {
 		return false, nil
 	}
+	defer closeReaderOnContext(ctx, out)()
 
 	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
@@ -395,11 +470,22 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pi
 			return true, nil
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		return false, err
+	}
 
 	return false, nil
 }
 
-func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid app.PID) (bool, bool) {
+func (i *JavaInjector) verifyJVMVersion(
+	ctx context.Context,
+	attacher javaAttacher,
+	pid app.PID,
+	signalProcess func(syscall.Signal) error,
+) (bool, bool, error) {
 	attacher.Init()
 
 	defer func() {
@@ -408,15 +494,22 @@ func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid app.PID) (b
 		}
 	}()
 	// OpenJ9 doesn't support VM.version command
-	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.version"}, true)
+	out, err := attacher.AttachContext(
+		ctx,
+		int(pid),
+		[]string{"jcmd", "VM.version"},
+		true,
+		signalProcess,
+	)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
-		return false, false
+		return false, false, err
 	}
 
 	if out == nil {
-		return true, false
+		return true, false, nil
 	}
+	defer closeReaderOnContext(ctx, out)()
 
 	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
@@ -424,12 +517,41 @@ func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid app.PID) (b
 		if strings.HasPrefix(line, "JDK ") {
 			// JDK 8 is special, failing to properly detect it can cause errors in applications if they are
 			// loaded more than once
-			return !strings.HasPrefix(line, "JDK 28"), strings.HasPrefix(line, "JDK 8")
+			return !strings.HasPrefix(line, "JDK 28"), strings.HasPrefix(line, "JDK 8"), nil
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		i.log.Error("error reading from scanner", "error", err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, false, ctxErr
+		}
+		return false, false, err
 	}
 
-	return false, false
+	return false, false, nil
+}
+
+func closeReaderOnContext(ctx context.Context, reader io.ReadCloser) func() {
+	if _, ok := reader.(interface{ HandlesContextCancellation() }); ok {
+		return func() {
+			_ = reader.Close()
+		}
+	}
+
+	closed := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		defer close(closed)
+		if aborter, ok := reader.(interface{ Abort() error }); ok {
+			_ = aborter.Abort()
+		} else {
+			_ = reader.Close()
+		}
+	})
+
+	return func() {
+		if !stop() {
+			<-closed
+		}
+		_ = reader.Close()
+	}
 }

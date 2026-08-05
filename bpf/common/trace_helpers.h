@@ -6,6 +6,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/globals.h>
+#include <common/sampling.h>
 #include <common/tp_info.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
@@ -48,18 +49,36 @@ static __always_inline u8 should_be_in_same_transaction(const tp_info_t *parent_
     return diff < max_transaction_time;
 }
 
-static __always_inline void init_new_trace(tp_info_t *tp) {
+static __always_inline void init_new_trace_fail_closed(tp_info_t *tp) {
+    new_trace_id(tp);
+    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+    __builtin_memset(tp->parent_id, 0, sizeof(tp->parent_id));
+    apply_fail_closed_sampler_result(tp);
+}
+
+static __always_inline void
+init_new_trace_for_process_incarnation(tp_info_t *tp, const u32 host_tgid, const u64 start_time) {
     bpf_d_printk("Generating new traceparent id [%s]", __FUNCTION__);
+    reset_sampling_decision(tp);
+    tp->flags = k_flag_sampled;
     new_trace_id(tp);
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
     __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
     // ts gates should_be_in_same_transaction
     tp->ts = bpf_ktime_get_ns();
-    tp->flags = 1;
+    apply_sampling_decision_for_process_incarnation(tp, 0, 0, host_tgid, start_time);
 
     if (g_bpf_debug) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];
         make_tp_string(tp_buf, tp);
         bpf_dbg_printk("tp_buf=[%s]", tp_buf);
     }
+}
+
+static __always_inline void init_new_trace_for_process(tp_info_t *tp, const u32 host_tgid) {
+    init_new_trace_for_process_incarnation(tp, host_tgid, 0);
+}
+
+static __always_inline void init_new_trace(tp_info_t *tp) {
+    init_new_trace_for_process(tp, bpf_get_current_pid_tgid() >> 32);
 }

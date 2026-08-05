@@ -4,18 +4,95 @@
 package ebpfcommon
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
+
+func TestMisclassifiedHandlersAreCollectionScoped(t *testing.T) {
+	var callsA atomic.Int32
+	var callsB atomic.Int32
+	collectionA := &EBPFEventContext{}
+	collectionB := &EBPFEventContext{}
+	unsetA := collectionA.SetMisclassifiedEventHandler(func(context.Context, MisclassifiedEvent) {
+		callsA.Add(1)
+	})
+	defer unsetA()
+	unsetB := collectionB.SetMisclassifiedEventHandler(func(context.Context, MisclassifiedEvent) {
+		callsB.Add(1)
+	})
+	defer unsetB()
+
+	runCtx := context.Background()
+	parseA := NewEBPFParseContext(
+		nil, nil, nil, WithMisclassifiedEventHandler(runCtx, collectionA.HandleMisclassifiedEvent),
+	)
+	parseB := NewEBPFParseContext(
+		nil, nil, nil, WithMisclassifiedEventHandler(runCtx, collectionB.HandleMisclassifiedEvent),
+	)
+	event := MisclassifiedEvent{EventType: EventTypeKHTTP2}
+	parseA.handleMisclassifiedEvent(event)
+	require.Equal(t, int32(1), callsA.Load())
+	require.Zero(t, callsB.Load())
+	parseB.handleMisclassifiedEvent(event)
+	require.Equal(t, int32(1), callsA.Load())
+	require.Equal(t, int32(1), callsB.Load())
+
+	unsetA()
+	parseA.handleMisclassifiedEvent(event)
+	parseB.handleMisclassifiedEvent(event)
+	require.Equal(t, int32(1), callsA.Load(), "unsetting A does not route its event to B")
+	require.Equal(t, int32(2), callsB.Load())
+}
+
+func TestUnsetMisclassifiedHandlerWaitsForInFlightCall(t *testing.T) {
+	collection := &EBPFEventContext{}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	unset := collection.SetMisclassifiedEventHandler(func(context.Context, MisclassifiedEvent) {
+		close(entered)
+		<-release
+	})
+
+	dispatched := make(chan struct{})
+	go func() {
+		collection.HandleMisclassifiedEvent(context.Background(), MisclassifiedEvent{})
+		close(dispatched)
+	}()
+	<-entered
+
+	unsetDone := make(chan struct{})
+	go func() {
+		unset()
+		close(unsetDone)
+	}()
+	select {
+	case <-unsetDone:
+		t.Fatal("unregistration returned while a handler was still in flight")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	require.Eventually(t, func() bool {
+		select {
+		case <-unsetDone:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+	<-dispatched
+}
 
 // GetBuildTags returns a slice of the build tags used to compile the binary.
 func GetBuildTags() []string {

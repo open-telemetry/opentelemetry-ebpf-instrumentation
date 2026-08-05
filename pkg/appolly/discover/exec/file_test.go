@@ -4,11 +4,47 @@
 package exec
 
 import (
+	"os"
 	"reflect"
 	"testing"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
+
+func TestInstallProcessRootPreservesExactOwnership(t *testing.T) {
+	first, err := os.CreateTemp(t.TempDir(), "process-root-first-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.CreateTemp(t.TempDir(), "process-root-second-*")
+	if err != nil {
+		_ = first.Close()
+		t.Fatal(err)
+	}
+	fileInfo := New(Init{ProcessRoot: first})
+
+	if fileInfo.InstallProcessRoot(second) {
+		t.Fatal("InstallProcessRoot replaced an owned process root")
+	}
+	if got := fileInfo.TakeProcessRootIf(second); got != nil {
+		t.Fatal("TakeProcessRootIf removed a different owner's process root")
+	}
+	if got := fileInfo.TakeProcessRootIf(first); got != first {
+		t.Fatal("TakeProcessRootIf did not return the exact installed process root")
+	}
+	if !fileInfo.InstallProcessRoot(second) {
+		t.Fatal("InstallProcessRoot rejected an empty process-root slot")
+	}
+	if got := fileInfo.TakeProcessRoot(); got != second {
+		t.Fatal("TakeProcessRoot did not return the newly installed process root")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestApplyEnvVariables(t *testing.T) {
 	tests := []struct {

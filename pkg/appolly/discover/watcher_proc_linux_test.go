@@ -62,6 +62,11 @@ func TestParseProcStatField(t *testing.T) {
 	assert.Equal(t, "R", parseProcStatField(procPidStat, 3))
 	assert.Equal(t, "1494929", parseProcStatField(procPidStat, 4))
 
+	const embeddedCloseParen = "42 (foo) bar) R 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 12345"
+	assert.Equal(t, "foo) bar", parseProcStatField(embeddedCloseParen, 2))
+	assert.Equal(t, "R", parseProcStatField(embeddedCloseParen, 3))
+	assert.Equal(t, "12345", parseProcStatField(embeddedCloseParen, 22))
+
 	// empty input
 	assert.Empty(t, parseProcStatField("", 0))
 	assert.Empty(t, parseProcStatField("", 1))

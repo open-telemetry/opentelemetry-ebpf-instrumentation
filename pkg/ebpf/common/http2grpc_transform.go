@@ -377,6 +377,8 @@ func http2InfoToSpan(info *BPFHTTP2Info, method, path, fullPath, peer, host stri
 		SpanID:        trace.SpanID(info.Tp.SpanId),
 		ParentSpanID:  trace.SpanID(info.Tp.ParentId),
 		TraceFlags:    info.Tp.Flags,
+		ParentRemote:  info.Tp.ParentRemote != 0,
+		BPFDecision:   info.Tp.SamplingDecision != 0,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(info.Pid.HostPid),
 			UserPID:   app.PID(info.Pid.UserPid),

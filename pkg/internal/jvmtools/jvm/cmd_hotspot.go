@@ -70,8 +70,16 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 
 // Force remote JVM to start Attach listener.
 // HotSpot will start Attach listener in response to SIGQUIT if it sees .attach_pid file
-func startAttachMechanism(ctx context.Context, pid, nspid, attachPid int, tmpPath string) error {
+func startAttachMechanism(
+	ctx context.Context,
+	nspid, attachPid int,
+	tmpPath string,
+	signalProcess func(syscall.Signal) error,
+) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := checkProcessLiveness(signalProcess); err != nil {
 		return err
 	}
 
@@ -81,8 +89,8 @@ func startAttachMechanism(ctx context.Context, pid, nspid, attachPid int, tmpPat
 	}
 	defer os.Remove(path)
 
-	if err := syscall.Kill(pid, syscall.SIGQUIT); err != nil {
-		return err
+	if err := signalProcess(syscall.SIGQUIT); err != nil {
+		return fmt.Errorf("could not signal JVM attach process: %w", err)
 	}
 
 	ts := 20 * time.Millisecond
@@ -123,22 +131,43 @@ func writeHotspotCommand(ctx context.Context, conn net.Conn, args []string) erro
 		return err
 	}
 
+	cancellationDone := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
+		defer close(cancellationDone)
 		_ = conn.Close()
 	})
 	_, err := conn.Write(request)
-	stop()
+	waitForHotspotCancellation(stop, cancellationDone)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	return err
 }
 
-func jattachHotspot(ctx context.Context, pid, nspid, attachPid int, args []string, tmpPath string, logger *slog.Logger) (io.ReadCloser, error) {
+func waitForHotspotCancellation(stop func() bool, done <-chan struct{}) {
+	if !stop() {
+		<-done
+	}
+}
+
+func jattachHotspot(
+	ctx context.Context,
+	nspid, attachPid int,
+	args []string,
+	tmpPath string,
+	logger *slog.Logger,
+	signalProcess func(syscall.Signal) error,
+) (io.ReadCloser, error) {
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		return nil, err
+	}
 	if !checkSocket(nspid, tmpPath) {
-		if err := startAttachMechanism(ctx, pid, nspid, attachPid, tmpPath); err != nil {
+		if err := startAttachMechanism(ctx, nspid, attachPid, tmpPath, signalProcess); err != nil {
 			return nil, err
 		}
+	}
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		return nil, err
 	}
 
 	conn, err := connectSocket(ctx, nspid, tmpPath)
@@ -147,10 +176,18 @@ func jattachHotspot(ctx context.Context, pid, nspid, attachPid int, args []strin
 	}
 
 	logger.Debug("connected to the JVM")
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 
 	if err := writeHotspotCommand(ctx, conn, args); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("error writing to the JVM socket: %w", err)
+	}
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		_ = conn.Close()
+		return nil, err
 	}
 
 	return conn, nil

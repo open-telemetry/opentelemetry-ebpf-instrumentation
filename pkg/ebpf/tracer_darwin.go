@@ -41,8 +41,7 @@ func (pt *ProcessTracer) Init(_ *ebpfcommon.EBPFEventContext, _ *obi.Config) err
 	pt.log.Debug("avoiding linter complaints for fields only used by the Linux tracer",
 		"v", pt.shutdownTimeout, "bpffsPath", pt.bpffsPath,
 		"executableGeneration", pt.nextExecutableGeneration,
-		"instrumentableGenerations", pt.instrumentableGenerations,
-		"goInstrumentablesByInode", pt.goInstrumentablesByInode)
+		"instrumentableGenerations", pt.instrumentableGenerations)
 	return nil
 }
 
@@ -50,12 +49,14 @@ func (pt *ProcessTracer) NewExecutable(_ *link.Executable, _ *Instrumentable) er
 	return nil
 }
 
-func (pt *ProcessTracer) NewExecutableInstance(_ *Instrumentable) error {
-	return nil
+func (pt *ProcessTracer) NewExecutableInstance(_ *Instrumentable) (*ExecutableInstanceUpdate, error) {
+	return &ExecutableInstanceUpdate{}, nil
 }
 
-func (pt *ProcessTracer) UnlinkExecutable(_ *exec.FileInfo, _ uint64) {}
+func (pt *ProcessTracer) UnlinkExecutable(_ *exec.FileInfo, _ uint64) bool { return true }
 
 func RunUtilityTracer(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ UtilityTracer, _ *obi.Config) error {
 	return nil
 }
+
+func ShutdownSharedMaps(_ *ebpfcommon.EBPFEventContext) {}

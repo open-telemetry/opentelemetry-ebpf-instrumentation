@@ -12,7 +12,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 // ContainerStoreUpdaterProvider is a stage in the Process Finder pipeline that will be
@@ -40,19 +39,31 @@ func updateLoop(
 	log := slog.With("component", "ContainerStoreUpdater")
 	return func(ctx context.Context) {
 		defer out.Close()
-		swarms.ForEachInput(ctx, in, log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
-			for i := range instrumentables {
-				ev := &instrumentables[i]
-				switch ev.Type {
-				case EventCreated:
-					log.Debug("adding process", "pid", ev.Obj.FileInfo.Pid())
-					store.AddProcess(ev.Obj.FileInfo.Pid())
-				case EventDeleted:
-					// we don't need to handle process deletion from here, as the Kubernetes informer will
-					// remove the process from the database when the Pod that contains it is deleted.
+		log.Debug("starting node")
+		for {
+			select {
+			case <-ctx.Done():
+				log.Debug("context done, stopping node")
+				closeQueuedInstrumentableProcessRoots(in)
+				return
+			case instrumentables, ok := <-in:
+				if !ok {
+					log.Debug("input channel closed, stopping node")
+					return
 				}
+				for i := range instrumentables {
+					ev := &instrumentables[i]
+					switch ev.Type {
+					case EventCreated:
+						log.Debug("adding process", "pid", ev.Obj.FileInfo.Pid())
+						store.AddProcess(ev.Obj.FileInfo.Pid())
+					case EventDeleted:
+						// we don't need to handle process deletion from here, as the Kubernetes informer will
+						// remove the process from the database when the Pod that contains it is deleted.
+					}
+				}
+				out.Send(instrumentables)
 			}
-			out.Send(instrumentables)
-		})
+		}
 	}
 }

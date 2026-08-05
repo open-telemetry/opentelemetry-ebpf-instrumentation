@@ -68,12 +68,26 @@ func (j *JAttacher) Cleanup() error {
 	return cleanupErr
 }
 
-func (j *JAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
-	return j.AttachContext(context.Background(), pid, argv, ignoreOnJ9)
+func (j *JAttacher) Attach(
+	pid int,
+	argv []string,
+	ignoreOnJ9 bool,
+	signalProcess func(syscall.Signal) error,
+) (io.ReadCloser, error) {
+	return j.AttachContext(context.Background(), pid, argv, ignoreOnJ9, signalProcess)
 }
 
-func (j *JAttacher) AttachContext(ctx context.Context, pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+func (j *JAttacher) AttachContext(
+	ctx context.Context,
+	pid int,
+	argv []string,
+	ignoreOnJ9 bool,
+	signalProcess func(syscall.Signal) error,
+) (io.ReadCloser, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := checkProcessLiveness(signalProcess); err != nil {
 		return nil, err
 	}
 
@@ -85,6 +99,9 @@ func (j *JAttacher) AttachContext(ctx context.Context, pid int, argv []string, i
 	// namespace, before we move anywhere.
 	if err := util.GetProcessInfo(pid, &targetUID, &targetGID, &nspid); err != nil {
 		return nil, fmt.Errorf("process not found: %d: %w", pid, err)
+	}
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		return nil, err
 	}
 
 	// Entering the target's mount namespace requires setns(CLONE_NEWNS), which
@@ -121,7 +138,16 @@ func (j *JAttacher) AttachContext(ctx context.Context, pid int, argv []string, i
 		// Deliberately no runtime.UnlockOSThread: this thread is tainted by the
 		// namespace switch and CLONE_FS unshare, so we let it die with the
 		// goroutine rather than return it to the pool.
-		reader, err := j.attachInNamespace(ctx, pid, nspid, targetUID, targetGID, argv, ignoreOnJ9)
+		reader, err := j.attachInNamespace(
+			ctx,
+			pid,
+			nspid,
+			targetUID,
+			targetGID,
+			argv,
+			ignoreOnJ9,
+			signalProcess,
+		)
 		resultCh <- attachResult{reader: reader, err: err}
 	}()
 
@@ -133,7 +159,17 @@ func (j *JAttacher) AttachContext(ctx context.Context, pid int, argv []string, i
 // handshake. It MUST be called from a goroutine pinned to a dedicated,
 // never-unlocked OS thread (see Attach), because it both joins the target's
 // mount namespace and unshares CLONE_FS on the calling thread.
-func (j *JAttacher) attachInNamespace(ctx context.Context, pid, nspid, targetUID, targetGID int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+func (j *JAttacher) attachInNamespace(
+	ctx context.Context,
+	pid, nspid, targetUID, targetGID int,
+	argv []string,
+	ignoreOnJ9 bool,
+	signalProcess func(syscall.Signal) error,
+) (io.ReadCloser, error) {
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		return nil, err
+	}
+
 	// Container support: switch to the target namespaces.
 	// Network and IPC namespaces are essential for OpenJ9 connection.
 	if util.EnterNS(pid, "net") < 0 {
@@ -146,12 +182,18 @@ func (j *JAttacher) attachInNamespace(ctx context.Context, pid, nspid, targetUID
 	if mntChanged < 0 {
 		return nil, errors.New("failed to enter target mnt namespace")
 	}
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		return nil, err
+	}
 
 	// In HotSpot, dynamic attach is allowed only for the clients with the same euid/egid.
 	// If we are running under root, switch to the required euid/egid automatically.
 	if (j.myGID != targetGID && syscall.Setegid(targetGID) != nil) ||
 		(j.myUID != targetUID && syscall.Seteuid(targetUID) != nil) {
 		return nil, errors.New("failed to change credentials to match the target process")
+	}
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		return nil, err
 	}
 
 	attachPid := pid
@@ -177,8 +219,31 @@ func (j *JAttacher) attachInNamespace(ctx context.Context, pid, nspid, targetUID
 		}
 		j9attacher := newJ9Attacher(j.logger)
 		j.j9attacher = j9attacher
-		return j.j9attacher.jattachOpenJ9(tmpPath, nspid, argv)
+		reader, err := j.j9attacher.jattachOpenJ9(ctx, tmpPath, nspid, argv)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkProcessLiveness(signalProcess); err != nil {
+			if aborter, ok := reader.(interface{ Abort() error }); ok {
+				_ = aborter.Abort()
+			} else {
+				_ = reader.Close()
+			}
+			return nil, err
+		}
+		return reader, nil
 	}
 
-	return jattachHotspot(ctx, pid, nspid, attachPid, argv, tmpPath, j.logger)
+	return jattachHotspot(ctx, nspid, attachPid, argv, tmpPath, j.logger, signalProcess)
+}
+
+func checkProcessLiveness(signalProcess func(syscall.Signal) error) error {
+	if signalProcess == nil {
+		return errors.New("identity-stable process signaling is unavailable")
+	}
+	if err := signalProcess(0); err != nil {
+		return fmt.Errorf("identity-stable process liveness check failed: %w", err)
+	}
+
+	return nil
 }

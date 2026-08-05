@@ -1317,6 +1317,7 @@ type Span struct {
 	SpanID            trace.SpanID   `json:"spanID"`
 	ParentSpanID      trace.SpanID   `json:"parentSpanID"`
 	TraceFlags        uint8          `json:"traceFlags,string"`
+	ParentRemote      bool           `json:"-"`
 	Links             []SpanLink     `json:"links,omitempty"`
 	Pid               PidInfo        `json:"-"`
 	PeerName          string         `json:"peerName"`
@@ -1337,6 +1338,10 @@ type Span struct {
 	AWS               *AWS           `json:"-"`
 	GenAI             *GenAI         `json:"-"`
 	JSONRPC           *JSONRPC       `json:"-"`
+
+	// BPFDecision distinguishes authoritative eBPF sampling decisions from
+	// events that still require the userspace compatibility sampler.
+	BPFDecision bool `json:"-"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
@@ -2315,6 +2320,18 @@ func (s *Span) IsExportTracesSpan(defaultOtlpGRPCPort int) bool {
 }
 
 func (s *Span) IsSelfReferenceSpan() bool {
+	if s.Type == EventTypeManualSpan {
+		remote := SpanPeer(s)
+		if s.IsClientSpan() {
+			remote = SpanHost(s)
+		}
+		if remote == "" {
+			return true
+		}
+		return remote == s.Service.UID.Name &&
+			(s.Service.UID.Namespace == s.OtherNamespace || s.OtherNamespace == "")
+	}
+
 	return s.Peer == s.Host && (s.Service.UID.Namespace == s.OtherNamespace || s.OtherNamespace == "")
 }
 

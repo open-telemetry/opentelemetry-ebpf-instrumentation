@@ -37,6 +37,13 @@ static __always_inline h2_inject_verdict_t h2_inject_verdict(const h2_inject_fac
     if (!f->opener_readable) {
         return k_h2_skip_unreadable;
     }
+    // The socket latch is authoritative even when a dynamic-name integer
+    // cannot be classified from its first octet alone. Once the application
+    // has propagated a traceparent, no later block on this socket may receive
+    // a second field.
+    if (f->sk_app_tp) {
+        return k_h2_skip_app_propagates;
+    }
     if (!h2_hpack_opens_request(f->opener)) {
         return k_h2_skip_not_request;
     }
@@ -49,7 +56,7 @@ static __always_inline h2_inject_verdict_t h2_inject_verdict(const h2_inject_fac
     if (f->go_conn_without_tp) {
         return k_h2_skip_go_no_tp;
     }
-    if (f->frame_tp_present || f->sk_app_tp) {
+    if (f->frame_tp_present) {
         return k_h2_skip_app_propagates;
     }
     // a second traceparent invalidates both, so absence has to be proven, not assumed

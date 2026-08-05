@@ -61,6 +61,8 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     args->lw_thread = lw_thread;
     args->protocols = protocols;
     args->protocol_type = protocol_type_for_conn_info(info);
+    args->handoff_expected = 0;
+    __builtin_memset(&args->handoff_token, 0, sizeof(args->handoff_token));
 
     args->pid_conn = *info;
     __builtin_memset(args->small_buf, 0, sizeof(args->small_buf));
@@ -88,6 +90,34 @@ static __always_inline void handle_buf_with_connection(void *ctx,
                                                     orig_dport);
     if (!args) {
         return;
+    }
+
+    bpf_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
+}
+
+static __always_inline void handle_buf_with_connection_handoff(void *ctx,
+                                                               pid_connection_info_t *pid_conn,
+                                                               void *u_buf,
+                                                               int bytes_len,
+                                                               u8 ssl,
+                                                               u8 direction,
+                                                               u16 orig_dport,
+                                                               const outgoing_trace_token_t *token,
+                                                               u8 expected) {
+    call_protocol_args_t *args = make_protocol_args(pid_conn,
+                                                    k_lw_thread_none,
+                                                    k_protocol_selector_all,
+                                                    u_buf,
+                                                    bytes_len,
+                                                    ssl,
+                                                    direction,
+                                                    orig_dport);
+    if (!args) {
+        return;
+    }
+    if (expected && token) {
+        args->handoff_token = *token;
+        args->handoff_expected = 1;
     }
 
     bpf_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);

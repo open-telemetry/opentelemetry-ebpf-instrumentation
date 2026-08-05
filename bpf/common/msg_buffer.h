@@ -8,6 +8,7 @@
 
 #include <common/http_buf_size.h>
 #include <common/pin_internal.h>
+#include <common/tp_info.h>
 
 enum {
     k_msg_buffer_size_max = 8192,
@@ -34,4 +35,7 @@ typedef struct msg_buffer {
     // Store the CPU id used to save the buffer in `msg_buffer_mem`. This
     // will then be used as a guard in different execution contexts.
     u32 cpu_id;
+    outgoing_trace_token_t handoff_token;
+    u8 handoff_expected;
+    u8 _pad[7];
 } msg_buffer_t;

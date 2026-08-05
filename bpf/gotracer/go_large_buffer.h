@@ -155,11 +155,14 @@ static __always_inline void ship_large_request(void *buf,
 
             bpf_d_printk("parent_go %llx", parent_go);
 
-            if (parent_go) {
+            if (parent_go && (u64)parent_go != k_go_parent_error) {
                 go_addr_key_t parent_g = {};
                 go_addr_key_from_id(&parent_g, parent_go);
-
-                invocation = bpf_map_lookup_elem(&go_ongoing_http_client_requests, &parent_g);
+                go_exact_process_addr_key_t exact_parent = {};
+                if (go_exact_process_addr_key_from_address(&exact_parent, &parent_g)) {
+                    invocation =
+                        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &exact_parent);
+                }
                 // invocation contains our traceparent info. For HTTP2 clients this is a must
                 // since there are more than one request multiplexed on the same connection.
                 if (invocation) {

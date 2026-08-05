@@ -8,15 +8,18 @@ package jvm // import "go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,13 +27,17 @@ import (
 )
 
 const (
-	MaxNotifyFiles = 256
+	MaxNotifyFiles      = 256
+	openJ9PollInterval  = 10 * time.Millisecond
+	openJ9AcceptTimeout = 5 * time.Second
+	openJ9DetachTimeout = 5 * time.Second
 )
 
 type j9Attacher struct {
 	notifyLock [MaxNotifyFiles]int
 	logger     *slog.Logger
-	fd         int
+	mu         sync.Mutex
+	connection *j9Connection
 }
 
 func newJ9Attacher(logger *slog.Logger) *j9Attacher {
@@ -38,12 +45,7 @@ func newJ9Attacher(logger *slog.Logger) *j9Attacher {
 		logger = slog.Default()
 	}
 
-	j := &j9Attacher{
-		logger: logger,
-		fd:     -1,
-	}
-
-	return j
+	return &j9Attacher{logger: logger}
 }
 
 // Translate HotSpot command to OpenJ9 equivalent
@@ -137,24 +139,117 @@ func writeCommand(fd int, cmd string) error {
 	return nil
 }
 
+func writeCommandContext(ctx context.Context, conn net.Conn, cmd string) error {
+	data := append([]byte(cmd), 0)
+	for len(data) > 0 {
+		n, err := writeConnectionContext(ctx, conn, data)
+		data = data[n:]
+		if err != nil {
+			return fmt.Errorf("write failed: %w", err)
+		}
+		if n == 0 {
+			return fmt.Errorf("write failed: %w", io.ErrShortWrite)
+		}
+	}
+	return nil
+}
+
+func readFullContext(ctx context.Context, conn net.Conn, buf []byte) (int, error) {
+	off := 0
+	for off < len(buf) {
+		n, err := readConnectionContext(ctx, conn, buf[off:])
+		off += n
+		if err != nil {
+			return off, err
+		}
+		if n == 0 {
+			return off, io.ErrUnexpectedEOF
+		}
+	}
+	return off, nil
+}
+
+func readConnectionContext(ctx context.Context, conn net.Conn, buf []byte) (int, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if err := conn.SetReadDeadline(nextOpenJ9Deadline(ctx)); err != nil {
+			return 0, err
+		}
+
+		n, err := conn.Read(buf)
+		if n > 0 || err == nil {
+			return n, err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0, ctxErr
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			continue
+		}
+		return 0, err
+	}
+}
+
+func writeConnectionContext(ctx context.Context, conn net.Conn, buf []byte) (int, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if err := conn.SetWriteDeadline(nextOpenJ9Deadline(ctx)); err != nil {
+			return 0, err
+		}
+
+		n, err := conn.Write(buf)
+		if n > 0 || err == nil {
+			return n, err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0, ctxErr
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			continue
+		}
+		return 0, err
+	}
+}
+
+func nextOpenJ9Deadline(ctx context.Context) time.Time {
+	deadline := time.Now().Add(openJ9PollInterval)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		return ctxDeadline
+	}
+	return deadline
+}
+
 func closeWithErrno(fd int) {
 	_ = syscall.Close(fd)
 }
 
-func acquireLock(tmpPath, subdir, filename string) (int, error) {
+func acquireLock(ctx context.Context, tmpPath, subdir, filename string) (int, error) {
 	path := filepath.Join(tmpPath, ".com_ibm_tools_attach", subdir, filename)
 
-	fd, err := syscall.Open(path, syscall.O_WRONLY|syscall.O_CREAT, 0o666)
+	fd, err := syscall.Open(path, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_CLOEXEC, 0o666)
 	if err != nil {
 		return -1, err
 	}
 
-	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
-		err = errors.Join(err, syscall.Close(fd))
-		return -1, err
+	for {
+		if err := ctx.Err(); err != nil {
+			return -1, errors.Join(err, syscall.Close(fd))
+		}
+		if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+			return fd, nil
+		} else if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return -1, errors.Join(err, syscall.Close(fd))
+		}
+		if err := sleepContext(ctx, openJ9PollInterval); err != nil {
+			return -1, errors.Join(err, syscall.Close(fd))
+		}
 	}
-
-	return fd, nil
 }
 
 func releaseLock(lockFd int) error {
@@ -166,7 +261,11 @@ func releaseLock(lockFd int) error {
 
 func createAttachSocket() (int, int, error) {
 	// Try IPv6 socket first, then fall back to IPv4
-	s, err := syscall.Socket(syscall.AF_INET6, syscall.SOCK_STREAM, 0)
+	s, err := syscall.Socket(
+		syscall.AF_INET6,
+		syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC|syscall.SOCK_NONBLOCK,
+		0,
+	)
 	if err == nil {
 		addr := &syscall.SockaddrInet6{}
 		if err := syscall.Bind(s, addr); err == nil {
@@ -183,7 +282,11 @@ func createAttachSocket() (int, int, error) {
 	}
 
 	// Fall back to IPv4
-	s, err = syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	s, err = syscall.Socket(
+		syscall.AF_INET,
+		syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC|syscall.SOCK_NONBLOCK,
+		0,
+	)
 	if err != nil {
 		return -1, 0, err
 	}
@@ -287,61 +390,84 @@ func notifySemaphore(tmpPath string, value, notifyCount int) error {
 	return nil
 }
 
-func acceptClient(s int, key uint64) (int, error) {
-	tv := syscall.Timeval{Sec: 5, Usec: 0}
-	if err := syscall.SetsockoptTimeval(s, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv); err != nil {
-		return -1, fmt.Errorf("could not set JVM response timeout: %w", err)
+func acceptClient(ctx context.Context, s int, key uint64) (net.Conn, error) {
+	acceptCtx, cancel := context.WithTimeout(ctx, openJ9AcceptTimeout)
+	defer cancel()
+
+	var fd int
+	for {
+		if err := acceptCtx.Err(); err != nil {
+			return nil, err
+		}
+
+		acceptedFD, _, err := syscall.Accept4(s, syscall.SOCK_CLOEXEC|syscall.SOCK_NONBLOCK)
+		if err == nil {
+			fd = acceptedFD
+			break
+		}
+		if !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("jvm did not respond: %w", err)
+		}
+		if err := sleepContext(acceptCtx, openJ9PollInterval); err != nil {
+			return nil, err
+		}
 	}
 
-	nfd, _, err := syscall.Accept(s)
+	conn, err := connectionFromFD(fd)
 	if err != nil {
-		return -1, fmt.Errorf("jvm did not respond: %w", err)
+		return nil, err
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = conn.Close()
+		}
+	}()
 
 	buf := make([]byte, 35)
-	off := 0
-	for off < len(buf) {
-		n, err := syscall.Read(nfd, buf[off:])
-		if err != nil {
-			_ = syscall.Close(nfd)
-			return -1, fmt.Errorf("the JVM connection was prematurely closed: %w", err)
-		}
-		if n <= 0 {
-			_ = syscall.Close(nfd)
-			return -1, fmt.Errorf("the JVM connection was prematurely closed: %w", io.ErrUnexpectedEOF)
-		}
-		off += n
+	if _, err := readFullContext(acceptCtx, conn, buf); err != nil {
+		return nil, fmt.Errorf("the JVM connection was prematurely closed: %w", err)
 	}
 
 	expected := fmt.Sprintf("ATTACH_CONNECTED %016x ", key)
 	if !bytes.Equal(buf[:len(expected)], []byte(expected)) {
-		_ = syscall.Close(nfd)
-		return -1, fmt.Errorf("unexpected JVM response %s", buf[:len(expected)])
+		return nil, fmt.Errorf("unexpected JVM response %s", buf[:len(expected)])
 	}
 
-	// Reset the timeout, as the command execution may take arbitrary long time
-	tv0 := syscall.Timeval{Sec: 0, Usec: 0}
-	if err := syscall.SetsockoptTimeval(nfd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &tv0); err != nil {
-		_ = syscall.Close(nfd)
-		return -1, fmt.Errorf("could not reset JVM response timeout: %w", err)
-	}
-
-	return nfd, nil
+	cleanup = false
+	return conn, nil
 }
 
-func (j *j9Attacher) lockNotificationFiles(tmpPath string) int {
+func connectionFromFD(fd int) (net.Conn, error) {
+	file := os.NewFile(uintptr(fd), "openj9-attach")
+	if file == nil {
+		return nil, errors.Join(errors.New("could not own JVM connection"), syscall.Close(fd))
+	}
+
+	conn, err := net.FileConn(file)
+	closeErr := file.Close()
+	if err != nil {
+		return nil, errors.Join(err, closeErr)
+	}
+	if closeErr != nil {
+		return nil, errors.Join(closeErr, conn.Close())
+	}
+	return conn, nil
+}
+
+func (j *j9Attacher) lockNotificationFiles(ctx context.Context, tmpPath string) (int, error) {
 	count := 0
 	path := filepath.Join(tmpPath, ".com_ibm_tools_attach")
 
 	dir, err := os.Open(path)
 	if err != nil {
-		return 0
+		return 0, nil
 	}
 	defer dir.Close()
 
 	entries, err := dir.Readdir(-1) // all files
 	if err != nil {
-		return 0
+		return 0, nil
 	}
 
 	for _, entry := range entries {
@@ -350,14 +476,16 @@ func (j *j9Attacher) lockNotificationFiles(tmpPath string) int {
 		}
 		name := entry.Name()
 		if len(name) > 0 && name[0] >= '1' && name[0] <= '9' && entry.IsDir() {
-			if fd, err := acquireLock(tmpPath, name, "attachNotificationSync"); err == nil {
-				j.notifyLock[count] = fd
-				count++
+			fd, err := acquireLock(ctx, tmpPath, name, "attachNotificationSync")
+			if err != nil {
+				return count, err
 			}
+			j.notifyLock[count] = fd
+			count++
 		}
 	}
 
-	return count
+	return count, nil
 }
 
 func (j *j9Attacher) unlockNotificationFiles(count int) error {
@@ -387,79 +515,173 @@ func isOpenJ9Process(tmpPath string, pid int) bool {
 }
 
 type j9Reader struct {
-	attacher *j9Attacher
+	connection *j9Connection
 }
 
 func (r *j9Reader) Read(p []byte) (int, error) {
-	if r.attacher.fd < 0 {
+	if r == nil || r.connection == nil {
 		return 0, os.ErrClosed
 	}
-
-	for {
-		n, err := syscall.Read(r.attacher.fd, p)
-		if errors.Is(err, syscall.EINTR) {
-			continue
-		}
-		if err != nil {
-			return 0, err
-		}
-		if n == 0 {
-			return 0, io.EOF
-		}
-
-		return n, nil
-	}
+	return r.connection.read(p)
 }
 
 func (r *j9Reader) Close() error {
-	return r.attacher.detach()
-}
-
-func (j *j9Attacher) closeFD() error {
-	if j.fd < 0 {
+	if r == nil || r.connection == nil {
 		return nil
 	}
+	return r.connection.closeGracefully()
+}
 
-	fd := j.fd
-	j.fd = -1
-	return syscall.Close(fd)
+func (r *j9Reader) Abort() error {
+	if r == nil || r.connection == nil {
+		return nil
+	}
+	return r.connection.abort()
+}
+
+func (*j9Reader) HandlesContextCancellation() {}
+
+type j9Connection struct {
+	ctx              context.Context
+	conn             net.Conn
+	closeOnce        sync.Once
+	closeErr         error
+	cancellationDone chan struct{}
+	stopCancellation func() bool
+}
+
+func newJ9Connection(ctx context.Context, conn net.Conn) *j9Connection {
+	connection := &j9Connection{
+		ctx:              ctx,
+		conn:             conn,
+		cancellationDone: make(chan struct{}),
+	}
+	connection.stopCancellation = context.AfterFunc(ctx, func() {
+		defer close(connection.cancellationDone)
+		_ = conn.SetDeadline(time.Now())
+	})
+	return connection
+}
+
+func (c *j9Connection) read(p []byte) (int, error) {
+	if c == nil || c.conn == nil {
+		return 0, os.ErrClosed
+	}
+
+	n, err := readConnectionContext(c.ctx, c.conn, p)
+	if ctxErr := c.ctx.Err(); ctxErr != nil && n == 0 {
+		return 0, errors.Join(ctxErr, c.abort())
+	}
+	return n, err
+}
+
+func (c *j9Connection) abort() error {
+	if c == nil || c.conn == nil {
+		return nil
+	}
+	c.closeOnce.Do(func() {
+		c.closeErr = c.conn.Close()
+		c.waitForCancellationCallback()
+	})
+	return c.closeErr
+}
+
+func (c *j9Connection) closeGracefully() error {
+	if c == nil || c.conn == nil {
+		return nil
+	}
+	c.closeOnce.Do(func() {
+		defer c.waitForCancellationCallback()
+		if c.ctx.Err() != nil {
+			c.closeErr = c.conn.Close()
+			return
+		}
+
+		detachCtx, cancel := context.WithTimeout(c.ctx, openJ9DetachTimeout)
+		defer cancel()
+
+		var detachErr error
+		if err := writeCommandContext(detachCtx, c.conn, "ATTACH_DETACHED"); err != nil {
+			detachErr = err
+		}
+
+		buf := make([]byte, 256)
+		if detachErr == nil {
+			for {
+				n, err := readConnectionContext(detachCtx, c.conn, buf)
+				if err != nil || n <= 0 || buf[n-1] == 0 {
+					if detachCtx.Err() != nil {
+						detachErr = detachCtx.Err()
+					} else if c.ctx.Err() != nil {
+						detachErr = c.ctx.Err()
+					}
+					break
+				}
+			}
+		}
+
+		c.closeErr = errors.Join(detachErr, c.conn.Close())
+	})
+	return c.closeErr
+}
+
+func (c *j9Connection) waitForCancellationCallback() {
+	if c.stopCancellation != nil && !c.stopCancellation() {
+		<-c.cancellationDone
+	}
+}
+
+func (j *j9Attacher) setConnection(connection *j9Connection) {
+	j.mu.Lock()
+	previous := j.connection
+	j.connection = connection
+	j.mu.Unlock()
+
+	if previous != nil && previous != connection {
+		_ = previous.abort()
+	}
+}
+
+func (j *j9Attacher) clearConnection(connection *j9Connection) {
+	j.mu.Lock()
+	if j.connection == connection {
+		j.connection = nil
+	}
+	j.mu.Unlock()
+}
+
+func (j *j9Attacher) abortConnection(connection *j9Connection) error {
+	j.clearConnection(connection)
+	return connection.abort()
 }
 
 func (j *j9Attacher) detach() error {
-	if j.fd < 0 {
+	j.mu.Lock()
+	connection := j.connection
+	j.connection = nil
+	j.mu.Unlock()
+	if connection == nil {
 		return nil
 	}
-
-	fd := j.fd
-	j.fd = -1
-
-	var detachErr error
-	if err := writeCommand(fd, "ATTACH_DETACHED"); err != nil {
-		detachErr = errors.Join(detachErr, err)
-	}
-
-	buf := make([]byte, 256)
-	if detachErr == nil {
-		for {
-			n, err := syscall.Read(fd, buf)
-			if err != nil || n <= 0 || buf[n-1] == 0 {
-				break
-			}
-		}
-	}
-
-	return errors.Join(detachErr, syscall.Close(fd))
+	return connection.closeGracefully()
 }
 
-func (j *j9Attacher) jattachOpenJ9(tmpPath string, nspid int, argv []string) (reader io.ReadCloser, err error) {
-	attachLock, err := acquireLock(tmpPath, "", "_attachlock")
+func (j *j9Attacher) jattachOpenJ9(
+	ctx context.Context,
+	tmpPath string,
+	nspid int,
+	argv []string,
+) (reader io.ReadCloser, err error) {
+	attachLock, err := acquireLock(ctx, tmpPath, "", "_attachlock")
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire attach lock: %w", err)
 	}
 
 	notifyCount := 0
+	notificationPosted := false
 	s := -1
 	var port int
+	var connection *j9Connection
 
 	defer func() {
 		var cleanupErr error
@@ -467,13 +689,17 @@ func (j *j9Attacher) jattachOpenJ9(tmpPath string, nspid int, argv []string) (re
 			cleanupErr = errors.Join(cleanupErr, closeAttachSocket(tmpPath, s, nspid))
 		}
 		if notifyCount > 0 {
-			cleanupErr = errors.Join(cleanupErr, j.releaseNotificationFiles(tmpPath, notifyCount))
+			if notificationPosted {
+				cleanupErr = errors.Join(cleanupErr, j.releaseNotificationFiles(tmpPath, notifyCount))
+			} else {
+				cleanupErr = errors.Join(cleanupErr, j.unlockNotificationFiles(notifyCount))
+			}
 		}
 		if attachLock >= 0 {
 			cleanupErr = errors.Join(cleanupErr, releaseLock(attachLock))
 		}
-		if err != nil {
-			cleanupErr = errors.Join(cleanupErr, j.closeFD())
+		if err != nil && connection != nil {
+			cleanupErr = errors.Join(cleanupErr, j.abortConnection(connection))
 		}
 		if cleanupErr != nil {
 			err = errors.Join(err, cleanupErr)
@@ -490,17 +716,24 @@ func (j *j9Attacher) jattachOpenJ9(tmpPath string, nspid int, argv []string) (re
 		return nil, fmt.Errorf("could not write replyInfo: %w", err)
 	}
 
-	notifyCount = j.lockNotificationFiles(tmpPath)
+	notifyCount, err = j.lockNotificationFiles(ctx, tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("could not lock OpenJ9 notification files: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	notificationPosted = notifyCount > 0
 	if err := notifySemaphore(tmpPath, 1, notifyCount); err != nil {
 		return nil, fmt.Errorf("could not notify semaphore: %w", err)
 	}
 
-	fd, err := acceptClient(s, key)
+	conn, err := acceptClient(ctx, s, key)
 	if err != nil {
 		return nil, err
 	}
-
-	j.fd = fd
+	connection = newJ9Connection(ctx, conn)
+	j.setConnection(connection)
 
 	closeErr := closeAttachSocket(tmpPath, s, nspid)
 	s = -1
@@ -510,6 +743,7 @@ func (j *j9Attacher) jattachOpenJ9(tmpPath string, nspid int, argv []string) (re
 
 	notifyErr := j.releaseNotificationFiles(tmpPath, notifyCount)
 	notifyCount = 0
+	notificationPosted = false
 	if notifyErr != nil {
 		return nil, fmt.Errorf("could not release OpenJ9 notification files: %w", notifyErr)
 	}
@@ -524,9 +758,9 @@ func (j *j9Attacher) jattachOpenJ9(tmpPath string, nspid int, argv []string) (re
 
 	cmd := translateCommand(argv)
 
-	if writeErr := writeCommand(fd, cmd); writeErr != nil {
-		return nil, errors.Join(fmt.Errorf("error writing to socket: %w", writeErr), j.closeFD())
+	if writeErr := writeCommandContext(ctx, conn, cmd); writeErr != nil {
+		return nil, fmt.Errorf("error writing to socket: %w", writeErr)
 	}
 
-	return &j9Reader{attacher: j}, nil
+	return &j9Reader{connection: connection}, nil
 }

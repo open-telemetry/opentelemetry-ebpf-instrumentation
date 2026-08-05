@@ -731,6 +731,10 @@ func (c *Config) validate(context validationContext) error {
 		return ConfigError(err.Error())
 	}
 
+	if _, err := c.Traces.SamplerConfig.Canonical(); err != nil {
+		return ConfigError("invalid trace sampler: " + err.Error())
+	}
+
 	if err := c.EBPF.LogEnricher.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}

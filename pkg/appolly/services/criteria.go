@@ -56,6 +56,7 @@ var AllowedAttributeNames = map[string]struct{}{
 type ProcessInfo struct {
 	Pid       app.PID
 	PPid      app.PID
+	StartTime uint64
 	ExePath   string
 	CmdArgs   string
 	OpenPorts []uint32

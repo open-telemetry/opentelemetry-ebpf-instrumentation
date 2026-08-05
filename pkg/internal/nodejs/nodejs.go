@@ -6,6 +6,7 @@ package nodejs // import "go.opentelemetry.io/obi/pkg/internal/nodejs"
 import (
 	"debug/elf"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -19,8 +20,9 @@ import (
 )
 
 type NodeInjector struct {
-	log *slog.Logger
-	cfg *obi.Config
+	log              *slog.Logger
+	cfg              *obi.Config
+	connectInspector func(string, int) (net.Conn, error)
 }
 
 func NewNodeInjector(cfg *obi.Config) *NodeInjector {
@@ -34,7 +36,10 @@ func (i *NodeInjector) Enabled() bool {
 	return i.cfg.NodeJS.Enabled && (i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled())
 }
 
-func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
+func (i *NodeInjector) NewExecutable(
+	ie *ebpf.Instrumentable,
+	signalProcess func(syscall.Signal) error,
+) {
 	if !i.Enabled() {
 		i.log.Debug("Node Injector is disabled")
 		return
@@ -47,15 +52,23 @@ func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
 
 	i.log.Info("loading NodeJS instrumentation", "pid", ie.FileInfo.Pid())
 
-	if err := i.attachAgent(int(ie.FileInfo.Pid()), ie.FileInfo.ELF()); err != nil {
+	if err := i.attachAgent(
+		int(ie.FileInfo.Pid()),
+		ie.FileInfo.ELF(),
+		signalProcess,
+	); err != nil {
 		i.log.Error("couldn't attach NodeJS injector", "pid", ie.FileInfo.Pid(), "error", err)
 		i.log.Error("trace-context propagation will not work for NodeJS services!")
 	}
 }
 
-func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
+func (i *NodeInjector) attachAgent(
+	pid int,
+	elfFile *elf.File,
+	signalProcess func(syscall.Signal) error,
+) error {
 	return netns.WithNetNS(pid, func() error {
-		return i.injectFile(pid, elfFile)
+		return i.injectFile(pid, elfFile, signalProcess)
 	})
 }
 
@@ -64,16 +77,32 @@ func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
 // open, e.g. via --inspect flag), validating with /json/version. If that fails,
 // it checks for a custom SIGUSR1 handler and either sends SIGUSR1 to open the
 // inspector or bails out.
-func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
-	conn, err := connect("127.0.0.1", 9229)
+func (i *NodeInjector) injectFile(
+	pid int,
+	elfFile *elf.File,
+	signalProcess func(syscall.Signal) error,
+) error {
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		return err
+	}
+
+	connectInspector := i.connectInspector
+	if connectInspector == nil {
+		connectInspector = connect
+	}
+	conn, err := connectInspector("127.0.0.1", 9229)
 	if err == nil {
 		// Validate this is actually a Node.js inspector, not some other
 		// service that happens to listen on port 9229.
 		if i.isNodeInspector(conn) {
+			if err := checkProcessLiveness(signalProcess); err != nil {
+				_ = conn.Close()
+				return err
+			}
 			i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
 			return i.injectViaConn(conn)
 		}
-		conn.Close()
+		_ = conn.Close()
 	}
 
 	if elfFile != nil {
@@ -95,16 +124,42 @@ func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
 		}
 	}
 
-	if err := syscall.Kill(pid, syscall.SIGUSR1); err != nil {
-		return fmt.Errorf("error enabling node inspector: %w", err)
+	if err := enableNodeInspector(signalProcess); err != nil {
+		return err
 	}
 
 	conn, err = connectWait("127.0.0.1", 9229, 5*time.Second, 200*time.Millisecond)
 	if err != nil {
 		return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
 	}
+	if err := checkProcessLiveness(signalProcess); err != nil {
+		_ = conn.Close()
+		return err
+	}
 
 	return i.injectViaConn(conn)
+}
+
+func checkProcessLiveness(signalProcess func(syscall.Signal) error) error {
+	if signalProcess == nil {
+		return errors.New("identity-stable process signaling is unavailable")
+	}
+	if err := signalProcess(0); err != nil {
+		return fmt.Errorf("identity-stable process liveness check failed: %w", err)
+	}
+
+	return nil
+}
+
+func enableNodeInspector(signalProcess func(syscall.Signal) error) error {
+	if signalProcess == nil {
+		return errors.New("identity-stable process signaling is unavailable")
+	}
+	if err := signalProcess(syscall.SIGUSR1); err != nil {
+		return fmt.Errorf("error enabling node inspector: %w", err)
+	}
+
+	return nil
 }
 
 // isNodeInspector validates that a connection to port 9229 is actually a

@@ -95,3 +95,45 @@ func TestFindReturnOffsets_Truncated_ARM64(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, offsets)
 }
+
+func TestFindGoAutoSDKFlagLoadOffsetARM64(t *testing.T) {
+	// NOP; LDRB W9, [X3]; CBZ W9, +0; RET.
+	program := []byte{
+		0x1f, 0x20, 0x03, 0xd5,
+		0x69, 0x00, 0x40, 0x39,
+		0x09, 0x00, 0x00, 0x34,
+		0xc0, 0x03, 0x5f, 0xd6,
+	}
+
+	offset, err := FindGoAutoSDKFlagLoadOffset(0x4000, program)
+
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x4004), offset)
+}
+
+func TestFindGoAutoSDKFlagLoadOffsetARM64RejectsOtherParameter(t *testing.T) {
+	// LDRB W9, [X2]; CBZ W9, +0; RET.
+	program := []byte{
+		0x49, 0x00, 0x40, 0x39,
+		0x09, 0x00, 0x00, 0x34,
+		0xc0, 0x03, 0x5f, 0xd6,
+	}
+
+	_, err := FindGoAutoSDKFlagLoadOffset(0, program)
+
+	require.Error(t, err)
+}
+
+func TestFindGoAutoSDKFlagLoadOffsetARM64RejectsAmbiguousLoads(t *testing.T) {
+	program := []byte{
+		0x69, 0x00, 0x40, 0x39,
+		0x09, 0x00, 0x00, 0x34,
+		0x69, 0x00, 0x40, 0x39,
+		0x09, 0x00, 0x00, 0x35,
+		0xc0, 0x03, 0x5f, 0xd6,
+	}
+
+	_, err := FindGoAutoSDKFlagLoadOffset(0, program)
+
+	require.Error(t, err)
+}

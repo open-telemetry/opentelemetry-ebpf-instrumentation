@@ -22,7 +22,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	var getter attributes.Getter[*Span, attribute.KeyValue]
 	switch name {
 	case attr.Client:
-		getter = func(s *Span) attribute.KeyValue { return ClientMetric(SpanPeer(s)) }
+		getter = func(s *Span) attribute.KeyValue { return ClientMetric(serviceGraphClient(s)) }
 	case attr.ClientNamespace:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.IsClientSpan() {
@@ -137,7 +137,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return semconv.OncRPCVersion(s.SubType)
 		}
 	case attr.Server:
-		getter = func(s *Span) attribute.KeyValue { return ServerMetric(SpanHost(s)) }
+		getter = func(s *Span) attribute.KeyValue { return ServerMetric(serviceGraphServer(s)) }
 	case attr.ServerNamespace:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.IsClientSpan() {
@@ -590,6 +590,20 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	// default: unlike the Prometheus getters, we don't check here for service name nor k8s metadata
 	// because they are already attributes of the Resource instead of the attributes.
 	return getter, getter != nil
+}
+
+func serviceGraphClient(span *Span) string {
+	if span.Type == EventTypeManualSpan && span.IsClientSpan() {
+		return span.Service.UID.Name
+	}
+	return SpanPeer(span)
+}
+
+func serviceGraphServer(span *Span) string {
+	if span.Type == EventTypeManualSpan && !span.IsClientSpan() {
+		return span.Service.UID.Name
+	}
+	return SpanHost(span)
 }
 
 // spanPromGetters returns the attributes.Getter function that returns the

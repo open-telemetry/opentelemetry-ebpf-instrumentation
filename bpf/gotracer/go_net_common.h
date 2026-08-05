@@ -28,7 +28,7 @@
 #include <gotracer/maps/mongo.h>
 
 #include <generictracer/k_tracer_defs.h>
-
+#include <generictracer/http2_server_hpack_state.h>
 #include <logger/bpf_dbg.h>
 
 #include <maps/ongoing_tcp_req.h>
@@ -53,7 +53,30 @@ cleanup_duplicate_generic_events_sorted(const pid_connection_info_t *pid_conn) {
     }
     bpf_map_delete_elem(&ongoing_http, pid_conn);
     bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
-    bpf_map_delete_elem(&ongoing_http2_connections, pid_conn);
+    http2_conn_info_data_t *http2_connection =
+        bpf_map_lookup_elem(&ongoing_http2_connections, pid_conn);
+    if (http2_connection) {
+        const http2_conn_info_data_t snapshot = *http2_connection;
+        const http2_server_hpack_lease_key_t key =
+            http2_server_hpack_lease_key(pid_conn, &snapshot);
+        const u64 token = new_http2_server_hpack_lease_token();
+        if (claim_http2_server_hpack_lease(&key, token)) {
+            http2_connection = bpf_map_lookup_elem(&ongoing_http2_connections, pid_conn);
+            if (http2_connection &&
+                http2_server_hpack_generation_matches(&key, pid_conn, http2_connection)) {
+                // Make the raw generation unavailable first, so no callback
+                // can recover a new state between the two deletes.
+                http2_connection->retired = 1;
+                bpf_map_delete_elem(&ongoing_http2_connections, pid_conn);
+                bpf_map_delete_elem(&http2_server_hpack_states, &key);
+            }
+            release_http2_server_hpack_lease(&key, token);
+        } else {
+            // Logical retirement is generation-local and survives an HPACK
+            // state eviction. The exact owner performs physical cleanup.
+            retire_http2_server_hpack_generation(&key);
+        }
+    }
 }
 
 static __always_inline void
@@ -111,7 +134,8 @@ static __always_inline connection_info_t *already_handled_goroutine(go_addr_key_
     }
 
     // lookup active HTTP connection
-    connection_info_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, g_key);
+    go_server_connection_t *server_state = go_server_connection_lookup_current(g_key);
+    connection_info_t *conn = server_state ? &server_state->conn : NULL;
     bpf_dbg_printk("conn=%llx", conn);
     if (conn) {
         if (conn->d_port == 0 && conn->s_port == 0) {

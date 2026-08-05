@@ -228,46 +228,45 @@ static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key)
 }
 
 // Helper to clean-up Go trace information when we use Go generic support, e.g. the Go fiber framework.
-static __always_inline void delete_go_trace_info(const lw_thread_t lw_thread, const u32 pid) {
+static __always_inline void
+delete_go_trace_info(const lw_thread_t lw_thread, const u32 pid, const tp_info_t *tp) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id_and_pid(&g_key, (void *)lw_thread, pid);
 
-    bpf_map_delete_elem(&go_trace_map, &g_key);
+    pop_go_trace(&g_key, tp);
 }
 
-// Only used for Go generic support, e.g Go fiber, when we handle the requests using the
-// generic protocol parsers.
-static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_thread,
-                                                           const u32 pid) {
+static __always_inline tp_info_pid_t *
+find_go_parent_trace(const lw_thread_t lw_thread, const u32 pid, u8 *lookup_failed) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id_and_pid(&g_key, (void *)lw_thread, pid);
 
-    u64 parent_id = find_parent_goroutine(&g_key);
-    if (parent_id) {
-        go_addr_key_t p_key = {};
-        go_addr_key_from_id_and_pid(&p_key, (void *)parent_id, pid);
-
-        tp_info_t *p_inv = bpf_map_lookup_elem(&go_trace_map, &p_key);
-        if (p_inv) {
-            // Using backup scratch memory to avoid upstream users of the
-            // trace parent info to use tp_info_mem and get the same pointer.
-            // Typically this is not a problem because for other languages we
-            // pull map info, but Go tracer doesn't store the full tp_info_pid_t,
-            // only the pidless tp_info_t.
-            tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_backup_mem();
-            if (!tp_p) {
-                return NULL;
-            }
-
-            tp_p->tp = *p_inv;
-            tp_p->valid = 1;
-            tp_p->written = 0;
-            tp_p->pid = pid;
-            // if we found it in the go_trace_map, it's always a server request
-            tp_p->req_type = EVENT_HTTP_REQUEST;
-
-            return tp_p;
+    go_trace_parent_t resolved = {};
+    const s8 result = resolve_go_trace_in_chain(&resolved, &g_key, 0);
+    if (result == k_go_trace_parent_error) {
+        *lookup_failed = 1;
+        return NULL;
+    }
+    if (result == k_go_trace_parent_found) {
+        // Using backup scratch memory to avoid upstream users of the
+        // trace parent info to use tp_info_mem and get the same pointer.
+        // Typically this is not a problem because for other languages we
+        // pull map info, but Go tracer doesn't store the full tp_info_pid_t,
+        // only the pidless tp_info_t.
+        tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_backup_mem();
+        if (!tp_p) {
+            *lookup_failed = 1;
+            return NULL;
         }
+
+        tp_p->tp = resolved.tp;
+        tp_p->valid = 1;
+        tp_p->written = 0;
+        tp_p->pid = pid;
+        // if we found it in the go_trace_map, it's always a server request
+        tp_p->req_type = EVENT_HTTP_REQUEST;
+
+        return tp_p;
     }
 
     return NULL;
@@ -277,7 +276,9 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                                                         u64 pid_tgid,
                                                         lw_thread_t lw_thread,
                                                         trace_key_t *t_key,
-                                                        u16 orig_dport) {
+                                                        u16 orig_dport,
+                                                        u8 *lookup_failed) {
+    *lookup_failed = 0;
     tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
 
     if (node_tp) {
@@ -292,9 +293,12 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     if (lw_thread != k_lw_thread_none) {
         const u32 host_pid = pid_from_pid_tgid(pid_tgid);
         bpf_dbg_printk("Looking up parent trace for pid=%d, lw_thread=%llx", host_pid, lw_thread);
-        tp_info_pid_t *go_parent = find_go_parent_trace(lw_thread, host_pid);
+        tp_info_pid_t *go_parent = find_go_parent_trace(lw_thread, host_pid, lookup_failed);
         if (go_parent) {
             return go_parent;
+        }
+        if (*lookup_failed) {
+            return NULL;
         }
     }
 
@@ -342,7 +346,13 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
                                          u64 pid_tgid,
                                          lw_thread_t lw_thread,
                                          tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport);
+    u8 lookup_failed = 0;
+    tp_info_pid_t *server_tp =
+        find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport, &lookup_failed);
+    if (lookup_failed) {
+        apply_fail_closed_sampler_result(tp);
+        return 0;
+    }
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
@@ -357,6 +367,7 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         __builtin_memcpy(tp->trace_id, server_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, server_tp->tp.span_id, sizeof(tp->parent_id));
+        inherit_parent_sampling_state(tp, &server_tp->tp);
         return 1;
     }
 
@@ -383,7 +394,13 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
                                                 u64 pid_tgid,
                                                 lw_thread_t lw_thread,
                                                 tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport);
+    u8 lookup_failed = 0;
+    tp_info_pid_t *server_tp =
+        find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport, &lookup_failed);
+    if (lookup_failed) {
+        apply_fail_closed_sampler_result(tp);
+        return 0;
+    }
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");

@@ -109,9 +109,11 @@ int obi_uprobe_writer_produce(struct pt_regs *ctx) {
                 bpf_dbg_printk("found existing traceparent, tp=%llx", tp);
                 __builtin_memcpy(&topic.tp, tp, sizeof(tp_info_t));
             } else {
-                urand_bytes(topic.tp.trace_id, TRACE_ID_SIZE_BYTES);
+                topic.tp.flags = k_flag_sampled;
+                new_trace_id(&topic.tp);
                 urand_bytes(topic.tp.span_id, SPAN_ID_SIZE_BYTES);
             }
+            apply_sampling_decision(&topic.tp, valid_span(topic.tp.parent_id), 0);
 
             bpf_probe_read_user(&topic.name, topic_len, topic_ptr);
             topic.name[topic_len] = '\0';
@@ -259,6 +261,10 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
             .op = k_kafka_api_fetch,
             .start_monotime_ns = 0,
         };
+        r.tp.flags = k_flag_sampled;
+        new_trace_id(&r.tp);
+        urand_bytes(r.tp.span_id, SPAN_ID_SIZE_BYTES);
+        apply_sampling_decision(&r.tp, 0, 0);
 
         void *topic_ptr = 0;
         bpf_probe_read_user(&topic_ptr,

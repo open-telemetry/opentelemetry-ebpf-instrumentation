@@ -24,14 +24,17 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfsampling "go.opentelemetry.io/obi/pkg/internal/ebpf/sampling"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/netns"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ifaces"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -39,6 +42,23 @@ import (
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf
 
 type Tracer struct {
+	processMu             sync.Mutex
+	processStartTime      map[genericProcessKey]uint64
+	processHostStartTime  map[genericProcessKey]uint64
+	processHostAlias      map[genericProcessKey]genericProcessKey
+	processHostOwner      map[genericProcessKey]genericProcessKey
+	processFileInfo       map[genericProcessKey]*exec.FileInfo
+	samplerCleanupRetries map[samplerCleanupRetryKey]samplerCleanupRetry
+	runResourcesShutdown  bool
+	runResourcesClosing   bool
+	runResourcesClosed    bool
+	bpfObjectsClaimed     bool
+	runResourcesCloseDone chan struct{}
+	runResourcesDone      chan struct{}
+	runResourcesDoneSent  bool
+	cleanupOwnerStarted   bool
+	resolveHostPID        func(app.PID) (uint32, error)
+
 	pidsFilter       ebpfcommon.ServiceFilter
 	cfg              *obi.Config
 	metrics          imetrics.Reporter
@@ -53,6 +73,47 @@ type Tracer struct {
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
+	samplerManager   samplerLifecycleManager
+}
+
+type genericProcessKey struct {
+	pid app.PID
+	ns  uint32
+}
+
+type samplerCleanupRetryKey struct {
+	process   genericProcessKey
+	startTime uint64
+	ino       uint64
+	fileInfo  *exec.FileInfo
+}
+
+type samplerCleanupRetry struct {
+	ino                   uint64
+	admissionPending      bool
+	pidFilterBlockPending bool
+	cleanupComplete       bool
+}
+
+type http2ConnectionMapWriter interface {
+	Update(key, value any, flags ebpf.MapUpdateFlags) error
+}
+
+type http2ConnectionTrackerReader interface {
+	Lookup(key, valueOut any) error
+}
+
+type samplerLifecycleManager interface {
+	InstallGlobal() bool
+	AllowPIDForProcess(
+		app.PID,
+		uint32,
+		uint64,
+		*services.CanonicalSampler,
+		bool,
+	) bool
+	FallbackSafeForProcessIncarnation(app.PID, uint32, uint64) bool
+	BlockPIDForProcess(app.PID, uint32, uint64) bool
 }
 
 func tlog() *slog.Logger {
@@ -61,16 +122,24 @@ func tlog() *slog.Logger {
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
 	return &Tracer{
-		log:              tlog(),
-		cfg:              cfg,
-		metrics:          metrics,
-		pidsFilter:       pidFilter,
-		qdiscs:           map[ifaces.Interface]*netlink.GenericQdisc{},
-		egressFilters:    map[ifaces.Interface]*netlink.BpfFilter{},
-		ingressFilters:   map[ifaces.Interface]*netlink.BpfFilter{},
-		instrumentedLibs: make(ebpfcommon.InstrumentedLibsT),
-		libsMux:          sync.Mutex{},
-		iters:            []*ebpfcommon.Iter{},
+		log:                   tlog(),
+		cfg:                   cfg,
+		metrics:               metrics,
+		processStartTime:      map[genericProcessKey]uint64{},
+		processHostStartTime:  map[genericProcessKey]uint64{},
+		processHostAlias:      map[genericProcessKey]genericProcessKey{},
+		processHostOwner:      map[genericProcessKey]genericProcessKey{},
+		processFileInfo:       map[genericProcessKey]*exec.FileInfo{},
+		samplerCleanupRetries: map[samplerCleanupRetryKey]samplerCleanupRetry{},
+		resolveHostPID:        genericTracerHostPID,
+		runResourcesDone:      make(chan struct{}),
+		pidsFilter:            pidFilter,
+		qdiscs:                map[ifaces.Interface]*netlink.GenericQdisc{},
+		egressFilters:         map[ifaces.Interface]*netlink.BpfFilter{},
+		ingressFilters:        map[ifaces.Interface]*netlink.BpfFilter{},
+		instrumentedLibs:      make(ebpfcommon.InstrumentedLibsT),
+		libsMux:               sync.Mutex{},
+		iters:                 []*ebpfcommon.Iter{},
 	}
 }
 
@@ -84,6 +153,9 @@ const (
 	// maxConcurrentPids * 64; modulo by a prime distributes the hash evenly
 	// across the segment bit array
 	primeHash = 192053
+	// Mirrors k_process_clock_tick_ns in bpf/common/process_incarnation.h.
+	processClockTickNanoseconds  = uint64(10_000_000)
+	shutdownCleanupRetryInterval = 100 * time.Millisecond
 )
 
 func pidSegmentBit(k uint64) (uint32, uint32) {
@@ -147,7 +219,64 @@ func (p *Tracer) rebuildValidPids() error {
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	p.AllowPIDForProcess(pid, ns, fi)
+}
+
+func (p *Tracer) AllowPIDForProcess(pid app.PID, ns uint32, fi *exec.FileInfo) bool {
+	p.processMu.Lock()
+	defer p.unlockProcessAndCloseRunResourcesIfReady()
+
+	startTime := fi.StartTime()
+	key := genericProcessKey{pid: pid, ns: ns}
+	if p.samplerManager != nil {
+		attrs := fi.ServiceAttrs()
+		samplerReady := p.samplerManager.AllowPIDForProcess(
+			pid, ns, startTime, attrs.SamplerConfig, false,
+		)
+		if !samplerReady &&
+			!p.samplerManager.FallbackSafeForProcessIncarnation(pid, ns, startTime) {
+			if !p.samplerCleanupSafe(pid, ns, startTime) {
+				pidFilterBlocked := p.blockPIDFilter(pid, ns)
+				p.deleteProcessStartTime(key, p.processStartTime[key])
+				delete(p.processFileInfo, key)
+				p.queueSamplerCleanupRetry(
+					key, startTime, fi.Ino(), fi, true, !pidFilterBlocked,
+				)
+				return false
+			}
+		}
+	}
+	p.deleteSamplerCleanupRetry(samplerCleanupRetryKey{
+		process:   key,
+		startTime: startTime,
+		ino:       fi.Ino(),
+		fileInfo:  fi,
+	})
+	p.admitPID(pid, ns, fi)
+	return true
+}
+
+func (p *Tracer) admitPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	key := genericProcessKey{pid: pid, ns: ns}
+	startTime := fi.StartTime()
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
+	if p.processStartTime == nil {
+		p.processStartTime = map[genericProcessKey]uint64{}
+	}
+	if p.processHostAlias == nil {
+		p.processHostAlias = map[genericProcessKey]genericProcessKey{}
+	}
+	if p.processHostStartTime == nil {
+		p.processHostStartTime = map[genericProcessKey]uint64{}
+	}
+	if p.processHostOwner == nil {
+		p.processHostOwner = map[genericProcessKey]genericProcessKey{}
+	}
+	if p.processFileInfo == nil {
+		p.processFileInfo = map[genericProcessKey]*exec.FileInfo{}
+	}
+	p.recordProcessStartTime(key, startTime)
+	p.processFileInfo[key] = fi
 
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
@@ -162,23 +291,429 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
-	p.pidsFilter.BlockPID(pid, ns)
+	p.BlockPIDForProcess(pid, ns, nil)
+}
 
-	if err := p.rebuildValidPids(); err != nil {
-		p.log.Error("rebuilding the BPF PID filter", "error", err)
+func (p *Tracer) BlockPIDForProcess(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) {
+	p.processMu.Lock()
+	defer p.unlockProcessAndCloseRunResourcesIfReady()
+
+	key := genericProcessKey{pid: pid, ns: ns}
+	admittedFileInfo, admitted := p.processFileInfo[key]
+	if fileInfo != nil && (!admitted || admittedFileInfo != fileInfo) {
 		return
 	}
+	admittedStartTime, admitted := p.processStartTime[key]
+	startTime := uint64(0)
+	ino := uint64(0)
+	var cleanupFileInfo *exec.FileInfo
+	if admitted {
+		startTime = admittedStartTime
+		ino = fileInfoInode(admittedFileInfo)
+		cleanupFileInfo = admittedFileInfo
+	}
+	if fileInfo != nil {
+		startTime = fileInfo.StartTime()
+		ino = fileInfo.Ino()
+		cleanupFileInfo = fileInfo
+	}
+	pidFilterBlocked := p.blockPIDFilter(pid, ns)
+	p.deleteProcessStartTime(key, admittedStartTime)
+	delete(p.processFileInfo, key)
+	if !pidFilterBlocked {
+		p.queueSamplerCleanupRetry(
+			key, startTime, ino, cleanupFileInfo, false, true,
+		)
+		return
+	}
+	if !p.samplerCleanupSafe(pid, ns, startTime) {
+		p.queueSamplerCleanupRetry(
+			key, startTime, ino, cleanupFileInfo, false, false,
+		)
+		return
+	}
+	p.deleteSamplerCleanupRetry(samplerCleanupRetryKey{
+		process:   key,
+		startTime: startTime,
+		ino:       ino,
+		fileInfo:  cleanupFileInfo,
+	})
+}
 
-	// Remove from cache so next access re-evaluates.
-	if p.bpfObjects.PidCache != nil {
-		pidU32 := uint32(pid)
-		_ = p.bpfObjects.PidCache.Delete(pidU32)
+func genericTracerHostPID(pid app.PID) (uint32, error) {
+	pids, err := procs.FindNamespacedPids(pid)
+	if err != nil {
+		return 0, fmt.Errorf("reading namespaced PIDs: %w", err)
+	}
+	if len(pids) == 0 {
+		return uint32(pid), nil
+	}
+	return uint32(pids[0]), nil
+}
+
+func (p *Tracer) rememberProcessStartTime(
+	key genericProcessKey,
+	hostPID app.PID,
+	startTime uint64,
+) {
+	if previousStartTime, exists := p.processStartTime[key]; exists {
+		p.deleteProcessStartTime(key, previousStartTime)
+	}
+	hostKey := genericProcessKey{pid: hostPID, ns: key.ns}
+	p.processStartTime[key] = startTime
+	if previousOwner, exists := p.processHostOwner[hostKey]; exists && previousOwner != key {
+		delete(p.processHostAlias, previousOwner)
+	}
+	p.processHostStartTime[hostKey] = startTime
+	p.processHostAlias[key] = hostKey
+	p.processHostOwner[hostKey] = key
+}
+
+func (p *Tracer) recordProcessStartTime(key genericProcessKey, startTime uint64) {
+	if previousStartTime, exists := p.processStartTime[key]; exists {
+		p.deleteProcessStartTime(key, previousStartTime)
+	}
+	p.processStartTime[key] = startTime
+	resolver := p.resolveHostPID
+	if resolver == nil {
+		resolver = genericTracerHostPID
+	}
+	hostPID, err := resolver(key.pid)
+	if err != nil || hostPID == 0 {
+		// Normal tracing admission can continue, but delayed userspace
+		// recovery has no proven host-TGID identity and stays disabled.
+		return
+	}
+	p.rememberProcessStartTime(key, app.PID(hostPID), startTime)
+}
+
+func (p *Tracer) deleteProcessStartTime(key genericProcessKey, startTime uint64) {
+	delete(p.processStartTime, key)
+	hostKey, exists := p.processHostAlias[key]
+	delete(p.processHostAlias, key)
+	if exists && p.processHostOwner[hostKey] == key &&
+		p.processHostStartTime[hostKey] == startTime {
+		delete(p.processHostStartTime, hostKey)
+		delete(p.processHostOwner, hostKey)
 	}
 }
 
+func (p *Tracer) samplerCleanupSafe(pid app.PID, ns uint32, startTime uint64) bool {
+	return p.samplerManager == nil ||
+		(p.samplerManager.BlockPIDForProcess(pid, ns, startTime) &&
+			p.samplerManager.FallbackSafeForProcessIncarnation(pid, ns, startTime))
+}
+
+func (p *Tracer) queueSamplerCleanupRetry(
+	process genericProcessKey,
+	startTime uint64,
+	ino uint64,
+	fileInfo *exec.FileInfo,
+	admissionPending bool,
+	pidFilterBlockPending bool,
+) {
+	if p.samplerCleanupRetries == nil {
+		p.samplerCleanupRetries = map[samplerCleanupRetryKey]samplerCleanupRetry{}
+	}
+	retryKey := samplerCleanupRetryKey{
+		process: process, startTime: startTime, ino: ino, fileInfo: fileInfo,
+	}
+	retry := p.samplerCleanupRetries[retryKey]
+	if ino != 0 {
+		retry.ino = ino
+	}
+	retry.admissionPending = retry.admissionPending || admissionPending
+	retry.pidFilterBlockPending = retry.pidFilterBlockPending || pidFilterBlockPending
+	retry.cleanupComplete = false
+	p.samplerCleanupRetries[retryKey] = retry
+}
+
+func fileInfoInode(fileInfo *exec.FileInfo) uint64 {
+	if fileInfo == nil {
+		return 0
+	}
+	return fileInfo.Ino()
+}
+
+func (p *Tracer) deleteSamplerCleanupRetry(key samplerCleanupRetryKey) {
+	delete(p.samplerCleanupRetries, key)
+}
+
+func (p *Tracer) retrySamplerCleanups() {
+	p.processMu.Lock()
+	defer p.unlockProcessAndCloseRunResourcesIfReady()
+
+	for key, retry := range p.samplerCleanupRetries {
+		if retry.cleanupComplete {
+			continue
+		}
+		if retry.pidFilterBlockPending {
+			if !p.pidFilterBlockRetrySuperseded(key) &&
+				!p.syncBlockedPIDFilter(key.process.pid) {
+				continue
+			}
+			retry.pidFilterBlockPending = false
+			p.samplerCleanupRetries[key] = retry
+		}
+		if !p.samplerCleanupSafe(key.process.pid, key.process.ns, key.startTime) {
+			continue
+		}
+		if !retry.admissionPending {
+			p.deleteSamplerCleanupRetry(key)
+			continue
+		}
+		retry.cleanupComplete = true
+		p.samplerCleanupRetries[key] = retry
+	}
+}
+
+func (p *Tracer) pidFilterBlockRetrySuperseded(key samplerCleanupRetryKey) bool {
+	startTime, admitted := p.processStartTime[key.process]
+	if !admitted {
+		return false
+	}
+	return startTime != key.startTime || p.processFileInfo[key.process] != key.fileInfo
+}
+
+func (p *Tracer) PIDAdmissionRetryPending(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) bool {
+	if fileInfo == nil || fileInfo.Pid() != pid || fileInfo.Ns() != ns {
+		return false
+	}
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	retry, pending := p.samplerCleanupRetries[samplerCleanupRetryKey{
+		process:   genericProcessKey{pid: pid, ns: ns},
+		startTime: fileInfo.StartTime(),
+		ino:       fileInfo.Ino(),
+		fileInfo:  fileInfo,
+	}]
+	return pending && retry.admissionPending
+}
+
+func (p *Tracer) CancelPIDAdmissionRetry(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) {
+	if fileInfo == nil || fileInfo.Pid() != pid || fileInfo.Ns() != ns {
+		return
+	}
+	p.processMu.Lock()
+	defer p.unlockProcessAndCloseRunResourcesIfReady()
+	key := samplerCleanupRetryKey{
+		process:   genericProcessKey{pid: pid, ns: ns},
+		startTime: fileInfo.StartTime(),
+		ino:       fileInfo.Ino(),
+		fileInfo:  fileInfo,
+	}
+	retry, pending := p.samplerCleanupRetries[key]
+	if !pending {
+		return
+	}
+	if retry.cleanupComplete {
+		p.deleteSamplerCleanupRetry(key)
+		return
+	}
+	retry.admissionPending = false
+	p.samplerCleanupRetries[key] = retry
+}
+
+func (p *Tracer) ExecutableUnlinkReady(fileInfo *exec.FileInfo) bool {
+	if fileInfo == nil {
+		return true
+	}
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	for key, retry := range p.samplerCleanupRetries {
+		if key.fileInfo != nil &&
+			key.fileInfo.Dev() == fileInfo.Dev() &&
+			retry.ino == fileInfo.Ino() {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *Tracer) ResourceTeardownReady() bool {
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	return len(p.samplerCleanupRetries) == 0 &&
+		(!p.runResourcesShutdown || p.runResourcesClosed)
+}
+
+func (p *Tracer) WaitForResourceTeardown() {
+	p.processMu.Lock()
+	if !p.runResourcesShutdown || p.runResourcesClosed {
+		p.processMu.Unlock()
+		return
+	}
+	done := p.ensureRunResourcesDoneLocked()
+	p.processMu.Unlock()
+	<-done
+}
+
+func (p *Tracer) unlockProcessAndCloseRunResourcesIfReady() {
+	p.processMu.Unlock()
+	p.closeRunResourcesIfReady()
+}
+
+func (p *Tracer) shutdownRunResources() {
+	// The attacher cancels pending admissions before the tracer context. Make
+	// one final cleanup attempt while the maps and return probes are available.
+	p.retrySamplerCleanups()
+
+	p.processMu.Lock()
+	p.runResourcesShutdown = true
+	p.ensureRunResourcesDoneLocked()
+	startCleanupOwner := len(p.samplerCleanupRetries) != 0 &&
+		!p.cleanupOwnerStarted
+	if startCleanupOwner {
+		p.cleanupOwnerStarted = true
+	}
+	p.processMu.Unlock()
+	if startCleanupOwner {
+		go p.runPostCancellationCleanup()
+	}
+	p.closeRunResourcesIfReady()
+}
+
+func (p *Tracer) runPostCancellationCleanup() {
+	ticker := time.NewTicker(shutdownCleanupRetryInterval)
+	defer ticker.Stop()
+
+	p.processMu.Lock()
+	done := p.ensureRunResourcesDoneLocked()
+	p.processMu.Unlock()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			p.retrySamplerCleanups()
+		}
+	}
+}
+
+func (p *Tracer) closeRunResourcesIfReady() {
+	for {
+		p.processMu.Lock()
+		if !p.runResourcesShutdown || len(p.samplerCleanupRetries) != 0 {
+			p.processMu.Unlock()
+			return
+		}
+		if p.runResourcesClosing {
+			closeDone := p.runResourcesCloseDone
+			p.processMu.Unlock()
+			<-closeDone
+			continue
+		}
+		if p.runResourcesClosed {
+			p.signalRunResourcesDoneLocked()
+			p.processMu.Unlock()
+			return
+		}
+
+		closers := append([]io.Closer(nil), p.closers...)
+		p.closers = nil
+		if !p.bpfObjectsClaimed {
+			closers = append(closers, &p.bpfObjects)
+			p.bpfObjectsClaimed = true
+		}
+		if len(closers) == 0 {
+			p.runResourcesClosed = true
+			p.signalRunResourcesDoneLocked()
+			p.processMu.Unlock()
+			return
+		}
+		p.runResourcesClosing = true
+		p.runResourcesClosed = false
+		p.runResourcesCloseDone = make(chan struct{})
+		closeDone := p.runResourcesCloseDone
+		p.processMu.Unlock()
+
+		p.closeRunResources(closers)
+
+		p.processMu.Lock()
+		p.runResourcesClosing = false
+		p.runResourcesClosed = len(p.closers) == 0 && p.bpfObjectsClaimed
+		closeMore := !p.runResourcesClosed
+		close(closeDone)
+		p.runResourcesCloseDone = nil
+		if p.runResourcesClosed {
+			p.signalRunResourcesDoneLocked()
+		}
+		p.processMu.Unlock()
+		if !closeMore {
+			return
+		}
+	}
+}
+
+func (p *Tracer) closeRunResources(closers []io.Closer) {
+	var wg sync.WaitGroup
+	for _, closer := range closers {
+		if closer == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(c io.Closer) {
+			defer wg.Done()
+			if err := c.Close(); err != nil && p.log != nil {
+				p.log.Debug("closing generic tracer resource failed", "error", err)
+			}
+		}(closer)
+	}
+	wg.Wait()
+}
+
+func (p *Tracer) ensureRunResourcesDoneLocked() chan struct{} {
+	if p.runResourcesDone == nil {
+		p.runResourcesDone = make(chan struct{})
+	}
+	return p.runResourcesDone
+}
+
+func (p *Tracer) signalRunResourcesDoneLocked() {
+	done := p.ensureRunResourcesDoneLocked()
+	if !p.runResourcesDoneSent {
+		close(done)
+		p.runResourcesDoneSent = true
+	}
+}
+
+func (p *Tracer) blockPIDFilter(pid app.PID, ns uint32) bool {
+	p.pidsFilter.BlockPID(pid, ns)
+	return p.syncBlockedPIDFilter(pid)
+}
+
+func (p *Tracer) syncBlockedPIDFilter(pid app.PID) bool {
+	rebuildErr := p.rebuildValidPids()
+	var cacheErr error
+	if p.bpfObjects.PidCache != nil {
+		pidU32 := uint32(pid)
+		cacheErr = p.bpfObjects.PidCache.Delete(pidU32)
+		if errors.Is(cacheErr, ebpf.ErrKeyNotExist) {
+			cacheErr = nil
+		}
+	}
+	if err := errors.Join(rebuildErr, cacheErr); err != nil {
+		p.log.Error("blocking PID in the BPF filter", "error", err)
+		return false
+	}
+
+	return true
+}
+
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
-	if p.cfg.EBPF.TrackRequestHeaders ||
-		p.cfg.EBPF.ContextPropagation.IsEnabled() {
+	if p.traceparentParsingEnabled() {
 		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
 	}
 
@@ -192,7 +727,55 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants()}}, nil
 }
 
+func (p *Tracer) traceparentParsingEnabled() bool {
+	if p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled() {
+		return true
+	}
+
+	if samplerNeedsTraceparent(&p.cfg.Traces.SamplerConfig) {
+		return true
+	}
+	for i := range p.cfg.Discovery.Instrument {
+		if samplerNeedsTraceparent(p.cfg.Discovery.Instrument[i].SamplerConfig) {
+			return true
+		}
+	}
+	for i := range p.cfg.Discovery.Services {
+		if samplerNeedsTraceparent(p.cfg.Discovery.Services[i].SamplerConfig) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func samplerNeedsTraceparent(config *services.SamplerConfig) bool {
+	if config == nil {
+		return false
+	}
+	canonical, err := config.Canonical()
+	// Validation reports malformed sampler configurations before BPF loading.
+	// Keep extraction enabled if validation was bypassed so trace context is
+	// not silently discarded while the sampler falls back.
+	return err != nil || canonical.Type == services.SamplerTypeParentBased ||
+		canonical.Type == services.SamplerTypeTraceIDRatio
+}
+
 func (p *Tracer) SetupTailCalls() {
+	samplerConfig, err := p.cfg.Traces.SamplerConfig.Canonical()
+	if err != nil {
+		p.log.Error("invalid sampler configuration", "error", err)
+	}
+	p.samplerManager = ebpfsampling.NewManager(
+		p.log,
+		p.bpfObjects.GlobalSamplerConfig,
+		p.bpfObjects.SamplerOverrides,
+		p.bpfObjects.SamplerReadyPids,
+		nil,
+		samplerConfig,
+	)
+	p.samplerManager.InstallGlobal()
+
 	// Order must match the k_tail_* enum in bpf/generictracer/k_tracer_tailcall.h
 	for i, prog := range []*ebpf.Program{
 		// HTTP/1
@@ -206,15 +789,28 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiHandleBufWithArgs, // 5  k_tail_handle_buf_with_args
 		nil,                               // 6  k_tail_continue_netfd_read (gotracer-only)
 		// HTTP/2 + gRPC
-		p.bpfObjects.ObiProtocolHttp2,                                   // 7
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                         // 8
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,               // 9
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,                 // 10
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
+		p.bpfObjects.ObiProtocolHttp2,                           // 7
+		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                 // 8
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,       // 9
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,         // 10
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer, // 11
+		nil, // 12 (reserved)
 		// Large buffer multi-batch emission
 		p.bpfObjects.ObiLargeBufEmitContinue,                          // 13  k_tail_large_buf_emit_continue
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit, // 14
+		// Go SDK-only slots in the gotracer jump table
+		nil, // 15
+		nil, // 16
+		nil, // 17
+		nil, // 18
+		// HTTP/2 server traceparent validation
+		p.bpfObjects.ObiProtocolHttp2GrpcValidateServerTraceparent, // 19
+		// Ongoing HTTP/1 request continuation
+		p.bpfObjects.ObiHandleHttpContinuation, // 20
+		// HTTP/2 client terminal resolution
+		p.bpfObjects.ObiProtocolHttp2GrpcFinishClient, // 21
+		// HTTP/2 server HPACK parser continuation
+		p.bpfObjects.ObiProtocolHttp2GrpcParseServerHeaders, // 22
 	} {
 		if prog == nil {
 			continue
@@ -241,8 +837,8 @@ func (p *Tracer) constants() map[string]any {
 		m["filter_pids"] = int32(1)
 	}
 
-	if p.cfg.EBPF.TrackRequestHeaders ||
-		p.cfg.EBPF.ContextPropagation.IsEnabled() {
+	traceparentParsingEnabled := p.traceparentParsingEnabled()
+	if traceparentParsingEnabled {
 		m["capture_header_buffer"] = int32(1)
 	} else {
 		m["capture_header_buffer"] = int32(0)
@@ -270,7 +866,7 @@ func (p *Tracer) constants() map[string]any {
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
-	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
+	m["g_bpf_traceparent_enabled"] = traceparentParsingEnabled
 	m["jvm_sampling_interval_ns"] = uint64(0)
 	if p.jvmRuntimeMetricsEnabled() {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
@@ -284,7 +880,13 @@ func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
+	p.processMu.Lock()
 	p.closers = append(p.closers, c...)
+	if len(c) > 0 {
+		p.runResourcesClosed = false
+	}
+	p.processMu.Unlock()
+	p.closeRunResourcesIfReady()
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -659,27 +1261,26 @@ func (p *Tracer) Run(
 	eventsChan *msg.Queue[[]request.Span],
 ) {
 	p.eventCtx = ebpfEventContext
+	runCtx, cancelRun := context.WithCancel(ctx)
+	unsetMisclassifiedHandler := ebpfEventContext.SetMisclassifiedEventHandler(
+		p.handleMisclassifiedEvent,
+	)
 
-	// At this point we now have loaded the bpf objects, which means we should insert any
-	// pids that are allowed into the bpf map
-	if p.bpfObjects.ValidPids != nil {
-		if err := p.validateValidPidsMap(); err != nil {
-			p.log.Error("BPF PID filter map sizing is invalid, discovery filtering may not be enforced", "error", err)
-		}
-		if err := p.rebuildValidPids(); err != nil {
-			p.log.Error("setting up the BPF PID filter, discovery filtering may not be enforced", "error", err)
-		}
-	} else {
-		p.log.Error("BPF Pids map is not created yet, this is a bug.")
-	}
+	p.initializePIDFilter()
 
 	timeoutTicker := time.NewTicker(2 * time.Second)
-	parseContext := ebpfcommon.NewEBPFParseContext(&p.cfg.EBPF, eventsChan, p.pidsFilter)
-	defer parseContext.Close()
-
-	go p.watchForMisclassifedEvents(ctx)
-	go p.lookForTimeouts(ctx, parseContext, timeoutTicker, eventsChan)
-	defer timeoutTicker.Stop()
+	parseContext := ebpfcommon.NewEBPFParseContext(
+		&p.cfg.EBPF,
+		eventsChan,
+		p.pidsFilter,
+		ebpfcommon.WithMisclassifiedEventHandler(runCtx, ebpfEventContext.HandleMisclassifiedEvent),
+	)
+	var background sync.WaitGroup
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		p.lookForTimeouts(runCtx, parseContext, timeoutTicker, eventsChan)
+	}()
 
 	p.runItersForPids()
 
@@ -699,12 +1300,38 @@ func (p *Tracer) Run(
 		cfg,
 		p.bpfObjects.Events,
 		func(record *ringbuf.Record) (request.Span, bool, error) {
-			return p.processSharedRingbufRecord(ctx, parseContext, cfg, record)
+			return p.processSharedRingbufRecord(runCtx, parseContext, cfg, record)
 		},
 		p.pidsFilter.Filter,
 		p.log,
 		p.metrics,
-	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
+	)(runCtx, nil, eventsChan)
+	<-runCtx.Done()
+
+	cancelRun()
+	timeoutTicker.Stop()
+	background.Wait()
+	parseContext.Close()
+	unsetMisclassifiedHandler()
+	p.shutdownRunResources()
+}
+
+func (p *Tracer) initializePIDFilter() {
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+
+	// At this point we now have loaded the bpf objects, which means we should insert any
+	// pids that are allowed into the bpf map
+	if p.bpfObjects.ValidPids != nil {
+		if err := p.validateValidPidsMap(); err != nil {
+			p.log.Error("BPF PID filter map sizing is invalid, discovery filtering may not be enforced", "error", err)
+		}
+		if err := p.rebuildValidPids(); err != nil {
+			p.log.Error("setting up the BPF PID filter, discovery filtering may not be enforced", "error", err)
+		}
+	} else {
+		p.log.Error("BPF Pids map is not created yet, this is a bug.")
+	}
 }
 
 func (p *Tracer) jvmRuntimeMetricsEnabled() bool {
@@ -804,7 +1431,8 @@ func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.
 	}
 
 	if p.log != nil {
-		p.log.Debug("received JVM memory pool event",
+		p.log.Debug(
+			"received JVM memory pool event",
 			"pid", events[0].PID,
 			"service", events[0].Service.UID.Name,
 			"namespace", events[0].Service.UID.Namespace,
@@ -823,6 +1451,7 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 		case <-ctx.Done():
 			return
 		case t := <-ticker.C:
+			p.retrySamplerCleanups()
 			if p.bpfObjects.OngoingHttp != nil {
 				i := p.bpfObjects.OngoingHttp.Iterate()
 				var k BpfPidConnectionInfoT
@@ -866,25 +1495,76 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 	}
 }
 
-func (p *Tracer) watchForMisclassifedEvents(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case e := <-ebpfcommon.MisclassifiedEvents:
-			if e.EventType == ebpfcommon.EventTypeKHTTP2 {
-				if p.bpfObjects.OngoingHttp2Connections != nil {
-					err := p.bpfObjects.OngoingHttp2Connections.Put(
-						&BpfPidConnectionInfoT{Conn: bpfConnInfoT(e.TCPInfo.ConnInfo), Pid: e.TCPInfo.Pid.HostPid},
-						BpfHttp2ConnInfoDataT{Flags: e.TCPInfo.Ssl, Id: 0}, // no new connection flag (0x3)
-					)
-					if err != nil {
-						p.log.Debug("error writing HTTP2/gRPC connection info", "error", err)
-					}
-				}
-			}
-		}
+func (p *Tracer) handleMisclassifiedEvent(ctx context.Context, event ebpfcommon.MisclassifiedEvent) {
+	if ctx == nil || ctx.Err() != nil || event.EventType != ebpfcommon.EventTypeKHTTP2 ||
+		p.bpfObjects.OngoingHttp2Connections == nil {
+		return
 	}
+	_, err := p.writeMisclassifiedHTTP2Connection(
+		p.bpfObjects.OngoingHttp2Connections,
+		p.bpfObjects.ConnectionTracker,
+		event.TCPInfo,
+	)
+	if err != nil {
+		p.log.Debug("error writing HTTP2/gRPC connection info", "error", err)
+	}
+}
+
+func (p *Tracer) writeMisclassifiedHTTP2Connection(
+	connections http2ConnectionMapWriter,
+	connectionTracker http2ConnectionTrackerReader,
+	tcpInfo *ebpfcommon.TCPRequestInfo,
+) (bool, error) {
+	if connections == nil || connectionTracker == nil || tcpInfo == nil {
+		return false, nil
+	}
+
+	processKey := genericProcessKey{
+		pid: app.PID(tcpInfo.Pid.HostPid),
+		ns:  tcpInfo.Pid.Ns,
+	}
+	p.processMu.Lock()
+	admittedStartTime, admitted := p.processHostStartTime[processKey]
+	p.processMu.Unlock()
+	exactStartTime := tcpInfo.ProcessStartTime
+	if !admitted || admittedStartTime == 0 || exactStartTime == 0 ||
+		exactStartTime-(exactStartTime%processClockTickNanoseconds) != admittedStartTime ||
+		tcpInfo.ConnectionTime == 0 || tcpInfo.ConnectionNetns == 0 ||
+		tcpInfo.StartMonotimeNs == 0 {
+		return false, nil
+	}
+
+	key := BpfPidConnectionInfoT{
+		Conn: canonicalHTTP2ConnectionInfo(tcpInfo.ConnInfo),
+		Pid:  tcpInfo.Pid.HostPid,
+	}
+	tracked := BpfTrackedConnectionT{}
+	if err := connectionTracker.Lookup(&key.Conn, &tracked); errors.Is(err, ebpf.ErrKeyNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if tracked.Time == 0 || tracked.Time != tcpInfo.ConnectionTime ||
+		tracked.Netns != tcpInfo.ConnectionNetns {
+		return false, nil
+	}
+	value := BpfHttp2ConnInfoDataT{
+		Id:               tcpInfo.StartMonotimeNs,
+		ProcessStartTime: exactStartTime,
+		ConnectionTime:   tcpInfo.ConnectionTime,
+		Flags:            tcpInfo.Ssl,
+	}
+	if err := connections.Update(&key, value, ebpf.UpdateNoExist); errors.Is(err, syscall.EEXIST) {
+		return false, nil
+	} else if err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func canonicalHTTP2ConnectionInfo(src ebpfcommon.BpfConnectionInfoT) BpfConnectionInfoT {
+	ebpfcommon.SortConnectionInfo(&src)
+	return bpfConnInfoT(src)
 }
 
 // Cilium 0.19.0+ is adding a new private field to all the BpfConnectionInfoT

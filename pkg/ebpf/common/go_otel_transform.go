@@ -12,8 +12,11 @@ import (
 	"time"
 	"unsafe"
 
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -23,6 +26,27 @@ import (
 )
 
 const goAutoSpanJSONMaxLen = 16 * 1024
+
+type goAutoSpanMetadata struct {
+	Type         uint8
+	ParentRemote uint8
+}
+
+const goAutoSpanParentRemoteOffset = int(unsafe.Offsetof(goAutoSpanMetadata{}.ParentRemote))
+
+const (
+	goOTelSpecialAttrUnset uint8 = iota
+	goOTelSpecialAttrInvalid
+	goOTelSpecialAttrValid
+)
+
+type goOTelEncodedAttribute struct {
+	ValLength uint16
+	Vtype     uint8
+	Reserved  uint8
+	Key       [32]uint8
+	Value     [128]uint8
+}
 
 func ReadGoOTelEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
 	event, err := ReinterpretCast[GoOTelSpanTrace](record.RawSample)
@@ -38,22 +62,41 @@ func ReadGoOTelEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error)
 		attrs = string(a)
 	}
 
+	start, end, err := compactSpanTimestamps(event)
+	if err != nil {
+		return request.Span{}, true, err
+	}
+	spanKind := trace.ValidateSpanKind(trace.SpanKind(event.SpanKind))
+	peer, peerName, host, hostName := manualSpanEndpoints(
+		spanKind,
+		func(key attribute.Key) (string, bool) {
+			return compactStringAttribute(event, key)
+		},
+	)
+
 	return request.Span{
 		Type:          request.EventTypeManualSpan,
+		SpanKind:      spanKind,
 		Method:        name,
 		Statement:     attrs,
 		Path:          descr,
-		Peer:          "",
+		Route:         compactSpanRoute(event),
+		Peer:          peer,
+		PeerName:      peerName,
 		PeerPort:      0,
-		Host:          "",
+		Host:          host,
+		HostName:      hostName,
 		HostPort:      0,
 		ContentLength: 0,
-		RequestStart:  int64(event.StartTime),
-		Start:         int64(event.StartTime),
-		End:           int64(event.EndTime),
+		RequestStart:  start,
+		Start:         start,
+		End:           end,
 		TraceID:       trace.TraceID(event.Tp.TraceId),
 		SpanID:        trace.SpanID(event.Tp.SpanId),
 		ParentSpanID:  trace.SpanID(event.Tp.ParentId),
+		TraceFlags:    event.Tp.Flags,
+		ParentRemote:  event.Tp.ParentRemote != 0,
+		BPFDecision:   event.Tp.SamplingDecision != 0,
 		Status:        int(event.Status),
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),
@@ -61,6 +104,33 @@ func ReadGoOTelEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error)
 			Namespace: event.Pid.Ns,
 		},
 	}, false, nil
+}
+
+func compactSpanTimestamps(event *GoOTelSpanTrace) (int64, int64, error) {
+	start := int64(event.StartTime)
+	end := int64(event.EndTime)
+	if event.StartTimeWall == 0 && event.EndTimeWall == 0 {
+		return start, end, nil
+	}
+
+	wallNow := time.Now().UnixNano()
+	monoNow := int64(timing.MonoTimeNow())
+	if event.StartTimeWall != 0 {
+		var ok bool
+		start, ok = translateAutoSpanTimestamp(start, wallNow, monoNow)
+		if !ok {
+			return 0, 0, errors.New("invalid Go OTel span start timestamp: overflows monotonic time")
+		}
+	}
+	if event.EndTimeWall != 0 {
+		var ok bool
+		end, ok = translateAutoSpanTimestamp(end, wallNow, monoNow)
+		if !ok {
+			return 0, 0, errors.New("invalid Go OTel span end timestamp: overflows monotonic time")
+		}
+	}
+
+	return start, end, nil
 }
 
 func ReadGoAutoSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
@@ -86,7 +156,10 @@ func ReadGoAutoSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 	}
 
 	payload := record.RawSample[headerSize:]
-	span, err := readAutoSpanPayload(payload)
+	span, err := readAutoSpanPayload(
+		payload,
+		record.RawSample[goAutoSpanParentRemoteOffset] != 0,
+	)
 	if err != nil {
 		return request.Span{}, true, err
 	}
@@ -101,7 +174,7 @@ func ReadGoAutoSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 	return span, false, nil
 }
 
-func readAutoSpanPayload(payload []byte) (request.Span, error) {
+func readAutoSpanPayload(payload []byte, parentRemote bool) (request.Span, error) {
 	var unmarshaler ptrace.JSONUnmarshaler
 	traces, err := unmarshaler.UnmarshalTraces(payload)
 	if err != nil {
@@ -164,18 +237,40 @@ func readAutoSpanPayload(payload []byte) (request.Span, error) {
 		return request.Span{}, err
 	}
 
+	spanKind := trace.ValidateSpanKind(trace.SpanKind(otelSpan.Kind()))
+	peer, peerName, host, hostName := manualSpanEndpoints(
+		spanKind,
+		func(key attribute.Key) (string, bool) {
+			value, ok := otelSpan.Attributes().Get(string(key))
+			if !ok || value.Type() != pcommon.ValueTypeStr {
+				return "", false
+			}
+			return value.Str(), true
+		},
+	)
+
+	parentSpanID := trace.SpanID(otelSpan.ParentSpanID())
+	flags := otelSpan.Flags()
+
 	return request.Span{
 		Type:         request.EventTypeManualSpan,
-		SpanKind:     trace.ValidateSpanKind(trace.SpanKind(otelSpan.Kind())),
+		SpanKind:     spanKind,
 		Method:       otelSpan.Name(),
 		Path:         otelSpan.Status().Message(),
+		Route:        autoSpanRoute(otelSpan),
+		Peer:         peer,
+		PeerName:     peerName,
+		Host:         host,
+		HostName:     hostName,
 		RequestStart: startMonotime,
 		Start:        startMonotime,
 		End:          endMonotime,
 		TraceID:      traceID,
 		SpanID:       spanID,
-		ParentSpanID: trace.SpanID(otelSpan.ParentSpanID()),
-		TraceFlags:   uint8(otelSpan.Flags() & TPFlagSampled),
+		ParentSpanID: parentSpanID,
+		TraceFlags:   uint8(flags),
+		ParentRemote: parentSpanID.IsValid() && parentRemote,
+		BPFDecision:  true,
 		Status:       status,
 	}, nil
 }
@@ -206,9 +301,180 @@ func autoSpanStatus(status ptrace.StatusCode) (int, error) {
 
 func encodedAttrs(event *GoOTelSpanTrace) ([]byte, error) {
 	size := int(event.SpanAttrs.ValidAttrs)
-	if size == 0 {
+	if size > len(event.SpanAttrs.Attrs) {
+		return nil, errors.New("invalid Go OTel attribute count")
+	}
+
+	specialAttrs := compactSpecialAttributes(event)
+	attrs := make([]goOTelEncodedAttribute, 0, size+len(specialAttrs))
+	for i := range event.SpanAttrs.Attrs[:size] {
+		current := &event.SpanAttrs.Attrs[i]
+		if compactAttributeOverridden(event, cstr(current.Key[:])) {
+			continue
+		}
+		attrs = append(attrs, goOTelEncodedAttribute{
+			ValLength: current.ValLength,
+			Vtype:     current.Vtype,
+			Reserved:  current.Reserved,
+			Key:       current.Key,
+			Value:     current.Value,
+		})
+	}
+	attrs = append(attrs, specialAttrs...)
+	if len(attrs) == 0 {
 		return nil, nil
 	}
-	attrs := event.SpanAttrs.Attrs[:size]
 	return json.Marshal(attrs)
+}
+
+func compactSpecialAttributes(event *GoOTelSpanTrace) []goOTelEncodedAttribute {
+	attrs := make([]goOTelEncodedAttribute, 0, 4)
+	appendStringAttr := func(state uint8, key attribute.Key, value []uint8) {
+		if state != goOTelSpecialAttrValid {
+			return
+		}
+		encoded := goOTelEncodedAttribute{Vtype: uint8(attribute.STRING)}
+		copy(encoded.Key[:], string(key))
+		encoded.ValLength = uint16(copy(encoded.Value[:], cstr(value)))
+		attrs = append(attrs, encoded)
+	}
+
+	appendStringAttr(event.RouteState, semconv.HTTPRouteKey, event.Route[:])
+	kind := trace.ValidateSpanKind(trace.SpanKind(event.SpanKind))
+	if kind == trace.SpanKindInternal {
+		return attrs
+	}
+	appendStringAttr(
+		event.ServicePeerNameState,
+		semconv.ServicePeerNameKey,
+		event.ServicePeerName[:],
+	)
+	appendStringAttr(
+		event.NetworkPeerAddressState,
+		semconv.NetworkPeerAddressKey,
+		event.NetworkPeerAddress[:],
+	)
+	switch kind {
+	case trace.SpanKindClient, trace.SpanKindProducer:
+		appendStringAttr(
+			event.RemoteAddressState,
+			semconv.ServerAddressKey,
+			event.RemoteAddress[:],
+		)
+	case trace.SpanKindServer, trace.SpanKindConsumer:
+		appendStringAttr(
+			event.RemoteAddressState,
+			semconv.ClientAddressKey,
+			event.RemoteAddress[:],
+		)
+	}
+	return attrs
+}
+
+func compactAttributeOverridden(event *GoOTelSpanTrace, key string) bool {
+	_, state := compactDedicatedAttribute(event, attribute.Key(key))
+	return state != goOTelSpecialAttrUnset
+}
+
+func compactSpanRoute(event *GoOTelSpanTrace) string {
+	switch event.RouteState {
+	case goOTelSpecialAttrValid:
+		return cstr(event.Route[:])
+	case goOTelSpecialAttrInvalid:
+		return ""
+	}
+	if route := cstr(event.Route[:]); route != "" {
+		return route
+	}
+
+	size := min(int(event.SpanAttrs.ValidAttrs), len(event.SpanAttrs.Attrs))
+	for i := size; i > 0; i-- {
+		current := &event.SpanAttrs.Attrs[i-1]
+		if current.Vtype == uint8(attribute.STRING) &&
+			cstr(current.Key[:]) == string(semconv.HTTPRouteKey) {
+			return cstr(current.Value[:])
+		}
+	}
+	return ""
+}
+
+func compactStringAttribute(event *GoOTelSpanTrace, key attribute.Key) (string, bool) {
+	dedicated, state := compactDedicatedAttribute(event, key)
+	switch state {
+	case goOTelSpecialAttrValid:
+		return cstr(dedicated), true
+	case goOTelSpecialAttrInvalid:
+		return "", false
+	}
+
+	size := min(int(event.SpanAttrs.ValidAttrs), len(event.SpanAttrs.Attrs))
+	for i := size; i > 0; i-- {
+		current := &event.SpanAttrs.Attrs[i-1]
+		if current.Vtype == uint8(attribute.STRING) &&
+			cstr(current.Key[:]) == string(key) {
+			return cstr(current.Value[:]), true
+		}
+	}
+	return "", false
+}
+
+func compactDedicatedAttribute(event *GoOTelSpanTrace, key attribute.Key) ([]uint8, uint8) {
+	var dedicated []uint8
+	var state uint8
+	switch key {
+	case semconv.HTTPRouteKey:
+		dedicated = event.Route[:]
+		state = event.RouteState
+	case semconv.ServicePeerNameKey:
+		dedicated = event.ServicePeerName[:]
+		state = event.ServicePeerNameState
+	case semconv.NetworkPeerAddressKey:
+		dedicated = event.NetworkPeerAddress[:]
+		state = event.NetworkPeerAddressState
+	case semconv.ServerAddressKey:
+		if kind := trace.ValidateSpanKind(trace.SpanKind(event.SpanKind)); kind == trace.SpanKindClient ||
+			kind == trace.SpanKindProducer {
+			dedicated = event.RemoteAddress[:]
+			state = event.RemoteAddressState
+		}
+	case semconv.ClientAddressKey:
+		if kind := trace.ValidateSpanKind(trace.SpanKind(event.SpanKind)); kind == trace.SpanKindServer ||
+			kind == trace.SpanKindConsumer {
+			dedicated = event.RemoteAddress[:]
+			state = event.RemoteAddressState
+		}
+	}
+	return dedicated, state
+}
+
+func manualSpanEndpoints(
+	kind trace.SpanKind,
+	lookup func(attribute.Key) (string, bool),
+) (peer, peerName, host, hostName string) {
+	servicePeer, _ := lookup(semconv.ServicePeerNameKey)
+	networkPeer, _ := lookup(semconv.NetworkPeerAddressKey)
+
+	switch kind {
+	case trace.SpanKindClient, trace.SpanKindProducer:
+		host, _ = lookup(semconv.ServerAddressKey)
+		if host == "" {
+			host = networkPeer
+		}
+		hostName = servicePeer
+	case trace.SpanKindServer, trace.SpanKindConsumer:
+		peer, _ = lookup(semconv.ClientAddressKey)
+		if peer == "" {
+			peer = networkPeer
+		}
+		peerName = servicePeer
+	}
+	return peer, peerName, host, hostName
+}
+
+func autoSpanRoute(span ptrace.Span) string {
+	value, ok := span.Attributes().Get(string(semconv.HTTPRouteKey))
+	if !ok || value.Type() != pcommon.ValueTypeStr {
+		return ""
+	}
+	return value.Str()
 }

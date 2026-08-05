@@ -30,4 +30,5 @@ typedef struct send_event {
     u64 promise;
     u32 correlation_id;
     u32 _pad;
+    tp_info_t tp;
 } send_event_t;

@@ -229,6 +229,11 @@ const (
 	RuntimeSchedSTWTotalTimeGCPos
 	RuntimeTimeHistogramUnderflowPos
 	RuntimeTimeHistogramOverflowPos
+	GoTracerTimestampOptOffset
+	BufReaderRPos
+	ReqTLSPos
+	ScMaxClientStreamIDPos
+	ScMaxClientStreamIDVendoredPos
 )
 
 //go:embed offsets.json
@@ -280,6 +285,7 @@ var structMembers = map[string]structInfo{
 			"Method":        MethodPtrPos,
 			"ContentLength": ContentLengthPtrPos,
 			"Header":        ReqHeaderPtrPos,
+			"TLS":           ReqTLSPos,
 		},
 	},
 	"net/url.URL": {
@@ -399,7 +405,8 @@ var structMembers = map[string]structInfo{
 	"golang.org/x/net/http2.serverConn": {
 		lib: "golang.org/x/net",
 		fields: map[string]GoOffset{
-			"conn": ScConnPos,
+			"conn":              ScConnPos,
+			"maxClientStreamID": ScMaxClientStreamIDPos,
 		},
 	},
 	"net/http.http2ClientConn": {
@@ -413,7 +420,8 @@ var structMembers = map[string]structInfo{
 	"net/http.http2serverConn": {
 		lib: "go",
 		fields: map[string]GoOffset{
-			"conn": ScConnPos,
+			"conn":              ScConnPos,
+			"maxClientStreamID": ScMaxClientStreamIDVendoredPos,
 		},
 	},
 	"net.TCPConn": {
@@ -465,6 +473,7 @@ var structMembers = map[string]structInfo{
 		lib: "go",
 		fields: map[string]GoOffset{
 			"buf": BufReaderBufPos,
+			"r":   BufReaderRPos,
 			"w":   BufReaderWPos,
 		},
 	},

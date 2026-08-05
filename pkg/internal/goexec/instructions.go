@@ -44,7 +44,19 @@ type moduledataOffsets struct {
 	maxpc     uint64
 	text      uint64
 	etext     uint64
+	types     uint64
+	etypes    uint64
+	typelinks uint64 // offset of typelinks.data (slice header start)
 }
+
+type moduledataView struct {
+	address uint64
+	text    uint64
+	offsets moduledataOffsets
+	relocs  relocationInfo
+}
+
+const goAutoSDKGlobalNewSpan = "go.opentelemetry.io/otel/internal/global.(*tracer).newSpan"
 
 func isSupportedGoBinary(elfF *elf.File) error {
 	goVersion, _, err := getGoDetails(elfF)
@@ -100,11 +112,23 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 				continue
 			}
 
-			offs, ok, err := findFuncOffset(&f, elfF)
+			offs, data, ok, err := findFuncOffsetAndData(&f, elfF)
 			if err != nil {
 				return nil, err
 			}
 			if ok {
+				if fName == goAutoSDKGlobalNewSpan {
+					admission, err := FindGoAutoSDKFlagLoadOffset(offs.Start, data)
+					if err != nil {
+						ilog.Debug(
+							"disabling Go Auto SDK because its flag-load instruction is unresolved",
+							"function", fName,
+							"error", err,
+						)
+						continue
+					}
+					offs.Admission = admission
+				}
 				ilog.Debug("found relevant function for instrumentation", "function", fName, "offsets", offs)
 				allOffsets[fName] = offs
 			}
@@ -112,6 +136,37 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 	}
 
 	return allOffsets, nil
+}
+
+func functionOffsetsContaining(elfF *elf.File, substring string) ([]FuncOffsets, error) {
+	symTab, err := findGoSymbolTable(elfF)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := map[uint64]struct{}{}
+	offsets := make([]FuncOffsets, 0)
+	for i := range symTab.Funcs {
+		function := &symTab.Funcs[i]
+		if !strings.Contains(function.Name, substring) {
+			continue
+		}
+
+		offset, ok, err := findFuncOffset(function, elfF)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		if _, duplicate := seen[offset.Entry]; duplicate {
+			continue
+		}
+		seen[offset.Entry] = struct{}{}
+		offsets = append(offsets, offset)
+	}
+
+	return offsets, nil
 }
 
 func handleStaticSymbol(fName string, allOffsets map[string]FuncOffsets, allSyms map[string]procs.Sym, ilog *slog.Logger) {
@@ -130,7 +185,28 @@ func handleStaticSymbol(fName string, allOffsets map[string]FuncOffsets, allSyms
 			ilog.Error("error finding returns for symbol", "symbol", fName, "offset", s.Off-s.Prog.Off, "size", s.Len, "error", err)
 			return
 		}
-		allOffsets[fName] = FuncOffsets{Start: s.Off, Returns: returns}
+		admission := uint64(0)
+		if fName == goAutoSDKGlobalNewSpan {
+			admission, err = FindGoAutoSDKFlagLoadOffset(s.Off, data)
+			if err != nil {
+				ilog.Debug(
+					"disabling Go Auto SDK because its flag-load instruction is unresolved",
+					"function", fName,
+					"error", err,
+				)
+				return
+			}
+		}
+		entry := s.Off
+		if s.Prog != nil {
+			entry = s.Off - s.Prog.Off + s.Prog.Vaddr
+		}
+		allOffsets[fName] = FuncOffsets{
+			Start:     s.Off,
+			Admission: admission,
+			Entry:     entry,
+			Returns:   returns,
+		}
 	} else {
 		ilog.Debug("can't find in elf symbol table", "symbol", fName, "ok", ok, "prog", s.Prog)
 	}
@@ -138,6 +214,14 @@ func handleStaticSymbol(fName string, allOffsets map[string]FuncOffsets, allSyms
 
 // findFuncOffset gets the start address and end addresses of the function whose symbol is passed
 func findFuncOffset(f *gosym.Func, elfF *elf.File) (FuncOffsets, bool, error) {
+	offsets, _, ok, err := findFuncOffsetAndData(f, elfF)
+	return offsets, ok, err
+}
+
+func findFuncOffsetAndData(
+	f *gosym.Func,
+	elfF *elf.File,
+) (FuncOffsets, []byte, bool, error) {
 	for _, prog := range elfF.Progs {
 		if prog.Type != elf.PT_LOAD || (prog.Flags&elf.PF_X) == 0 {
 			continue
@@ -157,18 +241,24 @@ func findFuncOffset(f *gosym.Func, elfF *elf.File) (FuncOffsets, bool, error) {
 			data := make([]byte, funcLen)
 			_, err := prog.ReadAt(data, int64(f.Value-prog.Vaddr))
 			if err != nil {
-				return FuncOffsets{}, false, fmt.Errorf("finding function return: %w", err)
+				return FuncOffsets{}, nil, false,
+					fmt.Errorf("finding function return: %w", err)
 			}
 
 			returns, err := FindReturnOffsets(off, data)
 			if err != nil {
-				return FuncOffsets{}, false, fmt.Errorf("finding function return: %w", err)
+				return FuncOffsets{}, nil, false,
+					fmt.Errorf("finding function return: %w", err)
 			}
-			return FuncOffsets{Start: off, Returns: returns}, true, nil
+			return FuncOffsets{
+				Start:   off,
+				Entry:   f.Value,
+				Returns: returns,
+			}, data, true, nil
 		}
 	}
 
-	return FuncOffsets{}, false, nil
+	return FuncOffsets{}, nil, false, nil
 }
 
 func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {
@@ -263,17 +353,25 @@ func findRuntimeText(elfF *elf.File, gopclntab *elf.Section, pclndat []byte) (ui
 // Note: pcHeader points to the exact start of .gopclntab. pclntable.data points into .gopclntab
 // at the function-table offset (not necessarily the start), so we validate it as a range check.
 func findRuntimeTextFromModuledata(elfF *elf.File, gopclntab *elf.Section) (uint64, error) {
+	view, err := findRuntimeModuledata(elfF, gopclntab)
+	if err != nil {
+		return 0, err
+	}
+	return view.text, nil
+}
+
+func findRuntimeModuledata(elfF *elf.File, gopclntab *elf.Section) (moduledataView, error) {
 	if elfF.Class != elf.ELFCLASS64 {
-		return 0, errors.New("moduledata scan only implemented for 64-bit ELF")
+		return moduledataView{}, errors.New("moduledata scan only implemented for 64-bit ELF")
 	}
 
 	if gopclntab == nil {
-		return 0, errors.New("no .gopclntab section")
+		return moduledataView{}, errors.New("no .gopclntab section")
 	}
 
 	mdoffs, err := loadModuledataOffsets(elfF)
 	if err != nil {
-		return 0, err
+		return moduledataView{}, err
 	}
 
 	relocs := buildRelocationInfo(elfF)
@@ -289,13 +387,18 @@ func findRuntimeTextFromModuledata(elfF *elf.File, gopclntab *elf.Section) (uint
 
 		if text, ok := validateModuledata(elfF, candidate, gopclntab.Addr, gopclntab.Size, mdoffs, relocs); ok {
 			ilog.Debug("moduledata found", "candidate", fmt.Sprintf("0x%x", candidate), "text", fmt.Sprintf("0x%x", text))
-			return text, nil
+			return moduledataView{
+				address: candidate,
+				text:    text,
+				offsets: mdoffs,
+				relocs:  relocs,
+			}, nil
 		}
 	}
 
 	ilog.Debug("moduledata not found", "candidates", len(candidates))
 
-	return 0, errors.New("runtime.moduledata not found")
+	return moduledataView{}, errors.New("runtime.moduledata not found")
 }
 
 func loadModuledataOffsets(elfF *elf.File) (moduledataOffsets, error) {
@@ -326,6 +429,9 @@ func loadModuledataOffsets(elfF *elf.File) (moduledataOffsets, error) {
 		{"maxpc", &md.maxpc},
 		{"text", &md.text},
 		{"etext", &md.etext},
+		{"types", &md.types},
+		{"etypes", &md.etypes},
+		{"typelinks", &md.typelinks},
 	}
 
 	for _, f := range fields {

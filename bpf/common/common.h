@@ -113,6 +113,7 @@ typedef struct kafka_client_req {
     unsigned char buf[k_kafka_max_len];
     connection_info_t conn;
     pid_info pid;
+    tp_info_t tp;
 } kafka_client_req_t;
 
 typedef struct kafka_go_req {
@@ -169,6 +170,15 @@ typedef struct tcp_req {
     // with other instrumented processes
     pid_info pid;
     tp_info_t tp;
+    outgoing_trace_token_t handoff_token;
+    u8 handoff_expected;
+    u8 _handoff_pad[7];
+    // Exact boot-time identities used only for delayed userspace recovery.
+    // Keep them appended so existing ring-buffer field offsets remain stable.
+    u64 process_start_time;
+    u64 connection_time;
+    u32 connection_netns;
+    u8 _connection_pad[4];
 } tcp_req_t;
 
 typedef struct tcp_large_buffer {
@@ -241,19 +251,38 @@ typedef struct otel_attributes {
     u8 _apad;
 } otel_attributes_t;
 
+enum otel_span_kind : u8 {
+    k_otel_span_kind_internal = 1,
+    k_otel_span_kind_server = 2,
+    k_otel_span_kind_client = 3,
+    k_otel_span_kind_producer = 4,
+    k_otel_span_kind_consumer = 5,
+};
+
 typedef struct otel_span {
     u8 type; // Must be first
     u8 _pad[7];
     u64 start_time;
     u64 end_time;
-    u64 parent_go;
     tp_info_t tp;
     tp_info_t prev_tp;
     u32 status;
     span_name_t span_name;
     span_description_t span_description;
+    unsigned char route[OTEL_ATTRIBUTE_VALUE_MAX_LEN];
+    unsigned char service_peer_name[OTEL_ATTRIBUTE_VALUE_MAX_LEN];
+    unsigned char network_peer_address[OTEL_ATTRIBUTE_VALUE_MAX_LEN];
+    unsigned char remote_address[OTEL_ATTRIBUTE_VALUE_MAX_LEN];
+    u8 route_state;
+    u8 service_peer_name_state;
+    u8 network_peer_address_state;
+    u8 remote_address_state;
     pid_info pid;
     otel_attributes_t span_attrs;
+    u8 auto_span;
+    u8 span_kind;
+    u8 start_time_wall;
+    u8 end_time_wall;
     u8 _epad[6];
 } otel_span_t;
 
@@ -266,7 +295,8 @@ typedef struct channel_link_trace {
 
 typedef struct go_auto_span {
     u8 type; // Must be first
-    u8 _pad[3];
+    u8 parent_remote;
+    u8 _pad[2];
     u32 size;
     pid_info pid;
     unsigned char buf[];

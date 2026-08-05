@@ -133,7 +133,7 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 	p.seenNetns.Add(inode, struct{}{})
 }
 
-func (p *Tracer) BlockPID(app.PID, uint32) {}
+func (p *Tracer) BlockPID(_ app.PID, _ uint32) {}
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	spec, err := LoadBpf()
@@ -214,7 +214,8 @@ func (p *Tracer) iterConstants() map[string]any {
 	}
 }
 
-func (p *Tracer) SetupTailCalls() {}
+func (p *Tracer) SetupTailCalls() {
+}
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 

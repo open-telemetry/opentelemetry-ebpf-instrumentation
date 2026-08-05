@@ -24,7 +24,11 @@
 #include <common/tracked_connection.h>
 
 #include <generictracer/maps/http_info_mem.h>
+#include <generictracer/maps/client_trace_publication_mem.h>
+#include <generictracer/maps/http_trace_setup_mem.h>
 
+#include <generictracer/http1_client_lifecycle.h>
+#include <generictracer/http1_sampling.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/large_buf_tailcall.h>
 #include <generictracer/protocol_common.h>
@@ -39,8 +43,6 @@
 
 volatile const u32 high_request_volume;
 
-SCRATCH_MEM_SIZED(http_previous_trace_id, TRACE_ID_SIZE_BYTES);
-
 // empty_http_info zeroes and return the unique percpu copy in the map
 // this function assumes that a given thread is not trying to use many
 // instances at the same time
@@ -51,6 +53,162 @@ static __always_inline http_info_t *empty_http_info() {
         __builtin_memset(value, 0, sizeof(http_info_t));
     }
     return value;
+}
+
+static __always_inline tp_info_pid_t http1_client_event_publication(
+    const pid_connection_info_t *pid_conn, const http_info_t *info, u8 written) {
+    return (tp_info_pid_t){
+        .tp = info->tp,
+        .pid = pid_conn->pid,
+        .valid = 1,
+        .written = written,
+        .req_type = EVENT_HTTP_CLIENT,
+    };
+}
+
+static __noinline void cleanup_http1_client_publication(const pid_connection_info_t *pid_conn,
+                                                        const http_info_t *info,
+                                                        const tp_info_pid_t *publication) {
+    delete_client_trace_publications_if_matches(&info->conn_info,
+                                                publication,
+                                                pid_conn->pid,
+                                                0,
+                                                info->ssl,
+                                                info->owner_pid_tgid,
+                                                (info->task_tid & JAVA_VT_TID_FLAG) != 0);
+}
+
+// Request identity in ongoing_http is authoritative. Shared connection/task
+// publications are only support indexes and may contend with the transport
+// writer. A post-publication generation check prevents a late callback from
+// resurrecting support after completion or tuple reuse.
+static __noinline u8 publish_http1_client_request(const pid_connection_info_t *pid_conn,
+                                                  const http_info_t *info,
+                                                  const tp_info_pid_t *publication,
+                                                  u8 outgoing_noexist) {
+    if (!pid_conn || !info || !publication || !info->start_monotime_ns ||
+        http1_client_handoff_suppresses_event(info->handoff_state)) {
+        return 0;
+    }
+
+    const u64 start_monotime_ns = info->start_monotime_ns;
+    http_info_t *current = bpf_map_lookup_elem(&ongoing_http, pid_conn);
+    if (!current ||
+        !http1_client_request_generation_matches(start_monotime_ns, current->start_monotime_ns) ||
+        current->type != EVENT_HTTP_CLIENT ||
+        http1_client_handoff_suppresses_event(current->handoff_state)) {
+        return 0;
+    }
+
+    const client_trace_publication_target_t target = {
+        .owner_pid_tgid = info->owner_pid_tgid,
+        .host_pid = pid_conn->pid,
+        .ssl = info->ssl,
+        .vt_keyed = (info->task_tid & JAVA_VT_TID_FLAG) != 0,
+        .outgoing_noexist = outgoing_noexist,
+    };
+    client_trace_publication_transaction_t *transaction =
+        client_trace_publication_transaction_mem();
+    if (!transaction) {
+        return 0;
+    }
+    if (begin_client_trace_publications(&info->conn_info, publication, &target, transaction) != 0) {
+        rollback_client_trace_publications(&info->conn_info, publication, &target, transaction);
+        finish_client_trace_publications(&info->conn_info, &target, transaction);
+        return 0;
+    }
+    finish_client_trace_publications(&info->conn_info, &target, transaction);
+
+    current = bpf_map_lookup_elem(&ongoing_http, pid_conn);
+    if (!current ||
+        !http1_client_request_generation_matches(start_monotime_ns, current->start_monotime_ns) ||
+        current->type != EVENT_HTTP_CLIENT ||
+        http1_client_handoff_suppresses_event(current->handoff_state)) {
+        return 1;
+    }
+    return 0;
+}
+
+// Retry a previously observed exact generation without taking the connection
+// claim. The exact request identity is committed before local consumption. At
+// terminal time unresolved authority is retired and the event is suppressed;
+// an exact writer services retire_requested as it releases its claim.
+static __noinline u8 resolve_pending_http1_client_handoff(pid_connection_info_t *pid_conn,
+                                                          http_info_t *info,
+                                                          u8 terminal) {
+    if (!pid_conn || !info || info->type != EVENT_HTTP_CLIENT ||
+        !http1_client_handoff_is_pending(info->handoff_state)) {
+        return info ? info->handoff_state : k_http1_client_handoff_none;
+    }
+
+    const u64 start_monotime_ns = info->start_monotime_ns;
+    const u8 pending_state = info->handoff_state;
+    const outgoing_trace_token_t token = info->handoff_token;
+    const egress_key_t egress = make_egress_key(&pid_conn->conn, pid_conn->pid, 0);
+    tp_info_pid_t *authority = tp_info_mem();
+    u8 exact_claimed = 0;
+    if (authority && outgoing_trace_token_valid(&token)) {
+        exact_claimed = claim_outgoing_trace_handoff(
+            &egress, &token, pid_conn->pid, EVENT_HTTP_CLIENT, NULL, 1, 1, authority);
+    }
+
+    const u8 authority_written = exact_claimed && authority->written == k_outbound_trace_written;
+    const u8 wire_matches =
+        pending_state != k_http1_client_handoff_pending_wire ||
+        (authority_written && wire_traceparent_matches_authority(&authority->tp, &info->tp));
+    const enum http1_client_pending_resolution resolution = http1_client_resolve_pending(
+        pending_state, exact_claimed, authority_written, wire_matches, terminal);
+
+    if (resolution == k_http1_client_pending_exact && authority && exact_claimed &&
+        authority_written) {
+        http_info_t *current = bpf_map_lookup_elem(&ongoing_http, pid_conn);
+        if (!current ||
+            !http1_client_request_generation_matches(start_monotime_ns,
+                                                     current->start_monotime_ns) ||
+            current->type != EVENT_HTTP_CLIENT ||
+            !http1_client_handoff_is_pending(current->handoff_state) ||
+            !outgoing_trace_tokens_match(&current->handoff_token, &token)) {
+            if (exact_claimed) {
+                release_claimed_outgoing_trace_handoff(&egress, &token);
+            }
+            return current ? current->handoff_state : k_http1_client_handoff_fail_closed;
+        }
+        current->tp = authority->tp;
+        current->handoff_state = k_http1_client_handoff_exact;
+        current->handoff_expected = 1;
+        consume_claimed_outgoing_trace_handoff(&egress, &token);
+        if (!terminal) {
+            const tp_info_pid_t publication = *authority;
+            if (publish_http1_client_request(pid_conn, current, &publication, 0)) {
+                cleanup_http1_client_publication(pid_conn, current, &publication);
+            }
+        }
+        return k_http1_client_handoff_exact;
+    }
+
+    if (exact_claimed) {
+        release_claimed_outgoing_trace_handoff(&egress, &token);
+    }
+    if (resolution == k_http1_client_pending_wait) {
+        return pending_state;
+    }
+
+    http_info_t *current = bpf_map_lookup_elem(&ongoing_http, pid_conn);
+    if (current &&
+        http1_client_request_generation_matches(start_monotime_ns, current->start_monotime_ns) &&
+        current->type == EVENT_HTTP_CLIENT &&
+        http1_client_handoff_is_pending(current->handoff_state) &&
+        outgoing_trace_tokens_match(&current->handoff_token, &token)) {
+        const tp_info_pid_t publication =
+            http1_client_event_publication(pid_conn, current, k_outbound_trace_written);
+        current->handoff_state = k_http1_client_handoff_fail_closed;
+        current->handoff_expected = 0;
+        cleanup_http1_client_publication(pid_conn, current, &publication);
+    }
+    if (outgoing_trace_token_valid(&token)) {
+        request_outgoing_trace_handoff_retirement(&egress, &token, NULL, 0);
+    }
+    return k_http1_client_handoff_fail_closed;
 }
 
 static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta) {
@@ -115,17 +273,25 @@ static __always_inline void cleanup_http_info(pid_connection_info_t *pid_conn) {
 
 static __always_inline void finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
     if (http_info_complete(info) && !info->submitted) {
+        const u64 start_monotime_ns = info->start_monotime_ns;
+        http_info_t *current = bpf_map_lookup_elem(&ongoing_http, pid_conn);
+        if (!current || current->start_monotime_ns != start_monotime_ns) {
+            return;
+        }
+        info = current;
         info->submitted = 1;
         bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
-        http_info_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_info_t), 0);
-        if (trace) {
-            bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
+        if (!http1_client_handoff_suppresses_event(info->handoff_state)) {
+            http_info_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_info_t), 0);
+            if (trace) {
+                bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
 
-            __builtin_memcpy(trace, info, sizeof(http_info_t));
-            trace->flags = EVENT_K_HTTP_REQUEST;
-            bpf_ringbuf_submit(trace, get_flags());
-        } else {
-            bpf_dbg_printk("failed to reserve space in the ringbuf");
+                __builtin_memcpy(trace, info, sizeof(http_info_t));
+                trace->flags = EVENT_K_HTTP_REQUEST;
+                bpf_ringbuf_submit(trace, get_flags());
+            } else {
+                bpf_dbg_printk("failed to reserve space in the ringbuf");
+            }
         }
 
         // bpf_dbg_printk("Terminating trace for pid=%d", pid_from_pid_tgid(pid_tid));
@@ -163,6 +329,9 @@ static __always_inline void update_http_sent_len(pid_connection_info_t *pid_conn
     }
 }
 
+static __always_inline void cleanup_http_request_data(pid_connection_info_t *pid_conn,
+                                                      http_info_t *info);
+
 static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                                                          pid_connection_info_t *pid_conn,
                                                          u8 packet_type,
@@ -176,7 +345,9 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                     return 0;
                 }
             }
-            // this will delete ongoing_http for this connection info if there's full stale request
+            // Resolve/retire any pending exact generation before this tuple is
+            // reused, then finish the old request before replacing its value.
+            cleanup_http_request_data(pid_conn, old_info);
             finish_http(old_info, pid_conn);
         }
 
@@ -213,6 +384,7 @@ static __always_inline void
 force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
+        cleanup_http_request_data(pid_conn, info);
         if (info->delayed) {
             finish_http(info, pid_conn);
         } else {
@@ -226,15 +398,32 @@ force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn) {
 static __always_inline void cleanup_http_request_data(pid_connection_info_t *pid_conn,
                                                       http_info_t *info) {
     if (info) {
+        resolve_pending_http1_client_handoff(pid_conn, info, 1);
         if (info->type == EVENT_HTTP_REQUEST) {
             trace_key_t t_key = {0};
             t_key.extra_id = info->extra_id;
             t_key.p_key.ns = info->pid.ns;
             t_key.p_key.tid = info->task_tid;
             t_key.p_key.pid = info->pid.user_pid;
-            delete_server_trace(pid_conn, &t_key);
+            delete_server_trace_for_owner(pid_conn, &t_key, info->owner_pid_tgid, &info->tp);
         } else {
-            delete_client_trace_info(pid_conn);
+            const u64 start_monotime_ns = info->start_monotime_ns;
+            const egress_key_t e_key = make_egress_key(&pid_conn->conn, pid_conn->pid, 0);
+            const tp_info_pid_t expected = {
+                .tp = info->tp,
+                .pid = pid_conn->pid,
+                .req_type = EVENT_HTTP_CLIENT,
+            };
+            cleanup_http1_client_publication(pid_conn, info, &expected);
+            if (info->handoff_expected) {
+                cleanup_outgoing_trace_handoff_token(
+                    &e_key, pid_conn->pid, EVENT_HTTP_CLIENT, &info->handoff_token);
+            }
+            const http_info_t *current = bpf_map_lookup_elem(&ongoing_http, pid_conn);
+            if (!current || http1_client_request_generation_matches(start_monotime_ns,
+                                                                    current->start_monotime_ns)) {
+                bpf_map_delete_elem(&cp_support_connect_info, pid_conn);
+            }
         }
     }
 }
@@ -264,6 +453,10 @@ static __always_inline void process_http_request(http_info_t *info,
         task_pid(&info->pid);
     }
 
+    if (info->type == EVENT_HTTP_REQUEST) {
+        populate_ephemeral_info(
+            &info->server_conn_part, &info->conn_info, orig_dport, info->pid.host_pid, FD_SERVER);
+    }
     fixup_connection_info(&info->conn_info, info->type == EVENT_HTTP_CLIENT, orig_dport);
 
     u64 start_time = bpf_ktime_get_ns();
@@ -297,6 +490,8 @@ static __always_inline void process_http_request(http_info_t *info,
     info->len = len;
     info->event_source = event_source(lw_thread); // generic events generated from Go
     info->extra_id = extra_runtime_id();          // required for deleting the trace information
+    info->owner_pid_tgid = bpf_get_current_pid_tgid();
+    info->owner_lw_thread = lw_thread;
     // also required for deleting the trace information; translated so the
     // delete key matches the (translated) server_traces store key
     pid_key_t self_key = {0};
@@ -325,8 +520,7 @@ static __always_inline void process_http_response(http_info_t *info, const unsig
 static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  pid_connection_info_t *pid_conn,
                                                  http_info_t *info,
-                                                 int orig_len,
-                                                 lw_thread_t lw_thread) {
+                                                 int orig_len) {
     process_http_response(info, small_buf);
     cleanup_http_request_data(pid_conn, info);
 
@@ -334,12 +528,12 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     // SSL connections must always be delayed: subsequent SSL_read calls deliver
     // the response body (e.g. SSE streaming) and require the request to remain
     // active in ongoing_http.
-    if ((high_request_volume && !info->ssl) || (lw_thread != k_lw_thread_none)) {
+    if ((high_request_volume && !info->ssl) || (info->owner_lw_thread != k_lw_thread_none)) {
         finish_http(info, pid_conn);
         // If we are terminating because of a light weight thread, e.g. Go we must clean
         // the server information we have encoded in the Go structs.
-        if (lw_thread != k_lw_thread_none) {
-            delete_go_trace_info(lw_thread, pid_conn->pid);
+        if (info->owner_lw_thread != k_lw_thread_none) {
+            delete_go_trace_info(info->owner_lw_thread, pid_conn->pid, &info->tp);
         }
     } else {
         bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
@@ -355,6 +549,10 @@ static __always_inline int http_send_large_buffer(void *ctx,
                                                   u8 packet_type,
                                                   u8 direction,
                                                   enum large_buf_action action) {
+    if (req->suppress_large_buffers) {
+        return 0;
+    }
+
     const u32 bytes_sent =
         packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
 
@@ -387,16 +585,22 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
                                                          http_info_t *info,
                                                          http_connection_metadata_t *meta) {
     if (meta) {
-        const u32 type = trace_type_from_meta(meta);
-        tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
-        if (tp_p) {
-            info->tp = tp_p->tp;
-            if (args->self_ref_parent_id) {
-                bpf_dbg_printk("overwriting parent id from the self referencing client request");
-                __builtin_memcpy(&info->tp.parent_id, &args->self_ref_parent_id, sizeof(u64));
+        const u8 durable_client_trace =
+            meta->type == EVENT_HTTP_CLIENT &&
+            (info->handoff_state != k_http1_client_handoff_none || valid_trace(info->tp.trace_id));
+        if (!durable_client_trace) {
+            const u32 type = trace_type_from_meta(meta);
+            tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
+            if (tp_p) {
+                info->tp = tp_p->tp;
+                if (args->self_ref_parent_id) {
+                    bpf_dbg_printk(
+                        "overwriting parent id from the self referencing client request");
+                    __builtin_memcpy(&info->tp.parent_id, &args->self_ref_parent_id, sizeof(u64));
+                }
+            } else {
+                bpf_dbg_printk("Can't find trace info, this is a bug!");
             }
-        } else {
-            bpf_dbg_printk("Can't find trace info, this is a bug!");
         }
     } else {
         bpf_dbg_printk("No META!");
@@ -407,6 +611,22 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
     read_request_buf(info, args);
     process_http_request(
         info, args->bytes_len, meta, args->direction, args->orig_dport, args->lw_thread);
+
+    if (info->type == EVENT_HTTP_CLIENT &&
+        !http1_client_handoff_suppresses_event(info->handoff_state)) {
+        const u8 written = info->handoff_state == k_http1_client_handoff_exact ||
+                                   info->handoff_state == k_http1_client_handoff_wire
+                               ? k_outbound_trace_written
+                               : k_outbound_trace_pending;
+        const tp_info_pid_t publication =
+            http1_client_event_publication(&args->pid_conn, info, written);
+        if (publish_http1_client_request(&args->pid_conn,
+                                         info,
+                                         &publication,
+                                         info->handoff_state != k_http1_client_handoff_exact)) {
+            cleanup_http1_client_publication(&args->pid_conn, info, &publication);
+        }
+    }
 
     // Emit large buffer last: may tail call for continuation batches, so all
     // critical state updates must precede this call.
@@ -448,6 +668,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                                 http_connection_metadata_t *meta,
                                 unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
     tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+    u8 parsed_client_traceparent = 0;
     if (!tp_p) {
         goto done;
     }
@@ -458,88 +679,104 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
         if (!capture_header_buffer) {
             if (meta) {
                 tp_p->tp.ts = bpf_ktime_get_ns();
-                tp_p->tp.flags = 1;
+                apply_sampling_decision(
+                    &tp_p->tp, valid_span(tp_p->tp.parent_id), meta->type == EVENT_HTTP_REQUEST);
                 tp_p->valid = 1;
                 tp_p->pid = args->pid_conn.pid;
                 tp_p->req_type = meta->type;
-                const u32 type = trace_type_from_meta(meta);
-                set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
-                server_or_client_trace(meta->type,
-                                       &args->pid_conn.conn,
-                                       args->lw_thread,
-                                       tp_p,
-                                       args->ssl,
-                                       args->orig_dport,
-                                       0,
-                                       BPF_ANY);
+                if (meta->type == EVENT_HTTP_CLIENT) {
+                    info->tp = tp_p->tp;
+                } else {
+                    const u32 type = trace_type_from_meta(meta);
+                    set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
+                    server_or_client_trace(meta->type,
+                                           &args->pid_conn.conn,
+                                           args->lw_thread,
+                                           tp_p,
+                                           args->ssl,
+                                           args->orig_dport,
+                                           0,
+                                           BPF_ANY);
+                }
             }
             goto done;
         }
 
+        enum http1_traceparent_scan_result scan_result = k_http1_traceparent_scan_unknown;
+        u8 scan_completed = 0;
         unsigned char *buf = (unsigned char *)tp_char_buf_mem();
         if (buf) {
             u16 buf_len = args->bytes_len;
             bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 
-            bpf_probe_read(buf, buf_len, (void *)args->u_buf);
-            // null terminate to make proper string
-            buf[buf_len] = '\0';
+            u32 field_pos = k_tp_pos_not_found;
+            if (!bpf_probe_read(buf, buf_len, (void *)args->u_buf)) {
+                // null terminate to make proper string
+                buf[buf_len] = '\0';
+                const u8 full_scanner = tp_loop_fn == bpf_strstr_tp_loop;
+                scan_completed =
+                    http1_scan_fully_observed(buf, buf_len, args->bytes_len, full_scanner);
+                if (full_scanner) {
+                    scan_result = scan_http1_traceparent(buf, buf_len, &field_pos);
+                } else {
+                    scan_result = scan_http1_traceparent_legacy(buf, buf_len, &field_pos);
+                }
+            }
 
-            unsigned char *res = tp_loop_fn(buf, buf_len);
-            if (res) {
-                bpf_dbg_printk("Found traceparent in headers [%s] overriding what was before", res);
-                unsigned char *t_id = extract_trace_id(res);
-                unsigned char *s_id = extract_span_id(res);
-                unsigned char *f_id = extract_flags(res);
+            if (scan_result == k_http1_traceparent_scan_found) {
                 const bool is_client = meta && meta->type == EVENT_HTTP_CLIENT;
-                unsigned char *previous_trace_id = NULL;
+                if (!decode_http1_traceparent_at(
+                        buf, buf_len, field_pos, &tp_p->tp, (u8)is_client)) {
+                    scan_result = k_http1_traceparent_scan_present;
+                } else {
+                    bpf_dbg_printk("Found traceparent in headers, overriding what was before");
+                    if (is_client) {
+                        parsed_client_traceparent = 1;
+                        info->handoff_state = k_http1_client_handoff_wire;
+                    }
+                    http1_prepare_adopted_traceparent(&tp_p->tp, is_client);
 
-                if (is_client && valid_trace(tp_p->tp.trace_id)) {
-                    previous_trace_id = (unsigned char *)http_previous_trace_id_mem();
-                    if (previous_trace_id) {
-                        __builtin_memcpy(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES);
+                    if (g_bpf_debug) {
+                        make_tp_string(buf, &tp_p->tp);
+                        bpf_dbg_printk("new tp: %s", buf);
                     }
                 }
-
-                decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
-                decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
-                if (meta && meta->type != EVENT_HTTP_CLIENT) {
-                    decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
-                } else if (previous_trace_id &&
-                           bpf_memcmp(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES) !=
-                               0) {
-                    __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-                }
-
-                if (g_bpf_debug) {
-                    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-                    make_tp_string(tp_buf, &tp_p->tp);
-                    bpf_dbg_printk("new tp: %s", tp_buf);
-                }
-            } else {
+            } else if (scan_result == k_http1_traceparent_scan_absent) {
                 bpf_dbg_printk("No additional traceparent in headers, using what was made before");
             }
-        } else {
-            goto done;
+        }
+
+        info->awaiting_split_traceparent =
+            http1_expect_split_traceparent(scan_result, scan_completed);
+        info->suppress_large_buffers = info->awaiting_split_traceparent;
+        if (meta && meta->type == EVENT_HTTP_REQUEST && http1_server_requires_root(scan_result)) {
+            tp_p->tp.flags = k_flag_sampled;
+            reset_sampling_decision(&tp_p->tp);
+            new_trace_id(&tp_p->tp);
+            __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+            tp_p->tp.parent_remote = 0;
         }
     }
 
     if (meta) {
-        const u32 type = trace_type_from_meta(meta);
-        set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
-        // TODO: If the user code setup traceparent manually, don't interfere and add
-        // something else with TC L7. The main challenge is that with kprobes, the
-        // sock_msg program has already punched a hole in the HTTP headers and has made
-        // the HTTP header invalid. We need to add more smarts there or pull the
-        // sock msg information here and mark it so that we don't override the span_id.
-        server_or_client_trace(meta->type,
-                               &args->pid_conn.conn,
-                               args->lw_thread,
-                               tp_p,
-                               args->ssl,
-                               args->orig_dport,
-                               0,
-                               BPF_ANY);
+        if (!parsed_client_traceparent) {
+            apply_sampling_decision(
+                &tp_p->tp, valid_span(tp_p->tp.parent_id), meta->type == EVENT_HTTP_REQUEST);
+        }
+        if (meta->type == EVENT_HTTP_CLIENT) {
+            info->tp = tp_p->tp;
+        } else {
+            const u32 type = trace_type_from_meta(meta);
+            set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
+            server_or_client_trace(meta->type,
+                                   &args->pid_conn.conn,
+                                   args->lw_thread,
+                                   tp_p,
+                                   args->ssl,
+                                   args->orig_dport,
+                                   0,
+                                   BPF_ANY);
+        }
     }
 
 done:
@@ -578,34 +815,106 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
-    egress_key_t e_key = {
-        .d_port = args->pid_conn.conn.d_port,
-        .s_port = args->pid_conn.conn.s_port,
-    };
-
-    sort_egress_key(&e_key);
-
-    tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
-
-    if (tp_p && tp_p->req_type == EVENT_HTTP_CLIENT && tp_p->written &&
-        tp_p->pid == args->pid_conn.pid) {
-        bpf_dbg_printk("found tp info previously set by sock msg");
-        // we've already got a tp_info_pid_t setup by the sockmsg program, use
-        // that instead
-        set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, tp_p);
-        // clean up so that TC does not pick it up
-        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
-        goto skip_tp;
-    }
-
-    tp_p = (tp_info_pid_t *)tp_info_mem();
-
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
     if (!tp_p) {
         goto skip_tp;
     }
 
+    const u8 request_type =
+        meta ? meta->type : request_type_by_direction(args->direction, PACKET_TYPE_REQUEST);
+    if (http1_can_adopt_client_handoff(request_type)) {
+        http_trace_setup_scratch_t *trace_setup =
+            (http_trace_setup_scratch_t *)http_trace_setup_mem();
+        if (!trace_setup) {
+            if (args->handoff_expected) {
+                info->handoff_token = args->handoff_token;
+                info->handoff_state = k_http1_client_handoff_pending_initial;
+                read_request_buf(info, args);
+                process_http_request(info,
+                                     args->bytes_len,
+                                     meta,
+                                     args->direction,
+                                     args->orig_dport,
+                                     args->lw_thread);
+                http_send_large_buffer(ctx,
+                                       info,
+                                       &args->pid_conn,
+                                       (void *)args->u_buf,
+                                       args->bytes_len,
+                                       args->packet_type,
+                                       args->direction,
+                                       k_large_buf_action_init);
+                return 0;
+            }
+            goto skip_tp;
+        }
+        prepare_http_trace_setup_scratch(
+            trace_setup, &args->pid_conn, &args->handoff_token, args->handoff_expected);
+
+        u8 exact_generation_present = args->handoff_expected;
+        if (!exact_generation_present) {
+            const outgoing_trace_token_t *located =
+                bpf_map_lookup_elem(&outgoing_trace_handoff_locators, &trace_setup->egress);
+            if (located) {
+                trace_setup->handoff_token = *located;
+                exact_generation_present = 1;
+            }
+        }
+
+        if (exact_generation_present) {
+            const u8 exact_claimed = outgoing_trace_token_valid(&trace_setup->handoff_token) &&
+                                     claim_outgoing_trace_handoff(&trace_setup->egress,
+                                                                  &trace_setup->handoff_token,
+                                                                  args->pid_conn.pid,
+                                                                  EVENT_HTTP_CLIENT,
+                                                                  NULL,
+                                                                  1,
+                                                                  1,
+                                                                  tp_p);
+            const u8 exact_written = exact_claimed && tp_p->written == k_outbound_trace_written;
+            if (exact_written) {
+                info->tp = tp_p->tp;
+                info->handoff_token = trace_setup->handoff_token;
+                info->handoff_expected = 1;
+                info->handoff_state = k_http1_client_handoff_exact;
+            } else {
+                if (exact_claimed) {
+                    release_claimed_outgoing_trace_handoff(&trace_setup->egress,
+                                                           &trace_setup->handoff_token);
+                }
+                info->handoff_token = trace_setup->handoff_token;
+                info->handoff_expected = 0;
+                info->handoff_state = k_http1_client_handoff_pending_initial;
+            }
+
+            // Make the request start durable before consuming exact authority
+            // or attempting any connection/task support publication.
+            read_request_buf(info, args);
+            process_http_request(
+                info, args->bytes_len, meta, args->direction, args->orig_dport, args->lw_thread);
+            if (exact_written) {
+                const tp_info_pid_t publication = *tp_p;
+                consume_claimed_outgoing_trace_handoff(&trace_setup->egress,
+                                                       &trace_setup->handoff_token);
+                if (publish_http1_client_request(&args->pid_conn, info, &publication, 0)) {
+                    cleanup_http1_client_publication(&args->pid_conn, info, &publication);
+                }
+            }
+            http_send_large_buffer(ctx,
+                                   info,
+                                   &args->pid_conn,
+                                   (void *)args->u_buf,
+                                   args->bytes_len,
+                                   args->packet_type,
+                                   args->direction,
+                                   k_large_buf_action_init);
+            return 0;
+        }
+    }
+
     tp_p->tp.ts = bpf_ktime_get_ns();
-    tp_p->tp.flags = 1;
+    tp_p->tp.flags = k_flag_sampled;
+    reset_sampling_decision(&tp_p->tp);
     tp_p->valid = 1;
     tp_p->written = 0;
     tp_p->pid = args->pid_conn
@@ -618,10 +927,8 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
 
     if (meta) {
         if (meta->type == EVENT_HTTP_CLIENT) {
-            pid_connection_info_t p_conn = {.pid = args->pid_conn.pid};
-            __builtin_memcpy(&p_conn.conn, &args->pid_conn.conn, sizeof(connection_info_t));
             found_tp = find_trace_for_client_request(
-                &p_conn, args->orig_dport, args->lw_thread, &tp_p->tp);
+                &args->pid_conn, args->orig_dport, args->lw_thread, &tp_p->tp);
         } else {
             //bpf_dbg_printk("Looking up existing trace for connection");
             //dbg_print_http_connection_info(conn);
@@ -641,24 +948,14 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     }
 
     if (g_bpf_debug) {
-        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-        make_tp_string(tp_buf, &tp_p->tp);
-        bpf_dbg_printk("tp: %s", tp_buf);
+        unsigned char *tp_buf = (unsigned char *)tp_char_buf_mem();
+        if (tp_buf) {
+            make_tp_string(tp_buf, &tp_p->tp);
+            bpf_dbg_printk("tp: %s", tp_buf);
+        }
     }
 
     args->skip_tp_parsing = 0;
-
-    // If we receive SSL request, we know that OBI definitely didn't
-    // inject the traceparent via the header, so if we already have
-    // info about this transaction keep that, don't parse headers. Istio
-    // for example can forward headers as-is, which can give us a stale
-    // value.
-    if (meta) {
-        if (meta->type == EVENT_HTTP_REQUEST && found_tp && args->ssl) {
-            bpf_dbg_printk("skipping headers parsing because of existing tp info for SSL call");
-            args->skip_tp_parsing = 1;
-        }
-    }
 
     if (tp_loop_fn == bpf_strstr_tp_loop) {
         return __obi_continue_protocol_http_tp(ctx, args, info, meta, tp_loop_fn);
@@ -755,6 +1052,11 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                    pid_from_pid_tgid(bpf_get_current_pid_tgid()),
                    still_reading(info));
 
+    if (info->start_monotime_ns && info->type == EVENT_HTTP_CLIENT &&
+        http1_client_handoff_is_pending(info->handoff_state)) {
+        resolve_pending_http1_client_handoff(&args->pid_conn, info, 0);
+    }
+
     info->direction = args->direction;
     if (args->packet_type == PACKET_TYPE_REQUEST && (info->status == 0) &&
         (info->start_monotime_ns == 0)) {
@@ -764,8 +1066,7 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
 
         return 0;
     } else if ((args->packet_type == PACKET_TYPE_RESPONSE) && (info->status == 0)) {
-        handle_http_response(
-            args->small_buf, &args->pid_conn, info, args->bytes_len, args->lw_thread);
+        handle_http_response(args->small_buf, &args->pid_conn, info, args->bytes_len);
         http_send_large_buffer(ctx,
                                info,
                                &args->pid_conn,

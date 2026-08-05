@@ -868,6 +868,60 @@ otel_traces_export:
 	})
 }
 
+func TestConfigValidate_SamplerRatio(t *testing.T) {
+	for _, ratio := range []string{"0", "0.5", "1"} {
+		t.Run("valid/"+ratio, func(t *testing.T) {
+			userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+otel_traces_export:
+  sampler:
+    name: traceidratio
+    arg: "` + ratio + `"
+`)
+			cfg, err := LoadConfig(userConfig)
+			require.NoError(t, err)
+			require.NoError(t, cfg.Validate())
+		})
+	}
+
+	for _, ratio := range []string{"", "NaN", "+Inf", "-0.1", "1.1", "invalid"} {
+		t.Run("invalid/"+ratio, func(t *testing.T) {
+			userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+otel_traces_export:
+  sampler:
+    name: parentbased_traceidratio
+    arg: "` + ratio + `"
+`)
+			cfg, err := LoadConfig(userConfig)
+			require.NoError(t, err)
+			require.Error(t, cfg.Validate())
+		})
+	}
+}
+
+func TestConfigValidate_SelectorSamplerRatio(t *testing.T) {
+	for _, section := range []string{"services", "instrument"} {
+		t.Run(section, func(t *testing.T) {
+			criterion := "    exe_path: foo\n"
+			if section == "instrument" {
+				criterion = "    exe_path: \"*foo*\"\n"
+			}
+			userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+discovery:
+  ` + section + `:
+  - sampler:
+      name: traceidratio
+      arg: "1.1"
+` + criterion)
+			cfg, err := LoadConfig(userConfig)
+			require.NoError(t, err)
+			require.Error(t, cfg.Validate())
+		})
+	}
+}
+
 func TestConfigValidate_Ports(t *testing.T) {
 	t.Run("profile port out of range rejected", func(t *testing.T) {
 		cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_PROFILE_PORT": "99999"})

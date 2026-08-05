@@ -6,6 +6,7 @@ package discover
 import (
 	"iter"
 	"log/slog"
+	"os"
 	"testing"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -32,6 +33,27 @@ type dummyCriterion struct {
 	sampler   *services.SamplerConfig
 	routes    *services.CustomRoutesConfig
 	features  export.Features
+}
+
+func TestTyperCloseProcessRootsReleasesCurrentProcesses(t *testing.T) {
+	firstRoot, err := os.Open(t.TempDir())
+	require.NoError(t, err)
+	secondRoot, err := os.Open(t.TempDir())
+	require.NoError(t, err)
+	ty := typer{
+		currentPids: map[app.PID]*exec.FileInfo{
+			1: exec.New(exec.Init{ProcessRoot: firstRoot}),
+			2: exec.New(exec.Init{ProcessRoot: secondRoot}),
+		},
+	}
+
+	ty.closeProcessRoots()
+
+	assert.Empty(t, ty.currentPids)
+	_, err = firstRoot.Stat()
+	require.Error(t, err)
+	_, err = secondRoot.Stat()
+	require.Error(t, err)
 }
 
 func (d dummyCriterion) GetName() string                                                { return d.name }
@@ -96,6 +118,8 @@ func TestMakeServiceAttrs(t *testing.T) {
 	}
 	attrs2 := ty.makeServiceAttrs(proc2)
 	assert.NotNil(t, attrs2.Sampler)
+	require.NotNil(t, attrs2.SamplerConfig)
+	assert.Equal(t, services.SamplerTypeParentBased, attrs2.SamplerConfig.Type)
 	assert.NotNil(t, attrs2.CustomInRouteMatcher)
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
 }
@@ -323,6 +347,7 @@ func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
 
 	fInfo := exec.New(exec.Init{
 		Pid:        testPID,
+		StartTime:  100,
 		Dev:        testDev,
 		Ino:        testInode,
 		CmdExePath: "/usr/bin/version-b",
@@ -338,7 +363,10 @@ func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
 	deleteEvents := []Event[ProcessMatch]{
 		{
 			Type: EventDeleted,
-			Obj:  ProcessMatch{Process: &services.ProcessInfo{Pid: testPID}},
+			Obj: ProcessMatch{Process: &services.ProcessInfo{
+				Pid:       testPID,
+				StartTime: 100,
+			}},
 		},
 	}
 
@@ -351,4 +379,86 @@ func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
 	_, cacheHit := instrumentableCache.Get(key)
 	assert.False(t, cacheHit,
 		"instrumentableCache should not contain a stale entry for dev:ino %v after the process owning it is deleted", key)
+}
+
+func TestAsInstrumentablePreservesCollapsedChildFileInfo(t *testing.T) {
+	instrumentableCache, err := lru.New[cacheKey, instrumentedExecutable](100)
+	require.NoError(t, err)
+
+	parentSampler := &services.CanonicalSampler{Type: services.SamplerTypeAlwaysOn}
+	childSampler := &services.CanonicalSampler{Type: services.SamplerTypeAlwaysOff}
+	parent := exec.New(exec.Init{
+		Service: svc.Attrs{
+			UID:           svc.UID{Name: "parent"},
+			SamplerConfig: parentSampler,
+		},
+		CmdExePath: "/usr/bin/prefork",
+		Pid:        100,
+		Ppid:       1,
+		Dev:        10,
+		Ino:        20,
+		Ns:         30,
+	})
+	child := exec.New(exec.Init{
+		Service: svc.Attrs{
+			UID:           svc.UID{Name: "child"},
+			SamplerConfig: childSampler,
+		},
+		CmdExePath: "/usr/bin/prefork",
+		Pid:        101,
+		Ppid:       100,
+		Dev:        10,
+		Ino:        20,
+		Ns:         31,
+	})
+	ty := typer{
+		cfg: &obi.Config{
+			Discovery: services.DiscoveryConfig{SkipGoSpecificTracers: true},
+		},
+		log:                 slog.Default(),
+		currentPids:         map[app.PID]*exec.FileInfo{parent.Pid(): parent, child.Pid(): child},
+		instrumentableCache: instrumentableCache,
+	}
+
+	instrumentable := ty.asInstrumentable(child)
+
+	assert.Same(t, parent, instrumentable.FileInfo)
+	assert.Equal(t, []app.PID{child.Pid()}, instrumentable.ChildPids)
+	assert.Same(t, child, instrumentable.FileInfoForPID(child.Pid()))
+	assert.Same(t, parentSampler, instrumentable.FileInfo.ServiceAttrs().SamplerConfig)
+	assert.Same(t, childSampler, instrumentable.FileInfoForPID(child.Pid()).ServiceAttrs().SamplerConfig)
+}
+
+func TestAsInstrumentableDoesNotCollapseDifferentExecutableIdentity(t *testing.T) {
+	instrumentableCache, err := lru.New[cacheKey, instrumentedExecutable](100)
+	require.NoError(t, err)
+
+	parent := exec.New(exec.Init{
+		CmdExePath: "/usr/bin/replaced",
+		Pid:        100,
+		Ppid:       1,
+		Dev:        10,
+		Ino:        20,
+	})
+	child := exec.New(exec.Init{
+		CmdExePath: "/usr/bin/replaced",
+		Pid:        101,
+		Ppid:       100,
+		Dev:        10,
+		Ino:        21,
+	})
+	ty := typer{
+		cfg: &obi.Config{
+			Discovery: services.DiscoveryConfig{SkipGoSpecificTracers: true},
+		},
+		log:                 slog.Default(),
+		currentPids:         map[app.PID]*exec.FileInfo{parent.Pid(): parent},
+		instrumentableCache: instrumentableCache,
+	}
+
+	instrumentable := ty.asInstrumentable(child)
+
+	assert.Same(t, child, instrumentable.FileInfo)
+	assert.Empty(t, instrumentable.ChildPids)
+	assert.Empty(t, instrumentable.ChildFileInfos)
 }

@@ -12,6 +12,9 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/sampling.h>
+#include <common/trace_util.h>
+
 #include <gpuevent/cuda.h>
 #include <gpuevent/gpu_ringbuf.h>
 
@@ -30,6 +33,14 @@ enum {
     k_event_memcpy = 3,
     k_event_graph_launch = 4,
 };
+
+static __always_inline void init_gpu_trace_parent(tp_info_t *tp) {
+    __builtin_memset(tp, 0, sizeof(*tp));
+    tp->flags = k_flag_sampled;
+    new_trace_id(tp);
+    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+    apply_sampling_decision(tp, 0, 0);
+}
 
 SEC("uprobe/cudaLaunchKernel")
 int BPF_KPROBE(obi_cuda_launch, u64 func_off, u64 grid_xy, u64 grid_z, u64 block_xy, u64 block_z) {
@@ -50,6 +61,7 @@ int BPF_KPROBE(obi_cuda_launch, u64 func_off, u64 grid_xy, u64 grid_z, u64 block
 
     e->flags = k_event_kernel_launch;
     task_pid(&e->pid_info);
+    init_gpu_trace_parent(&e->tp);
 
     e->kern_func_off = func_off;
     e->grid_x = (u32)grid_xy;
@@ -84,6 +96,7 @@ int BPF_KPROBE(obi_cuda_malloc, void **devPtr, size_t size) {
 
     e->flags = k_event_malloc;
     task_pid(&e->pid_info);
+    init_gpu_trace_parent(&e->tp);
     e->size = (s64)size;
 
     bpf_ringbuf_submit(e, 0);
@@ -112,6 +125,7 @@ int BPF_KPROBE(obi_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
 
     e->flags = k_event_memcpy;
     task_pid(&e->pid_info);
+    init_gpu_trace_parent(&e->tp);
     e->size = (s64)size;
     e->kind = kind;
 
@@ -138,6 +152,7 @@ int BPF_KPROBE(obi_graph_launch) {
 
     e->flags = k_event_graph_launch;
     task_pid(&e->pid_info);
+    init_gpu_trace_parent(&e->tp);
 
     bpf_ringbuf_submit(e, 0);
     return 0;

@@ -126,7 +126,8 @@ type Attrs struct {
 
 	ExportModes services.ExportModes
 
-	Sampler trace.Sampler
+	Sampler       trace.Sampler
+	SamplerConfig *services.CanonicalSampler
 
 	// Features that are defined in a per-service basis. For example, we might want to enable
 	// Service Graph Metrics for all the services but RED metrics only for a few

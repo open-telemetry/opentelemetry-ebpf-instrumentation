@@ -126,7 +126,7 @@ static __always_inline u8 is_invalid_frame(const frame_header_t *frame) {
 }
 
 static __always_inline u8 is_data_frame(const frame_header_t *frame) {
-    return frame->length && frame->type == FrameData;
+    return frame->type == FrameData;
 }
 
 static __always_inline u8 is_flags_only_frame(const frame_header_t *frame) {

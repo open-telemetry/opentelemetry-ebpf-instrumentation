@@ -4,6 +4,7 @@
 package tracesgen
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	trace2 "go.opentelemetry.io/otel/trace"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -28,6 +30,246 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
+
+func TestGroupSpansHonorsEBPFSamplingDecision(t *testing.T) {
+	baseSpan := request.Span{
+		Type:        request.EventTypeManualSpan,
+		Method:      "manual",
+		TraceID:     trace2.TraceID{1},
+		SpanID:      trace2.SpanID{1},
+		Start:       1,
+		End:         2,
+		TraceFlags:  uint8(trace2.FlagsSampled | trace2.FlagsRandom),
+		BPFDecision: true,
+	}
+
+	t.Run("sampled bypasses userspace sampler", func(t *testing.T) {
+		sampler := recordingSamplerWithDecision(sdktrace.Drop)
+		groups := GroupSpans(context.Background(), []request.Span{baseSpan}, nil, sampler, 0)
+		require.Len(t, groups, 1)
+		assert.Zero(t, sampler.calls)
+	})
+
+	t.Run("not sampled bypasses userspace sampler", func(t *testing.T) {
+		sampler := recordingSamplerWithDecision(sdktrace.RecordAndSample)
+		span := baseSpan
+		span.TraceFlags = uint8(trace2.FlagsRandom)
+		groups := GroupSpans(context.Background(), []request.Span{span}, nil, sampler, 0)
+		assert.Empty(t, groups)
+		assert.Zero(t, sampler.calls)
+	})
+
+	t.Run("unknown decision retains fallback", func(t *testing.T) {
+		sampler := recordingSamplerWithDecision(sdktrace.Drop)
+		span := baseSpan
+		span.BPFDecision = false
+		groups := GroupSpans(context.Background(), []request.Span{span}, nil, sampler, 0)
+		assert.Empty(t, groups)
+		assert.Equal(t, 1, sampler.calls)
+	})
+
+	t.Run("fallback sampling sets sampled flag", func(t *testing.T) {
+		sampler := recordingSamplerWithDecision(sdktrace.RecordAndSample)
+		span := baseSpan
+		span.Type = request.EventTypeHTTP
+		span.Method = "GET"
+		span.Path = "/fallback"
+		span.BPFDecision = false
+		span.TraceFlags = uint8(trace2.FlagsRandom)
+		selection := instrumentations.NewInstrumentationSelection(
+			[]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		)
+		spans := []request.Span{span}
+		groups := GroupSpans(context.Background(), spans, nil, sampler, selection)
+		group := groups[span.Service.UID]
+		require.Len(t, group, 1)
+		assert.Equal(t,
+			uint8(trace2.FlagsSampled|trace2.FlagsRandom),
+			group[0].Span.TraceFlags)
+		assert.Equal(t, uint8(trace2.FlagsRandom), spans[0].TraceFlags)
+		assert.NotSame(t, &spans[0], group[0].Span)
+		assert.Equal(t, 1, sampler.calls)
+	})
+
+	t.Run("fallback record only clears sampled flag", func(t *testing.T) {
+		sampler := recordingSamplerWithDecision(sdktrace.RecordOnly)
+		span := baseSpan
+		span.BPFDecision = false
+		spans := []request.Span{span}
+		groups := GroupSpans(context.Background(), spans, nil, sampler, 0)
+		group := groups[span.Service.UID]
+		require.Len(t, group, 1)
+		assert.Equal(t, uint8(trace2.FlagsRandom), group[0].Span.TraceFlags)
+		assert.Equal(t,
+			uint8(trace2.FlagsSampled|trace2.FlagsRandom),
+			spans[0].TraceFlags)
+		assert.NotSame(t, &spans[0], group[0].Span)
+		assert.Equal(t, 1, sampler.calls)
+	})
+
+	t.Run("fallback reconstructs parent-based routes", func(t *testing.T) {
+		type samplingContextKey struct{}
+
+		tests := []struct {
+			name          string
+			parent        trace2.SpanID
+			flags         trace2.TraceFlags
+			remote        bool
+			expectedRoute string
+		}{
+			{name: "root", expectedRoute: "root"},
+			{
+				name:          "remote sampled",
+				parent:        trace2.SpanID{2},
+				flags:         trace2.FlagsSampled | trace2.FlagsRandom,
+				remote:        true,
+				expectedRoute: "remote sampled",
+			},
+			{
+				name:          "remote not sampled",
+				parent:        trace2.SpanID{3},
+				flags:         trace2.FlagsRandom,
+				remote:        true,
+				expectedRoute: "remote not sampled",
+			},
+			{
+				name:          "local sampled",
+				parent:        trace2.SpanID{4},
+				flags:         trace2.FlagsSampled | trace2.FlagsRandom,
+				expectedRoute: "local sampled",
+			},
+			{
+				name:          "local not sampled",
+				parent:        trace2.SpanID{5},
+				flags:         trace2.FlagsRandom,
+				expectedRoute: "local not sampled",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				routes := map[string]*recordingSampler{
+					"root":               recordingSamplerWithDecision(sdktrace.RecordAndSample),
+					"remote sampled":     recordingSamplerWithDecision(sdktrace.RecordAndSample),
+					"remote not sampled": recordingSamplerWithDecision(sdktrace.RecordAndSample),
+					"local sampled":      recordingSamplerWithDecision(sdktrace.RecordAndSample),
+					"local not sampled":  recordingSamplerWithDecision(sdktrace.RecordAndSample),
+				}
+				sampler := sdktrace.ParentBased(
+					routes["root"],
+					sdktrace.WithRemoteParentSampled(routes["remote sampled"]),
+					sdktrace.WithRemoteParentNotSampled(routes["remote not sampled"]),
+					sdktrace.WithLocalParentSampled(routes["local sampled"]),
+					sdktrace.WithLocalParentNotSampled(routes["local not sampled"]),
+				)
+				span := baseSpan
+				span.BPFDecision = false
+				span.ParentSpanID = tt.parent
+				span.ParentRemote = tt.remote
+				span.TraceFlags = uint8(tt.flags)
+
+				ambient := trace2.NewSpanContext(trace2.SpanContextConfig{
+					TraceID:    trace2.TraceID{9},
+					SpanID:     trace2.SpanID{9},
+					TraceFlags: trace2.FlagsSampled,
+				})
+				ctx := context.WithValue(context.Background(), samplingContextKey{}, "preserved")
+				ctx = trace2.ContextWithSpanContext(ctx, ambient)
+				groups := GroupSpans(
+					ctx, []request.Span{span}, nil, sampler, 0,
+				)
+				require.Len(t, groups[span.Service.UID], 1)
+				for route, recorder := range routes {
+					if route == tt.expectedRoute {
+						assert.Equal(t, 1, recorder.calls, "expected %s route", route)
+						assert.Equal(
+							t,
+							"preserved",
+							recorder.parentContext.Value(samplingContextKey{}),
+						)
+						parent := trace2.SpanContextFromContext(recorder.parentContext)
+						if tt.parent.IsValid() {
+							assert.Equal(t, span.TraceID, parent.TraceID())
+							assert.Equal(t, tt.parent, parent.SpanID())
+							assert.Equal(t, tt.flags, parent.TraceFlags())
+							assert.Equal(t, tt.remote, parent.IsRemote())
+						} else {
+							assert.False(t, parent.IsValid())
+						}
+					} else {
+						assert.Zero(t, recorder.calls, "unexpected %s route", route)
+					}
+				}
+			})
+		}
+	})
+}
+
+func TestGenerateTracesComposesParentRemotenessFlags(t *testing.T) {
+	const random = uint8(trace2.FlagsRandom)
+	const sampledRandom = uint8(trace2.FlagsSampled | trace2.FlagsRandom)
+
+	hasRemote := uint32(tracepb.SpanFlags_SPAN_FLAGS_CONTEXT_HAS_IS_REMOTE_MASK)
+	isRemote := uint32(tracepb.SpanFlags_SPAN_FLAGS_CONTEXT_IS_REMOTE_MASK)
+	parentSpanID := trace2.SpanID{2}
+	tests := []struct {
+		name         string
+		traceFlags   uint8
+		parentSpanID trace2.SpanID
+		parentRemote bool
+		want         uint32
+	}{
+		{name: "root unsampled", traceFlags: random, parentRemote: true, want: uint32(random)},
+		{name: "root sampled", traceFlags: sampledRandom, want: uint32(sampledRandom)},
+		{
+			name:         "local parent unsampled",
+			traceFlags:   random,
+			parentSpanID: parentSpanID,
+			want:         uint32(random) | hasRemote,
+		},
+		{
+			name:         "local parent sampled",
+			traceFlags:   sampledRandom,
+			parentSpanID: parentSpanID,
+			want:         uint32(sampledRandom) | hasRemote,
+		},
+		{
+			name:         "remote parent unsampled",
+			traceFlags:   random,
+			parentSpanID: parentSpanID,
+			parentRemote: true,
+			want:         uint32(random) | hasRemote | isRemote,
+		},
+		{
+			name:         "remote parent sampled",
+			traceFlags:   sampledRandom,
+			parentSpanID: parentSpanID,
+			parentRemote: true,
+			want:         uint32(sampledRandom) | hasRemote | isRemote,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:         request.EventTypeManualSpan,
+				Method:       "manual",
+				TraceID:      trace2.TraceID{1},
+				SpanID:       trace2.SpanID{1},
+				ParentSpanID: tt.parentSpanID,
+				TraceFlags:   tt.traceFlags,
+				ParentRemote: tt.parentRemote,
+				RequestStart: 1,
+				Start:        1,
+				End:          2,
+				BPFDecision:  true,
+			}
+
+			got := generateTraceSpan(t, TraceSpanAndAttributes{Span: span})
+			assert.Equal(t, tt.want, got.Flags())
+		})
+	}
+}
 
 func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
 	span := &request.Span{
@@ -305,12 +547,16 @@ func TestHTTPRequestMethodOmittedWhenEmpty(t *testing.T) {
 }
 
 func TestCreateToolCallSpans(t *testing.T) {
+	const traceFlags = uint32(trace2.FlagsSampled)
+	wantFlags := traceFlags |
+		uint32(tracepb.SpanFlags_SPAN_FLAGS_CONTEXT_HAS_IS_REMOTE_MASK)
+
 	t.Run("nil tool calls creates no spans", func(t *testing.T) {
 		ss := ptrace.NewScopeSpans()
 		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
 		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
 		now := time.Now()
-		createToolCallSpans(nil, parentSpanID, traceID, &ss, now, now)
+		createToolCallSpans(nil, parentSpanID, traceID, traceFlags, &ss, now, now)
 		assert.Equal(t, 0, ss.Spans().Len())
 	})
 
@@ -319,7 +565,9 @@ func TestCreateToolCallSpans(t *testing.T) {
 		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
 		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
 		now := time.Now()
-		createToolCallSpans([]request.ToolCall{}, parentSpanID, traceID, &ss, now, now)
+		createToolCallSpans(
+			[]request.ToolCall{}, parentSpanID, traceID, traceFlags, &ss, now, now,
+		)
 		assert.Equal(t, 0, ss.Spans().Len())
 	})
 
@@ -331,13 +579,14 @@ func TestCreateToolCallSpans(t *testing.T) {
 		end := start.Add(100 * time.Millisecond)
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, start, end)
+		}, parentSpanID, traceID, traceFlags, &ss, start, end)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		sp := ss.Spans().At(0)
 		assert.Equal(t, "execute_tool get_weather", sp.Name())
 		assert.Equal(t, ptrace.SpanKindInternal, sp.Kind())
 		assert.Equal(t, traceID, sp.TraceID())
+		assert.Equal(t, wantFlags, sp.Flags())
 		assert.Equal(t, parentSpanID, sp.ParentSpanID())
 		assert.Equal(t, pcommon.NewTimestampFromTime(start), sp.StartTimestamp())
 		assert.Equal(t, pcommon.NewTimestampFromTime(end), sp.EndTimestamp())
@@ -365,11 +614,13 @@ func TestCreateToolCallSpans(t *testing.T) {
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: "get_weather"},
 			{ID: "call_2", Name: "get_time"},
-		}, parentSpanID, traceID, &ss, start, end)
+		}, parentSpanID, traceID, traceFlags, &ss, start, end)
 
 		require.Equal(t, 2, ss.Spans().Len())
 		assert.Equal(t, "execute_tool get_weather", ss.Spans().At(0).Name())
 		assert.Equal(t, "execute_tool get_time", ss.Spans().At(1).Name())
+		assert.Equal(t, wantFlags, ss.Spans().At(0).Flags())
+		assert.Equal(t, wantFlags, ss.Spans().At(1).Flags())
 	})
 
 	t.Run("skips empty names", func(t *testing.T) {
@@ -380,7 +631,7 @@ func TestCreateToolCallSpans(t *testing.T) {
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: ""},
 			{ID: "call_2", Name: "get_time"},
-		}, parentSpanID, traceID, &ss, now, now)
+		}, parentSpanID, traceID, traceFlags, &ss, now, now)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		assert.Equal(t, "execute_tool get_time", ss.Spans().At(0).Name())
@@ -393,13 +644,41 @@ func TestCreateToolCallSpans(t *testing.T) {
 		now := time.Now()
 		createToolCallSpans([]request.ToolCall{
 			{Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, now, now)
+		}, parentSpanID, traceID, traceFlags, &ss, now, now)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		sp := ss.Spans().At(0)
 		_, ok := sp.Attributes().Get("gen_ai.tool.call.id")
 		assert.False(t, ok, "gen_ai.tool.call.id should not be present when ID is empty")
 	})
+}
+
+func TestCreateSubSpansSetsLocalParentFlags(t *testing.T) {
+	const traceFlags = uint8(trace2.FlagsSampled | trace2.FlagsRandom)
+	wantFlags := uint32(traceFlags) |
+		uint32(tracepb.SpanFlags_SPAN_FLAGS_CONTEXT_HAS_IS_REMOTE_MASK)
+
+	traceID := pcommon.TraceID([16]byte{1})
+	parentSpanID := pcommon.SpanID([8]byte{2})
+	span := request.Span{
+		SpanID:     trace2.SpanID{3},
+		TraceFlags: traceFlags,
+	}
+	start := time.Now()
+	timings := request.Timings{
+		RequestStart: start,
+		Start:        start.Add(time.Millisecond),
+		End:          start.Add(2 * time.Millisecond),
+	}
+	ss := ptrace.NewScopeSpans()
+
+	createSubSpans(&span, parentSpanID, traceID, &ss, timings)
+
+	require.Equal(t, 2, ss.Spans().Len())
+	assert.Equal(t, "in queue", ss.Spans().At(0).Name())
+	assert.Equal(t, wantFlags, ss.Spans().At(0).Flags())
+	assert.Equal(t, "processing", ss.Spans().At(1).Name())
+	assert.Equal(t, wantFlags, ss.Spans().At(1).Flags())
 }
 
 func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
@@ -899,16 +1178,28 @@ func TestGenAIResponseErrorAttributeCollision(t *testing.T) {
 }
 
 type recordingSampler struct {
-	attributes []attribute.KeyValue
+	attributes    []attribute.KeyValue
+	calls         int
+	decision      *sdktrace.SamplingDecision
+	parentContext context.Context
 }
 
 func (s *recordingSampler) ShouldSample(parameters sdktrace.SamplingParameters) sdktrace.SamplingResult {
+	s.calls++
 	s.attributes = append([]attribute.KeyValue(nil), parameters.Attributes...)
+	s.parentContext = parameters.ParentContext
+	if s.decision != nil {
+		return sdktrace.SamplingResult{Decision: *s.decision}
+	}
 	return sdktrace.SamplingResult{Decision: sdktrace.RecordAndSample}
 }
 
 func (*recordingSampler) Description() string {
 	return "recording sampler"
+}
+
+func recordingSamplerWithDecision(decision sdktrace.SamplingDecision) *recordingSampler {
+	return &recordingSampler{decision: &decision}
 }
 
 func generateSingleTraceSpan(
@@ -1023,7 +1314,11 @@ func TestGenerateTracesWithAttributesManualOTelJSON(t *testing.T) {
 	assert.Equal(t, "0000000000000002", span.SpanID().String())
 	assert.Equal(t, "0000000000000003", span.ParentSpanID().String())
 	assert.Equal(t, "tenant=a", span.TraceState().AsRaw())
-	assert.Equal(t, uint32(1), span.Flags())
+	assert.Equal(t,
+		uint32(1)|
+			uint32(tracepb.SpanFlags_SPAN_FLAGS_CONTEXT_HAS_IS_REMOTE_MASK)|
+			uint32(1<<10),
+		span.Flags())
 	assert.Equal(t, pcommon.Timestamp(946684800000000000), span.StartTimestamp())
 	assert.Equal(t, pcommon.Timestamp(946684801000000000), span.EndTimestamp())
 	assert.Equal(t, ptrace.StatusCodeError, span.Status().Code())
@@ -1182,7 +1477,7 @@ func TestAppendManualOTelJSONRejectsInvalidShape(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rs := ptrace.NewResourceSpans()
-			require.Error(t, appendManualOTelJSON(rs, tt.payload()))
+			require.Error(t, appendManualOTelJSON(rs, tt.payload(), false))
 			assert.Equal(t, 0, rs.ScopeSpans().Len())
 		})
 	}
@@ -1210,7 +1505,7 @@ func TestAppendManualOTelJSONNormalizesSpanKind(t *testing.T) {
 			span.SetKind(tt.kind)
 
 			rs := ptrace.NewResourceSpans()
-			require.NoError(t, appendManualOTelJSON(rs, marshalTracesJSON(t, traces)))
+			require.NoError(t, appendManualOTelJSON(rs, marshalTracesJSON(t, traces), false))
 			require.Equal(t, 1, rs.ScopeSpans().Len())
 			assert.Equal(t, tt.want, rs.ScopeSpans().At(0).Spans().At(0).Kind())
 		})
@@ -1247,7 +1542,7 @@ func manualOTelPayload(t *testing.T) []byte {
 	span.SetSpanID(pcommon.SpanID{0, 0, 0, 0, 0, 0, 0, 2})
 	span.SetParentSpanID(pcommon.SpanID{0, 0, 0, 0, 0, 0, 0, 3})
 	span.TraceState().FromRaw("tenant=a")
-	span.SetFlags(1)
+	span.SetFlags(1 | 1<<10)
 	span.SetName("manual-json")
 	span.SetKind(ptrace.SpanKindServer)
 	span.SetStartTimestamp(946684800000000000)

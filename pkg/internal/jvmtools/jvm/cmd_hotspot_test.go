@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sync"
 	"syscall"
@@ -28,9 +27,23 @@ func TestAttachContextReturnsCanceledContext(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	out, err := attacher.AttachContext(ctx, os.Getpid(), []string{"jcmd"}, true)
+	out, err := attacher.AttachContext(ctx, os.Getpid(), []string{"jcmd"}, true, nil)
 	require.Nil(t, out)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestAttachContextFailsClosedWithoutSignalProcess(t *testing.T) {
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	out, err := attacher.AttachContext(
+		context.Background(),
+		os.Getpid(),
+		[]string{"jcmd"},
+		true,
+		nil,
+	)
+	require.Nil(t, out)
+	require.ErrorContains(t, err, "signaling is unavailable")
 }
 
 func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *testing.T) {
@@ -38,17 +51,16 @@ func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *t
 	defer cancel()
 
 	tmpPath := t.TempDir()
-	signal.Ignore(syscall.SIGQUIT)
-	defer signal.Reset(syscall.SIGQUIT)
 
-	pid := os.Getpid()
 	nspid := 9_999_992
 	attachPid := 9_999_993
 	attachFile := filepath.Join(tmpPath, fmt.Sprintf(".attach_pid%d", nspid))
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- startAttachMechanism(ctx, pid, nspid, attachPid, tmpPath)
+		errCh <- startAttachMechanism(ctx, nspid, attachPid, tmpPath, func(syscall.Signal) error {
+			return nil
+		})
 	}()
 
 	require.Eventually(t, func() bool {
@@ -67,6 +79,46 @@ func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *t
 
 	_, err := os.Stat(attachFile)
 	require.True(t, os.IsNotExist(err), "attach file should be removed, stat error: %v", err)
+}
+
+func TestStartAttachMechanismUsesSuppliedSignal(t *testing.T) {
+	tmpPath := t.TempDir()
+	nspid := 9_999_994
+	attachPid := 9_999_995
+	attachFile := filepath.Join(tmpPath, fmt.Sprintf(".attach_pid%d", nspid))
+	var signals []syscall.Signal
+
+	err := startAttachMechanism(
+		context.Background(),
+		nspid,
+		attachPid,
+		tmpPath,
+		func(signal syscall.Signal) error {
+			signals = append(signals, signal)
+			if signal == syscall.SIGQUIT {
+				return syscall.ENOSYS
+			}
+			return nil
+		},
+	)
+
+	require.ErrorIs(t, err, syscall.ENOSYS)
+	require.Equal(t, []syscall.Signal{0, syscall.SIGQUIT}, signals)
+	_, statErr := os.Stat(attachFile)
+	require.True(t, os.IsNotExist(statErr), "attach file should be removed, stat error: %v", statErr)
+}
+
+func TestStartAttachMechanismRejectsNilSignalBeforeSideEffects(t *testing.T) {
+	tmpPath := t.TempDir()
+	nspid := 9_999_996
+	attachPid := 9_999_997
+	attachFile := filepath.Join(tmpPath, fmt.Sprintf(".attach_pid%d", nspid))
+
+	err := startAttachMechanism(context.Background(), nspid, attachPid, tmpPath, nil)
+
+	require.ErrorContains(t, err, "signaling is unavailable")
+	_, statErr := os.Stat(attachFile)
+	require.True(t, os.IsNotExist(statErr), "attach file should not be created, stat error: %v", statErr)
 }
 
 func TestWriteHotspotCommandClosesSocketOnContextCancellation(t *testing.T) {
@@ -98,6 +150,24 @@ func TestWriteHotspotCommandClosesSocketOnContextCancellation(t *testing.T) {
 	case <-conn.closed:
 	default:
 		t.Fatal("expected canceled context to close the socket")
+	}
+}
+
+func TestWaitForHotspotCancellationCallbackBeforeReturn(t *testing.T) {
+	done := make(chan struct{}, 1)
+	done <- struct{}{}
+	stopCalled := false
+
+	waitForHotspotCancellation(func() bool {
+		stopCalled = true
+		return false
+	}, done)
+
+	require.True(t, stopCalled)
+	select {
+	case <-done:
+		t.Fatal("returned without consuming the callback completion")
+	default:
 	}
 }
 

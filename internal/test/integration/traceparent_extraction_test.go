@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	staticTraceID   = "12345678901234567890123456789012" // Easy to spot
-	forwardedSpanID = "1111111111111111"                 // Span ID used in forwarded traceparent
+	staticTraceID        = "12345678901234567890123456789012" // Easy to spot
+	serviceAStaticSpanID = "0000000000000011"
+	serviceBStaticSpanID = "0000000000000021"
+	forwardedSpanID      = "1111111111111111" // Span ID used in forwarded traceparent
 )
 
 // TestTraceparentExtraction validates that the eBPF tpinjector correctly:
@@ -137,15 +139,15 @@ func testWithTraceparent(t *testing.T) {
 
 	serviceAClientSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-a", "client")
 	require.GreaterOrEqual(t, len(serviceAClientSpans), 1, "should find tpclient-a client span")
+	require.Equal(t, serviceAStaticSpanID, serviceAClientSpans[0].SpanID)
 	requireNoChildOfReference(t, serviceAClientSpans[0],
 		"tpclient-a client span should not inherit a parent from the generated server trace")
 
-	serviceBServerSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-b", "server")
-	require.GreaterOrEqual(t, len(serviceBServerSpans), 1, "should find tpclient-b server span")
 	serviceBClientSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-b", "client")
 	require.GreaterOrEqual(t, len(serviceBClientSpans), 1, "should find tpclient-b client span")
-	requireChildOfReference(t, serviceBClientSpans[0], serviceBServerSpans[0],
-		"tpclient-b client span should keep the matching in-process parent")
+	require.Equal(t, serviceBStaticSpanID, serviceBClientSpans[0].SpanID)
+	requireNoChildOfReference(t, serviceBClientSpans[0],
+		"tpclient-b client span should not retain an in-process parent")
 }
 
 // testWithForwardedTraceparent validates that when the SAME Traceparent is forwarded
@@ -202,16 +204,4 @@ func requireNoChildOfReference(t *testing.T, span jaeger.Span, msgAndArgs ...any
 	for _, ref := range span.References {
 		require.NotEqual(t, "CHILD_OF", ref.RefType, msgAndArgs...)
 	}
-}
-
-func requireChildOfReference(t *testing.T, child, parent jaeger.Span, msgAndArgs ...any) {
-	t.Helper()
-
-	for _, ref := range child.References {
-		if ref.RefType == "CHILD_OF" {
-			require.Equal(t, parent.SpanID, ref.SpanID, msgAndArgs...)
-			return
-		}
-	}
-	require.Fail(t, "missing CHILD_OF reference", msgAndArgs...)
 }

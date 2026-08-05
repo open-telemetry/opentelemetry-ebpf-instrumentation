@@ -9,6 +9,7 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/connection_info.h>
+#include <common/tp_info.h>
 
 enum { EVENT_HTTP_REQUEST = 1 };
 
@@ -16,11 +17,13 @@ typedef struct http_info {
     u8 type;
     u8 submitted;
     u64 extra_id;
+    u64 owner_pid_tgid;
     struct {
         u32 ns;
         u32 user_pid;
         u32 host_pid;
     } pid;
+    tp_info_t tp;
     u32 task_tid;
 } http_info_t;
 

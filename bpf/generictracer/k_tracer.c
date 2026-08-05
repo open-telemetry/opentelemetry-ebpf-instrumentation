@@ -149,6 +149,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
 
         tracked_connection_t t_conn = {
             .time = bpf_ktime_get_ns(),
+            .netns = task_netns(),
             .direction = TCP_RECV,
         };
 
@@ -197,6 +198,7 @@ static __always_inline void store_sock_pid(struct sock *sk) {
         java_vt_translate_tid(&conn_pid.p_key);
         conn_pid.id = bpf_get_current_pid_tgid();
         conn_pid.ts = bpf_ktime_get_ns();
+        conn_pid.start_time = current_process_start_time_ns();
 
         bpf_map_update_elem(&sock_pids, &conn, &conn_pid, BPF_ANY);
     }
@@ -360,6 +362,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
 
         tracked_connection_t t_conn = {
             .time = bpf_ktime_get_ns(),
+            .netns = task_netns(),
             .direction = TCP_SEND,
         };
 
@@ -438,7 +441,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
         dbg_print_http_connection_info(
             &s_args.p_conn.conn); // commented out since GitHub CI doesn't like this call
         // Create the egress key before we sort the connection info.
-        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn);
+        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn, pid_from_pid_tgid(id), 0);
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
         s_args.orig_dport = orig_dport;
@@ -450,6 +453,8 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
         u64 *ssl = is_ssl_connection(&s_args.p_conn);
         if (size > 0) {
             if (!ssl) {
+                outgoing_trace_token_t handoff_token = {};
+                u8 handoff_expected = 0;
                 unsigned char *buf = iovec_memory();
                 if (buf) {
                     size = read_msghdr_buf(msg, buf, size);
@@ -463,6 +468,8 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
                         bpf_dbg_printk("No size, m_buf=%llx", m_buf);
                         if (m_buf) {
+                            handoff_token = m_buf->handoff_token;
+                            handoff_expected = m_buf->handoff_expected;
                             const u32 cpu_id = bpf_get_smp_processor_id();
                             const bool use_fallback = m_buf->cpu_id != cpu_id;
                             if (use_fallback) {
@@ -522,8 +529,15 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
 
                     bpf_map_delete_elem(&msg_buffers, &e_key);
                     // Logically last for !ssl.
-                    handle_buf_with_connection(
-                        ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                    handle_buf_with_connection_handoff(ctx,
+                                                       &s_args.p_conn,
+                                                       buf,
+                                                       size,
+                                                       NO_SSL,
+                                                       TCP_SEND,
+                                                       orig_dport,
+                                                       &handoff_token,
+                                                       handoff_expected);
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);
             } else {
@@ -561,7 +575,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn);
+        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn, pid_from_pid_tgid(id), 0);
 
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
@@ -575,6 +589,8 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         if (!ssl) {
             msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
             if (m_buf) {
+                const outgoing_trace_token_t handoff_token = m_buf->handoff_token;
+                const u8 handoff_expected = m_buf->handoff_expected;
                 unsigned char *buf = NULL;
                 const u32 cpu_id = bpf_get_smp_processor_id();
                 const bool use_fallback = m_buf->cpu_id != cpu_id;
@@ -611,8 +627,15 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
 
                     bpf_map_delete_elem(&msg_buffers, &e_key);
                     // Logically last for !ssl.
-                    handle_buf_with_connection(
-                        ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                    handle_buf_with_connection_handoff(ctx,
+                                                       &s_args.p_conn,
+                                                       buf,
+                                                       size,
+                                                       NO_SSL,
+                                                       TCP_SEND,
+                                                       orig_dport,
+                                                       &handoff_token,
+                                                       handoff_expected);
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);
             }
@@ -739,7 +762,19 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info);
         finish_ongoing_tcp_req(&info);
-        bpf_map_delete_elem(&connection_tracker, &info.conn);
+        http2_conn_info_data_t *http2_connection =
+            bpf_map_lookup_elem(&ongoing_http2_connections, &info);
+        const u8 had_http2_connection = http2_connection != NULL;
+        http2_conn_info_data_t http2_connection_snapshot = {};
+        if (http2_connection) {
+            http2_connection_snapshot = *http2_connection;
+        }
+        delete_http2_server_hpack_state(&info,
+                                        had_http2_connection ? &http2_connection_snapshot : NULL);
+        tracked_connection_t *tracked = bpf_map_lookup_elem(&connection_tracker, &info.conn);
+        if (tracked && tracked->netns == task_netns()) {
+            bpf_map_delete_elem(&connection_tracker, &info.conn);
+        }
     }
 
     bpf_map_delete_elem(&active_send_args, &id);

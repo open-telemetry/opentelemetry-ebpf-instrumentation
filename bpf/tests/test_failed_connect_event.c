@@ -64,6 +64,9 @@ static void test_failed_connect_record_is_fully_initialized(void) {
     const u64 connect_ts = 123456789;
     const u64 end_ts = 123456999;
     const u64 trace_ts = 123457111;
+    const u64 process_start_time = 123000001;
+    const u64 connection_time = 122000001;
+    const u32 connection_netns = 4026531993;
     const u64 extra_id = 0xaabbccddeeff0011;
 
     const pid_info pid = {
@@ -78,8 +81,17 @@ static void test_failed_connect_record_is_fully_initialized(void) {
 
     tcp_req_t actual;
     __builtin_memset(&actual, 0xff, sizeof(actual));
-    init_failed_connect_tcp_req(
-        &actual, &pid_conn, orig_dport, connect_ts, end_ts, trace_ts, extra_id, &pid);
+    init_failed_connect_tcp_req(&actual,
+                                &pid_conn,
+                                orig_dport,
+                                connect_ts,
+                                end_ts,
+                                trace_ts,
+                                process_start_time,
+                                connection_time,
+                                connection_netns,
+                                extra_id,
+                                &pid);
 
     tcp_req_t expected = {};
     expected.flags = EVENT_FAILED_CONNECT;
@@ -88,6 +100,9 @@ static void test_failed_connect_record_is_fully_initialized(void) {
     expected.direction = TCP_SEND;
     expected.start_monotime_ns = connect_ts;
     expected.end_monotime_ns = end_ts;
+    expected.process_start_time = process_start_time;
+    expected.connection_time = connection_time;
+    expected.connection_netns = connection_netns;
     expected.extra_id = extra_id;
     expected.pid = pid;
     expected.tp.ts = trace_ts;

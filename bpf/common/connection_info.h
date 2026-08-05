@@ -135,10 +135,26 @@ static __always_inline bool likely_ephemeral_port(u16 port) {
 
 static __always_inline void swap_connection_info_order(connection_info_t *info) {
     __SWAP(u16, info->s_port, info->d_port);
-    u8 tmp_addr[IP_V6_ADDR_LEN];
-    __builtin_memcpy(tmp_addr, info->s_addr, sizeof(tmp_addr));
-    __builtin_memcpy(info->s_addr, info->d_addr, sizeof(info->s_addr));
-    __builtin_memcpy(info->d_addr, tmp_addr, sizeof(info->d_addr));
+    __SWAP(u32, info->s_ip[0], info->d_ip[0]);
+    __SWAP(u32, info->s_ip[1], info->d_ip[1]);
+    __SWAP(u32, info->s_ip[2], info->d_ip[2]);
+    __SWAP(u32, info->s_ip[3], info->d_ip[3]);
+}
+
+static __always_inline bool source_address_after_destination(const u32 *source,
+                                                             const u32 *destination) {
+#pragma unroll
+    for (u8 i = 0; i < IP_V6_ADDR_LEN_WORDS; i++) {
+        if (source[i] != destination[i]) {
+            return source[i] > destination[i];
+        }
+    }
+    return false;
+}
+
+static __always_inline bool
+connection_source_address_after_destination(const connection_info_t *info) {
+    return source_address_after_destination(info->s_ip, info->d_ip);
 }
 
 // Since we track both send and receive connections, we need to sort the source and destination
@@ -150,23 +166,30 @@ static __always_inline void sort_connection_info(connection_info_t *info) {
     }
 
     if ((likely_ephemeral_port(info->d_port) && !likely_ephemeral_port(info->s_port)) ||
-        (info->d_port > info->s_port)) {
+        (info->d_port > info->s_port) ||
+        (info->d_port == info->s_port && connection_source_address_after_destination(info))) {
         // Only sort if they are explicitly reversed, otherwise always sort source to be the larger
         // of the two ports
         swap_connection_info_order(info);
     }
 }
 
-// Equivalent to sort_connection_info, but works only with the ports key (egress_key_t),
-// which we use for egress connection tracking
+// Equivalent to sort_connection_info for the complete endpoint pairs carried by
+// egress_key_t. Addresses and ports must always move together.
 static __always_inline void sort_egress_key(egress_key_t *info) {
     if (likely_ephemeral_port(info->s_port) && !likely_ephemeral_port(info->d_port)) {
         return;
     }
 
     if ((likely_ephemeral_port(info->d_port) && !likely_ephemeral_port(info->s_port)) ||
-        (info->d_port > info->s_port)) {
+        (info->d_port > info->s_port) ||
+        (info->d_port == info->s_port &&
+         source_address_after_destination(info->s_ip, info->d_ip))) {
         __SWAP(u16, info->s_port, info->d_port);
+        __SWAP(u32, info->s_ip[0], info->d_ip[0]);
+        __SWAP(u32, info->s_ip[1], info->d_ip[1]);
+        __SWAP(u32, info->s_ip[2], info->d_ip[2]);
+        __SWAP(u32, info->s_ip[3], info->d_ip[3]);
     }
 }
 
@@ -221,13 +244,21 @@ static __always_inline u8 is_empty_connection_info(const connection_info_t *conn
     return conn->s_port == 0 && conn->d_port == 0;
 }
 
-static __always_inline egress_key_t make_egress_key(const connection_info_t *conn) {
-    egress_key_t e_key = {
-        .d_port = conn->d_port,
-        .s_port = conn->s_port,
-    };
+static __always_inline void
+make_egress_key_into(egress_key_t *e_key, const connection_info_t *conn, u32 pid, u32 stream_id) {
+    e_key->d_port = conn->d_port;
+    e_key->s_port = conn->s_port;
+    e_key->pid = pid;
+    e_key->stream_id = stream_id;
+    __builtin_memcpy(e_key->s_addr, conn->s_addr, sizeof(e_key->s_addr));
+    __builtin_memcpy(e_key->d_addr, conn->d_addr, sizeof(e_key->d_addr));
+    sort_egress_key(e_key);
+}
 
-    sort_egress_key(&e_key);
-
+static __always_inline egress_key_t make_egress_key(const connection_info_t *conn,
+                                                    u32 pid,
+                                                    u32 stream_id) {
+    egress_key_t e_key;
+    make_egress_key_into(&e_key, conn, pid, stream_id);
     return e_key;
 }

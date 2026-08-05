@@ -9,6 +9,8 @@ import (
 	"os"
 	"syscall"
 
+	"golang.org/x/sys/unix"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -31,6 +33,32 @@ func FindINodeForPID(pid app.PID) (dev uint64, ino uint64, err error) {
 }
 
 func findExecElf(p *services.ProcessInfo, svcID *svc.Attrs) (*exec.FileInfo, error) {
+	processRootFD, err := unix.Open(
+		fmt.Sprintf("/proc/%d", p.Pid),
+		unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC,
+		0,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("can't open process root for PID=%d: %w", p.Pid, err)
+	}
+	processRoot := os.NewFile(
+		uintptr(processRootFD),
+		fmt.Sprintf("/proc/%d", p.Pid),
+	)
+	if processRoot == nil {
+		_ = unix.Close(processRootFD)
+		return nil, fmt.Errorf("can't create process root for PID=%d", p.Pid)
+	}
+	keepProcessRoot := false
+	defer func() {
+		if !keepProcessRoot {
+			_ = processRoot.Close()
+		}
+	}()
+	startTime, dev, ino, err := processRootIdentity(processRoot)
+	if err != nil || startTime != p.StartTime {
+		return nil, fmt.Errorf("process %d was replaced before executable inspection", p.Pid)
+	}
 	// In container environments or K8s, we can't just open the executable exe path, because it might
 	// be in the volume of another pod/container. We need to access it through the /proc/<pid>/exe symbolic link
 	ns, err := procs.FindNamespace(p.Pid)
@@ -39,19 +67,29 @@ func findExecElf(p *services.ProcessInfo, svcID *svc.Attrs) (*exec.FileInfo, err
 	}
 	// TODO: allow overriding /proc root folder
 	proExeLinkPath := fmt.Sprintf("/proc/%d/exe", p.Pid)
-	elfFile, err := elf.Open(proExeLinkPath)
-	if err != nil {
-		return nil, fmt.Errorf("can't open ELF file in %s: %w", proExeLinkPath, err)
-	}
-
-	dev, ino, err := FindINodeForPID(p.Pid)
+	ownedExecutablePath, err := executablePathThroughProcessRoot(processRoot)
 	if err != nil {
 		return nil, err
 	}
+	elfFile, err := elf.Open(ownedExecutablePath)
+	if err != nil {
+		return nil, fmt.Errorf("can't open ELF file in %s: %w", proExeLinkPath, err)
+	}
+	keepELF := false
+	defer func() {
+		if !keepELF {
+			_ = elfFile.Close()
+		}
+	}()
 
 	envVars, err := procs.EnvVars(p.Pid)
 	if err != nil {
 		return nil, err
+	}
+	finalStartTime, finalDev, finalIno, err := processRootIdentity(processRoot)
+	if err != nil || finalStartTime != startTime ||
+		finalDev != dev || finalIno != ino {
+		return nil, fmt.Errorf("process %d was replaced during executable inspection", p.Pid)
 	}
 
 	fi := exec.New(exec.Init{
@@ -61,10 +99,14 @@ func findExecElf(p *services.ProcessInfo, svcID *svc.Attrs) (*exec.FileInfo, err
 		ELF:            elfFile,
 		Pid:            p.Pid,
 		Ppid:           p.PPid,
+		StartTime:      p.StartTime,
 		Dev:            dev,
 		Ino:            ino,
 		Ns:             ns,
+		ProcessRoot:    processRoot,
 	})
 	fi.ApplyEnvVariables(envVars)
+	keepELF = true
+	keepProcessRoot = true
 	return fi, nil
 }

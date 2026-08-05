@@ -23,7 +23,9 @@
 #include <common/algorithm.h>
 #include <common/connection_info.h>
 #include <common/globals.h>
+#include <common/go_grpc_client_conn.h>
 #include <common/http_types.h>
+#include <common/outgoing_trace_handoff.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/strings.h>
@@ -31,11 +33,14 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_http1.h>
+#include <gotracer/go_http1_client.h>
 #include <gotracer/go_large_buffer.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/nethttp.h>
+#include <gotracer/maps/hpack.h>
 
 #include <gotracer/types/nethttp.h>
 #include <gotracer/types/stream_key.h>
@@ -50,6 +55,9 @@
 #include <pid/pid_helpers.h>
 
 #include <shared/obi_ctx.h>
+
+#include <gotracer/go_http1_server.h>
+#include <gotracer/go_http2_server.h>
 
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
@@ -66,46 +74,73 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
-    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
-    void *req = GO_PARAM4(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+    const u64 generation = go_process_generation(g_key.pid);
 
-    off_table_t *ot = get_offsets_table();
+    server_http_invocation_scratch_t *scratch = http_server_invocation_scratch_mem();
+    if (!scratch) {
+        go_http_server_close_prehandler_state(
+            &http1_server_handoffs, &ongoing_http_server_requests, &g_key);
+        go_http_server_retire_go_trace(&g_key);
+        discard_server_parent_candidates(&g_key);
+        obi_ctx__del(bpf_get_current_pid_tgid());
+        return 0;
+    }
+    __builtin_memset(scratch, 0, sizeof(*scratch));
+    server_http_func_invocation_t *invocation = &scratch->invocation;
+    invocation->generation = generation;
+    tp_info_t *authority_parent = &scratch->parent;
 
-    // Lookup any header information setup for us by readContinuedLineSlice
-    server_http_func_invocation_t *header_inv =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
-    tp_info_t *decoded_tp = 0;
-    if (header_inv && valid_trace(header_inv->tp.trace_id)) {
-        decoded_tp = &header_inv->tp;
+    http1_server_handoff_t *http1 =
+        go_http1_server_handoff_lookup_current(&http1_server_handoffs, &g_key);
+    server_http_func_invocation_t *pending_h2 =
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
+    const enum go_http_server_parent_authority authority =
+        go_http_server_parent_authority(http1, pending_h2, generation);
+    if (http1) {
+        invocation->is_tls = http1->is_tls;
+        if (authority == k_go_http_server_parent_traceparent) {
+            *authority_parent = http1->tp;
+        }
+    } else if (go_http1_pending_h2_sentinel(pending_h2, generation)) {
+        invocation->is_tls = pending_h2->is_tls;
+        if (authority == k_go_http_server_parent_traceparent) {
+            *authority_parent = pending_h2->tp;
+        }
     }
 
-    server_http_func_invocation_t invocation = {
-        .start_monotime_ns = bpf_ktime_get_ns(),
-        .tp = {0},
-        .status = 0,
-        .content_length = 0,
-        .response_length = 0,
-    };
+    // Consume pre-handler state before application code can parse trailers or multipart headers.
+    go_http_server_close_prehandler_state(
+        &http1_server_handoffs, &ongoing_http_server_requests, &g_key);
+    go_http_server_retire_go_trace(&g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
-    invocation.method[0] = 0;
-    invocation.path[0] = 0;
-    invocation.pattern[0] = 0;
+    void *req = GO_PARAM4(ctx);
+    off_table_t *ot = get_offsets_table();
+    u8 trace_started = 0;
+    invocation->start_monotime_ns = bpf_ktime_get_ns();
+
+    invocation->method[0] = 0;
+    invocation->path[0] = 0;
+    invocation->pattern[0] = 0;
 
     if (req) {
-        server_trace_parent(goroutine_addr, &invocation.tp, decoded_tp);
-        // TODO: if context propagation is supported, overwrite the header value in the map with the
-        // new span context and the same thread id.
+        tp_info_t *decoded_tp =
+            authority == k_go_http_server_parent_traceparent ? authority_parent : NULL;
+        server_trace_parent(goroutine_addr,
+                            &invocation->tp,
+                            decoded_tp,
+                            authority == k_go_http_server_parent_force_root);
+        trace_started = 1;
 
         // Get method from Request.Method
         if (!read_go_str("method",
                          req,
                          go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
-                         invocation.method,
-                         sizeof(invocation.method))) {
-            bpf_dbg_printk("can't read http Request.Method");
-            goto done;
+                         invocation->method,
+                         sizeof(invocation->method))) {
+            goto failed;
         }
 
         // Get path from Request.URL
@@ -118,34 +153,40 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
             !read_go_str("path",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _path_ptr_pos}),
-                         invocation.path,
-                         sizeof(invocation.path))) {
-            bpf_dbg_printk("can't read http Request.URL.Path");
-            goto done;
+                         invocation->path,
+                         sizeof(invocation->path))) {
+            goto failed;
         }
-
-        bpf_dbg_printk("path=%s", invocation.path);
 
         res = bpf_probe_read(
-            &invocation.content_length,
-            sizeof(invocation.content_length),
+            &invocation->content_length,
+            sizeof(invocation->content_length),
             (void *)(req + go_offset_of(ot, (go_offset){.v = _content_length_ptr_pos})));
         if (res) {
-            bpf_dbg_printk("can't read http Request.ContentLength");
-            goto done;
+            goto failed;
         }
     } else {
-        goto done;
+        goto failed;
     }
 
     // Write event
-    if (bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &invocation, BPF_ANY)) {
-        bpf_dbg_printk("can't update map element");
+    if (bpf_map_update_elem(&ongoing_http_server_requests, &g_key, invocation, BPF_ANY)) {
+        go_http_server_retire_go_trace(&g_key);
+        discard_server_parent_candidates(&g_key);
+        obi_ctx__del(bpf_get_current_pid_tgid());
+        return 0;
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
+    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation->tp);
+    return 0;
 
-done:
+failed:
+    bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
+    if (trace_started) {
+        go_http_server_retire_go_trace(&g_key);
+    }
+    discard_server_parent_candidates(&g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
 
@@ -158,7 +199,7 @@ int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     server_http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
 
     bpf_dbg_printk("goroutine_addr=%lx, invocation=%llx", goroutine_addr, invocation);
 
@@ -183,7 +224,7 @@ int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     server_http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
 
     bpf_dbg_printk("goroutine_addr=%lx, invocation=%llx", goroutine_addr, invocation);
 
@@ -211,7 +252,7 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     server_http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
 
     off_table_t *ot = get_offsets_table();
     const u64 fullpath_off = go_offset_of(ot, (go_offset){.v = _gin_fullpath_pos});
@@ -264,46 +305,47 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    // net/http's conn.serve handles keepalive requests serially on this goroutine.
+    go_http_server_close_prehandler_state(
+        &http1_server_handoffs, &ongoing_http_server_requests, &g_key);
+    bpf_map_delete_elem(&ongoing_server_bufr, &g_key);
+    go_http_server_retire_go_trace(&g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
-    // Populate connection info if: no entry exists yet, OR the entry was created by connServe
-    // with zeroed ports
-    if (!existing || (existing->d_port == 0 && existing->s_port == 0)) {
-        void *c_ptr = GO_PARAM1(ctx);
-        if (c_ptr) {
-            void *conn_conn_ptr = c_ptr + k_go_iface_data_offset +
-                                  go_offset_of(ot, (go_offset){.v = _c_rwc_pos}); // embedded struct
-            void *tls_state = 0;
-            bpf_probe_read(&tls_state,
-                           sizeof(tls_state),
-                           (void *)(c_ptr + go_offset_of(ot, (go_offset){.v = _c_tls_pos})));
-            conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
+    // A runtime.g address and its previous non-zero tuple may be reused. Never retain a tuple
+    // across requests: rebuild it from this request's conn and current process incarnation.
+    go_server_connection_clear(&g_key);
+    void *c_ptr = GO_PARAM1(ctx);
+    void *tls_state = 0;
+    if (c_ptr && ot &&
+        bpf_probe_read(&tls_state,
+                       sizeof(tls_state),
+                       (void *)(c_ptr + go_offset_of(ot, (go_offset){.v = _c_tls_pos}))) == 0) {
+        void *conn_conn_ptr = c_ptr + k_go_iface_data_offset +
+                              go_offset_of(ot, (go_offset){.v = _c_rwc_pos}); // embedded struct
+        conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
 
-            // Store TLS state in the server invocation so serve_http_returns
-            // can populate the scheme field on the trace event.
-            server_http_func_invocation_t *inv =
-                bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
-            if (inv) {
-                inv->is_tls = tls_state ? 1 : 0;
-            }
-
-            if (conn_conn_ptr) {
-                void *conn_ptr = 0;
-                bpf_probe_read(
-                    &conn_ptr,
-                    sizeof(conn_ptr),
-                    (void *)(conn_conn_ptr +
-                             go_offset_of(ot, (go_offset){.v = _net_conn_pos}))); // find conn
+        if (conn_conn_ptr) {
+            void *conn_ptr = 0;
+            if (bpf_probe_read(&conn_ptr,
+                               sizeof(conn_ptr),
+                               (void *)(conn_conn_ptr +
+                                        go_offset_of(ot, (go_offset){.v = _net_conn_pos}))) == 0 &&
+                conn_ptr) { // find conn
                 bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
-                if (conn_ptr) {
-                    connection_info_t conn = {0};
-                    get_conn_info(
-                        conn_ptr,
-                        &conn); // initialized to 0, no need to check the result if we succeeded
-                    bpf_map_update_elem(&ongoing_server_connections, &g_key, &conn, BPF_ANY);
+                connection_info_t conn = {};
+                if (get_conn_info(conn_ptr, &conn)) {
+                    go_server_connection_store_current(&g_key, &conn);
                 }
             }
         }
+    }
+
+    http1_server_handoff_t *fresh = http1_server_handoff_mem();
+    if (!go_http1_begin_server_handoff(&http1_server_handoffs, &g_key, fresh, tls_state != NULL)) {
+        bpf_dbg_printk("can't retain HTTP/1 request header authority");
+        discard_server_parent_candidates(&g_key);
+        obi_ctx__del(bpf_get_current_pid_tgid());
     }
 
     return 0;
@@ -319,13 +361,28 @@ int obi_uprobe_readRequestReturns(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    // readRequest returns (*response, error). A nil response or non-nil error means no
+    // handler can consume this request state, and its newly rebuilt tuple is not reusable.
+    if (!GO_PARAM1(ctx) || GO_PARAM2(ctx)) {
+        go_http_server_close_prehandler_state(
+            &http1_server_handoffs, &ongoing_http_server_requests, &g_key);
+        bpf_map_delete_elem(&ongoing_server_bufr, &g_key);
+        go_server_connection_clear(&g_key);
+        go_http_server_retire_go_trace(&g_key);
+        obi_ctx__del(bpf_get_current_pid_tgid());
+        return 0;
+    }
+    go_http1_finish_server_header_parsing(&http1_server_handoffs, &g_key);
+
     // This code is here for keepalive support on HTTP requests. Since the connection is not
     // established everytime, we set the initial goroutine start on the new read initiation.
+    const u64 generation = go_process_generation(g_key.pid);
     goroutine_metadata *g_metadata = bpf_map_lookup_elem(&ongoing_goroutines, &g_key);
-    if (!g_metadata) {
+    if (!g_metadata || !generation || g_metadata->generation != generation) {
         goroutine_metadata metadata = {
             .timestamp = bpf_ktime_get_ns(),
             .parent = g_key,
+            .generation = generation,
         };
 
         if (bpf_map_update_elem(&ongoing_goroutines, &g_key, &metadata, BPF_ANY)) {
@@ -338,55 +395,151 @@ int obi_uprobe_readRequestReturns(struct pt_regs *ctx) {
     return 0;
 }
 
-// Handles finding the connection information for http2 servers in grpc
-SEC("uprobe/http2Server_processHeaders")
-int obi_uprobe_http2Server_processHeaders(struct pt_regs *ctx) {
+static __always_inline int go_http2_server_process_headers(struct pt_regs *ctx,
+                                                           go_offset_const max_stream_id_offset) {
     void *sc_ptr = GO_PARAM1(ctx);
     void *frame = GO_PARAM2(ctx);
     bpf_dbg_printk("=== uprobe/http2Server_processHeaders sc_ptr=%lx ===", sc_ptr);
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, sc_ptr);
+    go_exact_process_addr_key_t g_key = {};
+    if (!go_http2_process_headers_key(&g_key, GOROUTINE_PTR(ctx))) {
+        return 0;
+    }
+    go_http2_clear_process_headers_invocation(&http2_process_headers_invocations, &g_key);
 
-    tp_info_t tp = {0};
+    http2_process_headers_invocation_t *invocation = http2_process_headers_mem();
+    if (!invocation) {
+        return 0;
+    }
+    __builtin_memset(invocation, 0, sizeof(*invocation));
 
-    process_meta_frame_headers(frame, &tp);
-
-    if (valid_trace(tp.trace_id)) {
-        bpf_dbg_printk("found valid traceparent in http2 headers");
-        bpf_map_update_elem(&http2_server_requests_tp, &g_key, &tp, BPF_ANY);
+    u32 stream_id = 0;
+    if (!go_http2_meta_headers_stream_id(frame, &stream_id) ||
+        !go_http2_server_stream_key(&invocation->stream, sc_ptr, stream_id)) {
+        return 0;
     }
 
+    off_table_t *ot = get_offsets_table();
+    u32 max_client_stream_id = 0;
+    if (!ot ||
+        bpf_probe_read(&max_client_stream_id,
+                       sizeof(max_client_stream_id),
+                       sc_ptr + go_offset_of(ot, (go_offset){.v = max_stream_id_offset})) ||
+        !go_http2_initial_header_candidate(stream_id, max_client_stream_id)) {
+        return 0;
+    }
+
+    invocation->candidate_initial = 1;
+    invocation->request.traceparent_state =
+        go_http2_process_meta_frame_headers(frame, &invocation->request.tp);
+
+    // A new stream ID cannot have live authority. Removing any retained value here also
+    // prevents a recycled serverConn address from reviving an unconsumed old request.
+    bpf_map_delete_elem(&http2_server_requests_tp, &invocation->stream);
+    if (!go_http2_stage_process_headers_invocation(
+            &http2_process_headers_invocations, &g_key, invocation)) {
+        return 0;
+    }
+
+    // This uprobe completes before processHeaders can schedule runHandler. Publish once
+    // here so both handler-before-return and return-before-handler schedules are lossless.
+    // A map update failure is fail-closed: the return probe never retries publication.
+    go_http2_begin_request_state(
+        &http2_server_requests_tp, &invocation->stream, &invocation->request);
     return 0;
 }
 
-static __always_inline void update_traceparent(server_http_func_invocation_t *inv,
-                                               const unsigned char *header_start) {
-    decode_go_traceparent(header_start, inv->tp.trace_id, inv->tp.parent_id, &inv->tp.flags);
-    bpf_dbg_printk("Found traceparent in header, header_start=[%s]", header_start);
+SEC("uprobe/http2Server_processHeaders")
+int obi_uprobe_http2Server_processHeaders(struct pt_regs *ctx) {
+    return go_http2_server_process_headers(ctx, _sc_max_client_stream_id_pos);
 }
 
-static __always_inline void handle_traceparent_header(server_http_func_invocation_t *inv,
-                                                      go_addr_key_t *g_key,
-                                                      unsigned char *traceparent_start) {
-    if (inv) {
-        if (!valid_trace(inv->tp.trace_id)) {
-            update_traceparent(inv, traceparent_start);
-        }
-    } else {
-        server_http_func_invocation_t minimal_inv = {0};
-        update_traceparent(&minimal_inv, traceparent_start);
-        bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
-        obi_ctx__set(bpf_get_current_pid_tgid(), &minimal_inv.tp);
+SEC("uprobe/http2Server_processHeaders_vendored")
+int obi_uprobe_http2Server_processHeadersVendored(struct pt_regs *ctx) {
+    return go_http2_server_process_headers(ctx, _sc_max_client_stream_id_vendored_pos);
+}
+
+static __always_inline int
+go_http2_server_process_headers_returns(struct pt_regs *ctx, go_offset_const max_stream_id_offset) {
+    go_exact_process_addr_key_t g_key = {};
+    if (!go_http2_process_headers_key(&g_key, GOROUTINE_PTR(ctx))) {
+        return 0;
+    }
+    http2_process_headers_invocation_t *invocation =
+        go_http2_lookup_process_headers_invocation(&http2_process_headers_invocations, &g_key);
+    if (!invocation) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 generation = go_process_generation(g_key.address.pid);
+    u32 max_client_stream_id = 0;
+    const u8 accepted =
+        invocation->candidate_initial && generation &&
+        generation == invocation->stream.generation && !GO_PARAM1(ctx) && ot &&
+        bpf_probe_read(&max_client_stream_id,
+                       sizeof(max_client_stream_id),
+                       (void *)invocation->stream.server_conn +
+                           go_offset_of(ot, (go_offset){.v = max_stream_id_offset})) == 0 &&
+        max_client_stream_id == invocation->stream.stream_id;
+
+    // A successful return leaves the entry-time state for runHandler. Observable errors
+    // and nil-error GOAWAY ignores cannot have scheduled a handler and revoke it.
+    go_http2_finish_request_state(&http2_server_requests_tp, &invocation->stream, accepted);
+    go_http2_clear_process_headers_invocation(&http2_process_headers_invocations, &g_key);
+    return 0;
+}
+
+SEC("uprobe/http2Server_processHeaders_return")
+int obi_uprobe_http2Server_processHeadersReturns(struct pt_regs *ctx) {
+    return go_http2_server_process_headers_returns(ctx, _sc_max_client_stream_id_pos);
+}
+
+SEC("uprobe/http2Server_processHeaders_return_vendored")
+int obi_uprobe_http2Server_processHeadersReturnsVendored(struct pt_regs *ctx) {
+    return go_http2_server_process_headers_returns(ctx, _sc_max_client_stream_id_vendored_pos);
+}
+
+static __always_inline void apply_http1_server_observation(go_addr_key_t *g_key,
+                                                           u8 discard_fallback) {
+    if (!discard_fallback) {
+        return;
+    }
+
+    obi_ctx__del(bpf_get_current_pid_tgid());
+    discard_server_parent_candidates(g_key);
+
+    http1_server_handoff_t *handoff =
+        go_http1_server_header_observation_eligible(&http1_server_handoffs, g_key);
+    if (go_http1_server_handoff_has_parent(handoff)) {
+        obi_ctx__set(bpf_get_current_pid_tgid(), &handoff->tp);
     }
 }
 
-// Matches the header in the buffer and returns a pointer to the value part of the header.
-static __always_inline unsigned char *match_header(
-    const unsigned char *buf, u32 safe_len, const char *header, u32 header_len, u32 value_len) {
-    if (safe_len >= header_len + value_len && stricmp((const char *)buf, header, header_len)) {
-        return (unsigned char *)(buf + header_len);
-    }
-    return NULL;
+static __always_inline void store_http1_server_scan(go_addr_key_t *g_key,
+                                                    enum go_http1_traceparent_scan_result result,
+                                                    const go_http1_traceparent_t *traceparent) {
+    http1_server_handoff_t *handoff =
+        go_http1_server_header_observation_eligible(&http1_server_handoffs, g_key);
+    const u8 discard_fallback = go_http1_store_server_scan(handoff, result, traceparent);
+    apply_http1_server_observation(g_key, discard_fallback);
+}
+
+static __always_inline void fail_http1_server_observation(go_addr_key_t *g_key) {
+    http1_server_handoff_t *handoff =
+        go_http1_server_header_observation_eligible(&http1_server_handoffs, g_key);
+    const u8 discard_fallback = go_http1_fail_server_header_observation(handoff);
+    apply_http1_server_observation(g_key, discard_fallback);
+}
+
+static __always_inline void handle_legacy_http1_server_header(go_addr_key_t *g_key,
+                                                              const unsigned char *field,
+                                                              u32 captured_len,
+                                                              u64 field_len) {
+    http1_server_handoff_t *handoff =
+        go_http1_server_header_observation_eligible(&http1_server_handoffs, g_key);
+    const u8 discard_fallback =
+        go_http1_observe_legacy_server_header(handoff, field, captured_len, field_len);
+    apply_http1_server_observation(g_key, discard_fallback);
 }
 
 SEC("uprobe/readMimeHeader")
@@ -401,75 +554,79 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-    const connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
-    if (!existing) {
+
+    if (!go_http1_server_header_observation_eligible(&http1_server_handoffs, &g_key)) {
         return 0;
     }
 
     const void *reader = (const unsigned char *)GO_PARAM1(ctx);
     if (!reader) {
+        fail_http1_server_observation(&g_key);
         return 0;
     }
     off_table_t *ot = get_offsets_table();
 
-    void *r = 0;
-    bpf_probe_read_user(
-        &r, sizeof(void *), reader + go_offset_of(ot, (go_offset){.v = _text_reader_r_pos}));
+    const u64 text_reader_r_pos = go_offset_of(ot, (go_offset){.v = _text_reader_r_pos});
+    const u64 buf_pos = go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos});
+    const u64 reader_r_pos = go_offset_of(ot, (go_offset){.v = _buf_reader_r_pos});
+    const u64 reader_w_pos = go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos});
+    if (text_reader_r_pos == (u64)-1 || buf_pos == (u64)-1 || reader_r_pos == (u64)-1 ||
+        reader_w_pos == (u64)-1) {
+        fail_http1_server_observation(&g_key);
+        return 0;
+    }
 
-    if (!r) {
+    void *bufio_reader = 0;
+    if (bpf_probe_read_user(&bufio_reader, sizeof(bufio_reader), reader + text_reader_r_pos) ||
+        !bufio_reader) {
+        fail_http1_server_observation(&g_key);
         return 0;
     }
 
     // Cache the bufio.Reader so serve_http_returns can ship the request bytes.
-    bpf_map_update_elem(&ongoing_server_bufr, &g_key, &r, BPF_ANY);
+    bpf_map_update_elem(&ongoing_server_bufr, &g_key, &bufio_reader, BPF_ANY);
 
-    bpf_dbg_printk("R=%llx, off=%d", r, go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
-
-    u64 len = 0;
-    bpf_probe_read_user(
-        &len, sizeof(u64), r + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-
-    bpf_dbg_printk(
-        "buf len=%d, off=%d", len, go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-
-    if (len == 0) {
-        return 0;
-    }
+    bpf_dbg_printk("R=%llx, off=%d", bufio_reader, buf_pos);
 
     void *arr = 0;
-    bpf_probe_read_user(
-        &arr, sizeof(void *), r + go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
-
-    if (!arr) {
+    u64 buf_len = 0;
+    u64 reader_r = 0;
+    u64 reader_w = 0;
+    if (bpf_probe_read_user(&arr, sizeof(arr), bufio_reader + buf_pos) ||
+        bpf_probe_read_user(
+            &buf_len, sizeof(buf_len), bufio_reader + buf_pos + k_go_slice_len_offset) ||
+        bpf_probe_read_user(&reader_r, sizeof(reader_r), bufio_reader + reader_r_pos) ||
+        bpf_probe_read_user(&reader_w, sizeof(reader_w), bufio_reader + reader_w_pos) || !arr) {
+        fail_http1_server_observation(&g_key);
         return 0;
     }
 
-    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    u64 region_start = 0;
+    u16 region_len = 0;
+    if (!go_http1_reader_capture_region(
+            reader_r, reader_w, buf_len, TRACE_BUF_SIZE, &region_start, &region_len)) {
+        fail_http1_server_observation(&g_key);
+        return 0;
+    }
+
+    bpf_dbg_printk("buf r=%d, w=%d, capture=%d", reader_r, reader_w, region_len);
 
     unsigned char *buf = (unsigned char *)tp_char_buf_mem();
     if (!buf) {
+        fail_http1_server_observation(&g_key);
         return 0;
     }
 
-    bpf_clamp_umax(len, TRACE_BUF_SIZE);
-
-    if (bpf_probe_read_user(buf, len, arr) != 0) {
+    if (bpf_probe_read_user(buf, region_len, (unsigned char *)arr + region_start) != 0) {
         bpf_dbg_printk("failed to read MIME header buffer");
+        fail_http1_server_observation(&g_key);
         return 0;
     }
 
-    bpf_dbg_printk("buf=%s", buf);
-
-    unsigned char *tp_ptr = bpf_strstr_tp_loop(buf, len);
-
-    bpf_dbg_printk("tp=%llx", tp_ptr);
-
-    if (!tp_ptr) {
-        return 0;
-    }
-
-    tp_ptr += TP_MAX_KEY_LENGTH + 2;
-    handle_traceparent_header(inv, &g_key, tp_ptr);
+    go_http1_traceparent_t traceparent = {};
+    const enum go_http1_traceparent_scan_result result =
+        go_http1_scan_inbound_traceparent(buf, region_len, &traceparent);
+    store_http1_server_scan(&g_key, result, &traceparent);
     return 0;
 }
 
@@ -481,30 +638,35 @@ int obi_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-    connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
-    if (!existing) {
+
+    if (!go_http1_server_header_observation_eligible(&http1_server_handoffs, &g_key)) {
         return 0;
     }
 
     const u64 len = (u64)GO_PARAM2(ctx);
     const unsigned char *buf = (const unsigned char *)GO_PARAM1(ctx);
+    if (GO_PARAM4(ctx)) {
+        fail_http1_server_observation(&g_key);
+        return 0;
+    }
+    if (len == 0) {
+        handle_legacy_http1_server_header(&g_key, buf, 0, 0);
+        return 0;
+    }
+    if (!buf) {
+        fail_http1_server_observation(&g_key);
+        return 0;
+    }
 
     unsigned char *temp = temp_header_mem();
     const u32 safe_len = min(k_http_header_max_len, len);
     if (!temp || bpf_probe_read_user(temp, safe_len, buf) != 0) {
         bpf_dbg_printk("failed to read buffer");
+        fail_http1_server_observation(&g_key);
         return 0;
     };
 
-    const u32 w3c_value_start = sizeof(traceparent) - 1;
-
-    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
-
-    unsigned char *traceparent_start =
-        match_header(temp, safe_len, traceparent, w3c_value_start, W3C_VAL_LENGTH);
-    if (traceparent_start) {
-        handle_traceparent_header(inv, &g_key, traceparent_start);
-    }
+    handle_legacy_http1_server_header(&g_key, temp, safe_len, len);
 
     return 0;
 }
@@ -516,17 +678,20 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     server_http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
 
     if (invocation == NULL) {
         void *parent_go = (void *)find_parent_goroutine(&g_key);
-        if (parent_go) {
+        if (parent_go && (u64)parent_go != k_go_parent_error) {
             bpf_dbg_printk("found parent goroutine for header, parent_go=%llx", parent_go);
             go_addr_key_t p_key = {};
             go_addr_key_from_id(&p_key, parent_go);
-            invocation = bpf_map_lookup_elem(&ongoing_http_server_requests, &p_key);
-            goroutine_addr = parent_go;
-            g_key.addr = (u64)goroutine_addr;
+            invocation =
+                go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &p_key);
+            if (invocation) {
+                goroutine_addr = parent_go;
+                g_key.addr = (u64)goroutine_addr;
+            }
         }
         if (!invocation) {
             bpf_dbg_printk("can't read http invocation metadata");
@@ -544,9 +709,9 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_dbg_printk("tp=%s", tp_buf);
 
     connection_info_t conn = {0};
-    const connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
-    if (info) {
-        __builtin_memcpy(&conn, info, sizeof(connection_info_t));
+    const go_server_connection_t *state = go_server_connection_lookup_current(&g_key);
+    if (state) {
+        __builtin_memcpy(&conn, &state->conn, sizeof(connection_info_t));
     } else {
         // We can't find the connection info, this typically means there are too many requests
         // per second and the connection map is too small for the workload.
@@ -574,7 +739,8 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->pattern[0] = '\0';
 
     goroutine_metadata *g_metadata = bpf_map_lookup_elem(&ongoing_goroutines, &g_key);
-    if (g_metadata) {
+    const u64 generation = go_process_generation(g_key.pid);
+    if (g_metadata && generation && g_metadata->generation == generation) {
         trace->go_start_monotime_ns = g_metadata->timestamp;
         bpf_map_delete_elem(&ongoing_goroutines, &g_key);
     } else {
@@ -602,9 +768,14 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    go_http1_close_server_handoff(&http1_server_handoffs, &g_key);
     bpf_map_delete_elem(&ongoing_server_bufr, &g_key);
+    if (invocation) {
+        pop_go_trace(&g_key, &invocation->tp);
+    } else {
+        poison_and_revoke_go_trace(&g_key);
+    }
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
-    bpf_map_delete_elem(&go_trace_map, &g_key);
     obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
@@ -616,12 +787,49 @@ int obi_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
 }
 
 /* HTTP Client. We expect to see HTTP client in both HTTP server and gRPC server calls.*/
+static __noinline void stage_http1_header_request(void *header_addr,
+                                                  void *persist_conn_addr,
+                                                  const go_exact_process_addr_key_t *request_key) {
+    go_http1_stage_header_request(
+        &header_req_map, (u64)header_addr, (u64)persist_conn_addr, request_key);
+}
+
+static __noinline u8 take_http1_header_request(void *header_addr,
+                                               void *persist_conn_addr,
+                                               go_exact_process_addr_key_t *request_key) {
+    if (!header_addr || !persist_conn_addr || !request_key) {
+        return 0;
+    }
+    const u64 process_start_time = OBI_CURRENT_PROCESS_START_BOOTTIME_NS();
+    const u32 pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+    if (!process_start_time) {
+        return 0;
+    }
+    return go_http1_take_header_request(&header_req_map,
+                                        pid,
+                                        process_start_time,
+                                        (u64)header_addr,
+                                        (u64)persist_conn_addr,
+                                        request_key);
+}
+
 static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+    go_exact_process_addr_key_t exact_g_key = {};
+    if (!go_exact_process_addr_key_from_address(&exact_g_key, &g_key)) {
+        return;
+    }
+
+    // Clear every same-incarnation staging slot before any request read can
+    // fail. A missed earlier return can therefore never be consumed by this
+    // invocation or by persistConn.roundTrip.
+    bpf_map_delete_elem(&go_ongoing_http_client_requests, &exact_g_key);
+    bpf_map_delete_elem(&ongoing_http_client_requests_data, &exact_g_key);
+    bpf_map_delete_elem(&ongoing_client_connections, &exact_g_key);
 
     void *req = GO_PARAM2(ctx);
     off_table_t *ot = get_offsets_table();
@@ -685,13 +893,6 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     bpf_dbg_printk("host=%s", trace.host);
     bpf_dbg_printk("scheme=%s", trace.scheme);
 
-    // Write event
-    if (bpf_map_update_elem(&go_ongoing_http_client_requests, &g_key, &invocation, BPF_ANY)) {
-        bpf_dbg_printk("can't update http client map element");
-    }
-
-    bpf_map_update_elem(&ongoing_http_client_requests_data, &g_key, &trace, BPF_ANY);
-
     if (g_bpf_header_propagation) {
         void *headers_ptr = 0;
         bpf_probe_read(&headers_ptr,
@@ -699,11 +900,16 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
                        (void *)(req + go_offset_of(ot, (go_offset){.v = _req_header_ptr_pos})));
         bpf_dbg_printk(
             "goroutine_addr=%lx, req=%llx, headers_ptr=%llx", goroutine_addr, req, headers_ptr);
-
-        if (headers_ptr) {
-            bpf_map_update_elem(&header_req_map, &headers_ptr, &goroutine_addr, BPF_ANY);
-        }
+        invocation.header_addr = (u64)headers_ptr;
     }
+
+    // Write event only after all fallible request reads and exact staging
+    // fields have completed.
+    if (bpf_map_update_elem(&go_ongoing_http_client_requests, &exact_g_key, &invocation, BPF_ANY)) {
+        bpf_dbg_printk("can't update http client map element");
+    }
+
+    bpf_map_update_elem(&ongoing_http_client_requests_data, &exact_g_key, &trace, BPF_ANY);
 }
 
 SEC("uprobe/roundTrip")
@@ -711,6 +917,10 @@ int obi_uprobe_roundTrip(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/roundTrip ===");
     roundTripStartHelper(ctx);
     return 0;
+}
+
+static __always_inline void cleanup_go_http_client_handoff(const go_addr_key_t *g_key) {
+    cleanup_go_outgoing_trace_handoff(g_key);
 }
 
 SEC("uprobe/roundTrip_return")
@@ -723,15 +933,20 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+    go_exact_process_addr_key_t exact_g_key = {};
+    if (!go_exact_process_addr_key_from_address(&exact_g_key, &g_key)) {
+        return 0;
+    }
 
     http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
+        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &exact_g_key);
     if (invocation == NULL) {
         bpf_dbg_printk("can't read http invocation metadata");
         goto done;
     }
 
-    http_client_data_t *data = bpf_map_lookup_elem(&ongoing_http_client_requests_data, &g_key);
+    http_client_data_t *data =
+        bpf_map_lookup_elem(&ongoing_http_client_requests_data, &exact_g_key);
     if (data == NULL) {
         bpf_dbg_printk("can't read http client invocation data");
         goto done;
@@ -762,16 +977,9 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
 
     void *resp_ptr = (void *)GO_PARAM1(ctx);
 
-    connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
+    connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &exact_g_key);
     if (info) {
         __builtin_memcpy(&trace->conn, info, sizeof(connection_info_t));
-
-        egress_key_t e_key = {
-            .d_port = info->d_port,
-            .s_port = info->s_port,
-        };
-        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
-        bpf_map_delete_elem(&go_ongoing_http, &e_key);
     } else {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
@@ -807,9 +1015,10 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
-    bpf_map_delete_elem(&go_ongoing_http_client_requests, &g_key);
-    bpf_map_delete_elem(&ongoing_http_client_requests_data, &g_key);
-    bpf_map_delete_elem(&ongoing_client_connections, &g_key);
+    cleanup_go_http_client_handoff(&g_key);
+    bpf_map_delete_elem(&go_ongoing_http_client_requests, &exact_g_key);
+    bpf_map_delete_elem(&ongoing_http_client_requests_data, &exact_g_key);
+    bpf_map_delete_elem(&ongoing_client_connections, &exact_g_key);
     return 0;
 }
 
@@ -824,17 +1033,121 @@ done:
 // otherwise we inject ours at the current write position.
 typedef struct write_subset_invocation {
     u64 io_writer_addr;
-    u64 req_goaddr; // request (parent) goroutine, key into ongoing_client_connections
+    go_exact_process_addr_key_t request_key;
     tp_info_t tp;
     s64 entry_n; // io.Writer write offset at entry (start of this header block)
+    outgoing_trace_token_t handoff_token;
+    u8 header_map_empty;
+    u8 handoff_expected;
+    u8 _pad[6];
 } write_subset_invocation_t;
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // the writeSubset goroutine
+    __type(key, go_exact_process_addr_key_t);
     __type(value, write_subset_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_write_subsets SEC(".maps");
+
+static __always_inline void
+stop_client_traceparent_fallback(const go_exact_process_addr_key_t *request_key) {
+    if (!request_key) {
+        return;
+    }
+    cleanup_go_outgoing_trace_handoff(&request_key->address);
+
+    connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, request_key);
+    if (!info) {
+        return;
+    }
+
+    store_go_handled_connection_info(info);
+}
+
+static __noinline u8 publish_client_application_traceparent(write_subset_invocation_t *inv) {
+    if (!inv) {
+        return 0;
+    }
+
+    stop_client_traceparent_fallback(&inv->request_key);
+    inv->handoff_expected = 0;
+    __builtin_memset(&inv->handoff_token, 0, sizeof(inv->handoff_token));
+
+    connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &inv->request_key);
+    if (!info) {
+        return 0;
+    }
+
+    const egress_key_t egress = make_egress_key(info, (u32)inv->request_key.address.pid, 0);
+    const tp_info_pid_t outgoing = {
+        .tp = inv->tp,
+        .pid = (u32)inv->request_key.address.pid,
+        .valid = 1,
+        .written = k_outbound_trace_written,
+        .req_type = EVENT_HTTP_CLIENT,
+    };
+    if (!reserve_outgoing_trace_handoff(&egress, &outgoing, &inv->handoff_token)) {
+        return 0;
+    }
+    if (!register_go_outgoing_trace_handoff(
+            &inv->request_key.address, &egress, &inv->handoff_token)) {
+        request_outgoing_trace_handoff_retirement(&egress, &inv->handoff_token, &outgoing, 0);
+        return 0;
+    }
+
+    inv->handoff_expected = 1;
+    bpf_map_update_elem(&outgoing_trace_map, &egress, &outgoing, BPF_NOEXIST);
+    return 1;
+}
+
+static __always_inline u8
+client_traceparent_fallback(const go_exact_process_addr_key_t *request_key,
+                            const outgoing_trace_token_t *token,
+                            egress_key_t *egress,
+                            tp_info_pid_t *snapshot) {
+    connection_info_t *info =
+        request_key ? bpf_map_lookup_elem(&ongoing_client_connections, request_key) : NULL;
+    if (!info || !egress || !snapshot || !request_key) {
+        return 0;
+    }
+    *egress = make_egress_key(info, (u32)request_key->address.pid, 0);
+    return claim_outgoing_trace_handoff(
+        egress, token, (u32)request_key->address.pid, EVENT_HTTP_CLIENT, NULL, 0, 1, snapshot);
+}
+
+static __always_inline u8 reserve_client_traceparent_fallback(write_subset_invocation_t *inv,
+                                                              egress_key_t *egress,
+                                                              tp_info_pid_t *snapshot) {
+    connection_info_t *info =
+        inv ? bpf_map_lookup_elem(&ongoing_client_connections, &inv->request_key) : NULL;
+    if (!info || !egress || !snapshot) {
+        return 0;
+    }
+    *egress = make_egress_key(info, (u32)inv->request_key.address.pid, 0);
+    tp_info_pid_t outgoing = {
+        .tp = inv->tp,
+        .pid = (u32)inv->request_key.address.pid,
+        .valid = 1,
+        .written = k_outbound_trace_pending,
+        .req_type = EVENT_HTTP_CLIENT,
+    };
+    if (!reserve_outgoing_trace_handoff(egress, &outgoing, &inv->handoff_token) ||
+        !register_go_outgoing_trace_handoff(
+            &inv->request_key.address, egress, &inv->handoff_token)) {
+        request_outgoing_trace_handoff_retirement(egress, &inv->handoff_token, &outgoing, 1);
+        return 0;
+    }
+    inv->handoff_expected = 1;
+    bpf_map_update_elem(&outgoing_trace_map, egress, &outgoing, BPF_NOEXIST);
+    return claim_outgoing_trace_handoff(egress,
+                                        &inv->handoff_token,
+                                        (u32)inv->request_key.address.pid,
+                                        EVENT_HTTP_CLIENT,
+                                        &outgoing,
+                                        0,
+                                        1,
+                                        snapshot);
+}
 
 SEC("uprobe/header_writeSubset")
 int obi_uprobe_writeSubset(struct pt_regs *ctx) {
@@ -842,6 +1155,14 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
 
     go_addr_key_t gw_key = {};
     go_addr_key_from_id(&gw_key, goroutine_addr);
+    go_exact_process_addr_key_t exact_gw_key = {};
+    if (!go_exact_process_addr_key_from_address(&exact_gw_key, &gw_key)) {
+        return 0;
+    }
+    // A same-process goroutine address can be reused after a missed return.
+    // Clear its slot before propagation flags, offsets, or parameters can
+    // cause an early exit.
+    go_http1_begin_write_subset(&ongoing_write_subsets, &exact_gw_key);
 
     if (!g_bpf_header_propagation) {
         return 0;
@@ -854,25 +1175,39 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
 
     bpf_dbg_printk("goroutine_addr=%lx, header_addr=%llx", goroutine_addr, header_addr);
 
-    // we don't want to run this code when the header or the buffer is nil
     if (!header_addr || !io_writer_addr) {
         goto done;
     }
 
     off_table_t *ot = get_offsets_table();
-
-    u64 *request_goaddr = bpf_map_lookup_elem(&header_req_map, &header_addr);
-
-    if (!request_goaddr) {
-        bpf_dbg_printk("Can't find parent go routine for header, header_addr=%llx", header_addr);
-        return 0;
+    const u64 io_writer_wr_pos = go_offset_of(ot, (go_offset){.v = _io_writer_wr_pos});
+    if (!io_writer_wr_pos) {
+        goto done;
     }
-    u64 parent_goaddr = *request_goaddr;
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, (void *)parent_goaddr);
+    void *persist_conn_writer = 0;
+    if (bpf_probe_read_user(&persist_conn_writer,
+                            sizeof(persist_conn_writer),
+                            (void *)(io_writer_addr + io_writer_wr_pos + k_go_iface_data_offset)) !=
+            0 ||
+        !persist_conn_writer) {
+        goto done;
+    }
+    void *persist_conn = 0;
+    if (bpf_probe_read_user(&persist_conn, sizeof(persist_conn), persist_conn_writer) != 0 ||
+        !persist_conn) {
+        goto done;
+    }
+
+    // Header is legally shared by concurrent requests. Only the composite
+    // Header + owning persistConn association is one-to-one at this write.
+    go_exact_process_addr_key_t request_key = {};
+    if (!take_http1_header_request(header_addr, persist_conn, &request_key)) {
+        goto done;
+    }
+    const u64 parent_goaddr = request_key.address.addr;
 
     http_func_invocation_t *func_inv =
-        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
+        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &request_key);
     if (!func_inv) {
         bpf_dbg_printk("Can't find client request for goroutine, parent_goaddr=%llx",
                        parent_goaddr);
@@ -898,69 +1233,137 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
         goto done;
     }
 
+    s64 header_count = -1;
+    bpf_probe_read_user(&header_count, sizeof(header_count), header_addr);
+
     write_subset_invocation_t inv = {
         .io_writer_addr = (u64)io_writer_addr,
-        .req_goaddr = parent_goaddr,
+        .request_key = request_key,
         .tp = func_inv->tp,
         .entry_n = entry_n,
+        .header_map_empty = header_count == 0,
     };
-    bpf_map_update_elem(&ongoing_write_subsets, &gw_key, &inv, BPF_ANY);
+    connection_info_t *client_conn = bpf_map_lookup_elem(&ongoing_client_connections, &request_key);
+    if (client_conn) {
+        const egress_key_t egress = make_egress_key(client_conn, (u32)request_key.address.pid, 0);
+        tp_info_pid_t snapshot = {};
+        if (snapshot_current_outgoing_trace_handoff(&egress,
+                                                    (u32)request_key.address.pid,
+                                                    EVENT_HTTP_CLIENT,
+                                                    1,
+                                                    &inv.handoff_token,
+                                                    &snapshot,
+                                                    NULL)) {
+            inv.handoff_expected = 1;
+        }
+    }
+    if (go_http1_should_suppress_fallback(inv.header_map_empty)) {
+        // A nonempty header map can flush before the return probe can inspect it.
+        // Suppress blind fallback injection so an application traceparent cannot
+        // be duplicated in an earlier flushed block, even if write staging fails.
+        stop_client_traceparent_fallback(&request_key);
+        inv.handoff_expected = 0;
+        __builtin_memset(&inv.handoff_token, 0, sizeof(inv.handoff_token));
+    }
+    bpf_map_update_elem(&ongoing_write_subsets, &exact_gw_key, &inv, BPF_ANY);
 
 done:
-    bpf_map_delete_elem(&header_req_map, &header_addr);
     return 0;
 }
 
-// client_request_has_traceparent scans the header block that writeSubset just
-// serialized ([entry_n, return_n)) for an existing traceparent header, reusing
-// the same primitive as the server-side extraction. All offsets are validated
-// and the scan is clamped to both the scratch buffer and the bytes actually
-// present in the writer buffer, so the read can never run past the buffer.
-// tp_loop_fn selects the scan implementation (bpf_loop vs legacy) at load time.
-static __always_inline bool
-client_request_has_traceparent(void *buf_ptr,
-                               s64 entry_n,
-                               s64 return_n,
-                               s64 size,
-                               unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
-    if (entry_n < 0 || return_n <= entry_n || return_n > size) {
-        return false;
+// client_request_traceparent scans the complete header block that writeSubset
+// just serialized ([entry_n, return_n)) for traceparent field presence. Exactly
+// one valid field is authoritative, while malformed or duplicate fields only
+// suppress injection. An incomplete capture is reported as unknown so callers
+// never treat a flushed or oversized block as proof of absence.
+static __always_inline enum go_http1_traceparent_scan_result
+client_request_traceparent(void *buf_ptr,
+                           s64 entry_n,
+                           s64 return_n,
+                           s64 size,
+                           u8 header_map_empty,
+                           enum go_http1_traceparent_scan_result (*tp_scan_fn)(
+                               unsigned char *, u16, go_http1_traceparent_t *),
+                           go_http1_traceparent_t *app_traceparent) {
+    // Go's map header starts with its entry count. If the map was empty,
+    // writeSubset could not have flushed or serialized a field, so an unchanged
+    // writer offset is definitive absence rather than an incomplete capture.
+    if (go_http1_header_map_is_definitively_empty(header_map_empty, entry_n, return_n)) {
+        return k_go_http1_traceparent_scan_absent;
+    }
+
+    u32 region = 0;
+    if (!go_http1_capture_region(entry_n, return_n, size, TRACE_BUF_SIZE, &region)) {
+        return k_go_http1_traceparent_scan_unknown;
     }
 
     unsigned char *scan = (unsigned char *)tp_char_buf_mem();
     if (!scan) {
-        return false;
+        return k_go_http1_traceparent_scan_unknown;
     }
 
-    // region = bytes writeSubset wrote; return_n <= size guarantees it stays
-    // within the buffer. Clamp to the scratch buffer capacity as well.
-    s64 region = return_n - entry_n;
-
-    // this check is redundant but otherwise the verifier complains
-    if (region <= 0) {
-        return false;
+    if (bpf_probe_read_user(scan, region, (void *)(buf_ptr + (u32)entry_n)) != 0) {
+        return k_go_http1_traceparent_scan_unknown;
     }
-    bpf_clamp_umax(region, TRACE_BUF_SIZE - 1);
-    const u32 uregion = (u32)region;
-    if (bpf_probe_read_user(scan, uregion, (void *)(buf_ptr + (u32)entry_n)) != 0) {
-        return false;
-    }
-    scan[uregion] = '\0';
+    scan[region] = '\0';
 
     // Direct (not indirect) calls so the untaken branch is const-folded away per
     // program instantiation, keeping the bpf_loop subprog out of the legacy one.
-    unsigned char *found = NULL;
-    if (tp_loop_fn == bpf_strstr_tp_loop) {
-        found = bpf_strstr_tp_loop(scan, (u16)uregion);
-    } else {
-        found = bpf_strstr_tp_loop__legacy(scan, (u16)uregion);
+    if (tp_scan_fn == go_http1_scan_traceparent) {
+        return go_http1_scan_traceparent(scan, (u16)region, app_traceparent);
     }
-    return found != NULL;
+    return go_http1_scan_traceparent_legacy(scan, (u16)region, app_traceparent);
 }
 
-static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
-                                                  unsigned char *(*tp_loop_fn)(unsigned char *,
-                                                                               const u16)) {
+static __noinline void inject_client_traceparent(
+    write_subset_invocation_t *inv, void *buf_ptr, s64 len, s64 size, void *writer_n_addr) {
+    if (!inv || !buf_ptr || !writer_n_addr || !go_http1_can_append_traceparent(len, size)) {
+        return;
+    }
+
+    egress_key_t egress = {};
+    tp_info_pid_t handoff = {};
+    const u8 claimed =
+        inv->handoff_expected
+            ? client_traceparent_fallback(&inv->request_key, &inv->handoff_token, &egress, &handoff)
+            : reserve_client_traceparent_fallback(inv, &egress, &handoff);
+    if (!claimed) {
+        return;
+    }
+
+    unsigned char buf[k_traceparent_len];
+    make_tp_string(buf, &inv->tp);
+    char key[TP_MAX_KEY_LENGTH + 2] = "Traceparent: ";
+    char end[2] = "\r\n";
+    s64 next_len = len;
+    long write_err = bpf_probe_write_user(buf_ptr + (next_len & 0x0ffff), key, sizeof(key));
+    next_len += sizeof(key);
+    if (write_err == 0) {
+        write_err = bpf_probe_write_user(buf_ptr + (next_len & 0x0ffff), buf, sizeof(buf));
+    }
+    next_len += sizeof(buf);
+    if (write_err == 0) {
+        write_err = bpf_probe_write_user(buf_ptr + (next_len & 0x0ffff), end, sizeof(end));
+    }
+    next_len += sizeof(end);
+    if (write_err == 0) {
+        write_err = bpf_probe_write_user(writer_n_addr, &next_len, sizeof(next_len));
+    }
+    if (write_err == 0) {
+        commit_claimed_outgoing_trace_handoff(&egress, &inv->handoff_token);
+        mirror_outgoing_trace_handoff_commit(&egress, &handoff);
+        return;
+    }
+
+    release_claimed_outgoing_trace_handoff(&egress, &inv->handoff_token);
+    stop_client_traceparent_fallback(&inv->request_key);
+    inv->handoff_expected = 0;
+}
+
+static __always_inline int
+on_writeSubset_returns(struct pt_regs *ctx,
+                       enum go_http1_traceparent_scan_result (*tp_scan_fn)(
+                           unsigned char *, u16, go_http1_traceparent_t *)) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -968,8 +1371,12 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t gw_key = {};
     go_addr_key_from_id(&gw_key, goroutine_addr);
+    go_exact_process_addr_key_t exact_gw_key = {};
+    if (!go_exact_process_addr_key_from_address(&exact_gw_key, &gw_key)) {
+        return 0;
+    }
 
-    write_subset_invocation_t *inv = bpf_map_lookup_elem(&ongoing_write_subsets, &gw_key);
+    write_subset_invocation_t *inv = bpf_map_lookup_elem(&ongoing_write_subsets, &exact_gw_key);
     if (!inv) {
         return 0;
     }
@@ -984,14 +1391,14 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
 
     // writing with bad offsets can crash the application, be defensive here
     if (!io_writer_buf_ptr_pos || !io_writer_n_pos) {
-        goto done;
+        goto unknown;
     }
 
     void *buf_ptr = 0;
     if (bpf_probe_read_user(
             &buf_ptr, sizeof(buf_ptr), (void *)(io_writer_addr + io_writer_buf_ptr_pos)) != 0 ||
         !buf_ptr) {
-        goto done;
+        goto unknown;
     }
 
     s64 size = 0; // len(buf) of the bufio.Writer; for bufio len == cap == capacity
@@ -999,71 +1406,65 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
             &size,
             sizeof(size),
             (void *)(io_writer_addr + io_writer_buf_ptr_pos + k_go_slice_len_offset)) != 0) {
-        goto done;
+        goto unknown;
     }
 
     s64 len = 0; // current write offset (return position)
     if (bpf_probe_read_user(&len, sizeof(len), (void *)(io_writer_addr + io_writer_n_pos)) != 0) {
-        goto done;
+        goto unknown;
     }
 
     // Sanity-check the writer bounds before touching the buffer: a negative or
     // out-of-range write offset (e.g. after a bufio flush reset) means we can't
     // reason about the buffer, so skip rather than risk a bad access.
     if (size <= 0 || len < 0 || len > size) {
-        goto done;
+        goto unknown;
     }
 
     bpf_dbg_printk("buf_ptr=%llx, entry_n=%d, len=%d", (void *)buf_ptr, inv->entry_n, len);
 
-    // If the application already wrote its own traceparent, don't add a second.
-    if (client_request_has_traceparent(buf_ptr, inv->entry_n, len, size, tp_loop_fn)) {
-        bpf_dbg_printk("client request already carries a traceparent, skipping injection");
+    go_http1_traceparent_t app_traceparent = {};
+    const enum go_http1_traceparent_scan_result scan_result = client_request_traceparent(
+        buf_ptr, inv->entry_n, len, size, inv->header_map_empty, tp_scan_fn, &app_traceparent);
+    if (scan_result == k_go_http1_traceparent_scan_found) {
+        go_http1_adopt_traceparent(&inv->tp, &app_traceparent);
+
+        http_func_invocation_t *request =
+            bpf_map_lookup_elem(&go_ongoing_http_client_requests, &inv->request_key);
+        if (request) {
+            go_http1_adopt_traceparent(&request->tp, &app_traceparent);
+        }
+
+        publish_client_application_traceparent(inv);
+        bpf_dbg_printk("adopted application traceparent for client request, skipping injection");
         goto done;
     }
-
-    unsigned char buf[k_traceparent_len];
-    make_tp_string(buf, &inv->tp);
-
-    if (len <
-        (size - TP_MAX_VAL_LENGTH - TP_MAX_KEY_LENGTH - 4)) { // 4 = strlen(":_")+strlen("\r\n")
-        char key[TP_MAX_KEY_LENGTH + 2] = "Traceparent: ";
-        char end[2] = "\r\n";
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), key, sizeof(key));
-        len += TP_MAX_KEY_LENGTH + 2;
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), buf, sizeof(buf));
-        len += TP_MAX_VAL_LENGTH;
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), end, sizeof(end));
-        len += 2;
-        bpf_probe_write_user((void *)(io_writer_addr + io_writer_n_pos), &len, sizeof(len));
-
-        // For Go we support two types of HTTP context propagation for now.
-        //   1. The one that this code does, which uses the locked down bpf_probe_write_user.
-        //   2. By using a sock_msg program that will extend the packet.
-        // If this code ran, we should ensure that the second part doesn't run, therefore
-        // we remove the metadata setup in uprobe_persistConnRoundTrip(struct pt_regs *ctx), so
-        // that approach 2. skips this packet.
-        go_addr_key_t g_key = {};
-        go_addr_key_from_id(&g_key, (void *)inv->req_goaddr);
-        connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
-        if (info) {
-            egress_key_t e_key = {
-                .d_port = info->d_port,
-                .s_port = info->s_port,
-            };
-            //dbg_print_http_connection_info(info);
-            bpf_map_delete_elem(&outgoing_trace_map, &e_key);
-            bpf_dbg_printk(
-                "wrote traceparent using bpf_probe_write_user, removing outgoing trace map,"
-                "s_port=%d, d_port=%d",
-                e_key.s_port,
-                e_key.d_port);
-            store_go_handled_connection_info(info);
-        }
+    if (scan_result == k_go_http1_traceparent_scan_present) {
+        stop_client_traceparent_fallback(&inv->request_key);
+        bpf_dbg_printk("application traceparent is non-authoritative, skipping injection");
+        goto done;
+    }
+    if (scan_result == k_go_http1_traceparent_scan_unknown) {
+        goto unknown;
     }
 
+    inject_client_traceparent(inv, buf_ptr, len, size, (void *)(io_writer_addr + io_writer_n_pos));
+
+    goto done;
+
+unknown:
+    // The pre-populated fallback carries the independently-created context and
+    // injects without inspecting HTTP/1 fields. A nonempty map may have flushed
+    // before this incomplete capture, so keep its blind path suppressed. An
+    // empty map cannot have flushed a field and retains fallback propagation.
+    if (go_http1_should_suppress_fallback(inv->header_map_empty)) {
+        stop_client_traceparent_fallback(&inv->request_key);
+        inv->handoff_expected = 0;
+    }
+    bpf_dbg_printk("client header field capture incomplete, skipping direct injection");
+
 done:
-    bpf_map_delete_elem(&ongoing_write_subsets, &gw_key);
+    bpf_map_delete_elem(&ongoing_write_subsets, &exact_gw_key);
     return 0;
 }
 
@@ -1075,12 +1476,12 @@ done:
 // with "number of funcs in func_info doesn't match number of subprogs".
 SEC("uprobe/header_writeSubset_returns")
 int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
-    return on_writeSubset_returns(ctx, bpf_strstr_tp_loop);
+    return on_writeSubset_returns(ctx, go_http1_scan_traceparent);
 }
 
 SEC("uprobe/header_writeSubset_returns_legacy")
 int obi_uprobe_writeSubset_returns_legacy(struct pt_regs *ctx) {
-    return on_writeSubset_returns(ctx, bpf_strstr_tp_loop__legacy);
+    return on_writeSubset_returns(ctx, go_http1_scan_traceparent_legacy);
 }
 
 // HTTP 2.0 server support
@@ -1095,15 +1496,16 @@ int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     server_http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
 
     if (invocation == NULL) {
         void *parent_go = (void *)find_parent_goroutine(&g_key);
-        if (parent_go) {
+        if (parent_go && (u64)parent_go != k_go_parent_error) {
             bpf_dbg_printk("found parent goroutine for header, parent_go=%llx", parent_go);
             go_addr_key_t p_key = {};
             go_addr_key_from_id(&p_key, parent_go);
-            invocation = bpf_map_lookup_elem(&ongoing_http_server_requests, &p_key);
+            invocation =
+                go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &p_key);
         }
         if (!invocation) {
             bpf_dbg_printk("can't read http invocation metadata");
@@ -1132,12 +1534,33 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *sc = GO_PARAM1(ctx);
+    void *rw = GO_PARAM2(ctx);
+    void *req = GO_PARAM3(ctx);
     off_table_t *ot = get_offsets_table();
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    if (sc) {
+    go_http_server_close_prehandler_state(
+        &http1_server_handoffs, &ongoing_http_server_requests, &g_key);
+    bpf_map_delete_elem(&ongoing_server_bufr, &g_key);
+    go_http_server_retire_go_trace(&g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
+    go_server_connection_clear(&g_key);
+
+    server_http_func_invocation_t *sentinel = http_server_invocation_mem();
+    const u64 generation = go_process_generation(g_key.pid);
+    u8 is_tls = 0;
+    if (req && ot) {
+        void *tls = NULL;
+        if (bpf_probe_read(
+                &tls, sizeof(tls), req + go_offset_of(ot, (go_offset){.v = _req_tls_pos})) == 0) {
+            is_tls = tls != NULL;
+        }
+    }
+    go_http2_prepare_h2_sentinel(sentinel, NULL, is_tls, generation);
+
+    if (sc && ot) {
         void *conn_ptr = 0;
         bpf_probe_read(&conn_ptr,
                        sizeof(void *),
@@ -1149,29 +1572,89 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
             bpf_probe_read(&conn_conn_ptr, sizeof(void *), conn_ptr + k_go_iface_data_offset);
             bpf_dbg_printk("conn_conn_ptr=%llx", conn_conn_ptr);
             if (conn_conn_ptr) {
-                connection_info_t conn = {0};
-                get_conn_info(conn_conn_ptr, &conn);
-                bpf_map_update_elem(&ongoing_server_connections, &g_key, &conn, BPF_ANY);
+                connection_info_t conn = {};
+                if (get_conn_info(conn_conn_ptr, &conn)) {
+                    go_server_connection_store_current(&g_key, &conn);
+                }
             }
-        }
-
-        go_addr_key_t sc_key = {};
-        go_addr_key_from_id(&sc_key, sc);
-
-        tp_info_t *tp = bpf_map_lookup_elem(&http2_server_requests_tp, &sc_key);
-        bpf_dbg_printk("looked up tp: %llx", tp);
-
-        if (tp) {
-            server_http_func_invocation_t inv = {0};
-            __builtin_memcpy(&inv.tp, tp, sizeof(tp_info_t));
-            bpf_dbg_printk("Found traceparent in HTTP2 headers");
-            bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &inv, BPF_ANY);
-            obi_ctx__set(bpf_get_current_pid_tgid(), &inv.tp);
-            bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
         }
     }
 
+    if (sc) {
+        u32 stream_id = 0;
+        http2_server_stream_key_t stream_key = {};
+        if (go_http2_handler_stream_id(rw, sc, &stream_id) &&
+            go_http2_server_stream_key(&stream_key, sc, stream_id)) {
+            go_http2_consume_request_state(
+                &http2_server_requests_tp, &stream_key, sentinel, is_tls);
+        }
+    }
+
+    if (sentinel && go_http2_header_requires_parent_discard(sentinel->header_traceparent_state)) {
+        discard_server_parent_candidates(&g_key);
+    }
+    if (sentinel &&
+        bpf_map_update_elem(&ongoing_http_server_requests, &g_key, sentinel, BPF_ANY) == 0 &&
+        sentinel->header_traceparent_state == k_go_http1_traceparent_scan_found) {
+        obi_ctx__set(bpf_get_current_pid_tgid(), &sentinel->tp);
+    }
+
     return 0;
+}
+
+SEC("uprobe/http2serverConn_runHandler_return")
+int obi_uprobe_http2serverConn_runHandlerReturns(struct pt_regs *ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+
+    server_http_invocation_scratch_t *scratch = http_server_invocation_scratch_mem();
+    go_http2_cleanup_handler_state(&http1_server_handoffs,
+                                   &ongoing_http_server_requests,
+                                   &ongoing_server_bufr,
+                                   &ongoing_server_connections,
+                                   &g_key,
+                                   scratch);
+    obi_ctx__del(bpf_get_current_pid_tgid());
+    return 0;
+}
+
+static __noinline void stage_http2_client_stream(void *framer,
+                                                 u32 stream_id,
+                                                 const go_exact_process_addr_key_t *request_key) {
+    if (!framer || !stream_id || !request_key) {
+        return;
+    }
+    go_exact_process_stream_key_t stream_key = {};
+    if (!go_exact_process_stream_key_from_id(&stream_key, framer, stream_id) ||
+        request_key->address.pid != stream_key.pid ||
+        request_key->process_start_time != stream_key.process_start_time) {
+        return;
+    }
+    bpf_map_update_elem(&http2_req_map, &stream_key, request_key, BPF_ANY);
+}
+
+static __noinline u8 take_http2_client_stream(void *framer,
+                                              u32 stream_id,
+                                              go_exact_process_addr_key_t *request_key) {
+    if (!framer || !stream_id || !request_key) {
+        return 0;
+    }
+    go_exact_process_stream_key_t stream_key = {};
+    if (!go_exact_process_stream_key_from_id(&stream_key, framer, stream_id)) {
+        return 0;
+    }
+    const go_exact_process_addr_key_t *located = bpf_map_lookup_elem(&http2_req_map, &stream_key);
+    if (!located) {
+        return 0;
+    }
+    const go_exact_process_addr_key_t exact = *located;
+    bpf_map_delete_elem(&http2_req_map, &stream_key);
+    if (exact.address.pid != stream_key.pid ||
+        exact.process_start_time != stream_key.process_start_time) {
+        return 0;
+    }
+    *request_key = exact;
+    return 1;
 }
 
 static __always_inline void setup_http2_client_conn(void *goroutine_addr,
@@ -1187,9 +1670,13 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
     bpf_dbg_printk("goroutine_addr=%lx, parent_go=%lx", goroutine_addr, parent_go);
 
     // We should find a parent always
-    if (parent_go) {
+    if (parent_go && (u64)parent_go != k_go_parent_error) {
         goroutine_addr = parent_go;
         go_addr_key_from_id(&g_key, goroutine_addr);
+    }
+    go_exact_process_addr_key_t exact_g_key = {};
+    if (!go_exact_process_addr_key_from_address(&exact_g_key, &g_key)) {
+        return;
     }
 
     off_table_t *ot = get_offsets_table();
@@ -1214,7 +1701,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
             if (ok) {
                 bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
-                bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
+                bpf_map_update_elem(&ongoing_client_connections, &exact_g_key, &conn, BPF_ANY);
                 connection_info_t sorted_conn = conn;
                 sort_connection_info(&sorted_conn);
                 bpf_map_update_elem(
@@ -1233,12 +1720,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
 
             bpf_dbg_printk("cc_ptr=%llx, stream_id=%d, framer=%llx", cc_ptr, stream_id, framer);
             if (stream_id && framer) {
-                stream_key_t s_key = {
-                    .stream_id = stream_id,
-                };
-                s_key.conn_ptr = (u64)framer;
-
-                bpf_map_update_elem(&http2_req_map, &s_key, &goroutine_addr, BPF_ANY);
+                stage_http2_client_stream(framer, stream_id, &exact_g_key);
             }
         }
     }
@@ -1286,7 +1768,7 @@ int obi_uprobe_http2WriteHeaders_vendored(struct pt_regs *ctx) {
     return 0;
 }
 
-static __always_inline void
+static __noinline void
 on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) {
     if (!g_bpf_header_propagation) {
         return;
@@ -1308,18 +1790,9 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
 
     bpf_dbg_printk("framer=%llx, stream_id=%llu", framer, stream_id);
 
-    stream_key_t s_key = {
-        .stream_id = stream_id,
-    };
-    s_key.conn_ptr = (u64)framer;
-
-    void **go_ptr = bpf_map_lookup_elem(&http2_req_map, &s_key);
-
-    if (go_ptr) {
-        void *go_addr = *go_ptr;
-        bpf_dbg_printk("Found existing stream data, go_addr=%llx", go_addr);
-        go_addr_key_t g_key = {};
-        go_addr_key_from_id(&g_key, go_addr);
+    go_exact_process_addr_key_t g_key = {};
+    if (take_http2_client_stream(framer, (u32)stream_id, &g_key)) {
+        bpf_dbg_printk("Found existing stream data, go_addr=%llx", g_key.address.addr);
 
         http_func_invocation_t *info =
             bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
@@ -1327,40 +1800,76 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
         if (info) {
             bpf_dbg_printk("Found func info: %llx", info);
             void *goroutine_addr = GOROUTINE_PTR(ctx);
+            go_addr_key_t writer_key = {};
+            go_addr_key_from_id(&writer_key, goroutine_addr);
 
+            go_hpack_block_t *app_traceparent = go_hpack_block_scratch_mem();
+            if (!app_traceparent) {
+                clear_go_hpack_traceparent(&writer_key);
+                return;
+            }
+            __builtin_memset(app_traceparent, 0, sizeof(*app_traceparent));
+            const u8 traceparent_class = read_go_hpack_traceparent(&writer_key, app_traceparent);
+            const u8 can_inject_traceparent = go_hpack_can_inject_traceparent(traceparent_class);
+            clear_go_hpack_traceparent(&writer_key);
+            if (traceparent_class == k_go_hpack_traceparent_authoritative) {
+                go_hpack_adopt_traceparent(&info->tp, app_traceparent);
+            }
+
+            connection_info_t *conn = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
+            if (conn) {
+                pid_connection_info_t p_conn = {
+                    .conn = *conn,
+                    .pid = (u32)g_key.address.pid,
+                };
+                sort_connection_info(&p_conn.conn);
+                mark_go_h2_client_conn(&p_conn);
+            }
+            const u8 should_publish =
+                can_inject_traceparent || traceparent_class == k_go_hpack_traceparent_authoritative;
+            framer_func_invocation_t *framer_scratch = http2_client_framer_mem();
+            if (!framer_scratch) {
+                return;
+            }
+            __builtin_memset(framer_scratch, 0, sizeof(*framer_scratch));
+            u8 handoff_reserved = 0;
+            if (should_publish) {
+                handoff_reserved = publish_go_hpack_traceparent(conn,
+                                                                (u32)stream_id,
+                                                                &info->tp,
+                                                                (u32)g_key.address.pid,
+                                                                &g_key.address,
+                                                                &framer_scratch->handoff_token);
+            }
+
+            // Retain the pre-TLS mutation path only after WriteField proved
+            // that this request block has no traceparent and an exact
+            // reservation exists for this stream.
             void *w_ptr = 0;
             bpf_probe_read(
                 &w_ptr, sizeof(w_ptr), (void *)(framer + framer_w_pos + k_go_iface_data_offset));
-            if (w_ptr) {
+            if (w_ptr && conn && can_inject_traceparent && handoff_reserved) {
                 s64 n = 0;
-                bpf_probe_read(
-                    &n,
-                    sizeof(n),
-                    (void *)(w_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_n_pos})));
-
-                bpf_dbg_printk("Found initial n=%d, framer=%llx", n, framer);
-
-                // The offset is 0 on all connections we've tested with.
-                // If we read some very large offset, we don't do anything since it might be a situation
-                // we can't handle.
-                if (n < MAX_W_PTR_N) {
-                    framer_func_invocation_t f_info = {
-                        .tp = info->tp,
-                        .framer_ptr = (u64)framer,
-                        .initial_n = n,
-                    };
-                    go_addr_key_t f_key = {};
-                    go_addr_key_from_id(&f_key, goroutine_addr);
-
-                    bpf_map_update_elem(&framer_invocation_map, &f_key, &f_info, BPF_ANY);
-                } else {
-                    bpf_dbg_printk("N too large, ignoring...");
+                const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+                if (io_writer_n_pos &&
+                    bpf_probe_read(&n, sizeof(n), (void *)(w_ptr + io_writer_n_pos)) == 0 &&
+                    n < MAX_W_PTR_N) {
+                    framer_func_invocation_t *f_info = framer_scratch;
+                    if (f_info) {
+                        f_info->framer_ptr = (u64)framer;
+                        f_info->tp = info->tp;
+                        f_info->egress =
+                            make_egress_key(conn, (u32)g_key.address.pid, (u32)stream_id);
+                        f_info->initial_n = n;
+                        f_info->handoff_expected = 1;
+                        go_addr_key_t f_key = {};
+                        go_addr_key_from_id(&f_key, goroutine_addr);
+                        bpf_map_update_elem(&framer_invocation_map, &f_key, f_info, BPF_ANY);
+                    }
                 }
             }
         }
     }
-
-    bpf_map_delete_elem(&http2_req_map, &s_key);
 }
 
 SEC("uprobe/golang_http2FramerWriteHeaders")
@@ -1400,121 +1909,139 @@ int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
 
 SEC("uprobe/http2FramerWriteHeaders_returns")
 int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    clear_go_hpack_traceparent(&g_key);
+
     if (!g_bpf_header_propagation) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/http2FramerWriteHeaders_returns ===");
-
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    off_table_t *ot = get_offsets_table();
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
-
+    u8 handoff_claimed = 0;
     framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    if (!f_info || !f_info->handoff_expected) {
+        goto done;
+    }
 
-    if (f_info) {
-        void *w_ptr = 0;
-        const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
-        const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+    tp_info_pid_t snapshot = {};
+    handoff_claimed = claim_outgoing_trace_handoff(&f_info->egress,
+                                                   &f_info->handoff_token,
+                                                   f_info->egress.pid,
+                                                   EVENT_HTTP_CLIENT,
+                                                   NULL,
+                                                   0,
+                                                   1,
+                                                   &snapshot);
+    if (!handoff_claimed || snapshot.written != k_outbound_trace_pending ||
+        !outgoing_trace_identity_matches_tp(
+            &snapshot, &f_info->tp, f_info->egress.pid, EVENT_HTTP_CLIENT)) {
+        goto done;
+    }
 
-        // being defensive here if we can't find the offsets
-        if (!framer_w_pos || !io_writer_n_pos) {
-            goto done;
-        }
+    off_table_t *ot = get_offsets_table();
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+    const u64 io_writer_buf_ptr_pos = go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
+    if (!framer_w_pos || !io_writer_n_pos || !io_writer_buf_ptr_pos) {
+        goto done;
+    }
 
-        bpf_probe_read(&w_ptr,
+    void *w_ptr = 0;
+    if (bpf_probe_read(&w_ptr,
                        sizeof(w_ptr),
-                       (void *)(f_info->framer_ptr + framer_w_pos + k_go_iface_data_offset));
+                       (void *)(f_info->framer_ptr + framer_w_pos + k_go_iface_data_offset)) ||
+        !w_ptr) {
+        goto done;
+    }
 
-        bpf_dbg_printk("framer_ptr=%llx, w_ptr=%llx, framer_w_pos=%d",
-                       f_info->framer_ptr,
-                       w_ptr,
-                       framer_w_pos + k_go_iface_data_offset);
+    void *buf_arr = 0;
+    s64 n = 0;
+    s64 cap = 0;
+    s64 initial_n = f_info->initial_n;
+    if (bpf_probe_read(&buf_arr, sizeof(buf_arr), (void *)(w_ptr + io_writer_buf_ptr_pos)) ||
+        bpf_probe_read(&n, sizeof(n), (void *)(w_ptr + io_writer_n_pos)) ||
+        bpf_probe_read(&cap, sizeof(cap), (void *)(w_ptr + io_writer_buf_ptr_pos + 16))) {
+        goto done;
+    }
 
-        if (w_ptr) {
-            void *buf_arr = 0;
-            s64 n = 0;
-            s64 cap = 0;
-            s64 initial_n = f_info->initial_n;
+    bpf_clamp_umax(initial_n, MAX_W_PTR_N);
+    if (!buf_arr || n < 0 || n >= 65535 || cap < k_h2_tp_hpack_huffman_size ||
+        n > cap - k_h2_tp_hpack_huffman_size) {
+        goto done;
+    }
 
-            bpf_probe_read(
-                &buf_arr,
-                sizeof(buf_arr),
-                (void *)(w_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos})));
-            bpf_probe_read(&n, sizeof(n), (void *)(w_ptr + io_writer_n_pos));
-            bpf_probe_read(
-                &cap,
-                sizeof(cap),
-                (void *)(w_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos}) + 16));
+    u8 size_1 = 0;
+    u8 size_2 = 0;
+    u8 size_3 = 0;
+    if (bpf_probe_read(&size_1, sizeof(size_1), (void *)(buf_arr + initial_n)) ||
+        bpf_probe_read(&size_2, sizeof(size_2), (void *)(buf_arr + initial_n + 1)) ||
+        bpf_probe_read(&size_3, sizeof(size_3), (void *)(buf_arr + initial_n + 2))) {
+        goto done;
+    }
 
-            bpf_clamp_umax(initial_n, MAX_W_PTR_N);
+    const u32 original_size = ((u32)size_1 << 16) | ((u32)size_2 << 8) | size_3;
+    if (!original_size || (u64)n != (u64)initial_n + k_h2_frame_header_len + original_size) {
+        goto done;
+    }
+    if (!h2_frame_can_append(original_size, k_h2_tp_hpack_huffman_size)) {
+        goto done;
+    }
 
-            bpf_dbg_printk("Found f_info, this is the place to write to w_ptr=%llx, buf_arr=%llx",
-                           w_ptr,
-                           buf_arr);
-            bpf_dbg_printk("Found f_info, this is the place to write to n=%lld, cap=%lld", n, cap);
-            if (buf_arr && n < (cap - HTTP2_ENCODED_HEADER_LEN)) {
-                uint8_t tp_str[TP_MAX_VAL_LENGTH];
+    uint8_t tp_str[TP_MAX_VAL_LENGTH];
+    u8 type_byte = 0;
+    const u8 key_len = sizeof(tp_encoded) | 0x80;
+    const u8 val_len = TP_MAX_VAL_LENGTH;
+    make_tp_string(tp_str, &snapshot.tp);
 
-                // http2 encodes the length of the headers in the first 3 bytes of buf, we need to update those
-                u8 size_1 = 0;
-                u8 size_2 = 0;
-                u8 size_3 = 0;
+    long werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), &type_byte, sizeof(type_byte));
+    n++;
+    if (!werr) {
+        werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), &key_len, sizeof(key_len));
+    }
+    n++;
+    if (!werr) {
+        werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_encoded, sizeof(tp_encoded));
+    }
+    n += sizeof(tp_encoded);
+    if (!werr) {
+        werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), &val_len, sizeof(val_len));
+    }
+    n++;
+    if (!werr) {
+        werr = bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_str, sizeof(tp_str));
+    }
+    n += TP_MAX_VAL_LENGTH;
 
-                bpf_probe_read(&size_1, sizeof(size_1), (void *)(buf_arr + initial_n));
-                bpf_probe_read(&size_2, sizeof(size_2), (void *)(buf_arr + initial_n + 1));
-                bpf_probe_read(&size_3, sizeof(size_3), (void *)(buf_arr + initial_n + 2));
+    // Preserve the pre-existing publication order for Go TLS continuity.
+    // A helper failure never commits the exact authority.
+    if (!werr) {
+        werr = bpf_probe_write_user((void *)(w_ptr + io_writer_n_pos), &n, sizeof(n));
+    }
+    const u32 new_size = original_size + k_h2_tp_hpack_huffman_size;
+    size_1 = (u8)(new_size >> 16);
+    size_2 = (u8)(new_size >> 8);
+    size_3 = (u8)new_size;
+    if (!werr) {
+        werr = bpf_probe_write_user((void *)(buf_arr + initial_n), &size_1, sizeof(size_1));
+    }
+    if (!werr) {
+        werr = bpf_probe_write_user((void *)(buf_arr + initial_n + 1), &size_2, sizeof(size_2));
+    }
+    if (!werr) {
+        werr = bpf_probe_write_user((void *)(buf_arr + initial_n + 2), &size_3, sizeof(size_3));
+    }
 
-                bpf_dbg_printk("sizes: 1=%x, 2=%x, 3=%x", size_1, size_2, size_3);
-
-                const u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
-                if (original_size > 0) {
-                    u8 type_byte = 0;
-                    const u8 key_len =
-                        sizeof(tp_encoded) | 0x80; // high tagged to signify hpack encoded value
-                    const u8 val_len = TP_MAX_VAL_LENGTH;
-
-                    // We don't hpack encode the value of the traceparent field, because that will require that
-                    // we use bpf_loop, which in turn increases the kernel requirement to 5.17+.
-                    make_tp_string(tp_str, &f_info->tp);
-                    //bpf_dbg_printk("Will write tp_str=[%s], type=%d, key_len=%d, val_len=%d", tp_str, type_byte, key_len, val_len);
-
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &type_byte, sizeof(type_byte));
-                    n++;
-                    // Write the length of the key = 8
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &key_len, sizeof(key_len));
-                    n++;
-                    // Write 'traceparent' encoded as hpack
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_encoded, sizeof(tp_encoded));
-                    ;
-                    n += sizeof(tp_encoded);
-                    // Write the length of the hpack encoded traceparent field
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &val_len, sizeof(val_len));
-                    n++;
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_str, sizeof(tp_str));
-                    n += TP_MAX_VAL_LENGTH;
-                    // Update the value of n in w to reflect the new size
-                    bpf_probe_write_user((void *)(w_ptr + io_writer_n_pos), &n, sizeof(n));
-
-                    const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
-
-                    bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
-                    size_1 = (u8)(new_size >> 16);
-                    size_2 = (u8)(new_size >> 8);
-                    size_3 = (u8)(new_size);
-
-                    bpf_probe_write_user((void *)(buf_arr + initial_n), &size_1, sizeof(size_1));
-                    bpf_probe_write_user(
-                        (void *)(buf_arr + initial_n + 1), &size_2, sizeof(size_2));
-                    bpf_probe_write_user(
-                        (void *)(buf_arr + initial_n + 2), &size_3, sizeof(size_3));
-                }
-            }
-        }
+    if (!werr) {
+        commit_claimed_outgoing_trace_handoff(&f_info->egress, &f_info->handoff_token);
+        mirror_outgoing_trace_handoff_commit(&f_info->egress, &snapshot);
+        handoff_claimed = 0;
     }
 
 done:
+    if (f_info && handoff_claimed) {
+        release_claimed_outgoing_trace_handoff(&f_info->egress, &f_info->handoff_token);
+    }
     bpf_map_delete_elem(&framer_invocation_map, &g_key);
     return 0;
 }
@@ -1528,7 +2055,8 @@ int obi_uprobe_connServe(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     connection_info_t conn = {0};
-    bpf_map_update_elem(&ongoing_server_connections, &g_key, &conn, BPF_ANY);
+    go_server_connection_clear(&g_key);
+    go_server_connection_store_current(&g_key, &conn);
 
     return 0;
 }
@@ -1543,7 +2071,7 @@ int obi_uprobe_jsonrpcReadRequestHeader(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     server_http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
     if (!invocation) {
         return 0;
     }
@@ -1564,7 +2092,7 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     server_http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
 
     if (!invocation || !invocation->rpc_request_addr) {
         return 0;
@@ -1607,7 +2135,12 @@ int obi_uprobe_connServeRet(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    go_http_server_close_prehandler_state(
+        &http1_server_handoffs, &ongoing_http_server_requests, &g_key);
+    bpf_map_delete_elem(&ongoing_server_bufr, &g_key);
     bpf_map_delete_elem(&ongoing_server_connections, &g_key);
+    go_http_server_retire_go_trace(&g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
@@ -1621,9 +2154,13 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+    go_exact_process_addr_key_t exact_g_key = {};
+    if (!go_exact_process_addr_key_from_address(&exact_g_key, &g_key)) {
+        return 0;
+    }
 
     http_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
+        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &exact_g_key);
     if (!invocation) {
         bpf_dbg_printk("can't find invocation info for client call, this might be a bug");
         return 0;
@@ -1631,6 +2168,9 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
 
     void *pc_ptr = GO_PARAM1(ctx);
     if (pc_ptr) {
+        if (g_bpf_header_propagation && invocation->header_addr) {
+            stage_http1_header_request((void *)invocation->header_addr, pc_ptr, &exact_g_key);
+        }
         void *conn_conn_ptr = pc_ptr + k_go_iface_data_offset +
                               go_offset_of(ot, (go_offset){.v = _pc_conn_pos}); // embedded struct
         void *tls_state = 0;
@@ -1667,7 +2207,7 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
                 tp_clone(&tp_p.tp, &invocation->tp);
                 tp_p.tp.ts = bpf_ktime_get_ns();
                 bpf_dbg_printk("storing trace_map info for black-box tracing");
-                bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
+                bpf_map_update_elem(&ongoing_client_connections, &exact_g_key, &conn, BPF_ANY);
 
                 connection_info_t sorted_conn = conn;
                 sort_connection_info(&sorted_conn);
@@ -1683,20 +2223,24 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
                 // We need the PID id to be able to query ongoing_http and update
                 // the span id with the SEQ/ACK pair.
 
-                egress_key_t e_key = {
-                    .d_port = conn.d_port,
-                    .s_port = conn.s_port,
-                };
+                const egress_key_t e_key = make_egress_key(&conn, pid, 0);
+                outgoing_trace_token_t handoff_token = {};
+                u8 handoff_reserved = reserve_outgoing_trace_handoff(&e_key, &tp_p, &handoff_token);
+                if (handoff_reserved &&
+                    !register_go_outgoing_trace_handoff(&g_key, &e_key, &handoff_token)) {
+                    request_outgoing_trace_handoff_retirement(&e_key, &handoff_token, &tp_p, 1);
+                    handoff_reserved = 0;
+                }
 
-                if (tls_state) {
+                if (handoff_reserved && tls_state) {
                     // Clone and mark it invalid for the purpose of storing it in the
                     // outgoing trace map, if it's an SSL connection
                     tp_info_pid_t tp_p_invalid = {0};
                     __builtin_memcpy(&tp_p_invalid, &tp_p, sizeof(tp_p));
                     tp_p_invalid.valid = 0;
-                    bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p_invalid, BPF_ANY);
-                } else {
-                    bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
+                    bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p_invalid, BPF_NOEXIST);
+                } else if (handoff_reserved) {
+                    bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_NOEXIST);
                 }
 
                 bpf_map_update_elem(&go_ongoing_http, &e_key, &g_key, BPF_ANY);

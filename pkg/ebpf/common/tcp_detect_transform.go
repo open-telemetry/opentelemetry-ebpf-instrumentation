@@ -349,7 +349,7 @@ func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 	// We also must check for the event source here, since now generic TCP events can come from
 	// the Go tracer. The backup path for HTTP2 should only run for generic kprobe events.
 	if event.EventSource == GenericEventSourceTypeKProbes {
-		if span, ignore, matched, err := matchHTTP2(event, requestBuffer, responseBuffer); matched {
+		if span, ignore, matched, err := matchHTTP2(parseCtx, event, requestBuffer, responseBuffer); matched {
 			return span, ignore, matched, err
 		}
 	}
@@ -485,13 +485,13 @@ func matchMemcached(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBu
 	return span, false, true, nil
 }
 
-func matchHTTP2(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+func matchHTTP2(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
 	if !isHTTP2(requestBuffer, int(event.Len)) && !isHTTP2(responseBuffer, int(event.RespLen)) {
 		return request.Span{}, false, false, nil
 	}
 
 	evCopy := *event
-	MisclassifiedEvents <- MisclassifiedEvent{EventType: EventTypeKHTTP2, TCPInfo: &evCopy}
+	parseCtx.handleMisclassifiedEvent(MisclassifiedEvent{EventType: EventTypeKHTTP2, TCPInfo: &evCopy})
 
 	return request.Span{}, true, true, nil // ignore for now, next event will be parsed
 }

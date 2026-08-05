@@ -1018,6 +1018,49 @@ func TestSelfReferencingSpan(t *testing.T) {
 			span:    Span{Type: EventTypeHTTP, Method: "GET", Path: "/v1/metrics", RequestStart: 100, End: 200, Status: 200, Host: "10.10.10.10", Peer: "10.10.10.10", OtherNamespace: "", Service: svc.Attrs{UID: svc.UID{Namespace: "A"}}},
 			selfref: true,
 		},
+		{
+			name: "Manual client has a remote service",
+			span: Span{
+				Type:     EventTypeManualSpan,
+				SpanKind: trace.SpanKindClient,
+				HostName: "remote",
+				Service:  svc.Attrs{UID: svc.UID{Name: "local"}},
+			},
+			selfref: false,
+		},
+		{
+			name: "Manual client without a remote service",
+			span: Span{
+				Type:     EventTypeManualSpan,
+				SpanKind: trace.SpanKindClient,
+				Service:  svc.Attrs{UID: svc.UID{Name: "local"}},
+			},
+			selfref: true,
+		},
+		{
+			name: "Manual server has a remote service",
+			span: Span{
+				Type:     EventTypeManualSpan,
+				SpanKind: trace.SpanKindServer,
+				PeerName: "remote",
+				Service:  svc.Attrs{UID: svc.UID{Name: "local"}},
+			},
+			selfref: false,
+		},
+		{
+			name: "Manual remote service is the local service",
+			span: Span{
+				Type:           EventTypeManualSpan,
+				SpanKind:       trace.SpanKindServer,
+				PeerName:       "local",
+				OtherNamespace: "namespace",
+				Service: svc.Attrs{UID: svc.UID{
+					Name:      "local",
+					Namespace: "namespace",
+				}},
+			},
+			selfref: true,
+		},
 	}
 
 	for _, tt := range tests {

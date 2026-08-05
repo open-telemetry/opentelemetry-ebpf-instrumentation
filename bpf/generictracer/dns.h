@@ -122,8 +122,11 @@ static __always_inline void populate_dns_record(dns_req_t *req,
     bpf_dbg_printk("looking up client trace info, found: %d", found);
     if (found) {
         urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
+        apply_sampling_decision_for_process_incarnation(
+            &req->tp, 1, 0, conn_pid->p_info.host_pid, conn_pid->start_time);
     } else {
-        init_new_trace(&req->tp);
+        init_new_trace_for_process_incarnation(
+            &req->tp, conn_pid->p_info.host_pid, conn_pid->start_time);
     }
 }
 

@@ -24,6 +24,11 @@ type GlobDefinitionCriteria []GlobAttributes
 func (dc GlobDefinitionCriteria) Validate() error {
 	// an empty definition criteria is valid
 	for i := range dc {
+		if sampler := dc[i].SamplerConfig; sampler != nil {
+			if _, err := sampler.Canonical(); err != nil {
+				return fmt.Errorf("entry [%d] has invalid sampler: %w", i, err)
+			}
+		}
 		if dc[i].OpenPorts.Len() == 0 &&
 			!dc[i].Path.IsSet() &&
 			!dc[i].Languages.IsSet() &&

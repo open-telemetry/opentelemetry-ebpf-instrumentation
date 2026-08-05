@@ -30,6 +30,9 @@ type Instrumentable struct {
 	// in some runtimes, like python gunicorn, we need to allow
 	// tracing both the parent pid and all of its children pid
 	ChildPids []app.PID
+	// ChildFileInfos preserves per-process service configuration while the
+	// parent FileInfo remains the owner of shared executable instrumentation.
+	ChildFileInfos map[app.PID]*exec.FileInfo
 
 	FileInfo *exec.FileInfo
 	Offsets  *goexec.Offsets
@@ -39,8 +42,29 @@ type Instrumentable struct {
 	ExecutableGeneration uint64
 }
 
+func (ie *Instrumentable) FileInfoForPID(pid app.PID) *exec.FileInfo {
+	if ie == nil {
+		return nil
+	}
+	if ie.FileInfo != nil && ie.FileInfo.Pid() == pid {
+		return ie.FileInfo
+	}
+	if fi := ie.ChildFileInfos[pid]; fi != nil {
+		return fi
+	}
+	return ie.FileInfo
+}
+
 func (ie *Instrumentable) CopyToServiceAttributes() {
+	if ie == nil || ie.FileInfo == nil {
+		return
+	}
 	ie.FileInfo.ApplyServiceDefaults(ie.Type)
+	for _, fi := range ie.ChildFileInfos {
+		if fi != nil && fi != ie.FileInfo {
+			fi.ApplyServiceDefaults(ie.Type)
+		}
+	}
 }
 
 type PIDsAccounter interface {
@@ -52,6 +76,58 @@ type PIDsAccounter interface {
 	// with the provided PID. After receiving them via ringbuffer, it should
 	// discard them.
 	BlockPID(app.PID, uint32)
+}
+
+// IncarnationPIDsAccounter requires the exact FileInfo admitted for a process.
+type IncarnationPIDsAccounter interface {
+	BlockPIDForProcess(app.PID, uint32, *exec.FileInfo)
+}
+
+// PIDAdmissionController reports whether a process can be safely admitted.
+// Tracers that do not implement it retain the legacy best-effort AllowPID
+// behavior.
+type PIDAdmissionController interface {
+	AllowPIDForProcess(app.PID, uint32, *exec.FileInfo) bool
+}
+
+// PIDAdmissionRetryController keeps rejected exact-incarnation admissions
+// queued until they are either admitted or explicitly canceled. The marker
+// remains authoritative even after any prerequisite cleanup has settled.
+type PIDAdmissionRetryController interface {
+	PIDAdmissionRetryPending(app.PID, uint32, *exec.FileInfo) bool
+	CancelPIDAdmissionRetry(app.PID, uint32, *exec.FileInfo)
+}
+
+// ExecutableUnlinkReadiness lets a tracer retain executable links while
+// process-specific cleanup still depends on their return probes.
+type ExecutableUnlinkReadiness interface {
+	ExecutableUnlinkReady(*exec.FileInfo) bool
+}
+
+// ResourceTeardownReadiness lets a tracer retain process and shared resources
+// when its Run shutdown could not safely detach them.
+type ResourceTeardownReadiness interface {
+	ResourceTeardownReady() bool
+}
+
+// ResourceTeardownWaiter lets a tracer keep retrying cleanup after Run exits.
+// ProcessTracer waits for that owner before tearing down executable or shared
+// resources.
+type ResourceTeardownWaiter interface {
+	WaitForResourceTeardown()
+}
+
+func BlockPIDForProcess(
+	accounter PIDsAccounter,
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) {
+	if incarnationAccounter, ok := accounter.(IncarnationPIDsAccounter); ok {
+		incarnationAccounter.BlockPIDForProcess(pid, ns, fileInfo)
+		return
+	}
+	accounter.BlockPID(pid, ns)
 }
 
 type CommonTracer interface {
@@ -156,25 +232,96 @@ type ProcessTracer struct {
 	instrumentablesMu         sync.Mutex
 	nextExecutableGeneration  uint64
 	instrumentableGenerations map[ExecutableKey]uint64
-	goInstrumentablesByInode  map[uint64]*instrumenter
 
 	Type            ProcessTracerType
 	Instrumentables map[ExecutableKey]*instrumenter
 	Programs        []Tracer
 }
 
-func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+// ExecutableInstanceUpdate owns the additions made while refreshing an
+// existing executable's process-specific probes. Callers must finalize every
+// successful update exactly once so the tracer can either publish or roll back
+// those additions.
+type ExecutableInstanceUpdate struct {
+	once     sync.Once
+	finalize func(commit bool)
+}
+
+func (u *ExecutableInstanceUpdate) Commit() {
+	if u == nil {
+		return
+	}
+	u.once.Do(func() {
+		if u.finalize != nil {
+			u.finalize(true)
+		}
+	})
+}
+
+func (u *ExecutableInstanceUpdate) Rollback() {
+	if u == nil {
+		return
+	}
+	u.once.Do(func() {
+		if u.finalize != nil {
+			u.finalize(false)
+		}
+	})
+}
+
+func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) bool {
 	logEnricherEnabled := fi.LogEnricherEnabled()
 	for i := range pt.Programs {
 		if _, ok := pt.Programs[i].(*logenricher.Tracer); ok && !logEnricherEnabled {
 			continue
 		}
+		if admissionController, ok := pt.Programs[i].(PIDAdmissionController); ok {
+			if !admissionController.AllowPIDForProcess(pid, ns, fi) {
+				return false
+			}
+			continue
+		}
 		pt.Programs[i].AllowPID(pid, ns, fi)
+	}
+	return true
+}
+
+func (pt *ProcessTracer) PIDAdmissionRetryPending(
+	pid app.PID,
+	ns uint32,
+	fi *exec.FileInfo,
+) bool {
+	for _, program := range pt.Programs {
+		if readiness, ok := program.(PIDAdmissionRetryController); ok &&
+			readiness.PIDAdmissionRetryPending(pid, ns, fi) {
+			return true
+		}
+	}
+	return false
+}
+
+func (pt *ProcessTracer) CancelPIDAdmissionRetry(
+	pid app.PID,
+	ns uint32,
+	fi *exec.FileInfo,
+) {
+	for _, program := range pt.Programs {
+		if readiness, ok := program.(PIDAdmissionRetryController); ok {
+			readiness.CancelPIDAdmissionRetry(pid, ns, fi)
+		}
 	}
 }
 
 func (pt *ProcessTracer) BlockPID(pid app.PID, ns uint32) {
+	pt.BlockPIDForProcess(pid, ns, nil)
+}
+
+func (pt *ProcessTracer) BlockPIDForProcess(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) {
 	for i := range pt.Programs {
-		pt.Programs[i].BlockPID(pid, ns)
+		BlockPIDForProcess(pt.Programs[i], pid, ns, fileInfo)
 	}
 }

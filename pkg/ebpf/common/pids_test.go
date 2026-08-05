@@ -372,6 +372,31 @@ func TestFilter_PreservesMultiplePIDTypes(t *testing.T) {
 	assert.False(t, pf.ValidPID(1123, 33, PIDTypeKProbes))
 }
 
+func TestNormalizeTraceContextPreservesBPFDecision(t *testing.T) {
+	pf := &PIDsFilter{}
+	span := request.Span{
+		BPFDecision: true,
+		TraceFlags:  0,
+	}
+
+	pf.normalizeTraceContext(&span)
+
+	assert.True(t, span.TraceID.IsValid())
+	assert.True(t, span.SpanID.IsValid())
+	assert.Zero(t, span.TraceFlags)
+}
+
+func TestNormalizeTraceContextSamplesLegacyUnknownDecision(t *testing.T) {
+	pf := &PIDsFilter{}
+	span := request.Span{}
+
+	pf.normalizeTraceContext(&span)
+
+	assert.True(t, span.TraceID.IsValid())
+	assert.True(t, span.SpanID.IsValid())
+	assert.Equal(t, uint8(trace.FlagsSampled), span.TraceFlags)
+}
+
 func resetTraceContext(spans []request.Span) []request.Span {
 	for i := range spans {
 		spans[i].TraceID = trace.TraceID{0}

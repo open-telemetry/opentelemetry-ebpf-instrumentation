@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -33,6 +34,22 @@ import (
 var y2k = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 var tracer = otel.Tracer("trace-example")
+
+const (
+	autoSDKRootSampledHeader        = "X-OBI-Auto-SDK-Root-Sampled"
+	autoSDKRootRecordingHeader      = "X-OBI-Auto-SDK-Root-Recording"
+	autoSDKRemoteSampledHeader      = "X-OBI-Auto-SDK-Remote-Sampled"
+	autoSDKRemoteRecordingHeader    = "X-OBI-Auto-SDK-Remote-Recording"
+	autoSDKRemoteNotSampledHeader   = "X-OBI-Auto-SDK-Remote-Not-Sampled"
+	autoSDKRemoteNotRecordingHeader = "X-OBI-Auto-SDK-Remote-Not-Recording"
+)
+
+type autoSDKSamplingState struct {
+	remoteSampled      bool
+	remoteRecording    bool
+	remoteNotSampled   bool
+	remoteNotRecording bool
+}
 
 func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
@@ -65,6 +82,11 @@ func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {
 
 		if req.RequestURI == "/manual" {
 			manual(rw)
+			return
+		}
+
+		if req.RequestURI == "/auto-sdk-sampling" {
+			autoSDKSampling(rw, echoPort)
 			return
 		}
 
@@ -167,6 +189,283 @@ func inner(id int) {
 			attribute.String("test", "append"),
 		)
 	}
+}
+
+func manualSpanLifecycle(ctx context.Context, echoPort int) error {
+	parentCtx, parent := tracer.Start(ctx, "lifecycle parent")
+	_, firstSibling := tracer.Start(parentCtx, "lifecycle sibling 1")
+	_, secondSibling := tracer.Start(parentCtx, "lifecycle sibling 2")
+	firstSibling.End()
+	secondSibling.End()
+
+	_, newRoot := tracer.Start(parentCtx, "lifecycle new root", trace.WithNewRoot())
+	newRoot.End()
+
+	requestURL := "http://localhost:" + strconv.Itoa(echoPort) + "/echoBack?status=204"
+	res, err := http.Get(requestURL)
+	if err != nil {
+		parent.End()
+		return err
+	}
+	res.Body.Close()
+
+	parent.End()
+
+	_, afterEnd := tracer.Start(parentCtx, "lifecycle context after end")
+	afterEnd.End()
+	return nil
+}
+
+func manualAutoSDKSampling(t trace.Tracer, echoPort int) autoSDKSamplingState {
+	var samplingState autoSDKSamplingState
+	startTime := time.Now()
+	oversizedAttrs := make([]attribute.KeyValue, 0, 18)
+	for i := 0; i < 16; i++ {
+		oversizedAttrs = append(
+			oversizedAttrs,
+			attribute.String("test.filler."+strconv.Itoa(i), "value"),
+		)
+	}
+	oversizedAttrs = append(
+		oversizedAttrs,
+		attribute.String("http.route", "/auto-sdk-oversized"),
+		attribute.String("oversized.payload", strings.Repeat("x", 18*1024)),
+	)
+	_, oversized := t.Start(
+		context.Background(),
+		"auto-sdk-oversized-span",
+		trace.WithTimestamp(startTime),
+		trace.WithTimestamp(startTime),
+		trace.WithTimestamp(startTime),
+		trace.WithTimestamp(startTime),
+		trace.WithTimestamp(startTime),
+		trace.WithAttributes(oversizedAttrs...),
+	)
+	oversized.End()
+
+	tooManyOptions := make([]trace.SpanStartOption, 17)
+	for i := range tooManyOptions {
+		tooManyOptions[i] = trace.WithTimestamp(startTime)
+	}
+	_, unsupportedOptions := t.Start(
+		context.Background(),
+		"auto-sdk-too-many-options",
+		tooManyOptions...,
+	)
+	unsupportedOptions.End()
+
+	type contextKey int
+	deepContext := context.Background()
+	for i := 0; i < 18; i++ {
+		deepContext = context.WithValue(deepContext, contextKey(i), i)
+	}
+	_, deepContextSpan := t.Start(deepContext, "auto-sdk-deep-context")
+	deepContextSpan.End()
+
+	_, renamed := t.Start(context.Background(), "auto-sdk-name-before-update")
+	renamed.SetName("auto-sdk-renamed")
+	renamed.End()
+
+	serviceGraphOptions := make([]trace.SpanStartOption, 30, 32)
+	for i := range serviceGraphOptions {
+		serviceGraphOptions[i] = trace.WithTimestamp(startTime)
+	}
+	serviceGraphOptions = append(
+		serviceGraphOptions,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("server.address.extra", strings.Repeat("x", 18*1024)),
+			attribute.String("server.address", "manual-remote"),
+			attribute.String("service.peer.name", "manual-remote"),
+		),
+	)
+	_, serviceGraphClient := t.Start(
+		context.Background(),
+		"auto-sdk-service-graph-client",
+		serviceGraphOptions...,
+	)
+	serviceGraphClient.End()
+
+	maxOptions := make([]trace.SpanStartOption, 126, 128)
+	fillerOption := trace.WithAttributes(attribute.String("test.filler", "value"))
+	for i := range maxOptions {
+		maxOptions[i] = fillerOption
+	}
+	maxOptions = append(
+		maxOptions,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("server.address", "manual-remote-max"),
+			attribute.String("service.peer.name", "manual-remote-max"),
+			attribute.String("http.route", "/auto-sdk-max-options"),
+		),
+	)
+	_, maxOptionsClient := t.Start(
+		context.Background(),
+		"auto-sdk-max-options-client",
+		maxOptions...,
+	)
+	maxOptionsClient.End()
+
+	_, setAttributesClient := t.Start(
+		context.Background(),
+		"auto-sdk-set-attributes-client",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(oversizedAttrs[:16]...),
+	)
+	setAttributesClient.SetAttributes(
+		attribute.String("server.address", "manual-remote-set"),
+		attribute.String("service.peer.name", "manual-remote-set"),
+	)
+	setAttributesClient.End()
+
+	_, lastOptions := t.Start(
+		context.Background(),
+		"auto-sdk-last-options",
+		trace.WithTimestamp(y2k),
+		trace.WithTimestamp(time.Time{}),
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithSpanKind(trace.SpanKindUnspecified),
+	)
+	lastOptions.End(
+		trace.WithTimestamp(y2k.Add(time.Second)),
+		trace.WithTimestamp(time.Time{}),
+	)
+
+	unsampledParent := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{
+			0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+			0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30,
+		},
+		SpanID: trace.SpanID{0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38},
+	})
+	unsampledCtx := trace.ContextWithRemoteSpanContext(context.Background(), unsampledParent)
+	_, unsampledChild := t.Start(unsampledCtx, "auto-sdk-remote-unsampled-child")
+	samplingState.remoteNotSampled = unsampledChild.SpanContext().IsSampled()
+	samplingState.remoteNotRecording = unsampledChild.IsRecording()
+	unsampledChild.End()
+
+	boundaryOptions := make([]trace.SpanStartOption, 127, 128)
+	for i := range boundaryOptions {
+		boundaryOptions[i] = fillerOption
+	}
+	boundaryOptions = append(boundaryOptions, trace.WithNewRoot())
+	_, boundaryNewRoot := t.Start(
+		unsampledCtx,
+		"auto-sdk-option-boundary-new-root",
+		boundaryOptions...,
+	)
+	boundaryNewRoot.End()
+
+	overflowOptions := make([]trace.SpanStartOption, 128, 129)
+	for i := range overflowOptions {
+		overflowOptions[i] = fillerOption
+	}
+	overflowOptions = append(overflowOptions, trace.WithNewRoot())
+	_, overflowNewRoot := t.Start(
+		unsampledCtx,
+		"auto-sdk-option-overflow-new-root",
+		overflowOptions...,
+	)
+	failClosedChildURL := "http://localhost:" + strconv.Itoa(echoPort) +
+		"/auto-sdk-fail-closed-child?status=204"
+	if response, err := http.Get(failClosedChildURL); err != nil {
+		slog.Error("error exercising fail-closed Auto SDK child", "error", err)
+	} else {
+		response.Body.Close()
+	}
+	overflowNewRoot.End()
+
+	for i := 0; i <= 128; i++ {
+		unsampledCtx = context.WithValue(unsampledCtx, contextKey(i), i)
+	}
+	_, deepUnsampledChild := t.Start(unsampledCtx, "auto-sdk-deep-remote-unsampled-child")
+	deepUnsampledChild.End()
+
+	sampledParent := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{
+			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+			0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+		},
+		SpanID:     trace.SpanID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18},
+		TraceFlags: trace.FlagsSampled,
+	})
+	sampledCtx := trace.ContextWithRemoteSpanContext(context.Background(), sampledParent)
+	_, sampledChild := t.Start(sampledCtx, "auto-sdk-remote-sampled-child")
+	samplingState.remoteSampled = sampledChild.SpanContext().IsSampled()
+	samplingState.remoteRecording = sampledChild.IsRecording()
+	sampledChild.End()
+
+	boundarySampledCtx := sampledCtx
+	for i := 0; i < 127; i++ {
+		boundarySampledCtx = context.WithValue(boundarySampledCtx, contextKey(i), i)
+	}
+	_, boundarySampledChild := t.Start(
+		boundarySampledCtx,
+		"auto-sdk-context-boundary-sampled-child",
+	)
+	boundarySampledChild.End()
+
+	overflowSampledCtx := sampledCtx
+	for i := 0; i < 128; i++ {
+		overflowSampledCtx = context.WithValue(overflowSampledCtx, contextKey(i), i)
+	}
+	_, overflowSampledChild := t.Start(
+		overflowSampledCtx,
+		"auto-sdk-context-overflow-sampled-child",
+	)
+	overflowSampledChild.End()
+
+	return samplingState
+}
+
+func autoSDKSampling(rw http.ResponseWriter, echoPort int) {
+	slog.Debug("Auto SDK sampling spans")
+
+	provider := sdk.TracerProvider()
+	t := provider.Tracer(
+		"sampling",
+		trace.WithInstrumentationVersion("v0.0.1"),
+		trace.WithSchemaURL("https://some_schema"),
+	)
+	ts := y2k.Add(10 * time.Microsecond)
+	_, root := t.Start(
+		context.Background(),
+		"auto-sdk-sampling-root",
+		trace.WithTimestamp(ts),
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
+	rootSampled := root.SpanContext().IsSampled()
+	rootRecording := root.IsRecording()
+	root.SetStatus(codes.Error, "application error")
+	root.End(trace.WithTimestamp(ts.Add(100 * time.Microsecond)))
+
+	samplingState := manualAutoSDKSampling(t, echoPort)
+	rw.Header().Set(autoSDKRootSampledHeader, strconv.FormatBool(rootSampled))
+	rw.Header().Set(autoSDKRootRecordingHeader, strconv.FormatBool(rootRecording))
+	rw.Header().Set(
+		autoSDKRemoteSampledHeader,
+		strconv.FormatBool(samplingState.remoteSampled),
+	)
+	rw.Header().Set(
+		autoSDKRemoteRecordingHeader,
+		strconv.FormatBool(samplingState.remoteRecording),
+	)
+	rw.Header().Set(
+		autoSDKRemoteNotSampledHeader,
+		strconv.FormatBool(samplingState.remoteNotSampled),
+	)
+	rw.Header().Set(
+		autoSDKRemoteNotRecordingHeader,
+		strconv.FormatBool(samplingState.remoteNotRecording),
+	)
+	if err := manualSpanLifecycle(context.Background(), echoPort); err != nil {
+		slog.Error("error exercising manual span lifecycle", "error", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
 }
 
 func manual(rw http.ResponseWriter) {

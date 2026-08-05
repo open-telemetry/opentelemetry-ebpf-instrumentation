@@ -90,6 +90,16 @@ func (m *DynamicMatcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMat
 				matches = append(matches, ev)
 			}
 		} else {
+			if previous, ok := m.ProcessHistory[ev.Obj.pid]; ok &&
+				ev.Obj.startTime != 0 &&
+				previous.Process.StartTime != 0 &&
+				ev.Obj.startTime != previous.Process.StartTime {
+				delete(m.ProcessHistory, ev.Obj.pid)
+				matches = append(matches, Event[ProcessMatch]{
+					Type: EventDeleted,
+					Obj:  previous,
+				})
+			}
 			if ev, ok := m.filterCreated(ev.Obj); ok {
 				matches = append(matches, ev)
 			}
@@ -161,6 +171,13 @@ func (m *DynamicMatcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], b
 		m.Log.Debug("deleted untracked process. Ignoring", "pid", obj.pid)
 		return Event[ProcessMatch]{}, false
 	}
+	if !sameProcessIncarnation(obj.startTime, procMatch.Process.StartTime) {
+		m.Log.Debug("ignoring deletion for an older process incarnation",
+			"pid", obj.pid,
+			"deletedStartTime", obj.startTime,
+			"currentStartTime", procMatch.Process.StartTime)
+		return Event[ProcessMatch]{}, false
+	}
 	delete(m.ProcessHistory, obj.pid)
 	m.Log.Debug("stopped process", "pid", procMatch.Process.Pid, "comm", procMatch.Process.ExePath)
 	return Event[ProcessMatch]{Type: EventDeleted, Obj: procMatch}, true
@@ -176,6 +193,9 @@ func (m *DynamicMatcher) syntheticDeletesForRemovedPIDs(removedPIDs []app.PID) [
 	}
 	var out []Event[ProcessMatch]
 	for _, pid := range removedPIDs {
+		if m.DynamicPIDSelector != nil && m.DynamicPIDSelector.IncludesPID(pid) {
+			continue
+		}
 		procMatch, instrumented := m.ProcessHistory[pid]
 		if !instrumented {
 			continue

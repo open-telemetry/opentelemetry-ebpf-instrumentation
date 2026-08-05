@@ -16,12 +16,19 @@ package gotracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/otel/attribute"
 
@@ -33,6 +40,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfsampling "go.opentelemetry.io/obi/pkg/internal/ebpf/sampling"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -45,6 +53,260 @@ type runtimeMetricTargetKey struct {
 	pid app.PID
 	ns  uint32
 }
+
+// goExecutableKey mirrors go_executable_key_t in bpf/gotracer/go_offsets.h.
+// Canonical major/minor components avoid the different dev_t encodings used
+// by kernel memory and userspace stat results.
+type goExecutableKey struct {
+	DevMajor uint32
+	DevMinor uint32
+	Ino      uint64
+}
+
+func goExecutableKeyFor(fileInfo *exec.FileInfo) (goExecutableKey, bool) {
+	if fileInfo == nil {
+		return goExecutableKey{}, false
+	}
+	return goExecutableKey{
+		DevMajor: unix.Major(fileInfo.Dev()),
+		DevMinor: unix.Minor(fileInfo.Dev()),
+		Ino:      fileInfo.Ino(),
+	}, true
+}
+
+type goSpanOptionFunctionKey struct {
+	HostPID    uint64
+	Generation uint64
+	Function   uint64
+}
+
+type goProcessKey struct {
+	PID        uint64
+	Generation uint64
+}
+
+type goProcessGenerationValue struct {
+	Generation uint64
+	StartTime  uint64
+}
+
+type goSpanOptionFunction struct {
+	entry      uint64
+	optionType uint8
+}
+
+const (
+	goSpanOptionKind                  uint8  = 1
+	goSpanOptionNewRoot               uint8  = 2
+	goAutoSDKFirstRequiredTailCall           = 15
+	goAutoSDKLastRequiredTailCall            = 18
+	goHTTP2ValidateTailCall                  = 19
+	goHTTPContinuationTailCall               = 20
+	goHTTP2FinishClientTailCall              = 21
+	goHTTP2ParseServerHeadersTailCall        = 22
+	goTailCallCount                          = goHTTP2ParseServerHeadersTailCall + 1
+	goAutoSDKMaxInflightCalls         uint32 = 30_000
+	goAutoSDKInflightPoisonShift             = 32
+)
+
+type goSpanOptionMap interface {
+	Put(key, value any) error
+	Delete(key any) error
+}
+
+type goAutoSDKTypeInfoMap interface {
+	Put(key, value any) error
+	Delete(key any) error
+}
+
+type goProcessGenerationMap interface {
+	Put(key, value any) error
+	Delete(key any) error
+}
+
+type goAutoSDKFlagMap interface {
+	Lookup(key, valueOut any) error
+	Put(key, value any) error
+	Delete(key any) error
+}
+
+type goAutoSDKReadinessMap interface {
+	Lookup(key, valueOut any) error
+}
+
+type goAutoSDKOuterCallMap interface {
+	Lookup(key, valueOut any) error
+	NextKey(key, nextKeyOut any) error
+	Delete(key any) error
+}
+
+type goAutoSDKInflightMap interface {
+	Lookup(key, valueOut any) error
+	Update(key, value any, flags ebpf.MapUpdateFlags) error
+	Delete(key any) error
+}
+
+type goAutoSDKProcessAccess interface {
+	Open(*os.File, *exec.FileInfo) (goAutoSDKProcessSession, error)
+}
+
+var errGoAutoSDKProcessMemoryGone = errors.New(
+	"exact process memory is no longer available",
+)
+
+type goAutoSDKProcessSession interface {
+	io.Closer
+	Read(addr uint64) (byte, error)
+	Write(addr uint64, value byte) error
+	StartTime() (uint64, error)
+}
+
+type goAutoSDKEventReader interface {
+	io.Closer
+	Read() (ringbuf.Record, error)
+}
+
+type goAutoSDKFlagValue struct {
+	FlagPtr   uint64
+	StartTime uint64
+	Epoch     uint32
+	Activated uint8
+	Pad       [3]uint8
+}
+
+type goAutoSDKReadinessValue struct {
+	StartTime          uint64
+	Epoch              uint32
+	ConfigEpoch        uint32
+	Ready              uint8
+	AutoSDKGlobalReady uint8
+	Pad                [6]uint8
+}
+
+type goAddrKey struct {
+	PID  uint64
+	Addr uint64
+}
+
+type goAutoSDKOuterCallValue struct {
+	StartTime       uint64
+	Generation      uint64
+	FlagPtr         uint64
+	Epoch           uint32
+	State           uint8
+	DirectEntryKind uint8
+	DirectDepth     uint8
+	RejectedReturns uint8
+}
+
+type goAutoSDKInflightKey struct {
+	PID        uint64
+	Generation uint64
+	StartTime  uint64
+	Epoch      uint32
+	Pad        uint32
+}
+
+type goAutoSDKInflightValue struct {
+	State uint64
+}
+
+func (v goAutoSDKInflightValue) activeCalls() uint32 {
+	return uint32(v.State)
+}
+
+func (v goAutoSDKInflightValue) poisonGeneration() uint32 {
+	return uint32(v.State >> goAutoSDKInflightPoisonShift)
+}
+
+type goAutoSDKFlagState struct {
+	key             goProcessKey
+	flagPtr         uint64
+	startTime       uint64
+	epoch           uint32
+	original        byte
+	globalProtocol  bool
+	restoreRequired bool
+	discardRequired bool
+	incarnation     *goAutoSDKProcessIncarnation
+	fileInfo        *exec.FileInfo
+}
+
+type goAutoSDKAdmissionState struct {
+	startTime            uint64
+	executable           goExecutableKey
+	samplerReady         bool
+	generationReady      bool
+	optionFunctionsReady bool
+	typeInfoReady        bool
+	globalReady          bool
+	globalPatchReady     bool
+	authorityActive      bool
+	fileInfo             *exec.FileInfo
+}
+
+type goProcessAdmissionState struct {
+	startTime       uint64
+	generationReady bool
+	fileInfo        *exec.FileInfo
+	processRoot     *goAutoSDKProcessRoot
+}
+
+// goProcessAdmissionRetryKey records attacher replay debt separately from the
+// internal restoration queue. Background cleanup may settle the restoration
+// queue, but only a successful replay or explicit cancellation settles this
+// exact process-incarnation admission.
+type goProcessAdmissionRetryKey struct {
+	process   runtimeMetricTargetKey
+	startTime uint64
+	fileInfo  *exec.FileInfo
+}
+
+type goAutoSDKRestoreRetryKey struct {
+	process   runtimeMetricTargetKey
+	startTime uint64
+	fileInfo  *exec.FileInfo
+}
+
+type samplerLifecycleManager interface {
+	InstallGlobal() bool
+	AllowPIDForProcess(
+		app.PID,
+		uint32,
+		uint64,
+		*services.CanonicalSampler,
+		bool,
+	) bool
+	FallbackSafeForProcessIncarnation(app.PID, uint32, uint64) bool
+	EnableAutoSDK(app.PID, uint32) bool
+	EnableAutoSDKWithSetup(
+		app.PID,
+		uint32,
+		func(hostPID uint32, startTime uint64, epoch uint32) bool,
+	) bool
+	EnableAutoSDKWithSetupMode(
+		app.PID,
+		uint32,
+		bool,
+		func(hostPID uint32, startTime uint64, epoch uint32) bool,
+	) bool
+	QuiesceAutoSDKForProcess(app.PID, uint32, uint64) bool
+	BlockPIDForProcess(app.PID, uint32, uint64) bool
+}
+
+type goProcessGenerationState struct {
+	hostPID    uint32
+	generation uint64
+	fileInfo   *exec.FileInfo
+	retired    bool
+}
+
+type goHTTP2ServerOffsetAvailability struct {
+	xNet     bool
+	vendored bool
+}
+
+type goProcessHostPIDResolver func(app.PID, uint32) (uint32, error)
 
 const missingGoOffset = ^uint64(0)
 
@@ -189,19 +451,77 @@ var goRuntimeMetricOffsetGroups = [...]struct {
 }
 
 type Tracer struct {
-	log                        *slog.Logger
-	pidsFilter                 ebpfcommon.ServiceFilter
-	cfg                        *config.EBPFTracer
-	metrics                    imetrics.Reporter
-	bpfObjects                 BpfObjects
-	closers                    []io.Closer
-	disabledRouteHarvesting    bool
-	supportsBPFLoop            bool
-	runtimeMetricTargetKeys    map[runtimeMetricTargetKey]BpfPidInfo
-	goChannelOffsetsByIno      map[uint64]bool
-	goRuntimeMetricMaskByIno   map[uint64]uint64
-	goRuntimeGCGoalSourceByIno map[uint64]goRuntimeGCGoalSource
-	currentBinaryIno           uint64
+	processMu                           sync.Mutex
+	log                                 *slog.Logger
+	pidsFilter                          ebpfcommon.ServiceFilter
+	cfg                                 *config.EBPFTracer
+	shutdownTimeout                     time.Duration
+	metrics                             imetrics.Reporter
+	bpfObjects                          BpfObjects
+	resourcesMu                         sync.Mutex
+	resources                           *goTracerResources
+	disabledRouteHarvesting             bool
+	supportsBPFLoop                     bool
+	runtimeMetricTargetKeys             map[runtimeMetricTargetKey]BpfPidInfo
+	goChannelOffsetsByExecutable        map[goExecutableKey]bool
+	goHTTP2ServerOffsetsByExecutable    map[goExecutableKey]goHTTP2ServerOffsetAvailability
+	goAutoSDKEligibleByExecutable       map[goExecutableKey]bool
+	goAutoSDKReadyByExecutable          map[goExecutableKey]bool
+	goAutoSDKGlobalEligibleByExecutable map[goExecutableKey]bool
+	goAutoSDKGlobalReadyByExecutable    map[goExecutableKey]bool
+	goAutoSDKTypesByExecutable          map[goExecutableKey]goexec.GoAutoSDKTypeInfo
+	goAutoSDKProbesByExecutable         map[goExecutableKey][]string
+	goAutoSDKGlobalProbesByExecutable   map[goExecutableKey][]string
+	goSpanOptionFuncsByExecutable       map[goExecutableKey][]goSpanOptionFunction
+	goSpanOptionKeysByProcess           map[runtimeMetricTargetKey][]goSpanOptionFunctionKey
+	goSpanOptionFunctions               goSpanOptionMap
+	goAutoSDKTypeInfos                  goAutoSDKTypeInfoMap
+	goProcessGenerations                goProcessGenerationMap
+	goAutoSDKFlags                      goAutoSDKFlagMap
+	goAutoSDKReadiness                  goAutoSDKReadinessMap
+	goAutoSDKOuterCalls                 goAutoSDKOuterCallMap
+	goAutoSDKInflight                   goAutoSDKInflightMap
+	goProcessGenerationByPID            map[runtimeMetricTargetKey]goProcessGenerationState
+	goProcessOwnerByHostPID             map[uint32]runtimeMetricTargetKey
+	goProcessAdmissions                 map[runtimeMetricTargetKey]goProcessAdmissionState
+	goProcessAdmissionRetries           map[goProcessAdmissionRetryKey]struct{}
+	newGoProcessGeneration              func() (uint64, error)
+	resolveGoProcessHostPID             goProcessHostPIDResolver
+	goAutoSDKProcessAccess              goAutoSDKProcessAccess
+	newGoAutoSDKEventReader             func(*ebpf.Map) (goAutoSDKEventReader, error)
+	goAutoSDKEventReader                goAutoSDKEventReader
+	goAutoSDKEventWG                    sync.WaitGroup
+	goAutoSDKRestoreRetryWG             sync.WaitGroup
+	goAutoSDKRestoreRetrying            bool
+	goAutoSDKRestoreRetries             map[goAutoSDKRestoreRetryKey]bool
+	goAutoSDKDiscoveryReady             bool
+	goAutoSDKRunStarted                 bool
+	goAutoSDKAdmissions                 map[runtimeMetricTargetKey]goAutoSDKAdmissionState
+	goAutoSDKFlagStates                 map[runtimeMetricTargetKey]goAutoSDKFlagState
+	goAutoSDKQuiescing                  map[runtimeMetricTargetKey]bool
+	goAutoSDKDirectEntryClosers         []io.Closer
+	goAutoSDKDirectEntryAttaching       int
+	goAutoSDKDirectEntryClosing         int
+	goAutoSDKDirectEntryBarrierClosed   bool
+	goAutoSDKGlobalEntryClosers         []io.Closer
+	goAutoSDKGlobalEntryAttaching       int
+	goAutoSDKGlobalEntryClosing         int
+	goAutoSDKGlobalEntryBarrierClosed   bool
+	goAutoSDKShuttingDown               bool
+	goAutoSDKShutdownMu                 sync.Mutex
+	goAutoSDKShutdownComplete           bool
+	goAutoSDKEventDone                  chan struct{}
+	goAutoSDKRestoreRetryDone           chan struct{}
+	goAutoSDKDrainPause                 func()
+	goAutoSDKRestoreRetryPause          func()
+	goRuntimeMetricMaskByExecutable     map[goExecutableKey]uint64
+	goRuntimeGCGoalSourceByExecutable   map[goExecutableKey]goRuntimeGCGoalSource
+	goAutoSDKTypeInfoKeys               map[runtimeMetricTargetKey]goProcessKey
+	goAutoSDKPreAdmissionReady          bool
+	goAutoSDKTailCallsReady             bool
+	currentBinaryExecutable             goExecutableKey
+	samplerConfig                       services.CanonicalSampler
+	samplerManager                      samplerLifecycleManager
 }
 
 func New(
@@ -210,6 +530,10 @@ func New(
 	metrics imetrics.Reporter,
 ) *Tracer {
 	log := slog.With("component", "go.Tracer")
+	samplerConfig, err := cfg.Traces.SamplerConfig.Canonical()
+	if err != nil {
+		log.Error("invalid sampler configuration", "error", err)
+	}
 
 	disabledRouteHarvesting := false
 
@@ -221,27 +545,429 @@ func New(
 	}
 
 	return &Tracer{
-		log:                        log,
-		pidsFilter:                 pidFilter,
-		cfg:                        &cfg.EBPF,
-		metrics:                    metrics,
-		disabledRouteHarvesting:    disabledRouteHarvesting,
-		supportsBPFLoop:            ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
-		runtimeMetricTargetKeys:    map[runtimeMetricTargetKey]BpfPidInfo{},
-		goChannelOffsetsByIno:      map[uint64]bool{},
-		goRuntimeMetricMaskByIno:   map[uint64]uint64{},
-		goRuntimeGCGoalSourceByIno: map[uint64]goRuntimeGCGoalSource{},
+		log:                                 log,
+		pidsFilter:                          pidFilter,
+		cfg:                                 &cfg.EBPF,
+		shutdownTimeout:                     cfg.ShutdownTimeout,
+		metrics:                             metrics,
+		disabledRouteHarvesting:             disabledRouteHarvesting,
+		supportsBPFLoop:                     ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
+		runtimeMetricTargetKeys:             map[runtimeMetricTargetKey]BpfPidInfo{},
+		goChannelOffsetsByExecutable:        map[goExecutableKey]bool{},
+		goHTTP2ServerOffsetsByExecutable:    map[goExecutableKey]goHTTP2ServerOffsetAvailability{},
+		goAutoSDKEligibleByExecutable:       map[goExecutableKey]bool{},
+		goAutoSDKReadyByExecutable:          map[goExecutableKey]bool{},
+		goAutoSDKGlobalEligibleByExecutable: map[goExecutableKey]bool{},
+		goAutoSDKGlobalReadyByExecutable:    map[goExecutableKey]bool{},
+		goAutoSDKTypesByExecutable:          map[goExecutableKey]goexec.GoAutoSDKTypeInfo{},
+		goAutoSDKProbesByExecutable:         map[goExecutableKey][]string{},
+		goAutoSDKGlobalProbesByExecutable:   map[goExecutableKey][]string{},
+		goSpanOptionFuncsByExecutable:       map[goExecutableKey][]goSpanOptionFunction{},
+		goSpanOptionKeysByProcess:           map[runtimeMetricTargetKey][]goSpanOptionFunctionKey{},
+		goProcessGenerationByPID:            map[runtimeMetricTargetKey]goProcessGenerationState{},
+		goProcessOwnerByHostPID:             map[uint32]runtimeMetricTargetKey{},
+		goProcessAdmissions:                 map[runtimeMetricTargetKey]goProcessAdmissionState{},
+		goProcessAdmissionRetries:           map[goProcessAdmissionRetryKey]struct{}{},
+		newGoProcessGeneration:              randomGoProcessGeneration,
+		resolveGoProcessHostPID:             resolveGoProcessHostPID,
+		goAutoSDKProcessAccess:              newGoAutoSDKProcessAccess(),
+		goAutoSDKRestoreRetries:             map[goAutoSDKRestoreRetryKey]bool{},
+		goAutoSDKAdmissions:                 map[runtimeMetricTargetKey]goAutoSDKAdmissionState{},
+		goAutoSDKFlagStates:                 map[runtimeMetricTargetKey]goAutoSDKFlagState{},
+		goAutoSDKQuiescing:                  map[runtimeMetricTargetKey]bool{},
+		goRuntimeMetricMaskByExecutable:     map[goExecutableKey]uint64{},
+		goRuntimeGCGoalSourceByExecutable:   map[goExecutableKey]goRuntimeGCGoalSource{},
+		goAutoSDKTypeInfoKeys:               map[runtimeMetricTargetKey]goProcessKey{},
+		samplerConfig:                       samplerConfig,
 	}
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	p.AllowPIDForProcess(pid, ns, fi)
+}
+
+func (p *Tracer) AllowPIDForProcess(pid app.PID, ns uint32, fi *exec.FileInfo) bool {
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+
+	if p.goAutoSDKShuttingDown || p.goAutoSDKShutdownComplete {
+		p.pidsFilter.BlockPID(pid, ns)
+		return false
+	}
+
+	process := runtimeMetricTargetKey{pid: pid, ns: ns}
+	if !p.prepareGoProcessAdmissionLocked(process, fi) {
+		p.markGoProcessAdmissionRetryLocked(process, fi)
+		p.blockIndeterminateProcess(pid, ns)
+		return false
+	}
+	if p.goAutoSDKQuiescing == nil {
+		p.goAutoSDKQuiescing = map[runtimeMetricTargetKey]bool{}
+	}
+	p.goAutoSDKQuiescing[process] = true
+	if !p.restoreGoAutoSDKFlag(process) {
+		p.queueGoAutoSDKRestoreRetryLocked(
+			process,
+			p.goAutoSDKRestorationStartTime(process, fi.StartTime()),
+			true,
+		)
+		p.markGoProcessAdmissionRetryLocked(process, fi)
+		p.blockIndeterminateProcess(pid, ns)
+		return false
+	}
+	processRoot := p.retainedGoProcessRootLocked(process, fi)
+	if p.goProcessAdmissions == nil {
+		p.goProcessAdmissions = map[runtimeMetricTargetKey]goProcessAdmissionState{}
+	}
+	p.goProcessAdmissions[process] = goProcessAdmissionState{
+		startTime:   fi.StartTime(),
+		fileInfo:    fi,
+		processRoot: processRoot,
+	}
+
+	samplerReady := false
+	autoSDKQuiesced := false
+	if p.samplerManager != nil {
+		attrs := fi.ServiceAttrs()
+		samplerReady = p.samplerManager.AllowPIDForProcess(
+			pid, ns, fi.StartTime(), attrs.SamplerConfig, false,
+		)
+		autoSDKQuiesced = p.samplerManager.QuiesceAutoSDKForProcess(
+			pid, ns, fi.StartTime(),
+		)
+		if !autoSDKQuiesced ||
+			!p.samplerManager.FallbackSafeForProcessIncarnation(pid, ns, fi.StartTime()) {
+			samplerReady = false
+			autoSDKQuiesced = p.restoreSamplerFallback(pid, ns, fi.StartTime())
+			if !autoSDKQuiesced {
+				p.queueGoAutoSDKRestoreRetryLocked(process, fi.StartTime(), true)
+				p.markGoProcessAdmissionRetryLocked(process, fi)
+				p.blockIndeterminateProcess(pid, ns)
+				return false
+			}
+		}
+	}
+
+	generationReady := p.registerGoProcessGeneration(pid, ns, fi)
+	optionFunctionsReady := p.registerGoSpanOptionFunctions(pid, ns, fi)
+	typeInfoReady := p.registerGoAutoSDKTypeInfo(pid, ns, fi)
+	executable, _ := goExecutableKeyFor(fi)
+	autoSDKDirectReady := p.goAutoSDKReadyByExecutable[executable]
+	autoSDKGlobalReady := p.goAutoSDKGlobalReadyByExecutable[executable]
+	autoSDKPotential := p.samplerManager != nil &&
+		samplerReady && autoSDKQuiesced &&
+		generationReady && optionFunctionsReady && typeInfoReady &&
+		(autoSDKDirectReady || autoSDKGlobalReady)
+	processRoot = p.prepareGoProcessRootLocked(
+		process,
+		fi,
+		autoSDKPotential && autoSDKGlobalReady,
+	)
+	globalPatchReady := autoSDKPotential && autoSDKGlobalReady &&
+		processRoot != nil && processRoot.file != nil
+	p.goProcessAdmissions[process] = goProcessAdmissionState{
+		startTime:       fi.StartTime(),
+		generationReady: generationReady,
+		fileInfo:        fi,
+		processRoot:     processRoot,
+	}
+	if p.samplerManager != nil {
+		if autoSDKPotential {
+			if p.goAutoSDKAdmissions == nil {
+				p.goAutoSDKAdmissions = map[runtimeMetricTargetKey]goAutoSDKAdmissionState{}
+			}
+			p.goAutoSDKAdmissions[process] = goAutoSDKAdmissionState{
+				startTime:            fi.StartTime(),
+				executable:           executable,
+				samplerReady:         true,
+				generationReady:      true,
+				optionFunctionsReady: true,
+				typeInfoReady:        true,
+				globalReady:          autoSDKGlobalReady,
+				globalPatchReady:     globalPatchReady,
+				fileInfo:             fi,
+			}
+		} else if admission, ok := p.goAutoSDKAdmissions[process]; ok &&
+			admission.fileInfo == fi {
+			delete(p.goAutoSDKAdmissions, process)
+		}
+	}
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeGo)
+	if p.samplerManager != nil && p.goAutoSDKRunStarted {
+		if admission, ok := p.goAutoSDKAdmissions[process]; ok {
+			if admission.globalPatchReady {
+				p.ensureGoAutoSDKEventReader()
+			}
+			if !p.reconcileGoAutoSDKAdmission(process, admission) {
+				p.markGoProcessAdmissionRetryLocked(process, fi)
+				return false
+			}
+		}
+	}
 	p.registerRuntimeMetricTarget(pid, ns, fi)
+	if !p.hasGoAutoSDKRestoreRetryLocked(process) {
+		delete(p.goAutoSDKQuiescing, process)
+	}
+	p.clearGoProcessAdmissionRetryLocked(process, fi)
+	return true
+}
+
+func goProcessAdmissionRetryKeyFor(
+	process runtimeMetricTargetKey,
+	fileInfo *exec.FileInfo,
+) (goProcessAdmissionRetryKey, bool) {
+	if fileInfo == nil || fileInfo.StartTime() == 0 {
+		return goProcessAdmissionRetryKey{}, false
+	}
+	return goProcessAdmissionRetryKey{
+		process:   process,
+		startTime: fileInfo.StartTime(),
+		fileInfo:  fileInfo,
+	}, true
+}
+
+func (p *Tracer) markGoProcessAdmissionRetryLocked(
+	process runtimeMetricTargetKey,
+	fileInfo *exec.FileInfo,
+) {
+	retry, ok := goProcessAdmissionRetryKeyFor(process, fileInfo)
+	if !ok {
+		return
+	}
+	if p.goProcessAdmissionRetries == nil {
+		p.goProcessAdmissionRetries = map[goProcessAdmissionRetryKey]struct{}{}
+	}
+	p.goProcessAdmissionRetries[retry] = struct{}{}
+}
+
+func (p *Tracer) clearGoProcessAdmissionRetryLocked(
+	process runtimeMetricTargetKey,
+	fileInfo *exec.FileInfo,
+) {
+	retry, ok := goProcessAdmissionRetryKeyFor(process, fileInfo)
+	if ok {
+		delete(p.goProcessAdmissionRetries, retry)
+	}
+}
+
+func (p *Tracer) PIDAdmissionRetryPending(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) bool {
+	if p == nil {
+		return false
+	}
+	retry, ok := goProcessAdmissionRetryKeyFor(
+		runtimeMetricTargetKey{pid: pid, ns: ns},
+		fileInfo,
+	)
+	if !ok {
+		return false
+	}
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	_, pending := p.goProcessAdmissionRetries[retry]
+	return pending
+}
+
+func (p *Tracer) CancelPIDAdmissionRetry(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) {
+	if p == nil {
+		return
+	}
+	retry, ok := goProcessAdmissionRetryKeyFor(
+		runtimeMetricTargetKey{pid: pid, ns: ns},
+		fileInfo,
+	)
+	if !ok {
+		return
+	}
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	// Cancellation revokes only attacher replay intent. Any queued restoration
+	// remains responsible for making fallback and BPF cleanup safe.
+	delete(p.goProcessAdmissionRetries, retry)
+}
+
+func (p *Tracer) restoreSamplerFallback(pid app.PID, ns uint32, startTime uint64) bool {
+	return p.samplerManager.BlockPIDForProcess(pid, ns, startTime) &&
+		p.samplerManager.FallbackSafeForProcessIncarnation(pid, ns, startTime)
+}
+
+func (p *Tracer) blockIndeterminateProcess(pid app.PID, ns uint32) {
+	p.pidsFilter.BlockPID(pid, ns)
+	p.deleteRuntimeMetricTarget(pid, ns)
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
-	p.deleteRuntimeMetricTarget(pid, ns)
+	p.BlockPIDForProcess(pid, ns, nil)
+}
+
+func (p *Tracer) BlockPIDForProcess(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) {
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+
+	process := runtimeMetricTargetKey{pid: pid, ns: ns}
+	if fileInfo != nil && !p.goProcessFileInfoMatches(process, fileInfo) {
+		return
+	}
+	startTime := p.goProcessStartTime(process)
+	if fileInfo != nil {
+		startTime = fileInfo.StartTime()
+	}
+	processFileInfo := p.goProcessFileInfo(process)
+	if p.goAutoSDKQuiescing == nil {
+		p.goAutoSDKQuiescing = map[runtimeMetricTargetKey]bool{}
+	}
+	p.goAutoSDKQuiescing[process] = true
+	if !p.restoreGoAutoSDKFlagForIncarnation(process, startTime) {
+		p.queueGoAutoSDKRestoreRetryLocked(process, startTime, true)
+		p.pidsFilter.BlockPID(pid, ns)
+		p.deleteRuntimeMetricTarget(pid, ns)
+		return
+	}
+	p.disableRestoredGoAutoSDKAdmissionLocked(
+		process,
+		startTime,
+		processFileInfo,
+	)
 	p.pidsFilter.BlockPID(pid, ns)
+	p.deleteRuntimeMetricTarget(pid, ns)
+	if !p.finishBlockedGoProcess(process, startTime) {
+		p.queueGoAutoSDKRestoreRetryLocked(process, startTime, true)
+		return
+	}
+	if !p.hasGoAutoSDKRestoreRetryLocked(process) {
+		delete(p.goAutoSDKQuiescing, process)
+	}
+}
+
+func (p *Tracer) goProcessFileInfoMatches(
+	process runtimeMetricTargetKey,
+	fileInfo *exec.FileInfo,
+) bool {
+	return fileInfo != nil && p.goProcessFileInfo(process) == fileInfo
+}
+
+func (p *Tracer) goProcessFileInfo(
+	process runtimeMetricTargetKey,
+) *exec.FileInfo {
+	if admission, ok := p.goProcessAdmissions[process]; ok {
+		return admission.fileInfo
+	}
+	if generation, ok := p.goProcessGenerationByPID[process]; ok {
+		return generation.fileInfo
+	}
+	if state, ok := p.goAutoSDKFlagStates[process]; ok {
+		return state.fileInfo
+	}
+	return nil
+}
+
+func (p *Tracer) ExecutableUnlinkReady(fileInfo *exec.FileInfo) bool {
+	if p == nil || fileInfo == nil {
+		return true
+	}
+
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	for retry := range p.goProcessAdmissionRetries {
+		if sameGoExecutable(retry.fileInfo, fileInfo) {
+			return false
+		}
+	}
+	for retry := range p.goAutoSDKRestoreRetries {
+		if sameGoExecutable(retry.fileInfo, fileInfo) {
+			return false
+		}
+	}
+	for _, generation := range p.goProcessGenerationByPID {
+		if sameGoExecutable(generation.fileInfo, fileInfo) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameGoExecutable(left, right *exec.FileInfo) bool {
+	leftKey, leftOK := goExecutableKeyFor(left)
+	rightKey, rightOK := goExecutableKeyFor(right)
+	return leftOK && rightOK && leftKey == rightKey
+}
+
+func (p *Tracer) finishBlockedGoProcess(
+	process runtimeMetricTargetKey,
+	startTime uint64,
+) bool {
+	autoSDKCleanupSafe := true
+	if p.samplerManager != nil {
+		autoSDKCleanupSafe = p.samplerManager.BlockPIDForProcess(
+			process.pid,
+			process.ns,
+			startTime,
+		) && p.samplerManager.FallbackSafeForProcessIncarnation(
+			process.pid,
+			process.ns,
+			startTime,
+		)
+	}
+	if !autoSDKCleanupSafe {
+		return false
+	}
+
+	admission, admitted := p.goProcessAdmissions[process]
+	admissionMatches := admitted && (startTime == 0 || admission.startTime == startTime)
+	generation, generationTracked := p.goProcessGenerationByPID[process]
+	generationMatches := generationTracked && generation.fileInfo != nil &&
+		(startTime == 0 || generation.fileInfo.StartTime() == startTime)
+	generationFileInfo := generation.fileInfo
+	if admissionMatches && admission.generationReady && generationMatches &&
+		admission.fileInfo != generation.fileInfo {
+		return false
+	}
+	if startTime != 0 && !admissionMatches && !generationMatches {
+		return true
+	}
+	if admissionMatches && admission.generationReady && !generationMatches {
+		return false
+	}
+
+	p.deleteGoSpanOptionFunctions(process.pid, process.ns)
+	p.deleteGoAutoSDKTypeInfo(process.pid, process.ns)
+	if generationMatches || (admissionMatches && !admission.generationReady) {
+		p.retireGoProcessGeneration(process.pid, process.ns)
+	}
+
+	generation, generationTracked = p.goProcessGenerationByPID[process]
+	generationCleanupPending := generationTracked && generation.fileInfo != nil &&
+		(startTime == 0 || generation.fileInfo.StartTime() == startTime ||
+			(admissionMatches && !admission.generationReady))
+	_, optionFunctionsTracked := p.goSpanOptionKeysByProcess[process]
+	_, typeInfoTracked := p.goAutoSDKTypeInfoKeys[process]
+	if generationCleanupPending || optionFunctionsTracked || typeInfoTracked {
+		return false
+	}
+	cleanupFileInfo := generationFileInfo
+	if admissionMatches {
+		cleanupFileInfo = admission.fileInfo
+	}
+	if autoSDKAdmission, ok := p.goAutoSDKAdmissions[process]; ok &&
+		autoSDKAdmission.fileInfo == cleanupFileInfo {
+		delete(p.goAutoSDKAdmissions, process)
+	}
+	if admissionMatches {
+		p.closeGoAutoSDKProcessRoot(admission.processRoot)
+		delete(p.goProcessAdmissions, process)
+	}
+	return true
 }
 
 func (p *Tracer) supportsContextPropagation() bool {
@@ -320,8 +1046,45 @@ func (p *Tracer) constants() map[string]any {
 }
 
 func (p *Tracer) SetupTailCalls() {
-	// Order must match the k_tail_* enum in bpf/generictracer/k_tracer_tailcall.h
-	for i, prog := range []*ebpf.Program{
+	p.goSpanOptionFunctions = p.bpfObjects.GoSpanOptionFunctions
+	p.goAutoSDKTypeInfos = p.bpfObjects.GoAutoSdkTypeInfos
+	p.goProcessGenerations = p.bpfObjects.GoProcessGenerations
+	p.goAutoSDKFlags = p.bpfObjects.GoAutoSdkFlags
+	p.goAutoSDKReadiness = p.bpfObjects.GoAutoSdkReady
+	p.goAutoSDKOuterCalls = p.bpfObjects.GoAutoSdkOuterCalls
+	p.goAutoSDKInflight = p.bpfObjects.GoAutoSdkInflight
+	p.samplerManager = ebpfsampling.NewManager(
+		p.log,
+		p.bpfObjects.GlobalSamplerConfig,
+		p.bpfObjects.SamplerOverrides,
+		p.bpfObjects.SamplerReadyPids,
+		p.bpfObjects.GoAutoSdkReady,
+		p.samplerConfig,
+	)
+	p.samplerManager.InstallGlobal()
+
+	p.goAutoSDKPreAdmissionReady = p.provisionGoAutoSDKInflight(
+		goAutoSDKPendingState(),
+	)
+	tailCallsReady := installGoTailCalls(p.tailCallPrograms(), func(i uint32, prog *ebpf.Program) error {
+		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
+		var err error
+		if p.bpfObjects.JumpTable == nil {
+			err = errors.New("tail call jump table is unavailable")
+		} else {
+			err = p.bpfObjects.JumpTable.Update(i, uint32(prog.FD()), ebpf.UpdateAny)
+		}
+		if err != nil {
+			p.log.Error("error loading info tail call jump table", "error", err)
+		}
+		return err
+	})
+	p.goAutoSDKTailCallsReady = tailCallsReady
+}
+
+func (p *Tracer) tailCallPrograms() []*ebpf.Program {
+	// Order must match the k_tail_* enum in bpf/generictracer/k_tracer_tailcall.h.
+	return []*ebpf.Program{
 		// HTTP/1
 		p.bpfObjects.ObiProtocolHttp,           // 0  k_tail_protocol_http
 		p.bpfObjects.ObiContinueProtocolHttp,   // 1  k_tail_continue_protocol_http
@@ -333,28 +1096,125 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiHandleBufWithArgs, // 5  k_tail_handle_buf_with_args
 		p.bpfObjects.ObiContinueNetfdRead, // 6  k_tail_continue_netfd_read
 		// HTTP/2 + gRPC
-		p.bpfObjects.ObiProtocolHttp2,                                   // 7
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                         // 8
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,               // 9
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,                 // 10
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
+		p.bpfObjects.ObiProtocolHttp2,                           // 7
+		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                 // 8
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,       // 9
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,         // 10
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer, // 11
+		nil, // 12 (reserved)
 		// Large buffer multi-batch emission
 		p.bpfObjects.ObiLargeBufEmitContinue,                          // 13  k_tail_large_buf_emit_continue
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit, // 14
-	} {
-		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
-		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
-			p.log.Error("error loading info tail call jump table", "error", err)
+		// Go SDK span start attributes
+		p.bpfObjects.ObiUprobeGoSpanStartAttributes,      // 15  k_tail_go_span_start_attributes
+		p.bpfObjects.ObiUprobeGoSpanStartApplyAttributes, // 16  k_tail_go_span_start_apply_attributes
+		p.bpfObjects.ObiUprobeGoSpanStartRoute,           // 17  k_tail_go_span_start_route
+		p.bpfObjects.ObiUprobeGoSpanSetAttributes,        // 18  k_tail_go_span_set_attributes
+		// HTTP/2 server traceparent validation
+		p.bpfObjects.ObiProtocolHttp2GrpcValidateServerTraceparent, // 19
+		// Ongoing HTTP/1 request continuation
+		p.bpfObjects.ObiHandleHttpContinuation, // 20
+		// HTTP/2 client terminal resolution
+		p.bpfObjects.ObiProtocolHttp2GrpcFinishClient, // 21
+		// HTTP/2 server HPACK parser continuation
+		p.bpfObjects.ObiProtocolHttp2GrpcParseServerHeaders, // 22
+	}
+}
+
+func installGoTailCalls(
+	programs []*ebpf.Program,
+	update func(uint32, *ebpf.Program) error,
+) bool {
+	autoSDKReady := len(programs) > goAutoSDKLastRequiredTailCall
+	for i, prog := range programs {
+		if prog == nil {
+			if i >= goAutoSDKFirstRequiredTailCall && i <= goAutoSDKLastRequiredTailCall {
+				autoSDKReady = false
+			}
+			continue
+		}
+		if err := update(uint32(i), prog); err != nil &&
+			i >= goAutoSDKFirstRequiredTailCall &&
+			i <= goAutoSDKLastRequiredTailCall {
+			autoSDKReady = false
+		}
+	}
+	return autoSDKReady
+}
+
+func (p *Tracer) goAutoSDKActivationReady(
+	executable goExecutableKey,
+	optionFunctionsReady bool,
+	typeInfoReady bool,
+	samplerReady bool,
+	generationReady bool,
+	globalProtocolReady bool,
+) bool {
+	return p.goAutoSDKTailCallsReady &&
+		optionFunctionsReady &&
+		typeInfoReady &&
+		(p.goAutoSDKReadyByExecutable[executable] || globalProtocolReady) &&
+		samplerReady &&
+		generationReady
+}
+
+var bufReaderOffsetFields = [...]goexec.GoOffset{
+	goexec.BufReaderBufPos,
+	goexec.BufReaderRPos,
+	goexec.BufReaderWPos,
+}
+
+func registerBufReaderOffsets(offTable *BpfOffTableT, offsets *goexec.Offsets) {
+	for _, field := range bufReaderOffsetFields {
+		if val, ok := offsets.Field[field].(uint64); ok {
+			offTable.Table[field] = val
 		}
 	}
 }
 
+func registerGoHTTP2ServerOffset(
+	offTable *BpfOffTableT,
+	offsets *goexec.Offsets,
+	field goexec.GoOffset,
+) bool {
+	if offTable == nil || offsets == nil {
+		return false
+	}
+	val, ok := offsets.Field[field].(uint64)
+	if !ok || val == 0 {
+		return false
+	}
+	offTable.Table[field] = val
+	return true
+}
+
+func registerGoHTTP2ServerOffsets(
+	offTable *BpfOffTableT,
+	offsets *goexec.Offsets,
+) goHTTP2ServerOffsetAvailability {
+	reqTLS := registerGoHTTP2ServerOffset(offTable, offsets, goexec.ReqTLSPos)
+	xNet := registerGoHTTP2ServerOffset(
+		offTable, offsets, goexec.ScMaxClientStreamIDPos,
+	)
+	vendored := registerGoHTTP2ServerOffset(
+		offTable, offsets, goexec.ScMaxClientStreamIDVendoredPos,
+	)
+	return goHTTP2ServerOffsetAvailability{
+		xNet:     reqTLS && xNet,
+		vendored: reqTLS && vendored,
+	}
+}
+
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+
 	p.recordGoChannelOffsetAvailability(fileInfo, offsets)
+	p.recordGoAutoSDKEligibility(fileInfo, false, false)
 
 	offTable := BpfOffTableT{}
 	initMissingGoChannelOffsets(&offTable)
+	initMissingGRPCWriterOffsets(&offTable)
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
 		goexec.ConnFdPos,
@@ -389,8 +1249,6 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.CRwcPos,
 		goexec.CTlsPos,
 		goexec.TextReaderRPos,
-		goexec.BufReaderBufPos,
-		goexec.BufReaderWPos,
 		// grpc
 		goexec.GrpcStreamStPtrPos,
 		goexec.GrpcStreamMethodPtrPos,
@@ -462,6 +1320,11 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			offTable.Table[field] = val
 		}
 	}
+	registerBufReaderOffsets(&offTable, offsets)
+	p.recordGoHTTP2ServerOffsetAvailability(
+		fileInfo,
+		registerGoHTTP2ServerOffsets(&offTable, offsets),
+	)
 	for _, field := range goRuntimeMetricOffsetFields {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -472,10 +1335,6 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		symbol string
 		field  goexec.GoOffset
 	}{
-		{
-			symbol: "go.opentelemetry.io/otel/trace.attributeOption",
-			field:  goexec.GoTracerAttributeOptOffset,
-		},
 		{
 			symbol: "*errors.errorString",
 			field:  goexec.GoErrorStringOffset,
@@ -494,20 +1353,905 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		}
 	}
 
-	ino := fileInfo.Ino()
-	if err := p.bpfObjects.GoOffsetsMap.Put(ino, offTable); err != nil {
-		p.log.Error("setting Go offsets map failed", "pid", fileInfo.Pid(), "ino", ino, "error", err)
-		delete(p.goRuntimeMetricMaskByIno, ino)
+	executable, _ := goExecutableKeyFor(fileInfo)
+	if err := p.bpfObjects.GoOffsetsMap.Put(executable, offTable); err != nil {
+		p.log.Error("setting Go offsets map failed", "pid", fileInfo.Pid(),
+			"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino, "error", err)
+		delete(p.goChannelOffsetsByExecutable, executable)
+		delete(p.goHTTP2ServerOffsetsByExecutable, executable)
+		delete(p.goAutoSDKEligibleByExecutable, executable)
+		delete(p.goAutoSDKReadyByExecutable, executable)
+		delete(p.goAutoSDKGlobalEligibleByExecutable, executable)
+		delete(p.goAutoSDKGlobalReadyByExecutable, executable)
+		delete(p.goAutoSDKTypesByExecutable, executable)
+		delete(p.goAutoSDKProbesByExecutable, executable)
+		delete(p.goAutoSDKGlobalProbesByExecutable, executable)
+		delete(p.goSpanOptionFuncsByExecutable, executable)
+		delete(p.goRuntimeMetricMaskByExecutable, executable)
+		delete(p.goRuntimeGCGoalSourceByExecutable, executable)
 		p.deleteRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns())
 		return
 	}
+	if p.goAutoSDKTypesByExecutable == nil {
+		p.goAutoSDKTypesByExecutable = map[goExecutableKey]goexec.GoAutoSDKTypeInfo{}
+	}
+	p.goAutoSDKTypesByExecutable[executable] = offsets.AutoSDKTypes
+	autoSDKProbes, autoSDKFunctionsAvailable := goAutoSDKAttachmentSymbols(offsets)
+	if p.goAutoSDKProbesByExecutable == nil {
+		p.goAutoSDKProbesByExecutable = map[goExecutableKey][]string{}
+	}
+	p.goAutoSDKProbesByExecutable[executable] = autoSDKProbes
+	autoSDKGlobalProbes, autoSDKGlobalFunctionsAvailable := goAutoSDKGlobalAttachmentSymbols(offsets)
+	if p.goAutoSDKGlobalProbesByExecutable == nil {
+		p.goAutoSDKGlobalProbesByExecutable = map[goExecutableKey][]string{}
+	}
+	p.goAutoSDKGlobalProbesByExecutable[executable] = autoSDKGlobalProbes
+	spanOptionFunctions := make(
+		[]goSpanOptionFunction,
+		0,
+		len(offsets.SpanKindFunctions)+len(offsets.NewRootFunctions),
+	)
+	for _, function := range offsets.SpanKindFunctions {
+		if function.Entry != 0 {
+			spanOptionFunctions = append(spanOptionFunctions, goSpanOptionFunction{
+				entry:      function.Entry,
+				optionType: goSpanOptionKind,
+			})
+		}
+	}
+	for _, function := range offsets.NewRootFunctions {
+		if function.Entry != 0 {
+			spanOptionFunctions = append(spanOptionFunctions, goSpanOptionFunction{
+				entry:      function.Entry,
+				optionType: goSpanOptionNewRoot,
+			})
+		}
+	}
+	p.goSpanOptionFuncsByExecutable[executable] = spanOptionFunctions
 
+	p.recordGoAutoSDKEligibility(
+		fileInfo,
+		autoSDKFunctionsAvailable,
+		autoSDKGlobalFunctionsAvailable,
+	)
 	p.recordGoRuntimeMetricAvailability(fileInfo, offsets)
-	if hasBaseGoRuntimeMetrics(p.goRuntimeMetricMaskByIno[ino]) {
+	if hasBaseGoRuntimeMetrics(p.goRuntimeMetricMaskByExecutable[executable]) {
 		p.registerRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns(), fileInfo)
 	} else {
 		p.deleteRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns())
 	}
+}
+
+func (p *Tracer) RollbackProcessRegistration(fileInfo *exec.FileInfo) {
+	if p == nil || fileInfo == nil {
+		return
+	}
+
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	p.deleteRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns())
+}
+
+func (p *Tracer) recordGoAutoSDKEligibility(
+	fileInfo *exec.FileInfo,
+	directFunctionsAvailable bool,
+	globalFunctionsAvailable bool,
+) {
+	if p == nil || fileInfo == nil {
+		return
+	}
+	if p.goAutoSDKEligibleByExecutable == nil {
+		p.goAutoSDKEligibleByExecutable = map[goExecutableKey]bool{}
+	}
+	if p.goAutoSDKReadyByExecutable == nil {
+		p.goAutoSDKReadyByExecutable = map[goExecutableKey]bool{}
+	}
+	if p.goAutoSDKGlobalEligibleByExecutable == nil {
+		p.goAutoSDKGlobalEligibleByExecutable = map[goExecutableKey]bool{}
+	}
+	if p.goAutoSDKGlobalReadyByExecutable == nil {
+		p.goAutoSDKGlobalReadyByExecutable = map[goExecutableKey]bool{}
+	}
+
+	contextPropagation := p.supportsContextPropagation()
+	directEligible := directFunctionsAvailable && contextPropagation
+	globalEligible := globalFunctionsAvailable && contextPropagation
+	executable, _ := goExecutableKeyFor(fileInfo)
+	p.goAutoSDKEligibleByExecutable[executable] = directEligible
+	p.goAutoSDKReadyByExecutable[executable] = false
+	p.goAutoSDKGlobalEligibleByExecutable[executable] = globalEligible
+	p.goAutoSDKGlobalReadyByExecutable[executable] = false
+	if !directEligible && !globalEligible && p.log != nil {
+		p.log.Debug("Go Auto SDK activation is unavailable for executable",
+			"pid", fileInfo.Pid(), "dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino,
+			"cmd", fileInfo.CmdExePath())
+	}
+}
+
+func (p *Tracer) RecordGoProbeAttachments(fileInfo *exec.FileInfo, attached map[string]bool) {
+	if p == nil || fileInfo == nil {
+		return
+	}
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	if p.goAutoSDKReadyByExecutable == nil {
+		p.goAutoSDKReadyByExecutable = map[goExecutableKey]bool{}
+	}
+	if p.goAutoSDKGlobalReadyByExecutable == nil {
+		p.goAutoSDKGlobalReadyByExecutable = map[goExecutableKey]bool{}
+	}
+	executable, _ := goExecutableKeyFor(fileInfo)
+	if p.goAutoSDKDirectEntryBarrierClosed || p.goAutoSDKShuttingDown {
+		p.goAutoSDKReadyByExecutable[executable] = false
+		p.goAutoSDKGlobalReadyByExecutable[executable] = false
+		return
+	}
+	directReady := p.goAutoSDKEligibleByExecutable[executable]
+	requiredProbes, ok := p.goAutoSDKProbesByExecutable[executable]
+	directReady = directReady && ok
+	for _, symbol := range requiredProbes {
+		directReady = directReady && attached[symbol]
+	}
+	globalReady := p.goAutoSDKGlobalEligibleByExecutable[executable] &&
+		!p.goAutoSDKGlobalEntryBarrierClosed
+	globalProbes, ok := p.goAutoSDKGlobalProbesByExecutable[executable]
+	globalReady = globalReady && ok
+	for _, symbol := range globalProbes {
+		globalReady = globalReady && attached[symbol]
+	}
+	p.goAutoSDKReadyByExecutable[executable] = directReady
+	p.goAutoSDKGlobalReadyByExecutable[executable] = globalReady
+	if !directReady && p.goAutoSDKEligibleByExecutable[executable] && p.log != nil {
+		p.log.Debug("direct Go Auto SDK activation disabled after incomplete probe attachment",
+			"pid", fileInfo.Pid(), "dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino,
+			"cmd", fileInfo.CmdExePath())
+	}
+	if !globalReady && p.goAutoSDKGlobalEligibleByExecutable[executable] && p.log != nil {
+		p.log.Debug("global Go Auto SDK activation disabled after incomplete probe attachment",
+			"pid", fileInfo.Pid(), "dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino,
+			"cmd", fileInfo.CmdExePath())
+	}
+}
+
+func (p *Tracer) BeginGoAutoSDKAdmissionEntryAttachment(
+	fileInfo *exec.FileInfo,
+	symbol string,
+) bool {
+	if p == nil || fileInfo == nil || !goAutoSDKAdmissionEntrySymbol(symbol) {
+		return false
+	}
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+	if p.goAutoSDKShuttingDown || p.goAutoSDKShutdownComplete {
+		return false
+	}
+	switch {
+	case goAutoSDKDirectEntrySymbol(symbol):
+		if p.goAutoSDKDirectEntryBarrierClosed {
+			return false
+		}
+		p.goAutoSDKDirectEntryAttaching++
+	case goAutoSDKGlobalEntrySymbol(symbol):
+		if !p.goAutoSDKPreAdmissionReady ||
+			p.goAutoSDKGlobalEntryBarrierClosed {
+			return false
+		}
+		p.goAutoSDKGlobalEntryAttaching++
+	default:
+		return false
+	}
+	return true
+}
+
+func (p *Tracer) FinishGoAutoSDKAdmissionEntryAttachment(
+	fileInfo *exec.FileInfo,
+	symbol string,
+	directEntry io.Closer,
+	attachmentErr error,
+) {
+	if p == nil || fileInfo == nil || !goAutoSDKAdmissionEntrySymbol(symbol) {
+		return
+	}
+
+	direct := goAutoSDKDirectEntrySymbol(symbol)
+	p.processMu.Lock()
+	if direct && p.goAutoSDKDirectEntryAttaching > 0 {
+		p.goAutoSDKDirectEntryAttaching--
+	} else if !direct && p.goAutoSDKGlobalEntryAttaching > 0 {
+		p.goAutoSDKGlobalEntryAttaching--
+	}
+	if directEntry == nil {
+		p.processMu.Unlock()
+		return
+	}
+	retain := attachmentErr == nil
+	if direct {
+		retain = retain &&
+			!p.goAutoSDKDirectEntryBarrierClosed &&
+			!p.goAutoSDKShuttingDown
+	} else {
+		// A global entry attachment that began before shutdown remains part of
+		// the second barrier. It must stay attached while process flags are
+		// restored, even though new attachments are already denied.
+		retain = retain && !p.goAutoSDKGlobalEntryBarrierClosed
+	}
+	if retain {
+		if direct {
+			p.goAutoSDKDirectEntryClosers = append(
+				p.goAutoSDKDirectEntryClosers,
+				directEntry,
+			)
+		} else {
+			p.goAutoSDKGlobalEntryClosers = append(
+				p.goAutoSDKGlobalEntryClosers,
+				directEntry,
+			)
+		}
+		p.processMu.Unlock()
+		return
+	}
+	if direct {
+		p.goAutoSDKDirectEntryClosing++
+	} else {
+		p.goAutoSDKGlobalEntryClosing++
+	}
+	p.goAutoSDKShutdownComplete = false
+	p.processMu.Unlock()
+
+	closeErr := directEntry.Close()
+	if closeErr != nil && p.log != nil {
+		message := "closing late Go Auto SDK admission entry probe failed"
+		if attachmentErr != nil {
+			message = "rolling back partial Go Auto SDK admission entry probe failed"
+		}
+		p.log.Error(message, "error", closeErr)
+	}
+
+	p.processMu.Lock()
+	if direct {
+		p.goAutoSDKDirectEntryClosing--
+	} else {
+		p.goAutoSDKGlobalEntryClosing--
+	}
+	if closeErr != nil {
+		if direct {
+			p.goAutoSDKDirectEntryClosers = append(
+				p.goAutoSDKDirectEntryClosers,
+				directEntry,
+			)
+		} else {
+			p.goAutoSDKGlobalEntryClosers = append(
+				p.goAutoSDKGlobalEntryClosers,
+				directEntry,
+			)
+		}
+	}
+	p.processMu.Unlock()
+}
+
+func goAutoSDKAdmissionEntrySymbol(symbol string) bool {
+	return goAutoSDKDirectEntrySymbol(symbol) ||
+		goAutoSDKGlobalEntrySymbol(symbol)
+}
+
+func goAutoSDKDirectEntrySymbol(symbol string) bool {
+	for _, candidate := range goAutoSDKStartProbeSymbols {
+		if symbol == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func goAutoSDKGlobalEntrySymbol(symbol string) bool {
+	return symbol == goAutoSDKGlobalEntryProbeSymbol
+}
+
+func randomGoProcessGeneration() (uint64, error) {
+	var value [8]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return 0, err
+	}
+	return binary.LittleEndian.Uint64(value[:]), nil
+}
+
+func (p *Tracer) registerGoProcessGeneration(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) bool {
+	if p == nil || fileInfo == nil || p.goProcessGenerations == nil {
+		return false
+	}
+
+	process := runtimeMetricTargetKey{pid: pid, ns: ns}
+	if fileInfo.StartTime() == 0 {
+		if state, tracked := p.goProcessGenerationByPID[process]; tracked {
+			p.invalidateGoProcessGeneration(process, state)
+		}
+		return false
+	}
+	resolve := p.resolveGoProcessHostPID
+	if resolve == nil {
+		resolve = resolveGoProcessHostPID
+	}
+	hostPID, err := resolve(pid, ns)
+	if err != nil {
+		if state, tracked := p.goProcessGenerationByPID[process]; tracked {
+			p.invalidateGoProcessGeneration(process, state)
+		}
+		if p.log != nil {
+			p.log.Debug("resolving Go process generation PID failed",
+				"pid", pid, "namespace", ns, "error", err)
+		}
+		return false
+	}
+
+	return p.registerGoProcessGenerationForHostPID(
+		process,
+		hostPID,
+		fileInfo,
+	)
+}
+
+func (p *Tracer) registerGoProcessGenerationForHostPID(
+	process runtimeMetricTargetKey,
+	hostPID uint32,
+	fileInfo *exec.FileInfo,
+) bool {
+	if p == nil || p.goProcessGenerations == nil || fileInfo == nil ||
+		fileInfo.StartTime() == 0 {
+		return false
+	}
+	if p.goProcessGenerationByPID == nil {
+		p.goProcessGenerationByPID = map[runtimeMetricTargetKey]goProcessGenerationState{}
+	}
+	if p.goProcessOwnerByHostPID == nil {
+		p.goProcessOwnerByHostPID = map[uint32]runtimeMetricTargetKey{}
+	}
+
+	previousGeneration := uint64(0)
+	if state, tracked := p.goProcessGenerationByPID[process]; tracked {
+		if !state.retired && state.hostPID == hostPID && state.fileInfo == fileInfo {
+			value := goProcessGenerationValue{
+				Generation: state.generation,
+				StartTime:  state.fileInfo.StartTime(),
+			}
+			if err := p.goProcessGenerations.Put(hostPID, value); err != nil {
+				p.logProcessGenerationError(
+					"refreshing Go process generation failed", process, hostPID, err,
+				)
+				return false
+			}
+			p.goProcessOwnerByHostPID[hostPID] = process
+			return true
+		}
+
+		previousGeneration = state.generation
+		if !p.invalidateGoProcessGeneration(process, state) {
+			return false
+		}
+	}
+	if owner, owned := p.goProcessOwnerByHostPID[hostPID]; owned && owner != process {
+		if state, tracked := p.goProcessGenerationByPID[owner]; tracked {
+			previousGeneration = state.generation
+			if !p.invalidateGoProcessGeneration(owner, state) {
+				return false
+			}
+		} else {
+			delete(p.goProcessOwnerByHostPID, hostPID)
+		}
+	}
+
+	generation, err := p.nextGoProcessGeneration(previousGeneration)
+	if err != nil {
+		p.logProcessGenerationError(
+			"creating Go process generation failed", process, hostPID, err,
+		)
+		p.invalidateGoProcessGeneration(process, goProcessGenerationState{
+			hostPID:    hostPID,
+			generation: previousGeneration,
+			fileInfo:   fileInfo,
+			retired:    true,
+		})
+		return false
+	}
+	value := goProcessGenerationValue{
+		Generation: generation,
+		StartTime:  fileInfo.StartTime(),
+	}
+	if err := p.goProcessGenerations.Put(hostPID, value); err != nil {
+		p.logProcessGenerationError(
+			"registering Go process generation failed", process, hostPID, err,
+		)
+		p.invalidateGoProcessGeneration(process, goProcessGenerationState{
+			hostPID:    hostPID,
+			generation: generation,
+			fileInfo:   fileInfo,
+			retired:    true,
+		})
+		return false
+	}
+
+	p.goProcessGenerationByPID[process] = goProcessGenerationState{
+		hostPID:    hostPID,
+		generation: generation,
+		fileInfo:   fileInfo,
+	}
+	p.goProcessOwnerByHostPID[hostPID] = process
+	return true
+}
+
+func (p *Tracer) nextGoProcessGeneration(previous uint64) (uint64, error) {
+	source := p.newGoProcessGeneration
+	if source == nil {
+		source = randomGoProcessGeneration
+	}
+
+	const attempts = 4
+	for range attempts {
+		generation, err := source()
+		if err != nil {
+			return 0, err
+		}
+		if generation != 0 && generation != previous {
+			return generation, nil
+		}
+	}
+	return 0, errors.New("go process generation source returned unusable values")
+}
+
+func (p *Tracer) retireGoProcessGeneration(pid app.PID, ns uint32) {
+	if p == nil {
+		return
+	}
+	process := runtimeMetricTargetKey{pid: pid, ns: ns}
+	state, tracked := p.goProcessGenerationByPID[process]
+	if !tracked {
+		return
+	}
+	state.retired = true
+	p.goProcessGenerationByPID[process] = state
+	p.invalidateGoProcessGeneration(process, state)
+}
+
+func (p *Tracer) invalidateGoProcessGeneration(
+	process runtimeMetricTargetKey,
+	state goProcessGenerationState,
+) bool {
+	if p.goProcessOwnerByHostPID == nil {
+		p.goProcessOwnerByHostPID = map[uint32]runtimeMetricTargetKey{}
+	}
+	state.retired = true
+	p.goProcessGenerationByPID[process] = state
+	if owner, owned := p.goProcessOwnerByHostPID[state.hostPID]; owned && owner != process {
+		delete(p.goProcessGenerationByPID, process)
+		return true
+	}
+	p.goProcessOwnerByHostPID[state.hostPID] = process
+	if p.goProcessGenerations == nil {
+		return false
+	}
+
+	err := p.goProcessGenerations.Delete(state.hostPID)
+	if err == nil || errors.Is(err, ebpf.ErrKeyNotExist) {
+		delete(p.goProcessGenerationByPID, process)
+		delete(p.goProcessOwnerByHostPID, state.hostPID)
+		return true
+	}
+
+	p.logProcessGenerationError(
+		"deleting Go process generation failed", process, state.hostPID, err,
+	)
+	disabled := goProcessGenerationValue{}
+	if err := p.goProcessGenerations.Put(state.hostPID, disabled); err != nil {
+		p.logProcessGenerationError(
+			"disabling Go process generation failed", process, state.hostPID, err,
+		)
+		return false
+	}
+
+	delete(p.goProcessGenerationByPID, process)
+	delete(p.goProcessOwnerByHostPID, state.hostPID)
+	return true
+}
+
+func (p *Tracer) logProcessGenerationError(
+	message string,
+	process runtimeMetricTargetKey,
+	hostPID uint32,
+	err error,
+) {
+	if p.log != nil {
+		p.log.Debug(message,
+			"pid", process.pid, "namespace", process.ns, "host_pid", hostPID, "error", err)
+	}
+}
+
+func (p *Tracer) goProcessKey(
+	process runtimeMetricTargetKey,
+	hostPID uint32,
+) (goProcessKey, bool) {
+	state, ok := p.goProcessGenerationByPID[process]
+	owner, owned := p.goProcessOwnerByHostPID[hostPID]
+	if !ok || !owned || owner != process ||
+		state.retired || state.hostPID != hostPID || state.generation == 0 {
+		return goProcessKey{}, false
+	}
+	return goProcessKey{
+		PID:        uint64(hostPID),
+		Generation: state.generation,
+	}, true
+}
+
+func (p *Tracer) registerGoSpanOptionFunctions(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) bool {
+	if p == nil || fileInfo == nil {
+		return false
+	}
+
+	process := runtimeMetricTargetKey{pid: pid, ns: ns}
+	executable, _ := goExecutableKeyFor(fileInfo)
+	functions := p.goSpanOptionFuncsByExecutable[executable]
+	if len(functions) == 0 {
+		return p.clearGoSpanOptionFunctions(process)
+	}
+	if p.goSpanOptionFunctions == nil {
+		return false
+	}
+
+	loadBias, err := procs.FindExeLoadBias(pid)
+	if err != nil {
+		p.log.Debug("resolving Go span-option function load bias failed",
+			"pid", pid, "namespace", ns, "error", err)
+		return false
+	}
+	pidInfo, err := runtimeMetricPIDInfo(pid, ns)
+	if err != nil {
+		p.log.Debug("resolving Go span-option function PID failed",
+			"pid", pid, "namespace", ns, "error", err)
+		return false
+	}
+	processKey, ok := p.goProcessKey(process, pidInfo.HostPid)
+	if !ok {
+		return false
+	}
+
+	keys := make([]goSpanOptionFunctionKey, 0, len(functions))
+	for _, function := range functions {
+		if function.entry > ^uint64(0)-loadBias {
+			p.log.Debug("Go span-option function address overflowed",
+				"pid", pid, "namespace", ns, "function", function.entry, "load_bias", loadBias)
+			return false
+		}
+		key := goSpanOptionFunctionKey{
+			HostPID:    processKey.PID,
+			Generation: processKey.Generation,
+			Function:   function.entry + loadBias,
+		}
+		keys = append(keys, key)
+	}
+
+	previousKeys := p.goSpanOptionKeysByProcess[process]
+	for i, key := range keys {
+		if err := p.goSpanOptionFunctions.Put(key, functions[i].optionType); err != nil {
+			p.log.Debug("registering Go span-option function failed",
+				"pid", pid, "namespace", ns, "function", key.Function, "error", err)
+			tracked := make(
+				[]goSpanOptionFunctionKey, 0, len(previousKeys)+i+1,
+			)
+			seen := make(map[goSpanOptionFunctionKey]struct{}, len(previousKeys)+i+1)
+			for _, trackedKey := range append(previousKeys, keys[:i+1]...) {
+				if _, ok := seen[trackedKey]; ok {
+					continue
+				}
+				seen[trackedKey] = struct{}{}
+				tracked = append(tracked, trackedKey)
+			}
+			p.goSpanOptionKeysByProcess[process] = tracked
+			p.clearGoSpanOptionFunctions(process)
+			return false
+		}
+	}
+
+	desired := make(map[goSpanOptionFunctionKey]struct{}, len(keys))
+	for _, key := range keys {
+		desired[key] = struct{}{}
+	}
+	stale := make([]goSpanOptionFunctionKey, 0, len(previousKeys))
+	for _, key := range previousKeys {
+		if _, keep := desired[key]; keep {
+			continue
+		}
+		err := p.goSpanOptionFunctions.Delete(key)
+		if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			stale = append(stale, key)
+			p.log.Debug("deleting stale Go span-option function failed",
+				"pid", pid, "namespace", ns,
+				"function", key.Function, "error", err)
+		}
+	}
+	if len(stale) != 0 {
+		p.goSpanOptionKeysByProcess[process] = append(keys, stale...)
+		return false
+	}
+	p.goSpanOptionKeysByProcess[process] = keys
+	return true
+}
+
+func (p *Tracer) registerGoAutoSDKTypeInfo(
+	pid app.PID,
+	ns uint32,
+	fileInfo *exec.FileInfo,
+) bool {
+	if p == nil || fileInfo == nil || p.goAutoSDKTypeInfos == nil {
+		return false
+	}
+
+	executable, _ := goExecutableKeyFor(fileInfo)
+	typeInfo, ok := p.goAutoSDKTypesByExecutable[executable]
+	if !ok || !typeInfo.Valid() {
+		return false
+	}
+
+	process := runtimeMetricTargetKey{pid: pid, ns: ns}
+	pidInfo, err := runtimeMetricPIDInfo(pid, ns)
+	if err != nil {
+		if p.log != nil {
+			p.log.Debug("resolving Go Auto SDK PID failed",
+				"pid", pid, "namespace", ns, "error", err)
+		}
+		return false
+	}
+	hostPID := pidInfo.HostPid
+	processKey, ok := p.goProcessKey(process, hostPID)
+	if !ok {
+		return false
+	}
+
+	loadBias, err := procs.FindExeLoadBias(pid)
+	if err != nil {
+		if p.log != nil {
+			p.log.Debug("resolving Go Auto SDK type load bias failed",
+				"pid", pid, "namespace", ns, "error", err)
+		}
+		return false
+	}
+	relocated, err := relocateGoAutoSDKTypeInfo(typeInfo, loadBias)
+	if err != nil {
+		if p.log != nil {
+			p.log.Debug("relocating Go Auto SDK types failed",
+				"pid", pid, "namespace", ns, "error", err)
+		}
+		return false
+	}
+	if p.goAutoSDKTypeInfoKeys == nil {
+		p.goAutoSDKTypeInfoKeys = map[runtimeMetricTargetKey]goProcessKey{}
+	}
+	if previousKey, tracked := p.goAutoSDKTypeInfoKeys[process]; tracked &&
+		previousKey != processKey {
+		if err := p.goAutoSDKTypeInfos.Delete(previousKey); err != nil &&
+			!errors.Is(err, ebpf.ErrKeyNotExist) {
+			if p.log != nil {
+				p.log.Debug("deleting stale Go Auto SDK types failed",
+					"pid", pid, "namespace", ns,
+					"host_pid", previousKey.PID,
+					"generation", previousKey.Generation,
+					"error", err)
+			}
+			return false
+		}
+		delete(p.goAutoSDKTypeInfoKeys, process)
+	}
+	if err := p.goAutoSDKTypeInfos.Put(processKey, relocated); err != nil {
+		if p.log != nil {
+			p.log.Debug("registering Go Auto SDK types failed",
+				"pid", pid, "namespace", ns,
+				"host_pid", hostPID,
+				"generation", processKey.Generation,
+				"error", err)
+		}
+		return false
+	}
+	p.goAutoSDKTypeInfoKeys[process] = processKey
+	return true
+}
+
+func relocateGoAutoSDKTypeInfo(
+	typeInfo goexec.GoAutoSDKTypeInfo,
+	loadBias uint64,
+) (BpfGoAutoSdkTypeInfoT, error) {
+	if !typeInfo.Valid() {
+		return BpfGoAutoSdkTypeInfoT{}, errors.New("go Auto SDK type information is incomplete")
+	}
+	if typeInfo.TraceContextKeyType > ^uint64(0)-loadBias {
+		return BpfGoAutoSdkTypeInfoT{}, errors.New("go Auto SDK type address overflowed")
+	}
+	nonRecordingSpanType := uint64(0)
+	if typeInfo.NonRecordingSpanType != 0 {
+		if typeInfo.NonRecordingSpanType > ^uint64(0)-loadBias {
+			return BpfGoAutoSdkTypeInfoT{}, errors.New("go Auto SDK type address overflowed")
+		}
+		nonRecordingSpanType = typeInfo.NonRecordingSpanType + loadBias
+	}
+	recordingSpanType, err := relocateGoAddress(typeInfo.RecordingSpanType, loadBias)
+	if err != nil {
+		return BpfGoAutoSdkTypeInfoT{}, err
+	}
+	attributeOptionType, err := relocateGoAddress(typeInfo.AttributeOptionType, loadBias)
+	if err != nil {
+		return BpfGoAutoSdkTypeInfoT{}, err
+	}
+	timestampOptionType, err := relocateGoAddress(typeInfo.TimestampOptionType, loadBias)
+	if err != nil {
+		return BpfGoAutoSdkTypeInfoT{}, err
+	}
+
+	return BpfGoAutoSdkTypeInfoT{
+		TraceContextKeyType:        typeInfo.TraceContextKeyType + loadBias,
+		NonRecordingSpanType:       nonRecordingSpanType,
+		RecordingSpanType:          recordingSpanType,
+		AttributeOptionType:        attributeOptionType,
+		TimestampOptionType:        timestampOptionType,
+		NonRecordingSpanContextPos: typeInfo.NonRecordingSpanContextPos,
+		RecordingSpanContextPos:    typeInfo.RecordingSpanContextPos,
+		SpanContextTraceIdPos:      typeInfo.SpanContextTraceIDPos,
+		SpanContextSpanIdPos:       typeInfo.SpanContextSpanIDPos,
+		SpanContextTraceFlagsPos:   typeInfo.SpanContextTraceFlagsPos,
+		SpanContextRemotePos:       typeInfo.SpanContextRemotePos,
+	}, nil
+}
+
+func relocateGoAddress(address, loadBias uint64) (uint64, error) {
+	if address == 0 {
+		return 0, nil
+	}
+	if address > ^uint64(0)-loadBias {
+		return 0, errors.New("go runtime address overflowed")
+	}
+	return address + loadBias, nil
+}
+
+func (p *Tracer) deleteGoSpanOptionFunctions(pid app.PID, ns uint32) {
+	if p != nil {
+		p.clearGoSpanOptionFunctions(runtimeMetricTargetKey{pid: pid, ns: ns})
+	}
+}
+
+func (p *Tracer) clearGoSpanOptionFunctions(process runtimeMetricTargetKey) bool {
+	keys, ok := p.goSpanOptionKeysByProcess[process]
+	if !ok {
+		return true
+	}
+	if p.goSpanOptionFunctions == nil {
+		return false
+	}
+
+	remaining := make([]goSpanOptionFunctionKey, 0, len(keys))
+	for _, key := range keys {
+		err := p.goSpanOptionFunctions.Delete(key)
+		if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			remaining = append(remaining, key)
+			p.log.Debug("deleting Go span-option function failed",
+				"pid", process.pid, "namespace", process.ns,
+				"function", key.Function, "error", err)
+		}
+	}
+	if len(remaining) != 0 {
+		p.goSpanOptionKeysByProcess[process] = remaining
+		return false
+	}
+
+	delete(p.goSpanOptionKeysByProcess, process)
+	return true
+}
+
+func (p *Tracer) deleteGoAutoSDKTypeInfo(pid app.PID, ns uint32) {
+	if p == nil {
+		return
+	}
+	process := runtimeMetricTargetKey{pid: pid, ns: ns}
+	key, ok := p.goAutoSDKTypeInfoKeys[process]
+	if !ok || p.goAutoSDKTypeInfos == nil {
+		return
+	}
+	if err := p.goAutoSDKTypeInfos.Delete(key); err != nil &&
+		!errors.Is(err, ebpf.ErrKeyNotExist) {
+		if p.log != nil {
+			p.log.Debug("deleting Go Auto SDK types failed",
+				"pid", pid, "namespace", ns,
+				"host_pid", key.PID,
+				"generation", key.Generation,
+				"error", err)
+		}
+		return
+	}
+	delete(p.goAutoSDKTypeInfoKeys, process)
+}
+
+var goAutoSDKSharedProbeSymbols = []string{
+	"go.opentelemetry.io/auto/sdk.(*tracer).start",
+	"go.opentelemetry.io/auto/sdk.(*span).ended",
+	"go.opentelemetry.io/auto/sdk.(*span).End",
+}
+
+var goAutoSDKGlobalProbeSymbols = []string{
+	"go.opentelemetry.io/otel/internal/global.(*tracer).Start",
+	"go.opentelemetry.io/otel/internal/global.(*tracer).newSpan",
+}
+
+var goAutoSDKStartProbeSymbols = []string{
+	"go.opentelemetry.io/auto/sdk.tracer.Start",
+	"go.opentelemetry.io/auto/sdk.(*tracer).Start",
+}
+
+const goAutoSDKGlobalEntryProbeSymbol = "go.opentelemetry.io/otel/internal/global.(*tracer).newSpan"
+
+func goAutoSDKFunctionsAvailable(offsets *goexec.Offsets) bool {
+	_, available := goAutoSDKAttachmentSymbols(offsets)
+	return available
+}
+
+func goAutoSDKAttachmentSymbols(offsets *goexec.Offsets) ([]string, bool) {
+	if !goAutoSDKOffsetsAvailable(offsets) {
+		return nil, false
+	}
+	required := make([]string, 0, len(goAutoSDKSharedProbeSymbols)+1)
+	for _, symbol := range goAutoSDKSharedProbeSymbols {
+		if _, ok := offsets.Funcs[symbol]; !ok {
+			return nil, false
+		}
+		required = append(required, symbol)
+	}
+
+	startFound := false
+	for _, symbol := range goAutoSDKStartProbeSymbols {
+		if _, ok := offsets.Funcs[symbol]; ok {
+			required = append(required, symbol)
+			startFound = true
+			break
+		}
+	}
+	if !startFound {
+		return nil, false
+	}
+	return required, true
+}
+
+func goAutoSDKGlobalAttachmentSymbols(offsets *goexec.Offsets) ([]string, bool) {
+	if !goAutoSDKOffsetsAvailable(offsets) {
+		return nil, false
+	}
+	required := make(
+		[]string,
+		0,
+		len(goAutoSDKSharedProbeSymbols)+len(goAutoSDKGlobalProbeSymbols),
+	)
+	for _, symbol := range goAutoSDKSharedProbeSymbols {
+		if _, ok := offsets.Funcs[symbol]; !ok {
+			return nil, false
+		}
+		required = append(required, symbol)
+	}
+	for _, symbol := range goAutoSDKGlobalProbeSymbols {
+		function, ok := offsets.Funcs[symbol]
+		if !ok ||
+			(symbol == goAutoSDKGlobalEntryProbeSymbol &&
+				function.Admission == 0) {
+			return nil, false
+		}
+		required = append(required, symbol)
+	}
+	return required, true
+}
+
+func goAutoSDKOffsetsAvailable(offsets *goexec.Offsets) bool {
+	return offsets != nil &&
+		offsets.SupportsGoAutoSDKActivation() &&
+		offsets.AutoSDKTypes.Valid()
 }
 
 func initMissingGoChannelOffsets(offTable *BpfOffTableT) {
@@ -520,23 +2264,59 @@ func initMissingGoChannelOffsets(offTable *BpfOffTableT) {
 	}
 }
 
+func initMissingGRPCWriterOffsets(offTable *BpfOffTableT) {
+	if offTable == nil {
+		return
+	}
+
+	for _, field := range []goexec.GoOffset{
+		goexec.GrpcTransportBufWriterBufPos,
+		goexec.GrpcTransportBufWriterOffsetPos,
+		goexec.GrpcTransportBufWriterConnPos,
+	} {
+		offTable.Table[field] = missingGoOffset
+	}
+}
+
 func (p *Tracer) recordGoChannelOffsetAvailability(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
 	if p == nil || fileInfo == nil {
 		return
 	}
 
-	if p.goChannelOffsetsByIno == nil {
-		p.goChannelOffsetsByIno = map[uint64]bool{}
+	if p.goChannelOffsetsByExecutable == nil {
+		p.goChannelOffsetsByExecutable = map[goExecutableKey]bool{}
 	}
 
-	ino := fileInfo.Ino()
+	executable, _ := goExecutableKeyFor(fileInfo)
 	hasOffsets := offsets.HasGoChannelOffsets()
-	p.goChannelOffsetsByIno[ino] = hasOffsets
-	p.currentBinaryIno = ino
+	p.goChannelOffsetsByExecutable[executable] = hasOffsets
+	p.currentBinaryExecutable = executable
 
 	if !hasOffsets && p.log != nil {
 		p.log.Debug("skipping Go channel link probes for binary with missing runtime.hchan offsets",
-			"pid", fileInfo.Pid(), "ino", ino, "cmd", fileInfo.CmdExePath())
+			"pid", fileInfo.Pid(), "dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino,
+			"cmd", fileInfo.CmdExePath())
+	}
+}
+
+func (p *Tracer) recordGoHTTP2ServerOffsetAvailability(
+	fileInfo *exec.FileInfo,
+	available goHTTP2ServerOffsetAvailability,
+) {
+	if p == nil || fileInfo == nil {
+		return
+	}
+	if p.goHTTP2ServerOffsetsByExecutable == nil {
+		p.goHTTP2ServerOffsetsByExecutable = map[goExecutableKey]goHTTP2ServerOffsetAvailability{}
+	}
+	executable, _ := goExecutableKeyFor(fileInfo)
+	p.goHTTP2ServerOffsetsByExecutable[executable] = available
+	if (!available.xNet || !available.vendored) && p.log != nil {
+		p.log.Debug("some Go HTTP/2 server probes are unavailable for binary with missing offsets",
+			"pid", fileInfo.Pid(), "dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino,
+			"x_net_available", available.xNet,
+			"vendored_available", available.vendored,
+			"cmd", fileInfo.CmdExePath())
 	}
 }
 
@@ -545,14 +2325,14 @@ func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offs
 		return
 	}
 
-	if p.goRuntimeMetricMaskByIno == nil {
-		p.goRuntimeMetricMaskByIno = map[uint64]uint64{}
+	if p.goRuntimeMetricMaskByExecutable == nil {
+		p.goRuntimeMetricMaskByExecutable = map[goExecutableKey]uint64{}
 	}
-	if p.goRuntimeGCGoalSourceByIno == nil {
-		p.goRuntimeGCGoalSourceByIno = map[uint64]goRuntimeGCGoalSource{}
+	if p.goRuntimeGCGoalSourceByExecutable == nil {
+		p.goRuntimeGCGoalSourceByExecutable = map[goExecutableKey]goRuntimeGCGoalSource{}
 	}
 
-	ino := fileInfo.Ino()
+	executable, _ := goExecutableKeyFor(fileInfo)
 	mask := goRuntimeMetricMask(offsets)
 	gcGoalSource := selectGoRuntimeGCGoalSource(
 		offsets,
@@ -561,7 +2341,7 @@ func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offs
 	if gcGoalSource != goRuntimeGCGoalSourceNone {
 		mask |= goRuntimeMetricMemoryGCGoalMask
 	}
-	p.goRuntimeGCGoalSourceByIno[ino] = gcGoalSource
+	p.goRuntimeGCGoalSourceByExecutable[executable] = gcGoalSource
 	includesSystem, modeKnown := goexec.RuntimeMetricGoroutineCountMode(fileInfo.ELF())
 	if hasGoRuntimeGoroutineCountOffsets(offsets, includesSystem, modeKnown) {
 		mask |= goRuntimeMetricGoroutineCountMask
@@ -570,7 +2350,8 @@ func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offs
 	if err != nil && p.log != nil {
 		p.log.Debug("Go runtime memory metric version detection failed",
 			"pid", fileInfo.Pid(),
-			"ino", ino,
+			"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor,
+			"ino", executable.Ino,
 			"cmd", fileInfo.CmdExePath(),
 			"error", err)
 	}
@@ -588,18 +2369,20 @@ func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offs
 		if p.log != nil {
 			p.log.Warn("Go runtime heap metric symbol unresolved; using scalar fallback",
 				"pid", fileInfo.Pid(),
-				"ino", ino,
+				"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor,
+				"ino", executable.Ino,
 				"cmd", fileInfo.CmdExePath(),
 				"missing_probe", goRuntimeMetricHeapSnapshotSymbol,
 				"fallback_probe", goRuntimeMetricGCMarkDoneSymbol)
 		}
 	}
-	p.goRuntimeMetricMaskByIno[ino] = mask
+	p.goRuntimeMetricMaskByExecutable[executable] = mask
 
 	if p.log != nil {
 		p.log.Debug("Go runtime metric availability",
 			"pid", fileInfo.Pid(),
-			"ino", ino,
+			"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor,
+			"ino", executable.Ino,
 			"cmd", fileInfo.CmdExePath(),
 			"available_mask", mask,
 			"base_available", hasBaseGoRuntimeMetrics(mask),
@@ -693,7 +2476,8 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 	if fileInfo == nil || p.bpfObjects.GoRuntimeMetricTargets == nil {
 		return
 	}
-	availableMask := p.goRuntimeMetricMaskByIno[fileInfo.Ino()]
+	executable, _ := goExecutableKeyFor(fileInfo)
+	availableMask := p.goRuntimeMetricMaskByExecutable[executable]
 	if !hasBaseGoRuntimeMetrics(availableMask) {
 		return
 	}
@@ -706,11 +2490,12 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 
 	symbols, err := goexec.ResolveRuntimeMetricSymbols(fileInfo, pid)
 	if err != nil {
-		p.log.Debug("runtime metrics disabled for executable", "pid", pid, "ino", fileInfo.Ino(), "error", err)
+		p.log.Debug("runtime metrics disabled for executable", "pid", pid,
+			"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino, "error", err)
 		return
 	}
 	availableMask = p.goRuntimeMetricMaskForSymbols(fileInfo, availableMask, symbols)
-	p.goRuntimeMetricMaskByIno[fileInfo.Ino()] = availableMask
+	p.goRuntimeMetricMaskByExecutable[executable] = availableMask
 
 	value := BpfGoRuntimeMetricTargetT{
 		MemstatsAddr:                 symbols.MemstatsAddr,
@@ -723,11 +2508,12 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 		AllglenAddr:                  symbols.AllgLenAddr,
 		AllpAddr:                     symbols.AllpAddr,
 		GoroutineCountIncludesSystem: symbols.GoroutineCountIncludesSystem,
-		GcGoalSource:                 uint32(p.goRuntimeGCGoalSourceByIno[fileInfo.Ino()]),
+		GcGoalSource:                 uint32(p.goRuntimeGCGoalSourceByExecutable[executable]),
 	}
 
 	if err := p.bpfObjects.GoRuntimeMetricTargets.Put(pidInfo, value); err != nil {
-		p.log.Debug("setting runtime metric target failed", "pid", pid, "ino", fileInfo.Ino(), "error", err)
+		p.log.Debug("setting runtime metric target failed", "pid", pid,
+			"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino, "error", err)
 		return
 	}
 
@@ -742,12 +2528,14 @@ func (p *Tracer) goRuntimeMetricMaskForSymbols(
 	mask uint64,
 	symbols goexec.RuntimeMetricSymbols,
 ) uint64 {
+	executable, _ := goExecutableKeyFor(fileInfo)
 	if mask&goRuntimeMetricMemoryAllocsMask != 0 && symbols.SizeClassToSizesAddr == 0 {
 		mask &^= goRuntimeMetricMemoryAllocsMask
 		if p.log != nil {
 			p.log.Warn("Go runtime size-class table symbol unresolved; disabling allocation metrics",
 				"pid", fileInfo.Pid(),
-				"ino", fileInfo.Ino(),
+				"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor,
+				"ino", executable.Ino,
 				"cmd", fileInfo.CmdExePath())
 		}
 	}
@@ -759,7 +2547,8 @@ func (p *Tracer) goRuntimeMetricMaskForSymbols(
 		if p.log != nil {
 			p.log.Warn("Go runtime goroutine count metadata unresolved; disabling goroutine metric",
 				"pid", fileInfo.Pid(),
-				"ino", fileInfo.Ino(),
+				"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor,
+				"ino", executable.Ino,
 				"cmd", fileInfo.CmdExePath())
 		}
 	}
@@ -769,7 +2558,8 @@ func (p *Tracer) goRuntimeMetricMaskForSymbols(
 		if p.log != nil {
 			p.log.Warn("Go runtime scheduler symbol unresolved; disabling histogram metrics",
 				"pid", fileInfo.Pid(),
-				"ino", fileInfo.Ino(),
+				"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor,
+				"ino", executable.Ino,
 				"cmd", fileInfo.CmdExePath())
 		}
 	}
@@ -779,7 +2569,8 @@ func (p *Tracer) goRuntimeMetricMaskForSymbols(
 // deleteRuntimeMetricTarget removes process-scoped runtime metadata whenever
 // the process is no longer eligible for runtime metric collection.
 func (p *Tracer) deleteRuntimeMetricTarget(pid app.PID, ns uint32) {
-	pidInfo, ok := p.runtimeMetricTargetKeys[runtimeMetricTargetKey{pid: pid, ns: ns}]
+	process := runtimeMetricTargetKey{pid: pid, ns: ns}
+	pidInfo, ok := p.runtimeMetricTargetKeys[process]
 	if !ok {
 		var err error
 		pidInfo, err = runtimeMetricPIDInfo(pid, ns)
@@ -792,7 +2583,7 @@ func (p *Tracer) deleteRuntimeMetricTarget(pid app.PID, ns uint32) {
 	if p.bpfObjects.GoRuntimeMetricTargets != nil {
 		_ = p.bpfObjects.GoRuntimeMetricTargets.Delete(pidInfo)
 	}
-	delete(p.runtimeMetricTargetKeys, runtimeMetricTargetKey{pid: pid, ns: ns})
+	delete(p.runtimeMetricTargetKeys, process)
 }
 
 func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
@@ -815,20 +2606,49 @@ func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
 	return pidInfo, nil
 }
 
+func resolveGoProcessHostPID(pid app.PID, ns uint32) (uint32, error) {
+	pidInfo, err := runtimeMetricPIDInfo(pid, ns)
+	if err != nil {
+		return 0, err
+	}
+	return pidInfo.HostPid, nil
+}
+
 func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
 	if p == nil {
 		return
 	}
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+
 	if fileInfo == nil {
-		p.currentBinaryIno = 0
+		p.currentBinaryExecutable = goExecutableKey{}
 		return
 	}
 
-	p.currentBinaryIno = fileInfo.Ino()
+	p.currentBinaryExecutable, _ = goExecutableKeyFor(fileInfo)
 }
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
-	p.closers = append(p.closers, c...)
+	p.goTracerResources().Add(c...)
+}
+
+func (p *Tracer) goTracerResources() *goTracerResources {
+	p.resourcesMu.Lock()
+	defer p.resourcesMu.Unlock()
+	if p.resources == nil {
+		p.resources = newGoTracerResources(p, &p.bpfObjects)
+	}
+	return p.resources
+}
+
+func (p *Tracer) ResourceTeardownReady() bool {
+	if p == nil {
+		return true
+	}
+	p.resourcesMu.Lock()
+	defer p.resourcesMu.Unlock()
+	return p.resources == nil || p.resources.teardownReady()
 }
 
 var goChannelLinkProbeSymbols = []string{
@@ -849,6 +2669,26 @@ var goRuntimeMetricProbeSymbols = []string{
 	goRuntimeMetricGCGoalSymbol,
 }
 
+var goHpackEncoderWriteFieldProbeSymbols = []string{
+	"golang.org/x/net/http2/hpack.(*Encoder).WriteField",
+	"vendor/golang.org/x/net/http2/hpack.(*Encoder).WriteField",
+}
+
+var goHTTP2XNetServerProbeSymbols = []string{
+	"golang.org/x/net/http2.(*serverConn).runHandler",
+	"golang.org/x/net/http2.(*serverConn).processHeaders",
+}
+
+var goHTTP2VendoredServerProbeSymbols = []string{
+	"net/http.(*http2serverConn).runHandler",
+	"net/http.(*http2serverConn).processHeaders",
+}
+
+var goHTTP2ServerProbeSymbols = append(
+	append([]string(nil), goHTTP2XNetServerProbeSymbols...),
+	goHTTP2VendoredServerProbeSymbols...,
+)
+
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
 func GoChannelLinkProbeSymbols() []string {
 	return append([]string(nil), goChannelLinkProbeSymbols...)
@@ -860,6 +2700,7 @@ func GoRuntimeMetricProbeSymbols() []string {
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
+	probeState := p.goProbeState()
 	m := map[string][]*ebpfcommon.ProbeDesc{
 		// Go runtime
 		"runtime.newproc1": {{
@@ -930,15 +2771,19 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"golang.org/x/net/http2.(*serverConn).runHandler": {{
 			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler, // http2 server connection tracking
+			End:   p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerReturns,
 		}},
 		"net/http.(*http2serverConn).runHandler": {{
 			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler, // http2 server connection tracking, vendored in go
+			End:   p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerReturns,
 		}},
 		"golang.org/x/net/http2.(*serverConn).processHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing
+			End:   p.bpfObjects.ObiUprobeHttp2ServerProcessHeadersReturns,
 		}},
 		"net/http.(*http2serverConn).processHeaders": {{
-			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing, vendored in go
+			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeadersVendored, // http2 server request header parsing, vendored in go
+			End:   p.bpfObjects.ObiUprobeHttp2ServerProcessHeadersReturnsVendored,
 		}},
 		// tracking of tcp connections for black-box propagation
 		"net/http.(*conn).serve": {{ // http server
@@ -1012,10 +2857,12 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeClientConnClose,
 		}},
 		"google.golang.org/grpc.(*clientStream).RecvMsg": {{
-			End: p.bpfObjects.ObiUprobeClientStreamRecvMsgReturn,
+			Start: p.bpfObjects.ObiUprobeClientStreamRecvMsg,
+			End:   p.bpfObjects.ObiUprobeClientStreamRecvMsgReturn,
 		}},
-		"google.golang.org/grpc.(*clientStream).CloseSend": {{
-			End: p.bpfObjects.ObiUprobeClientConnInvokeReturn,
+		"google.golang.org/grpc.(*clientStream).finish": {{
+			Start:    p.bpfObjects.ObiUprobeClientStreamFinish,
+			Required: false,
 		}},
 		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream": {{
 			Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream,
@@ -1100,6 +2947,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"go.opentelemetry.io/auto/sdk.(*tracer).Start": {{
 			Start: p.bpfObjects.ObiUprobeTracerStart,
+			End:   p.bpfObjects.ObiUprobeTracerStartReturns,
+		}},
+		"go.opentelemetry.io/auto/sdk.tracer.Start": {{
+			Start: p.bpfObjects.ObiUprobeTracerStartValue,
 			End:   p.bpfObjects.ObiUprobeTracerStartReturns,
 		}},
 		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).End": {{
@@ -1210,7 +3061,32 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 	}
 
-	if p.goRuntimeHeapSnapshotProbeEnabled() {
+	if !probeState.http2XNetServer {
+		for _, symbol := range goHTTP2XNetServerProbeSymbols {
+			delete(m, symbol)
+		}
+	}
+	if !probeState.http2VendoredServer {
+		for _, symbol := range goHTTP2VendoredServerProbeSymbols {
+			delete(m, symbol)
+		}
+	}
+
+	if p.supportsContextPropagation() {
+		m["go.opentelemetry.io/otel/internal/global.(*tracer).newSpan"] = []*ebpfcommon.ProbeDesc{{
+			Start:           p.bpfObjects.ObiUprobeTracerNewSpan,
+			End:             p.bpfObjects.ObiUprobeTracerNewSpanReturn,
+			AttachStartLast: true,
+		}}
+		m["go.opentelemetry.io/auto/sdk.(*tracer).start"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeAutoSdkTracerStart,
+		}}
+		m["go.opentelemetry.io/auto/sdk.(*span).ended"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
+		}}
+	}
+
+	if probeState.runtimeHeapSnapshot {
 		// Go 1.23+ heap statistics use a rotating ring. Collect at nextGen after GC
 		// accounting and before the world restarts so the ring cannot rotate mid-read.
 		m[goRuntimeMetricHeapSnapshotSymbol] = []*ebpfcommon.ProbeDesc{{
@@ -1224,13 +3100,13 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 	}
 
-	if p.goRuntimeGCGoalSourceEnabled() {
+	if probeState.runtimeGCGoal {
 		m[goRuntimeMetricGCGoalSymbol] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeGoRuntimeGcGoal,
 		}}
 	}
 
-	if p.goChannelLinkProbesEnabled() {
+	if probeState.channelLinks {
 		m[goChannelLinkProbeSymbols[0]] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRuntimeChansend1,
 			End:   p.bpfObjects.ObiUprobeRuntimeChansend1Return,
@@ -1286,6 +3162,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeWriteSubset,        // http 1.x context propagation
 			End:   p.bpfObjects.ObiUprobeWriteSubsetReturns, // inject only if no traceparent present
 		}}
+		p.addGoHpackTraceparentProbes(m)
 		m["golang.org/x/net/http2.(*Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{
 			{ // http2 context propagation
 				Start: p.bpfObjects.ObiUprobeGolangHttp2FramerWriteHeaders,
@@ -1305,28 +3182,48 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	return m
 }
 
+func (p *Tracer) addGoHpackTraceparentProbes(m map[string][]*ebpfcommon.ProbeDesc) {
+	for _, symbol := range goHpackEncoderWriteFieldProbeSymbols {
+		m[symbol] = []*ebpfcommon.ProbeDesc{{
+			Required: false,
+			Start:    p.bpfObjects.ObiUprobeHpackEncoderWriteField,
+		}}
+	}
+}
+
+type goProbeSelectionState struct {
+	channelLinks        bool
+	http2XNetServer     bool
+	http2VendoredServer bool
+	runtimeHeapSnapshot bool
+	runtimeGCGoal       bool
+}
+
+func (p *Tracer) goProbeState() goProbeSelectionState {
+	if p == nil {
+		return goProbeSelectionState{}
+	}
+
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+
+	executable := p.currentBinaryExecutable
+	if executable == (goExecutableKey{}) {
+		return goProbeSelectionState{}
+	}
+	http2 := p.goHTTP2ServerOffsetsByExecutable[executable]
+	return goProbeSelectionState{
+		channelLinks:        p.goChannelOffsetsByExecutable[executable],
+		http2XNetServer:     http2.xNet,
+		http2VendoredServer: http2.vendored,
+		runtimeHeapSnapshot: p.goRuntimeMetricMaskByExecutable[executable]&goRuntimeMetricHeapSnapshotMask != 0,
+		runtimeGCGoal: p.goRuntimeGCGoalSourceByExecutable[executable] ==
+			goRuntimeGCGoalSourcePaceScavengerArgument,
+	}
+}
+
 func (p *Tracer) goChannelLinkProbesEnabled() bool {
-	if p == nil || p.currentBinaryIno == 0 {
-		return false
-	}
-
-	return p.goChannelOffsetsByIno[p.currentBinaryIno]
-}
-
-func (p *Tracer) goRuntimeHeapSnapshotProbeEnabled() bool {
-	if p == nil || p.currentBinaryIno == 0 {
-		return false
-	}
-
-	return p.goRuntimeMetricMaskByIno[p.currentBinaryIno]&goRuntimeMetricHeapSnapshotMask != 0
-}
-
-func (p *Tracer) goRuntimeGCGoalSourceEnabled() bool {
-	if p == nil || p.currentBinaryIno == 0 {
-		return false
-	}
-	return p.goRuntimeGCGoalSourceByIno[p.currentBinaryIno] ==
-		goRuntimeGCGoalSourcePaceScavengerArgument
+	return p.goProbeState().channelLinks
 }
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
@@ -1368,7 +3265,18 @@ func (p *Tracer) AlreadyInstrumentedLib(_ uint64) bool {
 }
 
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
-	parseContext := ebpfcommon.NewEBPFParseContext(p.cfg, eventsChan, p.pidsFilter)
+	p.startGoAutoSDKRun(ctx)
+	defer func() {
+		if err := p.goTracerResources().Close(); err != nil {
+			p.logGoAutoSDKError("closing Go tracer resources failed", err)
+		}
+	}()
+	parseContext := ebpfcommon.NewEBPFParseContext(
+		p.cfg,
+		eventsChan,
+		p.pidsFilter,
+		ebpfcommon.WithMisclassifiedEventHandler(ctx, ebpfEventContext.HandleMisclassifiedEvent),
+	)
 	defer parseContext.Close()
 	ebpfcommon.SharedRingbuf(
 		ebpfEventContext,
@@ -1387,7 +3295,11 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 		p.pidsFilter.Filter,
 		slog.With("component", "ringbuf.Tracer"),
 		p.metrics,
-	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
+	)(
+		ctx,
+		nil,
+		eventsChan,
+	)
 }
 
 func (p *Tracer) SetEventContext(_ *ebpfcommon.EBPFEventContext) {}

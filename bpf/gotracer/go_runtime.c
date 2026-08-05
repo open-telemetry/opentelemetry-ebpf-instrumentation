@@ -22,8 +22,10 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_http1_server.h>
 
 #include <gotracer/maps/grpc.h>
+#include <gotracer/maps/hpack.h>
 #include <gotracer/maps/kafka.h>
 #include <gotracer/maps/mongo.h>
 #include <gotracer/maps/nethttp.h>
@@ -686,7 +688,10 @@ int obi_uprobe_runtime_newproc1(struct pt_regs *ctx) {
     void *creator_goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);
 
-    new_func_invocation_t invocation = {.parent = (u64)GO_PARAM2(ctx)};
+    void *parent_goroutine = GO_PARAM2(ctx);
+    new_func_invocation_t invocation = {
+        .parent = (u64)parent_goroutine,
+    };
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, creator_goroutine_addr);
 
@@ -708,6 +713,28 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
 
     bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);
 
+    // The result of newproc1 is the new goroutine. Clear address-keyed context before looking up
+    // the parent metadata because runtime.g addresses can be reused even if that lookup was evicted.
+    void *goroutine_addr = (void *)GO_PARAM1(ctx);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
+    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
+    go_exact_process_addr_key_t exact_g_key = {};
+    const u8 has_exact_g_key = go_exact_process_addr_key_from_address(&exact_g_key, &g_key);
+    delete_go_trace_state(&g_key);
+    clear_go_hpack_traceparent(&g_key);
+    go_http_clear_unversioned_address_state(&go_ongoing_http_client_requests,
+                                            &ongoing_http_client_requests_data,
+                                            &ongoing_client_connections,
+                                            &framer_invocation_map,
+                                            &http2_process_headers_invocations,
+                                            &http1_server_handoffs,
+                                            &ongoing_http_server_requests,
+                                            &ongoing_server_bufr,
+                                            &ongoing_server_connections,
+                                            &g_key,
+                                            has_exact_g_key ? &exact_g_key : NULL);
+    bpf_map_delete_elem(&ongoing_goroutines, &g_key);
+
     // Lookup the newproc1 invocation metadata
     new_func_invocation_t *invocation = bpf_map_lookup_elem(&newproc1, &c_key);
     if (invocation == NULL) {
@@ -719,28 +746,20 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     void *parent_goroutine = (void *)invocation->parent;
     bpf_dbg_printk("parent_goroutine=%lx", parent_goroutine);
 
-    // The result of newproc1 is the new goroutine
-    void *goroutine_addr = (void *)GO_PARAM1(ctx);
-    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
-
     go_addr_key_t p_key = {.addr = (u64)parent_goroutine, .pid = pid};
-
-    goroutine_metadata *g_metadata =
+    const u64 generation = go_process_generation(pid);
+    goroutine_metadata *parent_metadata =
         (goroutine_metadata *)bpf_map_lookup_elem(&ongoing_goroutines, &p_key);
-
-    if (g_metadata) {
-        // Don't create cycles at one level on immediate goroutine reuse
-        if (g_metadata->parent.addr == (u64)goroutine_addr) {
-            bpf_dbg_printk("avoiding cycle %llx -> %llx", parent_goroutine, goroutine_addr);
-            goto done;
-        }
+    if (parent_metadata && parent_metadata->generation == generation &&
+        parent_metadata->parent.addr == (u64)goroutine_addr) {
+        bpf_dbg_printk("avoiding cycle %llx -> %llx", parent_goroutine, goroutine_addr);
+        goto done;
     }
-
-    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
 
     goroutine_metadata metadata = {
         .timestamp = bpf_ktime_get_ns(),
         .parent = p_key,
+        .generation = generation,
     };
 
     if (bpf_map_update_elem(&ongoing_goroutines, &g_key, &metadata, BPF_ANY)) {
@@ -755,6 +774,25 @@ done:
 
 static __always_inline bool valid_tp_info(const tp_info_t *tp) {
     return tp && valid_trace(tp->trace_id) && valid_span(tp->span_id);
+}
+
+static __always_inline bool set_http1_obi_context(u64 pid_tgid,
+                                                  void *handoff_map,
+                                                  const go_addr_key_t *key,
+                                                  obi_ctx_info_t *obi_info) {
+    const http1_server_handoff_t *handoff =
+        go_http1_server_handoff_lookup_current(handoff_map, key);
+    if (!obi_info || !go_http1_server_handoff_has_parent(handoff)) {
+        return false;
+    }
+
+    bpf_memcpy(obi_info->trace_id, handoff->tp.trace_id, TRACE_ID_SIZE_BYTES);
+    bpf_memcpy(obi_info->span_id, handoff->tp.span_id, SPAN_ID_SIZE_BYTES);
+    const u8 flags = handoff->tp.flags;
+    if (bpf_map_update_elem(&traces_ctx_v1, &pid_tgid, obi_info, BPF_ANY) == 0) {
+        bpf_map_update_elem(&traces_ctx_flags, &pid_tgid, &flags, BPF_ANY);
+    }
+    return true;
 }
 
 static __always_inline bool current_obi_handoff(struct pt_regs *ctx, chan_handoff_t *handoff) {
@@ -775,20 +813,31 @@ static __always_inline bool current_obi_handoff(struct pt_regs *ctx, chan_handof
 
     grpc_client_func_invocation_t *grpc_client_inv =
         bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-    if (grpc_client_inv && valid_tp_info(&grpc_client_inv->tp)) {
+    if (grpc_client_inv && grpc_client_request_id_is_current(&grpc_client_inv->request_id) &&
+        valid_tp_info(&grpc_client_inv->tp)) {
         tp_clone(&handoff->tp, &grpc_client_inv->tp);
         return true;
     }
 
     server_http_func_invocation_t *http_server_inv =
-        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
     if (http_server_inv && valid_tp_info(&http_server_inv->tp)) {
         tp_clone(&handoff->tp, &http_server_inv->tp);
         return true;
     }
 
+    http1_server_handoff_t *http1 =
+        go_http1_server_handoff_lookup_current(&http1_server_handoffs, &g_key);
+    if (go_http1_server_handoff_has_parent(http1)) {
+        tp_clone(&handoff->tp, &http1->tp);
+        return true;
+    }
+
+    go_exact_process_addr_key_t exact_g_key = {};
     http_func_invocation_t *http_client_inv =
-        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
+        go_exact_process_addr_key_from_address(&exact_g_key, &g_key)
+            ? bpf_map_lookup_elem(&go_ongoing_http_client_requests, &exact_g_key)
+            : NULL;
     if (http_client_inv && valid_tp_info(&http_client_inv->tp)) {
         tp_clone(&handoff->tp, &http_client_inv->tp);
         return true;
@@ -823,7 +872,8 @@ static __always_inline bool current_obi_handoff(struct pt_regs *ctx, chan_handof
         __builtin_memcpy(handoff->tp.trace_id, obi_ctx->trace_id, sizeof(handoff->tp.trace_id));
         __builtin_memcpy(handoff->tp.span_id, obi_ctx->span_id, sizeof(handoff->tp.span_id));
         *((u64 *)handoff->tp.parent_id) = 0;
-        handoff->tp.flags = 0;
+        const u8 *flags = obi_ctx__get_flags(bpf_get_current_pid_tgid());
+        handoff->tp.flags = flags ? *flags : 0;
         return true;
     }
 
@@ -1342,14 +1392,18 @@ int obi_uprobe_runtime_casgstatus(struct pt_regs *ctx) {
             return 0;
         }
         grpc_client_inv = bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-        if (grpc_client_inv) {
+        if (grpc_client_inv && grpc_client_request_id_is_current(&grpc_client_inv->request_id)) {
             obi_ctx__set_(g_pid_tgid, &grpc_client_inv->tp, &obi_info);
             return 0;
         }
         // http
-        http_server_inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
-        if (http_server_inv) {
+        http_server_inv =
+            go_http_server_invocation_lookup_current(&ongoing_http_server_requests, &g_key);
+        if (http_server_inv && valid_tp_info(&http_server_inv->tp)) {
             obi_ctx__set_(g_pid_tgid, &http_server_inv->tp, &obi_info);
+            return 0;
+        }
+        if (set_http1_obi_context(g_pid_tgid, &http1_server_handoffs, &g_key, &obi_info)) {
             return 0;
         }
         // kafka_go

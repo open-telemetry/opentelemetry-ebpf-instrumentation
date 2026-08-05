@@ -52,6 +52,7 @@ const (
 	EventCreated = WatchEventType(iota)
 	EventDeleted
 	EventInstanceDeleted
+	EventTracerInitialized
 )
 
 type Event[T any] struct {
@@ -60,12 +61,15 @@ type Event[T any] struct {
 }
 
 type ProcessAttrs struct {
-	pid            app.PID
-	openPorts      []uint32
+	pid       app.PID
+	openPorts []uint32
+	// portsUnknown distinguishes an unread port list from an authoritative empty list.
+	portsUnknown   bool
 	metadata       map[string]string
 	podLabels      map[string]string
 	podAnnotations map[string]string
 	processAge     time.Duration
+	startTime      uint64
 	detectedType   svc.InstrumentableType
 	cmdArgs        string
 }
@@ -239,10 +243,10 @@ func (pa *pollAccounter) portFetchRequired() bool {
 		return true
 	}
 
-	ret := pa.fetchPorts
+	fetchPorts := pa.fetchPorts
 	pa.fetchPorts = false
 
-	return ret
+	return fetchPorts
 }
 
 func portOfInterest(criteria []services.Selector, port int) bool {
@@ -292,6 +296,40 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs) []Event
 	notReadyProcs := map[app.PID]struct{}{}
 	// notify processes that are new, or already existed but have a new connection
 	for pid, proc := range fetchedProcs {
+		if proc.startTime == 0 {
+			if previous, ok := pa.pids[pid]; ok {
+				fetchedProcs[pid] = previous
+				for _, port := range previous.openPorts {
+					currentPidPorts[pidPort{Pid: pid, Port: port}] = previous
+				}
+			} else {
+				delete(fetchedProcs, pid)
+			}
+			log.Debug("delaying process analysis, start time unavailable", "pid", pid)
+			continue
+		}
+
+		if previous, ok := pa.pids[pid]; ok {
+			if previous.startTime != proc.startTime {
+				events = append(events, Event[ProcessAttrs]{Type: EventDeleted, Obj: previous})
+				log.Debug("process replaced", "pid", pid, "oldStartTime", previous.startTime, "newStartTime", proc.startTime)
+				delete(pa.pids, pid)
+				for pp := range pa.pidPorts {
+					if pp.Pid == pid {
+						delete(pa.pidPorts, pp)
+					}
+				}
+			}
+		}
+
+		if proc.portsUnknown {
+			if previous, ok := pa.pids[pid]; ok {
+				proc.openPorts = previous.openPorts
+				proc.portsUnknown = previous.portsUnknown
+				fetchedProcs[pid] = proc
+			}
+		}
+
 		// if the process does not have open ports, we might still notify it
 		// for example, if it's a client with ephemeral connections, which might be later matched by executable name
 		if len(proc.openPorts) == 0 {
@@ -412,44 +450,42 @@ func ProcessAgeFunc() func(app.PID) time.Duration {
 	return r.processAge
 }
 
+func ProcessStartTimeFunc() func(app.PID) uint64 {
+	r := procStatReader{}
+	return r.getProcStartTime
+}
+
 // overridden in tests
-var processAgeFunc = ProcessAgeFunc()
+var (
+	processAgeFunc       = ProcessAgeFunc()
+	processStartTimeFunc = ProcessStartTimeFunc()
+)
 
 // see https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
 func parseProcStatField(buf string, field int) string {
-	inParens := false
-
-	// field 2 is the comm, which is deliminated by parens and can contain
-	// whitespace, e.g. (foo bar) - this function accounts for that
-	f := func(c rune) bool {
-		if c == '(' {
-			inParens = true
-			return true
-		}
-
-		if inParens {
-			if c == ')' {
-				inParens = false
-				return true
-			}
-
-			return false
-		}
-
-		return c == ' '
+	if field < 1 {
+		return ""
 	}
 
-	i := 1
-
-	for word := range strings.FieldsFuncSeq(buf, f) {
-		if i == field {
-			return word
-		}
-
-		i++
+	commStart := strings.IndexByte(buf, '(')
+	commEnd := strings.LastIndexByte(buf, ')')
+	if commStart < 0 || commEnd <= commStart {
+		return ""
 	}
 
-	return ""
+	switch field {
+	case 1:
+		return strings.TrimSpace(buf[:commStart])
+	case 2:
+		return buf[commStart+1 : commEnd]
+	}
+
+	fields := strings.Fields(buf[commEnd+1:])
+	index := field - 3
+	if index < 0 || index >= len(fields) {
+		return ""
+	}
+	return fields[index]
 }
 
 type procStatReader struct{}
@@ -479,9 +515,12 @@ func (r *procStatReader) getProcStatField(pid app.PID, field int) string {
 }
 
 func ticksToNanosecond(ticks uint64) uint64 {
-	clkTck := 100 // default for Linux
+	const nanosecondsPerClockTick = uint64(time.Second) / 100
 
-	return ticks * 1e9 / uint64(clkTck)
+	if ticks > math.MaxUint64/nanosecondsPerClockTick {
+		return 0
+	}
+	return ticks * nanosecondsPerClockTick
 }
 
 func nsToDuration(ns uint64) time.Duration {
@@ -526,7 +565,10 @@ func (r *procStatReader) processAge(pid app.PID) time.Duration {
 }
 
 // overridden in tests
-var processPidsFunc = process.Pids
+var (
+	processPidsFunc        = process.Pids
+	processConnectionsFunc = net.ConnectionsPid
+)
 
 // fetchProcessConnections returns a map with the PIDs of all the running processes as a key,
 // and the open ports for the given process as a value
@@ -539,13 +581,29 @@ func fetchProcessPorts(scanPorts bool) (map[app.PID]ProcessAttrs, error) {
 	}
 
 	for _, pid := range pids {
+		processPID := app.PID(pid)
+		startTime := processStartTimeFunc(processPID)
 		if !scanPorts {
-			processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), detectedType: svc.InstrumentableUnknown, openPorts: []uint32{}, processAge: processAgeFunc(app.PID(pid))}
+			processes[processPID] = ProcessAttrs{
+				pid:          processPID,
+				detectedType: svc.InstrumentableUnknown,
+				openPorts:    []uint32{},
+				portsUnknown: true,
+				processAge:   processAgeFunc(processPID),
+				startTime:    startTime,
+			}
 			continue
 		}
-		conns, err := net.ConnectionsPid("inet", pid)
+		conns, err := processConnectionsFunc("inet", pid)
 		if err != nil {
-			log.Debug("can't get connections for process. Skipping", "pid", pid, "error", err)
+			log.Debug("can't get connections for process", "pid", pid, "error", err)
+			processes[processPID] = ProcessAttrs{
+				pid:          processPID,
+				detectedType: svc.InstrumentableUnknown,
+				portsUnknown: true,
+				processAge:   processAgeFunc(processPID),
+				startTime:    startTime,
+			}
 			continue
 		}
 		var openPorts []uint32
@@ -553,7 +611,13 @@ func fetchProcessPorts(scanPorts bool) (map[app.PID]ProcessAttrs, error) {
 		for _, conn := range conns {
 			openPorts = append(openPorts, conn.Laddr.Port)
 		}
-		processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), detectedType: svc.InstrumentableUnknown, openPorts: openPorts, processAge: time.Duration(0)}
+		processes[processPID] = ProcessAttrs{
+			pid:          processPID,
+			detectedType: svc.InstrumentableUnknown,
+			openPorts:    openPorts,
+			processAge:   time.Duration(0),
+			startTime:    startTime,
+		}
 	}
 	return processes, nil
 }

@@ -460,6 +460,18 @@ static void test_hpack_prefix_len(void) {
             "both prefixes add up");
 }
 
+static void test_frame_append_bounds(void) {
+    const u32 append_len = k_h2_tp_hpack_huffman_size;
+    const u32 max_payload = k_h2_default_max_frame_size - append_len;
+
+    assertf(h2_frame_can_append(max_payload, append_len),
+            "append reaching the default frame limit is accepted");
+    assertf(!h2_frame_can_append(max_payload + 1, append_len),
+            "append exceeding the default frame limit is rejected");
+    assertf(!h2_frame_can_append(0, k_h2_default_max_frame_size + 1),
+            "oversized append is rejected without underflow");
+}
+
 int main(void) {
     test_hpack_openers();
     test_hpack_openers_exhaustive();
@@ -467,6 +479,7 @@ int main(void) {
     test_hpack_size_update_widths();
     test_skips_dynamic_table_size_updates();
     test_hpack_prefix_len();
+    test_frame_append_bounds();
     test_accepts_real_shapes();
     test_rejects_structural();
     test_rejects_per_type_rules();

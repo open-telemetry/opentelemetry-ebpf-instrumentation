@@ -9,6 +9,7 @@
 #include <common/connection_info.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
+#include <common/process_incarnation.h>
 
 #include <pid/types/pid_info.h>
 
@@ -17,6 +18,7 @@ typedef struct conn_pid {
     pid_key_t p_key;
     u64 id;
     u64 ts;
+    u64 start_time;
 } conn_pid_t;
 
 // A map of sockets which we track to supply pid information

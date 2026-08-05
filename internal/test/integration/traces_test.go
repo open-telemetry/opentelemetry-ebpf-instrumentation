@@ -1464,6 +1464,122 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 }
 
+func testAutoSDKParentBasedSampling(t *testing.T) {
+	waitForTestComponents(t, instrumentedServiceStdURL)
+	samplingState := requestGoAutoSDKSampling(t)
+	assert.True(t, samplingState.root)
+	assert.True(t, samplingState.rootRecording)
+	assert.True(t, samplingState.remoteSampled)
+	assert.True(t, samplingState.remoteRecording)
+	assert.False(t, samplingState.remoteNotSampled)
+	assert.False(t, samplingState.remoteNotRecording)
+
+	const (
+		oversizedOperation           = "auto-sdk-oversized-span"
+		sampledRemoteOperation       = "auto-sdk-remote-sampled-child"
+		unsampledRemoteOperation     = "auto-sdk-remote-unsampled-child"
+		deepUnsampledRemoteOperation = "auto-sdk-deep-remote-unsampled-child"
+		boundaryNewRootOperation     = "auto-sdk-option-boundary-new-root"
+		overflowNewRootOperation     = "auto-sdk-option-overflow-new-root"
+		boundaryContextOperation     = "auto-sdk-context-boundary-sampled-child"
+		overflowContextOperation     = "auto-sdk-context-overflow-sampled-child"
+		failClosedChildOperation     = "GET /auto-sdk-fail-closed-child"
+		sampledRemoteTraceID         = "0102030405060708090a0b0c0d0e0f10"
+		sampledRemoteParentID        = "1112131415161718"
+		unsampledRemoteTraceID       = "2122232425262728292a2b2c2d2e2f30"
+	)
+
+	oversizedTrace := waitForJaegerOperation(t, oversizedOperation)
+	oversizedSpans := oversizedTrace.FindByOperationName(oversizedOperation, "")
+	require.Len(t, oversizedSpans, 1)
+	route, found := jaeger.FindIn(oversizedSpans[0].Tags, "http.route")
+	require.True(t, found)
+	assert.Equal(t, "/auto-sdk-oversized", route.Value)
+
+	for _, operation := range []string{sampledRemoteOperation, boundaryContextOperation} {
+		sampledTrace := waitForJaegerOperation(t, operation)
+		require.Equal(t, sampledRemoteTraceID, sampledTrace.TraceID)
+		sampledChildren := sampledTrace.FindByOperationName(operation, "")
+		require.Len(t, sampledChildren, 1)
+		sampledChild := sampledChildren[0]
+		require.Equal(t, sampledRemoteTraceID, sampledChild.TraceID)
+
+		var parentReference *jaeger.Reference
+		for i := range sampledChild.References {
+			if sampledChild.References[i].RefType == "CHILD_OF" {
+				parentReference = &sampledChild.References[i]
+				break
+			}
+		}
+		require.NotNil(t, parentReference)
+		assert.Equal(t, sampledRemoteTraceID, parentReference.TraceID)
+		assert.Equal(t, sampledRemoteParentID, parentReference.SpanID)
+	}
+
+	boundaryRootTrace := waitForJaegerOperation(t, boundaryNewRootOperation)
+	assert.NotEqual(t, unsampledRemoteTraceID, boundaryRootTrace.TraceID)
+	boundaryRoots := boundaryRootTrace.FindByOperationName(boundaryNewRootOperation, "")
+	require.Len(t, boundaryRoots, 1)
+	assert.Empty(t, boundaryRoots[0].References)
+
+	for _, operation := range []string{
+		unsampledRemoteOperation,
+		deepUnsampledRemoteOperation,
+		overflowNewRootOperation,
+		overflowContextOperation,
+	} {
+		requireGoAutoSDKSpanMetric(t, operation)
+
+		var queryErr error
+		assert.Never(t, func() bool {
+			found, err := jaegerHasOperation("testserver", operation)
+			if err != nil && queryErr == nil {
+				queryErr = err
+			}
+			return found
+		}, 5*time.Second, 100*time.Millisecond)
+		require.NoError(t, queryErr)
+	}
+
+	var childQueryErr error
+	assert.Never(t, func() bool {
+		found, err := jaegerHasOperation("testserver", failClosedChildOperation)
+		if err != nil && childQueryErr == nil {
+			childQueryErr = err
+		}
+		return found
+	}, 5*time.Second, 100*time.Millisecond)
+	require.NoError(t, childQueryErr)
+}
+
+func waitForJaegerOperation(t *testing.T, operation string) jaeger.Trace {
+	t.Helper()
+
+	var trace jaeger.Trace
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + operation)
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		var matches []jaeger.Trace
+		for i := range tq.Data {
+			if len(tq.Data[i].FindByOperationName(operation, "")) > 0 {
+				matches = append(matches, tq.Data[i])
+			}
+		}
+		require.Len(ct, matches, 1)
+		trace = matches[0]
+	}, testTimeout, 100*time.Millisecond)
+
+	return trace
+}
+
 func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 	var parentID string
 

@@ -64,6 +64,7 @@ func TestSuite_Go(t *testing.T) {
 			t.Run("HTTP traces", testHTTPTraces)
 			t.Run("HTTP traces (no traceID)", testHTTPTracesNoTraceID)
 			t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
+			t.Run("Go Auto SDK sampling", testAutoSDKParentBasedSampling)
 			t.Run("GRPC traces", testGRPCTraces)
 			t.Run("GRPC RED metrics", testREDMetricsGRPC)
 			t.Run("GRPC TLS RED metrics", testREDMetricsGRPCTLS)

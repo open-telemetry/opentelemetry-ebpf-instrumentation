@@ -45,6 +45,9 @@ const (
 	testMDMaxpc     uint64 = 168
 	testMDText      uint64 = 176
 	testMDEtext     uint64 = 184
+	testMDTypes     uint64 = 296
+	testMDEtypes    uint64 = 304
+	testMDTypelinks uint64 = 360
 )
 
 var testMDOffsets = moduledataOffsets{
@@ -54,6 +57,9 @@ var testMDOffsets = moduledataOffsets{
 	maxpc:     testMDMaxpc,
 	text:      testMDText,
 	etext:     testMDEtext,
+	types:     testMDTypes,
+	etypes:    testMDEtypes,
+	typelinks: testMDTypelinks,
 }
 
 // ELF struct sizes (Elf64_* ABI, fixed for 64-bit).
@@ -220,7 +226,7 @@ func buildTestELF(t *testing.T, pclntableData uint64, goVersions ...string) *elf
 }
 
 func TestLoadModuledataOffsets(t *testing.T) {
-	elfF := buildTestELF(t, testGopclntabVMA, "go1.26.4")
+	elfF := buildTestELF(t, testGopclntabVMA, "go1.26.5")
 
 	actual, err := loadModuledataOffsets(elfF)
 	require.NoError(t, err)

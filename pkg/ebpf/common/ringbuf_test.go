@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -264,6 +265,150 @@ func TestRingbufLastReadAtRace(t *testing.T) {
 	<-readDone
 }
 
+func TestSharedRingbufWaitsForBlockedParserBeforeCallerTeardown(t *testing.T) {
+	previousFactory := readerFactory
+	eventsReader := newCancelableSingleRecordReader()
+	readerFactory = func(_ *ebpf.Map) (ringBufReader, error) {
+		return eventsReader, nil
+	}
+	t.Cleanup(func() {
+		readerFactory = previousFactory
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	parserStarted := make(chan struct{})
+	releaseParser := make(chan struct{})
+	parserExited := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		cancel()
+		releaseOnce.Do(func() { close(releaseParser) })
+	})
+
+	eventContext := NewEBPFEventContext()
+	forward := SharedRingbuf[int](
+		eventContext,
+		&config.EBPFTracer{BatchLength: 1, BatchTimeout: time.Millisecond},
+		nil,
+		func(*ringbuf.Record) (int, bool, error) {
+			close(parserStarted)
+			<-releaseParser
+			close(parserExited)
+			return 0, true, nil
+		},
+		nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+	)
+	waitReached := make(chan struct{}, 1)
+	forwarder := eventContext.SharedRingBuffer.(*ringBufForwarder[int])
+	forwarder.beforeWorkerWait = func() {
+		waitReached <- struct{}{}
+	}
+
+	var teardownBeforeParserExit atomic.Bool
+	forwardReturned := make(chan struct{})
+	go func() {
+		forward(ctx, nil, msg.NewQueue[[]int](msg.ChannelBufferLen(1)))
+		select {
+		case <-parserExited:
+		default:
+			teardownBeforeParserExit.Store(true)
+		}
+		close(forwardReturned)
+	}()
+
+	testutil.ReadChannel(t, parserStarted, testTimeout)
+	cancel()
+	testutil.ReadChannel(t, eventsReader.closed, testTimeout)
+	select {
+	case <-waitReached:
+	case <-forwardReturned:
+		t.Fatal("shared ring buffer returned without joining its parser")
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for the parser join")
+	}
+
+	releaseOnce.Do(func() { close(releaseParser) })
+	testutil.ReadChannel(t, parserExited, testTimeout)
+	testutil.ReadChannel(t, forwardReturned, testTimeout)
+	assert.False(t, teardownBeforeParserExit.Load(), "caller teardown raced the parser")
+}
+
+func TestForwardRingbufWaitsForCancellationListenerClose(t *testing.T) {
+	previousFactory := readerFactory
+	eventsReader := newBlockingFirstCloseReader()
+	readerFactory = func(_ *ebpf.Map) (ringBufReader, error) {
+		return eventsReader, nil
+	}
+	t.Cleanup(func() {
+		readerFactory = previousFactory
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	releaseClose := make(chan struct{})
+	waitReached := make(chan int, 2)
+	var waitCount atomic.Int32
+	var releaseOnce sync.Once
+	eventsReader.releaseClose = releaseClose
+	t.Cleanup(func() {
+		cancel()
+		releaseOnce.Do(func() { close(releaseClose) })
+	})
+
+	rbf := ringBufForwarder[int]{
+		cfg:    &config.EBPFTracer{BatchLength: 1},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		parse:  func(*ringbuf.Record) (int, bool, error) { return 0, true, nil },
+		beforeWorkerWait: func() {
+			waitReached <- int(waitCount.Add(1))
+		},
+	}
+	forwardReturned := make(chan struct{})
+	go func() {
+		rbf.readAndForward(ctx, msg.NewQueue[[]int](msg.ChannelBufferLen(1)))
+		close(forwardReturned)
+	}()
+
+	cancel()
+	testutil.ReadChannel(t, eventsReader.closeStarted, testTimeout)
+	testutil.ReadChannel(t, eventsReader.readUnblocked, testTimeout)
+	for expectedWait := 1; expectedWait <= 2; expectedWait++ {
+		select {
+		case actualWait := <-waitReached:
+			require.Equal(t, expectedWait, actualWait)
+		case <-forwardReturned:
+			t.Fatalf("ring buffer returned before worker wait %d", expectedWait)
+		case <-time.After(testTimeout):
+			t.Fatalf("timed out waiting for worker wait %d", expectedWait)
+		}
+	}
+
+	releaseOnce.Do(func() { close(releaseClose) })
+	testutil.ReadChannel(t, forwardReturned, testTimeout)
+	assert.GreaterOrEqual(t, eventsReader.closeCalls.Load(), int32(2))
+}
+
+func TestCancelAndWaitRingbufWorkersJoinsSynchronously(t *testing.T) {
+	calls := make([]string, 0, 3)
+
+	cancelAndWaitRingbufWorkers(
+		func() {
+			calls = append(calls, "cancel")
+		},
+		func() {
+			require.Equal(t, []string{"cancel"}, calls)
+			calls = append(calls, "before wait")
+		},
+		func() {
+			require.Equal(t, []string{"cancel", "before wait"}, calls)
+			calls = append(calls, "wait")
+		},
+	)
+
+	require.Equal(t, []string{"cancel", "before wait", "wait"}, calls)
+}
+
 // replaces the original ring buffer factory by a fake ring buffer creator and returns it
 func replaceTestRingBuf() *fakeRingBufReader {
 	rb := fakeRingBufReader{events: make(chan HTTPRequestTrace, 100), closeCh: make(chan struct{})}
@@ -320,6 +465,76 @@ type flushTrackingReader struct {
 	// reads went idle.
 	flushCount atomic.Int32
 }
+
+type cancelableSingleRecordReader struct {
+	closed    chan struct{}
+	closeOnce sync.Once
+	delivered atomic.Bool
+}
+
+func newCancelableSingleRecordReader() *cancelableSingleRecordReader {
+	return &cancelableSingleRecordReader{closed: make(chan struct{})}
+}
+
+func (f *cancelableSingleRecordReader) Close() error {
+	f.closeOnce.Do(func() { close(f.closed) })
+	return nil
+}
+
+func (f *cancelableSingleRecordReader) Read() (ringbuf.Record, error) {
+	record := ringbuf.Record{}
+	err := f.ReadInto(&record)
+	return record, err
+}
+
+func (f *cancelableSingleRecordReader) ReadInto(record *ringbuf.Record) error {
+	if f.delivered.CompareAndSwap(false, true) {
+		record.RawSample = []byte{1}
+		return nil
+	}
+	<-f.closed
+	return ringbuf.ErrClosed
+}
+
+func (*cancelableSingleRecordReader) AvailableBytes() int { return 0 }
+
+func (*cancelableSingleRecordReader) Flush() error { return nil }
+
+type blockingFirstCloseReader struct {
+	closeStarted  chan struct{}
+	readUnblocked chan struct{}
+	releaseClose  chan struct{}
+	closeCalls    atomic.Int32
+}
+
+func newBlockingFirstCloseReader() *blockingFirstCloseReader {
+	return &blockingFirstCloseReader{
+		closeStarted:  make(chan struct{}),
+		readUnblocked: make(chan struct{}),
+	}
+}
+
+func (f *blockingFirstCloseReader) Close() error {
+	if f.closeCalls.Add(1) == 1 {
+		close(f.closeStarted)
+		close(f.readUnblocked)
+		<-f.releaseClose
+	}
+	return nil
+}
+
+func (*blockingFirstCloseReader) Read() (ringbuf.Record, error) {
+	return ringbuf.Record{}, ringbuf.ErrClosed
+}
+
+func (f *blockingFirstCloseReader) ReadInto(*ringbuf.Record) error {
+	<-f.readUnblocked
+	return ringbuf.ErrClosed
+}
+
+func (*blockingFirstCloseReader) AvailableBytes() int { return 0 }
+
+func (*blockingFirstCloseReader) Flush() error { return nil }
 
 func newFlushTrackingReader() *flushTrackingReader {
 	return &flushTrackingReader{

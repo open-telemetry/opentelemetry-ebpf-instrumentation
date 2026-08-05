@@ -35,8 +35,7 @@ static __always_inline void make_tp_string(unsigned char *buf, const tp_info_t *
     *buf++ = '-';
 
     // Flags
-    *buf++ = '0';
-    *buf = (tp->flags == 0) ? '0' : '1';
+    encode_traceparent_flags(buf, tp->flags);
 }
 
 static __always_inline void
@@ -58,8 +57,9 @@ static __always_inline tp_info_pid_t *trace_info_for_connection(const connection
     return (tp_info_pid_t *)bpf_map_lookup_elem(&trace_map, &key);
 }
 
-static __always_inline void
-set_trace_info_for_connection(const connection_info_t *conn, u32 type, const tp_info_pid_t *info) {
+static __always_inline long try_set_trace_info_for_connection(const connection_info_t *conn,
+                                                              u32 type,
+                                                              const tp_info_pid_t *info) {
     trace_map_key_t key = {};
 
     // bpf_dbg_printk("setting trace info, type=%d", info->req_type);
@@ -71,7 +71,12 @@ set_trace_info_for_connection(const connection_info_t *conn, u32 type, const tp_
     // bpf_d_printk("tp=%s [%s]", tp_buf, __FUNCTION__);
 
     trace_key_from_conn(&key, conn, type);
-    bpf_map_update_elem(&trace_map, &key, info, BPF_ANY);
+    return bpf_map_update_elem(&trace_map, &key, info, BPF_ANY);
+}
+
+static __always_inline void
+set_trace_info_for_connection(const connection_info_t *conn, u32 type, const tp_info_pid_t *info) {
+    try_set_trace_info_for_connection(conn, type, info);
 }
 
 static __always_inline void delete_trace_info_for_connection(connection_info_t *conn, u32 type) {
@@ -130,10 +135,4 @@ static __always_inline u8 correlated_request_with_current(tp_info_pid_t *existin
 static __always_inline void clear_upper_trace_id(tp_info_t *tp) {
     *((u32 *)(&tp->trace_id[0])) = 0;
     *((u16 *)(&tp->trace_id[4])) = 0;
-}
-
-// The trace id is 16 bytes, but we can only use 11 bytes in options
-static __always_inline void new_trace_id(tp_info_t *tp) {
-    urand_bytes(tp->trace_id, TRACE_ID_SIZE_BYTES);
-    //clear_upper_trace_id(tp);
 }
