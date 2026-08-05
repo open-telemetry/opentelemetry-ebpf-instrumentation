@@ -295,7 +295,7 @@ func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 			r.reporters.Remove(staleUID)
 			return
 		}
-		r.pidTracker.AddPID(pid, service.UID)
+		r.pidTracker.AddPIDWithGeneration(pid, service.UID, pe.File.RuntimeMetricGeneration(pid))
 		return
 	}
 
@@ -339,7 +339,7 @@ func (r *RuntimeMetricsReporter) snapshotProcessLive(snapshot runtimemetrics.Run
 	if pid == 0 {
 		return true
 	}
-	return r.pidTracker.PIDLiveOrUnknown(pid, snapshot.Service.UID)
+	return r.pidTracker.PIDLiveOrUnknown(pid, snapshot.Service.UID, snapshot.Generation)
 }
 
 func (r *RuntimeMetricsReporter) shouldReportSnapshot(snapshot runtimemetrics.RuntimeMetricSnapshot) bool {

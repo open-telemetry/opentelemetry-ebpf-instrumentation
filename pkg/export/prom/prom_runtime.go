@@ -127,7 +127,7 @@ func (r *metricsReporter) runtimeSnapshotProcessLive(
 	if snapshot.PID == 0 {
 		return true
 	}
-	return r.pidsTracker.PIDLiveOrUnknown(snapshot.PID, snapshot.Service.UID)
+	return r.pidsTracker.PIDLiveOrUnknown(snapshot.PID, snapshot.Service.UID, snapshot.Generation)
 }
 
 func (r *metricsReporter) runtimeMetricsEnabled() runtimemetrics.Enabled {

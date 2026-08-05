@@ -205,7 +205,7 @@ func TestGoRuntimeMetricMaskABI(t *testing.T) {
 func TestGoRuntimeMetricTargetABIAppendsGoroutineMetadata(t *testing.T) {
 	var target BpfGoRuntimeMetricTargetT
 
-	assert.Equal(t, uintptr(96), unsafe.Sizeof(target))
+	assert.Equal(t, uintptr(104), unsafe.Sizeof(target))
 	assert.Equal(t, uintptr(40), unsafe.Offsetof(target.SizeClassToSizesAddr))
 	assert.Equal(t, uintptr(48), unsafe.Offsetof(target.SchedAddr))
 	assert.Equal(t, uintptr(56), unsafe.Offsetof(target.AllglenAddr))
@@ -216,9 +216,10 @@ func TestGoRuntimeMetricTargetABIAppendsGoroutineMetadata(t *testing.T) {
 func TestGoRuntimeMetricTargetABIAppendsGCGoalCache(t *testing.T) {
 	var target BpfGoRuntimeMetricTargetT
 
-	assert.Equal(t, uintptr(96), unsafe.Sizeof(target))
+	assert.Equal(t, uintptr(104), unsafe.Sizeof(target))
 	assert.Equal(t, uintptr(80), unsafe.Offsetof(target.GcGoalSource))
 	assert.Equal(t, uintptr(88), unsafe.Offsetof(target.GcGoal))
+	assert.Equal(t, uintptr(96), unsafe.Offsetof(target.Generation))
 }
 
 func TestGoRuntimeGCGoalSourceSelection(t *testing.T) {
