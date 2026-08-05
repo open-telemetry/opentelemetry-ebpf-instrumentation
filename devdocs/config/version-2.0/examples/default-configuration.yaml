@@ -614,6 +614,9 @@ extensions:
               service_namespace: ""
       # Service identity enrichment policy from configured enrichers.
       service_name:
+        # Ordered backends used for peer and host name resolution.
+        sources:
+          - k8s
         # Shared cache for peer/host service-name lookups.
         cache:
           size: 1024
@@ -626,6 +629,15 @@ extensions:
             incoming: incoming
       # Attribute enrichment/selection controls.
       attributes:
+        # Per-signal attribute selection. Empty uses runtime defaults.
+        select: {}
+        # Additional attributes to include in named attribute groups.
+        extra_group_attributes: {}
+        # Metadata lookup retry policy.
+        metadata_retry:
+          timeout: 30s
+          start_interval: 500ms
+          max_interval: 5s
 
     # correlation propagates OBI trace context into external streams.
     # Standalone-mode only: not valid in Collector receiver deployments.
