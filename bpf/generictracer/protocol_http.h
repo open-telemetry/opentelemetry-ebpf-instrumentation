@@ -123,18 +123,23 @@ static __always_inline void cleanup_http_server_response_data(pid_connection_inf
     }
 }
 
-static __always_inline void cleanup_http_server_thread_trace(http_info_t *info) {
-    trace_key_t current_key = {0};
-    if (info->delayed) {
-        trace_key_from_pid_tid(&current_key);
+static __always_inline void cleanup_http_server_thread_trace(http_info_t *info,
+                                                             const trace_key_t *current_key) {
+    trace_key_t local_key = {0};
+    if (!current_key) {
+        if (info->delayed) {
+            trace_key_from_pid_tid(&local_key);
+        }
+        current_key = &local_key;
     }
 
-    cleanup_http_server_thread_trace_for_key(info, &current_key);
+    cleanup_http_server_thread_trace_for_key(info, current_key);
 }
 
-static __always_inline void cleanup_incomplete_http_server_thread_trace(http_info_t *info) {
+static __always_inline void
+cleanup_incomplete_http_server_thread_trace(http_info_t *info, const trace_key_t *current_key) {
     if (info->type == EVENT_HTTP_REQUEST && !http_info_complete(info)) {
-        cleanup_http_server_thread_trace(info);
+        cleanup_http_server_thread_trace(info, current_key);
     }
 }
 
@@ -172,7 +177,8 @@ static __always_inline void submit_http_event(http_info_t *info, pid_connection_
     }
 }
 
-static __always_inline void finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
+static __always_inline void
+finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_t *current_key) {
     if (!http_info_complete(info)) {
         return;
     }
@@ -180,7 +186,7 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
     submit_http_event(info, pid_conn);
 
     if (info->type == EVENT_HTTP_REQUEST) {
-        cleanup_http_server_thread_trace(info);
+        cleanup_http_server_thread_trace(info, current_key);
     }
     // Don't delete the ongoing_http entry for requests that weren't delayed, we might be
     // receiving still more packets, for example SSL.
@@ -191,7 +197,9 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
     bpf_map_delete_elem(&active_ssl_connections, pid_conn);
 }
 
-static __always_inline void force_finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
+static __always_inline void force_finish_http(http_info_t *info,
+                                              pid_connection_info_t *pid_conn,
+                                              const trace_key_t *current_key) {
     if (info->submitted) {
         return;
     }
@@ -204,7 +212,7 @@ static __always_inline void force_finish_http(http_info_t *info, pid_connection_
         }
     }
 
-    finish_http(info, pid_conn);
+    finish_http(info, pid_conn, current_key);
 }
 
 static __always_inline void update_http_sent_len(pid_connection_info_t *pid_conn, int sent_len) {
@@ -226,10 +234,10 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                 if (old_info->type == req_type && is_duplicate_info(old_info)) {
                     return 0;
                 }
-                cleanup_incomplete_http_server_thread_trace(old_info);
+                cleanup_incomplete_http_server_thread_trace(old_info, NULL);
             }
             // this will delete ongoing_http for this connection info if there's full stale request
-            finish_http(old_info, pid_conn);
+            finish_http(old_info, pid_conn, NULL);
         }
 
         bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
@@ -254,31 +262,33 @@ static __always_inline tp_info_t *self_referencing_request(pid_connection_info_t
 static __always_inline void finish_possible_delayed_http_request(pid_connection_info_t *pid_conn) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info && info->delayed) {
-        finish_http(info, pid_conn);
+        finish_http(info, pid_conn, NULL);
     }
 }
 
 static __always_inline void
-force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn) {
+force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn,
+                                           const trace_key_t *current_key) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
-        cleanup_incomplete_http_server_thread_trace(info);
+        cleanup_incomplete_http_server_thread_trace(info, current_key);
         if (info->delayed) {
-            finish_http(info, pid_conn);
+            finish_http(info, pid_conn, current_key);
         } else {
             bpf_dbg_printk("forcing HTTP event finish");
-            force_finish_http(info, pid_conn);
+            force_finish_http(info, pid_conn, current_key);
         }
     }
     cleanup_http_info(pid_conn);
 }
 
-static __always_inline void terminate_http_request_if_needed(pid_connection_info_t *pid_conn) {
+static __always_inline void terminate_http_request_if_needed(pid_connection_info_t *pid_conn,
+                                                             const trace_key_t *current_key) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
         if (info->type == EVENT_HTTP_REQUEST) {
             cleanup_http_server_response_data(pid_conn, info);
-            cleanup_http_server_thread_trace(info);
+            cleanup_http_server_thread_trace(info, current_key);
         } else {
             delete_client_trace_info(pid_conn);
         }
@@ -380,7 +390,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     // the response body (e.g. SSE streaming) and require the request to remain
     // active in ongoing_http.
     if (lw_thread != k_lw_thread_none) {
-        finish_http(info, pid_conn);
+        finish_http(info, pid_conn, NULL);
         delete_go_trace_info(lw_thread, pid_conn->pid);
         return;
     }
@@ -395,7 +405,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     }
 
     if (high_request_volume && !info->ssl) {
-        finish_http(info, pid_conn);
+        finish_http(info, pid_conn, NULL);
         return;
     }
 

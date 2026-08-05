@@ -697,6 +697,9 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         return 0;
     }
 
+    trace_key_t current_key = {};
+    trace_key_from_pid_tid(&current_key);
+
     u64 sock_p = (u64)sk;
 
     bpf_dbg_printk("=== kprobe/tcp_close id=%d, sock=%llx ===", id, sk);
@@ -732,12 +735,12 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         unreadable = is_conn_unreadable(&info.conn);
     }
 
-    force_sent_event(id, &sock_p, &info, unreadable);
+    force_sent_event(id, &sock_p, &info, unreadable, &current_key);
 
     if (success) {
         //dbg_print_http_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
-        terminate_http_request_if_needed(&info);
+        terminate_http_request_if_needed(&info, &current_key);
         finish_ongoing_tcp_req(&info);
         bpf_map_delete_elem(&connection_tracker, &info.conn);
     }

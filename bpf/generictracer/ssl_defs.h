@@ -24,7 +24,7 @@ static __always_inline void
 finish_possible_delayed_tls_http_request(pid_connection_info_t *pid_conn) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info && info->submitted) {
-        finish_http(info, pid_conn);
+        finish_http(info, pid_conn, NULL);
     }
 }
 
