@@ -127,11 +127,7 @@ func openAIContentToParts(content json.RawMessage) []normalizedPart {
 						Modality: modality,
 					})
 				} else if b.File.FileData != "" {
-					parts = append(parts, normalizedPart{
-						Type:     "blob",
-						Content:  b.File.FileData,
-						Modality: modality,
-					})
+					parts = append(parts, openAIFileDataPart(b.File.FileData, modality))
 				}
 			}
 		case "refusal":
@@ -207,10 +203,23 @@ func openAIResponsesFilePart(block openAIResponsesContentBlock) (normalizedPart,
 	case block.FileURL != "":
 		return normalizedPart{Type: "uri", URI: block.FileURL, Modality: modality}, true
 	case block.FileData != "":
-		return normalizedPart{Type: "blob", Content: block.FileData, Modality: modality}, true
+		return openAIFileDataPart(block.FileData, modality), true
 	default:
 		return normalizedPart{}, false
 	}
+}
+
+func openAIFileDataPart(fileData, modality string) normalizedPart {
+	part := normalizedPart{
+		Type:     "blob",
+		Content:  fileData,
+		Modality: modality,
+	}
+	if data, mimeType, ok := openAIBase64DataURL(fileData); ok {
+		part.Content = data
+		part.MimeType = mimeType
+	}
+	return part
 }
 
 func openAIAudioPart(audio *openAIInputAudio) normalizedPart {
@@ -230,13 +239,12 @@ func openAIImageURLPart(imageURL string) (normalizedPart, bool) {
 		return normalizedPart{}, false
 	}
 
-	if metadata, data, ok := strings.Cut(imageURL, ","); ok &&
-		strings.HasPrefix(metadata, "data:") && strings.HasSuffix(metadata, ";base64") {
+	if data, mimeType, ok := openAIBase64DataURL(imageURL); ok {
 		return normalizedPart{
 			Type:     "blob",
 			Content:  data,
 			Modality: "image",
-			MimeType: strings.TrimSuffix(strings.TrimPrefix(metadata, "data:"), ";base64"),
+			MimeType: mimeType,
 		}, true
 	}
 
@@ -247,16 +255,25 @@ func openAIImageURLPart(imageURL string) (normalizedPart, bool) {
 	}, true
 }
 
+func openAIBase64DataURL(value string) (data, mimeType string, ok bool) {
+	metadata, data, ok := strings.Cut(value, ",")
+	if !ok || !strings.HasPrefix(metadata, "data:") || !strings.HasSuffix(metadata, ";base64") {
+		return "", "", false
+	}
+
+	mimeType = strings.TrimSuffix(strings.TrimPrefix(metadata, "data:"), ";base64")
+	return data, mimeType, true
+}
+
 // modalityFromFilename returns a semconv modality string derived from a
-// filename's extension, or "file" when the modality cannot be determined.
-// The semconv schema accepts the enum image|video|audio or any string.
+// filename's extension. Non-media files use the standard document modality.
 func modalityFromFilename(filename string) string {
 	if filename == "" {
-		return "file"
+		return "document"
 	}
 	dot := strings.LastIndex(filename, ".")
 	if dot < 0 || dot == len(filename)-1 {
-		return "file"
+		return "document"
 	}
 	switch strings.ToLower(filename[dot+1:]) {
 	case "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tiff":
@@ -266,7 +283,7 @@ func modalityFromFilename(filename string) string {
 	case "mp4", "webm", "mov", "mkv", "avi":
 		return "video"
 	}
-	return "file"
+	return "document"
 }
 
 func openAIToolCallsToParts(raw json.RawMessage) []normalizedPart {

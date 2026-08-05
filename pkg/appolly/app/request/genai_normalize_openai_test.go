@@ -219,7 +219,7 @@ func TestOpenAIContentToParts_FileByID(t *testing.T) {
 	require.Len(t, parts, 1)
 	assert.Equal(t, "file", parts[0].Type)
 	assert.Equal(t, "file_abc123", parts[0].FileID)
-	assert.Equal(t, "file", parts[0].Modality)
+	assert.Equal(t, "document", parts[0].Modality)
 }
 
 func TestOpenAIContentToParts_FileByID_ImageFilename(t *testing.T) {
@@ -231,11 +231,12 @@ func TestOpenAIContentToParts_FileByID_ImageFilename(t *testing.T) {
 }
 
 func TestOpenAIContentToParts_FileByData(t *testing.T) {
-	parts := openAIContentToParts(json.RawMessage(`[{"type":"file","file":{"file_data":"base64pdf","filename":"doc.pdf"}}]`))
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"file","file":{"file_data":"data:application/pdf;base64,base64pdf","filename":"doc.pdf"}}]`))
 	require.Len(t, parts, 1)
 	assert.Equal(t, "blob", parts[0].Type)
 	assert.Equal(t, "base64pdf", parts[0].Content)
-	assert.Equal(t, "file", parts[0].Modality)
+	assert.Equal(t, "document", parts[0].Modality)
+	assert.Equal(t, "application/pdf", parts[0].MimeType)
 }
 
 func TestOpenAIContentToParts_FileByData_AudioFilename(t *testing.T) {
@@ -424,7 +425,7 @@ func TestGetInput_ResponsesAPI_StructuredContent(t *testing.T) {
 			`{"type":"input_image","image_url":"https://example.com/image.png"},` +
 			`{"type":"input_image","file_id":"file_image"},` +
 			`{"type":"input_file","file_url":"https://example.com/report.pdf","filename":"report.pdf"},` +
-			`{"type":"input_file","file_data":"base64audio","filename":"clip.mp3"}` +
+			`{"type":"input_file","file_data":"data:application/pdf;base64,base64pdf","filename":"report.pdf"}` +
 			`]}]`),
 	}
 	result := air.GetInput()
@@ -433,8 +434,8 @@ func TestGetInput_ResponsesAPI_StructuredContent(t *testing.T) {
 		`{"type":"text","content":"describe these inputs"},`+
 		`{"type":"uri","uri":"https://example.com/image.png","modality":"image"},`+
 		`{"type":"file","file_id":"file_image","modality":"image"},`+
-		`{"type":"uri","uri":"https://example.com/report.pdf","modality":"file"},`+
-		`{"type":"blob","content":"base64audio","modality":"audio"}`+
+		`{"type":"uri","uri":"https://example.com/report.pdf","modality":"document"},`+
+		`{"type":"blob","content":"base64pdf","modality":"document","mime_type":"application/pdf"}`+
 		`]}]`, result)
 }
 
