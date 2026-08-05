@@ -216,18 +216,18 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 		}
 	}
 
-	// A dropped export may have carried the sole sample of a violating shape, so
-	// any drop during the suite — or an unreadable counter — makes the report
-	// untrustworthy.
+	// A first-hop drop may have carried the sole sample of a violating shape, so
+	// any such drop during the suite — or an unreadable counter — makes the
+	// report untrustworthy.
 	if k.tapDropsBaselineErr != nil || finalDropsErr != nil {
 		t.Errorf("could not read the tap's export-failure counters (baseline: %v, teardown: %v) — "+
 			"cannot confirm weaver saw every emitted shape, so the report is untrustworthy",
 			k.tapDropsBaselineErr, finalDropsErr)
 	} else if dropped := finalDrops - k.tapDropsBaseline; dropped > 0 {
-		t.Errorf("the weaver tap dropped %.0f export item(s) during the suite "+
-			"(otelcol_exporter_{send,enqueue}_failed_* across the suite otelcol and weavercol) — "+
-			"weaver may have missed a telemetry shape, so the report cannot be trusted; reduce "+
-			"OBI's emission rate or raise the tap queue sizes", dropped)
+		t.Errorf("the suite otelcol dropped %.0f export item(s) to weavercol during the suite "+
+			"(otelcol_exporter_{send,enqueue}_failed_*) — weaver may have missed a telemetry "+
+			"shape, so the report cannot be trusted; reduce OBI's emission rate or raise the "+
+			"first-hop tap queue size", dropped)
 	}
 
 	if k.weaverRequireSpans && report.Statistics.TotalEntitiesByType["span"] == 0 {
@@ -239,18 +239,14 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 	weavercheck.Validate(t, report)
 }
 
-// tapDropCount sums the export failures of both tap hops (suite otelcol ->
-// weavercol -> weaver), erroring if either endpoint can't be scraped.
+// tapDropCount reads the suite otelcol's export failures to weavercol, the
+// first tap hop. Only this hop is a trust signal: weavercol ingests instantly
+// so the first-hop queue never fills, making any failure here a shape that
+// never reached the aggregator. The weavercol -> weaver hop drops by design
+// under weaver back-pressure (otelcol-config-k8s-weavercol.yml), shedding only
+// already-aggregated points weaver has already seen.
 func (k *Kind) tapDropCount(ctx context.Context) (float64, error) {
-	var total float64
-	for _, port := range []int{OtelcolWeaverMetricsHostPort, WeaverColMetricsHostPort} {
-		n, err := exporterFailedCount(ctx, port)
-		if err != nil {
-			return 0, fmt.Errorf("scraping exporter counters on host port %d: %w", port, err)
-		}
-		total += n
-	}
-	return total, nil
+	return exporterFailedCount(ctx, OtelcolWeaverMetricsHostPort)
 }
 
 // exporterFailedCount sums otelcol_exporter_{send,enqueue}_failed_* from a
