@@ -1,0 +1,86 @@
+services:
+  # Self-contained CUDA target: a stub libcudart.so + a caller that invokes the
+  # CUDA Runtime API in a loop. No GPU or NVIDIA driver required.
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/gpu-cuda-tester/Dockerfile
+    image: hatest-testserver-gpu-cuda-tester
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-gpu:/var/run/obi
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-gpu.yml
+      GOCOVERDIR: "/coverage"
+      # Force CUDA instrumentation on so the gpuevent tracer loads without a GPU
+      # (nvidia-smi auto-detect is bypassed).
+      OTEL_EBPF_INSTRUMENT_CUDA: "on"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL: "1s"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_METRICS_FEATURES: "application"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config-gpu.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  # OpenTelemetry Collector: single OTLP receiver fans out to the Prometheus
+  # exporter (scraped by the test) and to weaver (semconv live-check).
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317" # OTLP over gRPC receiver
+      - "4318:4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
+    depends_on:
+      prometheus:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
