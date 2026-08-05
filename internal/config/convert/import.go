@@ -45,6 +45,12 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("applying config v2 defaults: %w", err)
 	}
+	if err := validateV2Channels(src.Capture.Channels); err != nil {
+		return nil, err
+	}
+	if err := validateV2Correlation(src.Correlation, complete); err != nil {
+		return nil, err
+	}
 	policy := effectiveV2CapturePolicy(src.Capture.Policy, src.Capture.Rules, complete)
 	if err := validateV2CaptureRules(policy, src.Capture.Rules); err != nil {
 		return nil, err
@@ -88,6 +94,37 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func validateV2Channels(channels schema.CaptureChannels) error {
+	if channels.BufferLen < 0 {
+		return errors.New("capture.channels.buffer_len must be greater than or equal to zero")
+	}
+	return nil
+}
+
+func validateV2Correlation(correlation *schema.Correlation, complete bool) error {
+	if correlation == nil || !complete {
+		return nil
+	}
+
+	logTrace := correlation.LogTraceAnnotation
+	if logTrace.FieldNames.TraceID == nil {
+		return errors.New("correlation.log_trace_annotation.field_names.trace_id must not be null")
+	}
+	if logTrace.FieldNames.SpanID == nil {
+		return errors.New("correlation.log_trace_annotation.field_names.span_id must not be null")
+	}
+	if logTrace.PlainText.Enabled == nil {
+		return errors.New("correlation.log_trace_annotation.plain_text.enabled must not be null")
+	}
+	if logTrace.PlainText.Placement == nil {
+		return errors.New("correlation.log_trace_annotation.plain_text.placement must not be null")
+	}
+	if logTrace.PlainText.Multiline == nil {
+		return errors.New("correlation.log_trace_annotation.plain_text.multiline must not be null")
+	}
+	return nil
 }
 
 func validateV2HTTPRoutes(routes schema.HTTPRoutes, rules []schema.Rule) error {

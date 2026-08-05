@@ -161,6 +161,18 @@ network:
 	)
 }
 
+func TestV2ToRuntimeRejectsNegativeChannelBufferLength(t *testing.T) {
+	t.Parallel()
+
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Channels: schema.CaptureChannels{BufferLen: -1},
+		},
+	})
+	require.EqualError(t, err, "capture.channels.buffer_len must be greater than or equal to zero")
+}
+
 func TestV2ToRuntimeCompleteInstrumentationCanDisableAerospike(t *testing.T) {
 	t.Parallel()
 
@@ -1416,6 +1428,70 @@ func TestV2ToRuntimeRejectsInvalidLogFieldName(t *testing.T) {
 		},
 	})
 	require.ErrorContains(t, err, "invalid log trace annotation")
+}
+
+func TestV2ToRuntimeRejectsNullLogAnnotationFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name: "trace ID",
+			config: `
+        field_names:
+          trace_id: null`,
+			wantErr: "correlation.log_trace_annotation.field_names.trace_id must not be null",
+		},
+		{
+			name: "span ID",
+			config: `
+        field_names:
+          span_id: null`,
+			wantErr: "correlation.log_trace_annotation.field_names.span_id must not be null",
+		},
+		{
+			name: "plain text enabled",
+			config: `
+        plain_text:
+          enabled: null`,
+			wantErr: "correlation.log_trace_annotation.plain_text.enabled must not be null",
+		},
+		{
+			name: "plain text placement",
+			config: `
+        plain_text:
+          placement: null`,
+			wantErr: "correlation.log_trace_annotation.plain_text.placement must not be null",
+		},
+		{
+			name: "plain text multiline",
+			config: `
+        plain_text:
+          multiline: null`,
+			wantErr: "correlation.log_trace_annotation.plain_text.multiline must not be null",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, extension, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    correlation:
+      log_trace_annotation:` + test.config + "\n"))
+			require.NoError(t, err)
+
+			_, err = V2ToRuntime(extension)
+			require.EqualError(t, err, test.wantErr)
+		})
+	}
 }
 
 func testHTTPRoutePolicy(patterns ...string) *schema.HTTPRoutePolicy {
