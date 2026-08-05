@@ -6,7 +6,7 @@ otel_metrics_export:
   endpoint: http://otelcol:4318
 discovery:
   instrument:
-    - exe_path: gpu-cuda-tester
+    - exe_path: "*gpu-cuda-tester"
       namespace: integration-test
 attributes:
   select:
