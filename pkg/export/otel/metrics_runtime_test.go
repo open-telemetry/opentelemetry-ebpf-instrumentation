@@ -188,29 +188,38 @@ func TestRuntimeMetricsReporterAcceptsSnapshotsBeforeCreationAndSkipsAfterTermin
 		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
 	}
-	processEvent := func(eventType exec.ProcessEventType) *exec.ProcessEvent {
+	processEvent := func(eventType exec.ProcessEventType, generation uint64) *exec.ProcessEvent {
+		file := exec.New(exec.Init{Pid: 101, Service: service})
+		file.SetRuntimeMetricGeneration(101, generation)
 		return &exec.ProcessEvent{
 			Type: eventType,
-			File: exec.New(exec.Init{Pid: 101, Service: service}),
+			File: file,
 		}
 	}
 	snapshots := []runtimemetrics.RuntimeMetricSnapshot{{
-		PID:     101,
-		Service: service,
-		Go:      &runtimemetrics.GoRuntimeMetricSnapshot{},
+		PID:        101,
+		Service:    service,
+		Generation: 1,
+		Go:         &runtimemetrics.GoRuntimeMetricSnapshot{},
 	}}
 
 	reporter.reportRuntimeMetrics(snapshots)
 	assert.Equal(t, 1, constructed)
 
-	reporter.onProcessEvent(processEvent(exec.ProcessEventCreated))
+	reporter.onProcessEvent(processEvent(exec.ProcessEventCreated, 1))
 	reporter.reportRuntimeMetrics(snapshots)
 	assert.Equal(t, 1, constructed)
 
-	reporter.onProcessEvent(processEvent(exec.ProcessEventTerminated))
+	reporter.onProcessEvent(processEvent(exec.ProcessEventTerminated, 1))
 	reporter.reportRuntimeMetrics(snapshots)
 	assert.Equal(t, 1, constructed,
 		"in-flight snapshot must not resurrect the removed reporter")
+
+	reusedPIDSnapshot := snapshots[0]
+	reusedPIDSnapshot.Generation = 2
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{reusedPIDSnapshot})
+	assert.Equal(t, 2, constructed,
+		"a reused PID generation must be accepted before its creation event")
 }
 
 func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {

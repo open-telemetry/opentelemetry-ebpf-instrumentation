@@ -1533,7 +1533,7 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 
 		r.createEventMetrics(&snap)
 		r.serviceMap[uid] = snap
-		r.setupPIDToServiceRelationship(pid, uid)
+		r.pidsTracker.AddPIDWithGeneration(pid, uid, pe.File.RuntimeMetricGeneration(pid))
 	} else {
 		if r.goRuntimeHistograms != nil {
 			r.goRuntimeHistograms.DeletePID(pid)

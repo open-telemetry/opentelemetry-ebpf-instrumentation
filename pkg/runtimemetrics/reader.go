@@ -28,9 +28,10 @@ func IsGoRuntimeMetricRecord(record *ringbuf.Record) bool {
 }
 
 type RuntimeMetricSnapshot struct {
-	Service svc.Attrs
-	PID     app.PID
-	Time    time.Time
+	Service    svc.Attrs
+	PID        app.PID
+	Generation uint64
+	Time       time.Time
 
 	Go  *GoRuntimeMetricSnapshot
 	JVM *JVMRuntimeMetricSnapshot
@@ -161,10 +162,11 @@ type goRuntimeMetricRawKey struct {
 }
 
 type goRuntimeMetricRawEvent struct {
-	Type     uint8
-	Pad      [3]uint8
-	PID      goRuntimeMetricRawKey
-	Snapshot goRuntimeMetricRawSnapshot
+	Type       uint8
+	Pad        [3]uint8
+	PID        goRuntimeMetricRawKey
+	Generation uint64
+	Snapshot   goRuntimeMetricRawSnapshot
 }
 
 type goRuntimeMetricRawSnapshot struct {
@@ -201,6 +203,7 @@ type goRuntimeHistogramRawEvent struct {
 	Pad2        uint32
 	Underflow   uint64
 	Overflow    uint64
+	Generation  uint64
 	Counts      [goRuntimeHistogramMaxBuckets]uint64
 }
 
@@ -254,6 +257,7 @@ func scalarSnapshotFromRingbuf(
 	}
 
 	snapshot := convertGoRuntimeMetricSnapshot(service, app.PID(event.PID.HostPID), event.Snapshot)
+	snapshot.Generation = event.Generation
 	return snapshot, false, nil
 }
 
@@ -287,9 +291,10 @@ func histogramSnapshotFromRingbuf(
 	counts := make([]uint64, int(event.BucketCount))
 	copy(counts, event.Counts[:event.BucketCount])
 	return RuntimeMetricSnapshot{
-		Service: service,
-		PID:     app.PID(event.PID.HostPID),
-		Time:    time.Now(),
+		Service:    service,
+		PID:        app.PID(event.PID.HostPID),
+		Generation: event.Generation,
+		Time:       time.Now(),
 		Histogram: &GoRuntimeHistogramSnapshot{
 			Kind:      event.Kind,
 			Counts:    counts,

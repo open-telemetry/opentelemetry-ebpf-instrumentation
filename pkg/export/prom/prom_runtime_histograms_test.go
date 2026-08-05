@@ -465,18 +465,21 @@ func TestRuntimeReporterAcceptsHistogramsBeforeCreationAndSkipsAfterTermination(
 	trackedService := untrackedService
 	trackedService.UID.Name = "tracked"
 	trackedService.ProcPID = 101
-	processEvent := func(eventType exec.ProcessEventType) exec.ProcessEvent {
+	processEvent := func(eventType exec.ProcessEventType, generation uint64) exec.ProcessEvent {
+		file := exec.New(exec.Init{Pid: trackedService.ProcPID, Service: trackedService})
+		file.SetRuntimeMetricGeneration(trackedService.ProcPID, generation)
 		return exec.ProcessEvent{
 			Type: eventType,
-			File: exec.New(exec.Init{Pid: trackedService.ProcPID, Service: trackedService}),
+			File: file,
 		}
 	}
-	reporter.handleProcessEvent(processEvent(exec.ProcessEventCreated), slog.Default())
+	reporter.handleProcessEvent(processEvent(exec.ProcessEventCreated, 1), slog.Default())
 	trackedSnapshot := testPromRuntimeHistogramMetricSnapshot(
 		trackedService,
 		runtimemetrics.GoHistogramKindGCPause,
 		3,
 	)
+	trackedSnapshot.Generation = 1
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{trackedSnapshot})
 	require.NotNil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
 		map[string]string{"service_name": "tracked", "service_namespace": "production"}))
@@ -487,7 +490,7 @@ func TestRuntimeReporterAcceptsHistogramsBeforeCreationAndSkipsAfterTermination(
 	go func() {
 		defer waitGroup.Done()
 		<-start
-		reporter.handleProcessEvent(processEvent(exec.ProcessEventTerminated), slog.Default())
+		reporter.handleProcessEvent(processEvent(exec.ProcessEventTerminated, 1), slog.Default())
 	}()
 	go func() {
 		defer waitGroup.Done()
@@ -499,6 +502,26 @@ func TestRuntimeReporterAcceptsHistogramsBeforeCreationAndSkipsAfterTermination(
 
 	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
 		map[string]string{"service_name": "tracked", "service_namespace": "production"}))
+
+	reusedPIDSnapshot := testPromRuntimeHistogramMetricSnapshot(
+		trackedService,
+		runtimemetrics.GoHistogramKindGCPause,
+		4,
+	)
+	reusedPIDSnapshot.Generation = 2
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{reusedPIDSnapshot})
+	histogram = gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+		map[string]string{"service_name": "tracked", "service_namespace": "production"})
+	require.NotNil(t, histogram, "a reused PID must be accepted before its creation event")
+	assert.Equal(t, uint64(4), histogram.GetHistogram().GetSampleCount())
+
+	reporter.handleProcessEvent(processEvent(exec.ProcessEventCreated, 2), slog.Default())
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{trackedSnapshot})
+	histogram = gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+		map[string]string{"service_name": "tracked", "service_namespace": "production"})
+	require.NotNil(t, histogram)
+	assert.Equal(t, uint64(4), histogram.GetHistogram().GetSampleCount(),
+		"an old in-flight generation must be rejected after PID reuse")
 }
 
 func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *testing.T) {

@@ -100,6 +100,7 @@ typedef struct go_runtime_metric_target {
     u32 gc_goal_source;
     u32 _pad2;
     u64 gc_goal;
+    u64 generation;
 } go_runtime_metric_target_t;
 
 typedef enum go_runtime_gc_goal_source {
@@ -145,6 +146,7 @@ typedef struct go_runtime_histogram_event {
     u32 _pad2;
     u64 underflow;
     u64 overflow;
+    u64 generation;
     u64 counts[k_hist_max_buckets];
 } go_runtime_histogram_event_t;
 
@@ -176,6 +178,7 @@ typedef struct go_runtime_metric_event {
     u8 type;
     u8 _pad[3];
     pid_info pid;
+    u64 generation;
     go_runtime_metric_snapshot_t snapshot;
 } go_runtime_metric_event_t;
 

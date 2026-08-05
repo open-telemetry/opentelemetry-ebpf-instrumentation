@@ -28,8 +28,9 @@ func TestGoRuntimeMetricRawABI(t *testing.T) {
 	var event goRuntimeMetricRawEvent
 	var snapshot goRuntimeMetricRawSnapshot
 
-	require.Equal(t, uintptr(160), unsafe.Sizeof(event))
-	require.Equal(t, uintptr(16), unsafe.Offsetof(event.Snapshot))
+	require.Equal(t, uintptr(168), unsafe.Sizeof(event))
+	require.Equal(t, uintptr(16), unsafe.Offsetof(event.Generation))
+	require.Equal(t, uintptr(24), unsafe.Offsetof(event.Snapshot))
 	require.Equal(t, uintptr(144), unsafe.Sizeof(snapshot))
 	require.Equal(t, uintptr(0), unsafe.Offsetof(snapshot.ValidMask))
 	require.Equal(t, uintptr(8), unsafe.Offsetof(snapshot.NumGC))
@@ -59,7 +60,7 @@ func TestGoRuntimeHistogramRawABI(t *testing.T) {
 	require.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
 	require.Equal(t, GoHistogramKindGCPause, GoHistogramKind(0))
 	require.Equal(t, GoHistogramKindSchedLatency, GoHistogramKind(1))
-	require.Equal(t, uintptr(1320), unsafe.Sizeof(event))
+	require.Equal(t, uintptr(1328), unsafe.Sizeof(event))
 	require.Equal(t, uintptr(0), unsafe.Offsetof(event.Type))
 	require.Equal(t, uintptr(1), unsafe.Offsetof(event.Kind))
 	require.Equal(t, uintptr(2), unsafe.Offsetof(event.Pad))
@@ -68,7 +69,8 @@ func TestGoRuntimeHistogramRawABI(t *testing.T) {
 	require.Equal(t, uintptr(20), unsafe.Offsetof(event.Pad2))
 	require.Equal(t, uintptr(24), unsafe.Offsetof(event.Underflow))
 	require.Equal(t, uintptr(32), unsafe.Offsetof(event.Overflow))
-	require.Equal(t, uintptr(40), unsafe.Offsetof(event.Counts))
+	require.Equal(t, uintptr(40), unsafe.Offsetof(event.Generation))
+	require.Equal(t, uintptr(48), unsafe.Offsetof(event.Counts))
 }
 
 func TestGoRuntimeMetricValidMaskABI(t *testing.T) {
@@ -266,7 +268,8 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 	}
 	var record bytes.Buffer
 	require.NoError(t, binary.Write(&record, binary.LittleEndian, goRuntimeMetricRawEvent{
-		Type: EventTypeGoRuntimeMetric,
+		Type:       EventTypeGoRuntimeMetric,
+		Generation: 17,
 		PID: goRuntimeMetricRawKey{
 			HostPID: 1000,
 			UserPID: 123,
@@ -298,6 +301,7 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Equal(t, app.PID(1000), snapshot.PID)
+	require.Equal(t, uint64(17), snapshot.Generation)
 	require.Equal(t, service, snapshot.Service)
 	require.NotNil(t, snapshot.Go)
 	require.Equal(t, int64(1024), *snapshot.Go.MemoryLimit)
@@ -314,8 +318,9 @@ func TestSnapshotFromRingbufDecodesHistogramAndCopiesCounts(t *testing.T) {
 		Features:    export.FeatureApplicationRuntime,
 	}
 	event := goRuntimeHistogramRawEvent{
-		Type: EventTypeGoRuntimeHistogram,
-		Kind: GoHistogramKindSchedLatency,
+		Type:       EventTypeGoRuntimeHistogram,
+		Kind:       GoHistogramKindSchedLatency,
+		Generation: 23,
 		PID: goRuntimeMetricRawKey{
 			HostPID: 1000,
 			UserPID: 123,
@@ -338,6 +343,7 @@ func TestSnapshotFromRingbufDecodesHistogramAndCopiesCounts(t *testing.T) {
 	require.False(t, ignore)
 	require.Equal(t, service, snapshot.Service)
 	require.Equal(t, app.PID(1000), snapshot.PID)
+	require.Equal(t, uint64(23), snapshot.Generation)
 	require.False(t, snapshot.Time.Before(before))
 	require.False(t, snapshot.Time.After(after))
 	require.Nil(t, snapshot.Go)
