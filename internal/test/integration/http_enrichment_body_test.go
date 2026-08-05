@@ -20,7 +20,7 @@ import (
 
 // bodyExtractionObfuscate verifies that the body extraction rules correctly
 // capture the request body with sensitive fields obfuscated.
-func bodyExtractionObfuscate(t *testing.T) {
+func bodyExtractionObfuscate(t *testing.T, postOperation string) {
 	// Send POST requests with a JSON body containing sensitive fields.
 	// The config obfuscates $.password and $.secret with "***", credit-card
 	// fields with "PCI", and social/insurance numbers with "PII" on POST requests.
@@ -31,7 +31,7 @@ func bodyExtractionObfuscate(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=POST%20%2Frolldice%2F%3Aid")
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -45,7 +45,7 @@ func bodyExtractionObfuscate(t *testing.T) {
 		trace = traces[0]
 	}, testTimeout, 100*time.Millisecond)
 
-	res := trace.FindByOperationName("POST /rolldice/:id", "server")
+	res := trace.FindByOperationName(postOperation, "server")
 	require.NotEmpty(t, res)
 	span := res[0]
 
@@ -74,7 +74,7 @@ func bodyExtractionObfuscate(t *testing.T) {
 
 // bodyExtractionInclude verifies that body include rules capture the raw body
 // without obfuscation when only an include rule matches.
-func bodyExtractionInclude(t *testing.T) {
+func bodyExtractionInclude(t *testing.T, postOperation string) {
 	// The config has an include rule for POST /rolldice/* which also matches,
 	// but the obfuscate rule also matches POST requests.
 	// Since body rules merge, both rules apply: obfuscate paths are applied
@@ -88,7 +88,7 @@ func bodyExtractionInclude(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=POST%20%2Frolldice%2F%3Aid")
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -102,7 +102,7 @@ func bodyExtractionInclude(t *testing.T) {
 		trace = traces[0]
 	}, testTimeout, 100*time.Millisecond)
 
-	res := trace.FindByOperationName("POST /rolldice/:id", "server")
+	res := trace.FindByOperationName(postOperation, "server")
 	require.NotEmpty(t, res)
 	span := res[0]
 
@@ -158,7 +158,7 @@ func bodyExtractionExcludedByDefault(t *testing.T, getOperation string) {
 
 // bodyExtractionContentTypeHeader verifies that the Content-Type header
 // is also included on the span (configured via a header include rule).
-func bodyExtractionContentTypeHeader(t *testing.T) {
+func bodyExtractionContentTypeHeader(t *testing.T, postOperation string) {
 	for i := 0; i < 4; i++ {
 		doHTTPPost(t, instrumentedServiceStdURL+"/rolldice/53", 200,
 			[]byte(`{"test":"header-check"}`))
@@ -166,7 +166,7 @@ func bodyExtractionContentTypeHeader(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=POST%20%2Frolldice%2F%3Aid")
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -180,7 +180,7 @@ func bodyExtractionContentTypeHeader(t *testing.T) {
 		trace = traces[0]
 	}, testTimeout, 100*time.Millisecond)
 
-	res := trace.FindByOperationName("POST /rolldice/:id", "server")
+	res := trace.FindByOperationName(postOperation, "server")
 	require.NotEmpty(t, res)
 	span := res[0]
 
@@ -208,10 +208,10 @@ func TestSuiteBodyExtraction(t *testing.T) {
 
 	t.Run("Body extraction obfuscate", func(t *testing.T) {
 		waitForTestComponents(t, instrumentedServiceStdURL)
-		bodyExtractionObfuscate(t)
+		bodyExtractionObfuscate(t, "POST /rolldice/:id")
 	})
 	t.Run("Body extraction include", func(t *testing.T) {
-		bodyExtractionInclude(t)
+		bodyExtractionInclude(t, "POST /rolldice/:id")
 	})
 	t.Run("Body excluded by default", func(t *testing.T) {
 		// The socket tracer doesn't capture the Go mux pattern, so OBI resolves
@@ -219,7 +219,7 @@ func TestSuiteBodyExtraction(t *testing.T) {
 		bodyExtractionExcludedByDefault(t, "GET /rolldice/:id")
 	})
 	t.Run("Body with Content-Type header", func(t *testing.T) {
-		bodyExtractionContentTypeHeader(t)
+		bodyExtractionContentTypeHeader(t, "POST /rolldice/:id")
 	})
 
 	runWeaverValidation(t)
