@@ -34,8 +34,8 @@ services:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
-      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_process,application_service_graph,ebpf,application_host"
-      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_process,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
@@ -53,7 +53,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
+    image: otel/opentelemetry-collector-contrib:0.158.0@sha256:c5918f78992ee73b0d6f0e599423ac5ec52dd5d9726733114d6eca53d5a32ed5
     container_name: otel-col
     deploy:
       resources:

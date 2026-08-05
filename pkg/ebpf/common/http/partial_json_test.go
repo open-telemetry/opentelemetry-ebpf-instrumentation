@@ -48,6 +48,23 @@ func TestParseOpenAIInput_truncated(t *testing.T) {
 	assert.Equal(t, "gpt-5-mini", parsed.Model)
 }
 
+func TestParseOpenAIInput_ResponsesInputArray(t *testing.T) {
+	// The Responses API `input` array is retained in InputItems.
+	body := []byte(`{"model":"gpt-5-mini","input":[{"type":"function_call","call_id":"c1","name":"f"}]}`)
+	parsed := parseOpenAIInput(body)
+	assert.Empty(t, parsed.Messages)
+	assert.JSONEq(t, `[{"type":"function_call","call_id":"c1","name":"f"}]`, string(parsed.InputItems))
+}
+
+func TestParseOpenAIInput_NativeDashScopeInputMessages(t *testing.T) {
+	// Native DashScope generation nests conversation history under
+	// input.messages instead of a top-level messages field.
+	body := []byte(`{"model":"qwen-max","input":{"messages":[{"role":"user","content":"hi"}]}}`)
+	parsed := parseOpenAIInput(body)
+	assert.Empty(t, parsed.InputItems)
+	assert.JSONEq(t, `[{"role":"user","content":"hi"}]`, string(parsed.Messages))
+}
+
 func TestParseVendorOpenAI_truncated(t *testing.T) {
 	body := []byte(`{"id":"resp_123","object":"response","model":"gpt-5-mini","output":[`)
 	parsed := parseVendorOpenAI(body)

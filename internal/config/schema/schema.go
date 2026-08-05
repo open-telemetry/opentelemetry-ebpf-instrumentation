@@ -26,6 +26,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/mitchellh/copystructure"
 	"go.yaml.in/yaml/v3"
 
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
@@ -304,6 +305,41 @@ type Extension struct {
 	source *yaml.Node
 }
 
+type extensionData Extension
+
+// WithDefaults overlays a parsed extension onto defaults. Programmatically
+// constructed extensions do not have source data and retain their existing
+// partial-conversion behavior.
+func (e *Extension) WithDefaults(defaults *Extension) (*Extension, bool, error) {
+	if e == nil || e.source == nil {
+		return e, false, nil
+	}
+
+	merged, err := cloneExtensionData(defaults)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := decode(e.source, &merged); err != nil {
+		return nil, false, err
+	}
+
+	result := Extension(merged)
+	result.source = e.source
+	return &result, true, nil
+}
+
+func cloneExtensionData(extension *Extension) (extensionData, error) {
+	if extension == nil {
+		return extensionData{}, errors.New("missing config v2 defaults")
+	}
+
+	cloned, err := copystructure.Copy(extension)
+	if err != nil {
+		return extensionData{}, fmt.Errorf("copying config v2 defaults: %w", err)
+	}
+	return extensionData(*cloned.(*Extension)), nil
+}
+
 // FlowLimitAliasPresence reports which network flow limit aliases were present
 // in parsed YAML. Programmatically constructed extensions report known as false.
 func (e *Extension) FlowLimitAliasPresence() (
@@ -362,17 +398,22 @@ func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
 		if err := decode(root, &doc); err != nil {
 			return nil, nil, err
 		}
+		extensionNode, _ := nestedNode(root, "extensions", "obi")
+		extension, err := decodeExtension(extensionNode)
+		if err != nil {
+			return nil, nil, err
+		}
+		doc.Extensions.OBI = extension
 		if err := validateFileFormat(doc.FileFormat); err != nil {
 			return nil, nil, err
 		}
 		if doc.Extensions.OBI == nil {
 			return nil, nil, &NotV2Error{Reason: "missing extensions.obi"}
 		}
-		doc.Extensions.OBI.recordStandaloneFlowLimitAliasPresence(root)
-		if err := ValidateStandalone(doc.Extensions.OBI); err != nil {
+		if err := ValidateStandalone(extension); err != nil {
 			return nil, nil, err
 		}
-		return &doc, doc.Extensions.OBI, nil
+		return &doc, extension, nil
 	}
 
 	if version, ok := nestedVersion(root, "extensions", "obi", "version"); ok {
@@ -421,8 +462,8 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 		cfg := Extension{
 			Version: receiver.Version,
 			Capture: receiver.Capture,
+			source:  receiverExtensionNode(root),
 		}
-		cfg.recordReceiverFlowLimitAliasPresence(root)
 		if err := ValidateReceiver(&cfg); err != nil {
 			return nil, err
 		}
@@ -442,47 +483,6 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 	}
 
 	return nil, &NotV2Error{Reason: "missing top-level OBI v2 version field"}
-}
-
-func (e *Extension) recordStandaloneFlowLimitAliasPresence(root *yaml.Node) {
-	e.source, _ = nestedNode(root, "extensions", "obi")
-}
-
-func (e *Extension) recordReceiverFlowLimitAliasPresence(root *yaml.Node) {
-	e.source = receiverExtensionNode(root)
-}
-
-func receiverExtensionNode(root *yaml.Node) *yaml.Node {
-	capture := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	var version *yaml.Node
-	for i := 0; i < len(root.Content)-1; i += 2 {
-		key := root.Content[i]
-		value := root.Content[i+1]
-		if key.Value == "version" {
-			version = value
-			continue
-		}
-		capture.Content = append(capture.Content, key, value)
-	}
-
-	return &yaml.Node{
-		Kind: yaml.MappingNode,
-		Tag:  "!!map",
-		Content: []*yaml.Node{
-			{
-				Kind:  yaml.ScalarNode,
-				Tag:   "!!str",
-				Value: "version",
-			},
-			version,
-			{
-				Kind:  yaml.ScalarNode,
-				Tag:   "!!str",
-				Value: "capture",
-			},
-			capture,
-		},
-	}
 }
 
 // ValidateStandalone checks version support for a standalone OBI extension.
@@ -586,8 +586,13 @@ func decode(node *yaml.Node, dst any) error {
 }
 
 func decodeKnownFields(node *yaml.Node, dst any) error {
+	resolved, err := cloneYAMLNodeWithoutAliases(node, map[*yaml.Node]bool{})
+	if err != nil {
+		return fmt.Errorf("resolving config v2 YAML aliases: %w", err)
+	}
+
 	var data bytes.Buffer
-	if err := yaml.NewEncoder(&data).Encode(node); err != nil {
+	if err := yaml.NewEncoder(&data).Encode(resolved); err != nil {
 		return fmt.Errorf("encoding config v2 YAML: %w", err)
 	}
 
@@ -597,6 +602,82 @@ func decodeKnownFields(node *yaml.Node, dst any) error {
 		return fmt.Errorf("decoding config v2 YAML: %w", err)
 	}
 	return nil
+}
+
+func cloneYAMLNodeWithoutAliases(node *yaml.Node, visiting map[*yaml.Node]bool) (*yaml.Node, error) {
+	if node == nil {
+		return nil, nil
+	}
+	if visiting[node] {
+		return nil, fmt.Errorf("cyclic alias %q", node.Value)
+	}
+
+	visiting[node] = true
+	defer delete(visiting, node)
+
+	if node.Kind == yaml.AliasNode {
+		if node.Alias == nil {
+			return nil, fmt.Errorf("unresolved alias %q", node.Value)
+		}
+		return cloneYAMLNodeWithoutAliases(node.Alias, visiting)
+	}
+
+	cloned := *node
+	cloned.Anchor = ""
+	cloned.Alias = nil
+	cloned.Content = make([]*yaml.Node, len(node.Content))
+	for i, child := range node.Content {
+		var err error
+		cloned.Content[i], err = cloneYAMLNodeWithoutAliases(child, visiting)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &cloned, nil
+}
+
+func decodeExtension(node *yaml.Node) (*Extension, error) {
+	var decoded extensionData
+	if err := decodeKnownFields(node, &decoded); err != nil {
+		return nil, err
+	}
+
+	extension := Extension(decoded)
+	extension.source = node
+	return &extension, nil
+}
+
+func receiverExtensionNode(root *yaml.Node) *yaml.Node {
+	capture := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	var version *yaml.Node
+	for i := 0; i < len(root.Content)-1; i += 2 {
+		key := root.Content[i]
+		value := root.Content[i+1]
+		if key.Value == "version" {
+			version = value
+			continue
+		}
+		capture.Content = append(capture.Content, key, value)
+	}
+
+	return &yaml.Node{
+		Kind: yaml.MappingNode,
+		Tag:  "!!map",
+		Content: []*yaml.Node{
+			{
+				Kind:  yaml.ScalarNode,
+				Tag:   "!!str",
+				Value: "version",
+			},
+			version,
+			{
+				Kind:  yaml.ScalarNode,
+				Tag:   "!!str",
+				Value: "capture",
+			},
+			capture,
+		},
+	}
 }
 
 func nestedScalar(root *yaml.Node, path ...string) (string, bool) {

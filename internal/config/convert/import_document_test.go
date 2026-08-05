@@ -272,7 +272,7 @@ extensions:
 	require.NoError(t, err)
 }
 
-func TestDocumentToRuntimeSkipsUnsupportedMetricReaderShapes(t *testing.T) {
+func TestDocumentToRuntimeRejectsUnsupportedMetricReaderShapes(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultRuntimeConfig()
@@ -283,24 +283,21 @@ func TestDocumentToRuntimeSkipsUnsupportedMetricReaderShapes(t *testing.T) {
 	doc, _ := RuntimeToV2(&cfg)
 	doc.MeterProvider.Readers = append(doc.MeterProvider.Readers, doc.MeterProvider.Readers[0])
 
-	got, err := DocumentToRuntime(doc)
-	require.NoError(t, err)
-
-	require.Equal(t, obi.DefaultConfig.OTELMetrics.MetricsEndpoint, got.OTELMetrics.MetricsEndpoint)
-	require.Equal(t, obi.DefaultConfig.OTELMetrics.MetricsProtocol, got.OTELMetrics.MetricsProtocol)
-	require.Equal(t, obi.DefaultConfig.OTELMetrics.GetInterval(), got.OTELMetrics.GetInterval())
-	require.Equal(t, obi.DefaultConfig.Prometheus.Port, got.Prometheus.Port)
+	_, err := DocumentToRuntime(doc)
+	require.ErrorContains(t, err, "meter_provider.readers")
 }
 
-func TestDocumentToRuntimeSkipsUnsupportedTracerProviderShapes(t *testing.T) {
+func TestDocumentToRuntimeRejectsUnsupportedTracerProviderShapes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name   string
+		field  string
 		mutate func(*otelconfx.TracerProvider)
 	}{
 		{
-			name: "span limits",
+			name:  "span limits",
+			field: "tracer_provider.limits",
 			mutate: func(provider *otelconfx.TracerProvider) {
 				limit := 12
 				provider.Limits = &otelconfx.SpanLimits{
@@ -309,7 +306,8 @@ func TestDocumentToRuntimeSkipsUnsupportedTracerProviderShapes(t *testing.T) {
 			},
 		},
 		{
-			name: "tracer configurator",
+			name:  "tracer configurator",
+			field: "tracer_provider.tracer_configurator/development",
 			mutate: func(provider *otelconfx.TracerProvider) {
 				provider.TracerConfiguratorDevelopment = &otelconfx.ExperimentalTracerConfigurator{}
 			},
@@ -323,36 +321,38 @@ func TestDocumentToRuntimeSkipsUnsupportedTracerProviderShapes(t *testing.T) {
 			doc := documentWithRuntimeTelemetry()
 			tt.mutate(doc.TracerProvider)
 
-			got, err := DocumentToRuntime(doc)
-			require.NoError(t, err)
-
-			requireDefaultTraceProvider(t, got)
+			_, err := DocumentToRuntime(doc)
+			require.ErrorContains(t, err, tt.field)
 		})
 	}
 }
 
-func TestDocumentToRuntimeSkipsUnsupportedMeterProviderShapes(t *testing.T) {
+func TestDocumentToRuntimeRejectsUnsupportedMeterProviderShapes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name   string
+		field  string
 		mutate func(*otelconfx.MeterProvider)
 	}{
 		{
-			name: "exemplar filter",
+			name:  "exemplar filter",
+			field: "meter_provider.exemplar_filter",
 			mutate: func(provider *otelconfx.MeterProvider) {
 				filter := otelconfx.ExemplarFilterAlwaysOn
 				provider.ExemplarFilter = &filter
 			},
 		},
 		{
-			name: "meter configurator",
+			name:  "meter configurator",
+			field: "meter_provider.meter_configurator/development",
 			mutate: func(provider *otelconfx.MeterProvider) {
 				provider.MeterConfiguratorDevelopment = &otelconfx.ExperimentalMeterConfigurator{}
 			},
 		},
 		{
-			name: "views",
+			name:  "views",
+			field: "meter_provider.views",
 			mutate: func(provider *otelconfx.MeterProvider) {
 				provider.Views = []otelconfx.View{{}}
 			},
@@ -366,15 +366,13 @@ func TestDocumentToRuntimeSkipsUnsupportedMeterProviderShapes(t *testing.T) {
 			doc := documentWithRuntimeTelemetry()
 			tt.mutate(doc.MeterProvider)
 
-			got, err := DocumentToRuntime(doc)
-			require.NoError(t, err)
-
-			requireDefaultMeterProvider(t, got)
+			_, err := DocumentToRuntime(doc)
+			require.ErrorContains(t, err, tt.field)
 		})
 	}
 }
 
-func TestDocumentToRuntimeSkipsUnsupportedTraceOTLPGrpcTLS(t *testing.T) {
+func TestDocumentToRuntimeRejectsUnsupportedTraceOTLPGrpcTLS(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range unsupportedTLSFields() {
@@ -384,15 +382,13 @@ func TestDocumentToRuntimeSkipsUnsupportedTraceOTLPGrpcTLS(t *testing.T) {
 			doc := documentWithRuntimeTelemetry()
 			tt.mutate(doc.TracerProvider.Processors[0].Batch.Exporter.OTLPGrpc.Tls)
 
-			got, err := DocumentToRuntime(doc)
-			require.NoError(t, err)
-
-			requireDefaultTraceExporter(t, got)
+			_, err := DocumentToRuntime(doc)
+			require.ErrorContains(t, err, ".tls."+tt.field)
 		})
 	}
 }
 
-func TestDocumentToRuntimeSkipsUnsupportedMetricOTLPGrpcTLS(t *testing.T) {
+func TestDocumentToRuntimeRejectsUnsupportedMetricOTLPGrpcTLS(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range unsupportedTLSFields() {
@@ -402,12 +398,149 @@ func TestDocumentToRuntimeSkipsUnsupportedMetricOTLPGrpcTLS(t *testing.T) {
 			doc := documentWithRuntimeTelemetry()
 			tt.mutate(doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc.Tls)
 
-			got, err := DocumentToRuntime(doc)
-			require.NoError(t, err)
-
-			requireDefaultMeterProvider(t, got)
+			_, err := DocumentToRuntime(doc)
+			require.ErrorContains(t, err, ".tls."+tt.field)
 		})
 	}
+}
+
+func TestDocumentToRuntimeImportsOTLPHTTPExporters(t *testing.T) {
+	t.Parallel()
+
+	doc := documentWithRuntimeTelemetry()
+	traceEndpoint := "https://traces.example/v1/traces"
+	traceEncoding := otelconfx.OTLPHttpEncodingJson
+	traceHeadersList := "from-list=trace%20list,override=old"
+	traceOverride := "trace-direct"
+	doc.TracerProvider.Processors[0].Batch.Exporter = otelconfx.SpanExporter{
+		OTLPHttp: &otelconfx.OTLPHttpExporter{
+			Endpoint:    &traceEndpoint,
+			Encoding:    &traceEncoding,
+			HeadersList: &traceHeadersList,
+			Headers: []otelconfx.NameStringValuePair{
+				{Name: "override", Value: &traceOverride},
+			},
+		},
+	}
+
+	metricEndpoint := "https://metrics.example/v1/metrics"
+	metricEncoding := otelconfx.OTLPHttpEncodingProtobuf
+	metricHeadersList := "from-list=metric-list,override=old"
+	metricOverride := "metric-direct"
+	doc.MeterProvider.Readers[0].Periodic.Exporter = otelconfx.PushMetricExporter{
+		OTLPHttp: &otelconfx.OTLPHttpMetricExporter{
+			Endpoint:    &metricEndpoint,
+			Encoding:    &metricEncoding,
+			HeadersList: &metricHeadersList,
+			Headers: []otelconfx.NameStringValuePair{
+				{Name: "override", Value: &metricOverride},
+			},
+		},
+	}
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.Equal(t, traceEndpoint, got.Traces.TracesEndpoint)
+	require.Equal(t, otelcfg.ProtocolHTTPJSON, got.Traces.TracesProtocol)
+	traceHeaders := map[string]string{}
+	require.NotNil(t, got.Traces.InjectHeaders)
+	got.Traces.InjectHeaders(traceHeaders)
+	require.Equal(t, map[string]string{
+		"from-list": "trace list",
+		"override":  "trace-direct",
+	}, traceHeaders)
+
+	require.Equal(t, metricEndpoint, got.OTELMetrics.MetricsEndpoint)
+	require.Equal(t, otelcfg.ProtocolHTTPProtobuf, got.OTELMetrics.MetricsProtocol)
+	metricHeaders := map[string]string{}
+	require.NotNil(t, got.OTELMetrics.InjectHeaders)
+	got.OTELMetrics.InjectHeaders(metricHeaders)
+	require.Equal(t, map[string]string{
+		"from-list": "metric-list",
+		"override":  "metric-direct",
+	}, metricHeaders)
+}
+
+func TestDocumentToRuntimeRejectsInvalidOTLPHeadersList(t *testing.T) {
+	t.Parallel()
+
+	doc := documentWithRuntimeTelemetry()
+	headersList := "invalid header=value"
+	doc.TracerProvider.Processors[0].Batch.Exporter.OTLPGrpc.HeadersList = &headersList
+
+	_, err := DocumentToRuntime(doc)
+	require.ErrorContains(t, err, "tracer_provider.processors[0].batch.exporter.otlp_grpc.headers_list")
+}
+
+func TestDocumentToRuntimeImportsDeclarativeExporterDefaults(t *testing.T) {
+	t.Parallel()
+
+	doc := documentWithRuntimeTelemetry()
+	doc.TracerProvider.Processors[0].Batch.Exporter.OTLPGrpc.Endpoint = nil
+	doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc.Endpoint = nil
+	doc.MeterProvider.Readers[0].Periodic.Interval = nil
+	doc.MeterProvider.Readers[1].Pull.Exporter.PrometheusDevelopment.Port = nil
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.Equal(t, defaultOTLPGRPCEndpoint, got.Traces.TracesEndpoint)
+	require.Equal(t, defaultOTLPGRPCEndpoint, got.OTELMetrics.MetricsEndpoint)
+	require.Equal(t, defaultMetricExportInterval, got.OTELMetrics.Interval)
+	require.Equal(t, defaultPrometheusPort, got.Prometheus.Port)
+}
+
+func TestDocumentToRuntimeImportsGRPCTransportSecurity(t *testing.T) {
+	t.Parallel()
+
+	doc := documentWithRuntimeTelemetry()
+	traceEndpoint := "traces.example:4317"
+	metricEndpoint := "metrics.example:4317"
+	insecure := true
+	secure := false
+	doc.TracerProvider.Processors[0].Batch.Exporter.OTLPGrpc.Endpoint = &traceEndpoint
+	doc.TracerProvider.Processors[0].Batch.Exporter.OTLPGrpc.Tls.Insecure = &insecure
+	doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc.Endpoint = &metricEndpoint
+	doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc.Tls.Insecure = &secure
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.Equal(t, "http://traces.example:4317", got.Traces.TracesEndpoint)
+	require.Equal(t, "https://metrics.example:4317", got.OTELMetrics.MetricsEndpoint)
+}
+
+func TestDocumentToRuntimeImportsSupportedResourceAttributes(t *testing.T) {
+	t.Parallel()
+
+	doc := documentWithRuntimeTelemetry()
+	attributesList := "host.name=list-host,host.id=list-id,service.name=list-service,service.namespace=shop"
+	doc.Resource.AttributesList = &attributesList
+	doc.Resource.Attributes = []otelconfx.AttributeNameValue{
+		{Name: "host.name", Value: "direct-host"},
+		{Name: "service.name", Value: "checkout"},
+	}
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.Equal(t, "direct-host", got.Attributes.InstanceID.OverrideHostname)
+	require.Equal(t, "list-id", got.Attributes.HostID.Override)
+	require.Equal(t, "checkout", got.ServiceName)
+	require.Equal(t, "shop", got.ServiceNamespace)
+}
+
+func TestDocumentToRuntimeRejectsUnsupportedResourceAttribute(t *testing.T) {
+	t.Parallel()
+
+	doc := documentWithRuntimeTelemetry()
+	doc.Resource.Attributes = []otelconfx.AttributeNameValue{
+		{Name: "service.version", Value: "1.2.3"},
+	}
+
+	_, err := DocumentToRuntime(doc)
+	require.ErrorContains(t, err, `resource attribute "service.version"`)
 }
 
 func documentWithRuntimeTelemetry() *schema.Document {
@@ -431,59 +564,37 @@ func documentWithRuntimeTelemetry() *schema.Document {
 
 func unsupportedTLSFields() []struct {
 	name   string
+	field  string
 	mutate func(*otelconfx.GrpcTls)
 } {
 	return []struct {
 		name   string
+		field  string
 		mutate func(*otelconfx.GrpcTls)
 	}{
 		{
-			name: "CA file",
+			name:  "CA file",
+			field: "ca_file",
 			mutate: func(tls *otelconfx.GrpcTls) {
 				caFile := "/tmp/ca.pem"
 				tls.CaFile = &caFile
 			},
 		},
 		{
-			name: "cert file",
+			name:  "cert file",
+			field: "cert_file",
 			mutate: func(tls *otelconfx.GrpcTls) {
 				certFile := "/tmp/cert.pem"
 				tls.CertFile = &certFile
 			},
 		},
 		{
-			name: "key file",
+			name:  "key file",
+			field: "key_file",
 			mutate: func(tls *otelconfx.GrpcTls) {
 				keyFile := "/tmp/key.pem"
 				tls.KeyFile = &keyFile
 			},
 		},
 	}
-}
-
-func requireDefaultTraceProvider(t *testing.T, got *obi.Config) {
-	t.Helper()
-
-	requireDefaultTraceExporter(t, got)
-	require.Equal(t, obi.DefaultConfig.Traces.SamplerConfig, got.Traces.SamplerConfig)
-}
-
-func requireDefaultTraceExporter(t *testing.T, got *obi.Config) {
-	t.Helper()
-
-	require.Equal(t, obi.DefaultConfig.Traces.TracesEndpoint, got.Traces.TracesEndpoint)
-	require.Equal(t, obi.DefaultConfig.Traces.TracesProtocol, got.Traces.TracesProtocol)
-	require.Equal(t, obi.DefaultConfig.Traces.QueueSize, got.Traces.QueueSize)
-	require.Equal(t, obi.DefaultConfig.Traces.BatchMaxSize, got.Traces.BatchMaxSize)
-	require.Equal(t, obi.DefaultConfig.Traces.BatchTimeout, got.Traces.BatchTimeout)
-}
-
-func requireDefaultMeterProvider(t *testing.T, got *obi.Config) {
-	t.Helper()
-
-	require.Equal(t, obi.DefaultConfig.OTELMetrics.MetricsEndpoint, got.OTELMetrics.MetricsEndpoint)
-	require.Equal(t, obi.DefaultConfig.OTELMetrics.MetricsProtocol, got.OTELMetrics.MetricsProtocol)
-	require.Equal(t, obi.DefaultConfig.OTELMetrics.GetInterval(), got.OTELMetrics.GetInterval())
-	require.Equal(t, obi.DefaultConfig.OTELMetrics.HistogramAggregation, got.OTELMetrics.HistogramAggregation)
-	require.Equal(t, obi.DefaultConfig.Prometheus.Port, got.Prometheus.Port)
 }

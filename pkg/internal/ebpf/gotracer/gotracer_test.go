@@ -103,6 +103,61 @@ func TestGoRuntimeMetricAvailability(t *testing.T) {
 	assert.False(t, hasBaseGoRuntimeMetrics(goRuntimeMetricMask(baseOffsets)))
 }
 
+func TestGoRuntimeHistogramAvailabilityRequiresSupportedLayout(t *testing.T) {
+	offsets := &goexec.Offsets{Field: goexec.FieldOffsets{
+		goexec.RuntimeTimeHistogramUnderflowPos: uint64(1280),
+		goexec.RuntimeTimeHistogramOverflowPos:  uint64(1288),
+	}}
+
+	mask := goRuntimeMetricMask(offsets)
+	assert.Zero(t, mask&goRuntimeMetricGCPauseHistogramMask)
+	assert.Zero(t, mask&goRuntimeMetricScheduleDurationHistogramMask)
+
+	offsets.Field[goexec.RuntimeSchedTimeToRunPos] = uint64(640)
+	mask = goRuntimeMetricMask(offsets)
+	assert.Zero(t, mask&goRuntimeMetricGCPauseHistogramMask)
+	assert.NotZero(t, mask&goRuntimeMetricScheduleDurationHistogramMask)
+
+	offsets.Field[goexec.RuntimeSchedSTWTotalTimeGCPos] = uint64(4520)
+	mask = goRuntimeMetricMask(offsets)
+	assert.NotZero(t, mask&goRuntimeMetricGCPauseHistogramMask)
+	assert.NotZero(t, mask&goRuntimeMetricScheduleDurationHistogramMask)
+
+	delete(offsets.Field, goexec.RuntimeTimeHistogramUnderflowPos)
+	mask = goRuntimeMetricMask(offsets)
+	assert.Zero(t, mask&goRuntimeMetricGCPauseHistogramMask)
+	assert.Zero(t, mask&goRuntimeMetricScheduleDurationHistogramMask)
+}
+
+func TestGoRuntimeHistogramAvailabilityRejectsUnsupportedLayout(t *testing.T) {
+	const supportedBucketCount = 160
+	const bucketSize = uint64(8)
+
+	offsets := &goexec.Offsets{Field: goexec.FieldOffsets{
+		goexec.RuntimeMemstatsNumGCPos:          uint64(0),
+		goexec.RuntimeGCControllerGCPercentPos:  uint64(8),
+		goexec.RuntimeSchedTimeToRunPos:         uint64(320),
+		goexec.RuntimeSchedSTWTotalTimeGCPos:    uint64(4224),
+		goexec.RuntimeTimeHistogramUnderflowPos: uint64(supportedBucketCount-1) * bucketSize,
+		goexec.RuntimeTimeHistogramOverflowPos:  uint64(supportedBucketCount) * bucketSize,
+	}}
+
+	mask := goRuntimeMetricMask(offsets)
+	assert.True(t, hasBaseGoRuntimeMetrics(mask))
+	assert.Zero(t, mask&goRuntimeMetricHistogramMask)
+
+	offsets.Field[goexec.RuntimeTimeHistogramUnderflowPos] = uint64(supportedBucketCount) * bucketSize
+	mask = goRuntimeMetricMask(offsets)
+	assert.True(t, hasBaseGoRuntimeMetrics(mask))
+	assert.Zero(t, mask&goRuntimeMetricHistogramMask)
+
+	offsets.Field[goexec.RuntimeTimeHistogramOverflowPos] = uint64(supportedBucketCount+1) * bucketSize
+
+	mask = goRuntimeMetricMask(offsets)
+	assert.True(t, hasBaseGoRuntimeMetrics(mask))
+	assert.Equal(t, goRuntimeMetricHistogramMask, mask&goRuntimeMetricHistogramMask)
+}
+
 func TestGoRuntimeMetricMaskABI(t *testing.T) {
 	assert.Equal(t, goRuntimeMetricGCCyclesMask, uint64(1<<0))
 	assert.Equal(t, goRuntimeMetricMemoryLimitMask, uint64(1<<1))
@@ -111,6 +166,8 @@ func TestGoRuntimeMetricMaskABI(t *testing.T) {
 	assert.Equal(t, goRuntimeMetricCPUTimeMask, uint64(1<<4))
 	assert.Equal(t, goRuntimeMetricMemoryUsedMask, uint64(1<<5))
 	assert.Equal(t, goRuntimeMetricMemoryAllocsMask, uint64(1<<6))
+	assert.Equal(t, goRuntimeMetricGCPauseHistogramMask, uint64(1<<7))
+	assert.Equal(t, goRuntimeMetricScheduleDurationHistogramMask, uint64(1<<8))
 	assert.Equal(t, goRuntimeMetricGoroutineCountMask, uint64(1<<9))
 	assert.Equal(t, goRuntimeMetricMemoryGCGoalMask, uint64(1<<10))
 }
@@ -118,7 +175,7 @@ func TestGoRuntimeMetricMaskABI(t *testing.T) {
 func TestGoRuntimeMetricTargetABIAppendsGoroutineMetadata(t *testing.T) {
 	var target BpfGoRuntimeMetricTargetT
 
-	assert.Equal(t, uintptr(96), unsafe.Sizeof(target))
+	assert.Equal(t, uintptr(104), unsafe.Sizeof(target))
 	assert.Equal(t, uintptr(40), unsafe.Offsetof(target.SizeClassToSizesAddr))
 	assert.Equal(t, uintptr(48), unsafe.Offsetof(target.SchedAddr))
 	assert.Equal(t, uintptr(56), unsafe.Offsetof(target.AllglenAddr))
@@ -129,9 +186,10 @@ func TestGoRuntimeMetricTargetABIAppendsGoroutineMetadata(t *testing.T) {
 func TestGoRuntimeMetricTargetABIAppendsGCGoalCache(t *testing.T) {
 	var target BpfGoRuntimeMetricTargetT
 
-	assert.Equal(t, uintptr(96), unsafe.Sizeof(target))
+	assert.Equal(t, uintptr(104), unsafe.Sizeof(target))
 	assert.Equal(t, uintptr(80), unsafe.Offsetof(target.GcGoalSource))
 	assert.Equal(t, uintptr(88), unsafe.Offsetof(target.GcGoal))
+	assert.Equal(t, uintptr(96), unsafe.Offsetof(target.Generation))
 }
 
 func TestGoRuntimeGCGoalSourceSelection(t *testing.T) {
@@ -353,6 +411,38 @@ func TestGoRuntimeMetricMaskRequiresGoroutineSymbolsAndModeOnlyForCount(t *testi
 	got = tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, symbols)
 	assert.Zero(t, got&goRuntimeMetricGoroutineCountMask)
 	assert.NotZero(t, got&goRuntimeMetricCPUTimeMask)
+}
+
+func TestGoRuntimeMetricMaskRequiresSchedulerSymbolForHistograms(t *testing.T) {
+	var logs bytes.Buffer
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	fileInfo := exec.New(exec.Init{Ino: 1, Pid: 123, CmdExePath: "/test/server"})
+	mask := goRuntimeMetricBaseMask |
+		goRuntimeMetricCPUTimeMask |
+		goRuntimeMetricGCPauseHistogramMask |
+		goRuntimeMetricScheduleDurationHistogramMask
+
+	got := tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, goexec.RuntimeMetricSymbols{})
+
+	assert.Zero(t, got&goRuntimeMetricHistogramMask)
+	assert.NotZero(t, got&goRuntimeMetricCPUTimeMask)
+	assert.True(t, hasBaseGoRuntimeMetrics(got))
+	assert.Contains(t, logs.String(),
+		"Go runtime scheduler symbol unresolved; disabling histogram metrics")
+}
+
+func TestGoRuntimeMetricMaskKeepsHistogramsWithSchedulerSymbol(t *testing.T) {
+	var logs bytes.Buffer
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	fileInfo := exec.New(exec.Init{Ino: 1})
+	mask := goRuntimeMetricBaseMask | goRuntimeMetricHistogramMask
+
+	got := tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, goexec.RuntimeMetricSymbols{
+		SchedAddr: 0x1234,
+	})
+
+	assert.Equal(t, mask, got)
+	assert.Empty(t, logs.String())
 }
 
 func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {

@@ -182,3 +182,40 @@ groups:
       - ref: dst.zone
       - ref: src.name
       - ref: dst.name
+
+  # Overrides `network.type`: extends the upstream `ipv4`/`ipv6` enum with
+  # `arp`, which OBI reports for ARP frames — OBI observes raw L2 frames, a
+  # case the upstream network-layer enum has no member for. Other non-IP
+  # EtherTypes fall back to `unknown` (pkg/internal/netolly/flow/transport,
+  # NetworkType.String); that bug-marker value is deliberately NOT declared
+  # here, so weaver keeps flagging it if it ever appears.
+  #
+  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # upstream member list, lint allowlist).
+  - id: x.obi.network
+    type: attribute_group
+    display_name: OBI Network Attribute Overrides
+    brief: >
+      OBI override of `network.type` extending the upstream enum with `arp`
+      for the ARP frames OBI observes at L2.
+    attributes:
+      - id: network.type
+        stability: stable
+        type:
+          members:
+            - id: ipv4
+              value: 'ipv4'
+              brief: "IPv4"
+              stability: stable
+            - id: ipv6
+              value: 'ipv6'
+              brief: "IPv6"
+              stability: stable
+            # --- OBI extension (not in upstream semconv v1.41) ---
+            - id: arp
+              value: 'arp'
+              brief: "ARP (Address Resolution Protocol) frame observed at L2."
+              stability: development
+        brief: '[OSI network layer](https://wikipedia.org/wiki/Network_layer) or non-OSI equivalent.'
+        note: The value SHOULD be normalized to lowercase.
+        examples: ['ipv4', 'ipv6']
