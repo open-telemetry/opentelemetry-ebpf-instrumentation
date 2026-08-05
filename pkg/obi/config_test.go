@@ -367,6 +367,7 @@ discovery:
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
 			MinProcessAge:                   5 * time.Second,
+			ProcessContextPollInterval:      time.Second,
 			DefaultExcludeServices: services.RegexDefinitionCriteria{
 				services.RegexSelector{
 					Path: services.NewRegexp("(?:^|/)(obi$|otelcol[^/]*$)"),
