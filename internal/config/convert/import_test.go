@@ -628,6 +628,29 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 	require.Equal(t, "kube-*", globString(*exclude.Metadata[services.AttrNamespace]))
 }
 
+func TestV2ToRuntimeSupportsContainersOnlyRule(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{DefaultAction: schema.CaptureActionExclude},
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{ContainersOnly: true},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, got.Discovery.Validate())
+	require.Len(t, got.Discovery.Instrument, 1)
+	require.True(t, got.Discovery.Instrument[0].ContainersOnly)
+}
+
 func TestV2ToRuntimeRejectsUnsupportedExportsOTLPRules(t *testing.T) {
 	t.Parallel()
 
