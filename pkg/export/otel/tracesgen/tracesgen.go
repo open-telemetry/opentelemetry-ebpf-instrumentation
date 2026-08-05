@@ -51,7 +51,6 @@ var (
 type TraceSpanAndAttributes struct {
 	Span       *request.Span
 	Attributes []attribute.KeyValue
-	ToolCalls  []request.ToolCall
 }
 
 type SpanAttr struct {
@@ -126,7 +125,6 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 		group = append(group, TraceSpanAndAttributes{
 			Span:       span,
 			Attributes: exportAttrs,
-			ToolCalls:  resolveToolCalls(span, traceAttrs),
 		})
 		spanGroups[span.Service.UID] = group
 	}
@@ -262,11 +260,6 @@ func generateTracesWithAttributes(
 			appendSpanLinks(s, span.Links)
 		}
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
-
-		// Create individual execute_tool child spans per tool call (OTel GenAI semconv compliance)
-		if len(spanWithAttributes.ToolCalls) > 0 {
-			createToolCallSpans(spanWithAttributes.ToolCalls, spanID, traceID, &ss, start)
-		}
 	}
 	return traces
 }
@@ -462,73 +455,6 @@ var (
 	messagingSystemAMQP = attribute.String(string(attr.MessagingSystem), "amqp")
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
-
-// resolveToolCalls pairs GenAI tool calls from the request message history
-// and clears arguments/result unless their optional attributes are selected,
-// mirroring the MCP path.
-func resolveToolCalls(span *request.Span, optionalAttrs map[attr.Name]struct{}) []request.ToolCall {
-	if span.GenAI == nil {
-		return nil
-	}
-	toolCalls := span.GenAI.PairedToolCalls()
-	if len(toolCalls) == 0 {
-		return nil
-	}
-	_, wantArgs := optionalAttrs[attr.GenAIToolCallArguments]
-	_, wantResult := optionalAttrs[attr.GenAIToolCallResult]
-	for i := range toolCalls {
-		if !wantArgs {
-			toolCalls[i].Arguments = ""
-		}
-		if !wantResult {
-			toolCalls[i].Result = ""
-		}
-	}
-	return toolCalls
-}
-
-// createToolCallSpans creates individual execute_tool child spans for each tool call,
-// following the OTel GenAI semantic conventions where gen_ai.tool.name is a single string
-// per span rather than an aggregated string array.
-//
-// The tool runs outside the observed process, so its real execution time is not
-// visible: the request only proves the call completed by the time it was sent.
-// Spans are therefore zero-duration at ts rather than spanning the model
-// inference window, which would report model latency as tool duration.
-func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, ts time.Time) {
-	for _, tc := range toolCalls {
-		if tc.Name == "" {
-			continue
-		}
-		sp := ss.Spans().AppendEmpty()
-		sp.SetName("execute_tool " + tc.Name)
-		sp.SetKind(ptrace.SpanKindInternal)
-		sp.SetTraceID(traceID)
-		sp.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
-		sp.SetParentSpanID(parentSpanID)
-		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(ts))
-		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(ts))
-
-		attrs := sp.Attributes()
-		attrs.PutStr(string(semconv.GenAIOperationNameKey), "execute_tool")
-		attrs.PutStr(string(attr.GenAIToolName), tc.Name)
-		if tc.ID != "" {
-			attrs.PutStr(string(attr.GenAIToolCallID), tc.ID)
-		}
-		if tc.Arguments != "" {
-			attrs.PutStr(string(attr.GenAIToolCallArguments), tc.Arguments)
-		}
-		if tc.Result != "" {
-			attrs.PutStr(string(attr.GenAIToolCallResult), tc.Result)
-		}
-		if tc.IsError {
-			sp.Status().SetCode(ptrace.StatusCodeError)
-			// is_error carries no provider error code; the convention
-			// requires a low-cardinality error.type on failed operations.
-			attrs.PutStr(string(semconv.ErrorTypeKey), "_OTHER")
-		}
-	}
-}
 
 // mcpAttributes returns MCP span attributes following the OTEL MCP semantic conventions.
 // Tool call arguments and results are gated behind their own optionalAttrs

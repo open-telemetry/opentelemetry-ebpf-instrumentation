@@ -30,6 +30,7 @@ func geminiPartToNormalized(p geminiPart) normalizedPart {
 	if p.FunctionCall != nil {
 		return normalizedPart{
 			Type:      "tool_call",
+			ID:        p.FunctionCall.ID,
 			Name:      p.FunctionCall.Name,
 			Arguments: p.FunctionCall.Args,
 		}
@@ -41,6 +42,7 @@ func geminiPartToNormalized(p geminiPart) normalizedPart {
 		}
 		return normalizedPart{
 			Type:     "tool_call_response",
+			ID:       p.FunctionResponse.ID,
 			Name:     p.FunctionResponse.Name,
 			Response: resp,
 		}

@@ -333,17 +333,14 @@ type OpenAIError struct {
 	Type    string `json:"type"`
 }
 
-// ToolCall represents a tool invocation requested by an LLM. Arguments and
-// Result are JSON strings, set only when paired from the request message
-// history. IsError marks calls whose result the provider flagged as failed;
-// such calls carry no Result since the result attribute only applies to
-// successful executions.
+// ToolCall represents a tool invocation requested by an LLM.
 type ToolCall struct {
-	ID        string `json:"id,omitempty"`
-	Name      string `json:"name"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+	// Arguments is the tool-call input as raw JSON: a string for OpenAI-family
+	// providers, an object for Anthropic, Gemini and Ollama.
 	Arguments string `json:"arguments,omitempty"`
-	Result    string `json:"result,omitempty"`
-	IsError   bool   `json:"is_error,omitempty"`
+	Type      string `json:"type,omitempty"`
 }
 
 type VendorOpenAI struct {
@@ -557,6 +554,10 @@ func (air *OpenAIInput) GetStopSequences() []string {
 }
 
 func (air *OpenAIInput) GetInput() string {
+	if len(air.InputItems) > 0 {
+		return normalizeOpenAIResponsesInput(air.InputItems)
+	}
+
 	if len(air.Input) > 0 {
 		return wrapTextAsInputMessage(air.Input)
 	}
