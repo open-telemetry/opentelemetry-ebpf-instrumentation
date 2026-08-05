@@ -103,5 +103,5 @@ services:
       - "16686:16686"
       - "4317"
       - "4318"
-    environment:
-      - LOG_LEVEL=warn
+    command:
+      - "--set=service.telemetry.logs.level=warn"
