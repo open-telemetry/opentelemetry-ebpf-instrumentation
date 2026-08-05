@@ -231,8 +231,8 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 	}
 
 	if k.weaverRequireSpans && report.Statistics.TotalEntitiesByType["span"] == 0 {
-		t.Errorf("weaver report has no span entities — OBI's trace export is not reaching weaver "+
-			"(is OTEL_EXPORTER_OTLP_TRACES_ENDPOINT pointed at the tapped otelcol rather than "+
+		t.Errorf("weaver report has no span entities — OBI's trace export is not reaching weaver " +
+			"(is OTEL_EXPORTER_OTLP_TRACES_ENDPOINT pointed at the tapped otelcol rather than " +
 			"straight at jaeger?); span semconv violations would otherwise go unvalidated")
 	}
 
