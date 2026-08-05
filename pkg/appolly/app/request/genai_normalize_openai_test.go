@@ -358,3 +358,48 @@ func TestNormalizeOpenAIOutput_ResponsesAPI_FunctionCallFallbackID(t *testing.T)
 	require.Len(t, msgs[0].Parts, 1)
 	assert.Equal(t, "fc_only", msgs[0].Parts[0].ID)
 }
+
+func TestGetInput_ResponsesAPI_InputItems(t *testing.T) {
+	// The Responses API input array carries the conversation as message,
+	// function_call and function_call_output items. GetInput must surface all
+	// three so output-only stateful continuations remain visible.
+	air := OpenAIInput{
+		InputItems: json.RawMessage(`[` +
+			`{"type":"message","role":"user","content":"weather in sf?"},` +
+			`{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"sf\"}"},` +
+			`{"type":"function_call_output","call_id":"call_1","output":"sunny, 72F"}` +
+			`]`),
+	}
+	result := air.GetInput()
+
+	var msgs []normalizedMessage
+	require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+	require.Len(t, msgs, 3)
+
+	assert.Equal(t, "user", msgs[0].Role)
+	require.Len(t, msgs[0].Parts, 1)
+	assert.Equal(t, "text", msgs[0].Parts[0].Type)
+	assert.Equal(t, "weather in sf?", msgs[0].Parts[0].Content)
+
+	assert.Equal(t, "assistant", msgs[1].Role)
+	require.Len(t, msgs[1].Parts, 1)
+	assert.Equal(t, "tool_call", msgs[1].Parts[0].Type)
+	assert.Equal(t, "call_1", msgs[1].Parts[0].ID)
+	assert.Equal(t, "get_weather", msgs[1].Parts[0].Name)
+
+	assert.Equal(t, "tool", msgs[2].Role)
+	require.Len(t, msgs[2].Parts, 1)
+	assert.Equal(t, "tool_call_response", msgs[2].Parts[0].Type)
+	assert.Equal(t, "call_1", msgs[2].Parts[0].ID)
+	assert.Equal(t, "sunny, 72F", msgs[2].Parts[0].Response)
+}
+
+func TestNormalizeOpenAIResponsesInput_ParseFailure(t *testing.T) {
+	raw := json.RawMessage(`bad data`)
+	assert.Equal(t, "bad data", normalizeOpenAIResponsesInput(raw))
+}
+
+func TestNormalizeOpenAIResponsesInput_UnknownItemTypeDropped(t *testing.T) {
+	raw := json.RawMessage(`[{"type":"reasoning","id":"r1"},{"type":"web_search_call","id":"ws1"}]`)
+	assert.Equal(t, "[]", normalizeOpenAIResponsesInput(raw))
+}
