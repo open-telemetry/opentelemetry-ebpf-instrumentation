@@ -86,6 +86,27 @@ func TestManagersReportProgramCloseFailures(t *testing.T) {
 	}
 }
 
+func TestShutdownClosesPrograms(t *testing.T) {
+	for name, newManager := range managerFactories() {
+		t.Run(name, func(t *testing.T) {
+			manager := newManager()
+			manager.AddProgram("test", nil, AttachmentIngress)
+
+			var closes atomic.Int32
+			switch typedManager := manager.(type) {
+			case *netlinkManager:
+				typedManager.programs[0].closeFn = func() error { closes.Add(1); return nil }
+			case *tcxManager:
+				typedManager.programs[0].closeFn = func() error { closes.Add(1); return nil }
+			}
+
+			requireCompletes(t, manager.Shutdown)
+			assert.EqualValues(t, 1, closes.Load())
+			assertProgramsEmpty(t, manager)
+		})
+	}
+}
+
 func TestInterfaceRemovalReleasesResources(t *testing.T) {
 	for name, newManager := range managerFactories() {
 		t.Run(name, func(t *testing.T) {

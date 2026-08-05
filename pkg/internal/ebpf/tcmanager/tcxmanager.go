@@ -26,11 +26,7 @@ type attachedProg struct {
 }
 
 func (p *attachedProg) Close() error {
-	if p.closeFn != nil {
-		return p.closeFn()
-	}
-
-	return p.Program.Close()
+	return closeWith(p.closeFn, p.Program)
 }
 
 type ifaceLink struct {
@@ -41,11 +37,7 @@ type ifaceLink struct {
 }
 
 func (l *ifaceLink) Close() error {
-	if l.closeFn != nil {
-		return l.closeFn()
-	}
-
-	return l.Link.Close()
+	return closeWith(l.closeFn, l.Link)
 }
 
 type tcxManager struct {
@@ -142,8 +134,7 @@ func (tcx *tcxManager) Shutdown() {
 
 	tcx.unregisterCallbacksLocked()
 	tcx.cleanupLinksLocked()
-
-	tcx.programs = []*attachedProg{}
+	tcx.cleanupProgsLocked()
 	tcx.errors.close()
 
 	tcx.log.Debug("TCX completed shutdown")
@@ -292,6 +283,17 @@ func (tcx *tcxManager) cleanupLinksLocked() {
 	}
 
 	tcx.links = []*ifaceLink{}
+}
+
+func (tcx *tcxManager) cleanupProgsLocked() {
+	for _, prog := range tcx.programs {
+		tcx.log.Debug("closing tcx program", "name", prog.name)
+		if err := prog.Close(); err != nil {
+			tcx.emitError("Failed to close program", "program", prog.name, "error", err)
+		}
+	}
+
+	tcx.programs = []*attachedProg{}
 }
 
 func (tcx *tcxManager) onIfaceManagerError(err error) {

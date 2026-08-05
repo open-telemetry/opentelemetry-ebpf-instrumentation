@@ -36,11 +36,7 @@ type netlinkProg struct {
 }
 
 func (p *netlinkProg) Close() error {
-	if p.closeFn != nil {
-		return p.closeFn()
-	}
-
-	return p.Program.Close()
+	return closeWith(p.closeFn, p.Program)
 }
 
 type netlinkIface struct {
