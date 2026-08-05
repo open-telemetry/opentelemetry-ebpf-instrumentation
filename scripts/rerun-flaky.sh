@@ -21,13 +21,13 @@ echo "Evaluating run ${RUN_ID} -- workflow: ${WORKFLOW_NAME}"
 
 # --- Get run details ---
 RUN_JSON=$(gh run view "$RUN_ID" --repo "$REPO" --json attempt,jobs,name)
-if ! PARSED_RUN=$(jq -ser --argjson max_portable_int "$MAX_PORTABLE_SIGNED_INT" '
-  if length != 1 then
-    error("expected one run response")
-  else
-    .[0]
-    | if ((.attempt | type) == "number"
-        and (.attempt | tostring | test("^[1-9][0-9]*([eE][+]?[0-9]+)?$"))
+if ! PARSED_RUN=$(jq -Rser --argjson max_portable_int "$MAX_PORTABLE_SIGNED_INT" '
+  . as $run_json
+  # Validate the token before fromjson rounds it on jq 1.6.
+  | ($run_json
+    | capture("^\\s*\\{\\s*\"attempt\"\\s*:\\s*[1-9][0-9]*([eE][+]?[0-9]+)?\\s*,"))
+  | ($run_json | fromjson)
+  | if ((.attempt | type) == "number"
         and .attempt >= 1
         and .attempt <= $max_portable_int
         and (.attempt | floor) == .attempt
@@ -45,13 +45,15 @@ if ! PARSED_RUN=$(jq -ser --argjson max_portable_int "$MAX_PORTABLE_SIGNED_INT" 
       else
         error("invalid run response")
       end
-  end
 ' <<<"$RUN_JSON"); then
   echo "Invalid GitHub run response." >&2
   exit 1
 fi
 
-mapfile -t RUN_DETAILS <<<"$PARSED_RUN"
+RUN_DETAILS=()
+while IFS= read -r line; do
+  RUN_DETAILS+=("$line")
+done <<<"$PARSED_RUN"
 ATTEMPT=${RUN_DETAILS[0]}
 echo "Current attempt: ${ATTEMPT}"
 
