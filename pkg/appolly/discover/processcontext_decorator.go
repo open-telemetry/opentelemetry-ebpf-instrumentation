@@ -6,18 +6,19 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/processcontext"
 	"go.opentelemetry.io/ebpf-profiler/remotememory"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	execpkg "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 func pclog() *slog.Logger {
@@ -25,101 +26,129 @@ func pclog() *slog.Logger {
 }
 
 func ProcessContextDecoratorProvider(
+	pollInterval time.Duration,
 	input, output *msg.Queue[[]Event[ebpf.Instrumentable]],
 ) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
 		pcd := processContextDecorator{
-			in:  input.Subscribe(msg.SubscriberName("ProcessContextDecorator")),
-			out: output,
-			log: pclog(),
+			in:           input.Subscribe(msg.SubscriberName("ProcessContextDecorator")),
+			out:          output,
+			log:          pclog(),
+			pollInterval: pollInterval,
+			tracked:      make(map[app.PID]*processEntry),
 		}
 		return pcd.decorate, nil
 	}
 }
 
+// processEntry holds per-process state needed for polling.
+type processEntry struct {
+	fi              *execpkg.FileInfo
+	mappingAddr     libpf.Address
+	lastPublishedAt uint64
+}
+
 // processContextDecorator enriches discovered processes with context information
 // shared by applications through the OTEL_CTX environment mapping, allowing services
 // to export resource attributes and metadata without direct instrumentation.
+//
+// Enrichment is attempted immediately on process creation and then repeated on
+// every poll tick to handle SDKs that register the mapping after startup and to
+// pick up context updates published by the process over its lifetime.
 type processContextDecorator struct {
-	in  <-chan []Event[ebpf.Instrumentable]
-	out *msg.Queue[[]Event[ebpf.Instrumentable]]
-	log *slog.Logger
+	in           <-chan []Event[ebpf.Instrumentable]
+	out          *msg.Queue[[]Event[ebpf.Instrumentable]]
+	log          *slog.Logger
+	pollInterval time.Duration
+	tracked      map[app.PID]*processEntry
 }
 
 func (pcd *processContextDecorator) decorate(ctx context.Context) {
 	defer pcd.out.Close()
-	swarms.ForEachInput(ctx, pcd.in, pcd.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
-		for i := range instrumentables {
-			ev := &instrumentables[i]
-			if ev.Type == EventCreated {
-				pcd.enrichEvent(ev)
+
+	ticker := time.NewTicker(pcd.pollInterval)
+	defer ticker.Stop()
+
+	pcd.log.Debug("starting node")
+	for {
+		select {
+		case <-ctx.Done():
+			pcd.log.Debug("context done, stopping node")
+			return
+		case evs, ok := <-pcd.in:
+			if !ok {
+				pcd.log.Debug("input channel closed, stopping node")
+				return
 			}
+			for i := range evs {
+				ev := &evs[i]
+				switch ev.Type {
+				case EventCreated:
+					pcd.handleCreated(ev)
+				case EventDeleted:
+					delete(pcd.tracked, ev.Obj.FileInfo.Pid())
+				}
+			}
+			pcd.out.SendCtx(ctx, evs)
+		case <-ticker.C:
+			pcd.poll()
 		}
-		pcd.out.SendCtx(ctx, instrumentables)
-	})
+	}
 }
 
-func (pcd *processContextDecorator) enrichEvent(ev *Event[ebpf.Instrumentable]) {
+// handleCreated attempts an immediate enrichment on process creation and registers
+// the process for ongoing polling to handle SDK startup delays and context updates.
+func (pcd *processContextDecorator) handleCreated(ev *Event[ebpf.Instrumentable]) {
 	pid := ev.Obj.FileInfo.Pid()
+	entry := &processEntry{fi: ev.Obj.FileInfo}
 
-	// Find the OTEL_CTX mapping in /proc/<pid>/maps
-	mappingAddr, found := pcd.findOTELContextMapping(pid)
-	if !found {
-		return
-	}
-
-	// Read the ProcessContext from remote memory
-	rm := remotememory.NewProcessVirtualMemory(libpf.PID(pid))
-	info, err := processcontext.Read(mappingAddr, rm, 0, 0)
-	if err != nil {
-		if errors.Is(err, processcontext.ErrInvalidContext) {
+	if addr, ok := pcd.findOTELContextMapping(pid); ok {
+		entry.mappingAddr = addr
+		rm := remotememory.NewProcessVirtualMemory(libpf.PID(pid))
+		info, err := processcontext.Read(addr, rm, 0, 0)
+		switch {
+		case err == nil && info.Context != nil:
+			pcd.applyContext(entry.fi, info)
+			entry.lastPublishedAt = info.PublishedAtNs
+		case errors.Is(err, processcontext.ErrInvalidContext):
 			pcd.log.Debug("no valid ProcessContext in process", "pid", pid)
-		} else {
+		case err != nil:
 			pcd.log.Debug("failed to read ProcessContext", "pid", pid, "error", err)
 		}
-		return
 	}
 
-	if info.Context == nil {
-		return
-	}
+	pcd.tracked[pid] = entry
+}
 
-	if res := info.Context.GetResource(); res != nil {
-		for _, kv := range res.GetAttributes() {
-			if kv == nil || kv.Key == "" {
+// poll checks all tracked processes for new or updated process context.
+func (pcd *processContextDecorator) poll() {
+	for pid, entry := range pcd.tracked {
+		// Locate the mapping if not yet found (handles SDK startup delay).
+		if entry.mappingAddr == 0 {
+			addr, ok := pcd.findOTELContextMapping(pid)
+			if !ok {
 				continue
 			}
-			av := kv.GetValue()
-			if av == nil {
-				continue
-			}
-			strVal := av.GetStringValue()
-			if strVal == "" {
-				if av.Value != nil {
-					pcd.log.Debug("attribute value is not a string type", "type", av.Value)
-				}
-				continue
-			}
-			pcd.addAttribute(ev, attr.Name(kv.Key), strVal)
+			entry.mappingAddr = addr
 		}
-	}
 
-	for _, kv := range info.Context.GetExtraAttributes() {
-		if kv == nil || kv.Key == "" {
-			continue
-		}
-		av := kv.GetValue()
-		if av == nil {
-			continue
-		}
-		strVal := av.GetStringValue()
-		if strVal == "" {
-			if av.Value != nil {
-				pcd.log.Debug("attribute value is not a string type", "type", av.Value)
+		rm := remotememory.NewProcessVirtualMemory(libpf.PID(pid))
+		info, err := processcontext.Read(entry.mappingAddr, rm, entry.lastPublishedAt, 0)
+		switch {
+		case err == nil:
+			if info.Context == nil {
+				continue
 			}
-			continue
+			pcd.applyContext(entry.fi, info)
+			entry.lastPublishedAt = info.PublishedAtNs
+		case errors.Is(err, processcontext.ErrNoUpdate), errors.Is(err, processcontext.ErrConcurrentUpdate):
+			// No change or transient update in progress; retry on next tick.
+		case errors.Is(err, processcontext.ErrInvalidContext):
+			// Mapping may have disappeared; re-scan on next tick.
+			entry.mappingAddr = 0
+		default:
+			pcd.log.Debug("failed to poll ProcessContext", "pid", pid, "error", err)
 		}
-		pcd.addAttribute(ev, attr.Name(kv.Key), strVal)
 	}
 }
 
@@ -138,10 +167,47 @@ func (pcd *processContextDecorator) findOTELContextMapping(pid app.PID) (libpf.A
 	return 0, false
 }
 
-func (pcd *processContextDecorator) addAttribute(
-	ev *Event[ebpf.Instrumentable], key attr.Name, value string,
-) {
-	fi := ev.Obj.FileInfo
+func (pcd *processContextDecorator) applyContext(fi *execpkg.FileInfo, info processcontext.Info) {
+	if res := info.Context.GetResource(); res != nil {
+		for _, kv := range res.GetAttributes() {
+			if kv == nil || kv.Key == "" {
+				continue
+			}
+			av := kv.GetValue()
+			if av == nil {
+				continue
+			}
+			strVal := av.GetStringValue()
+			if strVal == "" {
+				if av.Value != nil {
+					pcd.log.Debug("attribute value is not a string type", "type", av.Value)
+				}
+				continue
+			}
+			pcd.addAttribute(fi, attr.Name(kv.Key), strVal)
+		}
+	}
+
+	for _, kv := range info.Context.GetExtraAttributes() {
+		if kv == nil || kv.Key == "" {
+			continue
+		}
+		av := kv.GetValue()
+		if av == nil {
+			continue
+		}
+		strVal := av.GetStringValue()
+		if strVal == "" {
+			if av.Value != nil {
+				pcd.log.Debug("attribute value is not a string type", "type", av.Value)
+			}
+			continue
+		}
+		pcd.addAttribute(fi, attr.Name(kv.Key), strVal)
+	}
+}
+
+func (pcd *processContextDecorator) addAttribute(fi *execpkg.FileInfo, key attr.Name, value string) {
 	svcAttrs := fi.ServiceAttrs()
 
 	m := svcAttrs.Metadata

@@ -137,7 +137,7 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 		swarm.WithID("ExecTyper"))
 
 	processContextEnrichedTypes := msgh.QueueFromConfig[[]Event[ebpf.Instrumentable]](pf.cfg, "processContextEnrichedTypes")
-	swi.Add(ProcessContextDecoratorProvider(executableTypes, processContextEnrichedTypes),
+	swi.Add(ProcessContextDecoratorProvider(pf.cfg.Discovery.ProcessContextPollInterval, executableTypes, processContextEnrichedTypes),
 		swarm.WithID("ProcessContextDecorator"))
 
 	// we could subscribe ContainerStoreUpdater directly to the executableTypes queue and not providing any output channel

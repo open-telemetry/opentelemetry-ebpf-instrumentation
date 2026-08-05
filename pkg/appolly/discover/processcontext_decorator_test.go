@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/stretchr/testify/assert"
@@ -80,7 +81,11 @@ func setupOTELCTXMapping(t *testing.T, ctx *processcontextpb.ProcessContext) (cl
 }
 
 func newTestPCD() *processContextDecorator {
-	return &processContextDecorator{log: slog.Default()}
+	return &processContextDecorator{
+		log:          slog.Default(),
+		pollInterval: time.Second,
+		tracked:      make(map[app.PID]*processEntry),
+	}
 }
 
 func newTestEvent(pid app.PID) Event[ebpf.Instrumentable] {
@@ -95,20 +100,18 @@ func newTestEvent(pid app.PID) Event[ebpf.Instrumentable] {
 	}
 }
 
-func TestProcessContextDecorator_EnrichEvent_NoMapping(t *testing.T) {
-	// Use a PID that cannot have an OTEL_CTX mapping (init process maps are
-	// not writable by the test, and PID 1 never has our mapping).
+func TestProcessContextDecorator_HandleCreated_NoMapping(t *testing.T) {
 	pcd := newTestPCD()
 	ev := newTestEvent(app.PID(os.Getpid()))
 
 	// Without setting up a mapping the event should pass through unchanged.
-	pcd.enrichEvent(&ev)
+	pcd.handleCreated(&ev)
 
 	attrs := ev.Obj.FileInfo.ServiceAttrs()
 	assert.Nil(t, attrs.Metadata)
 }
 
-func TestProcessContextDecorator_EnrichEvent_ResourceAttributes(t *testing.T) {
+func TestProcessContextDecorator_HandleCreated_ResourceAttributes(t *testing.T) {
 	ctx := &processcontextpb.ProcessContext{
 		Resource: &resourcepb.Resource{
 			Attributes: []*commonpb.KeyValue{
@@ -133,7 +136,7 @@ func TestProcessContextDecorator_EnrichEvent_ResourceAttributes(t *testing.T) {
 
 	pcd := newTestPCD()
 	ev := newTestEvent(app.PID(os.Getpid()))
-	pcd.enrichEvent(&ev)
+	pcd.handleCreated(&ev)
 
 	fi := ev.Obj.FileInfo
 	attrs := fi.ServiceAttrs()
@@ -147,7 +150,7 @@ func TestProcessContextDecorator_EnrichEvent_ResourceAttributes(t *testing.T) {
 	assert.Equal(t, "my-ns", attrs.UID.Namespace)
 }
 
-func TestProcessContextDecorator_EnrichEvent_ExtraAttributes(t *testing.T) {
+func TestProcessContextDecorator_HandleCreated_ExtraAttributes(t *testing.T) {
 	ctx := &processcontextpb.ProcessContext{
 		ExtraAttributes: []*commonpb.KeyValue{
 			{
@@ -164,14 +167,14 @@ func TestProcessContextDecorator_EnrichEvent_ExtraAttributes(t *testing.T) {
 
 	pcd := newTestPCD()
 	ev := newTestEvent(app.PID(os.Getpid()))
-	pcd.enrichEvent(&ev)
+	pcd.handleCreated(&ev)
 
 	attrs := ev.Obj.FileInfo.ServiceAttrs()
 	require.NotNil(t, attrs.Metadata)
 	assert.Equal(t, "custom-value", attrs.Metadata[attr.Name("custom.key")])
 }
 
-func TestProcessContextDecorator_EnrichEvent_NonStringAttributesSkipped(t *testing.T) {
+func TestProcessContextDecorator_HandleCreated_NonStringAttributesSkipped(t *testing.T) {
 	ctx := &processcontextpb.ProcessContext{
 		Resource: &resourcepb.Resource{
 			Attributes: []*commonpb.KeyValue{
@@ -196,7 +199,7 @@ func TestProcessContextDecorator_EnrichEvent_NonStringAttributesSkipped(t *testi
 
 	pcd := newTestPCD()
 	ev := newTestEvent(app.PID(os.Getpid()))
-	pcd.enrichEvent(&ev)
+	pcd.handleCreated(&ev)
 
 	attrs := ev.Obj.FileInfo.ServiceAttrs()
 	require.NotNil(t, attrs.Metadata)
@@ -205,6 +208,100 @@ func TestProcessContextDecorator_EnrichEvent_NonStringAttributesSkipped(t *testi
 	assert.False(t, ok)
 	// The string attribute should be present.
 	assert.Equal(t, "svc", attrs.Metadata[attr.ServiceName])
+}
+
+func TestProcessContextDecorator_Poll_PicksUpLateMapping(t *testing.T) {
+	pcd := newTestPCD()
+	ev := newTestEvent(app.PID(os.Getpid()))
+
+	// Simulate process creation before the SDK has registered its mapping.
+	pcd.handleCreated(&ev)
+	assert.Nil(t, ev.Obj.FileInfo.ServiceAttrs().Metadata, "no attributes expected before mapping is set up")
+
+	// Now the SDK publishes the mapping.
+	ctx := &processcontextpb.ProcessContext{
+		Resource: &resourcepb.Resource{
+			Attributes: []*commonpb.KeyValue{
+				{
+					Key: "service.name",
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: "late-service"},
+					},
+				},
+			},
+		},
+	}
+	cleanup := setupOTELCTXMapping(t, ctx)
+	defer cleanup()
+
+	// poll() should detect the new mapping and apply the attributes.
+	pcd.poll()
+
+	attrs := ev.Obj.FileInfo.ServiceAttrs()
+	require.NotNil(t, attrs.Metadata)
+	assert.Equal(t, "late-service", attrs.Metadata[attr.ServiceName])
+}
+
+func TestProcessContextDecorator_Poll_PicksUpUpdatedContext(t *testing.T) {
+	// First mapping version.
+	v1 := &processcontextpb.ProcessContext{
+		Resource: &resourcepb.Resource{
+			Attributes: []*commonpb.KeyValue{
+				{
+					Key: "service.name",
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: "v1-service"},
+					},
+				},
+			},
+		},
+	}
+
+	payload1, err := proto.Marshal(v1)
+	require.NoError(t, err)
+
+	fd, err := unix.MemfdCreate(otelCtxSignature, 0)
+	require.NoError(t, err)
+	require.NoError(t, unix.Ftruncate(fd, otelCtxHeaderSize))
+
+	mem, err := unix.Mmap(fd, 0, otelCtxHeaderSize, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+	require.NoError(t, err)
+	defer func() { _ = unix.Munmap(mem) }()
+	unix.Close(fd)
+
+	writeOTELCTXHeader(mem, uint32(len(payload1)), uint64(uintptr(unsafe.Pointer(&payload1[0]))), 1)
+
+	pcd := newTestPCD()
+	ev := newTestEvent(app.PID(os.Getpid()))
+	pcd.handleCreated(&ev)
+
+	require.Equal(t, "v1-service", ev.Obj.FileInfo.ServiceAttrs().Metadata[attr.ServiceName])
+
+	// SDK updates the context (new timestamp).
+	v2 := &processcontextpb.ProcessContext{
+		Resource: &resourcepb.Resource{
+			Attributes: []*commonpb.KeyValue{
+				{
+					Key: "service.name",
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: "v2-service"},
+					},
+				},
+			},
+		},
+	}
+
+	payload2, err := proto.Marshal(v2)
+	require.NoError(t, err)
+
+	writeOTELCTXHeader(mem, uint32(len(payload2)), uint64(uintptr(unsafe.Pointer(&payload2[0]))), 2)
+
+	pcd.poll()
+
+	assert.Equal(t, "v2-service", ev.Obj.FileInfo.ServiceAttrs().Metadata[attr.ServiceName])
+	// Ensure the payload stays alive.
+	_ = payload1
+	_ = payload2
 }
 
 func TestProcessContextDecorator_AddAttribute_PreservesExplicitUID(t *testing.T) {
@@ -217,13 +314,9 @@ func TestProcessContextDecorator_AddAttribute_PreservesExplicitUID(t *testing.T)
 		CmdExePath: "/bin/test",
 		Pid:        app.PID(os.Getpid()),
 	})
-	ev := Event[ebpf.Instrumentable]{
-		Type: EventCreated,
-		Obj:  ebpf.Instrumentable{FileInfo: fi},
-	}
 
-	pcd.addAttribute(&ev, attr.ServiceName, "from-context")
-	pcd.addAttribute(&ev, attr.ServiceNamespace, "from-context-ns")
+	pcd.addAttribute(fi, attr.ServiceName, "from-context")
+	pcd.addAttribute(fi, attr.ServiceNamespace, "from-context-ns")
 
 	attrs := fi.ServiceAttrs()
 	// Metadata gets the value from the context.
