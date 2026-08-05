@@ -4,12 +4,24 @@
 package ebpfcommon
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIsOpenAIResponsesRequest(t *testing.T) {
+	for _, path := range []string{"/v1/responses", "/gateway/v1/responses/"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		assert.True(t, isOpenAIResponsesRequest(req), path)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", nil)
+	assert.False(t, isOpenAIResponsesRequest(req))
+}
 
 func TestExtractModelField(t *testing.T) {
 	full := `{"messages":[{"role":"user","content":"hi"}],"model":"gpt-4o-mini","temperature":1.0}`
@@ -44,23 +56,29 @@ func TestExtractModelField_ignoresNestedModelAfterSearchWindow(t *testing.T) {
 
 func TestParseOpenAIInput_truncated(t *testing.T) {
 	body := []byte(`{"model":"gpt-5-mini","input":"hello`)
-	parsed := parseOpenAIInput(body)
+	parsed := parseOpenAIInput(body, false)
 	assert.Equal(t, "gpt-5-mini", parsed.Model)
 }
 
 func TestParseOpenAIInput_ResponsesInputArray(t *testing.T) {
 	// The Responses API `input` array is retained in InputItems.
 	body := []byte(`{"model":"gpt-5-mini","input":[{"type":"function_call","call_id":"c1","name":"f"}]}`)
-	parsed := parseOpenAIInput(body)
+	parsed := parseOpenAIInput(body, true)
 	assert.Empty(t, parsed.Messages)
 	assert.JSONEq(t, `[{"type":"function_call","call_id":"c1","name":"f"}]`, string(parsed.InputItems))
+}
+
+func TestParseOpenAIInput_EmbeddingInputArray(t *testing.T) {
+	body := []byte(`{"model":"text-embedding-3-small","input":["first","second"]}`)
+	parsed := parseOpenAIInput(body, false)
+	assert.Empty(t, parsed.InputItems)
 }
 
 func TestParseOpenAIInput_NativeDashScopeInputMessages(t *testing.T) {
 	// Native DashScope generation nests conversation history under
 	// input.messages instead of a top-level messages field.
 	body := []byte(`{"model":"qwen-max","input":{"messages":[{"role":"user","content":"hi"}]}}`)
-	parsed := parseOpenAIInput(body)
+	parsed := parseOpenAIInput(body, false)
 	assert.Empty(t, parsed.InputItems)
 	assert.JSONEq(t, `[{"role":"user","content":"hi"}]`, string(parsed.Messages))
 }
@@ -206,7 +224,7 @@ func TestExtractJSONRawField(t *testing.T) {
 
 func TestParseOpenAIInput_messagesFromTruncatedBody(t *testing.T) {
 	body := []byte(`{"model":"qwen-plus","messages":[{"role":"user","content":"你好"}],"stre`)
-	parsed := parseOpenAIInput(body)
+	parsed := parseOpenAIInput(body, false)
 	assert.Equal(t, "qwen-plus", parsed.Model)
 	assert.NotNil(t, parsed.Messages)
 	assert.JSONEq(t, `[{"role":"user","content":"你好"}]`, string(parsed.Messages))

@@ -101,7 +101,7 @@ func TestNormalizeOpenAIOutput_Choices(t *testing.T) {
 
 func TestNormalizeOpenAIOutput_ResponsesAPI(t *testing.T) {
 	ai := &VendorOpenAI{
-		Output: json.RawMessage(`[{"role":"assistant","status":"completed","content":[{"type":"text","text":"response text"}]}]`),
+		Output: json.RawMessage(`[{"role":"assistant","status":"completed","content":[{"type":"output_text","text":"response text"}]}]`),
 	}
 	result := normalizeOpenAIOutput(ai)
 
@@ -185,6 +185,15 @@ func TestOpenAIContentToParts_ImageURL(t *testing.T) {
 	assert.Equal(t, "https://example.com/img.png", parts[0].URI)
 	assert.Equal(t, "image", parts[0].Modality)
 	assert.Empty(t, parts[0].Content)
+}
+
+func TestOpenAIContentToParts_ImageDataURL(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "blob", parts[0].Type)
+	assert.Equal(t, "iVBORw0KGgo=", parts[0].Content)
+	assert.Equal(t, "image", parts[0].Modality)
+	assert.Equal(t, "image/png", parts[0].MimeType)
 }
 
 func TestOpenAIContentToParts_InputAudio(t *testing.T) {
@@ -315,7 +324,7 @@ func TestNormalizeOpenAIOutput_ResponsesAPI_FunctionCall(t *testing.T) {
 func TestNormalizeOpenAIOutput_ResponsesAPI_MixedItems(t *testing.T) {
 	ai := &VendorOpenAI{
 		Output: json.RawMessage(`[` +
-			`{"type":"message","role":"assistant","status":"completed","content":[{"type":"text","text":"hello"}]},` +
+			`{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hello"}]},` +
 			`{"type":"function_call","call_id":"call_1","name":"do_thing","arguments":"{}"}` +
 			`]`),
 	}
@@ -359,6 +368,20 @@ func TestNormalizeOpenAIOutput_ResponsesAPI_FunctionCallFallbackID(t *testing.T)
 	assert.Equal(t, "fc_only", msgs[0].Parts[0].ID)
 }
 
+func TestNormalizeOpenAIOutput_ResponsesAPI_Refusal(t *testing.T) {
+	ai := &VendorOpenAI{
+		Output: json.RawMessage(`[{"type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"I cannot help with that."}]}]`),
+	}
+	result := normalizeOpenAIOutput(ai)
+
+	var msgs []normalizedMessage
+	require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+	require.Len(t, msgs, 1)
+	require.Len(t, msgs[0].Parts, 1)
+	assert.Equal(t, "text", msgs[0].Parts[0].Type)
+	assert.Equal(t, "I cannot help with that.", msgs[0].Parts[0].Content)
+}
+
 func TestGetInput_ResponsesAPI_InputItems(t *testing.T) {
 	// The Responses API input array carries the conversation as message,
 	// function_call and function_call_output items. GetInput must surface all
@@ -392,6 +415,27 @@ func TestGetInput_ResponsesAPI_InputItems(t *testing.T) {
 	assert.Equal(t, "tool_call_response", msgs[2].Parts[0].Type)
 	assert.Equal(t, "call_1", msgs[2].Parts[0].ID)
 	assert.Equal(t, "sunny, 72F", msgs[2].Parts[0].Response)
+}
+
+func TestGetInput_ResponsesAPI_StructuredContent(t *testing.T) {
+	air := OpenAIInput{
+		InputItems: json.RawMessage(`[{"type":"message","role":"user","content":[` +
+			`{"type":"input_text","text":"describe these inputs"},` +
+			`{"type":"input_image","image_url":"https://example.com/image.png"},` +
+			`{"type":"input_image","file_id":"file_image"},` +
+			`{"type":"input_file","file_url":"https://example.com/report.pdf","filename":"report.pdf"},` +
+			`{"type":"input_file","file_data":"base64audio","filename":"clip.mp3"}` +
+			`]}]`),
+	}
+	result := air.GetInput()
+
+	assert.JSONEq(t, `[{"role":"user","parts":[`+
+		`{"type":"text","content":"describe these inputs"},`+
+		`{"type":"uri","uri":"https://example.com/image.png","modality":"image"},`+
+		`{"type":"file","file_id":"file_image","modality":"image"},`+
+		`{"type":"uri","uri":"https://example.com/report.pdf","modality":"file"},`+
+		`{"type":"blob","content":"base64audio","modality":"audio"}`+
+		`]}]`, result)
 }
 
 func TestNormalizeOpenAIResponsesInput_ParseFailure(t *testing.T) {
