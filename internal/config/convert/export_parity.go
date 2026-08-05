@@ -5,6 +5,7 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -288,7 +289,9 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 		})
 	}
 
-	rules = appendSelectorRules(rules, schema.CaptureActionInclude, findingCriteria, nil, regexSelection)
+	includeCriteria := slices.Clone(findingCriteria)
+	slices.Reverse(includeCriteria)
+	rules = appendSelectorRules(rules, schema.CaptureActionInclude, includeCriteria, nil, regexSelection)
 
 	return rules
 }

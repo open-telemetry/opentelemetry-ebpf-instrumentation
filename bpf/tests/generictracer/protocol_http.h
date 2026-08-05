@@ -43,9 +43,11 @@ static __always_inline u8 http_info_complete(http_info_t *info) {
     return info && info->submitted;
 }
 
-static __always_inline void finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
+static __always_inline void
+finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_t *current_key) {
     (void)info;
     (void)pid_conn;
+    (void)current_key;
 
     test_finish_http_count++;
 }

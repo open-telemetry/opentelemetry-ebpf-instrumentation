@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -309,6 +310,16 @@ type goHTTP2ServerOffsetAvailability struct {
 type goProcessHostPIDResolver func(app.PID, uint32) (uint32, error)
 
 const missingGoOffset = ^uint64(0)
+
+var nextRuntimeMetricGeneration atomic.Uint64
+
+func newRuntimeMetricGeneration() uint64 {
+	for {
+		if generation := nextRuntimeMetricGeneration.Add(1); generation != 0 {
+			return generation
+		}
+	}
+}
 
 // Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h. Scalar
 // bits also mirror the raw snapshot masks in pkg/runtimemetrics/reader.go.
@@ -2496,6 +2507,10 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 	}
 	availableMask = p.goRuntimeMetricMaskForSymbols(fileInfo, availableMask, symbols)
 	p.goRuntimeMetricMaskByExecutable[executable] = availableMask
+	generation := fileInfo.RuntimeMetricGeneration(pid)
+	if generation == 0 {
+		generation = newRuntimeMetricGeneration()
+	}
 
 	value := BpfGoRuntimeMetricTargetT{
 		MemstatsAddr:                 symbols.MemstatsAddr,
@@ -2509,6 +2524,7 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 		AllpAddr:                     symbols.AllpAddr,
 		GoroutineCountIncludesSystem: symbols.GoroutineCountIncludesSystem,
 		GcGoalSource:                 uint32(p.goRuntimeGCGoalSourceByExecutable[executable]),
+		Generation:                   generation,
 	}
 
 	if err := p.bpfObjects.GoRuntimeMetricTargets.Put(pidInfo, value); err != nil {
@@ -2516,6 +2532,7 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 			"dev_major", executable.DevMajor, "dev_minor", executable.DevMinor, "ino", executable.Ino, "error", err)
 		return
 	}
+	fileInfo.SetRuntimeMetricGeneration(pid, generation)
 
 	if p.runtimeMetricTargetKeys == nil {
 		p.runtimeMetricTargetKeys = map[runtimeMetricTargetKey]BpfPidInfo{}
