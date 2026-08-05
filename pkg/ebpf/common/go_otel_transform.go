@@ -24,6 +24,8 @@ import (
 
 const goAutoSpanJSONMaxLen = 16 * 1024
 
+var errInvalidGoOTelSpanAttributeCount = errors.New("invalid Go OTel span attribute count")
+
 func ReadGoOTelEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
 	event, err := ReinterpretCast[GoOTelSpanTrace](record.RawSample)
 	if err != nil {
@@ -34,7 +36,7 @@ func ReadGoOTelEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error)
 	descr := cstr(event.SpanDescription.Buf[:])
 
 	attrs, err := encodedAttrs(event)
-	if err != nil {
+	if errors.Is(err, errInvalidGoOTelSpanAttributeCount) {
 		return request.Span{}, true, err
 	}
 
@@ -207,7 +209,7 @@ func autoSpanStatus(status ptrace.StatusCode) (int, error) {
 func encodedAttrs(event *GoOTelSpanTrace) ([]byte, error) {
 	size := int(event.SpanAttrs.ValidAttrs)
 	if size > len(event.SpanAttrs.Attrs) {
-		return nil, fmt.Errorf("invalid Go OTel span attribute count: %d exceeds %d", size, len(event.SpanAttrs.Attrs))
+		return nil, fmt.Errorf("%w: %d exceeds %d", errInvalidGoOTelSpanAttributeCount, size, len(event.SpanAttrs.Attrs))
 	}
 	if size == 0 {
 		return nil, nil
