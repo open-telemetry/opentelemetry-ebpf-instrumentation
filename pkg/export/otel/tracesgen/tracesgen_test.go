@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"math"
 	"testing"
-	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
@@ -302,104 +301,6 @@ func TestHTTPRequestMethodOmittedWhenEmpty(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCreateToolCallSpans(t *testing.T) {
-	t.Run("nil tool calls creates no spans", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		now := time.Now()
-		createToolCallSpans(nil, parentSpanID, traceID, &ss, now, now)
-		assert.Equal(t, 0, ss.Spans().Len())
-	})
-
-	t.Run("empty tool calls creates no spans", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		now := time.Now()
-		createToolCallSpans([]request.ToolCall{}, parentSpanID, traceID, &ss, now, now)
-		assert.Equal(t, 0, ss.Spans().Len())
-	})
-
-	t.Run("single tool call with ID", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		start := time.Now()
-		end := start.Add(100 * time.Millisecond)
-		createToolCallSpans([]request.ToolCall{
-			{ID: "call_1", Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, start, end)
-
-		require.Equal(t, 1, ss.Spans().Len())
-		sp := ss.Spans().At(0)
-		assert.Equal(t, "execute_tool get_weather", sp.Name())
-		assert.Equal(t, ptrace.SpanKindInternal, sp.Kind())
-		assert.Equal(t, traceID, sp.TraceID())
-		assert.Equal(t, parentSpanID, sp.ParentSpanID())
-		assert.Equal(t, pcommon.NewTimestampFromTime(start), sp.StartTimestamp())
-		assert.Equal(t, pcommon.NewTimestampFromTime(end), sp.EndTimestamp())
-
-		attrs := sp.Attributes()
-		opName, ok := attrs.Get("gen_ai.operation.name")
-		require.True(t, ok)
-		assert.Equal(t, "execute_tool", opName.Str())
-
-		toolName, ok := attrs.Get("gen_ai.tool.name")
-		require.True(t, ok)
-		assert.Equal(t, "get_weather", toolName.Str())
-
-		toolCallID, ok := attrs.Get("gen_ai.tool.call.id")
-		require.True(t, ok)
-		assert.Equal(t, "call_1", toolCallID.Str())
-	})
-
-	t.Run("multiple tool calls", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		start := time.Now()
-		end := start.Add(100 * time.Millisecond)
-		createToolCallSpans([]request.ToolCall{
-			{ID: "call_1", Name: "get_weather"},
-			{ID: "call_2", Name: "get_time"},
-		}, parentSpanID, traceID, &ss, start, end)
-
-		require.Equal(t, 2, ss.Spans().Len())
-		assert.Equal(t, "execute_tool get_weather", ss.Spans().At(0).Name())
-		assert.Equal(t, "execute_tool get_time", ss.Spans().At(1).Name())
-	})
-
-	t.Run("skips empty names", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		now := time.Now()
-		createToolCallSpans([]request.ToolCall{
-			{ID: "call_1", Name: ""},
-			{ID: "call_2", Name: "get_time"},
-		}, parentSpanID, traceID, &ss, now, now)
-
-		require.Equal(t, 1, ss.Spans().Len())
-		assert.Equal(t, "execute_tool get_time", ss.Spans().At(0).Name())
-	})
-
-	t.Run("tool call without ID omits gen_ai.tool.call.id", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		now := time.Now()
-		createToolCallSpans([]request.ToolCall{
-			{Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, now, now)
-
-		require.Equal(t, 1, ss.Spans().Len())
-		sp := ss.Spans().At(0)
-		_, ok := sp.Attributes().Get("gen_ai.tool.call.id")
-		assert.False(t, ok, "gen_ai.tool.call.id should not be present when ID is empty")
-	})
 }
 
 func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {

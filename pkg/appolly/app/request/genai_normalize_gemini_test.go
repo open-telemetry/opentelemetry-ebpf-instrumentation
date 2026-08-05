@@ -36,6 +36,32 @@ func TestNormalizeGeminiInput_FunctionCall(t *testing.T) {
 	assert.Equal(t, "get_weather", msgs[0].Parts[0].Name)
 }
 
+func TestNormalizeGeminiInput_FunctionCallPreservesID(t *testing.T) {
+	// Gemini 3 requires call ids for parallel calls; they must survive
+	// normalization so input/output messages can correlate call and response.
+	input := json.RawMessage(`[{"role":"model","parts":[{"functionCall":{"id":"call_1","name":"get_weather","args":{"city":"Paris"}}}]}]`)
+	result := normalizeGeminiInput(input)
+
+	var msgs []normalizedMessage
+	require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+	require.Len(t, msgs, 1)
+	require.Len(t, msgs[0].Parts, 1)
+	assert.Equal(t, "tool_call", msgs[0].Parts[0].Type)
+	assert.Equal(t, "call_1", msgs[0].Parts[0].ID)
+}
+
+func TestNormalizeGeminiInput_FunctionResponsePreservesID(t *testing.T) {
+	input := json.RawMessage(`[{"role":"function","parts":[{"functionResponse":{"id":"call_1","name":"get_weather","response":{"temp":20}}}]}]`)
+	result := normalizeGeminiInput(input)
+
+	var msgs []normalizedMessage
+	require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+	require.Len(t, msgs, 1)
+	require.Len(t, msgs[0].Parts, 1)
+	assert.Equal(t, "tool_call_response", msgs[0].Parts[0].Type)
+	assert.Equal(t, "call_1", msgs[0].Parts[0].ID)
+}
+
 func TestNormalizeGeminiInput_FunctionResponse(t *testing.T) {
 	input := json.RawMessage(`[{"role":"function","parts":[{"functionResponse":{"name":"get_weather","response":{"temp":20}}}]}]`)
 	result := normalizeGeminiInput(input)

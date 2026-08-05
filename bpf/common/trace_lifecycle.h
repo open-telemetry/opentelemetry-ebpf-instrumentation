@@ -114,6 +114,8 @@ static __always_inline void server_or_client_trace(const u8 type,
     const u32 host_pid = pid_from_pid_tgid(id);
 
     if (type == EVENT_HTTP_REQUEST) {
+        tp_p->response_sent = 0;
+
         trace_key_t t_key = {0};
         task_tid(&t_key.p_key);
         // Key the server trace by the mounted virtual thread's logical id,
@@ -133,8 +135,8 @@ static __always_inline void server_or_client_trace(const u8 type,
         bpf_map_update_elem(&server_traces_aux, &conn_part, tp_p, BPF_ANY);
 
         tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, &t_key);
-        if (existing && (existing->req_type == tp_p->req_type) &&
-            (tp_p->req_type == EVENT_HTTP_REQUEST)) {
+        if (existing && existing->req_type == tp_p->req_type &&
+            tp_p->req_type == EVENT_HTTP_REQUEST && existing->valid && !existing->response_sent) {
             existing->valid = 0;
             bpf_dbg_printk("Found conflicting thread server span, marking it invalid.");
             return;

@@ -5,6 +5,7 @@ package ebpfconvenience
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -220,5 +221,27 @@ func TestIsResizableMapType(t *testing.T) {
 		if !isResizableMapType(mt) {
 			t.Errorf("expected %v to be resizable", mt)
 		}
+	}
+}
+
+func TestAlignMaxEntriesIfRingBuf(t *testing.T) {
+	pageSize := uint32(os.Getpagesize())
+
+	for _, mt := range []ebpf.MapType{ebpf.RingBuf, ebpf.UserRingbuf} {
+		m := &ebpf.MapSpec{Type: mt, MaxEntries: pageSize + 1}
+
+		alignMaxEntriesIfRingBuf(m)
+
+		if m.MaxEntries%pageSize != 0 {
+			t.Errorf("%v: MaxEntries %d is not page-aligned", mt, m.MaxEntries)
+		}
+	}
+
+	hash := &ebpf.MapSpec{Type: ebpf.Hash, MaxEntries: pageSize + 1}
+
+	alignMaxEntriesIfRingBuf(hash)
+
+	if hash.MaxEntries != pageSize+1 {
+		t.Errorf("non-ringbuf map should not be realigned: got %d", hash.MaxEntries)
 	}
 }
