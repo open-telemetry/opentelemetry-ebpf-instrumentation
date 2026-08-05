@@ -84,18 +84,17 @@ This separation was a conscious design choice:
 
 ## Migration CLI
 
-The `obi` command needs to have a configuration migration tool added to it.
-It needs to support semantics like the following.
+Migrate a v1 file to a standalone v2 document with:
 
 ```shell
-obi config migrate --from v1 --to v2
+obi config migrate ./obi-v1.yaml > ./obi-v2.yaml
 ```
 
-- Read v1 or mixed legacy input.
-- Produce canonical v2 output.
-- Emit a mapping report (moved, renamed, split/fan-out, inverted semantics).
-- Emit warnings for deprecated aliases.
-- Fail only when rewrite is non-deterministic.
+The command performs v1-to-v2 migration. The migrated YAML is written to standard output so it can be reviewed or redirected to a file. A deterministic mapping report for non-1:1 rewrites is written to standard error.
+
+Migration uses the v1 runtime configuration type and the same internal v1-to-v2 converter used by OBI. It rejects malformed input, unknown v1 fields, and fields whose effective value cannot survive a v2 round trip. The command also validates the generated document before writing it.
+
+The command migrates the file-based configuration surface. It resolves `${VAR}`, `${VAR:-default}`, and `$(VAR)` references embedded in the file, but it does not apply unrelated runtime environment-variable overrides. Given the same file and substitution values, output is stable across runs.
 
 ### What non-deterministic means
 
@@ -104,26 +103,38 @@ A small set of mappings are structurally non-trivial:
 
 - **Fan-out**: `filter.application` fans out to per-protocol `capture.instrumentation.<protocol>.filters.{traces,metrics}`. The migration tool applies the v1 value as the default for all protocols and emits a mapping report explaining the fan-out.
 - **Directional fan-out**: each flat v1 global `routes` field is copied into both `capture.instrumentation.http.routes.incoming` and `.outgoing`. Existing per-service `routes.incoming` and `routes.outgoing` patterns retain their direction under `capture.rules[].refine.http.routes`. Omitted per-service fields inherit their matching global direction; explicit arrays replace inherited arrays.
-- **Shape change**: `discovery.excluded_linux_system_paths` and `discovery.exclude_otel_instrumented_services` are rewritten into structured rule entries under `capture.rules`. The migration tool generates these entries and flags them for operator review.
+- **Shape change**: `discovery.exclude_otel_instrumented_services` is rewritten into a structured rule entry under `capture.rules`. The migration tool generates the entry and flags it for operator review.
+- **Removed implementation tuning**: `discovery.excluded_linux_system_paths` controls preliminary language-detection cost rather than workload selection. Config v2 retains the built-in runtime defaults without exposing a field. A custom or empty v1 value cannot round-trip and causes migration to fail; use explicit `capture.rules` when the intent is to exclude workloads.
 - **Inverted boolean**: `discovery.skip_go_specific_tracers: true` maps to `capture.runtimes.go.enabled: false`. The migration tool applies the inversion and emits a note.
 - **Sampler**: `otel_traces_export.sampler.name` and `.arg` migrate to `tracer_provider.sampler`. Simple cases (e.g., `always_on`, `trace_id_ratio_based`) map directly to built-in OTel declarative sampler types. Custom or workload-specific sampler configs may require operator intervention and use of the `obi_rule_based` sampler plugin.
 
-Only mappings that cannot be resolved without operator input cause migration to fail with a non-deterministic error.
+Mappings that cannot be resolved without operator input fail with an error that identifies the affected v1 field. For example, a non-default `prometheus_export.path` cannot currently be represented by the supported OpenTelemetry declarative Prometheus exporter shape and must be migrated manually.
 
 ## Validation CLI
 
-The `obi` command needs to have a configuration validation tool added to it.
-It needs to support semantics like the following.
+Validate a standalone v2 document with:
 
 ```shell
 obi config validate ./path/to/config
 ```
 
-- Read v1 or later configuration as input via an argument
-- Parse and validate the configuration
-- Emit warnings for invalid configuration detected
-- Emit warnings for deprecated configuration versions
-- In receiver context (detected via flag or auto-detection), reject standalone-only sections (`enrich`, `correlation`, `daemon`) with an explicit error identifying the section and remediation steps
+Validate a Collector receiver v2 configuration with:
+
+```shell
+obi config validate --mode=receiver ./path/to/receiver-config
+```
+
+The default mode is `standalone`. Validation performs environment substitution, parses the selected v2 layout, converts it through the shared runtime adapter, and applies runtime configuration validation without starting OBI. Receiver mode rejects standalone-only sections (`enrich`, `correlation`, and `daemon`) and reports the section that must be removed or moved to a standalone document.
+
+Validation accepts Config v2 only. A malformed or unsupported Config v2 document is never reinterpreted as v1. Use `obi config migrate` for v1 input.
+
+Both commands use stable exit codes:
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Validation or migration succeeded, or command help was requested. |
+| `1` | The file could not be read, the configuration was invalid, or migration could not preserve a field. |
+| `2` | Command usage, a flag, or a mode was unsupported. |
 
 ## Rollout strategy
 

@@ -11,13 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 )
 
 func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
-	eventTime := setJVMTestClocks(t)
+	const ktime = 2 * 3600 * 1_000_000_000 // 2h since boot
 
 	events, err := ParseJVMMemoryPoolEvent(
-		123456789,
+		ktime,
 		4321,
 		9001,
 		RawJVMGCWhenBefore,
@@ -27,11 +28,10 @@ func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
 		rawJVMString("G1 Eden Space"),
 	)
 	require.NoError(t, err)
-	require.Equal(t, []JVMRuntimeEvent{
+	requireJVMEvents(t, ktime, events, []JVMRuntimeEvent{
 		{
 			PID:            app.PID(4321),
 			PIDNamespaceID: 9001,
-			Time:           eventTime(123456789),
 			Kind:           JVMMetricMemoryUsed,
 			PoolName:       "G1 Eden Space",
 			MemoryType:     JVMMemoryTypeHeap,
@@ -41,7 +41,6 @@ func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
 		{
 			PID:            app.PID(4321),
 			PIDNamespaceID: 9001,
-			Time:           eventTime(123456789),
 			Kind:           JVMMetricMemoryCommitted,
 			PoolName:       "G1 Eden Space",
 			MemoryType:     JVMMemoryTypeHeap,
@@ -51,21 +50,20 @@ func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
 		{
 			PID:            app.PID(4321),
 			PIDNamespaceID: 9001,
-			Time:           eventTime(123456789),
 			Kind:           JVMMetricMemoryLimit,
 			PoolName:       "G1 Eden Space",
 			MemoryType:     JVMMemoryTypeHeap,
 			GCPhase:        JVMGCPhaseBefore,
 			ValueBytes:     8192,
 		},
-	}, events)
+	})
 }
 
 func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
-	eventTime := setJVMTestClocks(t)
+	const ktime = 90 * 60 * 1_000_000_000 // 90min since boot
 
 	events, err := ParseJVMMemoryPoolEvent(
-		500,
+		ktime,
 		2,
 		43,
 		RawJVMGCWhenAfter,
@@ -75,11 +73,10 @@ func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 		rawJVMString("Metaspace"),
 	)
 	require.NoError(t, err)
-	require.Equal(t, []JVMRuntimeEvent{
+	requireJVMEvents(t, ktime, events, []JVMRuntimeEvent{
 		{
 			PID:            app.PID(2),
 			PIDNamespaceID: 43,
-			Time:           eventTime(500),
 			Kind:           JVMMetricMemoryUsed,
 			PoolName:       "Metaspace",
 			MemoryType:     JVMMemoryTypeNonHeap,
@@ -89,7 +86,6 @@ func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 		{
 			PID:            app.PID(2),
 			PIDNamespaceID: 43,
-			Time:           eventTime(500),
 			Kind:           JVMMetricMemoryCommitted,
 			PoolName:       "Metaspace",
 			MemoryType:     JVMMemoryTypeNonHeap,
@@ -99,14 +95,13 @@ func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 		{
 			PID:            app.PID(2),
 			PIDNamespaceID: 43,
-			Time:           eventTime(500),
 			Kind:           JVMMetricMemoryUsedAfterLastGC,
 			PoolName:       "Metaspace",
 			MemoryType:     JVMMemoryTypeNonHeap,
 			GCPhase:        JVMGCPhaseAfter,
 			ValueBytes:     300,
 		},
-	}, events)
+	})
 }
 
 func TestRawJVMStringTrimsAtNULAndHonorsFixedBound(t *testing.T) {
@@ -152,19 +147,26 @@ func rawJVMString(value string) [JVMRawStringLen]byte {
 	return raw
 }
 
-func setJVMTestClocks(t *testing.T) func(uint64) time.Time {
+// requireJVMEvents compares the parsed events, checking Time separately: the
+// parser stamps it from the current clocks, so it cannot equal a value the
+// test computes microseconds later.
+func requireJVMEvents(t *testing.T, ktime uint64, got, want []JVMRuntimeEvent) {
 	t.Helper()
+	require.Len(t, got, len(want))
 
-	wallNow := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	monoNow := 10 * time.Second
-	oldClocks := jvmClocks
-	jvmClocks = jvmRuntimeClocks{
-		clock:     func() time.Time { return wallNow },
-		monoClock: func() time.Duration { return monoNow },
-	}
-	t.Cleanup(func() { jvmClocks = oldClocks })
+	// The tolerance only absorbs the scheduling gap between the parser's
+	// conversion and this one (measured worst case ~15µs; 100ms leaves room
+	// for a CPU-throttled CI runner), not elapsed time: both clocks advance
+	// together, so the wait cancels out. Keep it as tight as the machine
+	// allows — it is the smallest stamping error the test can detect.
+	const tolerance = 100 * time.Millisecond
 
-	return func(timestamp uint64) time.Time {
-		return wallNow.Add(-(monoNow - time.Duration(timestamp)))
+	expected := timing.KernelTime(ktime)
+	first := got[0].Time
+	for i := range got {
+		require.WithinDuration(t, expected, got[i].Time, tolerance)
+		require.Equal(t, first, got[i].Time, "all events of a batch share one timestamp")
+		got[i].Time = time.Time{}
 	}
+	require.Equal(t, want, got)
 }

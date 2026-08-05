@@ -1,0 +1,31 @@
+# weaver live-check policy for the OBI semantic-convention registry.
+#
+# Auto-discovered by `weaver registry live-check` from the registry working
+# directory. Only the `live-check` section is used; `registry check` ignores it.
+#
+# This replaces two filters that previously lived in the Go harness
+# (internal/test/weavercheck): the advice-message ignore list and the
+# information-to-violation promotion. Weaver 0.25 can express both declaratively.
+
+# Promote advice weaver classifies as `information` to `violation` so live-check
+# fails on it. `extends_namespace` catches an attribute emitted under an existing
+# semconv namespace but declared in no registry; `undefined_enum_variant` catches
+# an enumerated attribute emitted with a value outside its declared members.
+[[live-check.finding_level_overrides]]
+ids = ["extends_namespace", "undefined_enum_variant"]
+level = "violation"
+
+# Accept the known namespace collisions OBI cannot avoid: the collector-contrib
+# servicegraph connector emits bare `server`/`client` labels, and netolly emits
+# `iface` alongside `iface.direction`, all colliding with upstream `*.address` /
+# `*.port` / `iface.direction` attributes. Scoped to those exact attribute
+# samples, so a collision on any other attribute still surfaces.
+[[live-check.finding_filters]]
+exclude = ["illegal_namespace"]
+sample_names = [
+  "server.address",
+  "server.port",
+  "client.address",
+  "client.port",
+  "iface.direction",
+]

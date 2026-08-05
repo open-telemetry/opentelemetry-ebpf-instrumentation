@@ -4,10 +4,11 @@ LFLAGS=
 
 sources = $(wildcard *.c)
 targets = $(sources:.c=)
+headers = $(shell find .. -name '*.h')
 
 all: $(targets)
 
-%: %.c
+%: %.c $(headers)
 	$(CC) $(CFLAGS) -o $@ $< $(LFLAGS)
 
 .PHONY: test

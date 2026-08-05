@@ -197,6 +197,81 @@ extensions:
 	)
 }
 
+func TestDocumentToRuntimeRejectsUnsupportedDocumentFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "attribute limits",
+			yaml: "attribute_limits: {}\n",
+			want: "attribute_limits is not supported by the OBI runtime converter",
+		},
+		{
+			name: "disabled",
+			yaml: "disabled: true\n",
+			want: "disabled is not supported by the OBI runtime converter",
+		},
+		{
+			name: "distribution",
+			yaml: "distribution:\n  vendor:\n    option: true\n",
+			want: "distribution is not supported by the OBI runtime converter",
+		},
+		{
+			name: "instrumentation development",
+			yaml: "instrumentation/development: {}\n",
+			want: "instrumentation/development is not supported by the OBI runtime converter",
+		},
+		{
+			name: "logger provider",
+			yaml: "logger_provider: {}\n",
+			want: "logger_provider is not supported by the OBI runtime converter",
+		},
+		{
+			name: "propagator",
+			yaml: "propagator:\n  composite_list: \"\"\n",
+			want: "propagator is not supported by the OBI runtime converter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(
+				"file_format: \"1.0\"\n" +
+					tt.yaml +
+					"extensions:\n  obi:\n    version: \"2.0\"\n",
+			))
+			require.NoError(t, err)
+
+			_, err = DocumentToRuntime(doc)
+			require.EqualError(t, err, tt.want)
+		})
+	}
+}
+
+func TestDocumentToRuntimeAcceptsEmptySupportedDocumentFields(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+disabled: false
+distribution: {}
+propagator: {}
+extensions:
+  obi:
+    version: "2.0"
+`))
+	require.NoError(t, err)
+
+	_, err = DocumentToRuntime(doc)
+	require.NoError(t, err)
+}
+
 func TestDocumentToRuntimeSkipsUnsupportedMetricReaderShapes(t *testing.T) {
 	t.Parallel()
 

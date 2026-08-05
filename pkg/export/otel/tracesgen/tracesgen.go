@@ -7,8 +7,11 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +45,7 @@ var (
 	genAIUsageReasoningOutputTokens    = attribute.Key("gen_ai.usage.reasoning.output_tokens")
 	openAIAPITypeKey                   = attribute.Key("openai.api.type")
 	awsBedrockGuardrailIDKey           = attribute.Key("aws.bedrock.guardrail.id")
+	genAIResponseErrorControlKey       = attribute.Key("obi.internal.gen_ai.response.error")
 )
 
 type TraceSpanAndAttributes struct {
@@ -87,7 +91,8 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			continue
 		}
 
-		finalAttrs := traceAttributesSelectorInternal(span, traceAttrs, redactSet)
+		selectedAttrs := traceAttributesSelectorInternal(span, traceAttrs, redactSet)
+		samplerAttrs, responseErrorSelected := removeGenAIResponseErrorControl(selectedAttrs)
 
 		spanSampler := func() trace.Sampler {
 			if span.Service.Sampler != nil {
@@ -102,7 +107,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			Name:          span.TraceName(),
 			TraceID:       span.TraceID,
 			Kind:          spanKind(span),
-			Attributes:    finalAttrs,
+			Attributes:    samplerAttrs,
 		})
 
 		if sr.Decision == trace.Drop {
@@ -113,7 +118,11 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 		if !ok {
 			group = []TraceSpanAndAttributes{}
 		}
-		group = append(group, TraceSpanAndAttributes{Span: span, Attributes: finalAttrs})
+		exportAttrs := samplerAttrs
+		if responseErrorSelected {
+			exportAttrs = append(slices.Clone(samplerAttrs), genAIResponseErrorControlKey.Bool(true))
+		}
+		group = append(group, TraceSpanAndAttributes{Span: span, Attributes: exportAttrs})
 		spanGroups[span.Service.UID] = group
 	}
 
@@ -171,6 +180,13 @@ func generateTracesWithAttributes(
 		span := spanWithAttributes.Span
 		attrs := spanWithAttributes.Attributes
 
+		if len(span.ManualOTelJSON) > 0 {
+			if err := appendManualOTelJSON(rs, span.ManualOTelJSON); err != nil {
+				slog.Error("dropping invalid Go Auto SDK span payload", "error", err)
+			}
+			continue
+		}
+
 		ss := rs.ScopeSpans().AppendEmpty()
 
 		t := span.Timings()
@@ -213,6 +229,11 @@ func generateTracesWithAttributes(
 			dbResponseError = request.SpanDBStatusMessage(span, dbErr.AsString())
 		}
 		m.Remove(string(attr.DBResponseError.OTEL()))
+		var genAIResponseErrorSelected bool
+		if control, ok := m.Get(string(genAIResponseErrorControlKey)); ok {
+			genAIResponseErrorSelected = control.Type() == pcommon.ValueTypeBool && control.Bool()
+		}
+		m.Remove(string(genAIResponseErrorControlKey))
 		m.MoveTo(s.Attributes())
 
 		// Set status code
@@ -223,6 +244,11 @@ func generateTracesWithAttributes(
 			statusMessage = dbResponseError
 		} else {
 			statusMessage = request.SpanStatusMessage(span)
+			if statusMessage == "" &&
+				statusCode == ptrace.StatusCodeError &&
+				genAIResponseErrorSelected {
+				statusMessage = genAIResponseErrorMessage(span)
+			}
 		}
 		if statusMessage != "" {
 			s.Status().SetMessage(statusMessage)
@@ -238,6 +264,48 @@ func generateTracesWithAttributes(
 		}
 	}
 	return traces
+}
+
+func appendManualOTelJSON(rs ptrace.ResourceSpans, payload []byte) error {
+	var unmarshaler ptrace.JSONUnmarshaler
+	traces, err := unmarshaler.UnmarshalTraces(payload)
+	if err != nil {
+		return fmt.Errorf("decode Go Auto SDK span payload: %w", err)
+	}
+
+	resourceSpans := traces.ResourceSpans()
+	if resourceSpans.Len() != 1 {
+		return fmt.Errorf("invalid Go Auto SDK span payload: contains %d resource spans", resourceSpans.Len())
+	}
+
+	scopeSpans := resourceSpans.At(0).ScopeSpans()
+	if scopeSpans.Len() != 1 {
+		return fmt.Errorf("invalid Go Auto SDK span payload: contains %d scope spans", scopeSpans.Len())
+	}
+	spans := scopeSpans.At(0).Spans()
+	if spans.Len() != 1 {
+		return fmt.Errorf("invalid Go Auto SDK span payload: contains %d spans", spans.Len())
+	}
+	span := spans.At(0)
+	if span.TraceID().IsEmpty() || span.SpanID().IsEmpty() {
+		return errors.New("invalid Go Auto SDK span payload: invalid span metadata")
+	}
+	start := span.StartTimestamp()
+	end := span.EndTimestamp()
+	if start == 0 || end == 0 || end < start || uint64(end-start) > math.MaxInt64 ||
+		start > math.MaxInt64 || end > math.MaxInt64 {
+		return errors.New("invalid Go Auto SDK span payload: invalid timestamps")
+	}
+	switch span.Status().Code() {
+	case ptrace.StatusCodeUnset, ptrace.StatusCodeOk, ptrace.StatusCodeError:
+	default:
+		return errors.New("invalid Go Auto SDK span payload: invalid status")
+	}
+	span.SetKind(ptrace.SpanKind(trace2.ValidateSpanKind(trace2.SpanKind(span.Kind()))))
+
+	dst := rs.ScopeSpans().AppendEmpty()
+	scopeSpans.At(0).CopyTo(dst)
+	return nil
 }
 
 func SpanDiscarded(span *request.Span, is instrumentations.InstrumentationSelection) bool {
@@ -1283,8 +1351,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.GenAIResponseModel(model))
 			}
 			attrs = append(attrs, genAIUsageAttributes(span)...)
-			if ai.Input.Dimensions > 0 {
-				attrs = append(attrs, attribute.Int("gen_ai.request.embedding.dimensions", ai.Input.Dimensions))
+			if dims := ai.Dimensions(); dims > 0 {
+				attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(dims))
+			}
+			if formats := ai.Input.EncodingFormats(); len(formats) > 0 {
+				attrs = append(attrs, semconv.GenAIRequestEncodingFormats(formats...))
 			}
 			if count := ai.Input.InputCount(); count > 0 {
 				attrs = append(attrs, attribute.Int("gen_ai.request.embedding.input_count", count))
@@ -1315,6 +1386,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 		}
 
+		if _, selected := optionalAttrs[attr.GenAIResponseError]; selected {
+			if message := genAIResponseErrorMessage(span); message != "" {
+				attrs = append(attrs, genAIResponseErrorControlKey.Bool(true))
+			}
+		}
 		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPCClient:
@@ -1611,7 +1687,67 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(redactKeys))
 }
 
+func removeGenAIResponseErrorControl(attrs []attribute.KeyValue) ([]attribute.KeyValue, bool) {
+	for i := range attrs {
+		if attrs[i].Key != genAIResponseErrorControlKey ||
+			attrs[i].Value.Type() != attribute.BOOL ||
+			!attrs[i].Value.AsBool() {
+			continue
+		}
+
+		copy(attrs[i:], attrs[i+1:])
+		attrs[len(attrs)-1] = attribute.KeyValue{}
+		attrs = attrs[:len(attrs)-1]
+		return attrs, true
+	}
+
+	return attrs, false
+}
+
+func genAIResponseErrorMessage(span *request.Span) string {
+	if span.Type != request.EventTypeHTTPClient || span.GenAI == nil {
+		return ""
+	}
+
+	switch span.SubType {
+	case request.HTTPSubtypeOpenAI:
+		if span.GenAI.OpenAI != nil {
+			return span.GenAI.OpenAI.Error.Message
+		}
+	case request.HTTPSubtypeOpenAICompatible:
+		if span.GenAI.OpenAICompatible != nil {
+			return span.GenAI.OpenAICompatible.Error.Message
+		}
+	case request.HTTPSubtypeAnthropic:
+		if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil {
+			return span.GenAI.Anthropic.Output.Error.Message
+		}
+	case request.HTTPSubtypeGemini:
+		if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil {
+			return span.GenAI.Gemini.Output.Error.Message
+		}
+	case request.HTTPSubtypeQwen:
+		if span.GenAI.Qwen != nil {
+			return span.GenAI.Qwen.Error.Message
+		}
+	case request.HTTPSubtypeAWSBedrock:
+		if span.GenAI.Bedrock != nil {
+			return span.GenAI.Bedrock.Output.ErrorMessage
+		}
+	case request.HTTPSubtypeRerank:
+		if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil {
+			return span.GenAI.Rerank.Output.Error.Message
+		}
+	}
+
+	return ""
+}
+
 func spanKind(span *request.Span) trace2.SpanKind {
+	if span.Type == request.EventTypeManualSpan {
+		return trace2.ValidateSpanKind(span.SpanKind)
+	}
+
 	switch span.Type {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
 		return trace2.SpanKindServer

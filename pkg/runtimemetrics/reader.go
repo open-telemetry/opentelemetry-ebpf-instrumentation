@@ -6,6 +6,7 @@ package runtimemetrics // import "go.opentelemetry.io/obi/pkg/runtimemetrics"
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -17,7 +18,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-const EventTypeGoRuntimeMetric = ebpfcommon.EventTypeGoRuntimeMetric
+const (
+	EventTypeGoRuntimeMetric    = ebpfcommon.EventTypeGoRuntimeMetric
+	EventTypeGoRuntimeHistogram = ebpfcommon.EventTypeGoRuntimeHistogram
+)
 
 func IsGoRuntimeMetricRecord(record *ringbuf.Record) bool {
 	return ebpfcommon.IsGoRuntimeMetricRecord(record)
@@ -30,6 +34,26 @@ type RuntimeMetricSnapshot struct {
 
 	Go  *GoRuntimeMetricSnapshot
 	JVM *JVMRuntimeMetricSnapshot
+
+	Histogram *GoRuntimeHistogramSnapshot
+}
+
+// GoHistogramKind identifies a Go runtime timeHistogram source.
+type GoHistogramKind uint8
+
+const (
+	// GoHistogramKindGCPause identifies stop-the-world GC pause durations.
+	GoHistogramKindGCPause GoHistogramKind = iota
+	// GoHistogramKindSchedLatency identifies runnable-to-running scheduler latency.
+	GoHistogramKindSchedLatency
+)
+
+// GoRuntimeHistogramSnapshot contains the raw populations read from a Go runtime timeHistogram.
+type GoRuntimeHistogramSnapshot struct {
+	Kind      GoHistogramKind
+	Counts    []uint64
+	Underflow uint64
+	Overflow  uint64
 }
 
 type GoRuntimeMetricSnapshot struct {
@@ -42,6 +66,8 @@ type GoRuntimeMetricSnapshot struct {
 	MemoryUsedOther   *int64
 	MemoryAllocated   *uint64
 	MemoryAllocations *uint64
+	GoroutineCount    *int64
+	MemoryGCGoal      *int64
 }
 
 type GoRuntimeCPUTimeSnapshot struct {
@@ -160,9 +186,25 @@ type goRuntimeMetricRawSnapshot struct {
 	MemoryUsedOther       int64
 	MemoryAllocated       uint64
 	MemoryAllocations     uint64
+	GoroutineCount        int64
+	MemoryGCGoal          uint64
 }
 
-// Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h.
+const goRuntimeHistogramMaxBuckets = timeHistogramNumBuckets * timeHistogramNumSubBuckets
+
+type goRuntimeHistogramRawEvent struct {
+	Type        uint8
+	Kind        GoHistogramKind
+	Pad         [2]uint8
+	PID         goRuntimeMetricRawKey
+	BucketCount uint32
+	Pad2        uint32
+	Underflow   uint64
+	Overflow    uint64
+	Counts      [goRuntimeHistogramMaxBuckets]uint64
+}
+
+// Mirrors the scalar bits of go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h.
 // Check these bits before using raw values; zero can be a valid value.
 const (
 	goRuntimeMetricValidGCCycles       uint64 = 1 << 0
@@ -172,6 +214,8 @@ const (
 	goRuntimeMetricValidCPUTime        uint64 = 1 << 4
 	goRuntimeMetricValidMemoryUsed     uint64 = 1 << 5
 	goRuntimeMetricValidMemoryAllocs   uint64 = 1 << 6
+	goRuntimeMetricValidGoroutineCount uint64 = 1 << 9
+	goRuntimeMetricValidMemoryGCGoal   uint64 = 1 << 10
 )
 
 func SnapshotFromRingbuf(
@@ -181,9 +225,21 @@ func SnapshotFromRingbuf(
 	if record == nil || len(record.RawSample) == 0 {
 		return RuntimeMetricSnapshot{}, true, errors.New("invalid Go runtime metric event size")
 	}
-	if record.RawSample[0] != EventTypeGoRuntimeMetric {
+
+	switch record.RawSample[0] {
+	case EventTypeGoRuntimeMetric:
+		return scalarSnapshotFromRingbuf(record, filter)
+	case EventTypeGoRuntimeHistogram:
+		return histogramSnapshotFromRingbuf(record, filter)
+	default:
 		return RuntimeMetricSnapshot{}, true, nil
 	}
+}
+
+func scalarSnapshotFromRingbuf(
+	record *ringbuf.Record,
+	filter ebpfcommon.ServiceFilter,
+) (RuntimeMetricSnapshot, bool, error) {
 	if filter == nil {
 		return RuntimeMetricSnapshot{}, true, nil
 	}
@@ -197,8 +253,50 @@ func SnapshotFromRingbuf(
 		return RuntimeMetricSnapshot{}, true, nil
 	}
 
-	snapshot := convertGoRuntimeMetricSnapshot(service, app.PID(event.PID.UserPID), event.Snapshot)
+	snapshot := convertGoRuntimeMetricSnapshot(service, app.PID(event.PID.HostPID), event.Snapshot)
 	return snapshot, false, nil
+}
+
+func histogramSnapshotFromRingbuf(
+	record *ringbuf.Record,
+	filter ebpfcommon.ServiceFilter,
+) (RuntimeMetricSnapshot, bool, error) {
+	event, err := ebpfcommon.ReinterpretCast[goRuntimeHistogramRawEvent](record.RawSample)
+	if err != nil {
+		return RuntimeMetricSnapshot{}, true, fmt.Errorf("decode Go runtime histogram event: %w", err)
+	}
+	if event.BucketCount != goRuntimeHistogramMaxBuckets {
+		return RuntimeMetricSnapshot{}, true, fmt.Errorf(
+			"invalid Go runtime histogram bucket count %d (want %d)",
+			event.BucketCount,
+			goRuntimeHistogramMaxBuckets,
+		)
+	}
+	if event.Kind != GoHistogramKindGCPause && event.Kind != GoHistogramKindSchedLatency {
+		return RuntimeMetricSnapshot{}, true, fmt.Errorf("unsupported Go runtime histogram kind %d", event.Kind)
+	}
+	if filter == nil {
+		return RuntimeMetricSnapshot{}, true, nil
+	}
+
+	service, ok := runtimeMetricService(filter.CurrentPIDs(ebpfcommon.PIDTypeGo), event.PID)
+	if !ok {
+		return RuntimeMetricSnapshot{}, true, nil
+	}
+
+	counts := make([]uint64, int(event.BucketCount))
+	copy(counts, event.Counts[:event.BucketCount])
+	return RuntimeMetricSnapshot{
+		Service: service,
+		PID:     app.PID(event.PID.HostPID),
+		Time:    time.Now(),
+		Histogram: &GoRuntimeHistogramSnapshot{
+			Kind:      event.Kind,
+			Counts:    counts,
+			Underflow: event.Underflow,
+			Overflow:  event.Overflow,
+		},
+	}, false, nil
 }
 
 func runtimeMetricService(
@@ -277,6 +375,16 @@ func convertGoRuntimeMetricSnapshot(
 		memoryAllocated = &raw.MemoryAllocated
 		memoryAllocations = &raw.MemoryAllocations
 	}
+	var goroutineCount *int64
+	if raw.ValidMask&goRuntimeMetricValidGoroutineCount != 0 && raw.GoroutineCount > 0 {
+		goroutineCount = &raw.GoroutineCount
+	}
+	var memoryGCGoal *int64
+	if raw.ValidMask&goRuntimeMetricValidMemoryGCGoal != 0 &&
+		raw.MemoryGCGoal > 0 && raw.MemoryGCGoal <= math.MaxInt64 {
+		value := int64(raw.MemoryGCGoal)
+		memoryGCGoal = &value
+	}
 
 	return RuntimeMetricSnapshot{
 		Service: service,
@@ -292,6 +400,8 @@ func convertGoRuntimeMetricSnapshot(
 			MemoryUsedOther:   memoryUsedOther,
 			MemoryAllocated:   memoryAllocated,
 			MemoryAllocations: memoryAllocations,
+			GoroutineCount:    goroutineCount,
+			MemoryGCGoal:      memoryGCGoal,
 		},
 	}
 }

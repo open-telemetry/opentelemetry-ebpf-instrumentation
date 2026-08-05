@@ -510,6 +510,20 @@
         ]
       }
     },
+    "go.opentelemetry.io/auto/sdk.span": {
+      "spanContext": {
+        "versions": {
+          "oldest": "1.1.0",
+          "newest": "1.2.1"
+        },
+        "offsets": [
+          {
+            "offset": 80,
+            "since": "1.1.0"
+          }
+        ]
+      }
+    },
     "go.opentelemetry.io/otel/trace.SpanContext": {
       "spanID": {
         "versions": {
@@ -1344,6 +1358,20 @@
         ]
       }
     },
+    "runtime.gList": {
+      "size": {
+        "versions": {
+          "oldest": "1.25.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.25.0"
+          }
+        ]
+      }
+    },
     "runtime.consistentHeapStats": {
       "stats": {
         "versions": {
@@ -1466,6 +1494,22 @@
           {
             "offset": 0,
             "since": "1.17.0"
+          }
+        ]
+      },
+      "heapGoal": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.18.10"
+        },
+        "offsets": [
+          {
+            "offset": 32,
+            "since": "1.17.0"
+          },
+          {
+            "offset": 104,
+            "since": "1.18.0"
           }
         ]
       },
@@ -1830,6 +1874,158 @@
           {
             "offset": 3520,
             "since": "1.25.0"
+          }
+        ]
+      }
+    },
+    "runtime.mutex": {
+      "key": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.17.0"
+          }
+        ]
+      }
+    },
+    "runtime.p": {
+      "gFree": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 3584,
+            "since": "1.17.0"
+          },
+          {
+            "offset": 2464,
+            "since": "1.18.0"
+          },
+          {
+            "offset": 2456,
+            "since": "1.23.0"
+          },
+          {
+            "offset": 2464,
+            "since": "1.26.0"
+          }
+        ]
+      }
+    },
+    "runtime.schedt": {
+      "gFree": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 152,
+            "since": "1.17.0"
+          },
+          {
+            "offset": 160,
+            "since": "1.20.0"
+          },
+          {
+            "offset": 168,
+            "since": "1.25.0"
+          },
+          {
+            "offset": 184,
+            "since": "1.26.0"
+          }
+        ]
+      },
+      "ngsys": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 72,
+            "since": "1.17.0"
+          },
+          {
+            "offset": 80,
+            "since": "1.25.0"
+          },
+          {
+            "offset": 96,
+            "since": "1.26.0"
+          }
+        ]
+      },
+      "stwTotalTimeGC": {
+        "versions": {
+          "oldest": "1.22.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 4224,
+            "since": "1.22.0"
+          },
+          {
+            "offset": 4248,
+            "since": "1.25.0"
+          },
+          {
+            "offset": 4264,
+            "since": "1.26.0"
+          }
+        ]
+      },
+      "timeToRun": {
+        "versions": {
+          "oldest": "1.20.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 320,
+            "since": "1.20.0"
+          },
+          {
+            "offset": 344,
+            "since": "1.25.0"
+          },
+          {
+            "offset": 360,
+            "since": "1.26.0"
+          }
+        ]
+      }
+    },
+    "runtime.timeHistogram": {
+      "overflow": {
+        "versions": {
+          "oldest": "1.20.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 1288,
+            "since": "1.20.0"
+          }
+        ]
+      },
+      "underflow": {
+        "versions": {
+          "oldest": "1.20.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 1280,
+            "since": "1.20.0"
           }
         ]
       }

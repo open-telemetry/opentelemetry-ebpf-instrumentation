@@ -52,21 +52,39 @@ func TestOffsets_HasGoChannelOffsets(t *testing.T) {
 	}}).HasGoChannelOffsets())
 }
 
-func TestOffsets_HasGoAutoSDKSpanContextOffsets(t *testing.T) {
-	assert.False(t, (*Offsets)(nil).HasGoAutoSDKSpanContextOffsets())
-	assert.False(t, (&Offsets{}).HasGoAutoSDKSpanContextOffsets())
+func TestOffsets_SupportsGoAutoSDKActivation(t *testing.T) {
+	assert.False(t, (*Offsets)(nil).SupportsGoAutoSDKActivation())
+	assert.False(t, (&Offsets{}).SupportsGoAutoSDKActivation())
 	assert.False(t, (&Offsets{Field: FieldOffsets{
-		SpanContextTraceIDPos: uint64(0),
-		SpanContextSpanIDPos:  uint64(16),
-	}}).HasGoAutoSDKSpanContextOffsets())
+		SpanContextTraceIDPos:      uint64(0),
+		SpanContextSpanIDPos:       uint64(16),
+		AutoSDKActivationSupported: uint64(1),
+	}}).SupportsGoAutoSDKActivation())
 	assert.False(t, (&Offsets{Field: FieldOffsets{
-		SpanContextTraceIDPos:    uint64(0),
-		SpanContextSpanIDPos:     uint64(16),
-		SpanContextTraceFlagsPos: int64(24),
-	}}).HasGoAutoSDKSpanContextOffsets())
-	assert.True(t, (&Offsets{Field: FieldOffsets{
+		SpanContextTraceIDPos:      uint64(0),
+		SpanContextSpanIDPos:       uint64(16),
+		SpanContextTraceFlagsPos:   int64(24),
+		AutoSDKSpanContextPos:      uint64(80),
+		AutoSDKActivationSupported: uint64(1),
+	}}).SupportsGoAutoSDKActivation())
+	assert.False(t, (&Offsets{Field: FieldOffsets{
 		SpanContextTraceIDPos:    uint64(0),
 		SpanContextSpanIDPos:     uint64(16),
 		SpanContextTraceFlagsPos: uint64(24),
-	}}).HasGoAutoSDKSpanContextOffsets())
+		AutoSDKSpanContextPos:    uint64(80),
+	}}).SupportsGoAutoSDKActivation())
+	assert.False(t, (&Offsets{Field: FieldOffsets{
+		SpanContextTraceIDPos:      uint64(0),
+		SpanContextSpanIDPos:       uint64(16),
+		SpanContextTraceFlagsPos:   uint64(24),
+		AutoSDKSpanContextPos:      uint64(80),
+		AutoSDKActivationSupported: uint64(0),
+	}}).SupportsGoAutoSDKActivation())
+	assert.True(t, (&Offsets{Field: FieldOffsets{
+		SpanContextTraceIDPos:      uint64(0),
+		SpanContextSpanIDPos:       uint64(16),
+		SpanContextTraceFlagsPos:   uint64(24),
+		AutoSDKSpanContextPos:      uint64(80),
+		AutoSDKActivationSupported: uint64(1),
+	}}).SupportsGoAutoSDKActivation())
 }

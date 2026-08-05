@@ -149,10 +149,20 @@ var (
 		Prom:    "go_memory_limit_bytes",
 		OTEL:    "go.memory.limit",
 	}
+	GoRuntimeMemoryGCGoal = Name{
+		Section: "go.memory.gc.goal",
+		Prom:    "go_memory_gc_goal_bytes",
+		OTEL:    "go.memory.gc.goal",
+	}
 	GoRuntimeMemoryGCCycles = Name{
 		Section: "go.memory.gc.cycles",
 		Prom:    "go_memory_gc_cycles_total",
 		OTEL:    "go.memory.gc.cycles",
+	}
+	GoRuntimeMemoryGCPauseDuration = Name{
+		Section: "go.memory.gc.pause.duration",
+		Prom:    "go_memory_gc_pause_duration_seconds",
+		OTEL:    "go.memory.gc.pause.duration",
 	}
 	GoRuntimeMemoryUsed = Name{
 		Section: "go.memory.used",
@@ -174,6 +184,11 @@ var (
 		Prom:    "go_cpu_time_seconds_total",
 		OTEL:    "go.cpu.time",
 	}
+	GoRuntimeGoroutineCount = Name{
+		Section: "go.goroutine.count",
+		Prom:    "go_goroutine_count",
+		OTEL:    "go.goroutine.count",
+	}
 	GoRuntimeProcessorLimit = Name{
 		Section: "go.processor.limit",
 		Prom:    "go_processor_limit",
@@ -183,6 +198,11 @@ var (
 		Section: "go.config.gogc",
 		Prom:    "go_config_gogc_percent",
 		OTEL:    "go.config.gogc",
+	}
+	GoRuntimeScheduleDuration = Name{
+		Section: "go.schedule.duration",
+		Prom:    "go_schedule_duration_seconds",
+		OTEL:    "go.schedule.duration",
 	}
 	JVMMemoryUsed = Name{
 		Section: "jvm.memory.used",

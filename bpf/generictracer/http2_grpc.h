@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/h2_defs.h>
 #include <common/http_types.h>
 #include <common/strings.h>
 
@@ -69,6 +70,37 @@ static __always_inline u8 has_preface(unsigned char *p, u32 len) {
 
 static __always_inline u8 is_http2_or_grpc(unsigned char *p, u32 len) {
     return has_preface(p, len);
+}
+
+// Mid-stream H2 detection for connections whose preface predates attachment
+static __always_inline u8 looks_like_http2_frames(u64 u_buf, int bytes_len) {
+    if (bytes_len < k_h2_frame_header_len) {
+        return 0;
+    }
+
+    const u32 len = (u32)bytes_len;
+    u32 pos = 0;
+    h2_sniff_state_t st = {0};
+
+    for (u8 i = 0; i < k_h2_sniff_max_frames && pos < len; i++) {
+        if (pos + k_h2_frame_header_len > len) {
+            return 0;
+        }
+
+        unsigned char buf[k_h2_frame_header_len];
+        if (bpf_probe_read(buf, sizeof(buf), (const void *)(u_buf + pos)) != 0) {
+            return 0;
+        }
+
+        u32 frame_len;
+        if (!h2_sniff_frame_header(&st, buf, &frame_len)) {
+            return 0;
+        }
+
+        pos += k_h2_frame_header_len + frame_len;
+    }
+
+    return h2_sniff_accept(&st, pos, len);
 }
 
 static __always_inline void skip_http2_preface(call_protocol_args_t *args) {

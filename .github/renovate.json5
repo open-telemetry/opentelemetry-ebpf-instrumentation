@@ -72,6 +72,21 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "regex:^(?:(?<compatibility>.+?)-)?v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      // internal/test/integration/components/weaver/service.yml is a Compose
+      // service fragment, but its filename doesn't match the docker-compose
+      // manager's compose*.yml pattern, so its digest-pinned image would
+      // otherwise never be updated (it silently lagged a version behind the
+      // other weaver pins). Track it with the same generic image-ref shape used
+      // for the Go files above.
+      "customType": "regex",
+      "managerFilePatterns": ["/^internal\\/test\\/integration\\/components\\/weaver\\/service\\.yml$/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9.\\-]*(?:/[a-z0-9][a-z0-9._\\-]*)+):(?<currentValue>[a-zA-Z0-9][a-zA-Z0-9._\\-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?:(?<compatibility>.+?)-)?v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
     }
   ],
   "packageRules": [
@@ -433,6 +448,25 @@
       "matchPackageNames": ["org.graalvm.buildtools:native-maven-plugin"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      // Pin every otel/weaver reference to one version in a single PR. The refs
+      // live across four managers: dependencies.Dockerfile (dockerfile — the
+      // image `make lint-schema` reads), the OATS/integration compose fragments
+      // (docker-compose), the Go test pin (custom regex), and service.yml
+      // (custom regex). Without this, each bumps in its own PR on its own
+      // schedule, so lint-schema and the live-check suites validate against
+      // different weaver builds until the last PR merges — the exact drift #2784
+      // caused (it moved only the three compose files). This rule is LAST on
+      // purpose: packageRules resolve last-match-wins, so its groupName and
+      // schedule override the "Docker" and "integration test pinned images"
+      // rules that also match these refs, and enabled:true re-includes the ones
+      // the "internal/test/**" patch/digest disable rule would otherwise drop.
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["otel/weaver"],
+      "groupName": "otel/weaver image",
+      "enabled": true,
+      "schedule": ["before 6am on Tuesday"]
     }
   ],
   "labels": [

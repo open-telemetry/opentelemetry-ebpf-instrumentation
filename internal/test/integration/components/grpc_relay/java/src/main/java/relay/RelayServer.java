@@ -2,7 +2,11 @@ package relay;
 
 import com.sun.net.httpserver.HttpServer;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
 import io.grpc.Server;
+import io.grpc.ServerCall;
+import io.grpc.ServerCallHandler;
+import io.grpc.ServerInterceptor;
 import io.grpc.stub.StreamObserver;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
@@ -52,6 +56,28 @@ public class RelayServer extends RelayGrpc.RelayImplBase {
         responseObserver.onCompleted();
     }
 
+    // Logs the traceparent count per RPC; tests assert exactly one
+    private static final class TraceparentLogger implements ServerInterceptor {
+        private static final Metadata.Key<String> TP =
+                Metadata.Key.of("traceparent", Metadata.ASCII_STRING_MARSHALLER);
+
+        @Override
+        public <Q, S> ServerCall.Listener<Q> interceptCall(
+                ServerCall<Q, S> call, Metadata headers, ServerCallHandler<Q, S> next) {
+            Iterable<String> values = headers.getAll(TP);
+            int count = 0;
+            StringBuilder joined = new StringBuilder();
+            if (values != null) {
+                for (String v : values) {
+                    count++;
+                    joined.append(joined.length() == 0 ? "" : ",").append(v);
+                }
+            }
+            System.out.println("traceparent count=" + count + " values=" + joined);
+            return next.startCall(call, headers);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         String grpcPort = System.getenv("GRPC_PORT");
         if (grpcPort == null || grpcPort.isEmpty()) {
@@ -79,6 +105,7 @@ public class RelayServer extends RelayGrpc.RelayImplBase {
                 .workerEventLoopGroup(ioGroup)
                 .channelType(NioServerSocketChannel.class)
                 .addService(new RelayServer(nextHop, ioGroup))
+                .intercept(new TraceparentLogger())
                 .build()
                 .start();
 
