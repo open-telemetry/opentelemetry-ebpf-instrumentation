@@ -35,16 +35,17 @@ func (s *NetworkSource) UnmarshalYAML(value *yaml.Node) error {
 
 // NetworkCapture describes network flow capture settings.
 type NetworkCapture struct {
-	Enabled            bool               `yaml:"enabled"`
-	Source             NetworkSource      `yaml:"source"`
-	BufferSize         uint32             `yaml:"buffer_size"`
-	EndpointIdentity   EndpointIdentity   `yaml:"endpoint_identity"`
-	Selection          NetworkSelection   `yaml:"selection"`
-	Filters            SignalFilters      `yaml:"filters"`
-	FlowLifecycle      FlowLifecycle      `yaml:"flow_lifecycle"`
-	InterfaceDiscovery InterfaceDiscovery `yaml:"interface_discovery"`
-	Enrichment         NetworkEnrichment  `yaml:"enrichment"`
-	Diagnostics        FlowDiagnostics    `yaml:"diagnostics"`
+	Enabled              bool               `yaml:"enabled"`
+	Source               NetworkSource      `yaml:"source"`
+	BufferSize           uint32             `yaml:"buffer_size"`
+	EndpointIdentity     EndpointIdentity   `yaml:"endpoint_identity"`
+	Selection            NetworkSelection   `yaml:"selection"`
+	Filters              SignalFilters      `yaml:"filters"`
+	FlowLifecycle        FlowLifecycle      `yaml:"flow_lifecycle"`
+	InterfaceDiscovery   InterfaceDiscovery `yaml:"interface_discovery"`
+	Enrichment           NetworkEnrichment  `yaml:"enrichment"`
+	Diagnostics          FlowDiagnostics    `yaml:"diagnostics"`
+	AdditionalProperties map[string]any     `yaml:",inline"`
 }
 
 // AgentIPFamily describes the IP address family used for the agent identity.
@@ -285,13 +286,14 @@ type FlowDiagnostics struct {
 
 // NetworkStats describes network statistics capture settings.
 type NetworkStats struct {
-	Enabled          bool              `yaml:"enabled"`
-	Features         []string          `yaml:"features"`
-	EndpointIdentity EndpointIdentity  `yaml:"endpoint_identity"`
-	Selection        StatsSelection    `yaml:"selection"`
-	Filters          SignalFilters     `yaml:"filters"`
-	Enrichment       NetworkEnrichment `yaml:"enrichment"`
-	Diagnostics      StatsDiagnostics  `yaml:"diagnostics"`
+	Enabled              bool              `yaml:"enabled"`
+	Features             []string          `yaml:"features"`
+	EndpointIdentity     EndpointIdentity  `yaml:"endpoint_identity"`
+	Selection            StatsSelection    `yaml:"selection"`
+	Filters              SignalFilters     `yaml:"filters"`
+	Enrichment           NetworkEnrichment `yaml:"enrichment"`
+	Diagnostics          StatsDiagnostics  `yaml:"diagnostics"`
+	AdditionalProperties map[string]any    `yaml:",inline"`
 }
 
 // StatsSelection describes which network statistics traffic is selected.

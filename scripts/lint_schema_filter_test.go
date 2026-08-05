@@ -99,6 +99,12 @@ const expectedEnumOverrideDuplicates = `[{
 		"attribute_id": "error.type",
 		"group_ids": ["registry.error", "x.obi.error"]
 	}}
+}, {
+	"diagnostic": {"severity": "Error"},
+	"error": {"DuplicateAttributeId": {
+		"attribute_id": "network.type",
+		"group_ids": ["registry.network", "x.obi.network"]
+	}}
 }]`
 
 func TestLintSchemaFilterAllowsExpectedEnumOverrideDuplicates(t *testing.T) {

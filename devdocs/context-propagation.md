@@ -22,6 +22,7 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
 - [The outgoing_trace_map](#the-outgoing_trace_map)
   - [tp_info_pid_t::valid (u8)](#tp_info_pid_tvalid-u8)
   - [tp_info_pid_t::written (u8)](#tp_info_pid_twritten-u8)
+- [The server_traces Map](#the-server_traces-map)
 - [The incoming_trace_map](#the-incoming_trace_map)
 - [The sock_dir sockmap](#the-sock_dir-sockmap)
 - [Summary](#summary)
@@ -213,27 +214,21 @@ This creates a natural priority hierarchy:
 
 ### tp_info_pid_t::valid (u8)
 
-State machine tracking the injection lifecycle:
+Boolean indicating whether the trace context can be used:
 
 - **0**: Invalid/SSL (don't inject)
-- **1**: First packet seen, needs L4 span ID setup
-- **2**: L4 span ID setup done, ready for injection
+- **1**: Valid
 
 **Set to 0:**
 
 - Go uprobes: SSL connections (`go_nethttp.c`)
 - Kprobes: SSL connections (`trace_lifecycle.h`)
-- trace_lifecycle: Conflicting requests or timeouts (`trace_lifecycle.h`)
 
 **Set to 1:**
 
 - tpinjector: Creating new trace (`tpinjector.c::create_trace_info`)
 - protocol_http: Creating new trace (`protocol_http.h::protocol_http`)
 - protocol_tcp: Creating new trace (`protocol_tcp.h`)
-
-**Set to 2:**
-
-- tpinjector: After populating span ID from TCP seq/ack
 
 **Checked:**
 
@@ -262,6 +257,23 @@ Coordination flag for mutual exclusion between egress injection layers:
 **Checked:**
 
 - protocol_http: Skip processing if tpinjector handled it (`protocol_http.h::protocol_http`)
+
+## The server_traces Map
+
+`server_traces` stores the server trace associated with a thread. Its `valid`
+field remains boolean: invalid entries cannot parent children, while valid
+entries can.
+
+For delayed plaintext HTTP responses, `response_sent` separates trace validity
+from slot ownership:
+
+- **0**: The request is active. Another HTTP request on the same thread is a
+  conflict, so the existing entry is invalidated.
+- **1**: Response headers were observed. The entry remains valid for late
+  same-thread children, but the next request can replace it.
+
+The entry is deleted when the request finishes. Invalid and response-sent
+entries can be replaced immediately.
 
 ## The incoming_trace_map
 

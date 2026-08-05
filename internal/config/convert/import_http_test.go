@@ -407,10 +407,8 @@ func TestV2ToRuntimeHTTPApplicationFiltersRoundTrip(t *testing.T) {
 func TestV2ToRuntimeHTTPApplicationFiltersRejectsOneSignal(t *testing.T) {
 	t.Parallel()
 
-	statusCode := 500
 	filters := schema.AttributeFilters{
-		"http.status_code": {Equals: &statusCode},
-		"service.name":     {Match: "checkout-*"},
+		"service.name": {Match: "checkout-*"},
 	}
 
 	_, err := V2ToRuntime(&schema.Extension{
@@ -456,6 +454,26 @@ func TestV2ToRuntimeHTTPApplicationFiltersRejectsConflictingSignals(t *testing.T
 	})
 
 	require.ErrorContains(t, err, "capture.instrumentation.http.filters")
+}
+
+func TestV2ToRuntimeApplicationFiltersRejectsProtocolScope(t *testing.T) {
+	t.Parallel()
+
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				GRPC: schema.ProtocolInstrumentation{
+					Filters: schema.SignalFilters{
+						Traces: schema.AttributeFilters{
+							"service.name": {Match: "checkout-*"},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.ErrorContains(t, err, "capture.instrumentation.grpc.filters.traces")
 }
 
 func TestV2ToRuntimeRejectsDivergentProtocolFilters(t *testing.T) {

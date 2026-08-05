@@ -117,7 +117,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.check-docker-token.outputs.has_token == 'true'
-        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}

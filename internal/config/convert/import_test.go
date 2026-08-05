@@ -161,6 +161,18 @@ network:
 	)
 }
 
+func TestV2ToRuntimeRejectsNegativeChannelBufferLength(t *testing.T) {
+	t.Parallel()
+
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Channels: schema.CaptureChannels{BufferLen: -1},
+		},
+	})
+	require.EqualError(t, err, "capture.channels.buffer_len must be greater than or equal to zero")
+}
+
 func TestV2ToRuntimeCompleteInstrumentationCanDisableAerospike(t *testing.T) {
 	t.Parallel()
 
@@ -534,8 +546,19 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
-			Policy: schema.CapturePolicy{DefaultAction: schema.CaptureActionExclude},
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionExclude,
+				MatchOrder:    schema.MatchOrderFirstMatchWins,
+			},
 			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionExclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
+						},
+					},
+				},
 				{
 					Action: schema.CaptureActionExclude,
 					Match: schema.RuleMatch{
@@ -544,14 +567,6 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 						},
 						Kubernetes: schema.RuleKubernetesMatch{
 							NamespaceGlob: []string{"kube-*"},
-						},
-					},
-				},
-				{
-					Action: schema.CaptureActionExclude,
-					Match: schema.RuleMatch{
-						Process: schema.RuleProcessMatch{
-							ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
 						},
 					},
 				},
@@ -654,101 +669,347 @@ func TestV2ToRuntimeSupportsContainersOnlyRule(t *testing.T) {
 func TestV2ToRuntimeRejectsUnsupportedExportsOTLPRules(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		rule schema.Rule
-		want string
-	}{
+	for _, rule := range []schema.Rule{
 		{
-			name: "include action",
-			rule: schema.Rule{
-				Action: schema.CaptureActionInclude,
-				Match: schema.RuleMatch{
-					Process: schema.RuleProcessMatch{
-						ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
-					},
-				},
-			},
-			want: "exports_otlp is only supported for exclude rules",
+			Action: schema.CaptureActionInclude,
+			Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+				ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
+			}},
 		},
 		{
-			name: "combined selector",
-			rule: schema.Rule{
-				Action: schema.CaptureActionExclude,
-				Match: schema.RuleMatch{
-					Process: schema.RuleProcessMatch{
-						ExePathGlob: []string{"/srv/*"},
-						ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
-					},
-				},
-			},
-			want: "exports_otlp cannot be combined with other selectors",
+			Action: schema.CaptureActionExclude,
+			Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+				ExePathGlob: []string{"/srv/*"},
+				ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
+			}},
 		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := V2ToRuntime(&schema.Extension{
-				Version: schema.SupportedVersion,
-				Capture: schema.Capture{
-					Policy: schema.CapturePolicy{DefaultAction: schema.CaptureActionExclude},
-					Rules:  []schema.Rule{test.rule},
-				},
-			})
-			require.ErrorContains(t, err, test.want)
+	} {
+		_, err := V2ToRuntime(&schema.Extension{
+			Version: schema.SupportedVersion,
+			Capture: schema.Capture{Rules: []schema.Rule{rule}},
 		})
+		require.ErrorContains(t, err, "capture.rules[0].match.process.exports_otlp")
 	}
 }
 
 func TestV2ToRuntimeRejectsMixedGlobRegexRules(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range []struct {
-		name  string
-		rules []schema.Rule
-		path  string
-	}{
-		{
-			name: "within rule",
-			rules: []schema.Rule{
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Rules: []schema.Rule{
 				{
 					Action: schema.CaptureActionInclude,
 					Match: schema.RuleMatch{
-						Process:    schema.RuleProcessMatch{ExePathGlob: []string{"/srv/*"}},
-						Kubernetes: schema.RuleKubernetesMatch{NamespaceRegex: "prod-.*"},
+						Process: schema.RuleProcessMatch{
+							ExePathGlob: []string{"/srv/*"},
+						},
+						Kubernetes: schema.RuleKubernetesMatch{
+							NamespaceRegex: "prod-.*",
+						},
 					},
 				},
 			},
-			path: "capture.rules[0].match",
 		},
-		{
-			name: "across rules",
-			rules: []schema.Rule{
+	})
+	require.ErrorContains(t, err, "capture.rules[0].match cannot combine glob and regular-expression selectors")
+}
+
+func TestV2ToRuntimeImportsRegexRules(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionExclude,
+				MatchOrder:    schema.MatchOrderFirstMatchWins,
+			},
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{ExePathRegex: "^/srv/.*"},
+						Kubernetes: schema.RuleKubernetesMatch{
+							NamespaceRegex: "prod-.*",
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Discovery.Services, 1)
+	require.Equal(t, "^/srv/.*", regexString(got.Discovery.Services[0].Path))
+	require.Equal(t, "prod-.*", regexString(*got.Discovery.Services[0].Metadata[services.AttrNamespace]))
+}
+
+func TestV2ToRuntimeAddsRegexCatchAll(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionInclude,
+				MatchOrder:    schema.MatchOrderFirstMatchWins,
+			},
+			Rules: []schema.Rule{{
+				Action: schema.CaptureActionExclude,
+				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+					ExePathRegex: "^/tmp/.*",
+				}},
+			}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Discovery.Services, 1)
+	require.Equal(t, ".*", regexString(got.Discovery.Services[0].Path))
+	require.Len(t, got.Discovery.ExcludeServices, 1)
+}
+
+func TestV2ToRuntimeSupportsLastMatchExclusionPrecedence(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionExclude,
+				MatchOrder:    schema.MatchOrderLastMatchWins,
+			},
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"*"},
+					}},
+				},
 				{
 					Action: schema.CaptureActionExclude,
-					Match: schema.RuleMatch{
-						Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/ignored"}},
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"/tmp/*"},
+					}},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Discovery.Instrument, 1)
+	require.Len(t, got.Discovery.ExcludeInstrument, 1)
+}
+
+func TestV2ToRuntimePreservesFirstMatchRefinement(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionExclude,
+				MatchOrder:    schema.MatchOrderFirstMatchWins,
+			},
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"/srv/*"},
+					}},
+					Refine: schema.RuleRefinement{
+						Exports: &schema.ExportModeRefinement{Traces: true},
+						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
+							Incoming: testHTTPRoutePolicy("/first"),
+						}},
 					},
 				},
 				{
 					Action: schema.CaptureActionInclude,
-					Match: schema.RuleMatch{
-						Process: schema.RuleProcessMatch{ExePathRegex: "^/srv/worker$"},
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"*"},
+					}},
+					Refine: schema.RuleRefinement{
+						Exports: &schema.ExportModeRefinement{Metrics: true},
+						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
+							Incoming: testHTTPRoutePolicy("/second"),
+						}},
 					},
 				},
 			},
-			path: "capture.rules[1].match",
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Discovery.Instrument, 2)
+
+	require.Equal(t, "*", globString(got.Discovery.Instrument[0].Path))
+	require.True(t, got.Discovery.Instrument[0].ExportModes.CanExportMetrics())
+	require.Equal(t, []string{"/second"}, incomingRoutePatterns(got.Discovery.Instrument[0].Routes))
+	require.Equal(t, "/srv/*", globString(got.Discovery.Instrument[1].Path))
+	require.True(t, got.Discovery.Instrument[1].ExportModes.CanExportTraces())
+	require.Equal(t, []string{"/first"}, incomingRoutePatterns(got.Discovery.Instrument[1].Routes))
+}
+
+func TestV2ToRuntimeResetsLastMatchRefinement(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionExclude,
+				MatchOrder:    schema.MatchOrderLastMatchWins,
+			},
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"*"},
+					}},
+					Refine: schema.RuleRefinement{
+						Exports: &schema.ExportModeRefinement{Traces: true},
+						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
+							Incoming: testHTTPRoutePolicy("/first"),
+						}},
+					},
+				},
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"/srv/*"},
+					}},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Discovery.Instrument, 2)
+
+	reset := got.Discovery.Instrument[1]
+	require.Equal(t, "/srv/*", globString(reset.Path))
+	require.NotEqual(t, services.ExportModeUnset, reset.ExportModes)
+	require.True(t, reset.ExportModes.CanExportTraces())
+	require.True(t, reset.ExportModes.CanExportMetrics())
+	require.True(t, reset.ExportModes.CanExportLogs())
+	require.NotNil(t, reset.Routes)
+	require.Empty(t, reset.Routes.Incoming)
+	require.Empty(t, reset.Routes.Outgoing)
+}
+
+func TestV2ToRuntimeRejectsInvalidExportsOTLPPort(t *testing.T) {
+	t.Parallel()
+
+	for _, port := range []int{0, 65536} {
+		_, err := V2ToRuntime(&schema.Extension{
+			Version: schema.SupportedVersion,
+			Capture: schema.Capture{Rules: []schema.Rule{{
+				Action: schema.CaptureActionExclude,
+				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+					ExportsOTLP: &schema.RuleExportsOTLP{Port: port, Protocol: "protobuf"},
+				}},
+			}}},
+		})
+		require.ErrorContains(t, err, "capture.rules[0].match.process.exports_otlp.port")
+	}
+}
+
+func TestV2ToRuntimeRejectsLossyRuleSemantics(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		capture schema.Capture
+		wantErr string
+	}{
+		{
+			name: "selector families across rules",
+			capture: schema.Capture{Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionExclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"/tmp/*"},
+					}},
+				},
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathRegex: "^/srv/.*",
+					}},
+				},
+			}},
+			wantErr: "cannot mix selector families across capture.rules",
+		},
+		{
+			name: "first match precedence",
+			capture: schema.Capture{
+				Policy: schema.CapturePolicy{
+					DefaultAction: schema.CaptureActionExclude,
+					MatchOrder:    schema.MatchOrderFirstMatchWins,
+				},
+				Rules: []schema.Rule{
+					{
+						Action: schema.CaptureActionInclude,
+						Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+							ExePathGlob: []string{"*"},
+						}},
+					},
+					{
+						Action: schema.CaptureActionExclude,
+						Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+							ExePathGlob: []string{"/tmp/*"},
+						}},
+					},
+				},
+			},
+			wantErr: "first_match_wins cannot preserve runtime exclusion precedence",
+		},
+		{
+			name: "missing action",
+			capture: schema.Capture{Rules: []schema.Rule{{
+				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+					ExePathGlob: []string{"*"},
+				}},
+			}}},
+			wantErr: "capture.rules[0].action",
+		},
+		{
+			name: "missing match",
+			capture: schema.Capture{Rules: []schema.Rule{{
+				Action: schema.CaptureActionInclude,
+			}}},
+			wantErr: "capture.rules[0].match must define at least one selector",
+		},
+		{
+			name: "additional selector",
+			capture: schema.Capture{Rules: []schema.Rule{{
+				Action: schema.CaptureActionInclude,
+				Match: schema.RuleMatch{
+					AdditionalProperties: map[string]any{"custom_selector": true},
+				},
+			}}},
+			wantErr: "capture.rules[0].match.custom_selector",
+		},
+		{
+			name: "exclude refinement",
+			capture: schema.Capture{Rules: []schema.Rule{{
+				Action: schema.CaptureActionExclude,
+				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+					ExePathGlob: []string{"/tmp/*"},
+				}},
+				Refine: schema.RuleRefinement{
+					Exports: &schema.ExportModeRefinement{Traces: true},
+				},
+			}}},
+			wantErr: "capture.rules[0].refine is not supported for exclude rules",
 		},
 	} {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := V2ToRuntime(&schema.Extension{
 				Version: schema.SupportedVersion,
-				Capture: schema.Capture{
-					Policy: schema.CapturePolicy{DefaultAction: schema.CaptureActionExclude},
-					Rules:  test.rules,
-				},
+				Capture: tc.capture,
 			})
-			require.ErrorContains(t, err, test.path+": mixing glob and regex selectors is not supported")
+			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
 }
@@ -796,551 +1057,90 @@ func TestV2ToRuntimeRejectsMalformedRulePatterns(t *testing.T) {
 	}
 }
 
-func TestV2ToRuntimeSupportsLastMatchWins(t *testing.T) {
+func TestV2ToRuntimeRejectsUnsupportedFilters(t *testing.T) {
+	t.Parallel()
+
+	filter := schema.AttributeFilters{
+		"service.name": {Match: "checkout"},
+	}
+	for _, tc := range []struct {
+		name   string
+		path   string
+		mutate func(*schema.Extension)
+	}{
+		{
+			name: "Go runtime",
+			path: "capture.runtimes.go.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Capture.Runtimes.Go.Filter = filter
+			},
+		},
+		{
+			name: "Node.js runtime",
+			path: "capture.runtimes.nodejs.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Capture.Runtimes.NodeJS.Filter = filter
+			},
+		},
+		{
+			name: "Java runtime",
+			path: "capture.runtimes.java.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Capture.Runtimes.Java.Filter = filter
+			},
+		},
+		{
+			name: "log trace annotation",
+			path: "correlation.log_trace_annotation.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Correlation = &schema.Correlation{
+					LogTraceAnnotation: schema.LogTraceAnnotation{Filter: filter},
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			extension := &schema.Extension{Version: schema.SupportedVersion}
+			tc.mutate(extension)
+
+			_, err := V2ToRuntime(extension)
+			require.ErrorContains(t, err, tc.path)
+		})
+	}
+}
+
+func TestV2ToRuntimeDefaultIncludeAddsCatchAll(t *testing.T) {
 	t.Parallel()
 
 	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Policy: schema.CapturePolicy{
-				DefaultAction: schema.CaptureActionExclude,
-				MatchOrder:    schema.MatchOrderLastMatchWins,
+				DefaultAction: schema.CaptureActionInclude,
+				MatchOrder:    schema.MatchOrderFirstMatchWins,
 			},
 			Rules: []schema.Rule{
 				{
-					Action: schema.CaptureActionInclude,
-					Match: schema.RuleMatch{
-						Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/worker"}},
-					},
-				},
-				{
 					Action: schema.CaptureActionExclude,
 					Match: schema.RuleMatch{
-						Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/*"}},
+						Process: schema.RuleProcessMatch{
+							ExePathGlob: []string{"*/obi", "obi"},
+						},
 					},
 				},
 			},
 		},
 	})
-
 	require.NoError(t, err)
+
 	require.Len(t, got.Discovery.Instrument, 1)
+	require.Equal(t, "*", globString(got.Discovery.Instrument[0].Path))
+	require.Empty(t, got.Discovery.Services)
 	require.Len(t, got.Discovery.ExcludeInstrument, 1)
-}
-
-func TestV2ToRuntimeRejectsLastMatchIncludeAfterExclude(t *testing.T) {
-	t.Parallel()
-
-	_, err := V2ToRuntime(&schema.Extension{
-		Version: schema.SupportedVersion,
-		Capture: schema.Capture{
-			Policy: schema.CapturePolicy{
-				MatchOrder: schema.MatchOrderLastMatchWins,
-			},
-			Rules: []schema.Rule{
-				{
-					Action: schema.CaptureActionExclude,
-					Match: schema.RuleMatch{
-						Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/*"}},
-					},
-				},
-				{
-					Action: schema.CaptureActionInclude,
-					Match: schema.RuleMatch{
-						Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/worker"}},
-					},
-				},
-			},
-		},
-	})
-
-	require.ErrorContains(
-		t,
-		err,
-		"last_match_wins cannot preserve runtime exclusion precedence",
-	)
-}
-
-func TestV2ToRuntimePreservesFirstMatchIncludeOrder(t *testing.T) {
-	t.Parallel()
-
-	for _, matchOrder := range []schema.MatchOrder{"", schema.MatchOrderFirstMatchWins} {
-		name := string(matchOrder)
-		if name == "" {
-			name = "default"
-		}
-		t.Run(name, func(t *testing.T) {
-			got, err := V2ToRuntime(&schema.Extension{
-				Version: schema.SupportedVersion,
-				Capture: schema.Capture{
-					Policy: schema.CapturePolicy{
-						DefaultAction: schema.CaptureActionExclude,
-						MatchOrder:    matchOrder,
-					},
-					Rules: []schema.Rule{
-						{
-							Action: schema.CaptureActionInclude,
-							Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-								ExePathGlob: []string{"/srv/payments/*"},
-							}},
-							Refine: schema.RuleRefinement{
-								Exports: &schema.ExportModeRefinement{Traces: true},
-							},
-						},
-						{
-							Action: schema.CaptureActionInclude,
-							Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-								ExePathGlob: []string{"/srv/*"},
-							}},
-							Refine: schema.RuleRefinement{
-								Exports: &schema.ExportModeRefinement{Metrics: true},
-							},
-						},
-					},
-				},
-			})
-			require.NoError(t, err)
-			require.Len(t, got.Discovery.Instrument, 2)
-
-			require.True(t, got.Discovery.Instrument[0].Path.MatchString("/srv/other"))
-			require.True(t, got.Discovery.Instrument[0].ExportModes.CanExportMetrics())
-			require.False(t, got.Discovery.Instrument[0].ExportModes.CanExportTraces())
-			require.False(t, got.Discovery.Instrument[1].Path.MatchString("/srv/other"))
-			require.True(t, got.Discovery.Instrument[1].ExportModes.CanExportTraces())
-			require.False(t, got.Discovery.Instrument[1].ExportModes.CanExportMetrics())
-		})
-	}
-}
-
-func TestV2ToRuntimeResetsOmittedWinningRefinement(t *testing.T) {
-	t.Parallel()
-
-	patterns := []string{"/broad/{id}"}
-	broad := schema.Rule{
-		Action: schema.CaptureActionInclude,
-		Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-			ExePathGlob: []string{"/srv/*"},
-		}},
-		Refine: schema.RuleRefinement{
-			Exports: &schema.ExportModeRefinement{Metrics: true},
-			HTTP: &schema.HTTPRefinement{
-				Routes: schema.HTTPRefinementRoutes{
-					Incoming: &schema.HTTPRoutePolicy{
-						Patterns: &patterns,
-					},
-				},
-			},
-		},
-	}
-	narrow := schema.Rule{
-		Action: schema.CaptureActionInclude,
-		Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-			ExePathGlob: []string{"/srv/payments/*"},
-		}},
-	}
-
-	tests := []struct {
-		name       string
-		matchOrder schema.MatchOrder
-		rules      []schema.Rule
-	}{
-		{
-			name:       "first match",
-			matchOrder: schema.MatchOrderFirstMatchWins,
-			rules:      []schema.Rule{narrow, broad},
-		},
-		{
-			name:       "last match",
-			matchOrder: schema.MatchOrderLastMatchWins,
-			rules:      []schema.Rule{broad, narrow},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := V2ToRuntime(&schema.Extension{
-				Version: schema.SupportedVersion,
-				Capture: schema.Capture{
-					Policy: schema.CapturePolicy{
-						DefaultAction: schema.CaptureActionExclude,
-						MatchOrder:    test.matchOrder,
-					},
-					Rules: test.rules,
-				},
-			})
-			require.NoError(t, err)
-			require.Len(t, got.Discovery.Instrument, 2)
-
-			reset := got.Discovery.Instrument[1]
-			require.Equal(t, "/srv/payments/*", globString(reset.Path))
-			require.NotEqual(t, services.ExportModeUnset, reset.ExportModes)
-			require.True(t, reset.ExportModes.CanExportTraces())
-			require.True(t, reset.ExportModes.CanExportMetrics())
-			require.True(t, reset.ExportModes.CanExportLogs())
-			require.NotNil(t, reset.Routes)
-			require.Empty(t, reset.Routes.Incoming)
-			require.Empty(t, reset.Routes.Outgoing)
-		})
-	}
-}
-
-func TestV2ToRuntimeRejectsExclusionAfterInclusion(t *testing.T) {
-	t.Parallel()
-
-	for _, matchOrder := range []schema.MatchOrder{"", schema.MatchOrderFirstMatchWins} {
-		_, err := V2ToRuntime(&schema.Extension{
-			Version: schema.SupportedVersion,
-			Capture: schema.Capture{
-				Policy: schema.CapturePolicy{MatchOrder: matchOrder},
-				Rules: []schema.Rule{
-					{
-						Action: schema.CaptureActionInclude,
-						Match: schema.RuleMatch{
-							Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/worker"}},
-						},
-					},
-					{
-						Action: schema.CaptureActionExclude,
-						Match: schema.RuleMatch{
-							Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/*"}},
-						},
-					},
-				},
-			},
-		})
-
-		require.ErrorContains(
-			t,
-			err,
-			"first_match_wins cannot preserve runtime exclusion precedence",
-		)
-	}
-}
-
-func TestV2ToRuntimeRejectsLossyRuleSemantics(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		rule    schema.Rule
-		wantErr string
-	}{
-		{
-			name: "missing action",
-			rule: schema.Rule{
-				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-					ExePathGlob: []string{"/srv/*"},
-				}},
-			},
-			wantErr: "capture.rules[0].action",
-		},
-		{
-			name:    "missing match",
-			rule:    schema.Rule{Action: schema.CaptureActionInclude},
-			wantErr: "capture.rules[0].match must define at least one selector",
-		},
-		{
-			name: "exclude refinement",
-			rule: schema.Rule{
-				Action: schema.CaptureActionExclude,
-				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-					ExePathGlob: []string{"/tmp/*"},
-				}},
-				Refine: schema.RuleRefinement{
-					Exports: &schema.ExportModeRefinement{Traces: true},
-				},
-			},
-			wantErr: "capture.rules[0].refine is not supported for exclude rules",
-		},
-		{
-			name: "per-rule HTTP filters",
-			rule: schema.Rule{
-				Action: schema.CaptureActionInclude,
-				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-					ExePathGlob: []string{"/srv/*"},
-				}},
-				Refine: schema.RuleRefinement{
-					HTTP: &schema.HTTPRefinement{
-						Filters: schema.SignalFilters{
-							Traces: schema.AttributeFilters{
-								"http.request.method": {Match: "GET"},
-							},
-						},
-					},
-				},
-			},
-			wantErr: "refine.http.filters is not supported",
-		},
-		{
-			name: "exports OTLP invalid protocol",
-			rule: schema.Rule{
-				Action: schema.CaptureActionExclude,
-				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-					ExportsOTLP: &schema.RuleExportsOTLP{
-						Port:     4317,
-						Protocol: "json",
-					},
-				}},
-			},
-			wantErr: "exports_otlp.protocol",
-		},
-		{
-			name: "exports OTLP invalid low port",
-			rule: schema.Rule{
-				Action: schema.CaptureActionExclude,
-				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-					ExportsOTLP: &schema.RuleExportsOTLP{
-						Port:     0,
-						Protocol: "protobuf",
-					},
-				}},
-			},
-			wantErr: "exports_otlp.port",
-		},
-		{
-			name: "exports OTLP invalid high port",
-			rule: schema.Rule{
-				Action: schema.CaptureActionExclude,
-				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
-					ExportsOTLP: &schema.RuleExportsOTLP{
-						Port:     65536,
-						Protocol: "protobuf",
-					},
-				}},
-			},
-			wantErr: "exports_otlp.port",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := V2ToRuntime(&schema.Extension{
-				Version: schema.SupportedVersion,
-				Capture: schema.Capture{Rules: []schema.Rule{test.rule}},
-			})
-			require.ErrorContains(t, err, test.wantErr)
-		})
-	}
-}
-
-func TestV2ToRuntimeRejectsInvalidPolicyValues(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		policy  schema.CapturePolicy
-		wantErr string
-	}{
-		{
-			name: "default action",
-			policy: schema.CapturePolicy{
-				DefaultAction: schema.CaptureAction("invalid"),
-			},
-			wantErr: "capture.policy.default_action",
-		},
-		{
-			name: "match order",
-			policy: schema.CapturePolicy{
-				MatchOrder: schema.MatchOrder("invalid"),
-			},
-			wantErr: "capture.policy.match_order",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := V2ToRuntime(&schema.Extension{
-				Version: schema.SupportedVersion,
-				Capture: schema.Capture{Policy: test.policy},
-			})
-			require.ErrorContains(t, err, test.wantErr)
-		})
-	}
-}
-
-func TestV2ToRuntimeDefaultIncludeAddsCatchAllSelector(t *testing.T) {
-	t.Parallel()
-
-	for _, defaultAction := range []schema.CaptureAction{"", schema.CaptureActionInclude} {
-		got, err := V2ToRuntime(&schema.Extension{
-			Version: schema.SupportedVersion,
-			Capture: schema.Capture{
-				Policy: schema.CapturePolicy{
-					DefaultAction: defaultAction,
-					MatchOrder:    schema.MatchOrderFirstMatchWins,
-				},
-				Rules: []schema.Rule{
-					{
-						Action: schema.CaptureActionInclude,
-						Match: schema.RuleMatch{
-							Process: schema.RuleProcessMatch{
-								ExePathGlob: []string{"/srv/worker"},
-							},
-						},
-					},
-				},
-			},
-		})
-		require.NoError(t, err)
-
-		require.Len(t, got.Discovery.Instrument, 2)
-		require.Equal(t, "/srv/worker", globString(got.Discovery.Instrument[0].Path))
-		require.Equal(t, "*", globString(got.Discovery.Instrument[1].Path))
-		require.Empty(t, got.Discovery.Services)
-		require.Empty(t, got.Discovery.ExcludeInstrument)
-		require.Empty(t, got.Discovery.ExcludeServices)
-	}
-}
-
-func TestV2ToRuntimeDefaultIncludeAddsRegexCatchAllSelector(t *testing.T) {
-	t.Parallel()
-
-	for _, defaultAction := range []schema.CaptureAction{"", schema.CaptureActionInclude} {
-		got, err := V2ToRuntime(&schema.Extension{
-			Version: schema.SupportedVersion,
-			Capture: schema.Capture{
-				Policy: schema.CapturePolicy{
-					DefaultAction: defaultAction,
-					MatchOrder:    schema.MatchOrderFirstMatchWins,
-				},
-				Rules: []schema.Rule{
-					{
-						Action: schema.CaptureActionExclude,
-						Match: schema.RuleMatch{
-							Process: schema.RuleProcessMatch{ExePathRegex: "^/usr/bin/otelcol$"},
-						},
-					},
-				},
-			},
-		})
-		require.NoError(t, err)
-
-		require.Empty(t, got.Discovery.Instrument)
-		require.Len(t, got.Discovery.Services, 1)
-		require.Equal(t, ".*", regexString(got.Discovery.Services[0].Path))
-		require.Empty(t, got.Discovery.ExcludeInstrument)
-		require.Len(t, got.Discovery.ExcludeServices, 1)
-		require.Equal(t, "^/usr/bin/otelcol$", regexString(got.Discovery.ExcludeServices[0].Path))
-	}
-}
-
-func TestV2ToRuntimeRejectsUnsupportedFields(t *testing.T) {
-	t.Parallel()
-
-	filters := schema.AttributeFilters{
-		"service.name": {Match: "checkout"},
-	}
-	tests := []struct {
-		name   string
-		path   string
-		mutate func(*schema.Extension)
-	}{
-		{
-			name: "Go runtime filter",
-			path: "capture.runtimes.go.filter",
-			mutate: func(ext *schema.Extension) {
-				ext.Capture.Runtimes.Go.Filter = filters
-			},
-		},
-		{
-			name: "Node.js runtime filter",
-			path: "capture.runtimes.nodejs.filter",
-			mutate: func(ext *schema.Extension) {
-				ext.Capture.Runtimes.NodeJS.Filter = filters
-			},
-		},
-		{
-			name: "Java runtime filter",
-			path: "capture.runtimes.java.filter",
-			mutate: func(ext *schema.Extension) {
-				ext.Capture.Runtimes.Java.Filter = filters
-			},
-		},
-		{
-			name: "correlation filter",
-			path: "correlation.log_trace_annotation.filter",
-			mutate: func(ext *schema.Extension) {
-				ext.Correlation = &schema.Correlation{
-					LogTraceAnnotation: schema.LogTraceAnnotation{Enabled: true, Filter: filters},
-				}
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			ext := &schema.Extension{Version: schema.SupportedVersion}
-			test.mutate(ext)
-			_, err := V2ToRuntime(ext)
-
-			require.ErrorContains(t, err, test.path+" is not supported")
-		})
-	}
-}
-
-func TestV2ToRuntimeRejectsUnsupportedEnrichmentFields(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		path   string
-		mutate func(*schema.Enrich)
-	}{
-		{
-			name: "enrich root",
-			path: "enrich.custom",
-			mutate: func(enrich *schema.Enrich) {
-				enrich.AdditionalProperties = map[string]any{"custom": true}
-			},
-		},
-		{
-			name: "DNS enricher",
-			path: "enrich.enrichers.dns",
-			mutate: func(enrich *schema.Enrich) {
-				enrich.Enrichers.AdditionalProperties = map[string]any{
-					"dns": map[string]any{"enabled": true},
-				}
-			},
-		},
-		{
-			name: "Kubernetes enricher",
-			path: "enrich.enrichers.kubernetes.custom",
-			mutate: func(enrich *schema.Enrich) {
-				enrich.Enrichers.Kubernetes.AdditionalProperties = map[string]any{"custom": true}
-			},
-		},
-		{
-			name: "service name rules",
-			path: "enrich.service_name.rules",
-			mutate: func(enrich *schema.Enrich) {
-				enrich.ServiceName.AdditionalProperties = map[string]any{"rules": []any{}}
-			},
-		},
-		{
-			name: "attribute rules",
-			path: "enrich.attributes.rules",
-			mutate: func(enrich *schema.Enrich) {
-				enrich.Attributes.AdditionalProperties = map[string]any{"rules": []any{}}
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			enrich := &schema.Enrich{}
-			test.mutate(enrich)
-			_, err := V2ToRuntime(&schema.Extension{
-				Version: schema.SupportedVersion,
-				Enrich:  enrich,
-			})
-
-			require.ErrorContains(t, err, test.path+" is not supported")
-		})
-	}
+	require.Equal(t, "{*/obi,obi}", globString(got.Discovery.ExcludeInstrument[0].Path))
+	require.Empty(t, got.Discovery.ExcludeServices)
 }
 
 func TestV2ToRuntimeRulesPresenceControlsSelectorReplacement(t *testing.T) {
@@ -1358,8 +1158,11 @@ func TestV2ToRuntimeRulesPresenceControlsSelectorReplacement(t *testing.T) {
 	empty, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
-			Policy: schema.CapturePolicy{DefaultAction: schema.CaptureActionExclude},
-			Rules:  []schema.Rule{},
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionExclude,
+				MatchOrder:    schema.MatchOrderFirstMatchWins,
+			},
+			Rules: []schema.Rule{},
 		},
 	})
 	require.NoError(t, err)
@@ -1648,4 +1451,81 @@ func TestV2ToRuntimeRejectsInvalidLogFieldName(t *testing.T) {
 		},
 	})
 	require.ErrorContains(t, err, "invalid log trace annotation")
+}
+
+func TestV2ToRuntimeRejectsNullLogAnnotationFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name: "trace ID",
+			config: `
+        field_names:
+          trace_id: null`,
+			wantErr: "correlation.log_trace_annotation.field_names.trace_id must not be null",
+		},
+		{
+			name: "span ID",
+			config: `
+        field_names:
+          span_id: null`,
+			wantErr: "correlation.log_trace_annotation.field_names.span_id must not be null",
+		},
+		{
+			name: "plain text enabled",
+			config: `
+        plain_text:
+          enabled: null`,
+			wantErr: "correlation.log_trace_annotation.plain_text.enabled must not be null",
+		},
+		{
+			name: "plain text placement",
+			config: `
+        plain_text:
+          placement: null`,
+			wantErr: "correlation.log_trace_annotation.plain_text.placement must not be null",
+		},
+		{
+			name: "plain text multiline",
+			config: `
+        plain_text:
+          multiline: null`,
+			wantErr: "correlation.log_trace_annotation.plain_text.multiline must not be null",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, extension, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    correlation:
+      log_trace_annotation:` + test.config + "\n"))
+			require.NoError(t, err)
+
+			_, err = V2ToRuntime(extension)
+			require.EqualError(t, err, test.wantErr)
+		})
+	}
+}
+
+func testHTTPRoutePolicy(patterns ...string) *schema.HTTPRoutePolicy {
+	return &schema.HTTPRoutePolicy{Patterns: &patterns}
+}
+
+func incomingRoutePatterns(routes *services.CustomRoutesConfig) []string {
+	if routes == nil || routes.PolicyOverrides == nil ||
+		routes.PolicyOverrides.Incoming == nil ||
+		routes.PolicyOverrides.Incoming.Patterns == nil {
+		return nil
+	}
+	return *routes.PolicyOverrides.Incoming.Patterns
 }

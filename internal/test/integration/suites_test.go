@@ -549,6 +549,58 @@ func TestSuite_PythonPostgres(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonPostgresAfterHeaders(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-postgresql-after-headers.yml", path.Join(pathOutput, "test-suite-python-postgresql-after-headers.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Postgres after headers", func(t *testing.T) {
+		testPythonPostgresAfterHeaders(t, "http://localhost:8381")
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonPostgresAfterHeadersHighRequestVolume(t *testing.T) {
+	compose, err := docker.ComposeSuite(
+		"docker-compose-python-postgresql-after-headers.yml",
+		path.Join(pathOutput, "test-suite-python-postgresql-after-headers-high-request-volume.log"),
+	)
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_OPEN_PORT=8080`,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME=true`,
+		`TEST_SERVICE_PORTS=8381:8080`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("Python Postgres after headers with high request volume", func(t *testing.T) {
+		testPythonPostgresAfterHeaders(t, "http://localhost:8381")
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonPostgresAfterHeadersTLS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-postgresql-after-headers.yml", path.Join(pathOutput, "test-suite-python-postgresql-after-headers-tls.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_OPEN_PORT=8080`,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`TEST_SERVICE_PORTS=8381:8080`,
+		`PYTHON_SQL_TLS=true`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("Python Postgres after TLS headers", func(t *testing.T) {
+		testPythonPostgresAfterHeaders(t, "https://localhost:8381")
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonMySQL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-mysql.yml", path.Join(pathOutput, "test-suite-python-mysql.log"))
 	require.NoError(t, err)

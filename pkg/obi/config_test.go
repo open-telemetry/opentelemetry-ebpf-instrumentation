@@ -510,19 +510,15 @@ jvm_runtime_metrics:
 	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
 }
 
-func TestConfig_JVMRuntimeMetricsV010ConfigCompatibility(t *testing.T) {
-	cfg, err := LoadConfig(bytes.NewBufferString(`
+// An unknown feature name must abort config loading, not be silently ignored.
+// application_jvm is an unknown name most likely to appear in real configs.
+func TestConfig_UnknownMetricsFeatureFailsStartup(t *testing.T) {
+	_, err := LoadConfig(bytes.NewBufferString(`
 metrics:
   features:
     - application_jvm
-jvm_runtime_metrics:
-  enabled: true
-  sampling_interval: 2s
 `))
-	require.NoError(t, err)
-
-	assert.True(t, cfg.Metrics.Features.AppRuntime())
-	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+	require.ErrorContains(t, err, `unknown metrics feature "application_jvm"`)
 }
 
 func TestConfigValidate_JVMRuntimeMetricsSamplingInterval(t *testing.T) {

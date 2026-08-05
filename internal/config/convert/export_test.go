@@ -525,6 +525,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	}
 	cfg.Discovery.ExcludeOTelInstrumentedServices = true
 	cfg.Discovery.DefaultOtlpGRPCPort = 14317
+	cfg.Discovery.ExcludedLinuxSystemPaths = []string{"/lib/systemd/", "/usr/sbin"}
 
 	cfg.Routes.Unmatch = "path"
 	cfg.Routes.Patterns = []string{"/products/{id}"}
