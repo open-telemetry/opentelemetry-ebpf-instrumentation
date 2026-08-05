@@ -803,12 +803,20 @@ func selectorFromRule(
 			return nil, nil, false
 		}
 		selector := regexSelectorFromRule(rule)
-		applyV2RegexRuleRefinement(&selector, rule.Refine, completeExports, completeRoutes)
+		selector.ExportModes, selector.Routes = v2RuleRefinement(
+			rule.Refine,
+			completeExports,
+			completeRoutes,
+		)
 		return nil, &selector, true
 	}
 
 	selector := globSelectorFromRule(rule)
-	applyV2GlobRuleRefinement(&selector, rule.Refine, completeExports, completeRoutes)
+	selector.ExportModes, selector.Routes = v2RuleRefinement(
+		rule.Refine,
+		completeExports,
+		completeRoutes,
+	)
 	return &selector, nil, true
 }
 
@@ -870,44 +878,27 @@ func regexSelectorFromRule(rule schema.Rule) services.RegexSelector {
 	}
 }
 
-func applyV2GlobRuleRefinement(
-	selector *services.GlobAttributes,
+func v2RuleRefinement(
 	refine schema.RuleRefinement,
 	completeExports bool,
 	completeRoutes bool,
-) {
+) (services.ExportModes, *services.CustomRoutesConfig) {
+	var exports services.ExportModes
 	if refine.Exports != nil {
-		selector.ExportModes = exportModesFromRefinement(*refine.Exports)
+		exports = exportModesFromRefinement(*refine.Exports)
 	} else if completeExports {
-		selector.ExportModes = explicitAllowAllExportModes()
+		exports = explicitAllowAllExportModes()
 	}
-	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
-		selector.Routes = &services.CustomRoutesConfig{
-			PolicyOverrides: v2DirectionalRoutePolicyOverrides(refine.HTTP.Routes),
-		}
-	} else if completeRoutes {
-		selector.Routes = &services.CustomRoutesConfig{}
-	}
-}
 
-func applyV2RegexRuleRefinement(
-	selector *services.RegexSelector,
-	refine schema.RuleRefinement,
-	completeExports bool,
-	completeRoutes bool,
-) {
-	if refine.Exports != nil {
-		selector.ExportModes = exportModesFromRefinement(*refine.Exports)
-	} else if completeExports {
-		selector.ExportModes = explicitAllowAllExportModes()
-	}
+	var routes *services.CustomRoutesConfig
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
-		selector.Routes = &services.CustomRoutesConfig{
+		routes = &services.CustomRoutesConfig{
 			PolicyOverrides: v2DirectionalRoutePolicyOverrides(refine.HTTP.Routes),
 		}
 	} else if completeRoutes {
-		selector.Routes = &services.CustomRoutesConfig{}
+		routes = &services.CustomRoutesConfig{}
 	}
+	return exports, routes
 }
 
 func explicitAllowAllExportModes() services.ExportModes {
