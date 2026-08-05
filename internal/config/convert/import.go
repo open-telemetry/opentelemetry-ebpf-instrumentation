@@ -51,6 +51,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateV2SignalFilters(src); err != nil {
 		return nil, err
 	}
+	if err := reconcileV2FlowLimitAliases(src); err != nil {
+		return nil, err
+	}
 	if err := validateV2HTTPRoutes(src.Capture.Instrumentation.HTTP.Routes, src.Capture.Rules); err != nil {
 		return nil, err
 	}
@@ -313,14 +316,15 @@ func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
 
 func applyRuntimeDiscoveryRules(cfg *obi.Config, rules runtimeDiscoveryRules) {
 	// A present v2 rules section is authoritative for runtime selector state,
-	// including the default exclusions emitted by RuntimeToV2.
+	// including the default capture exclusions emitted by RuntimeToV2.
+	// ExcludedLinuxSystemPaths only controls language detection, so it retains
+	// its runtime default instead of being represented as a capture rule.
 	cfg.Discovery.Instrument = rules.includeGlobs
 	cfg.Discovery.ExcludeInstrument = rules.excludeGlobs
 	cfg.Discovery.DefaultExcludeInstrument = nil
 	cfg.Discovery.Services = rules.includeRegex
 	cfg.Discovery.ExcludeServices = rules.excludeRegex
 	cfg.Discovery.DefaultExcludeServices = nil
-	cfg.Discovery.ExcludedLinuxSystemPaths = nil
 	cfg.Discovery.ExcludeOTelInstrumentedServices = rules.excludeOTelInstrumentedServices
 	if rules.excludeOTelInstrumentedServices {
 		cfg.Discovery.DefaultOtlpGRPCPort = rules.defaultOTLPGRPCPort
@@ -494,6 +498,63 @@ func attributeFiltersEqual(left, right schema.AttributeFilters) bool {
 		return true
 	}
 	return reflect.DeepEqual(left, right)
+}
+
+func reconcileV2FlowLimitAliases(src *schema.Extension) error {
+	networkPackets := src.Capture.Limits.NetworkPackets
+	maxTrackedFlows := src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows
+	networkPacketsSet, maxTrackedFlowsSet, presenceKnown := src.FlowLimitAliasPresence()
+
+	if presenceKnown {
+		if networkPacketsSet && networkPackets < 1 {
+			return errors.New("capture.limits.network_packets must be greater than zero")
+		}
+		if maxTrackedFlowsSet && maxTrackedFlows < 1 {
+			return errors.New(
+				"capture.network.capture.flow_lifecycle.max_tracked_flows must be greater than zero",
+			)
+		}
+
+		switch {
+		case networkPacketsSet && !maxTrackedFlowsSet:
+			if networkPackets != 0 {
+				src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+			} else if maxTrackedFlows != 0 {
+				src.Capture.Limits.NetworkPackets = maxTrackedFlows
+			}
+			return nil
+		case !networkPacketsSet && maxTrackedFlowsSet:
+			if maxTrackedFlows != 0 {
+				src.Capture.Limits.NetworkPackets = maxTrackedFlows
+			} else if networkPackets != 0 {
+				src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+			}
+			return nil
+		case !networkPacketsSet && !maxTrackedFlowsSet:
+			return nil
+		}
+	}
+
+	switch {
+	case networkPackets == 0 && maxTrackedFlows == 0:
+		return nil
+	case networkPackets == 0:
+		src.Capture.Limits.NetworkPackets = maxTrackedFlows
+		return nil
+	case maxTrackedFlows == 0:
+		src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+		return nil
+	case networkPackets == maxTrackedFlows:
+		return nil
+	}
+
+	return fmt.Errorf(
+		"capture.limits.network_packets (%d) must equal "+
+			"capture.network.capture.flow_lifecycle.max_tracked_flows (%d): "+
+			"both configure network.cache_max_flows",
+		networkPackets,
+		maxTrackedFlows,
+	)
 }
 
 func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {

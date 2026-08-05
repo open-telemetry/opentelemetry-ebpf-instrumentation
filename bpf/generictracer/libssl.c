@@ -39,7 +39,7 @@ int BPF_UPROBE(obi_uprobe_ssl_read, void *ssl, const void *buf, int num) {
 
     ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
     if (s_conn) {
-        finish_possible_delayed_tls_http_request(&s_conn->p_conn, ssl);
+        finish_possible_delayed_tls_http_request(&s_conn->p_conn);
     }
 
     ssl_args_t args = {};
@@ -94,7 +94,7 @@ int BPF_UPROBE(obi_uprobe_ssl_read_ex,
 
     ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
     if (s_conn) {
-        finish_possible_delayed_tls_http_request(&s_conn->p_conn, ssl);
+        finish_possible_delayed_tls_http_request(&s_conn->p_conn);
     }
 
     ssl_args_t args = {};
@@ -324,7 +324,7 @@ int BPF_UPROBE(obi_uprobe_ssl_shutdown, void *s) {
 
     ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &s);
     if (s_conn) {
-        finish_possible_delayed_tls_http_request(&s_conn->p_conn, s);
+        finish_possible_delayed_tls_http_request(&s_conn->p_conn);
         bpf_map_delete_elem(&active_ssl_connections, &s_conn->p_conn);
     }
 
