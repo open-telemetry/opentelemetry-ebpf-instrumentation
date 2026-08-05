@@ -49,10 +49,14 @@ func TestMain(m *testing.M) {
 		kube.LocalImage("obi:dev"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
 		kube.Deploy(testpath.Manifests+"/01-serviceaccount.yml"),
-		kube.Deploy(testpath.Manifests+"/03-otelcol-multi-node.yml"),
+		// weaver-tapped otelcol + in-cluster weaver pod (both pinned to the
+		// `otel` zone node), validated at suite teardown (enforcing)
+		kube.WeaverValidation(kube.WeaverRequireSpans()),
+		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver-multi-node.yml"),
 		kube.Deploy(testpath.Manifests+"/04-jaeger-multi-node.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-few-services.yml"),
 		kube.Deploy(testpath.Manifests+"/06-obi-daemonset-multi-node.yml"),
+		kube.Deploy(testpath.Manifests+"/08-weaver-multi-node.yml"),
 	)
 
 	cluster.Run(m)

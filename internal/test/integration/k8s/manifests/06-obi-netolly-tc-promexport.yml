@@ -22,7 +22,7 @@ data:
         enable: true
         cluster_name: my-kube
         resource_labels:
-          deployment.environment: ["deployment.environment"]
+          deployment.environment.name: ["deployment.environment.name"]
       select:
         obi.network.flow.bytes:
           # assured cardinality explosion. Don't try in production!
@@ -98,6 +98,6 @@ spec:
             - name: OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS
               value: "20"
             - name: OTEL_EBPF_METRICS_INTERVAL
-              value: "10ms"
+              value: "1s"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"

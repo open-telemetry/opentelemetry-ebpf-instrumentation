@@ -22,10 +22,10 @@ metadata:
     # this label will trigger a deletion of OBI pods before tearing down
     # kind, to force OBI writing the coverage data
     teardown: delete
-    deployment.environment: integration-test
+    deployment.environment.name: to-be-ignored-in-favor-of-annotation
     app.kubernetes.io/version: '3.2.1'
   annotations:
-    resource.opentelemetry.io/deployment.environment: 'to-be-ignored-in-favor-of-annotation'
+    resource.opentelemetry.io/deployment.environment.name: 'test'
 spec:
   shareProcessNamespace: true
   serviceAccountName: obi
@@ -68,7 +68,7 @@ spec:
         - name: OTEL_EBPF_EXECUTABLE_PATH
           value: "grpcpinger"
         - name: OTEL_EBPF_METRICS_INTERVAL
-          value: "10ms"
+          value: "1s"
         - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
           value: "10ms"
         - name: OTEL_EBPF_LOG_LEVEL

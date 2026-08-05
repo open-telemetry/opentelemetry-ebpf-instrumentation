@@ -12,7 +12,7 @@ data:
           - node
           - service
         resource_labels:
-          deployment.environment: ["deployment.environment"]
+          deployment.environment.name: ["deployment.environment.name"]
       select:
         "*":
           include: ["*"]
@@ -77,7 +77,7 @@ spec:
             - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL
               value: "500ms"
             - name: OTEL_EBPF_METRICS_INTERVAL
-              value: "10ms"
+              value: "1s"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
             - name: OTEL_EBPF_METRICS_TTL

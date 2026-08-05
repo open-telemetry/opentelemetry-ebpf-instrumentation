@@ -59,6 +59,22 @@ type Kind struct {
 	logsDir         string
 	promEndpoint    string
 	jaegerEndpoint  string
+
+	weaverValidation bool
+	// weaverRequireSpans additionally fails the suite if the weaver report
+	// carries no span samples. For trace-enabled suites a metrics-only report
+	// means the trace export never reached weaver (e.g. traces routed straight
+	// to jaeger instead of through the tapped otelcol), so span-specific
+	// semconv violations would silently go unvalidated.
+	weaverRequireSpans bool
+	// weaverFailed is set by validateWeaverFinish and checked by Run:
+	// e2e-framework drops Finish errors from the exit code, so weaver
+	// enforcement has to flow through the Kind itself.
+	weaverFailed bool
+	// Tap export-failure counter captured before tests (waitForWeaverReady),
+	// compared at teardown by validateWeaver.
+	tapDropsBaseline    float64
+	tapDropsBaselineErr error
 }
 
 // Option that can be passed to the NewKind function in order to change the configuration
@@ -117,6 +133,34 @@ func LocalImage(nameTag string) Option {
 	}
 }
 
+// WeaverValidation makes the suite validate the telemetry received by the
+// in-cluster weaver pod against the OBI semconv registry, at teardown (after
+// all tests, while the cluster is still up). Enforcing: any actionable
+// advisory makes the suite exit non-zero. Requires the weaver manifests to be
+// deployed (see validateWeaver for the full wiring).
+func WeaverValidation(opts ...WeaverOption) Option {
+	return func(k *Kind) {
+		k.weaverValidation = true
+		for _, o := range opts {
+			o(k)
+		}
+	}
+}
+
+// WeaverOption tunes WeaverValidation.
+type WeaverOption func(k *Kind)
+
+// WeaverRequireSpans additionally fails the suite when the weaver report holds
+// no span samples. Pass it for suites that route OBI traces through the weaver
+// tap: it guards against the report silently degrading to metrics-only (the
+// trace path broken or bypassing the tap), which would leave span semconv
+// violations unvalidated while the suite still passed.
+func WeaverRequireSpans() WeaverOption {
+	return func(k *Kind) {
+		k.weaverRequireSpans = true
+	}
+}
+
 // NewKind creates a kind cluster given a name and set of Option instances.
 func NewKind(kindClusterName string, options ...Option) *Kind {
 	k := &Kind{
@@ -155,17 +199,42 @@ func (k *Kind) Run(m *testing.M) {
 		log.Info("adding func: deployManifests", "manifest", mf)
 		funcs = append(funcs, deploy(mf))
 	}
+	if k.weaverValidation {
+		// Gate the tests on the weaver tap being up, so bursty test-time
+		// telemetry (spans) is observed rather than lost while weaver is still
+		// pulling its image.
+		log.Info("adding func: waitForWeaverReady")
+		funcs = append(funcs, k.waitForWeaverReady())
+	}
+
+	var finishes []env.Func
+	if k.weaverValidation {
+		log.Info("adding finish func: validateWeaver")
+		finishes = append(finishes, k.validateWeaverFinish())
+	}
+	finishes = append(finishes,
+		k.exportLogs(),
+		k.exportAllMetrics(),
+		k.exportAllTraces(),
+		k.deleteLabeled(),
+		envfuncs.DestroyCluster(k.clusterName),
+	)
 
 	log.Info("starting kind setup")
 	code := k.testEnv.Setup(funcs...).
-		Finish(
-			k.exportLogs(),
-			k.exportAllMetrics(),
-			k.exportAllTraces(),
-			k.deleteLabeled(),
-			envfuncs.DestroyCluster(k.clusterName),
-		).Run(m)
+		Finish(finishes...).Run(m)
 	log.With("returnCode", code).Info("tests finished run")
+	if k.weaverFailed && code == 0 {
+		log.Error("weaver semconv validation failed — failing the suite")
+		code = 1
+	}
+	// A setup failure (cluster creation, image load, manifest deploy) surfaces
+	// only in env.Run's return code: no test has run, so a plain return from
+	// TestMain would make the binary exit 0 and the suite would silently pass.
+	// Same for a weaver validation failure at teardown.
+	if code != 0 {
+		os.Exit(code)
+	}
 }
 
 // export logs into the e2e-logs folder of the base directory.

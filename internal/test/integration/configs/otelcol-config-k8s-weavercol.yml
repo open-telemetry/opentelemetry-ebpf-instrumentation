@@ -1,0 +1,62 @@
+# Intermediate collector between the suite otelcol
+# (otelcol-config-k8s-weaver.yml) and the weaver pod, for the Kubernetes /
+# kind suites. Runs a newer contrib image than the base pin (see
+# 08-weaver*.yml) for the `interval` processor and
+# `sending_queue.block_on_overflow`.
+#
+# Its two jobs:
+#   - Aggregate the high-frequency metric stream (the suites run OBI with a
+#     10ms metrics interval) to one data point per series per tick before it
+#     reaches weaver. Semconv validation needs each unique series shape, not
+#     every data point — without this, netolly-scale suites feed weaver
+#     hundreds of thousands of samples and its report generation takes
+#     minutes.
+#   - Absorb weaver back-pressure: when weaver ingests slower than data
+#     arrives, this collector's queue overflows and drops (never blocks, no
+#     retries), and the failure the upstream otelcol sees is asynchronous —
+#     so nothing propagates back to OBI's export path (see the design note
+#     in otelcol-config-k8s-weaver.yml).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 100
+processors:
+  interval:
+    interval: 10s
+exporters:
+  otlp/weaver:
+    endpoint: weaver:4317
+    tls:
+      insecure: true
+    # weaver's OTLP receiver rejects gzip-compressed payloads
+    compression: none
+    sending_queue:
+      enabled: true
+      queue_size: 500
+      block_on_overflow: false
+    retry_on_failure:
+      enabled: false
+service:
+  # Expose weavercol's own telemetry so the Go harness can read the
+  # exporter's send/enqueue failure counters at teardown: any export dropped
+  # before weaver means the live-check report is missing telemetry and cannot
+  # be trusted (see validateWeaver's dropped-export check). Mapped to the host
+  # via the kind extraPortMapping in 00-kind*.yml.
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [interval]
+      exporters: [otlp/weaver]
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/weaver]
