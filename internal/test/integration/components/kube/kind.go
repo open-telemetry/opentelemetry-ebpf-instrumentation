@@ -71,9 +71,9 @@ type Kind struct {
 	// e2e-framework drops Finish errors from the exit code, so weaver
 	// enforcement has to flow through the Kind itself.
 	weaverFailed bool
-	// Tap export-failure counter captured before tests (waitForWeaverReady),
+	// Tap export-failure counters captured before tests (waitForWeaverReady),
 	// compared at teardown by validateWeaver.
-	tapDropsBaseline    float64
+	tapDropsBaseline    tapDropCounts
 	tapDropsBaselineErr error
 }
 

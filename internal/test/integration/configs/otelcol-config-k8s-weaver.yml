@@ -15,8 +15,8 @@
 # side's queue never fills; weaver back-pressure surfaces at weavercol, and
 # reaches this collector only as an asynchronous send failure on an already
 # dequeued item — dropped and logged, never failing OBI's export. Sample
-# loss on the weaver side is acceptable: semconv validation only needs to
-# *see* each unique advisory once, not every data point.
+# Export losses on either hop make validation fail: a dropped batch may carry
+# weaver's only copy of a metric or span shape.
 receivers:
   otlp:
     protocols:

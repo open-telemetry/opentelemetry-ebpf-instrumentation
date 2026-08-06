@@ -31,7 +31,7 @@ data:
     otel_metrics_export:
       endpoint: http://otelcol:4318
     otel_traces_export:
-      endpoint: http://jaeger:4318
+      endpoint: http://otelcol:4318
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -77,7 +77,7 @@ spec:
             - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL
               value: "500ms"
             - name: OTEL_EBPF_METRICS_INTERVAL
-              value: "1s"
+              value: "10ms"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
             - name: OTEL_EBPF_METRICS_TTL
