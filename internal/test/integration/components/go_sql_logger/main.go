@@ -38,12 +38,20 @@ func main() {
 	})
 
 	http.HandleFunc("/json_logger", func(w http.ResponseWriter, _ *http.Request) {
-		rows, err := db.Query("SELECT * FROM students")
-		if err != nil {
+		sqlDone := make(chan error, 1)
+		go func() {
+			rows, err := db.Query("SELECT * FROM students")
+			if err != nil {
+				sqlDone <- err
+				return
+			}
+			rows.Close()
+			sqlDone <- nil
+		}()
+		if err := <-sqlDone; err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		rows.Close()
 
 		entry := map[string]any{
 			"message": jsonLoggerMessage,
