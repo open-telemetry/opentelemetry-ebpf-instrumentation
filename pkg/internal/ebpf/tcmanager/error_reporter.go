@@ -20,6 +20,8 @@ func newErrorReporter() errorReporter {
 	return errorReporter{ch: make(chan error, errorBufferLen)}
 }
 
+// enqueue does not block because callers may hold a manager mutex. If the
+// buffer is full, emitError has already logged the dropped error.
 func (r *errorReporter) enqueue(err error) {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
