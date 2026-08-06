@@ -930,6 +930,91 @@ func testLogEnricher(t *testing.T, constants testServerConstants) {
 	}, 2*testTimeout, time.Second)
 }
 
+var (
+	obiHTTPSpanTraceparent = regexp.MustCompile(
+		`HTTP\(subType=\d+\) \d+ \S+ \S+.*traceparent=\[00-([0-9a-f]{32})-([0-9a-f]{16})\[[0-9a-f]{16}\]-[0-9a-f]{2}\]`)
+	obiSQLSpanTraceparent = regexp.MustCompile(
+		`SQLClient\(subType=\d+\) \d+ \S+.*traceparent=\[00-([0-9a-f]{32})-([0-9a-f]{16})\[[0-9a-f]{16}\]-[0-9a-f]{2}\]`)
+)
+
+// testLogEnricherGoSQLSpanIdentity asserts the enriched log's span_id matches
+// the still-active HTTP server span, not the SQL span that just finished.
+func testLogEnricherGoSQLSpanIdentity(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherGoSQLConstants.url+logEnricherGoSQLConstants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, logEnricherGoSQLConstants.url+logEnricherGoSQLConstants.logEndpoint, 200)
+
+		appContainerID := testContainerID(ct, cl, logEnricherGoSQLConstants.containerImage)
+		if !assert.NotEmpty(ct, appContainerID, "could not find test container ID") {
+			return
+		}
+		appLogs := containerLogs(ct, cl, appContainerID)
+		if !assert.NotEmpty(ct, appLogs) {
+			return
+		}
+
+		logIdx := -1
+		// Loop from the end -- it might be possible that OBI wasn't ready to inject
+		// context when the test started, so get the latest request logs every time.
+		for i := len(appLogs) - 1; i >= 0; i-- {
+			if strings.Contains(appLogs[i], "span_id") {
+				logIdx = i
+				break
+			}
+		}
+
+		if !assert.GreaterOrEqual(ct, logIdx, 0, "no enriched log line found yet") {
+			return
+		}
+
+		var logFields map[string]string
+		if !assert.NoError(ct, json.Unmarshal([]byte(appLogs[logIdx]), &logFields)) {
+			return
+		}
+		traceID, ok := logFields["trace_id"]
+		if !assert.True(ct, ok, "enriched log line missing trace_id") {
+			return
+		}
+
+		obiContainerID := testContainerID(ct, cl, "hatest-obi")
+		if !assert.NotEmpty(ct, obiContainerID, "could not find obi container ID") {
+			return
+		}
+		obiLogs := containerLogs(ct, cl, obiContainerID)
+
+		var httpSpanID, sqlSpanID string
+		for i := len(obiLogs) - 1; i >= 0 && (httpSpanID == "" || sqlSpanID == ""); i-- {
+			if httpSpanID == "" {
+				if m := obiHTTPSpanTraceparent.FindStringSubmatch(obiLogs[i]); m != nil && m[1] == traceID {
+					httpSpanID = m[2]
+				}
+			}
+			if sqlSpanID == "" {
+				if m := obiSQLSpanTraceparent.FindStringSubmatch(obiLogs[i]); m != nil && m[1] == traceID {
+					sqlSpanID = m[2]
+				}
+			}
+		}
+
+		if !assert.NotEmpty(ct, httpSpanID, "could not find obi's HTTP server span for trace_id %s", traceID) {
+			return
+		}
+		if !assert.NotEmpty(ct, sqlSpanID, "could not find obi's SQL client span for trace_id %s", traceID) {
+			return
+		}
+		assert.NotEqual(ct, sqlSpanID, httpSpanID,
+			"test setup sanity check: HTTP and SQL spans must have distinct span_ids")
+
+		assert.Equal(ct, httpSpanID, logFields["span_id"],
+			"log span_id should match the still-active HTTP server span, not the completed SQL span")
+	}, 2*testTimeout, time.Second)
+}
+
 func testLogEnricherPlainText(t *testing.T, constants testServerConstants) {
 	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
 

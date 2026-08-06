@@ -1123,6 +1123,9 @@ func TestSuite_LogEnricherGoSQL(t *testing.T) {
 	t.Run("Log Enricher Go SQL", func(t *testing.T) {
 		testLogEnricher(t, logEnricherGoSQLConstants)
 	})
+	t.Run("Log Enricher Go SQL span identity", func(t *testing.T) {
+		testLogEnricherGoSQLSpanIdentity(t)
+	})
 	require.NoError(t, compose.Close())
 }
 
