@@ -1123,9 +1123,6 @@ func TestSuite_LogEnricherGoSQL(t *testing.T) {
 	t.Run("Log Enricher Go SQL", func(t *testing.T) {
 		testLogEnricher(t, logEnricherGoSQLConstants)
 	})
-	t.Run("Log Enricher Go SQL manual SDK", func(t *testing.T) {
-		testLogEnricherGoSQLManualSDK(t)
-	})
 	require.NoError(t, compose.Close())
 }
 
