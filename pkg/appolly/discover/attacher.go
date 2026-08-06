@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/cilium/ebpf/link"
@@ -126,6 +127,15 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	in := ta.InputInstrumentables.Subscribe(msg.SubscriberName("traceAttacher"))
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
+		// TODO: cancel an in-flight injection on shutdown (ctx cancellation) or
+		// when a concurrent EventDeleted arrives for the same PID, rather than
+		// only waiting for its internal timeout to elapse. That requires
+		// threading a context.Context through JavaInjector.NewExecutable
+		// (currently it takes only *ebpf.Instrumentable and derives its own
+		// context.Background()-rooted timeout), plus a per-PID cancel-func
+		// registry keyed on the executable key.
+		var javaInjections sync.WaitGroup
+		defer javaInjections.Wait()
 		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
 			for _, instr := range instrumentables {
 				ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
@@ -134,15 +144,24 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 				case EventCreated:
 					ta.resolveServiceMetadata(&instr.Obj)
 					ta.nodeInjector.NewExecutable(&instr.Obj)
-					if ta.javaInjector != nil {
-						if err := ta.javaInjector.NewExecutable(&instr.Obj); err != nil {
-							ta.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work", "pid", instr.Obj.FileInfo.Pid(), "error", err)
-						}
-					}
 
 					ta.processInstances.Inc(executableKey(instr.Obj.FileInfo))
 					if ok := ta.getTracer(&instr.Obj); ok {
 						ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
+					}
+
+					// Injection blocks for up to the Java attach timeout, so it runs
+					// after the PID is allowed through the eBPF filter, and off the
+					// discovery loop.
+					if ta.javaInjector != nil {
+						javaObj := &instr.Obj
+						javaInjections.Add(1)
+						go func() {
+							defer javaInjections.Done()
+							if err := ta.javaInjector.NewExecutable(javaObj); err != nil {
+								ta.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work", "pid", javaObj.FileInfo.Pid(), "error", err)
+							}
+						}()
 					}
 
 					if instr.Obj.FileInfo.ELF() != nil {
