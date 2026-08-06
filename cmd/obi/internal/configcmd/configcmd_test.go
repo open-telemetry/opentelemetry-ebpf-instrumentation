@@ -537,6 +537,35 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 	}
 }
 
+func TestCollectorReceiverExamples(t *testing.T) {
+	for _, path := range []string{
+		"examples/otel-collector/config.yaml",
+		"examples/otel-collector/smoke-config.yaml",
+	} {
+		t.Run(path, func(t *testing.T) {
+			data := integrationConfig(t, path)
+			var collector struct {
+				Receivers struct {
+					OBI map[string]any `yaml:"obi"`
+				} `yaml:"receivers"`
+			}
+			require.NoError(t, yaml.Unmarshal(data, &collector))
+			require.NotEmpty(t, collector.Receivers.OBI)
+
+			receiverData, err := yaml.Marshal(collector.Receivers.OBI)
+			require.NoError(t, err)
+			receiver, err := schema.ParseReceiverYAML(receiverData)
+			require.NoError(t, err)
+			require.Equal(
+				t,
+				schema.CaptureActionExclude,
+				receiver.Capture.Policy.DefaultAction,
+			)
+			require.NoError(t, validateConfig(receiverData, validationModeReceiver))
+		})
+	}
+}
+
 func integrationConfig(t *testing.T, relativePath string) []byte {
 	t.Helper()
 
