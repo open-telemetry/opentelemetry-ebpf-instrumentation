@@ -19,7 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-const defaultV2DefaultPath = "devdocs/config/version-2.0/examples/default-configuration.yaml"
+const defaultV2DefaultPath = "devdocs/config/version-2.0/examples/default-values-reference.fragment.yaml"
 
 func asMap(v any) map[string]any {
 	if v == nil {

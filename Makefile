@@ -920,7 +920,8 @@ CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
 # separate from conversion logic so reviewers can inspect drift intentionally.
 CONFIG_V2_DIR ?= devdocs/config/version-2.0
 CONFIG_V2_SCHEMA_FILE ?= $(CONFIG_V2_DIR)/obi-extension.schema.json
-CONFIG_V2_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
+CONFIG_V2_DEFAULT_REFERENCE_FILE ?= $(CONFIG_V2_DIR)/examples/default-values-reference.fragment.yaml
+CONFIG_V2_RUNNABLE_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
 
 .PHONY: generate-config-schema
 generate-config-schema:
@@ -959,12 +960,14 @@ check-config-schema:
 .PHONY: check-config-v2-parity
 check-config-v2-parity:
 	@echo "### Checking config v2 default parity"
-	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_EXAMPLE_FILE)
+	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_DEFAULT_REFERENCE_FILE)
 
 .PHONY: check-config-v2-artifacts
 check-config-v2-artifacts: check-config-v2-parity
 	@echo "### Checking hidden config v2 artifacts"
-	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) -example $(CONFIG_V2_EXAMPLE_FILE)
+	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) \
+		-default-reference $(CONFIG_V2_DEFAULT_REFERENCE_FILE) \
+		-runnable-example $(CONFIG_V2_RUNNABLE_EXAMPLE_FILE)
 
 .PHONY: fix-store-demo-architecture
 fix-store-demo-architecture:

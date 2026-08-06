@@ -123,7 +123,9 @@ To ground this redesign in user needs, we start with the top user journeys and e
 
 ## Target v2.0 Configuration Shape
 
-- [Full default-values example](./examples/default-configuration.yaml) (all fields mapped from current defaults)
+- [Runnable standalone example](./examples/default-configuration.yaml)
+- [Default-values reference fragment](./examples/default-values-reference.fragment.yaml)
+  (not a standalone configuration document)
 - [JSON Schema](./obi-extension.schema.json) (schema for `extensions.obi`)
 
 ### High-level shape
@@ -808,7 +810,10 @@ Important mapping notes:
 
 - Migration, validation, and tooling plan: [migration.md](migration.md)
 - OBI extension schema: [obi-extension.schema.json](obi-extension.schema.json)
-- Default configuration example: [examples/default-configuration.yaml](examples/default-configuration.yaml)
+- Runnable standalone configuration:
+  [examples/default-configuration.yaml](examples/default-configuration.yaml)
+- Authored default-values reference fragment (not a standalone document):
+  [examples/default-values-reference.fragment.yaml](examples/default-values-reference.fragment.yaml)
 
 ## Appendix: upstream alignment status (2026-02-24)
 
