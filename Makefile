@@ -321,10 +321,13 @@ compile-cache-for-coverage:
 	@echo "### Compiling K8s cache service to generate coverage profiles"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
-.PHONY: test
+.PHONY: test test-rerun-flaky
 test: testoutput
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+
+test-rerun-flaky:
+	@./scripts/rerun-flaky_test.sh
 
 .PHONY: test-privileged
 test-privileged: $(ENVTEST) testoutput
