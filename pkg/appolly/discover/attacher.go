@@ -131,9 +131,8 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 		// when a concurrent EventDeleted arrives for the same PID, rather than
 		// only waiting for its internal timeout to elapse. That requires
 		// threading a context.Context through JavaInjector.NewExecutable
-		// (currently it takes only *ebpf.Instrumentable and derives its own
-		// context.Background()-rooted timeout), plus a per-PID cancel-func
-		// registry keyed on the executable key.
+		// (which currently derives its own context.Background()-rooted
+		// timeout), plus a per-PID cancel-func registry.
 		var javaInjections sync.WaitGroup
 		defer javaInjections.Wait()
 		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
@@ -152,14 +151,15 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 
 					// Injection blocks for up to the Java attach timeout, so it runs
 					// after the PID is allowed through the eBPF filter, and off the
-					// discovery loop.
+					// discovery loop. The target is copied out here so the goroutine
+					// does not share instr.Obj with the consumers it was just sent to.
 					if ta.javaInjector != nil {
-						javaObj := &instr.Obj
+						target := javaagent.TargetFrom(&instr.Obj)
 						javaInjections.Add(1)
 						go func() {
 							defer javaInjections.Done()
-							if err := ta.javaInjector.NewExecutable(javaObj); err != nil {
-								ta.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work", "pid", javaObj.FileInfo.Pid(), "error", err)
+							if err := ta.javaInjector.NewExecutable(target); err != nil {
+								ta.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work", "pid", target.Pid, "error", err)
 							}
 						}()
 					}

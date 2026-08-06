@@ -228,7 +228,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				log: slog.With("component", "javaagent.Injector"),
 			}
 
-			ie := &ebpf.Instrumentable{
+			target := TargetFrom(&ebpf.Instrumentable{
 				FileInfo: exec.New(exec.Init{
 					Pid: tt.pid,
 					Service: svc.Attrs{
@@ -236,9 +236,9 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 					},
 				}),
 				Type: svc.InstrumentableJava,
-			}
+			})
 
-			resultPath, err := injector.copyAgent(ie)
+			resultPath, err := injector.copyAgent(target.Pid, target.TempDirEnv)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -367,15 +367,15 @@ func TestJavaInjector_FindTempDir(t *testing.T) {
 				cfg: &obi.Config{},
 			}
 
-			ie := &ebpf.Instrumentable{
+			target := TargetFrom(&ebpf.Instrumentable{
 				FileInfo: exec.New(exec.Init{
 					Service: svc.Attrs{
 						EnvVars: tt.envVars,
 					},
 				}),
-			}
+			})
 
-			tmpDir, err := injector.findTempDir(root, ie)
+			tmpDir, err := injector.findTempDir(root, target.TempDirEnv)
 
 			if tt.expectError {
 				require.Error(t, err)
