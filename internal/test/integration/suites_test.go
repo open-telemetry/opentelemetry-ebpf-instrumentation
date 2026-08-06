@@ -154,6 +154,21 @@ func TestSuite_DNSUnconnectedResolver(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// A JVM that cannot be attached to must not delay capture of its own traffic
+func TestSuite_JavaDiscoveryEarlyTraffic(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-discovery.yml", path.Join(pathOutput, "test-suite-java-discovery.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=java`,
+		`OTEL_EBPF_OPEN_PORT=`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("early JVM traffic is captured", testJavaDiscoveryEarlyTraffic)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuiteClientPromScrape(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client-promscrape.log"))
 	require.NoError(t, err)
