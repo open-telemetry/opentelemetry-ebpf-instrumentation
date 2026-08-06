@@ -7,7 +7,7 @@ metadata:
   labels:
     component: pinger
   annotations:
-    resource.opentelemetry.io/deployment.environment: 'to-be-ignored-in-favor-of-env-var'
+    resource.opentelemetry.io/deployment.environment.name: 'to-be-ignored-in-favor-of-env-var'
 spec:
   shareProcessNamespace: true
   serviceAccountName: obi
@@ -23,4 +23,4 @@ spec:
         - name: TARGET_URL
           value: "{{.TargetURL}}"
         - name: OTEL_RESOURCE_ATTRIBUTES
-          value: "deployment.environment=integration-test,service.version=3.2.1"
+          value: "deployment.environment.name=test,service.version=3.2.1"

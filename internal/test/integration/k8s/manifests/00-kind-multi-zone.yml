@@ -40,6 +40,10 @@ nodes:
       # testoutput folder to store coverage data
       - hostPath: ../../../../../testoutput
         containerPath: /testoutput
+      # OBI semconv registry, mounted read-only into the weaver pod (pinned to
+      # this `otel` zone node via nodeAffinity in 08-weaver-multi-node.yml)
+      - hostPath: ../../../../../schemas/obi
+        containerPath: /obi-registry
     extraPortMappings:
       # to avoid having to do port-forwarding from the Go client (a bit cumbersome process),
       # we just make visible some container ports through host ports
@@ -50,3 +54,12 @@ nodes:
         hostPort: 38999
       - containerPort: 9090
         hostPort: 39090
+      # weaver admin port (POST /stop from the test host)
+      - containerPort: 4320
+        hostPort: 32320
+      # weavercol telemetry (dropped-export check at teardown)
+      - containerPort: 8888
+        hostPort: 32888
+      # suite otelcol telemetry (first-hop dropped-export check)
+      - containerPort: 8890
+        hostPort: 32889

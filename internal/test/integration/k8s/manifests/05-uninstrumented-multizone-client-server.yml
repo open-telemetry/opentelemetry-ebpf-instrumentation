@@ -12,7 +12,7 @@ metadata:
     # kind, to force OBI writing the coverage data
     teardown: delete
   annotations:
-    resource.opentelemetry.io/deployment.environment: integration-test
+    resource.opentelemetry.io/deployment.environment.name: test
     resource.opentelemetry.io/service.version: '3.2.1'
 spec:
   affinity:
@@ -64,7 +64,7 @@ spec:
         # kind, to force OBI writing the coverage data
         teardown: delete
       annotations:
-        resource.opentelemetry.io/deployment.environment: integration-test
+        resource.opentelemetry.io/deployment.environment.name: test
         resource.opentelemetry.io/service.version: '3.2.1'
     spec:
       affinity:
