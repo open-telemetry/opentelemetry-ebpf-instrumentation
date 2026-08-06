@@ -131,6 +131,35 @@ struct iovec {
     void *iov_base;
     size_t iov_len;
 };
+struct udphdr {
+    u16 source;
+    u16 dest;
+    u16 len;
+    u16 check;
+};
+struct tcphdr {
+    u16 source;
+    u16 dest;
+    u32 seq;
+    u32 ack_seq;
+    u16 res1 : 4;
+    u16 doff : 4;
+    u16 fin : 1;
+    u16 syn : 1;
+    u16 rst : 1;
+    u16 psh : 1;
+    u16 ack : 1;
+    u16 urg : 1;
+    u16 ece : 1;
+    u16 cwr : 1;
+    u16 window;
+    u16 check;
+    u16 urg_ptr;
+};
+struct __sk_buff {
+    u32 len;
+    u32 protocol;
+};
 struct msghdr {
     struct iov_iter msg_iter;
 };

@@ -217,8 +217,12 @@ static __always_inline u8 handle_dns_buf(const unsigned char *buf,
         return 0;
     }
 
+    // buf is scratch memory from iovec_memory(), so this is a kernel read; a
+    // user read silently zeroes hdr, yielding id 0 and a bogus qr
     struct dnshdr hdr;
-    bpf_probe_read_user(&hdr, sizeof(struct dnshdr), buf);
+    if (bpf_probe_read_kernel(&hdr, sizeof(struct dnshdr), buf) != 0) {
+        return 0;
+    }
 
     const u16 flags = bpf_ntohs(hdr.flags);
     const u8 qr = dns_qr(flags);
@@ -236,7 +240,7 @@ static __always_inline u8 handle_dns_buf(const unsigned char *buf,
         if (req) {
             populate_dns_record(req, p_conn, orig_dport, size, qr, hdr.id, conn_pid);
 
-            bpf_probe_read(req->buf, sizeof(req->buf), buf);
+            bpf_probe_read_kernel(req->buf, sizeof(req->buf), buf);
             bpf_d_printk("sending dns trace [%s]", __FUNCTION__);
             bpf_ringbuf_submit(req, get_flags());
         }
