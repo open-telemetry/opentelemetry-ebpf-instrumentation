@@ -31,8 +31,6 @@
 
 #include <gotracer/types/otel_types.h>
 
-#include <shared/obi_ctx.h>
-
 enum { k_go_interface_type_offset = 8 };
 enum { k_go_ptr_arr_size = 16 };
 
@@ -251,9 +249,6 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
             go_addr_key_from_id(&gp_key, (void *)span->parent_go);
             update_tp_parent_go(&gp_key, &span->tp);
 
-            // Make this span the log enricher's active context too.
-            obi_ctx__set(bpf_get_current_pid_tgid(), &span->tp);
-
             // reusing gp_key to save stack space
             go_addr_key_from_id(&gp_key, span_ptr);
 
@@ -287,9 +282,6 @@ int obi_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
         go_addr_key_t gp_key = {};
         go_addr_key_from_id(&gp_key, (void *)span->parent_go);
         update_tp_parent_go(&gp_key, &span->prev_tp);
-
-        // Restore the log enricher's context to what it was before this span.
-        obi_ctx__set(bpf_get_current_pid_tgid(), &span->prev_tp);
     }
 
     bpf_ringbuf_output(&events, span, sizeof(otel_span_t), get_flags());
