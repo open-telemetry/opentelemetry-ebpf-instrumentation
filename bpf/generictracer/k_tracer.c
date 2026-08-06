@@ -257,7 +257,11 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        if (is_dns(&s_args.p_conn.conn)) {
+        if (is_dns_msg(&s_args.p_conn.conn, msg)) {
+            // the answer is not classifiable from msg_name, so key on the socket
+            if (orig_dport == 0) {
+                obi_note_unconn_dns_sock(sk);
+            }
             sort_connection_info(&s_args.p_conn.conn);
             s_args.p_conn.pid = pid_from_pid_tgid(id);
             s_args.orig_dport = orig_dport;
@@ -856,6 +860,7 @@ static __always_inline void setup_recvmsg(u64 id, struct sock *sk, struct msghdr
 
     recv_args_t args = {
         .sock_ptr = (u64)sk,
+        .msg_ptr = (u64)msg,
     };
 
     struct iov_iter___dummy *iov_iter = (struct iov_iter___dummy *)&msg->msg_iter;
@@ -956,7 +961,16 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sock_recvmsg, int copied_len) {
             setup_cp_support_conn_info(&info, false);
             setup_connection_to_pid_mapping(id, &info, orig_dport);
 
-            if (is_dns(&info.conn)) {
+            u8 dns = is_dns_msg(&info.conn, (struct msghdr *)args->msg_ptr);
+            // msg_name did not classify it, but the answer arrived on a socket
+            // seen sending an unconnected UDP DNS query
+            if (!dns && orig_dport == 0 && obi_is_unconn_dns_sock(sock_ptr)) {
+                bpf_dbg_printk("UNCONN_DNS_RECVFROM: classified unconnected UDP DNS answer on "
+                               "known DNS sock=%llx",
+                               (u64)sock_ptr);
+                dns = 1;
+            }
+            if (dns) {
                 sort_connection_info(&info.conn);
 
                 iovec_iter_ctx *iov_ctx = (iovec_iter_ctx *)&args->iovec_ctx;

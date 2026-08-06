@@ -131,6 +131,14 @@ struct iovec {
     void *iov_base;
     size_t iov_len;
 };
+struct msghdr {
+    void *msg_name;
+    int msg_namelen;
+    struct iov_iter msg_iter;
+};
+struct in_addr {
+    u32 s_addr;
+};
 struct udphdr {
     u16 source;
     u16 dest;
@@ -160,6 +168,11 @@ struct __sk_buff {
     u32 len;
     u32 protocol;
 };
-struct msghdr {
-    struct iov_iter msg_iter;
+// 16 bytes, as in bpfcore/vmlinux_*.h; obi_msg_name_port length-checks
+// msg_namelen against sizeof(struct sockaddr_in)
+struct sockaddr_in {
+    u16 sin_family;
+    u16 sin_port;
+    struct in_addr sin_addr;
+    unsigned char __pad[8];
 };

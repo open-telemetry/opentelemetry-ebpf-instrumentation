@@ -11,6 +11,7 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/lw_thread.h>
+#include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
 #include <common/trace_parent.h>
@@ -95,6 +96,63 @@ static __always_inline u8 is_dns_port(u16 port) {
 
 static __always_inline u8 is_dns(connection_info_t *conn) {
     return is_dns_port(conn->s_port) || is_dns_port(conn->d_port);
+}
+
+// Recovers the peer port from a kernel-resident msghdr->msg_name. An unconnected
+// UDP socket has no peer in its 4-tuple (skc_dport==0), so the destination
+// (sendmsg) or source (recvmsg) port lives only in msg_name.
+static __always_inline u16 obi_msg_name_port(struct msghdr *msg) {
+    if (!msg) {
+        return 0;
+    }
+    void *name = NULL;
+    int namelen = 0;
+    BPF_CORE_READ_INTO(&name, msg, msg_name);
+    BPF_CORE_READ_INTO(&namelen, msg, msg_namelen);
+    if (!name || namelen < (int)sizeof(struct sockaddr_in)) {
+        return 0;
+    }
+    struct sockaddr_in sa = {0};
+    if (bpf_probe_read_kernel(&sa, sizeof(sa), name) != 0) {
+        return 0;
+    }
+    if (sa.sin_family != AF_INET) {
+        return 0; // IPv6 DNS transport not handled by this fallback
+    }
+    return bpf_ntohs(sa.sin_port);
+}
+
+static __always_inline u8 is_dns_msg(connection_info_t *conn, struct msghdr *msg) {
+    if (is_dns(conn)) {
+        return 1;
+    }
+    if (conn->d_port == 0) {
+        u16 p = obi_msg_name_port(msg);
+        if (is_dns_port(p)) {
+            bpf_dbg_printk(
+                "UNCONN_DNS_MSGNAME: classified unconnected UDP DNS via msg_name port=%d", p);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u64); // (u64)struct sock *
+    __type(value, u8);
+    __uint(max_entries, 1024);
+} unconn_dns_socks SEC(".maps");
+
+static __always_inline void obi_note_unconn_dns_sock(void *sk) {
+    u64 k = (u64)sk;
+    u8 one = 1;
+    bpf_map_update_elem(&unconn_dns_socks, &k, &one, BPF_ANY);
+}
+
+static __always_inline u8 obi_is_unconn_dns_sock(void *sk) {
+    u64 k = (u64)sk;
+    return bpf_map_lookup_elem(&unconn_dns_socks, &k) != NULL;
 }
 
 static __always_inline void populate_dns_record(dns_req_t *req,
