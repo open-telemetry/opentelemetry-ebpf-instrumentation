@@ -117,10 +117,8 @@ typedef struct sql_func_invocation {
     u64 query_len;
     u64 driver_conn_ptr;
     tp_info_t tp;
-    tp_info_t prev_tp; // traces_ctx_v1 context to restore once the query returns
-    u8 has_prev_tp;
-    u8 _pad0[3]; // align conn to 4 bytes
     connection_info_t conn;
+    u8 _pad[4];
 } sql_func_invocation_t;
 
 struct {
