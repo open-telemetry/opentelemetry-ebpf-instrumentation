@@ -33,8 +33,9 @@ func TestModuleDetection(t *testing.T) {
 	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromModuleMap("/usr/lib\\//libj9vm25.so/dklksjdf")) // OpenJDK only for now
 	assert.Equal(t, svc.InstrumentableNodejs, instrumentableFromModuleMap("/usr/bin/node"))
 	assert.Equal(t, svc.InstrumentableNodejs, instrumentableFromModuleMap("node"))
-	assert.Equal(t, svc.InstrumentableNodejs, instrumentableFromModuleMap("/usr/bin/deno"))
-	assert.Equal(t, svc.InstrumentableNodejs, instrumentableFromModuleMap("deno"))
+	assert.Equal(t, svc.InstrumentableDeno, instrumentableFromModuleMap("/usr/bin/deno"))
+	assert.Equal(t, svc.InstrumentableDeno, instrumentableFromModuleMap("deno"))
+	assert.Equal(t, "nodejs", instrumentableFromModuleMap("deno").String())
 	assert.Equal(t, svc.InstrumentableRuby, instrumentableFromModuleMap("/usr/bin/ruby"))
 	assert.Equal(t, svc.InstrumentableRuby, instrumentableFromModuleMap("/usr/bin/ruby3"))
 	assert.Equal(t, svc.InstrumentableRuby, instrumentableFromModuleMap("/usr/bin/ruby3.0"))
