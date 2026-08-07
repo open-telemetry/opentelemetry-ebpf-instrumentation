@@ -227,17 +227,18 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 	// A drop on either tap hop may have carried the sole sample of a violating
 	// shape, so any such drop during the suite — or an unreadable counter — makes the
 	// report untrustworthy.
-	if k.tapDropsBaselineErr != nil || finalDropsErr != nil {
+	switch {
+	case k.tapDropsBaselineErr != nil || finalDropsErr != nil:
 		t.Errorf("could not read the tap's export-failure counters (baseline: %v, teardown: %v) — "+
 			"cannot confirm weaver saw every emitted shape, so the report is untrustworthy",
 			k.tapDropsBaselineErr, finalDropsErr)
-	} else if finalDrops.suiteOtelcol < k.tapDropsBaseline.suiteOtelcol ||
-		finalDrops.weavercol < k.tapDropsBaseline.weavercol {
+	case finalDrops.suiteOtelcol < k.tapDropsBaseline.suiteOtelcol ||
+		finalDrops.weavercol < k.tapDropsBaseline.weavercol:
 		t.Errorf("the tap's export-failure counters decreased between baseline and teardown "+
 			"(suite otelcol %.0f -> %.0f, weavercol %.0f -> %.0f) — a collector may have "+
 			"restarted, so the report is untrustworthy", k.tapDropsBaseline.suiteOtelcol,
 			finalDrops.suiteOtelcol, k.tapDropsBaseline.weavercol, finalDrops.weavercol)
-	} else {
+	default:
 		suiteDrops := finalDrops.suiteOtelcol - k.tapDropsBaseline.suiteOtelcol
 		weavercolDrops := finalDrops.weavercol - k.tapDropsBaseline.weavercol
 		if suiteDrops > 0 || weavercolDrops > 0 {

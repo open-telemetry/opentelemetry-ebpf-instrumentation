@@ -24,7 +24,7 @@ otelcol_exporter_sent_spans{exporter="otlp/weaver"} 100
 
 	count, err := parseExporterFailedCount(strings.NewReader(metrics))
 	require.NoError(t, err)
-	require.Equal(t, float64(9), count)
+	require.InDelta(t, 9, count, 0)
 }
 
 func TestParseExporterFailedCountRejectsMalformedMetrics(t *testing.T) {
