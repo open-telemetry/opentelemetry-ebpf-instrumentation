@@ -62,6 +62,7 @@ func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []services.
 		}
 		if lang == services.RouteHarvesterLanguageNodejs {
 			dMap[svc.InstrumentableNodejs] = struct{}{}
+			dMap[svc.InstrumentableDeno] = struct{}{}
 		}
 	}
 
@@ -106,7 +107,8 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			}
 		}()
 
-		switch fileInfo.SDKLanguage() {
+		language := fileInfo.SDKLanguage()
+		switch language {
 		case svc.InstrumentableJava:
 			if _, ok := h.disabled[svc.InstrumentableJava]; !ok {
 				r, err := h.javaExtractRoutes(ctx, fileInfo)
@@ -118,8 +120,8 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			} else {
 				resultChan <- result{r: nil}
 			}
-		case svc.InstrumentableNodejs:
-			if _, ok := h.disabled[svc.InstrumentableNodejs]; !ok {
+		case svc.InstrumentableNodejs, svc.InstrumentableDeno:
+			if _, ok := h.disabled[language]; !ok {
 				r, err := h.nodeExtractRoutes(fileInfo.Pid())
 				if err != nil {
 					resultChan <- result{err: err}

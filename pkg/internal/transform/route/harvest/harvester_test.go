@@ -262,6 +262,37 @@ func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 	assert.Equal(t, CompleteRoutes, result.Kind)
 }
 
+func TestHarvestDenoRoutes_Successful(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, time.Second)
+	harvester.nodeExtractRoutes = successfulNodeExtractRoutes
+
+	fileInfo := createTestFileInfo(svc.InstrumentableDeno)
+
+	result, err := harvester.HarvestRoutes(fileInfo)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"/api/users", "/api/orders"}, result.Routes)
+	assert.Equal(t, CompleteRoutes, result.Kind)
+}
+
+func TestHarvestDenoRoutes_DisabledWithNodejs(t *testing.T) {
+	harvester := NewRouteHarvester(
+		&services.RouteHarvestingConfig{},
+		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguageNodejs},
+		time.Second,
+	)
+	harvester.nodeExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+		t.Fatal("Deno route harvesting should be disabled with Node.js route harvesting")
+		return nil, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentableDeno))
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
 func TestHarvestNodejsRoutes_Error(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.nodeExtractRoutes = errorNodeExtractRoutes
