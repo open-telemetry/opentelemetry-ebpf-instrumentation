@@ -20,7 +20,7 @@ jobs:
   # Derive the dated nightly version string (nightly-<YYYYMMDD>).
   compute-version:
     name: Compute nightly version
-    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
