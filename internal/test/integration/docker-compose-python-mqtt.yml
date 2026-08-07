@@ -2,7 +2,7 @@ services:
   vernemq:
     restart: always
     container_name: vernemq-mqtt-broker
-    image: vernemq/vernemq:latest@sha256:ad60e4c04f4fa6cadeea43ecf37351b8a76d7c343ecb5e86eda6053aed0cf524
+    image: vernemq/vernemq:2.1.2@sha256:2c25737dde809085e28f32f3d6a0fd76dc6bbcf739ade188eccb59ea32862171
     ports:
       - "1883:1883" # MQTT port
     environment:
@@ -116,11 +116,10 @@ services:
       - "9090:9090"
 
   jaeger:
-    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
+    image: jaegertracing/jaeger:2.19.0@sha256:ede4864215be4cd85bd8c3129a2fea6c5713c5653c7282c429dba123014bc68b
     ports:
       - "16686:16686" # Query frontend
       - "4317" # OTEL GRPC traces collector
       - "4318" # OTEL HTTP traces collector
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-      - LOG_LEVEL=warn
+    command:
+      - "--set=service.telemetry.logs.level=warn"
