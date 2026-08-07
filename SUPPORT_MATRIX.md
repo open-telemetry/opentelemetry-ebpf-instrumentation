@@ -126,6 +126,52 @@ OBI currently documents the following Go library compatibility baselines:
 | `github.com/IBM/sarama` | `>= 1.37` |
 | `go.mongodb.org/mongo-driver` | `v1: >= v1.10.1; v2: >= v2.0.1` |
 
+### Go Global Trace API And Auto SDK Activation
+
+OBI v0.11.0 can automatically activate the OpenTelemetry Go Auto SDK for spans created through the global
+`otel.Tracer` API when the application has not registered an SDK `TracerProvider`. The application does not
+configure an SDK, span processor, exporter, or other telemetry pipeline for this path. See the
+[runnable Go Trace API example](examples/go-trace-api/README.md).
+
+All three canonical, unreplaced modules must be present in the inspected executable with an exact supported version
+and its canonical module checksum:
+
+| Module | Exact versions supported by OBI v0.11.0 |
+|:-------|:----------------------------------------|
+| `go.opentelemetry.io/auto/sdk` | `v1.1.0`, `v1.2.0`, `v1.2.1` |
+| `go.opentelemetry.io/otel` | `v1.33.0`, `v1.34.0`, `v1.35.0`, `v1.36.0`, `v1.37.0`, `v1.38.0`, `v1.39.0`, `v1.40.0`, `v1.41.0`, `v1.42.0`, `v1.43.0`, `v1.44.0` |
+| `go.opentelemetry.io/otel/trace` | `v1.33.0`, `v1.34.0`, `v1.35.0`, `v1.36.0`, `v1.37.0`, `v1.38.0`, `v1.39.0`, `v1.40.0`, `v1.41.0`, `v1.42.0`, `v1.43.0`, `v1.44.0` |
+
+These are exact allowlists, not semantic-version ranges, and OBI checks the modules independently. A missing module
+or checksum, a noncanonical checksum, any replacement of one of these module paths, invalid build information, or a
+version not listed above disables rich activation.
+
+Activation also requires all of the following:
+
+- A 64-bit Linux `amd64` (`ELF64`/`EM_X86_64`) or `arm64` (`ELF64`/`EM_AARCH64`) executable.
+- The reviewed `SpanContext` and Auto SDK `spanContext` offsets.
+- Every required global Trace API, Auto SDK lifecycle, and activation symbol to resolve and attach as one optional
+  probe group.
+- Permission for OBI to use `bpf_probe_write_user`.
+
+OBI fails closed: missing offsets or symbols, an unsupported ABI or architecture, or a rejected probe attachment
+leaves the rich activation group disabled. Where the ordinary global Trace API probes are available, OBI may still
+export its existing reduced-fidelity synthetic span. Synthetic fallback does not preserve the full
+application-authored span semantics and is not equivalent to Auto SDK activation. If an SDK delegate is already
+registered, OBI defers to that SDK rather than activating the Auto SDK or creating a competing synthetic span.
+
+For Linux 5.10 and later, OBI's write-user preflight requires effective `CAP_SYS_ADMIN` and kernel lockdown mode
+`[none]`. On earlier supported or backported kernels, the BPF program-load result is authoritative; if the kernel
+rejects `bpf_probe_write_user`, OBI reloads with write-dependent features disabled. These permission conditions are
+additional to the general OBI kernel, BTF, Linux, and architecture requirements above.
+
+The Auto SDK emits one serialized OTLP JSON payload per rich span. OBI v0.11.0 accepts payloads up to and including
+16 KiB. Larger rich payloads are not emitted, and v0.11.0 has no operator-visible oversized-payload drop metric or
+warning.
+
+The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this v0.11.0 Auto SDK
+allowlist.
+
 ### Statistical Metrics
 
 OBI currently documents the following statistical instrumentation support:
