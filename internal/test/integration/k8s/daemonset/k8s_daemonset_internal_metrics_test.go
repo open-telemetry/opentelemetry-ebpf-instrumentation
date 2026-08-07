@@ -20,14 +20,11 @@ import (
 // (02-prometheus-otelscrape.yml), which scrapes the otelcol's exporter.
 const prometheusHostPort = "localhost:39090"
 
-// The OBI daemonset runs with internal_metrics.exporter=otel
-// (06-obi-daemonset.yml), so its internal metrics reach the suite otelcol,
-// which fans them out to both the weaver tap and its Prometheus exporter
-// (03-otelcol-weaver.yml). obi.kube.cache.forward.lag — the in-process kube
-// informer forward lag, a Float64Histogram in seconds — is therefore validated
-// by the weaver live-check; this asserts the same metric also lands in
-// Prometheus (as obi_kube_cache_forward_lag_seconds_*), giving it deterministic
-// coverage on both paths.
+// The OBI daemonset exports its internal metrics via the otel exporter
+// (06-obi-daemonset.yml), which the suite otelcol re-exports to Prometheus
+// (03-otelcol-weaver.yml). This asserts obi.kube.cache.forward.lag — the
+// in-process kube informer forward lag — reaches Prometheus, matched by name so
+// the histogram suffix is not load-bearing.
 func TestInternalMetrics_ForwardLag(t *testing.T) {
 	feat := features.New("OBI exports the kube informer forward-lag internal metric").
 		Assess("obi.kube.cache.forward.lag reaches Prometheus via the otelcol",
