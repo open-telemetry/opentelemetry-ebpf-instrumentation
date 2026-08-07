@@ -55,7 +55,7 @@ the example trace:
 curl --fail --silent --show-error http://localhost:8080/trace
 ```
 
-Rich activation returns:
+When OBI activates the Auto SDK, the endpoint returns:
 
 ```json
 {"root_recording":true,"child_recording":true}
@@ -72,8 +72,8 @@ when that release becomes available.
 
 Open the [Jaeger UI](http://localhost:16686), select the
 `go-trace-api-example` service, and search for the `checkout` operation. The
-endpoint queues representative checkout work to a background worker. The
-worker's trace should contain exactly these application-authored spans:
+endpoint sends a checkout job to a background worker. The worker's trace should
+contain exactly these application-authored spans:
 
 ```text
 checkout
@@ -115,26 +115,26 @@ offsets, atomic probe attachment, no already registered SDK delegate, and
 permission to use `bpf_probe_write_user`. OBI fails closed when a gate is not
 satisfied.
 
-### Rich Activation Versus Synthetic Fallback
+### Auto SDK Spans Versus Synthetic Spans
 
-The response's `root_recording` and `child_recording` values are an
-application-visible signal. Both are `true` when OBI successfully activates the
-Auto SDK for that request. In the backend, preservation of the named and
-versioned instrumentation scope, event, requested `CLIENT` kind, status,
-attributes, and root-child relationship provides positive evidence of the rich
-path.
+The response's `root_recording` and `child_recording` values show whether the
+application's spans are recording. Both are `true` when OBI has activated the
+Auto SDK for that request. In Jaeger, the named and versioned instrumentation
+scope, event, requested `CLIENT` kind, status, attributes, and root-child
+relationship confirm that OBI exported the data supplied by the application.
 
 For an otherwise no-SDK application, the global API spans remain non-recording
-and the response values are `false` when rich activation is unavailable. Where
-its ordinary Go probes are available, OBI may still export reduced-fidelity
-synthetic spans. Synthetic fallback does not preserve the complete
-application-authored scope, events, kind, or attributes. It is not semantically
-equivalent to rich activation and must not be treated as a substitute for it.
-If the application has registered an SDK delegate, OBI defers to that SDK
-instead of activating this path or creating a competing synthetic span.
+and the response values are `false` when OBI cannot activate the Auto SDK. Where
+its ordinary Go probes are available, OBI may still construct synthetic spans
+from observed API calls. A synthetic span may contain the span name, parent
+relationship, status, and some primitive attributes, but it does not contain
+the instrumentation scope, events, or requested span kind. It is not a
+substitute for the application-authored span. If the application has registered
+an SDK delegate, OBI defers to that SDK instead of activating this path or
+creating a competing synthetic span.
 
-OBI v0.11.0 has no stable public activation-success metric or log. Use the
-application response together with the rich span data in the backend instead.
+OBI v0.11.0 has no metric or log that confirms Auto SDK activation. Check the
+application response and the expected application-supplied fields in Jaeger.
 
 ## Troubleshooting
 
@@ -160,8 +160,8 @@ docker compose logs --follow obi
 ```
 
 Module, replacement, and checksum eligibility must still be checked against
-the executable's build information and the support matrix. The absence of a
-diagnostic reason is not proof that rich activation succeeded.
+the executable's build information and the support matrix. A lack of debug
+messages does not mean that Auto SDK activation succeeded.
 
 ### OBI Export Or Backend Query Problems
 
@@ -182,16 +182,17 @@ curl --fail --silent --show-error http://localhost:8080/trace
 docker compose logs obi
 ```
 
-If the rich root and child appear in OBI's output but not Jaeger, investigate
-the OTLP connection or backend query rather than application activation.
+If the `checkout` and `reserve inventory` spans appear in OBI's output but not
+Jaeger, investigate the OTLP connection or backend query rather than application
+activation.
 
-### Rich Payload Size
+### Payload Size
 
-OBI v0.11.0 accepts a rich span's serialized OTLP JSON payload only when it is
-at most 16 KiB. A larger rich payload is not emitted. v0.11.0 does not expose a
-dedicated oversized-payload drop metric or warning, so do not infer the cause
-from absent backend data alone, expect a deterministic synthetic replacement,
-or expect operator-visible drop telemetry.
+The Auto SDK serializes each application-authored span as OTLP JSON. OBI v0.11.0
+accepts the payload only when it is at most 16 KiB. OBI does not emit a payload
+that exceeds this limit. v0.11.0 does not expose a dedicated drop metric or
+warning for this condition, so absent backend data alone does not identify the
+cause. OBI also does not guarantee a synthetic replacement.
 
 ## Known Limitations In v0.11.0
 
@@ -202,8 +203,8 @@ or expect operator-visible drop telemetry.
   [#2794](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2794)
 - External or remote parents and `TraceState` semantics are not preserved:
   [#2959](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2959)
-- Payloads larger than 16 KiB are not emitted as rich spans and lack drop
-  observability:
+- OBI does not export Auto SDK payloads larger than 16 KiB and does not report
+  these drops:
   [#2958](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2958)
 - Application-authored Auto SDK span IDs are not available for log enrichment:
   [#2932](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2932)

@@ -144,7 +144,7 @@ and its canonical module checksum:
 
 These are exact allowlists, not semantic-version ranges, and OBI checks the modules independently. A missing module
 or checksum, a noncanonical checksum, any replacement of one of these module paths, invalid build information, or a
-version not listed above disables rich activation.
+version not listed above prevents Auto SDK activation.
 
 Activation also requires all of the following:
 
@@ -155,19 +155,20 @@ Activation also requires all of the following:
 - Permission for OBI to use `bpf_probe_write_user`.
 
 OBI fails closed: missing offsets or symbols, an unsupported ABI or architecture, or a rejected probe attachment
-leaves the rich activation group disabled. Where the ordinary global Trace API probes are available, OBI may still
-export its existing reduced-fidelity synthetic span. Synthetic fallback does not preserve the full
-application-authored span semantics and is not equivalent to Auto SDK activation. If an SDK delegate is already
-registered, OBI defers to that SDK rather than activating the Auto SDK or creating a competing synthetic span.
+prevents OBI from enabling the Auto SDK probe group. Where the ordinary global Trace API probes are available, OBI
+may still construct a synthetic span from observed API calls. A synthetic span may contain the span name, parent
+relationship, status, and some primitive attributes, but it does not contain the instrumentation scope, events, or
+requested span kind. If an SDK delegate is already registered, OBI defers to that SDK rather than activating the Auto
+SDK or creating a competing synthetic span.
 
 For Linux 5.10 and later, OBI's write-user preflight requires effective `CAP_SYS_ADMIN` and kernel lockdown mode
 `[none]`. On earlier supported or backported kernels, the BPF program-load result is authoritative; if the kernel
 rejects `bpf_probe_write_user`, OBI reloads with write-dependent features disabled. These permission conditions are
 additional to the general OBI kernel, BTF, Linux, and architecture requirements above.
 
-The Auto SDK emits one serialized OTLP JSON payload per rich span. OBI v0.11.0 accepts payloads up to and including
-16 KiB. Larger rich payloads are not emitted, and v0.11.0 has no operator-visible oversized-payload drop metric or
-warning.
+The Auto SDK serializes each application-authored span as OTLP JSON. OBI v0.11.0 accepts payloads up to and including
+16 KiB. OBI does not emit a payload that exceeds this limit, and v0.11.0 has no operator-visible drop metric or
+warning for this condition.
 
 The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this v0.11.0 Auto SDK
 allowlist.
