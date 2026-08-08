@@ -22,20 +22,16 @@ var tracer = otel.Tracer(
 	trace.WithInstrumentationVersion("1.0.0"),
 )
 
-var checkoutRequests = make(chan chan traceResponse)
-
 type traceResponse struct {
-	RootRecording  bool `json:"root_recording"`
-	ChildRecording bool `json:"child_recording"`
+	CheckoutRecording  bool `json:"checkout_recording"`
+	InventoryRecording bool `json:"inventory_recording"`
 }
 
 func main() {
-	go runCheckoutWorker()
-
 	http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	http.HandleFunc("/trace", emitTrace)
+	http.HandleFunc("/checkout", checkoutHandler)
 
 	log.Printf("listening on %s", listenAddress)
 	if err := http.ListenAndServe(listenAddress, nil); err != nil {
@@ -43,10 +39,27 @@ func main() {
 	}
 }
 
-func emitTrace(w http.ResponseWriter, _ *http.Request) {
-	result := make(chan traceResponse)
-	checkoutRequests <- result
-	response := <-result
+func checkoutHandler(w http.ResponseWriter, r *http.Request) {
+	ctx, checkout := tracer.Start(
+		r.Context(),
+		"checkout",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("example.order.id", "order-123"),
+			attribute.Int("example.cart.items", 2),
+		),
+	)
+	defer checkout.End()
+
+	checkout.AddEvent(
+		"checkout started",
+		trace.WithAttributes(attribute.String("example.customer.tier", "gold")),
+	)
+
+	response := traceResponse{
+		CheckoutRecording:  checkout.IsRecording(),
+		InventoryRecording: reserveInventory(ctx),
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -54,26 +67,7 @@ func emitTrace(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func runCheckoutWorker() {
-	for result := range checkoutRequests {
-		result <- createCheckoutTrace()
-	}
-}
-
-func createCheckoutTrace() traceResponse {
-	ctx, root := tracer.Start(
-		context.Background(),
-		"checkout",
-		trace.WithAttributes(
-			attribute.String("example.order.id", "order-123"),
-			attribute.Int("example.cart.items", 2),
-		),
-	)
-	root.AddEvent(
-		"checkout started",
-		trace.WithAttributes(attribute.String("example.customer.tier", "gold")),
-	)
-
+func reserveInventory(ctx context.Context) bool {
 	_, child := tracer.Start(
 		ctx,
 		"reserve inventory",
@@ -83,13 +77,9 @@ func createCheckoutTrace() traceResponse {
 			attribute.Int("example.inventory.quantity", 2),
 		),
 	)
-	child.SetStatus(codes.Ok, "")
-	response := traceResponse{
-		RootRecording:  root.IsRecording(),
-		ChildRecording: child.IsRecording(),
-	}
-	child.End()
-	root.End()
+	defer child.End()
 
-	return response
+	child.SetStatus(codes.Ok, "")
+
+	return child.IsRecording()
 }

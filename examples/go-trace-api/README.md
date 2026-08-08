@@ -9,7 +9,7 @@ application-side telemetry pipeline. The application uses the global
 
 | Service | Description |
 |:--------|:------------|
-| `app` | Go HTTP application whose background checkout worker creates a root span and its child |
+| `app` | Go HTTP application whose checkout handler starts a span and calls a function that starts its child |
 | `obi` | OBI discovers the application, activates the Auto SDK, and exports its spans |
 | `jaeger` | OTLP-compatible trace backend and UI at <http://localhost:16686> |
 
@@ -52,13 +52,13 @@ Give OBI a few seconds to discover and instrument the application, then create
 the example trace:
 
 ```sh
-curl --fail --silent --show-error http://localhost:8080/trace
+curl --fail --silent --show-error http://localhost:8080/checkout
 ```
 
 When OBI activates the Auto SDK, the endpoint returns:
 
 ```json
-{"root_recording":true,"child_recording":true}
+{"checkout_recording":true,"inventory_recording":true}
 ```
 
 If either value is `false`, wait a few seconds and retry once before following
@@ -68,23 +68,25 @@ the [activation troubleshooting](#application-or-activation-problems) steps.
 
 Open the [Jaeger UI](http://localhost:16686), select the
 `go-trace-api-example` service, and search for the `checkout` operation. The
-endpoint sends a checkout job to a background worker. The worker's trace should
-contain exactly these application-authored spans:
+handler starts the `checkout` span, and `reserveInventory` starts its child:
 
 ```text
 checkout
 └── reserve inventory
 ```
 
-The root span should have:
+OBI's HTTP instrumentation also adds request-handling spans above `checkout`.
+Those spans are not created by the application.
+
+The `checkout` span should have `SERVER` kind and:
 
 - attributes `example.order.id=order-123` and `example.cart.items=2`
 - an event named `checkout started` with
   `example.customer.tier=gold`
 - instrumentation scope name `go-trace-api-example` and version `1.0.0`
 
-The `reserve inventory` child should share the root trace ID, name the root as
-its parent, have `CLIENT` kind and `OK` status, and include
+The `reserve inventory` child should share the `checkout` trace ID, name
+`checkout` as its parent, have `CLIENT` kind and `OK` status, and include
 `example.inventory.sku=sku-42` and `example.inventory.quantity=2`.
 
 Jaeger can also be queried directly:
@@ -113,11 +115,12 @@ inactive.
 
 ### Auto SDK Spans Versus Synthetic Spans
 
-The response's `root_recording` and `child_recording` values show whether the
-application's spans are recording. Both are `true` when OBI has activated the
-Auto SDK for that request. In Jaeger, the named and versioned instrumentation
-scope, event, requested `CLIENT` kind, status, attributes, and root-child
-relationship confirm that OBI exported the data supplied by the application.
+The response's `checkout_recording` and `inventory_recording` values show
+whether the application's spans are recording. Both are `true` when OBI has
+activated the Auto SDK for that request. In Jaeger, the named and versioned
+instrumentation scope, event, requested span kinds, status, attributes, and
+parent-child relationship confirm that OBI exported the data supplied by the
+application.
 
 For an application that has not configured an SDK, the global API spans remain
 non-recording and the response values are `false` when OBI cannot activate the
@@ -174,7 +177,7 @@ then send fresh traffic:
 
 ```sh
 OBI_TRACE_PRINTER=json_indent docker compose up --detach --force-recreate obi
-curl --fail --silent --show-error http://localhost:8080/trace
+curl --fail --silent --show-error http://localhost:8080/checkout
 docker compose logs obi
 ```
 
