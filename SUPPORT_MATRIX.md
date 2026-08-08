@@ -129,8 +129,7 @@ OBI currently documents the following Go library compatibility baselines:
 ### Go Global Trace API And Auto SDK Activation
 
 OBI v0.11.0 can automatically activate the OpenTelemetry Go Auto SDK for spans created through the global
-`otel.Tracer` API when the application has not registered an SDK `TracerProvider`. The application does not
-configure an SDK, span processor, exporter, or other telemetry pipeline for this path. See the
+`otel.Tracer` API when the application has not registered a `TracerProvider`. See the
 [runnable Go Trace API example](examples/go-trace-api/README.md).
 
 All three canonical, unreplaced modules must be present in the inspected executable with an exact supported version

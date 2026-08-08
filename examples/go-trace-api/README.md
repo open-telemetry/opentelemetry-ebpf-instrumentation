@@ -1,9 +1,8 @@
 # Go Trace API Example
 
-This example shows application-authored Go spans exported by OBI without an
-application-side telemetry pipeline. The application uses the global
-`otel.Tracer` API and does not configure an OpenTelemetry SDK,
-`TracerProvider`, span processor, or exporter.
+This example shows OBI exporting application-authored Go spans created through
+the global `otel.Tracer` API. The application does not register a
+`TracerProvider`.
 
 ## What Runs
 
@@ -101,17 +100,14 @@ curl --get --fail --silent --show-error \
 
 ## How Activation Works
 
-The OpenTelemetry Go API includes the Auto SDK support used here. OBI activates
-it automatically only when the application, executable, and host meet the
-v0.11.0 requirements. There is no application SDK or exporter to configure, and
-the application must not install a provider itself. See the
-[exact v0.11.0 module and platform allowlist](../../SUPPORT_MATRIX.md#go-global-trace-api-and-auto-sdk-activation).
+OBI activates the Auto SDK only when the application has not registered a
+`TracerProvider` and the executable and host meet the v0.11.0 requirements. See
+the [exact module and platform allowlist](../../SUPPORT_MATRIX.md#go-global-trace-api-and-auto-sdk-activation).
 
 The requirements cover canonical module versions and checksums, modules without
 replacements, supported 64-bit ABI and architecture, required symbols and field
-layouts, no already registered SDK `TracerProvider`, and permission to use
-`bpf_probe_write_user`. If any requirement is not met, OBI leaves the Auto SDK
-inactive.
+layouts, and permission to use `bpf_probe_write_user`. If any requirement is not
+met, OBI leaves the Auto SDK inactive.
 
 ### Auto SDK Spans Versus Synthetic Spans
 
