@@ -149,26 +149,24 @@ version not listed above prevents Auto SDK activation.
 Activation also requires all of the following:
 
 - A 64-bit Linux `amd64` (`ELF64`/`EM_X86_64`) or `arm64` (`ELF64`/`EM_AARCH64`) executable.
-- The reviewed `SpanContext` and Auto SDK `spanContext` offsets.
-- Every required global Trace API, Auto SDK lifecycle, and activation symbol to resolve and attach as one optional
-  probe group.
+- OpenTelemetry API and Auto SDK data layouts that OBI v0.11.0 recognizes.
+- Every global Trace API and Auto SDK symbol that OBI needs to be present in the executable.
 - Permission for OBI to use `bpf_probe_write_user`.
 
-OBI fails closed: missing offsets or symbols, an unsupported ABI or architecture, or a rejected probe attachment
-prevents OBI from enabling the Auto SDK probe group. Where the ordinary global Trace API probes are available, OBI
-may still construct a synthetic span from observed API calls. A synthetic span may contain the span name, parent
-relationship, status, and some primitive attributes, but it does not contain the instrumentation scope, events, or
-requested span kind. If an SDK delegate is already registered, OBI defers to that SDK rather than activating the Auto
-SDK or creating a competing synthetic span.
+If OBI cannot determine the required field offsets, find a required symbol, attach all required instrumentation,
+support the executable's ABI or architecture, or use `bpf_probe_write_user`, it does not activate the Auto SDK. When
+OBI can observe calls to the global Trace API, it may still construct a synthetic span. A synthetic span may contain
+the span name, parent relationship, status, and some primitive attributes, but it does not contain the instrumentation
+scope, events, or requested span kind. If an SDK `TracerProvider` is already registered, OBI defers to that provider
+rather than activating the Auto SDK or creating a competing synthetic span.
 
-For Linux 5.10 and later, OBI's write-user preflight requires effective `CAP_SYS_ADMIN` and kernel lockdown mode
-`[none]`. On earlier supported or backported kernels, the BPF program-load result is authoritative; if the kernel
-rejects `bpf_probe_write_user`, OBI reloads with write-dependent features disabled. These permission conditions are
-additional to the general OBI kernel, BTF, Linux, and architecture requirements above.
+On Linux 5.10 and later, OBI requires effective `CAP_SYS_ADMIN` and kernel lockdown mode `[none]` to use
+`bpf_probe_write_user`. On earlier supported or backported kernels, support depends on whether the kernel permits the
+helper. These permission conditions are additional to the general OBI kernel, BTF, Linux, and architecture
+requirements above.
 
-The Auto SDK serializes each application-authored span as OTLP JSON. OBI v0.11.0 accepts payloads up to and including
-16 KiB. OBI does not emit a payload that exceeds this limit, and v0.11.0 has no operator-visible drop metric or
-warning for this condition.
+In OBI v0.11.0, each application-authored span must fit within a 16 KiB encoded payload. Spans whose payloads exceed
+this limit are not exported, and v0.11.0 does not report this condition with a metric or warning.
 
 The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this v0.11.0 Auto SDK
 allowlist.
