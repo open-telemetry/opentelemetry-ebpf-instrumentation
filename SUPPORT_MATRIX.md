@@ -132,18 +132,22 @@ OBI v0.11.0 can automatically activate the OpenTelemetry Go Auto SDK for spans c
 `otel.Tracer` API when the application has not registered a `TracerProvider`. See the
 [runnable Go Trace API example](examples/go-trace-api/README.md).
 
-All three canonical, unreplaced modules must be present in the inspected executable with an exact supported version
-and its canonical module checksum:
+All three canonical, unreplaced modules must be present in the inspected executable:
 
-| Module | Exact versions supported by OBI v0.11.0 |
-|:-------|:----------------------------------------|
-| `go.opentelemetry.io/auto/sdk` | `v1.1.0`, `v1.2.0`, `v1.2.1` |
-| `go.opentelemetry.io/otel` | `v1.33.0`, `v1.34.0`, `v1.35.0`, `v1.36.0`, `v1.37.0`, `v1.38.0`, `v1.39.0`, `v1.40.0`, `v1.41.0`, `v1.42.0`, `v1.43.0`, `v1.44.0` |
-| `go.opentelemetry.io/otel/trace` | `v1.33.0`, `v1.34.0`, `v1.35.0`, `v1.36.0`, `v1.37.0`, `v1.38.0`, `v1.39.0`, `v1.40.0`, `v1.41.0`, `v1.42.0`, `v1.43.0`, `v1.44.0` |
+| Module | Compatibility baseline |
+|:-------|:-----------------------|
+| `go.opentelemetry.io/auto/sdk` | `>= v1.1.0` |
+| `go.opentelemetry.io/otel` | `>= v1.33.0` |
+| `go.opentelemetry.io/otel/trace` | `>= v1.33.0` |
 
-These are exact allowlists, not semantic-version ranges, and OBI checks the modules independently. A missing module
-or checksum, a noncanonical checksum, any replacement of one of these module paths, invalid build information, or a
-version not listed above prevents Auto SDK activation.
+Each OBI release recognizes module versions that were available and validated when that release was built. OBI
+v0.11.0 recognizes `go.opentelemetry.io/auto/sdk` `v1.1.0`, `v1.2.0`, and `v1.2.1`, plus the exact `.0` releases of
+`go.opentelemetry.io/otel` and `go.opentelemetry.io/otel/trace` from `v1.33.0` through `v1.44.0`. A module version
+released later requires a newer OBI release that recognizes its canonical checksum.
+
+OBI checks the modules independently. A missing module or checksum, a noncanonical checksum, any replacement of one
+of these module paths, invalid build information, or a version not recognized by that OBI release prevents Auto SDK
+activation.
 
 Activation also requires all of the following:
 
