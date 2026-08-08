@@ -201,8 +201,8 @@ func testGoAutoSDKRichSpans(t *testing.T, version, service string) {
 	assert.Empty(t, root.Diff(
 		jaeger.Tag{Key: "activation.version", Type: "string", Value: version},
 		jaeger.Tag{Key: "activation.root", Type: "bool", Value: true},
-		jaeger.Tag{Key: "otel.library.name", Type: "string", Value: "go-auto-sdk-activation-test"},
-		jaeger.Tag{Key: "otel.library.version", Type: "string", Value: "v1.0.0"},
+		jaeger.Tag{Key: "otel.scope.name", Type: "string", Value: "go-auto-sdk-activation-test"},
+		jaeger.Tag{Key: "otel.scope.version", Type: "string", Value: "v1.0.0"},
 	))
 	require.Len(t, root.Logs, 1)
 	assert.Empty(t, jaeger.Diff([]jaeger.Tag{
