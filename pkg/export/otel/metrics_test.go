@@ -695,6 +695,34 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 	assert.Empty(t, expected)
 }
 
+func TestSpanMetricsNames(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		features        export.Features
+		expectedLatency string
+		expectedCalls   string
+	}{
+		{
+			name:            "otel naming",
+			features:        export.FeatureSpanOTel,
+			expectedLatency: "traces.span.metrics.duration",
+			expectedCalls:   "traces.span.metrics.calls",
+		},
+		{
+			name:            "legacy naming",
+			features:        export.FeatureSpanLegacy,
+			expectedLatency: "traces_spanmetrics_latency",
+			expectedCalls:   "traces_spanmetrics_calls_total",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := &MetricsReporter{jointMetricsCfg: &perapp.MetricsConfig{Features: tc.features}}
+			assert.Equal(t, tc.expectedLatency, mr.spanMetricsLatencyName())
+			assert.Equal(t, tc.expectedCalls, mr.spanMetricsCallsName())
+		})
+	}
+}
+
 func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 
