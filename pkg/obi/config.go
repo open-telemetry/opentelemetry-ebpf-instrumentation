@@ -374,6 +374,7 @@ type Config struct {
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`
 	OTELMetrics  otelcfg.MetricsConfig         `yaml:"otel_metrics_export"`
 	Traces       otelcfg.TracesConfig          `yaml:"otel_traces_export"`
+	Logs         otelcfg.LogsConfig            `yaml:"otel_logs_export"`
 	Prometheus   prom.PrometheusConfig         `yaml:"prometheus_export"`
 	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"OTEL_EBPF_TRACE_PRINTER"`
 
@@ -756,6 +757,10 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if err := c.Traces.NormalizeQueueConfig(); err != nil {
+		return ConfigError(err.Error())
+	}
+
+	if err := c.Logs.NormalizeQueueConfig(); err != nil {
 		return ConfigError(err.Error())
 	}
 

@@ -51,10 +51,12 @@ const (
 const (
 	envTracesProtocol  = "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"
 	envMetricsProtocol = "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL"
+	envLogsProtocol    = "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL"
 	envProtocol        = "OTEL_EXPORTER_OTLP_PROTOCOL"
 	envHeaders         = "OTEL_EXPORTER_OTLP_HEADERS"
 	envTracesHeaders   = "OTEL_EXPORTER_OTLP_TRACES_HEADERS"
 	envMetricsHeaders  = "OTEL_EXPORTER_OTLP_METRICS_HEADERS"
+	envLogsHeaders     = "OTEL_EXPORTER_OTLP_LOGS_HEADERS"
 	envResourceAttrs   = "OTEL_RESOURCE_ATTRIBUTES"
 )
 

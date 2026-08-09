@@ -295,6 +295,9 @@ discovery:
 				// no traces for DNS and GPU by default
 			},
 		},
+		Logs: otelcfg.LogsConfig{
+			CommonEndpoint: "localhost:3131",
+		},
 		Prometheus: prom.PrometheusConfig{
 			Path: "/metrics",
 			Instrumentations: []instrumentations.Instrumentation{

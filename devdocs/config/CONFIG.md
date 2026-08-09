@@ -22,6 +22,7 @@ Generated from [`config-schema.json`](config-schema.json).
 - [`name_resolver`](#name-resolver)
 - [`network`](#network)
 - [`nodejs`](#nodejs)
+- [`otel_logs_export`](#otel-logs-export)
 - [`otel_metrics_export`](#otel-metrics-export)
 - [`otel_traces_export`](#otel-traces-export)
 - [`prometheus_export`](#prometheus-export)
@@ -533,6 +534,22 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `nodejs.enabled` | `boolean` | `OTEL_EBPF_NODEJS_ENABLED` | `true` |  |  |  |
+
+## `otel_logs_export`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `otel_logs_export.backoff_initial_interval` | `duration` | `OTEL_EBPF_LOGS_BACKOFF_INITIAL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Configuration options for BackOffConfig of the logs exporter. See <https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go> Namespaced per-signal (unlike TracesConfig's generically-named equivalents) since this is a new signal and there's no existing precedent of these being intentionally shared across signals. |
+| `otel_logs_export.backoff_max_elapsed_time` | `duration` | `OTEL_EBPF_LOGS_BACKOFF_MAX_ELAPSED_TIME` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `otel_logs_export.backoff_max_interval` | `duration` | `OTEL_EBPF_LOGS_BACKOFF_MAX_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `otel_logs_export.batch_max_size` | `integer` | `OTEL_EBPF_OTLP_LOGS_BATCH_MAX_SIZE` | `0` |  |  | Is the maximum number of log records that the batcher will accumulate before flushing a batch to the sending queue. |
+| `otel_logs_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_LOGS_BATCH_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, etc |  | Is the time after which a batch will be sent regardless of its size. |
+| `otel_logs_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` |  |  |  |  |
+| `otel_logs_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
+| `otel_logs_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Is intentionally the SAME env var as TracesConfig/MetricsConfig's field of the same name — this is an existing shared, not per-signal, knob. |
+| `otel_logs_export.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
+| `otel_logs_export.queue_size` | `integer` | `OTEL_EBPF_OTLP_LOGS_QUEUE_SIZE` | `0` |  |  | Is the maximum number of log records that the sending queue will hold before applying back-pressure. It must be >= `2 * BatchMaxSize`, otherwise the memory queue rejects every batch with "element size too large" and drops log records permanently. If left at 0 it defaults to `4 * BatchMaxSize`. |
+| `otel_logs_export.reporters_cache_len` | `integer` | `OTEL_EBPF_LOGS_REPORT_CACHE_LEN` | `0` |  |  |  |
 
 ## `otel_metrics_export`
 
