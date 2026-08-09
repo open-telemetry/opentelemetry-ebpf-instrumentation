@@ -3,8 +3,7 @@ groups:
   # `generic`, which pkg/appolly/app/svc/svc.go (InstrumentableType.String)
   # reports for executables with no recognized language runtime — OBI
   # instruments processes that carry no SDK at all, a case the upstream enum
-  # has no member for. `generic` is also the value a service carries until
-  # language detection replaces it, so no un-detected state reaches the wire.
+  # has no member for.
   #
   # See ../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).

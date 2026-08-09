@@ -3,9 +3,7 @@ groups:
   # OBI's Aerospike client instrumentation (pkg/ebpf/common/
   # aerospike_detect_transform.go, reported via attr.DBSystemName in
   # pkg/appolly/app/request/span_getters.go) identifies the Aerospike wire
-  # protocol, which upstream semconv v1.41 has no member for. When the getter
-  # recognizes no database system it omits the attribute, so every value that
-  # reaches the wire is one of the members below.
+  # protocol, which upstream semconv v1.41 has no member for.
   #
   # See ../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).

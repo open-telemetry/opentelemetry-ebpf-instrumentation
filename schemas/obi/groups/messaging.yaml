@@ -3,9 +3,7 @@ groups:
   # `mqtt` and `nats` — messaging protocols OBI detects that upstream semconv
   # has no member for. OBI identifies the protocol on the wire, not the broker
   # product behind it, so `amqp` is reported as-is rather than assuming
-  # `rabbitmq`. When the getter recognizes no messaging protocol it omits the
-  # attribute, so every value that reaches the wire is one of the members
-  # below. Emitters: pkg/appolly/app/request/span_getters.go
+  # `rabbitmq`. Emitters: pkg/appolly/app/request/span_getters.go
   # (attr.MessagingSystem) and pkg/export/otel/tracesgen/tracesgen.go.
   #
   # See ../README.md for the override mechanics (x.obi.* group id, full
