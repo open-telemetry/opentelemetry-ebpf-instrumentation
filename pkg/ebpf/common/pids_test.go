@@ -159,6 +159,28 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 	assert.True(t, fi.ExportsOTelTraces())
 }
 
+func TestFilter_ExportsOTelDetectionUndecodedPath(t *testing.T) {
+	const defaultOtlpPort = 4317
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+
+	fi := exec.New(exec.Init{})
+	// Undecoded :path on the shared OTLP gRPC port identifies no signal, so repeated
+	// exports must not accumulate both flags.
+	span := request.Span{
+		Type: request.EventTypeGRPCClient, HostPort: defaultOtlpPort,
+		Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+	}
+
+	pf.checkIfExportsOTel(fi, &span, defaultOtlpPort)
+	pf.checkIfExportsOTel(fi, &span, defaultOtlpPort)
+
+	assert.False(t, fi.ExportsOTelMetrics())
+	assert.False(t, fi.ExportsOTelTraces())
+
+	pf.checkIfExportsOTelSpanMetrics(fi, &span, defaultOtlpPort)
+	assert.False(t, fi.ExportsOTelMetricsSpan())
+}
+
 func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
 	const defaultOtlpPort = 4317
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
