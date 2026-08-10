@@ -95,7 +95,7 @@ func TestCollectorShutdownClearsState(t *testing.T) {
 	collector := newInternalBPFCollector(
 		&global.ContextInfo{Metrics: internalMetrics},
 		&PrometheusConfig{},
-		&perapp.MetricsConfig{},
+		&perapp.GlobalMetricsConfig{},
 	)
 	program := loadTestPrograms(t, 1, ebpf.SocketFilter)[0]
 	id := programID(t, program)
@@ -196,7 +196,7 @@ func newPrivilegedTestCollector(tb testing.TB) *BPFCollector {
 	collector := newCollector(
 		&global.ContextInfo{},
 		&PrometheusConfig{},
-		&perapp.MetricsConfig{},
+		&perapp.GlobalMetricsConfig{},
 		false,
 	)
 	tb.Cleanup(collector.close)
