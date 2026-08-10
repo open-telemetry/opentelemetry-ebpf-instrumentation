@@ -255,6 +255,12 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
             // First we look-up if we have information passed down to us from
             // TCP/IP context propagation.
             tp_info_pid_t *existing_tp = bpf_map_lookup_elem(&incoming_trace_map, &conn);
+            if (existing_tp && !tp_within_transaction(&existing_tp->tp, bpf_ktime_get_ns())) {
+                bpf_dbg_printk("incoming (TCP) tp outlived its transaction, dropping");
+                bpf_map_delete_elem(&incoming_trace_map, &conn);
+                existing_tp = NULL;
+            }
+
             if (existing_tp) {
                 bpf_dbg_printk("Found incoming (TCP) tp for server request");
                 found_info = 1;

@@ -62,15 +62,12 @@ static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
 
 // Use the trace the Go uprobe wrote to outgoing_trace_map (replaces what find_trace_for_client_request returned).
 static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
-    egress_key_t sorted_e = {
-        .d_port = s_key->pid_conn.conn.d_port,
-        .s_port = s_key->pid_conn.conn.s_port,
-        .stream_id = s_key->stream_id,
-    };
-    sort_egress_key(&sorted_e);
+    const egress_key_t sorted_e = make_egress_key_stream(&s_key->pid_conn.conn, s_key->stream_id);
     tp_info_pid_t *injected = bpf_map_lookup_elem(&outgoing_trace_map, &sorted_e);
     // written=1 means a uprobe wrote the entry (not a kprobe's random one).
-    if (injected && injected->valid && injected->written && valid_trace(injected->tp.trace_id)) {
+    if (injected && injected->valid && injected->written && valid_trace(injected->tp.trace_id) &&
+        injected->pid == s_key->pid_conn.pid &&
+        tp_within_transaction(&injected->tp, bpf_ktime_get_ns())) {
         bpf_memcpy(tp->trace_id, injected->tp.trace_id, TRACE_ID_SIZE_BYTES);
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
         bpf_memcpy(tp->parent_id, injected->tp.parent_id, SPAN_ID_SIZE_BYTES);
@@ -255,12 +252,7 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
 
     // delete_client_trace_info only clears stream_id=0 — without this the
     // per-stream entries would leak until the LRU evicts them
-    egress_key_t e_key = {
-        .d_port = stream->pid_conn.conn.d_port,
-        .s_port = stream->pid_conn.conn.s_port,
-        .stream_id = stream->stream_id,
-    };
-    sort_egress_key(&e_key);
+    const egress_key_t e_key = make_egress_key_stream(&stream->pid_conn.conn, stream->stream_id);
     bpf_map_delete_elem(&outgoing_trace_map, &e_key);
 }
 

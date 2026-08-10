@@ -473,6 +473,8 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
     // earlier in  k_tail_find_existing_tp - sorry!
     urand_bytes(tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
     tp_p->tp.flags = 1;
+    // scratch is per-CPU: without this we inherit an older request's ts
+    tp_p->tp.ts = bpf_ktime_get_ns();
     tp_p->valid = 1;
     tp_p->pid = t_ctx->p_conn.pid;
     tp_p->req_type = EVENT_HTTP_CLIENT;
@@ -602,6 +604,8 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
 
     tp_info_pid_t tp = {};
     tp.valid = 1;
+    // lets the server side reject a handover the connection has sat on
+    tp.tp.ts = bpf_ktime_get_ns();
 
     __builtin_memcpy(tp.tp.trace_id, opt.trace_id, sizeof(tp.tp.trace_id));
     __builtin_memcpy(tp.tp.span_id, opt.span_id, sizeof(tp.tp.span_id));
@@ -1114,6 +1118,13 @@ int obi_packet_extender(struct sk_msg_md *msg) {
 
     // skip H2 here — it uses HPACK for per-stream traceparents
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
+    if (tp_pid && !tp_within_transaction(&tp_pid->tp, bpf_ktime_get_ns())) {
+        // a recycled port pair must not inherit the previous connection's trace
+        bpf_dbg_printk("stale tp for this connection, dropping");
+        clear_tp_info_pid(&e_key);
+        tp_pid = NULL;
+    }
+
     if (tp_pid && !is_h2_socket(msg) &&
         handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
         return SK_PASS;
@@ -1184,28 +1195,46 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
-// Stitches the parsed wire tp into the in-process trace context. Returns true
-// when a proxy was just forwarding our own header — caller must overwrite the
-// span_id on the wire to keep the child distinct from the parent
-static __always_inline bool apply_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp) {
+enum wire_tp_kind {
+    // header carries a trace the in-process context knows nothing about
+    k_wire_tp_foreign = 0,
+    // header belongs to the in-process trace; parent assigned
+    k_wire_tp_known = 1,
+    // a proxy was just forwarding our own header — caller must overwrite the
+    // span_id on the wire to keep the child distinct from the parent
+    k_wire_tp_forwarded = 2,
+};
+
+// Stitches the parsed wire tp into the in-process trace context
+static __always_inline enum wire_tp_kind apply_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp) {
     if (!t_ctx->has_parent_tp ||
         bpf_memcmp(tp->trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
-        return false;
+        return k_wire_tp_foreign;
     }
     bpf_memcpy(tp->parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
     if (bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
-        return false;
+        return k_wire_tp_known;
     }
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
-    return true;
+    return k_wire_tp_forwarded;
 }
 
-static __always_inline void
+// false: wire trace unverifiable, caller must build its own
+static __always_inline bool
 assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_id) {
-    if (apply_parent_tp(t_ctx, tp)) {
+    switch (apply_parent_tp(t_ctx, tp)) {
+    case k_wire_tp_forwarded:
         bpf_dbg_printk("detected forwarded TP header, overriding span id");
         encode_hex(span_id, tp->span_id, SPAN_ID_SIZE_BYTES);
+        return true;
+    case k_wire_tp_known:
+        return true;
+    case k_wire_tp_foreign:
+        bpf_dbg_printk("foreign TP header, keeping our own trace");
+        return false;
     }
+
+    return false;
 }
 
 //k_tail_find_existing_tp
@@ -1287,7 +1316,11 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
             // 'Traceparent: ...' header that we can utilise
 
             bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-            assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+            const bool adopted = assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+
+            if (!adopted && !create_trace_info(t_ctx, tp_p)) {
+                return SK_PASS;
+            }
 
             tp_p->tp.ts = bpf_ktime_get_ns();
             tp_p->tp.flags = 1;
@@ -1300,7 +1333,8 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
             set_tp_info_pid(&t_ctx->e_key, tp_p);
 
-            if (inject_flags & k_inject_tcp_options) {
+            // ours differs from the wire: an option would split the app's trace
+            if (adopted && (inject_flags & k_inject_tcp_options)) {
                 schedule_write_tcp_option(msg, tp_p);
             }
 
@@ -1473,7 +1507,8 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             t_ctx->opener = facts.opener;
 
             tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
-            if (go_tp && go_tp->valid && go_tp->written) {
+            if (go_tp && go_tp->valid && go_tp->written &&
+                tp_within_transaction(&go_tp->tp, bpf_ktime_get_ns())) {
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
                 return SK_PASS;
             }
@@ -1686,7 +1721,8 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
         init_tp_ctx_parent_tp(t_ctx);
         bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
         const u32 span_id_offset = hpack_start + target + off;
-        if (apply_parent_tp(t_ctx, &tp_p->tp)) {
+        switch (apply_parent_tp(t_ctx, &tp_p->tp)) {
+        case k_wire_tp_forwarded:
             if (bpf_msg_pull_data(msg, span_id_offset, span_id_offset + SPAN_ID_CHAR_LEN, 0) == 0) {
                 unsigned char *d = msg->data;
                 const unsigned char *e = msg->data_end;
@@ -1694,6 +1730,14 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
                     encode_hex(d, tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
                 }
             }
+            break;
+        case k_wire_tp_foreign:
+            if (!create_trace_info(t_ctx, tp_p)) {
+                return SK_PASS;
+            }
+            break;
+        case k_wire_tp_known:
+            break;
         }
         tp_p->tp.ts = bpf_ktime_get_ns();
         tp_p->valid = 1;
@@ -1739,7 +1783,8 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     bpf_memset(tp_p, 0, sizeof(*tp_p));
 
     tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key);
-    const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id);
+    const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id) &&
+                               tp_within_transaction(&existing->tp, bpf_ktime_get_ns());
 
     h2_inject_facts_t facts = {0};
     facts.opener = t_ctx->opener;

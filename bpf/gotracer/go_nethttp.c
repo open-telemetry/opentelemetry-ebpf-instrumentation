@@ -795,10 +795,7 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     if (info) {
         __builtin_memcpy(&trace->conn, info, sizeof(connection_info_t));
 
-        egress_key_t e_key = {
-            .d_port = info->d_port,
-            .s_port = info->s_port,
-        };
+        const egress_key_t e_key = make_egress_key(info);
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
         bpf_map_delete_elem(&go_ongoing_http, &e_key);
     } else {
@@ -1076,10 +1073,7 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
         go_addr_key_from_id(&g_key, (void *)inv->req_goaddr);
         connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
         if (info) {
-            egress_key_t e_key = {
-                .d_port = info->d_port,
-                .s_port = info->s_port,
-            };
+            const egress_key_t e_key = make_egress_key(info);
             //dbg_print_http_connection_info(info);
             bpf_map_delete_elem(&outgoing_trace_map, &e_key);
             bpf_dbg_printk(
@@ -1715,10 +1709,7 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
                 // We need the PID id to be able to query ongoing_http and update
                 // the span id with the SEQ/ACK pair.
 
-                egress_key_t e_key = {
-                    .d_port = conn.d_port,
-                    .s_port = conn.s_port,
-                };
+                const egress_key_t e_key = make_egress_key(&conn);
 
                 if (tls_state) {
                     // Clone and mark it invalid for the purpose of storing it in the

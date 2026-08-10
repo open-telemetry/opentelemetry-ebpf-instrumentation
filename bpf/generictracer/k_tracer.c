@@ -437,8 +437,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(
             &s_args.p_conn.conn); // commented out since GitHub CI doesn't like this call
-        // Create the egress key before we sort the connection info.
-        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn);
+        const egress_key_t e_key = make_egress_key(&s_args.p_conn.conn);
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
         s_args.orig_dport = orig_dport;

@@ -11,6 +11,7 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
     - [Scenario A: Go HTTP or SSL/TLS (uprobes involved)](#scenario-a-go-http-or-ssltls-uprobes-involved)
     - [Scenario B: Plain HTTP (no uprobes, kprobes only)](#scenario-b-plain-http-no-uprobes-kprobes-only)
     - [Scenario C: Non-HTTP TCP (no uprobes, socket not in sockmap)](#scenario-c-non-http-tcp-no-uprobes-socket-not-in-sockmap)
+  - [Pre-existing Traceparent Handling](#pre-existing-traceparent-handling)
   - [Mutual Exclusion Mechanism](#mutual-exclusion-mechanism)
     - [Case 1: Traffic in sockmap with Go/SSL uprobes](#case-1-traffic-in-sockmap-with-gossl-uprobes)
     - [Case 2: Traffic in sockmap without uprobes (plain HTTP via kprobes)](#case-2-traffic-in-sockmap-without-uprobes-plain-http-via-kprobes)
@@ -93,6 +94,76 @@ The order in which BPF programs execute varies depending on whether Go uprobes o
    - Sets `valid=1, written=0`
 
 Note: tpinjector does not run for this traffic because the socket was not in `sock_dir`. The `iter/tcp` iterator pre-populates `sock_dir` at startup for existing connections; new connections are added via `BPF_SOCK_OPS`.
+
+### Pre-existing Traceparent Handling
+
+When the extender (`sk_msg`) or the kprobe parser finds a `traceparent` already
+present in an outgoing request, `apply_parent_tp` (`bpf/tpinjector/tpinjector.c`)
+classifies it against the in-process trace context:
+
+```text
+wire header trace == in-process trace?
+│
+├─ no  → FOREIGN: a context the application injected itself, or one that a
+│        metrics scraper or proxy sidecar reuses across many requests.
+│        Not adopted: the span keeps the in-process trace and parent, and the
+│        wire is left untouched so the callee still follows the app's header.
+│
+├─ yes, wire span ≠ our parent's parent → KNOWN: a normal downstream hop
+│        inside a trace OBI adopted earlier.
+│        parent ← in-process server span. The wire is left untouched.
+│
+└─ yes, wire span == our parent's parent → FORWARDED: a proxy re-sent our
+         own header. span ← fresh and rewritten on the wire, so the child
+         stays distinct from its parent.
+```
+
+On egress the in-process context always wins. A wire header we cannot tie to a
+request we observed tells us nothing we can verify: the span id in it may be the
+app's own span, or — behind a header-copying proxy such as an Istio sidecar or an
+nginx without OTel instrumentation — the *caller's* span, which is not our parent
+at all. Both look identical from BPF, so neither clearing the parent nor adopting
+the wire span is safe:
+
+- clearing it exports one parentless client span per request into the app's
+  trace, and a scraper reusing one context turns that into thousands of roots;
+- adopting it parents our egress to whatever the header names, which for a
+  copying proxy puts our ingress and egress spans side by side under the caller
+  instead of in a chain, and merges every request that reuses the header into one
+  unbounded trace.
+
+Keeping our own context costs the link to the app's trace — the callee still
+joins it, so the chain has a gap rather than a wrong shape. A missing edge is
+recoverable; a fabricated one is not. When the hop *is* observable in-process,
+KNOWN and FORWARDED cover it and the full chain is preserved.
+
+Backing this up: **adopted contexts expire**. A `tp` cached in a map is only
+evicted under LRU pressure, so any read of one is gated on
+`tp_within_transaction()`, and every writer stamps `ts`. Without this a single
+stale entry keeps adopting new requests for as long as it is hit, which is how one
+trace grew to span nearly a day.
+
+Readers also check `pid` wherever they have one, which keeps one process from
+adopting another's context.
+
+### Known limitation: egress key collisions
+
+`egress_key_t` is `{s_port, d_port, stream_id}`, and the maps keyed by it
+(`outgoing_trace_map`, `msg_buffers`) are shared by every process on the node. Two
+connections in different network namespaces can therefore hold the same key at the
+same time, and nothing in the key distinguishes them.
+
+Reads are validated as far as the available information allows — `pid` plus
+`tp_within_transaction()` — which covers every kprobe and uprobe reader, since a
+colliding peer is a different process. The gap is the `sk_msg` readers: those run
+without a trustworthy current pid (deferred sends are not in the sending task's
+context, which is why `tpinjector.c` compares no pids), so a collision there can
+still be adopted or can evict the rightful owner's entry.
+
+Closing it needs the connection identity stored somewhere — the key or the value —
+since ports alone do not identify a connection. Per-socket storage
+(`bpf_sk_storage`) would be the natural fit but is unavailable to the Go uprobe
+writers, which hold no `struct sock *`.
 
 ### Mutual Exclusion Mechanism
 

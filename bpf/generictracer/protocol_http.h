@@ -40,8 +40,6 @@
 
 volatile const u32 high_request_volume;
 
-SCRATCH_MEM_SIZED(http_previous_trace_id, TRACE_ID_SIZE_BYTES);
-
 // empty_http_info zeroes and return the unique percpu copy in the map
 // this function assumes that a given thread is not trying to use many
 // instances at the same time
@@ -552,36 +550,23 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
             buf[buf_len] = '\0';
 
             unsigned char *res = tp_loop_fn(buf, buf_len);
-            if (res) {
+            const bool is_client = meta && meta->type == EVENT_HTTP_CLIENT;
+
+            if (res && !is_client) {
                 bpf_dbg_printk("Found traceparent in headers [%s] overriding what was before", res);
-                unsigned char *t_id = extract_trace_id(res);
-                unsigned char *s_id = extract_span_id(res);
-                unsigned char *f_id = extract_flags(res);
-                const bool is_client = meta && meta->type == EVENT_HTTP_CLIENT;
-                unsigned char *previous_trace_id = NULL;
 
-                if (is_client && valid_trace(tp_p->tp.trace_id)) {
-                    previous_trace_id = (unsigned char *)http_previous_trace_id_mem();
-                    if (previous_trace_id) {
-                        __builtin_memcpy(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES);
-                    }
-                }
-
-                decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
-                decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
-                if (meta && meta->type != EVENT_HTTP_CLIENT) {
-                    decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
-                } else if (previous_trace_id &&
-                           bpf_memcmp(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES) !=
-                               0) {
-                    __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-                }
+                decode_hex(tp_p->tp.trace_id, extract_trace_id(res), TRACE_ID_CHAR_LEN);
+                decode_hex((unsigned char *)&tp_p->tp.flags, extract_flags(res), FLAGS_CHAR_LEN);
+                decode_hex(tp_p->tp.parent_id, extract_span_id(res), SPAN_ID_CHAR_LEN);
 
                 if (g_bpf_debug) {
                     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
                     make_tp_string(tp_buf, &tp_p->tp);
                     bpf_dbg_printk("new tp: %s", tp_buf);
                 }
+            } else if (res) {
+                // the app's own header is unverifiable, so it never moves our span
+                bpf_dbg_printk("Found app traceparent on egress, keeping our own context");
             } else {
                 bpf_dbg_printk("No additional traceparent in headers, using what was made before");
             }
@@ -644,17 +629,12 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
-    egress_key_t e_key = {
-        .d_port = args->pid_conn.conn.d_port,
-        .s_port = args->pid_conn.conn.s_port,
-    };
-
-    sort_egress_key(&e_key);
+    const egress_key_t e_key = make_egress_key(&args->pid_conn.conn);
 
     tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
 
     if (tp_p && tp_p->req_type == EVENT_HTTP_CLIENT && tp_p->written &&
-        tp_p->pid == args->pid_conn.pid) {
+        tp_p->pid == args->pid_conn.pid && tp_within_transaction(&tp_p->tp, bpf_ktime_get_ns())) {
         bpf_dbg_printk("found tp info previously set by sock msg");
         // we've already got a tp_info_pid_t setup by the sockmsg program, use
         // that instead

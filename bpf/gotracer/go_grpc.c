@@ -798,12 +798,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
             tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
             tp_p.req_type = EVENT_HTTP_CLIENT;
 
-            egress_key_t e_key = {
-                .d_port = conn_info->d_port,
-                .s_port = conn_info->s_port,
-                .stream_id = (u32)stream_id,
-            };
-            sort_egress_key(&e_key);
+            const egress_key_t e_key = make_egress_key_stream(conn_info, (u32)stream_id);
             bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
 
             pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
@@ -1080,12 +1075,7 @@ int obi_uprobe_grpc_loopyWriter_originateStream(struct pt_regs *ctx) {
         tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
         tp_p.req_type = EVENT_HTTP_CLIENT;
 
-        egress_key_t e_key = {
-            .d_port = conn_info->d_port,
-            .s_port = conn_info->s_port,
-            .stream_id = stream_id,
-        };
-        sort_egress_key(&e_key);
+        const egress_key_t e_key = make_egress_key_stream(conn_info, stream_id);
         bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
 
         pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};

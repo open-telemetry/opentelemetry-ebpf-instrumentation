@@ -221,13 +221,20 @@ static __always_inline u8 is_empty_connection_info(const connection_info_t *conn
     return conn->s_port == 0 && conn->d_port == 0;
 }
 
-static __always_inline egress_key_t make_egress_key(const connection_info_t *conn) {
+// Sorts internally so either direction of a connection yields one key
+static __always_inline egress_key_t make_egress_key_stream(const connection_info_t *conn,
+                                                           u32 stream_id) {
     egress_key_t e_key = {
-        .d_port = conn->d_port,
         .s_port = conn->s_port,
+        .d_port = conn->d_port,
+        .stream_id = stream_id,
     };
 
     sort_egress_key(&e_key);
 
     return e_key;
+}
+
+static __always_inline egress_key_t make_egress_key(const connection_info_t *conn) {
+    return make_egress_key_stream(conn, 0);
 }

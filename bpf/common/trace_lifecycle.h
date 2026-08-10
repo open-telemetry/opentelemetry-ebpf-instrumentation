@@ -8,6 +8,7 @@
 
 #include <common/event_defs.h>
 #include <common/runtime.h>
+#include <common/trace_helpers.h>
 #include <common/trace_key.h>
 #include <common/tracing.h>
 
@@ -41,11 +42,7 @@ static __always_inline void delete_client_trace_info(pid_connection_info_t *pid_
 
     delete_trace_info_for_connection(&pid_conn->conn, TRACE_TYPE_CLIENT);
 
-    egress_key_t e_key = {
-        .d_port = pid_conn->conn.d_port,
-        .s_port = pid_conn->conn.s_port,
-    };
-    sort_egress_key(&e_key);
+    const egress_key_t e_key = make_egress_key(&pid_conn->conn);
     bpf_map_delete_elem(&outgoing_trace_map, &e_key);
     bpf_map_delete_elem(&cp_support_connect_info, pid_conn);
 }
@@ -57,6 +54,12 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
     connection_info_t sorted_conn = *conn;
     sort_connection_info(&sorted_conn);
     tp_info_pid_t *existing_tp = bpf_map_lookup_elem(&incoming_trace_map, &sorted_conn);
+    if (existing_tp && !tp_within_transaction(&existing_tp->tp, bpf_ktime_get_ns())) {
+        bpf_dbg_printk("incoming (TCP/IP) tp outlived its transaction, dropping");
+        bpf_map_delete_elem(&incoming_trace_map, &sorted_conn);
+        existing_tp = NULL;
+    }
+
     if (existing_tp) {
         found_tp = 1;
         bpf_dbg_printk("Found incoming (TCP/IP) tp for server request");
@@ -166,12 +169,7 @@ static __always_inline void server_or_client_trace(const u8 type,
         // We need the PID id to be able to query ongoing_http and update
         // the span id with the SEQ/ACK pair.
         tp_p->pid = host_pid;
-        egress_key_t e_key = {
-            .d_port = conn->d_port,
-            .s_port = conn->s_port,
-            .stream_id = stream_id,
-        };
-        sort_egress_key(&e_key);
+        const egress_key_t e_key = make_egress_key_stream(conn, stream_id);
 
         if (ssl) {
             // Clone and mark it invalid for the purpose of storing it in the

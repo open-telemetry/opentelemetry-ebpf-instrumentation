@@ -5,6 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 
+// Ports collide across namespaces; readers must validate pid and freshness
 typedef struct egress_key {
     u16 s_port;
     u16 d_port;

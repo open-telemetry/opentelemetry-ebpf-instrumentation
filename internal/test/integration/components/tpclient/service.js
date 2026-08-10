@@ -22,6 +22,12 @@ const STATIC_TRACEPARENT = '00-12345678901234567890123456789012-0000000000000001
 // This traceparent is forwarded unchanged through the chain to trigger eBPF proxy detection
 const FORWARDED_TRACEPARENT = '00-12345678901234567890123456789012-1111111111111111-01';
 
+// Scraper-style traceparent: reused unchanged across MANY independent client
+// calls, like a metrics scraper or a proxy sidecar reusing one context
+const SCRAPER_TRACEPARENT = '00-abcdefabcdefabcdefabcdefabcdef12-2222222222222222-01';
+const http = require('http');
+const keepAliveAgent = new http.Agent({ keepAlive: true });
+
 // Endpoint: Request WITHOUT traceparent (eBPF should generate)
 app.get('/no-tp', async (req, res) => {
   if (upstream) {
@@ -71,6 +77,35 @@ app.get('/with-tp', async (req, res) => {
   } else {
     res.send(`End of chain (${route})`);
   }
+});
+
+// Endpoint: scraper burst — N sequential client calls over one keep-alive
+// connection, every one carrying the SAME traceparent. None of the resulting
+// client spans may become a root of that trace.
+app.get('/scrape-burst', async (req, res) => {
+  const n = parseInt(req.query.n || '15', 10);
+  if (!upstream) {
+    res.send(`End of chain (${route})`);
+    return;
+  }
+  try {
+    for (let i = 0; i < n; i++) {
+      await axios.get(`${upstream}/scraped`, {
+        headers: { 'traceparent': SCRAPER_TRACEPARENT },
+        httpAgent: keepAliveAgent,
+      });
+    }
+    console.log(`[${route}/scrape-burst] completed ${n} scrapes`);
+    res.send(`${route}/scrape-burst completed ${n}`);
+  } catch (err) {
+    console.error(`[${route}/scrape-burst] Error:`, err.message);
+    res.status(500).send(`Error: ${err.message}`);
+  }
+});
+
+// Endpoint: scrape target — terminates without forwarding
+app.get('/scraped', (req, res) => {
+  res.send(`scraped (${route})`);
 });
 
 // Endpoint: Request WITH forwarded traceparent (eBPF should detect proxy and override span ID)

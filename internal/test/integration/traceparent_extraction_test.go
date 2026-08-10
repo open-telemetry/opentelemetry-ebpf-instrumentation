@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"net/http"
 	"path"
 	"testing"
@@ -19,8 +20,14 @@ import (
 )
 
 const (
-	staticTraceID   = "12345678901234567890123456789012" // Easy to spot
-	forwardedSpanID = "1111111111111111"                 // Span ID used in forwarded traceparent
+	staticTraceID = "12345678901234567890123456789012" // Easy to spot
+	staticSpanID  = "0000000000000001"                 // Span ID in the static traceparent
+	// the test client increments the span ID by 0x10 before injecting
+	staticSpanIDSentByA = "0000000000000011"
+	forwardedSpanID     = "1111111111111111"                 // Span ID used in forwarded traceparent
+	scraperTraceID      = "abcdefabcdefabcdefabcdefabcdef12" // Trace reused across every scrape
+	scraperSpanID       = "2222222222222222"                 // Span ID reused across every scrape
+	scrapeBurstLen      = 15
 )
 
 // TestTraceparentExtraction validates that the eBPF tpinjector correctly:
@@ -57,6 +64,7 @@ func TestTraceparentExtraction(t *testing.T) {
 	t.Run("without_traceparent", testWithoutTraceparent)
 	t.Run("with_traceparent", testWithTraceparent)
 	t.Run("with_forwarded_traceparent", testWithForwardedTraceparent)
+	t.Run("scraper_burst_never_joins_reused_trace", testScraperBurstNeverJoinsReusedTrace)
 
 	runWeaverValidation(t)
 
@@ -135,17 +143,31 @@ func testWithTraceparent(t *testing.T) {
 	require.GreaterOrEqual(t, len(trace.Spans), 3,
 		"Should have spans from all services in the chain (a, b, c)")
 
-	serviceAClientSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-a", "client")
-	require.GreaterOrEqual(t, len(serviceAClientSpans), 1, "should find tpclient-a client span")
-	requireNoChildOfReference(t, serviceAClientSpans[0],
-		"tpclient-a client span should not inherit a parent from the generated server trace")
-
+	// wire left untouched, so the callee still parents to the app's span
 	serviceBServerSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-b", "server")
 	require.GreaterOrEqual(t, len(serviceBServerSpans), 1, "should find tpclient-b server span")
+	requireChildOfSpanID(t, serviceBServerSpans[0], staticSpanIDSentByA,
+		"tpclient-b server span should parent to the span tpclient-a put on the wire")
+
 	serviceBClientSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-b", "client")
 	require.GreaterOrEqual(t, len(serviceBClientSpans), 1, "should find tpclient-b client span")
 	requireChildOfReference(t, serviceBClientSpans[0], serviceBServerSpans[0],
 		"tpclient-b client span should keep the matching in-process parent")
+
+	// unverifiable on egress: the client span stays in the inbound trace
+	require.Empty(t, trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-a", "client"),
+		"tpclient-a client span must not join a trace the app injected on egress")
+
+	ownTrace := findTraceExcluding(t, "GET%20%2Fwith-tp", staticTraceID)
+	logTraceShape(t, "tpclient-a own trace", ownTrace)
+
+	serviceAServerSpans := ownTrace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-a", "server")
+	require.GreaterOrEqual(t, len(serviceAServerSpans), 1, "should find tpclient-a server span")
+	serviceAClientSpans := ownTrace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-a", "client")
+	require.GreaterOrEqual(t, len(serviceAClientSpans), 1, "should find tpclient-a client span")
+
+	requireDescendantOf(t, ownTrace, serviceAClientSpans[0], serviceAServerSpans[0],
+		"tpclient-a client span should stay under its own server span")
 }
 
 // testWithForwardedTraceparent validates that when the SAME Traceparent is forwarded
@@ -196,12 +218,133 @@ func testWithForwardedTraceparent(t *testing.T) {
 		"Should have spans from all services in the chain (a, b, c)")
 }
 
-func requireNoChildOfReference(t *testing.T, span jaeger.Span, msgAndArgs ...any) {
+// a scraper reusing one traceparent must never pull our spans into its trace
+func testScraperBurstNeverJoinsReusedTrace(t *testing.T) {
+	ti.DoHTTPGet(t, fmt.Sprintf("http://localhost:6000/scrape-burst?n=%d", scrapeBurstLen), 200)
+
+	var trace jaeger.Trace
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-b&traceID=" + scraperTraceID)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		require.GreaterOrEqual(ct, len(tq.Data), 1, "should find the scraper trace")
+		trace = tq.Data[0]
+
+		serverSpans := trace.FindByOperationNameServiceAndKind("GET /scraped", "tpclient-b", "server")
+		require.GreaterOrEqual(ct, len(serverSpans), scrapeBurstLen, "every scrape must reach the callee")
+	}, testTimeout, 100*time.Millisecond)
+
+	// the app's own propagation: none of it may be a root we introduced
+	spanIDs := map[string]struct{}{}
+	for _, span := range trace.Spans {
+		require.Equal(t, scraperTraceID, span.TraceID)
+
+		requireChildOfSpanID(t, span, scraperSpanID,
+			"span %q must parent to the reused header span, never become a root of the app's trace",
+			span.OperationName)
+
+		_, dup := spanIDs[span.SpanID]
+		require.False(t, dup, "span IDs within the scraper trace must be unique")
+		spanIDs[span.SpanID] = struct{}{}
+	}
+
+	require.Empty(t, trace.FindByOperationNameServiceAndKind("GET /scraped", "tpclient-a", "client"),
+		"the scraper's own client spans must not join the trace it keeps reusing")
+
+	// every scrape stays under the request that triggered the burst
+	ownTrace := findTraceExcluding(t, "GET%20%2Fscrape-burst", scraperTraceID)
+	burstServerSpans := ownTrace.FindByOperationNameServiceAndKind("GET /scrape-burst", "tpclient-a", "server")
+	require.GreaterOrEqual(t, len(burstServerSpans), 1, "should find the tpclient-a server span for the burst")
+	scrapeClientSpans := ownTrace.FindByOperationNameServiceAndKind("GET /scraped", "tpclient-a", "client")
+	require.GreaterOrEqual(t, len(scrapeClientSpans), scrapeBurstLen, "all scrapes must be captured")
+
+	for _, span := range scrapeClientSpans {
+		requireDescendantOf(t, ownTrace, span, burstServerSpans[0],
+			"each scrape must stay under the request that made it")
+	}
+}
+
+// server spans export "in queue"/"processing" children, so calls hang off "processing"
+func requireDescendantOf(t *testing.T, trace jaeger.Trace, child, ancestor jaeger.Span, msgAndArgs ...any) {
 	t.Helper()
 
-	for _, ref := range span.References {
-		require.NotEqual(t, "CHILD_OF", ref.RefType, msgAndArgs...)
+	current := child
+
+	for range len(trace.Spans) {
+		parent, ok := trace.ParentOf(&current)
+		if !ok {
+			break
+		}
+
+		if parent.SpanID == ancestor.SpanID {
+			return
+		}
+
+		current = parent
 	}
+
+	require.Fail(t, "span does not descend from the expected ancestor", msgAndArgs...)
+}
+
+func logTraceShape(t *testing.T, label string, trace jaeger.Trace) {
+	t.Helper()
+
+	t.Logf("%s: traceID=%s spans=%d", label, trace.TraceID, len(trace.Spans))
+
+	for _, span := range trace.Spans {
+		parent := "<root>"
+		for _, ref := range span.References {
+			if ref.RefType == "CHILD_OF" {
+				parent = ref.SpanID
+			}
+		}
+		kind, _ := jaeger.FindIn(span.Tags, "span.kind")
+		t.Logf("  span=%s parent=%s kind=%v op=%q svc=%s",
+			span.SpanID, parent, kind.Value, span.OperationName,
+			trace.Processes[span.ProcessID].ServiceName)
+	}
+}
+
+// the trace OBI resolved itself, not the one the app injected
+func findTraceExcluding(t *testing.T, operation, excludedTraceID string) jaeger.Trace {
+	t.Helper()
+
+	var found jaeger.Trace
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&operation=" + operation)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		for _, tr := range tq.Data {
+			if tr.TraceID != excludedTraceID && len(tr.Spans) > 0 {
+				found = tr
+				return
+			}
+		}
+
+		require.Fail(ct, "no trace of OBI's own making found", "operation=%s", operation)
+	}, testTimeout, 100*time.Millisecond)
+
+	return found
+}
+
+func requireChildOfSpanID(t *testing.T, child jaeger.Span, parentSpanID string, msgAndArgs ...any) {
+	t.Helper()
+
+	for _, ref := range child.References {
+		if ref.RefType == "CHILD_OF" {
+			require.Equal(t, parentSpanID, ref.SpanID, msgAndArgs...)
+			return
+		}
+	}
+	require.Fail(t, "no CHILD_OF reference found", msgAndArgs...)
 }
 
 func requireChildOfReference(t *testing.T, child, parent jaeger.Span, msgAndArgs ...any) {
