@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 
@@ -137,3 +138,21 @@ func (i *NodeInjector) isNodeInspector(conn net.Conn) bool {
 
 //go:embed fdextractor.js
 var _extractorCode string
+
+// rtEnabledPlaceholder is substituted at injection time so a traces-only
+// injection never installs the runtime-metrics sampling machinery in the
+// target process (see the RT_ENABLED comment in fdextractor.js).
+const (
+	rtEnabledPlaceholder = "= false; /*OBI_RT_ENABLED*/"
+	rtEnabledOn          = "= true; /*OBI_RT_ENABLED*/"
+)
+
+// agentCode returns the extractor script with the runtime-metrics gate set
+// from the same config gate that drives the nodejs_runtime_metrics_enabled
+// BPF constant, so the agent and the decoder cannot disagree.
+func (i *NodeInjector) agentCode() string {
+	if !i.cfg.AppRuntimeMetricsEnabled() {
+		return _extractorCode
+	}
+	return strings.Replace(_extractorCode, rtEnabledPlaceholder, rtEnabledOn, 1)
+}

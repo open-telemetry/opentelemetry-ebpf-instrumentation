@@ -132,15 +132,30 @@
   // so making it configurable means templating it at injection time.
   const RT_SAMPLING_INTERVAL_MS = 1000;
 
+  // Substituted by the injector from the same gate that sets the
+  // nodejs_runtime_metrics_enabled BPF constant. When false (injection
+  // triggered by traces only) the sampling machinery is never installed —
+  // notably monitorEventLoopDelay's internal 10ms timer, which would
+  // otherwise wake an idle event loop ~100 times per second.
+  const RT_ENABLED = false; /*OBI_RT_ENABLED*/
+
+  // Cleanup stays outside the gate: a re-injection with runtime metrics
+  // disabled must tear down what a previous injection installed.
   if (orig.rtTimer) {
     clearInterval(orig.rtTimer);
+    orig.rtTimer = undefined;
+  }
+  if (!RT_ENABLED && orig.rtHistogram) {
+    orig.rtHistogram.disable();
+    orig.rtHistogram = undefined;
   }
 
   // eventLoopUtilization needs Node 14.10+. Without this guard the interval
   // callback below would throw an uncaught TypeError, which by default
   // terminates the application. Older runtimes simply report no runtime
   // metrics.
-  if (typeof performance.eventLoopUtilization === 'function' &&
+  if (RT_ENABLED &&
+      typeof performance.eventLoopUtilization === 'function' &&
       typeof monitorEventLoopDelay === 'function') {
     if (!orig.rtHistogram) {
       orig.rtHistogram = monitorEventLoopDelay({ resolution: 10 });

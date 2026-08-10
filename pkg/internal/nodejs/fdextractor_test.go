@@ -8,19 +8,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-// TestRuntimeMetricsFieldOrderMatchesEventStruct pins the order of the
-// runtime-metrics fields the agent encodes to the wire order the BPF decoder
-// assigns positionally (struct nodejs_eventloop_event in
-// bpf/generictracer/types/nodejs.h, mirrored by nodejsEventLoopRawEvent in
-// pkg/ebpf/common). The Go↔C layout is pinned by TestNodejsEventLoopRawABI;
-// this closes the remaining JS↔C gap: reordering the array in fdextractor.js
-// would silently swap metric values in production while every other test
-// stays green.
+// TestRuntimeMetricsFieldOrderMatchesEventStruct pins the JS-side field order
+// to the wire order the BPF decoder assigns positionally (struct
+// nodejs_eventloop_event); the Go↔C layout is pinned by
+// TestNodejsEventLoopRawABI. Reordering the array in fdextractor.js would
+// silently swap metric values while every other test stays green.
 func TestRuntimeMetricsFieldOrderMatchesEventStruct(t *testing.T) {
 	src := _extractorCode
 
@@ -56,11 +54,10 @@ func TestRuntimeMetricsFieldOrderMatchesEventStruct(t *testing.T) {
 		"unexpected number of entries in the fields array")
 }
 
-// TestAgentCodeGatesRuntimeMetrics pins the injection-time substitution: the
-// placeholder must exist exactly once in the script, stay false without the
-// runtime-metrics feature, and flip to true with it. A drifted placeholder
-// (e.g. reformatted by an editor) would silently leave runtime metrics off
-// for every injection.
+// TestAgentCodeGatesRuntimeMetrics pins the injection-time substitution: each
+// placeholder must exist exactly once and flip only with its own config gate.
+// A drifted placeholder would silently leave that machinery off for every
+// injection.
 func TestAgentCodeGatesRuntimeMetrics(t *testing.T) {
 	require.Equal(t, 1, strings.Count(_extractorCode, rtEnabledPlaceholder),
 		"RT_ENABLED placeholder missing or duplicated in fdextractor.js")

