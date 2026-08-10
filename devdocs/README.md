@@ -1,10 +1,16 @@
 # Documentation for developers
 
-This directory contains documentation that is not useful for our users but might be useful for developers.
+This directory contains developer documentation and repository-hosted design
+references. It also contains the operator-facing Config migration guide linked
+from the repository README. General setup documentation lives on the
+OpenTelemetry website.
 
 ## Table Of Contents
 
 - [Pipeline Map](pipeline-map.md): explanation of pipeline map.
+- [Config v1 to v2 migration](config/version-2.0/migration.md): operator guide
+  for migrating and validating standalone and Collector receiver
+  configurations.
 - [Profiling](profiling.md): how to profile OBI.
 - [Features](features.md): features supported by OBI.
 - [Context Propagation Architecture](context-propagation.md): how OpenTelemetry context propagation works in the eBPF instrumentation.
