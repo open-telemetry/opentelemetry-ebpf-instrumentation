@@ -262,7 +262,7 @@ func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 	assert.Equal(t, CompleteRoutes, result.Kind)
 }
 
-func TestHarvestDenoRoutes_Successful(t *testing.T) {
+func TestHarvestDenoRoutes_UsesJavaScriptExtractor(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, time.Second)
 	harvester.nodeExtractRoutes = successfulNodeExtractRoutes
 
