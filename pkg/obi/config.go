@@ -810,9 +810,16 @@ func (c *Config) validate(context validationContext) error {
 			return ConfigError("you can only enable one format of span metrics," +
 				" application_span or application_span_otel")
 		}
+		// Only reachable for "all"/"*": setting both formats explicitly is rejected above.
+		// The user did not pick the legacy format, so this reports the resolution only and
+		// leaves the deprecation notice to the features that stay enabled.
 		if c.Metrics.Features.ResolveSpanMetricsConflict() {
-			slog.Warn("application_span and application_span_otel cannot be used together, application_span_otel is selected automatically")
+			slog.Warn("application_span and application_span_otel cannot be used together," +
+				" application_span_otel is selected automatically")
 		}
+		// Per-service sections can enable features the top-level list does not, and they
+		// drive the exporters through JoinMetricsConfig, so report against the same set.
+		c.warnDeprecatedMetricsFeatures()
 	}
 
 	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && c.InternalMetrics.Prometheus.Port != 0 {
@@ -823,6 +830,20 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	return nil
+}
+
+// warnDeprecatedMetricsFeatures reports every deprecated metrics feature that is still
+// enabled, across the top-level and per-service configurations.
+func (c *Config) warnDeprecatedMetricsFeatures() {
+	for _, deprecated := range c.JoinMetricsConfig().Features.DeprecatedEnabled() {
+		if deprecated.Replacement == "" {
+			slog.Warn("metrics feature is deprecated and will be removed in a future release",
+				"feature", deprecated.Name)
+			continue
+		}
+		slog.Warn("metrics feature is deprecated and will be removed in a future release",
+			"feature", deprecated.Name, "use", deprecated.Replacement)
+	}
 }
 
 func (c *Config) enabledForValidation(feature Feature, context validationContext) bool {

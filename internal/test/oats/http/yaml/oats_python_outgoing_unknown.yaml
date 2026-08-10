@@ -15,7 +15,7 @@ expected:
       client.address: testserver
       server.address: 8.8.8.9
   metrics:
-  - promql: traces_spanmetrics_latency_count{service_name="testserver", span_name="CONNECT", status_code="STATUS_CODE_ERROR", span_kind="SPAN_KIND_CLIENT" }
+  - promql: traces_span_metrics_duration_seconds_count{service_name="testserver", span_name="CONNECT", status_code="STATUS_CODE_ERROR", span_kind="SPAN_KIND_CLIENT" }
     value: '> 1'
   - promql: traces_service_graph_request_failed_total{client="testserver", server="outgoing"}
     value: '> 1'

@@ -597,6 +597,81 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
+func TestConfigValidate_DeprecatedMetricsFeatureWarning(t *testing.T) {
+	captureWarnings := func(t *testing.T, validate func(t *testing.T)) string {
+		t.Helper()
+		var logs bytes.Buffer
+		restore := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		t.Cleanup(func() { slog.SetDefault(restore) })
+
+		validate(t)
+		return logs.String()
+	}
+
+	validateWithFeatures := func(t *testing.T, features string) string {
+		t.Helper()
+		return captureWarnings(t, func(t *testing.T) {
+			require.NoError(t, loadConfig(t, envMap{
+				"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234",
+				"OTEL_EBPF_EXECUTABLE_PATH":           "foo",
+				"OTEL_EBPF_METRICS_FEATURES":          features,
+			}).Validate())
+		})
+	}
+
+	t.Run("warns for application_span", func(t *testing.T) {
+		logs := validateWithFeatures(t, "application,application_span")
+		assert.Contains(t, logs, "feature=application_span")
+		assert.Contains(t, logs, "use=application_span_otel")
+	})
+
+	// application_span_sizes has no OTel-named equivalent, so it is reported without a
+	// replacement rather than pointing at a feature that does not exist.
+	t.Run("warns for application_span_sizes without a replacement", func(t *testing.T) {
+		logs := validateWithFeatures(t, "application,application_span_sizes")
+		assert.Contains(t, logs, "feature=application_span_sizes")
+		assert.NotContains(t, logs, "use=")
+	})
+
+	t.Run("silent for application_span_otel", func(t *testing.T) {
+		assert.NotContains(t, validateWithFeatures(t, "application,application_span_otel"), "deprecated")
+	})
+
+	// "all" enables both span-metric formats; the conflict is resolved in favor of OTel,
+	// so application_span must not be reported as deprecated anywhere in the output --
+	// including inside the conflict-resolution message, which only "all"/"*" ever sees.
+	// application_span_sizes is not resolved away and keeps emitting, so it is reported.
+	t.Run("all reports only the features that remain enabled", func(t *testing.T) {
+		logs := validateWithFeatures(t, "all")
+		assert.NotContains(t, logs, "feature=application_span ")
+		assert.NotContains(t, logs, "application_span is deprecated")
+		assert.Contains(t, logs, "application_span_otel is selected automatically")
+		assert.Contains(t, logs, "feature=application_span_sizes")
+	})
+
+	// Per-service sections feed the exporters through JoinMetricsConfig, so a feature
+	// enabled only there must still be reported.
+	t.Run("warns for a feature enabled only per-service", func(t *testing.T) {
+		logs := captureWarnings(t, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+			cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span"]
+`))
+			require.NoError(t, err)
+			require.NoError(t, cfg.Validate())
+		})
+		assert.Contains(t, logs, "feature=application_span")
+		assert.Contains(t, logs, "use=application_span_otel")
+	})
+}
+
 func TestConfigValidate_error(t *testing.T) {
 	testCases := []envMap{
 		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "INSTRUMENT_FUNC_NAME": "bar"},
