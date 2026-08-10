@@ -432,7 +432,7 @@ func (p *Tracer) constants() map[string]any {
 	}
 
 	m := map[string]any{
-		"g_bpf_debug":               p.cfg.DebugMode().Flags(),
+		"g_bpf_debug":               uint32(p.cfg.DebugMode()),
 		"g_bpf_header_propagation":  p.supportsContextPropagation(),
 		"wakeup_data_bytes":         uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
 		"disable_black_box_cp":      blackBoxCP,

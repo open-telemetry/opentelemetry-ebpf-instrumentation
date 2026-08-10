@@ -269,7 +269,7 @@ func (p *Tracer) constants() map[string]any {
 
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
-	m["g_bpf_debug"] = p.cfg.EBPF.DebugMode().Flags()
+	m["g_bpf_debug"] = uint32(p.cfg.EBPF.DebugMode())
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
 	m["jvm_sampling_interval_ns"] = uint64(0)
 	if p.jvmRuntimeMetricsEnabled() {

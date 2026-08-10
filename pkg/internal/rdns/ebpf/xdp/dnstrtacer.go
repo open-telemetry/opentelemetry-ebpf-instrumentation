@@ -58,7 +58,8 @@ func newTracer(ebpfCfg *config.EBPFTracer) (*tracer, error) {
 
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
-	if err := convenience.LoadSpec(spec, &objects, nil, sharedMaps, &mu, "", nil); err != nil {
+	constants := map[string]any{"g_bpf_debug": uint32(ebpfCfg.DebugMode())}
+	if err := convenience.LoadSpec(spec, &objects, constants, sharedMaps, &mu, "", nil); err != nil {
 		return nil, err
 	}
 

@@ -48,35 +48,30 @@ func TestBPFDebugMode_Accessors(t *testing.T) {
 		mode          BPFDebugMode
 		wantEnabled   bool
 		wantUserspace bool
-		wantFlags     uint32
 	}{
 		{
 			name:          "disabled",
 			mode:          BPFDebugDisabled,
 			wantEnabled:   false,
 			wantUserspace: false,
-			wantFlags:     0,
 		},
 		{
 			name:          "trace pipe",
 			mode:          BPFDebugTracePipe,
 			wantEnabled:   true,
 			wantUserspace: false,
-			wantFlags:     uint32(BPFDebugTracePipe),
 		},
 		{
 			name:          "userspace",
 			mode:          BPFDebugUserspace,
 			wantEnabled:   true,
 			wantUserspace: true,
-			wantFlags:     uint32(BPFDebugUserspace),
 		},
 		{
 			name:          "default",
 			mode:          BPFDebugAll,
 			wantEnabled:   true,
 			wantUserspace: true,
-			wantFlags:     uint32(BPFDebugAll),
 		},
 	}
 
@@ -87,9 +82,6 @@ func TestBPFDebugMode_Accessors(t *testing.T) {
 			}
 			if got := tt.mode.IsUserspaceEnabled(); got != tt.wantUserspace {
 				t.Errorf("IsUserspaceEnabled() got = %v, want %v", got, tt.wantUserspace)
-			}
-			if got := tt.mode.Flags(); got != tt.wantFlags {
-				t.Errorf("Flags() got = %v, want %v", got, tt.wantFlags)
 			}
 		})
 	}

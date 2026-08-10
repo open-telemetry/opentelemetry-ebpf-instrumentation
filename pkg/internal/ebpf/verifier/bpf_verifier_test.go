@@ -179,6 +179,10 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		uint32(config.BPFDebugDisabled),
 		uint32(config.BPFDebugTracePipe),
 	}
+	// tpinjector already has a broad inject_flags matrix. Keeping userspace debug
+	// coverage in the dedicated logger and other smaller programs avoids timing out
+	// the bpf-next verifier while preserving coverage for distinct debug paths.
+	tpInjectorDebugFlags := tracePipeDebugFlags
 
 	// netolly
 	netollyOpts := []constOption{
@@ -218,7 +222,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// tpinjector
 	// inject_flags is a bitmask: bit 0 = HTTP headers, bit 1 = TCP options.
 	forEachCombination(t, "tpinjector/Bpf", tpinjectorbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", debugFlags},
+		{"g_bpf_debug", tpInjectorDebugFlags},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
@@ -228,7 +232,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// has a separate >= 6.4 gate (RCU stall) enforced in tpinjector.Iters.
 	if major, minor := ebpfcommon.KernelVersion(); major > 5 || (major == 5 && minor >= 11) {
 		forEachCombination(t, "tpinjector/BpfIter", tpinjectorbpf.LoadBpfIter, []constOption{
-			{"g_bpf_debug", debugFlags},
+			{"g_bpf_debug", tpInjectorDebugFlags},
 		})
 	} else {
 		t.Logf("skipping tpinjector/BpfIter: kernel %d.%d < 5.11", major, minor)
@@ -237,7 +241,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// tpinjector/BpfFionreadFixup uses bpf_probe_write_user, rejected at load time
 	// under kernel lockdown - none of the CI kernels run locked down
 	forEachCombination(t, "tpinjector/BpfFionreadFixup", tpinjectorbpf.LoadBpfFionreadFixup, []constOption{
-		{"g_bpf_debug", debugFlags},
+		{"g_bpf_debug", tpInjectorDebugFlags},
 	})
 
 	// watcher

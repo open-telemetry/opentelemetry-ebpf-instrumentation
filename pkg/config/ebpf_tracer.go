@@ -52,10 +52,6 @@ func (m BPFDebugMode) IsUserspaceEnabled() bool {
 	return m&BPFDebugUserspace != 0
 }
 
-func (m BPFDebugMode) Flags() uint32 {
-	return uint32(m)
-}
-
 func (m *BPFDebugMode) UnmarshalText(text []byte) error {
 	str := strings.TrimSpace(string(text))
 

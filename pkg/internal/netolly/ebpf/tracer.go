@@ -119,7 +119,7 @@ func NewFlowFetcher(
 		constSampling:      uint32(sampling),
 		constTraceMessages: uint8(traceMsgs),
 		constPortGuessing:  portGuessing,
-		gBpfDebug:          cfg.DebugMode().Flags(),
+		gBpfDebug:          uint32(cfg.DebugMode()),
 	}, sharedMaps, &mu, "", nil); err != nil {
 		return nil, fmt.Errorf("loading netolly eBPF spec: %w", err)
 	}
