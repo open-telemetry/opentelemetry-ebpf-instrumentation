@@ -50,7 +50,7 @@ func startHealthCheck(ctx context.Context, g *errgroup.Group, cfg obi.HealthChec
 		})
 	case cfg.Port != 0:
 		g.Go(func() error {
-			return health.ListenAndServe(ctx, cfg.Port)
+			return health.ListenAndServeTCP(ctx, cfg.ListenAddress, cfg.Port)
 		})
 	}
 }

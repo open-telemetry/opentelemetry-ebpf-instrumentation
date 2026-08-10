@@ -25,9 +25,12 @@ var (
 	debugData           *dwarf.Data
 	grpcElf             *dwarf.Data
 	spanContextData     *dwarf.Data
+	autoSDKSpanData     *dwarf.Data
 	smallELF            *elf.File
 	smallGRPCElf        *elf.File
 	smallSpanContextELF *elf.File
+	autoSDKSpanELF      *elf.File
+	smallAutoSDKSpanELF *elf.File
 )
 
 func compileELF(source string, extraArgs ...string) *elf.File {
@@ -70,6 +73,12 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	smallSpanContextELF = compileELF(baseDir+"/configs/offsets/oteltrace/inspect.go", "-ldflags", "-s -w")
+	autoSDKSpanELF = compileELF(baseDir + "/configs/offsets/autosdk/inspect.go")
+	autoSDKSpanData, err = autoSDKSpanELF.DWARF()
+	if err != nil {
+		panic(err)
+	}
+	smallAutoSDKSpanELF = compileELF(baseDir+"/configs/offsets/autosdk/inspect.go", "-ldflags", "-s -w")
 	m.Run()
 }
 
@@ -77,6 +86,38 @@ func mustMatch(t *testing.T, expected, actual FieldOffsets) {
 	for key, value := range expected {
 		assert.Equal(t, value, actual[key], "key: %s", key)
 	}
+}
+
+func dwarfStruct(t *testing.T, data *dwarf.Data, name string) *dwarf.StructType {
+	t.Helper()
+
+	reader := data.Reader()
+	for {
+		entry, err := reader.Next()
+		require.NoError(t, err)
+		if entry == nil {
+			t.Fatalf("DWARF struct %s not found", name)
+		}
+		if entry.Tag != dwarf.TagStructType || entry.Val(dwarf.AttrName) != name {
+			continue
+		}
+		typeData, err := data.Type(entry.Offset)
+		require.NoError(t, err)
+		if structType, ok := typeData.(*dwarf.StructType); ok && len(structType.Field) > 0 {
+			return structType
+		}
+	}
+}
+
+func dwarfStructField(t *testing.T, structType *dwarf.StructType, name string) *dwarf.StructField {
+	t.Helper()
+	for _, field := range structType.Field {
+		if field.Name == name {
+			return field
+		}
+	}
+	t.Fatalf("DWARF field %s.%s not found", structType.StructName, name)
+	return nil
 }
 
 func TestGoOffsetsFromDwarf(t *testing.T) {
@@ -95,6 +136,21 @@ func TestGoOffsetsFromDwarf(t *testing.T) {
 		HchanSendxPos:     uint64(48),
 		HchanRecvxPos:     uint64(56),
 	}, offsets)
+}
+
+func TestNestedRuntimeOffsetsFromDwarf(t *testing.T) {
+	offsets, missing := structMemberOffsetsFromDwarf(debugData)
+	schedType := dwarfStruct(t, debugData, "runtime.schedt")
+	gFreeField := dwarfStructField(t, schedType, "gFree")
+	gFreeType, ok := gFreeField.Type.(*dwarf.StructType)
+	require.True(t, ok)
+
+	stack := uint64(gFreeField.ByteOffset + dwarfStructField(t, gFreeType, "stack").ByteOffset)
+	noStack := uint64(gFreeField.ByteOffset + dwarfStructField(t, gFreeType, "noStack").ByteOffset)
+	require.NotContains(t, missing, RuntimeSchedGFreeStackPos)
+	require.NotContains(t, missing, RuntimeSchedGFreeNoStackPos)
+	assert.Equal(t, stack, offsets[RuntimeSchedGFreeStackPos])
+	assert.Equal(t, noStack, offsets[RuntimeSchedGFreeNoStackPos])
 }
 
 func TestGrpcOffsetsFromDwarf(t *testing.T) {
@@ -129,6 +185,47 @@ func TestGoOffsetsWithoutDwarf(t *testing.T) {
 	}, offsets)
 }
 
+func TestGoRuntimeGCGoalFieldUnavailableAfterTrackedRange(t *testing.T) {
+	offsets, err := structMemberOffsets(smallELF)
+	require.NoError(t, err)
+
+	assert.NotContains(t, offsets, RuntimeGCControllerHeapGoalPos)
+}
+
+func TestPrefetchedOffsetsPreserveResolvedOffsets(t *testing.T) {
+	const resolvedOffset = uint64(999)
+	resolved := FieldOffsets{
+		RuntimeGCControllerGCPercentPos: resolvedOffset,
+	}
+
+	got, err := structMemberPreFetchedOffsets(smallELF, resolved)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedOffset, got[RuntimeGCControllerGCPercentPos])
+}
+
+func TestGoroutineRuntimeOffsetsWithoutDwarf(t *testing.T) {
+	offsets, err := structMemberOffsets(smallELF)
+	require.NoError(t, err)
+	schedType := dwarfStruct(t, debugData, "runtime.schedt")
+	gFreeField := dwarfStructField(t, schedType, "gFree")
+	gFreeType, ok := gFreeField.Type.(*dwarf.StructType)
+	require.True(t, ok)
+
+	assert.Equal(t,
+		uint64(gFreeField.ByteOffset+dwarfStructField(t, gFreeType, "stack").ByteOffset),
+		offsets[RuntimeSchedGFreeStackPos])
+	assert.Equal(t,
+		uint64(gFreeField.ByteOffset+dwarfStructField(t, gFreeType, "noStack").ByteOffset),
+		offsets[RuntimeSchedGFreeNoStackPos])
+	for _, field := range []GoOffset{
+		RuntimeSchedNgSysPos,
+		RuntimePFreeGPos,
+		RuntimeGListSizePos,
+	} {
+		assert.IsType(t, uint64(0), offsets[field], "offset %d", field)
+	}
+}
+
 func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsets(smallGRPCElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
@@ -159,6 +256,63 @@ func TestSpanContextOffsetsWithoutDwarf(t *testing.T) {
 		SpanContextSpanIDPos:     uint64(16),
 		SpanContextTraceFlagsPos: uint64(24),
 	}, offsets)
+}
+
+func TestCurrentAutoSDKDependencyABI(t *testing.T) {
+	// This intentionally fails when the current Auto SDK layout or reviewed
+	// module tuple changes.
+	t.Run("with DWARF", func(t *testing.T) {
+		offsets, _ := structMemberOffsetsFromDwarf(autoSDKSpanData)
+		mustMatch(t, FieldOffsets{
+			AutoSDKSpanContextPos: uint64(80),
+		}, offsets)
+	})
+
+	t.Run("DWARF activation path", func(t *testing.T) {
+		originalStructMembers := structMembers
+		structMembers = map[string]structInfo{
+			"go.opentelemetry.io/auto/sdk.span": {
+				lib: "go.opentelemetry.io/auto/sdk",
+				fields: map[string]GoOffset{
+					"spanContext": AutoSDKSpanContextPos,
+				},
+			},
+		}
+		t.Cleanup(func() {
+			structMembers = originalStructMembers
+		})
+
+		offsets, err := structMemberOffsets(autoSDKSpanELF)
+		require.NoError(t, err)
+		mustMatch(t, FieldOffsets{
+			AutoSDKSpanContextPos:      uint64(80),
+			AutoSDKActivationSupported: uint64(1),
+		}, offsets)
+	})
+
+	t.Run("without DWARF", func(t *testing.T) {
+		offsets, err := structMemberOffsets(smallAutoSDKSpanELF)
+		require.NoError(t, err)
+		mustMatch(t, FieldOffsets{
+			AutoSDKSpanContextPos:      uint64(80),
+			AutoSDKActivationSupported: uint64(1),
+		}, offsets)
+	})
+}
+
+func TestPrefetchedGoAutoSDKSpanContextOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, sdkVersion := range []string{"1.1.0", "1.2.1"} {
+		offset, found := track.Find(
+			"go.opentelemetry.io/auto/sdk.span",
+			"spanContext",
+			sdkVersion,
+		)
+		require.True(t, found, "missing Auto SDK %s spanContext offset", sdkVersion)
+		assert.Equal(t, uint64(80), offset)
+	}
 }
 
 func TestGoOffsetsFromDwarf_ErrorIfConstantNotFound(t *testing.T) {
@@ -239,6 +393,158 @@ func TestOffsetsForLibVersions_PreVersionFlags(t *testing.T) {
 	}, offsets)
 }
 
+func goAutoSDKActivationTestModules() moduleVersions {
+	return moduleVersions{
+		versions: map[string]string{
+			"go.opentelemetry.io/auto/sdk":   "v1.2.1",
+			"go.opentelemetry.io/otel":       "v1.44.0",
+			"go.opentelemetry.io/otel/trace": "v1.44.0",
+		},
+		sums: map[string]string{
+			"go.opentelemetry.io/auto/sdk":   "h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=",
+			"go.opentelemetry.io/otel":       "h1:JjwHmHpA4iZ3wBxluu2fbbE7j4kqlE8jXyAyPXH7HqU=",
+			"go.opentelemetry.io/otel/trace": "h1:jxF5CsGYCe74MCRx2X4g7WsY/VBKRqqpNvXlX/6gtIk=",
+		},
+		replacements: map[string]struct{}{},
+	}
+}
+
+func TestGoAutoSDKActivationSupportsReviewedModules(t *testing.T) {
+	t.Run("supported versions", func(t *testing.T) {
+		assert.True(t, goAutoSDKActivationSupported(goAutoSDKActivationTestModules()))
+	})
+
+	t.Run("minimum versions", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.versions["go.opentelemetry.io/auto/sdk"] = "v1.1.0"
+		modules.sums["go.opentelemetry.io/auto/sdk"] = "h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA="
+		modules.versions["go.opentelemetry.io/otel"] = "v1.33.0"
+		modules.sums["go.opentelemetry.io/otel"] = "h1:/FerN9bax5LoK51X/sI0SVYrjSE0/yUL7DpxW4K3FWw="
+		modules.versions["go.opentelemetry.io/otel/trace"] = "v1.33.0"
+		modules.sums["go.opentelemetry.io/otel/trace"] = "h1:cCJuF7LRjUFso9LPnEAHJDB2pqzp+hbO8eu1qqW2d/s="
+		assert.True(t, goAutoSDKActivationSupported(modules))
+	})
+
+	t.Run("unrelated replacement", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.replacements["example.com/unrelated"] = struct{}{}
+		assert.True(t, goAutoSDKActivationSupported(modules))
+	})
+}
+
+func TestGoAutoSDKActivationRejectsInvalidModules(t *testing.T) {
+	for _, module := range goAutoSDKActivationModules {
+		t.Run("missing_"+module.path, func(t *testing.T) {
+			modules := goAutoSDKActivationTestModules()
+			delete(modules.versions, module.path)
+			assert.False(t, goAutoSDKActivationSupported(modules))
+		})
+
+		t.Run("replaced_"+module.path, func(t *testing.T) {
+			modules := goAutoSDKActivationTestModules()
+			modules.replacements[module.path] = struct{}{}
+			assert.False(t, goAutoSDKActivationSupported(modules))
+		})
+
+		t.Run("unsigned_"+module.path, func(t *testing.T) {
+			modules := goAutoSDKActivationTestModules()
+			delete(modules.sums, module.path)
+			assert.False(t, goAutoSDKActivationSupported(modules))
+		})
+	}
+
+	t.Run("empty checksum", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.sums["go.opentelemetry.io/auto/sdk"] = ""
+		assert.False(t, goAutoSDKActivationSupported(modules))
+	})
+
+	t.Run("noncanonical checksum", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.sums["go.opentelemetry.io/auto/sdk"] = "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+		assert.False(t, goAutoSDKActivationSupported(modules))
+	})
+
+	t.Run("invalid build information", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.invalid = true
+		assert.False(t, goAutoSDKActivationSupported(modules))
+	})
+}
+
+func TestGoAutoSDKActivationRejectsUnsupportedVersions(t *testing.T) {
+	unsupportedVersions := []struct {
+		module  string
+		version string
+	}{
+		{module: "go.opentelemetry.io/auto/sdk", version: "v1.0.9"},
+		{module: "go.opentelemetry.io/otel", version: "v1.32.9"},
+		{module: "go.opentelemetry.io/otel/trace", version: "v1.32.9"},
+		{module: "go.opentelemetry.io/auto/sdk", version: "v1.2.1-rc.1"},
+		{module: "go.opentelemetry.io/otel", version: "v1.44.0+incompatible"},
+	}
+	for _, tt := range unsupportedVersions {
+		t.Run(tt.module+"_"+tt.version, func(t *testing.T) {
+			modules := goAutoSDKActivationTestModules()
+			modules.versions[tt.module] = tt.version
+			// Match the zero checksum returned by a failed allowlist lookup.
+			modules.sums[tt.module] = ""
+			assert.False(t, goAutoSDKActivationSupported(modules))
+		})
+	}
+}
+
+func TestSetGoAutoSDKActivationSupportClearsInvalidState(t *testing.T) {
+	offsets := FieldOffsets{}
+	modules := goAutoSDKActivationTestModules()
+	elfFile := &elf.File{FileHeader: elf.FileHeader{
+		Class:   elf.ELFCLASS64,
+		Machine: elf.EM_X86_64,
+	}}
+
+	setGoAutoSDKActivationSupport(offsets, modules, elfFile)
+	assert.Equal(t, uint64(1), offsets[AutoSDKActivationSupported])
+
+	modules.invalid = true
+	setGoAutoSDKActivationSupport(offsets, modules, elfFile)
+	assert.Equal(t, uint64(0), offsets[AutoSDKActivationSupported])
+
+	modules.invalid = false
+	modules.sums["go.opentelemetry.io/auto/sdk"] = "h1:"
+	setGoAutoSDKActivationSupport(offsets, modules, elfFile)
+	assert.Equal(t, uint64(0), offsets[AutoSDKActivationSupported])
+}
+
+func TestSetGoAutoSDKActivationSupportRequiresSupportedArchitecture(t *testing.T) {
+	modules := goAutoSDKActivationTestModules()
+	tests := []struct {
+		name    string
+		class   elf.Class
+		machine elf.Machine
+		want    uint64
+	}{
+		{name: "amd64", class: elf.ELFCLASS64, machine: elf.EM_X86_64, want: 1},
+		{name: "arm64", class: elf.ELFCLASS64, machine: elf.EM_AARCH64, want: 1},
+		{name: "386", class: elf.ELFCLASS32, machine: elf.EM_386},
+		{name: "32_bit_x86_64", class: elf.ELFCLASS32, machine: elf.EM_X86_64},
+		{name: "ppc64", class: elf.ELFCLASS64, machine: elf.EM_PPC64},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			offsets := FieldOffsets{AutoSDKActivationSupported: 1}
+			elfFile := &elf.File{FileHeader: elf.FileHeader{
+				Class:   tt.class,
+				Machine: tt.machine,
+			}}
+
+			setGoAutoSDKActivationSupport(offsets, modules, elfFile)
+
+			assert.Equal(t, tt.want, offsets[AutoSDKActivationSupported])
+		})
+	}
+}
+
 func TestPrefetchedGoRuntimeMemoryOffsets(t *testing.T) {
 	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	require.NoError(t, err)
@@ -276,6 +582,134 @@ func TestPrefetchedGoRuntimeMemoryOffsets(t *testing.T) {
 		offset, found = track.Find(tt.structName, tt.fieldName, "1.25.0")
 		require.True(t, found, "%s.%s missing for Go 1.25", tt.structName, tt.fieldName)
 		assert.Equal(t, tt.go125, offset, "%s.%s Go 1.25 offset", tt.structName, tt.fieldName)
+	}
+}
+
+func TestPrefetchedGoRuntimeGoroutineOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	tests := []struct {
+		structName string
+		fieldName  string
+		goVersion  string
+		want       uint64
+	}{
+		{structName: "runtime.gList", fieldName: "size", goVersion: "1.25.0", want: 8},
+		{structName: "runtime.mutex", fieldName: "key", goVersion: "1.17.0", want: 0},
+		{structName: "runtime.p", fieldName: "gFree", goVersion: "1.17.0", want: 3584},
+		{structName: "runtime.p", fieldName: "gFree", goVersion: "1.18.0", want: 2464},
+		{structName: "runtime.p", fieldName: "gFree", goVersion: "1.23.0", want: 2456},
+		{structName: "runtime.p", fieldName: "gFree", goVersion: "1.26.0", want: 2464},
+		{structName: "runtime.schedt", fieldName: "gFree", goVersion: "1.17.0", want: 152},
+		{structName: "runtime.schedt", fieldName: "gFree", goVersion: "1.20.0", want: 160},
+		{structName: "runtime.schedt", fieldName: "gFree", goVersion: "1.25.0", want: 168},
+		{structName: "runtime.schedt", fieldName: "gFree", goVersion: "1.26.0", want: 184},
+		{structName: "runtime.schedt", fieldName: "ngsys", goVersion: "1.17.0", want: 72},
+		{structName: "runtime.schedt", fieldName: "ngsys", goVersion: "1.25.0", want: 80},
+		{structName: "runtime.schedt", fieldName: "ngsys", goVersion: "1.26.0", want: 96},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.structName+"."+tt.fieldName+"/"+tt.goVersion, func(t *testing.T) {
+			assertPrefetchedOffset(t, track, tt.structName, tt.fieldName, tt.goVersion, tt.want)
+		})
+	}
+
+	_, found := track.Find("runtime.gList", "size", "1.24.0")
+	assert.False(t, found, "runtime.gList.size should be unavailable before Go 1.25")
+}
+
+func TestPrefetchedGoRuntimeGCGoalFieldOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		goVersion string
+		want      uint64
+	}{
+		{goVersion: "1.17.0", want: 32},
+		{goVersion: "1.17.13", want: 32},
+		{goVersion: "1.18.0", want: 104},
+		{goVersion: "1.18.10", want: 104},
+	} {
+		offset, found := prefetchedGoRuntimeGCGoalOffset(track, tt.goVersion)
+		require.True(t, found, "heapGoal missing for Go %s", tt.goVersion)
+		assert.Equal(t, tt.want, offset)
+	}
+	_, found := prefetchedGoRuntimeGCGoalOffset(track, "1.19.0")
+	assert.False(t, found)
+
+	heapGoal := track.Data["runtime.gcControllerState"]["heapGoal"]
+	assert.Equal(t, "1.17.0", heapGoal.Versions.Oldest)
+	assert.Equal(t, "1.18.10", heapGoal.Versions.Newest)
+}
+
+func TestResolveNestedStructPrefetchedOffsetsLogsMissingFields(t *testing.T) {
+	const goVersion = "1.25.0"
+	for _, missing := range []struct {
+		structName string
+		fieldName  string
+	}{
+		{structName: "runtime.schedt", fieldName: "gFree"},
+		{structName: "runtime.mutex", fieldName: "key"},
+		{structName: "runtime.gList", fieldName: "size"},
+	} {
+		t.Run(missing.structName+"."+missing.fieldName, func(t *testing.T) {
+			track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+			require.NoError(t, err)
+			delete(track.Data[missing.structName], missing.fieldName)
+
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(
+				&logs,
+				&slog.HandlerOptions{Level: slog.LevelDebug},
+			))
+			resolveNestedStructPreFetchedOffsets(track, FieldOffsets{}, goVersion, logger)
+
+			assert.Contains(t, logs.String(), "missing_field="+missing.structName+"."+missing.fieldName)
+			assert.Contains(t, logs.String(), "go_version="+goVersion)
+		})
+	}
+}
+
+func assertPrefetchedOffset(
+	t *testing.T,
+	track *offsets.Track,
+	structName string,
+	fieldName string,
+	goVersion string,
+	want uint64,
+) {
+	t.Helper()
+	offset, found := track.Find(structName, fieldName, goVersion)
+	require.True(t, found, "%s.%s missing for Go %s", structName, fieldName, goVersion)
+	assert.Equal(t, want, offset, "%s.%s Go %s offset", structName, fieldName, goVersion)
+}
+
+func TestPrefetchedGoRuntimeHistogramOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, fieldName := range []string{"timeToRun"} {
+		_, found := track.Find("runtime.schedt", fieldName, "1.19.13")
+		assert.False(t, found, "%s should be unavailable before Go 1.20", fieldName)
+		_, found = track.Find("runtime.schedt", fieldName, "1.20.0")
+		assert.True(t, found, "%s missing for Go 1.20", fieldName)
+	}
+
+	_, found := track.Find("runtime.schedt", "stwTotalTimeGC", "1.21.13")
+	assert.False(t, found, "stwTotalTimeGC should be unavailable before Go 1.22")
+	_, found = track.Find("runtime.schedt", "stwTotalTimeGC", "1.22.0")
+	assert.True(t, found, "stwTotalTimeGC missing for Go 1.22")
+
+	for _, goVersion := range []string{"1.20.0", "1.22.0", "1.26.0"} {
+		underflow, underflowFound := track.Find("runtime.timeHistogram", "underflow", goVersion)
+		overflow, overflowFound := track.Find("runtime.timeHistogram", "overflow", goVersion)
+		require.True(t, underflowFound, "underflow missing for Go %s", goVersion)
+		require.True(t, overflowFound, "overflow missing for Go %s", goVersion)
+		assert.Equal(t, uint64(1280), underflow, "underflow offset for Go %s", goVersion)
+		assert.Equal(t, underflow+uint64(8), overflow, "overflow offset for Go %s", goVersion)
 	}
 }
 

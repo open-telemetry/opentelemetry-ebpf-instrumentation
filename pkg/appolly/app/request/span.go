@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -291,7 +292,7 @@ type GenAI struct {
 	// returns the same JSON structure as OpenAI.  The native generation
 	// API uses slightly different field names (request_id, output,
 	// input_tokens/output_tokens) but VendorOpenAI already accommodates
-	// both via GetInputTokens()/GetOutputTokens() and the Output field.
+	// both via the shared token-count accessors and the Output field.
 	// A separate field (rather than sharing OpenAI) keeps provider
 	// routing explicit and allows future divergence without refactoring.
 	Qwen             *VendorOpenAI
@@ -304,49 +305,27 @@ type GenAI struct {
 	OpenAICompatible *VendorOpenAI
 }
 
-type OpenAIPromptTokensDetails struct {
-	CachedTokens        int `json:"cached_tokens,omitempty"`
-	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
+type OpenAIInputTokensDetails struct {
+	CachedTokens        TokenCount `json:"cached_tokens,omitempty"`
+	CacheCreationTokens TokenCount `json:"cache_creation_tokens,omitempty"`
+	AudioTokens         TokenCount `json:"audio_tokens,omitempty"`
 }
 
 type OpenAIUsage struct {
-	InputTokens         int                        `json:"input_tokens"`
-	OutputTokens        int                        `json:"output_tokens"`
-	TotalTokens         int                        `json:"total_tokens"`
-	PromptTokens        int                        `json:"prompt_tokens"`
-	CompletionTokens    int                        `json:"completion_tokens"`
-	CompletionDetails   *OpenAICompletionDetails   `json:"completion_tokens_details,omitempty"`
-	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	InputTokens      TokenCount                 `json:"input_tokens"`
+	OutputTokens     TokenCount                 `json:"output_tokens"`
+	TotalTokens      TokenCount                 `json:"total_tokens"`
+	PromptTokens     TokenCount                 `json:"prompt_tokens"`
+	CompletionTokens TokenCount                 `json:"completion_tokens"`
+	InputDetails     *OpenAIInputTokensDetails  `json:"input_tokens_details,omitempty"`
+	OutputDetails    *OpenAIOutputTokensDetails `json:"output_tokens_details,omitempty"`
 }
 
-type OpenAICompletionDetails struct {
-	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
-}
-
-func (u *OpenAIUsage) GetInputTokens() int {
-	if u.InputTokens > 0 {
-		return u.InputTokens
-	}
-
-	return u.PromptTokens
-}
-
-func (u *OpenAIUsage) GetOutputTokens() int {
-	if u.OutputTokens > 0 {
-		return u.OutputTokens
-	}
-
-	if u.CompletionTokens > 0 {
-		return u.CompletionTokens
-	}
-
-	// Embedding responses only report prompt_tokens and total_tokens.
-	// Derive output tokens from the difference.
-	if u.TotalTokens > 0 && u.PromptTokens > 0 {
-		return u.TotalTokens - u.PromptTokens
-	}
-
-	return 0
+type OpenAIOutputTokensDetails struct {
+	ReasoningTokens          TokenCount `json:"reasoning_tokens,omitempty"`
+	AudioTokens              TokenCount `json:"audio_tokens,omitempty"`
+	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens,omitempty"`
 }
 
 type OpenAIError struct {
@@ -358,6 +337,10 @@ type OpenAIError struct {
 type ToolCall struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
+	// Arguments is the tool-call input as raw JSON: a string for OpenAI-family
+	// providers, an object for Anthropic, Gemini and Ollama.
+	Arguments string `json:"arguments,omitempty"`
+	Type      string `json:"type,omitempty"`
 }
 
 type VendorOpenAI struct {
@@ -405,20 +388,113 @@ func (ai *VendorOpenAI) GetOutput() string {
 	return normalizeOpenAIOutput(ai)
 }
 
+// InputTokenCount returns the input token count, falling back to total_tokens
+// for embeddings since some providers (e.g. native DashScope) report only a total.
+func (ai *VendorOpenAI) InputTokenCount() (int, bool) {
+	if tokens, reported := ai.Usage.InputTokenCount(); reported {
+		return tokens, true
+	}
+	if ai.OperationName == EmbeddingOperationName {
+		if total, reported := ai.Usage.TotalTokens.Get(); reported {
+			return total, true
+		}
+	}
+	return 0, false
+}
+
 func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
 	if ai.Request.Dimensions > 0 {
 		return ai.Request.Dimensions
 	}
-	if len(ai.Data) == 0 {
+	if d := ai.Request.ParameterDimension(); d > 0 {
+		return d
+	}
+	if n := embeddingLenFromData(ai.Data); n > 0 {
+		return n
+	}
+	return embeddingDimsFromOutput(ai.Output)
+}
+
+// embeddingLenFromData returns the vector length from an OpenAI-style embedding
+// response body: {"data":[{"embedding":<vector>}]}. Returns 0 when not present.
+func embeddingLenFromData(raw json.RawMessage) int {
+	if len(raw) == 0 {
 		return 0
 	}
 	var data []struct {
-		Embedding []json.Number `json:"embedding"`
+		Embedding json.RawMessage `json:"embedding"`
 	}
-	if err := json.Unmarshal(ai.Data, &data); err != nil || len(data) == 0 {
+	if err := json.Unmarshal(raw, &data); err != nil || len(data) == 0 {
 		return 0
 	}
-	return len(data[0].Embedding)
+	return embeddingVectorLen(data[0].Embedding)
+}
+
+// embeddingDimsFromOutput returns the vector length from a native DashScope
+// response `output` object: {"embeddings":[{"embedding":<vector>}]}.
+func embeddingDimsFromOutput(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var out struct {
+		Embeddings []struct {
+			Embedding json.RawMessage `json:"embedding"`
+		} `json:"embeddings"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || len(out.Embeddings) == 0 {
+		return 0
+	}
+	return embeddingVectorLen(out.Embeddings[0].Embedding)
+}
+
+// embeddingVectorLen returns the dimension count of a vector encoded either as
+// a JSON array of numbers or as a base64 string of packed float32 values.
+func embeddingVectorLen(embedding json.RawMessage) int {
+	trimmed := bytesTrimSpace(embedding)
+	if len(trimmed) == 0 {
+		return 0
+	}
+	if trimmed[0] == '[' {
+		var arr []json.Number
+		if err := json.Unmarshal(trimmed, &arr); err != nil {
+			return 0
+		}
+		return len(arr)
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil || s == "" {
+			return 0
+		}
+		decoded, err := base64.StdEncoding.DecodeString(s)
+		if err != nil || len(decoded)%4 != 0 {
+			return 0
+		}
+		return len(decoded) / 4 // float32 = 4 bytes
+	}
+	return 0
+}
+
+func bytesTrimSpace(b []byte) []byte {
+	start := 0
+	for start < len(b) {
+		switch b[start] {
+		case ' ', '\t', '\n', '\r':
+			start++
+			continue
+		}
+		break
+	}
+	end := len(b)
+	for end > start {
+		switch b[end-1] {
+		case ' ', '\t', '\n', '\r':
+			end--
+			continue
+		}
+		break
+	}
+	return b[start:end]
 }
 
 type OpenAIInput struct {
@@ -440,6 +516,26 @@ type OpenAIInput struct {
 	Seed             *int            `json:"seed,omitempty"`
 	Tools            json.RawMessage `json:"tools,omitempty"`
 	ServiceTier      string          `json:"service_tier,omitempty"`
+	Parameters       json.RawMessage `json:"parameters,omitempty"`
+	// InputItems retains the Responses API `input` array (function_call /
+	// function_call_output items), which cannot be held by the string Input
+	// field. Populated only for /v1/responses traffic.
+	InputItems json.RawMessage `json:"-"`
+}
+
+// ParameterDimension extracts the requested embedding dimension from the
+// native DashScope "parameters.dimension" field. Returns 0 when absent.
+func (air *OpenAIInput) ParameterDimension() int {
+	if len(air.Parameters) == 0 {
+		return 0
+	}
+	var p struct {
+		Dimension int `json:"dimension"`
+	}
+	if err := json.Unmarshal(air.Parameters, &p); err != nil {
+		return 0
+	}
+	return p.Dimension
 }
 
 func (air *OpenAIInput) GetStopSequences() []string {
@@ -458,6 +554,10 @@ func (air *OpenAIInput) GetStopSequences() []string {
 }
 
 func (air *OpenAIInput) GetInput() string {
+	if len(air.InputItems) > 0 {
+		return normalizeOpenAIResponsesInput(air.InputItems)
+	}
+
 	if len(air.Input) > 0 {
 		return wrapTextAsInputMessage(air.Input)
 	}
@@ -506,13 +606,19 @@ type AnthropicResponse struct {
 }
 
 type AnthropicUsage struct {
-	InputTokens              int    `json:"input_tokens"`
-	OutputTokens             int    `json:"output_tokens"`
-	CacheCreationInputTokens int    `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     int    `json:"cache_read_input_tokens,omitempty"`
-	ReasoningOutputTokens    int    `json:"reasoning_output_tokens,omitempty"`
-	ServiceTier              string `json:"service_tier"`
-	InferenceGeo             string `json:"inference_geo"`
+	InputTokens              TokenCount              `json:"input_tokens"`
+	OutputTokens             TokenCount              `json:"output_tokens"`
+	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens,omitempty"`
+	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens,omitempty"`
+	CacheCreation            *AnthropicCacheCreation `json:"cache_creation,omitempty"`
+	ServiceTier              string                  `json:"service_tier"`
+	InferenceGeo             string                  `json:"inference_geo"`
+}
+
+type AnthropicCacheCreation struct {
+	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens,omitempty"`
+	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens,omitempty"`
 }
 
 type AnthropicError struct {
@@ -575,9 +681,21 @@ type GeminiCandidate struct {
 }
 
 type GeminiUsage struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount           TokenCount                 `json:"promptTokenCount"`
+	CandidatesTokenCount       TokenCount                 `json:"candidatesTokenCount"`
+	TotalTokenCount            TokenCount                 `json:"totalTokenCount"`
+	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount,omitempty"`
+	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount,omitempty"`
+	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount,omitempty"`
+	PromptTokensDetails        []GeminiModalityTokenCount `json:"promptTokensDetails,omitempty"`
+	CacheTokensDetails         []GeminiModalityTokenCount `json:"cacheTokensDetails,omitempty"`
+	CandidatesTokensDetails    []GeminiModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
+	ToolUsePromptTokensDetails []GeminiModalityTokenCount `json:"toolUsePromptTokensDetails,omitempty"`
+}
+
+type GeminiModalityTokenCount struct {
+	Modality   string     `json:"modality"`
+	TokenCount TokenCount `json:"tokenCount"`
 }
 
 type GeminiError struct {
@@ -661,32 +779,41 @@ type TitanGenConfig struct {
 }
 
 // BedrockResponse covers the common response fields across all model families.
-// Token counts are read from response headers (more reliable than body) and stored here.
 type BedrockResponse struct {
 	// Anthropic Claude format
 	Content    json.RawMessage `json:"content,omitempty"`
 	StopReason string          `json:"stop_reason,omitempty"`
-	Usage      *BedrockUsage   `json:"usage,omitempty"`
+	Usage      BedrockUsage    `json:"usage,omitempty"`
 	// Amazon Nova format
 	Output         *NovaOutput `json:"output,omitempty"`
 	StopReasonNova string      `json:"stopReason,omitempty"`
 	// Meta Llama format
-	Generation           string `json:"generation,omitempty"`
-	PromptTokenCount     int    `json:"prompt_token_count,omitempty"`
-	GenerationTokenCount int    `json:"generation_token_count,omitempty"`
+	Generation           string     `json:"generation,omitempty"`
+	PromptTokenCount     TokenCount `json:"prompt_token_count,omitempty"`
+	GenerationTokenCount TokenCount `json:"generation_token_count,omitempty"`
 	// Amazon Titan format
 	Results []TitanResult `json:"results,omitempty"`
 	// Error fields appear at the top level of the Bedrock error response body
 	ErrorType    string `json:"__type,omitempty"`
 	ErrorMessage string `json:"message,omitempty"`
 	// Token counts extracted from response headers (not JSON-unmarshalled, set programmatically)
-	InputTokens  int `json:"-"`
-	OutputTokens int `json:"-"`
+	InputTokens  TokenCount `json:"-"`
+	OutputTokens TokenCount `json:"-"`
 }
 
 type BedrockUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens           TokenCount              `json:"inputTokens,omitempty"`
+	OutputTokens          TokenCount              `json:"outputTokens,omitempty"`
+	TotalTokens           TokenCount              `json:"totalTokens,omitempty"`
+	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens,omitempty"`
+	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens,omitempty"`
+	CacheDetails          []BedrockCacheDetail    `json:"cacheDetails,omitempty"`
+	CacheCreation         *AnthropicCacheCreation `json:"cache_creation,omitempty"`
+}
+
+type BedrockCacheDetail struct {
+	InputTokens TokenCount `json:"inputTokens"`
+	TTL         string     `json:"ttl"`
 }
 
 type NovaOutput struct {
@@ -814,13 +941,83 @@ func (e *VendorEmbedding) OperationName() string {
 	return EmbeddingOperationName
 }
 
+// Dimensions returns the output vector dimension count, preferring an explicit
+// request dimension over the length derived from the response payload.
+func (e *VendorEmbedding) Dimensions() int {
+	if e.Input.Dimensions > 0 {
+		return e.Input.Dimensions
+	}
+	if e.Input.OutputDimension > 0 {
+		return e.Input.OutputDimension
+	}
+	return e.Output.Dimensions
+}
+
 // EmbeddingRequest captures the common fields from embedding API requests.
 type EmbeddingRequest struct {
 	Model      string          `json:"model"`
 	Input      json.RawMessage `json:"input"`
 	Dimensions int             `json:"dimensions,omitempty"`
+	// Voyage AI and Cohere use "output_dimension" for the requested vector size.
+	OutputDimension int `json:"output_dimension,omitempty"`
 	// Cohere uses "texts" instead of "input"
 	Texts json.RawMessage `json:"texts,omitempty"`
+	// OpenAI and Voyage use a single-value "encoding_format"
+	EncodingFormat string `json:"encoding_format,omitempty"`
+	// Cohere v2 uses an "embedding_types" list
+	EmbeddingTypes []string `json:"embedding_types,omitempty"`
+	// Jina uses "embedding_type": a string or an array of strings
+	EmbeddingType json.RawMessage `json:"embedding_type,omitempty"`
+	// Voyage uses "output_dtype" for the output element representation
+	OutputDtype string `json:"output_dtype,omitempty"`
+}
+
+// EncodingFormats returns the requested output encoding formats, normalized
+// across the provider-specific request fields. Returns nil when unspecified.
+func (r *EmbeddingRequest) EncodingFormats() []string {
+	if len(r.EmbeddingTypes) > 0 {
+		return r.EmbeddingTypes
+	}
+	if types := r.embeddingTypeValues(); len(types) > 0 {
+		return types
+	}
+	if r.OutputDtype != "" {
+		if r.EncodingFormat != "" && r.EncodingFormat != r.OutputDtype {
+			return []string{r.OutputDtype, r.EncodingFormat}
+		}
+		return []string{r.OutputDtype}
+	}
+	if r.EncodingFormat != "" {
+		return []string{r.EncodingFormat}
+	}
+	return nil
+}
+
+func (r *EmbeddingRequest) embeddingTypeValues() []string {
+	if len(r.EmbeddingType) == 0 {
+		return nil
+	}
+	var arr []string
+	if json.Unmarshal(r.EmbeddingType, &arr) == nil {
+		return arr
+	}
+	var s string
+	if json.Unmarshal(r.EmbeddingType, &s) == nil && s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+// RequestedDtype returns the element representation requested for the output
+// vectors, or empty when unspecified (providers default to float).
+func (r *EmbeddingRequest) RequestedDtype() string {
+	if r.OutputDtype != "" {
+		return r.OutputDtype
+	}
+	if types := r.embeddingTypeValues(); len(types) > 0 {
+		return types[0]
+	}
+	return r.EncodingFormat
 }
 
 // InputCount returns the number of input texts in the request.
@@ -848,12 +1045,14 @@ type EmbeddingResponse struct {
 	Usage EmbeddingUsage `json:"usage"`
 	// Cohere uses meta.billed_units for token counts
 	Meta *CohereResponseMeta `json:"meta,omitempty"`
+	// Dimensions is derived from the response payload; zero when unknown
+	Dimensions int `json:"-"`
 }
 
 // EmbeddingUsage captures token usage in embedding responses.
 type EmbeddingUsage struct {
-	PromptTokens int `json:"prompt_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	PromptTokens TokenCount `json:"prompt_tokens"`
+	TotalTokens  TokenCount `json:"total_tokens"`
 }
 
 // CohereResponseMeta captures Cohere-specific response metadata.
@@ -863,30 +1062,7 @@ type CohereResponseMeta struct {
 
 // CohereBilledUnits captures Cohere token billing information.
 type CohereBilledUnits struct {
-	InputTokens int `json:"input_tokens"`
-}
-
-// GetInputTokens returns the input token count, handling provider-specific formats.
-func (e *VendorEmbedding) GetInputTokens() int {
-	if e.Output.Usage.PromptTokens > 0 {
-		return e.Output.Usage.PromptTokens
-	}
-	if e.Output.Usage.TotalTokens > 0 {
-		return e.Output.Usage.TotalTokens
-	}
-	if e.Output.Meta != nil && e.Output.Meta.BilledUnits != nil {
-		return e.Output.Meta.BilledUnits.InputTokens
-	}
-	return 0
-}
-
-// GetOutputTokens returns the output token count for embedding requests,
-// derived as total_tokens - prompt_tokens.
-func (e *VendorEmbedding) GetOutputTokens() int {
-	if e.Output.Usage.TotalTokens > 0 && e.Output.Usage.PromptTokens > 0 {
-		return e.Output.Usage.TotalTokens - e.Output.Usage.PromptTokens
-	}
-	return 0
+	InputTokens TokenCount `json:"input_tokens"`
 }
 
 // VendorRerank holds parsed data from a rerank API request/response.
@@ -987,37 +1163,13 @@ type RerankBilledUnits struct {
 }
 
 type RerankMetaTokens struct {
-	InputTokens int `json:"input_tokens"`
+	InputTokens TokenCount `json:"input_tokens"`
 }
 
 type RerankUsage struct {
-	TotalTokens  int `json:"total_tokens"`
-	PromptTokens int `json:"prompt_tokens"`
-	SearchUnits  int `json:"search_units"`
-}
-
-func (u *RerankUsage) GetInputTokens() int {
-	if u.PromptTokens > 0 {
-		return u.PromptTokens
-	}
-	return u.TotalTokens
-}
-
-// GetTotalTokens returns the total token count from any supported response
-// format.  It checks usage.total_tokens (Jina/Voyage), then
-// usage.prompt_tokens, and finally falls back to meta.tokens.input_tokens
-// (Cohere).
-func (r *RerankResponse) GetTotalTokens() int {
-	if r.Usage.TotalTokens > 0 {
-		return r.Usage.TotalTokens
-	}
-	if r.Usage.PromptTokens > 0 {
-		return r.Usage.PromptTokens
-	}
-	if r.Meta != nil && r.Meta.Tokens != nil && r.Meta.Tokens.InputTokens > 0 {
-		return r.Meta.Tokens.InputTokens
-	}
-	return 0
+	TotalTokens  TokenCount `json:"total_tokens"`
+	PromptTokens TokenCount `json:"prompt_tokens"`
+	SearchUnits  int        `json:"search_units"`
 }
 
 type RerankError struct {
@@ -1134,23 +1286,14 @@ type RetrievalResponse struct {
 // RetrievalUsage captures optional token usage information returned by
 // embedding-aware vector stores.
 type RetrievalUsage struct {
-	TotalTokens  int `json:"total_tokens,omitempty"`
-	PromptTokens int `json:"prompt_tokens,omitempty"`
+	TotalTokens  TokenCount `json:"total_tokens,omitempty"`
+	PromptTokens TokenCount `json:"prompt_tokens,omitempty"`
 }
 
 type SpanLink struct {
 	TraceID    trace.TraceID `json:"traceID"`
 	SpanID     trace.SpanID  `json:"spanID"`
 	TraceFlags uint8         `json:"traceFlags,string"`
-}
-
-// GetInputTokens returns the input token count, preferring prompt_tokens
-// and falling back to total_tokens. Returns zero when not reported.
-func (r *VendorRetrieval) GetInputTokens() int {
-	if r.Output.Usage.PromptTokens > 0 {
-		return r.Output.Usage.PromptTokens
-	}
-	return r.Output.Usage.TotalTokens
 }
 
 // Span contains the information being submitted by the following nodes in the graph.
@@ -1160,6 +1303,7 @@ func (r *VendorRetrieval) GetInputTokens() int {
 // getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
 	Type              EventType      `json:"type"`
+	SpanKind          trace.SpanKind `json:"-"`
 	Flags             uint8          `json:"-"`
 	Method            string         `json:"-"`
 	Path              string         `json:"-"`
@@ -1216,6 +1360,9 @@ type Span struct {
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
 	OverrideTraceName string `json:"-"`
+
+	// ManualOTelJSON stores OTLP JSON emitted by the Go Auto SDK bridge.
+	ManualOTelJSON []byte `json:"-"`
 }
 
 func (s *Span) Inside(parent *Span) bool {
@@ -1542,6 +1689,10 @@ func (s *Span) IsValid() bool {
 }
 
 func (s *Span) IsClientSpan() bool {
+	if s.Type == EventTypeManualSpan {
+		return s.SpanKind == trace.SpanKindClient || s.SpanKind == trace.SpanKindProducer
+	}
+
 	switch s.Type {
 	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSunRPCClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeAerospikeClient:
 		return true
@@ -1721,6 +1872,19 @@ func (s *Span) ResponseBodyLength() int64 {
 
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
+	if s.Type == EventTypeManualSpan {
+		switch s.SpanKind {
+		case trace.SpanKindServer:
+			return "SPAN_KIND_SERVER"
+		case trace.SpanKindClient:
+			return "SPAN_KIND_CLIENT"
+		case trace.SpanKindProducer:
+			return "SPAN_KIND_PRODUCER"
+		case trace.SpanKindConsumer:
+			return "SPAN_KIND_CONSUMER"
+		}
+	}
+
 	switch s.Type {
 	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
 		return "SPAN_KIND_SERVER"
@@ -2182,188 +2346,90 @@ func (s *Span) HasOriginalHost() bool {
 	return len(schemeHost) > 1 && schemeHost[1] != ""
 }
 
-func (s *Span) GenAIInputTokens() int {
+// GenAIInputTokenCount returns the input token count and whether the provider reported it.
+func (s *Span) GenAIInputTokenCount() (int, bool) {
 	if s.GenAI == nil {
-		return 0
+		return 0, false
 	}
 
 	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetInputTokens()
+		return s.GenAI.OpenAI.InputTokenCount()
 	}
 
 	if s.GenAI.Anthropic != nil {
-		// Per Anthropic semconv: input_tokens excludes cached tokens.
-		// Total = input_tokens + cache_read + cache_creation.
-		u := s.GenAI.Anthropic.Output.Usage
-		return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+		return s.GenAI.Anthropic.Output.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount
+		return s.GenAI.Gemini.Output.UsageMetadata.InputTokenCount()
 	}
 
 	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetInputTokens()
+		return s.GenAI.Qwen.InputTokenCount()
 	}
 
 	if s.GenAI.Ollama != nil {
-		return s.GenAI.Ollama.Usage.GetInputTokens()
+		return s.GenAI.Ollama.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.GetInputTokens()
+		return s.GenAI.OpenAICompatible.InputTokenCount()
 	}
 
 	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.InputTokens
+		return s.GenAI.Bedrock.Output.InputTokenCount()
 	}
 
 	if s.GenAI.Embedding != nil {
-		return s.GenAI.Embedding.GetInputTokens()
+		return s.GenAI.Embedding.InputTokenCount()
 	}
 
 	if s.GenAI.Rerank != nil {
-		return s.GenAI.Rerank.Output.GetTotalTokens()
+		return s.GenAI.Rerank.Output.InputTokenCount()
 	}
 
 	if s.GenAI.Retrieval != nil {
-		return s.GenAI.Retrieval.GetInputTokens()
+		return s.GenAI.Retrieval.InputTokenCount()
 	}
 
-	return 0
+	return 0, false
 }
 
-// HasGenAIInputTokens returns true if the input token count is available
-// (i.e., was actually reported by the provider, not simply absent/unknown).
-func (s *Span) HasGenAIInputTokens() bool {
+// GenAIOutputTokenCount returns the output token count and whether the provider reported it.
+func (s *Span) GenAIOutputTokenCount() (int, bool) {
 	if s.GenAI == nil {
-		return false
+		return 0, false
 	}
 
 	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetInputTokens() > 0
+		return s.GenAI.OpenAI.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Anthropic != nil {
-		u := s.GenAI.Anthropic.Output.Usage
-		return u.InputTokens > 0 || u.CacheReadInputTokens > 0 || u.CacheCreationInputTokens > 0
+		return s.GenAI.Anthropic.Output.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount > 0
+		return s.GenAI.Gemini.Output.UsageMetadata.OutputTokenCount()
 	}
 
 	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetInputTokens() > 0
+		return s.GenAI.Qwen.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Ollama != nil {
-		return s.GenAI.Ollama.Usage.GetInputTokens() > 0
+		return s.GenAI.Ollama.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.GetInputTokens() > 0
+		return s.GenAI.OpenAICompatible.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.InputTokens > 0
+		return s.GenAI.Bedrock.Output.OutputTokenCount()
 	}
 
-	if s.GenAI.Embedding != nil {
-		return s.GenAI.Embedding.GetInputTokens() > 0
-	}
-
-	if s.GenAI.Rerank != nil {
-		return s.GenAI.Rerank.Output.GetTotalTokens() > 0
-	}
-
-	if s.GenAI.Retrieval != nil {
-		return s.GenAI.Retrieval.GetInputTokens() > 0
-	}
-
-	return false
-}
-
-// HasGenAIOutputTokens returns true if the output token count is available
-// (i.e., was actually reported by the provider, not simply absent/unknown).
-func (s *Span) HasGenAIOutputTokens() bool {
-	if s.GenAI == nil {
-		return false
-	}
-
-	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetOutputTokens() > 0
-	}
-
-	if s.GenAI.Anthropic != nil {
-		return s.GenAI.Anthropic.Output.Usage.OutputTokens > 0
-	}
-
-	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount > 0
-	}
-
-	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetOutputTokens() > 0
-	}
-
-	if s.GenAI.Ollama != nil {
-		return s.GenAI.Ollama.Usage.GetOutputTokens() > 0
-	}
-
-	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.GetOutputTokens() > 0
-	}
-
-	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.OutputTokens > 0
-	}
-
-	if s.GenAI.Embedding != nil {
-		return s.GenAI.Embedding.GetOutputTokens() > 0
-	}
-
-	return false
-}
-
-func (s *Span) GenAIOutputTokens() int {
-	if s.GenAI == nil {
-		return 0
-	}
-
-	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetOutputTokens()
-	}
-
-	if s.GenAI.Anthropic != nil {
-		return s.GenAI.Anthropic.Output.Usage.OutputTokens
-	}
-
-	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount
-	}
-
-	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetOutputTokens()
-	}
-
-	if s.GenAI.Ollama != nil {
-		return s.GenAI.Ollama.Usage.GetOutputTokens()
-	}
-
-	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.GetOutputTokens()
-	}
-
-	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.OutputTokens
-	}
-
-	if s.GenAI.Embedding != nil {
-		return s.GenAI.Embedding.GetOutputTokens()
-	}
-
-	return 0
+	return 0, false
 }
 
 func (s *Span) GenAIOperationName() string {

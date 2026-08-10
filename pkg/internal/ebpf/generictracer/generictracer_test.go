@@ -51,6 +51,18 @@ func makeKey(first, second uint32) uint64 {
 	return (uint64(first) << 32) | uint64(second)
 }
 
+// Mirrors the _Static_assert in bpf/pid/pid.h.
+func TestPidFilterIndexSpaceFitsMap(t *testing.T) {
+	highestSegment := (primeHash - 1) / 64
+
+	assert.Less(t, highestSegment, maxConcurrentPids,
+		"primeHash %d needs %d segments but valid_pids holds %d",
+		primeHash, highestSegment+1, maxConcurrentPids)
+
+	// buildPidFilter must allocate a slot for every reachable segment.
+	assert.Len(t, (&Tracer{pidsFilter: fakeServiceFilter{}}).buildPidFilter(), maxConcurrentPids)
+}
+
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
 	currentPIDsCalls := 0
@@ -138,6 +150,36 @@ func TestProcessSharedRingbufRecordConsumesJVMRuntimeMetricRecordsWithoutForward
 			assert.Empty(t, span)
 		})
 	}
+}
+
+func TestProcessSharedRingbufRecordDispatchesRegisteredInternalEvent(t *testing.T) {
+	const testInternalEventType uint8 = 0xfe
+
+	eventContext := ebpfcommon.NewEBPFEventContext()
+	handled := false
+	eventContext.RegisterInternalEventHandler(
+		testInternalEventType,
+		func(*ringbuf.Record) error {
+			handled = true
+			return nil
+		},
+	)
+	tracer := &Tracer{
+		cfg:      &obi.Config{},
+		eventCtx: eventContext,
+	}
+
+	span, ignore, err := tracer.processSharedRingbufRecord(
+		context.Background(),
+		nil,
+		&tracer.cfg.EBPF,
+		&ringbuf.Record{RawSample: []byte{testInternalEventType}},
+	)
+
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.True(t, ignore)
+	assert.Empty(t, span)
 }
 
 func TestProcessSharedRingbufRecordDispatchesJVMMemoryPoolRecord(t *testing.T) {

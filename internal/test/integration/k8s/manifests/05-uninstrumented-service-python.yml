@@ -26,10 +26,10 @@ spec:
       name: pytestserver
       labels:
         app: pytestserver
-        deployment.environment: 'to-be-ignored-in-favor-of-annotatoin'
+        deployment.environment.name: 'to-be-ignored-in-favor-of-annotation'
       annotations:
         resource.opentelemetry.io/service.name: 'this-will-be-ignored-due-to-otel-attrs-env'
-        resource.opentelemetry.io/deployment.environment: 'integration-test'
+        resource.opentelemetry.io/deployment.environment.name: 'test'
         resource.opentelemetry.io/service.version: '3.2.1'
     spec:
       containers:

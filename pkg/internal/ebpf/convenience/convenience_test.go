@@ -5,6 +5,7 @@ package ebpfconvenience
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -128,6 +129,37 @@ func TestSetupMapSizes_SkipsNonResizableTypes(t *testing.T) {
 	}
 }
 
+func TestSetupMapSizes_SkipsArrayTypes(t *testing.T) {
+	// Each case builds a fresh spec so the control map's expected size is an
+	// exact number per factor, instead of depending on the factors not
+	// canceling each other out across iterations.
+	for _, tc := range []struct {
+		factor     int
+		wantNormal uint32
+	}{
+		{-1, 512},
+		{2, 4096},
+	} {
+		spec := makeSpec(map[string]*ebpf.MapSpec{
+			"valid_pids":   {Type: ebpf.Array, MaxEntries: 3001},
+			"percpu_array": {Type: ebpf.PerCPUArray, MaxEntries: 1024},
+			"normal":       {Type: ebpf.Hash, MaxEntries: 1024},
+		})
+
+		SetupMapSizes(spec, tc.factor)
+
+		if got := spec.Maps["valid_pids"].MaxEntries; got != 3001 {
+			t.Errorf("Array must not be resized (factor %d): got %d, want 3001", tc.factor, got)
+		}
+		if got := spec.Maps["percpu_array"].MaxEntries; got != 1024 {
+			t.Errorf("PerCPUArray must not be resized (factor %d): got %d, want 1024", tc.factor, got)
+		}
+		if got := spec.Maps["normal"].MaxEntries; got != tc.wantNormal {
+			t.Errorf("Hash must be resized (factor %d): got %d, want %d", tc.factor, got, tc.wantNormal)
+		}
+	}
+}
+
 func TestSetupMapSizes_SkipsBelowMinResizableMapSize(t *testing.T) {
 	spec := makeSpec(map[string]*ebpf.MapSpec{
 		"tiny": {Type: ebpf.Hash, MaxEntries: 32},
@@ -172,6 +204,7 @@ func TestSetupMapSizes_OverflowClampsToMax(t *testing.T) {
 
 func TestIsResizableMapType(t *testing.T) {
 	nonResizable := []ebpf.MapType{
+		ebpf.Array, ebpf.PerCPUArray,
 		ebpf.ProgramArray, ebpf.PerfEventArray, ebpf.CGroupArray,
 		ebpf.ArrayOfMaps, ebpf.HashOfMaps,
 		ebpf.DevMap, ebpf.SockMap, ebpf.CPUMap, ebpf.XSKMap, ebpf.SockHash,
@@ -183,10 +216,32 @@ func TestIsResizableMapType(t *testing.T) {
 		}
 	}
 
-	resizable := []ebpf.MapType{ebpf.Hash, ebpf.Array, ebpf.LRUHash, ebpf.RingBuf}
+	resizable := []ebpf.MapType{ebpf.Hash, ebpf.LRUHash, ebpf.LRUCPUHash, ebpf.PerCPUHash, ebpf.RingBuf}
 	for _, mt := range resizable {
 		if !isResizableMapType(mt) {
 			t.Errorf("expected %v to be resizable", mt)
 		}
+	}
+}
+
+func TestAlignMaxEntriesIfRingBuf(t *testing.T) {
+	pageSize := uint32(os.Getpagesize())
+
+	for _, mt := range []ebpf.MapType{ebpf.RingBuf, ebpf.UserRingbuf} {
+		m := &ebpf.MapSpec{Type: mt, MaxEntries: pageSize + 1}
+
+		alignMaxEntriesIfRingBuf(m)
+
+		if m.MaxEntries%pageSize != 0 {
+			t.Errorf("%v: MaxEntries %d is not page-aligned", mt, m.MaxEntries)
+		}
+	}
+
+	hash := &ebpf.MapSpec{Type: ebpf.Hash, MaxEntries: pageSize + 1}
+
+	alignMaxEntriesIfRingBuf(hash)
+
+	if hash.MaxEntries != pageSize+1 {
+		t.Errorf("non-ringbuf map should not be realigned: got %d", hash.MaxEntries)
 	}
 }

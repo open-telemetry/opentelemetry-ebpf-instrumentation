@@ -12,6 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func setOneByJSONPath(m map[string]any, path string, arraySlots int) (int, bool) {
+	budget, ok := setByJSONPathWithBudget(m, path, 1, partialArgBudget{arraySlots: arraySlots})
+	return budget.arraySlots, ok
+}
+
 func TestParseGeminiStream_CompleteResponse(t *testing.T) {
 	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"AI \"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_abc\"}\n\n" +
 		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"uses \"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_abc\"}\n\n" +
@@ -22,9 +27,9 @@ func TestParseGeminiStream_CompleteResponse(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
 	assert.Equal(t, "resp_abc", resp.ResponseID)
-	assert.Equal(t, 10, resp.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 5, resp.UsageMetadata.CandidatesTokenCount)
-	assert.Equal(t, 15, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 10, tokenValue(resp.UsageMetadata.PromptTokenCount))
+	assert.Equal(t, 5, tokenValue(resp.UsageMetadata.CandidatesTokenCount))
+	assert.Equal(t, 15, tokenValue(resp.UsageMetadata.TotalTokenCount))
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 1)
@@ -47,7 +52,11 @@ func TestParseGeminiStream_TruncatedNoUsage(t *testing.T) {
 
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
-	assert.Equal(t, 0, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 0, tokenValue(resp.UsageMetadata.TotalTokenCount))
+	_, inputReported := resp.UsageMetadata.InputTokenCount()
+	_, outputReported := resp.UsageMetadata.OutputTokenCount()
+	assert.False(t, inputReported)
+	assert.False(t, outputReported)
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 1)
@@ -79,7 +88,7 @@ func TestParseGeminiStream_EmptyStream(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Empty(t, resp.ModelVersion)
 	assert.Empty(t, resp.ResponseID)
-	assert.Equal(t, 0, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 0, tokenValue(resp.UsageMetadata.TotalTokenCount))
 	assert.Empty(t, resp.Candidates)
 	assert.Empty(t, toolCalls)
 }
@@ -109,7 +118,7 @@ func TestParseGeminiStream_MultipleCandidates(t *testing.T) {
 
 	require.NotNil(t, resp)
 	assert.Equal(t, "resp_mc", resp.ResponseID)
-	assert.Equal(t, 12, resp.UsageMetadata.PromptTokenCount)
+	assert.Equal(t, 12, tokenValue(resp.UsageMetadata.PromptTokenCount))
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 2)
@@ -165,8 +174,50 @@ func TestParseGeminiStream_PartialUsageMetadata(t *testing.T) {
 	resp, _ := parseGeminiStream(strings.NewReader(stream))
 
 	require.NotNil(t, resp)
-	assert.Equal(t, 7, resp.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 0, resp.UsageMetadata.CandidatesTokenCount)
+	assert.Equal(t, 7, tokenValue(resp.UsageMetadata.PromptTokenCount))
+	assert.Equal(t, 0, tokenValue(resp.UsageMetadata.CandidatesTokenCount))
+	_, outputReported := resp.UsageMetadata.OutputTokenCount()
+	assert.True(t, outputReported)
+}
+
+func TestParseGeminiStream_ExplicitZeroUsage(t *testing.T) {
+	stream := "data: {\"candidates\":[],\"usageMetadata\":{\"promptTokenCount\":0,\"candidatesTokenCount\":0,\"totalTokenCount\":0},\"responseId\":\"resp_zero\"}\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	input, inputReported := resp.UsageMetadata.InputTokenCount()
+	output, outputReported := resp.UsageMetadata.OutputTokenCount()
+	assert.True(t, inputReported)
+	assert.True(t, outputReported)
+	assert.Zero(t, input)
+	assert.Zero(t, output)
+}
+
+func TestParseGeminiStream_MergesCumulativeUsageFields(t *testing.T) {
+	stream := "data: {\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":4,\"thoughtsTokenCount\":3,\"cachedContentTokenCount\":2}}\n\n" +
+		"data: {\"usageMetadata\":{\"candidatesTokenCount\":0,\"thoughtsTokenCount\":0,\"cachedContentTokenCount\":0,\"toolUsePromptTokenCount\":0,\"totalTokenCount\":7}}\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	assertTokenCount(t, resp.UsageMetadata.PromptTokenCount, 7, true)
+	assertTokenCount(t, resp.UsageMetadata.CandidatesTokenCount, 0, true)
+	assertTokenCount(t, resp.UsageMetadata.TotalTokenCount, 7, true)
+	assertTokenCount(t, resp.UsageMetadata.ThoughtsTokenCount, 0, true)
+	assertTokenCount(t, resp.UsageMetadata.CachedContentTokenCount, 0, true)
+	assertTokenCount(t, resp.UsageMetadata.ToolUsePromptTokenCount, 0, true)
+}
+
+func TestParseGeminiStream_UsageSurvivesMalformedAndTruncatedSiblings(t *testing.T) {
+	stream := "data: {\"usageMetadata\":{\"promptTokenCount\":7,\"thoughtsTokenCount\":2},\"candidates\":{}}\n" +
+		"data: {\"usageMetadata\":{\"cachedContentTokenCount\":0},\"candidates\":[\n" +
+		"data: {\"candidates\":{},\"usageMetadata\":{\"candidatesTokenCount\":0}}\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	assertTokenCount(t, resp.UsageMetadata.PromptTokenCount, 7, true)
+	assertTokenCount(t, resp.UsageMetadata.ThoughtsTokenCount, 2, true)
+	assertTokenCount(t, resp.UsageMetadata.CachedContentTokenCount, 0, true)
+	assertTokenCount(t, resp.UsageMetadata.CandidatesTokenCount, 0, true)
 }
 
 func TestParseGeminiStream_DataPrefixWithoutSpace(t *testing.T) {
@@ -178,7 +229,7 @@ func TestParseGeminiStream_DataPrefixWithoutSpace(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
 	assert.Equal(t, "resp_ns", resp.ResponseID)
-	assert.Equal(t, 5, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 5, tokenValue(resp.UsageMetadata.TotalTokenCount))
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 1)
@@ -291,7 +342,7 @@ func TestParseGeminiStream_ErrorEnvelopeBare(t *testing.T) {
 func TestParseGeminiStream_ErrorEnvelopeInDataLine(t *testing.T) {
 	// Error envelope arriving inside a "data:" SSE line (no candidates).
 	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n" +
-		"data: {\"error\":{\"code\":500,\"message\":\"Internal error\",\"status\":\"INTERNAL\"}}\n\n"
+		"data: {\"usageMetadata\":[],\"error\":{\"code\":500,\"message\":\"Internal error\",\"status\":\"INTERNAL\"}}\n\n"
 
 	resp, _ := parseGeminiStream(strings.NewReader(stream))
 
@@ -574,4 +625,265 @@ func TestParseGeminiStream_OversizedArrayIndex(t *testing.T) {
 	assert.Equal(t, "ok", args["name"])
 	// "items" should not be present (oversized index was skipped).
 	assert.Nil(t, args["items"])
+}
+
+func TestParseGeminiStream_PartialArgsArraySlotBudget(t *testing.T) {
+	// Each accepted path can allocate up to maxPartialArgArrayIndex array slots.
+	// The cumulative budget must stop many distinct bounded high-index paths
+	// from expanding a small stream into excessive heap usage and span output.
+	var partialArgs strings.Builder
+	for i := range maxPartialArgArraySlots/maxPartialArgArrayIndex + 2 {
+		if i > 0 {
+			partialArgs.WriteByte(',')
+		}
+		partialArgs.WriteString(`{"jsonPath":"$.k`)
+		partialArgs.WriteString(string(rune('0' + i)))
+		partialArgs.WriteString(`[1023]","numberValue":1}`)
+	}
+
+	stream := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"bounded","partialArgs":[` + partialArgs.String() + `]}}],"role":"model"},"finishReason":"STOP"}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		FunctionCall *struct {
+			Args json.RawMessage `json:"args"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].FunctionCall)
+
+	var args map[string]any
+	require.NoError(t, json.Unmarshal(parts[0].FunctionCall.Args, &args))
+	assert.Len(t, args, maxPartialArgArraySlots/maxPartialArgArrayIndex)
+	assert.NotContains(t, args, "k4")
+	assert.NotContains(t, args, "k5")
+}
+
+func TestParseGeminiStream_PartialArgsArraySlotBudgetAcrossFunctionCalls(t *testing.T) {
+	var functionCalls strings.Builder
+	for i := range maxPartialArgArraySlots/maxPartialArgArrayIndex + 2 {
+		if i > 0 {
+			functionCalls.WriteByte(',')
+		}
+		functionCalls.WriteString("{\"functionCall\":{\"name\":\"call")
+		functionCalls.WriteString(string(rune('0' + i)))
+		functionCalls.WriteString("\",\"partialArgs\":[{\"jsonPath\":\"$.items[1023]\",\"numberValue\":1}]}}")
+	}
+
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[" + functionCalls.String() + "],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"modelVersion\":\"gemini-2.0-flash\"}" + "\n\n"
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, maxPartialArgArraySlots/maxPartialArgArrayIndex+2)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []geminiStreamPart
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, maxPartialArgArraySlots/maxPartialArgArrayIndex+2)
+
+	retainedSlots := 0
+	for i := range maxPartialArgArraySlots / maxPartialArgArrayIndex {
+		var args map[string]any
+		require.NoError(t, json.Unmarshal(parts[i].FunctionCall.Args, &args))
+		retainedSlots += countArraySlots(args)
+	}
+	assert.Equal(t, maxPartialArgArraySlots, retainedSlots)
+	assert.Empty(t, parts[len(parts)-2].FunctionCall.Args)
+	assert.Empty(t, parts[len(parts)-1].FunctionCall.Args)
+}
+
+func TestPartialArgRejectedStringFragmentsAreSkipped(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+	var ok bool
+	for _, path := range []string{
+		"$.fill0[1023]",
+		"$.fill1[1023]",
+		"$.fill2[1023]",
+		"$.fill3[1023]",
+	} {
+		arraySlots, ok = setOneByJSONPath(args, path, arraySlots)
+		require.True(t, ok)
+	}
+
+	continuing := true
+	prefix := "he"
+	fc := fcAggregator{argsObj: args}
+	budget := fc.applyPartialArg(&geminiPartialArg{
+		JSONPath:     "$.value[0]",
+		StringValue:  &prefix,
+		WillContinue: &continuing,
+	}, partialArgBudget{arraySlots: arraySlots})
+
+	budget.arraySlots, ok = setOneByJSONPath(args, "$.fill0", budget.arraySlots)
+	require.True(t, ok)
+	suffix := "llo"
+	fc.applyPartialArg(&geminiPartialArg{JSONPath: "$.value[0]", StringValue: &suffix}, budget)
+
+	assert.NotContains(t, args, "value")
+	assert.Empty(t, fc.strFrags)
+	assert.Empty(t, fc.rejectedStrFrags)
+}
+
+func TestSetByJSONPathRejectedPathDoesNotConsumeArraySlotBudget(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+
+	for _, path := range []string{
+		"$.bad0[1023][1000000000]",
+		"$.bad1[1023][1000000000]",
+		"$.bad2[1023][1000000000]",
+		"$.bad3[1023][1000000000]",
+	} {
+		updatedArraySlots, ok := setOneByJSONPath(args, path, arraySlots)
+		assert.False(t, ok)
+		arraySlots = updatedArraySlots
+	}
+
+	assert.Zero(t, arraySlots)
+	assert.Empty(t, args)
+	var ok bool
+	arraySlots, ok = setOneByJSONPath(args, "$.items[0]", arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, 1, arraySlots)
+	assert.Equal(t, []any{1}, args["items"])
+}
+
+func TestSetByJSONPathRootArrayDoesNotConsumeArraySlotBudget(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+
+	for range maxPartialArgArraySlots / maxPartialArgArrayIndex {
+		updatedArraySlots, ok := setOneByJSONPath(args, "$[1023]", arraySlots)
+		assert.False(t, ok)
+		arraySlots = updatedArraySlots
+	}
+
+	assert.Zero(t, arraySlots)
+	assert.Empty(t, args)
+	var ok bool
+	arraySlots, ok = setOneByJSONPath(args, "$.items[0]", arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, 1, arraySlots)
+	assert.Equal(t, []any{1}, args["items"])
+}
+
+func TestSetByJSONPathOverwriteReclaimsArraySlotBudget(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+	var ok bool
+
+	for _, path := range []string{"$.tmp0", "$.tmp1", "$.tmp2", "$.tmp3"} {
+		arraySlots, ok = setOneByJSONPath(args, path+"[1023]", arraySlots)
+		require.True(t, ok)
+		arraySlots, ok = setOneByJSONPath(args, path, arraySlots)
+		require.True(t, ok)
+	}
+
+	assert.Zero(t, arraySlots)
+	arraySlots, ok = setOneByJSONPath(args, "$.items[0]", arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, 1, arraySlots)
+	assert.Equal(t, []any{1}, args["items"])
+}
+
+func TestSetByJSONPathIntermediateTypeChangesReclaimArraySlotBudget(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+	var ok bool
+
+	for _, path := range []string{"$.tmp0", "$.tmp1", "$.tmp2", "$.tmp3"} {
+		arraySlots, ok = setOneByJSONPath(args, path+"[1023]", arraySlots)
+		require.True(t, ok)
+		arraySlots, ok = setOneByJSONPath(args, path+".child[0]", arraySlots)
+		require.True(t, ok)
+	}
+
+	assert.Equal(t, 4, arraySlots)
+	arraySlots, ok = setOneByJSONPath(args, "$.items[1023]", arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, maxPartialArgArrayIndex+4, arraySlots)
+
+	arraySlots, ok = setOneByJSONPath(args, "$.nested.child[1023]", arraySlots)
+	require.True(t, ok)
+	arraySlots, ok = setOneByJSONPath(args, "$.nested[0]", arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, maxPartialArgArrayIndex+5, arraySlots)
+}
+
+func TestSetByJSONPathAllocationBudgetIsMonotonic(t *testing.T) {
+	args := map[string]any{}
+	budget := partialArgBudget{}
+
+	budget, ok := setByJSONPathWithBudget(args, "$.x[1023][1023][1023][1023]", 1, budget)
+	require.True(t, ok)
+	budget, ok = setByJSONPathWithBudget(args, "$.x", 1, budget)
+	require.True(t, ok)
+	assert.Zero(t, budget.arraySlots)
+	assert.Equal(t, maxPartialArgArraySlots, budget.arrayAllocations)
+	budget, ok = setByJSONPathWithBudget(args, "$.x[1023][1023][1023][1023]", 1, budget)
+	assert.False(t, ok)
+	assert.Equal(t, 1, args["x"])
+}
+
+func TestSetByJSONPathExhaustedAllocationBudgetRejectsObjectToArray(t *testing.T) {
+	args := map[string]any{}
+	budget := partialArgBudget{}
+
+	for _, path := range []string{
+		"$.large.k0[1023]",
+		"$.large.k1[1023]",
+		"$.large.k2[1023]",
+		"$.large.k3[1023]",
+	} {
+		var ok bool
+		budget, ok = setByJSONPathWithBudget(args, path, 1, budget)
+		require.True(t, ok)
+	}
+	require.Equal(t, maxPartialArgArraySlots, budget.arrayAllocations)
+
+	for range 3 {
+		updatedBudget, ok := setByJSONPathWithBudget(args, "$.large[0]", 1, budget)
+		assert.False(t, ok)
+		assert.Equal(t, budget, updatedBudget)
+	}
+	assert.Len(t, args["large"], maxPartialArgArraySlots/maxPartialArgArrayIndex)
+}
+
+func TestSetByJSONPathExhaustedAllocationBudgetRejectsArrayToObject(t *testing.T) {
+	args := map[string]any{}
+	budget := partialArgBudget{}
+
+	budget, ok := setByJSONPathWithBudget(
+		args,
+		"$.large[1023][1023][1023][1023]",
+		1,
+		budget,
+	)
+	require.True(t, ok)
+	require.Equal(t, maxPartialArgArraySlots, budget.arrayAllocations)
+
+	for range 3 {
+		updatedBudget, ok := setByJSONPathWithBudget(args, "$.large.child[0]", 1, budget)
+		assert.False(t, ok)
+		assert.Equal(t, budget, updatedBudget)
+	}
+	assert.IsType(t, []any{}, args["large"])
+}
+
+func TestSetByJSONPathDeepFreshPath(t *testing.T) {
+	const childFragments = 32 * 1024
+
+	args := map[string]any{}
+	path := "$" + strings.Repeat(".a", childFragments) + "[0]"
+	budget, ok := setByJSONPathWithBudget(args, path, 1, partialArgBudget{})
+	require.True(t, ok)
+	assert.Equal(t, partialArgBudget{arraySlots: 1, arrayAllocations: 1}, budget)
 }

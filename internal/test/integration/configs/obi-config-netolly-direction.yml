@@ -1,5 +1,7 @@
 network:
   guess_ports: ordinal
+  cidrs:
+  - 0.0.0.0/0
 attributes:
   select:
     obi_network_flow_bytes:
@@ -15,6 +17,8 @@ attributes:
       - dst.namespace
       - src.cidr
       - dst.cidr
+      - transport
+      - network.type
       - iface
       - iface_direction
       - direction

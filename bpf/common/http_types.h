@@ -5,6 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/utils.h>
 
 #include <common/connection_info.h>
 #include <common/http_buf_size.h>
@@ -59,6 +60,12 @@ typedef struct call_protocol_args {
     u64 self_ref_parent_id;
     lw_thread_t lw_thread;
 } call_protocol_args_t;
+
+static __always_inline void read_request_buf(http_info_t *info, const call_protocol_args_t *args) {
+    u32 info_buf_len = (u32)args->bytes_len;
+    bpf_clamp_umax(info_buf_len, FULL_BUF_SIZE);
+    bpf_probe_read(info->buf, info_buf_len, (void *)args->u_buf);
+}
 
 // Here we keep information on the packets passing through the socket filter
 typedef struct protocol_info {

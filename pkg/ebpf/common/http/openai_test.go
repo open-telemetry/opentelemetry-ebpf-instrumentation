@@ -127,6 +127,27 @@ func makePlainResponse(statusCode int, headers http.Header, body string) *http.R
 	}
 }
 
+func tokenValue(count request.TokenCount) int {
+	value, _ := count.Get()
+	return value
+}
+
+func assertTokenCount(t *testing.T, count request.TokenCount, want int, wantReported bool) {
+	t.Helper()
+
+	value, reported := count.Get()
+	assert.Equal(t, want, value)
+	assert.Equal(t, wantReported, reported)
+}
+
+func reportedValue(value int, _ bool) int {
+	return value
+}
+
+func isReported(_ int, reported bool) bool {
+	return reported
+}
+
 func TestOpenAISpan_Responses(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/responses", responsesRequestBody)
 	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), responsesResponseBody)
@@ -142,8 +163,8 @@ func TestOpenAISpan_Responses(t *testing.T) {
 	assert.Equal(t, "resp_09687a288637e2be006998ad7af05481a2bb0938f77da5a9db", ai.ID)
 	assert.Equal(t, "response", ai.OperationName)
 	assert.Equal(t, "gpt-5-mini-2025-08-07", ai.ResponseModel)
-	assert.Equal(t, 36, ai.Usage.GetInputTokens())
-	assert.Equal(t, 691, ai.Usage.GetOutputTokens())
+	assert.Equal(t, 36, reportedValue(ai.Usage.InputTokenCount()))
+	assert.Equal(t, 691, reportedValue(ai.Usage.OutputTokenCount()))
 	assert.InEpsilon(t, 1.0, 0.01, ai.Temperature)
 	assert.InEpsilon(t, 1.0, 0.01, ai.TopP)
 	assert.NotEmpty(t, ai.Output)
@@ -168,8 +189,8 @@ func TestOpenAISpan_ChatCompletions(t *testing.T) {
 	assert.Equal(t, "chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S", ai.ID)
 	assert.Equal(t, "chat", ai.OperationName)
 	assert.Equal(t, "gpt-4o-mini-2024-07-18", ai.ResponseModel)
-	assert.Equal(t, 396, ai.Usage.GetInputTokens())
-	assert.Equal(t, 816, ai.Usage.GetOutputTokens())
+	assert.Equal(t, 396, reportedValue(ai.Usage.InputTokenCount()))
+	assert.Equal(t, 816, reportedValue(ai.Usage.OutputTokenCount()))
 	assert.NotEmpty(t, ai.Choices)
 
 	// request fields
@@ -248,14 +269,21 @@ func TestOpenAISpan_MalformedResponseBody(t *testing.T) {
 
 func TestOpenAISpan_UsageTokenHelpers(t *testing.T) {
 	// /v1/responses uses input_tokens / output_tokens
-	u := request.OpenAIUsage{InputTokens: 10, OutputTokens: 20, TotalTokens: 30}
-	assert.Equal(t, 10, u.GetInputTokens())
-	assert.Equal(t, 20, u.GetOutputTokens())
+	u := request.OpenAIUsage{
+		InputTokens:  request.NewTokenCount(10),
+		OutputTokens: request.NewTokenCount(20),
+		TotalTokens:  request.NewTokenCount(30),
+	}
+	assert.Equal(t, 10, reportedValue(u.InputTokenCount()))
+	assert.Equal(t, 20, reportedValue(u.OutputTokenCount()))
 
 	// /v1/chat/completions uses prompt_tokens / completion_tokens
-	u2 := request.OpenAIUsage{PromptTokens: 5, CompletionTokens: 15}
-	assert.Equal(t, 5, u2.GetInputTokens())
-	assert.Equal(t, 15, u2.GetOutputTokens())
+	u2 := request.OpenAIUsage{
+		PromptTokens:     request.NewTokenCount(5),
+		CompletionTokens: request.NewTokenCount(15),
+	}
+	assert.Equal(t, 5, reportedValue(u2.InputTokenCount()))
+	assert.Equal(t, 15, reportedValue(u2.OutputTokenCount()))
 }
 
 func TestOpenAISpan_PartialRequestBody(t *testing.T) {
@@ -296,7 +324,7 @@ func TestOpenAISpan_PartialResponseBody(t *testing.T) {
 	assert.Equal(t, "chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S", span.GenAI.OpenAI.ID)
 	assert.Equal(t, request.ChatOperationName, span.GenAI.OpenAI.OperationName)
 	assert.Equal(t, "gpt-4o-mini-2024-07-18", span.GenAI.OpenAI.ResponseModel)
-	assert.Equal(t, 0, span.GenAI.OpenAI.Usage.GetInputTokens())
+	assert.Equal(t, 0, reportedValue(span.GenAI.OpenAI.Usage.InputTokenCount()))
 }
 
 func TestOpenAISpan_GetOutput(t *testing.T) {
@@ -398,7 +426,7 @@ func TestOpenAISpan_Embeddings(t *testing.T) {
 	ai := span.GenAI.OpenAI
 	assert.Equal(t, "embeddings", ai.OperationName)
 	assert.Equal(t, "text-embedding-3-small", ai.ResponseModel)
-	assert.Equal(t, 5, ai.Usage.GetInputTokens())
+	assert.Equal(t, 5, reportedValue(ai.Usage.InputTokenCount()))
 
 	// request fields
 	assert.Equal(t, "text-embedding-3-small", ai.Request.Model)

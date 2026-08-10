@@ -4,22 +4,24 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"go.yaml.in/yaml/v3"
+
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
-	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 // Instrumentation groups protocol-specific capture settings.
 type Instrumentation struct {
-	HTTP      HTTPInstrumentation      `yaml:"http"`
-	GRPC      ProtocolInstrumentation  `yaml:"grpc"`
-	SQL       SQLInstrumentation       `yaml:"sql"`
-	Redis     RedisInstrumentation     `yaml:"redis"`
-	Kafka     KafkaInstrumentation     `yaml:"kafka"`
-	Mongo     MongoInstrumentation     `yaml:"mongo"`
-	Couchbase CouchbaseInstrumentation `yaml:"couchbase"`
-	DNS       DNSInstrumentation       `yaml:"dns"`
-	GPU       GPUInstrumentation       `yaml:"gpu"`
+	HTTP      HTTPInstrumentation       `yaml:"http"`
+	GRPC      ProtocolInstrumentation   `yaml:"grpc"`
+	SQL       SQLInstrumentation        `yaml:"sql"`
+	Redis     RedisInstrumentation      `yaml:"redis"`
+	Kafka     KafkaInstrumentation      `yaml:"kafka"`
+	Mongo     MongoInstrumentation      `yaml:"mongo"`
+	Couchbase CouchbaseInstrumentation  `yaml:"couchbase"`
+	DNS       DNSInstrumentation        `yaml:"dns"`
+	GPU       GPUInstrumentation        `yaml:"gpu"`
+	Aerospike *AerospikeInstrumentation `yaml:"aerospike,omitempty"`
 }
 
 // ProtocolInstrumentation describes common trace and metric enablement and
@@ -27,6 +29,21 @@ type Instrumentation struct {
 type ProtocolInstrumentation struct {
 	Enabled ProtocolEnablement `yaml:"enabled"`
 	Filters SignalFilters      `yaml:"filters"`
+}
+
+// AerospikeInstrumentation applies the documented signal defaults when the
+// optional Aerospike section is present but incomplete.
+type AerospikeInstrumentation ProtocolInstrumentation
+
+// UnmarshalYAML defaults omitted Aerospike signal fields to enabled.
+func (a *AerospikeInstrumentation) UnmarshalYAML(value *yaml.Node) error {
+	type plain AerospikeInstrumentation
+	decoded := plain{Enabled: ProtocolEnablement{Traces: true, Metrics: true}}
+	if err := decodeKnownFields(value, &decoded); err != nil {
+		return err
+	}
+	*a = AerospikeInstrumentation(decoded)
+	return nil
 }
 
 // ProtocolEnablement selects whether a protocol emits traces and metrics.
@@ -48,15 +65,21 @@ type HTTPInstrumentation struct {
 	PayloadExtraction         PayloadExtraction  `yaml:"payload_extraction"`
 }
 
-// HTTPRoutes describes global HTTP route normalization and discovery settings.
+// HTTPRoutes describes directional global HTTP route normalization and discovery settings.
 type HTTPRoutes struct {
-	Discovery                 HTTPRouteDiscovery     `yaml:"discovery"`
-	Unmatched                 *transform.UnmatchType `yaml:"unmatched,omitempty"`
-	Patterns                  *[]string              `yaml:"patterns,omitempty"`
-	IgnoredPatterns           *[]string              `yaml:"ignored_patterns,omitempty"`
-	IgnoreMode                *transform.IgnoreMode  `yaml:"ignore_mode,omitempty"`
-	WildcardChar              *string                `yaml:"wildcard_char,omitempty"`
-	MaxPathSegmentCardinality *int                   `yaml:"max_path_segment_cardinality,omitempty"`
+	Incoming  *HTTPRoutePolicy   `yaml:"incoming,omitempty"`
+	Outgoing  *HTTPRoutePolicy   `yaml:"outgoing,omitempty"`
+	Discovery HTTPRouteDiscovery `yaml:"discovery"`
+}
+
+// HTTPRoutePolicy configures route handling for one traffic direction.
+type HTTPRoutePolicy struct {
+	Unmatched                 *services.RouteUnmatch    `yaml:"unmatched,omitempty"`
+	Patterns                  *[]string                 `yaml:"patterns,omitempty"`
+	IgnoredPatterns           *[]string                 `yaml:"ignored_patterns,omitempty"`
+	IgnoreMode                *services.RouteIgnoreMode `yaml:"ignore_mode,omitempty"`
+	WildcardChar              *string                   `yaml:"wildcard_char,omitempty"`
+	MaxPathSegmentCardinality *int                      `yaml:"max_path_segment_cardinality,omitempty"`
 }
 
 // HTTPRouteDiscovery describes automatic HTTP route discovery settings.
@@ -178,6 +201,28 @@ type SQLPPPayload struct {
 type HTTPEnrichment struct {
 	Policy HTTPEnrichmentPolicy     `yaml:"policy"`
 	Rules  []config.HTTPParsingRule `yaml:"rules"`
+}
+
+// UnmarshalYAML keeps the enrichment object strict while accepting the
+// implementation-specific properties allowed inside each rule.
+func (e *HTTPEnrichment) UnmarshalYAML(value *yaml.Node) error {
+	var decoded struct {
+		Policy HTTPEnrichmentPolicy `yaml:"policy"`
+		Rules  yaml.Node            `yaml:"rules"`
+	}
+	if err := decodeKnownFields(value, &decoded); err != nil {
+		return err
+	}
+
+	var rules []config.HTTPParsingRule
+	if decoded.Rules.Kind != 0 {
+		if err := decode(&decoded.Rules, &rules); err != nil {
+			return err
+		}
+	}
+	e.Policy = decoded.Policy
+	e.Rules = rules
+	return nil
 }
 
 // HTTPEnrichmentPolicy describes default HTTP payload enrichment actions.

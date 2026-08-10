@@ -156,10 +156,10 @@ func TestV2ToRuntimePartialNetworkCapturePreservesMissingMetadataDefaults(t *tes
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.ReverseDNS.CacheTTL, got.NetworkFlows.ReverseDNS.CacheTTL)
 }
 
-func TestV2ToRuntimeNetworkCaptureSkipsDivergentSignalFilters(t *testing.T) {
+func TestV2ToRuntimeNetworkCaptureRejectsDivergentSignalFilters(t *testing.T) {
 	t.Parallel()
 
-	got, err := V2ToRuntime(&schema.Extension{
+	_, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Network: schema.CaptureNetwork{
@@ -176,7 +176,81 @@ func TestV2ToRuntimeNetworkCaptureSkipsDivergentSignalFilters(t *testing.T) {
 			},
 		},
 	})
-	require.NoError(t, err)
+	require.ErrorContains(
+		t,
+		err,
+		"capture.network.capture.filters.metrics cannot differ from "+
+			"capture.network.capture.filters.traces",
+	)
+}
 
-	require.Equal(t, obi.DefaultConfig.Filters.Network, got.Filters.Network)
+func TestV2ToRuntimeNetworkStatsRejectsDivergentSignalFilters(t *testing.T) {
+	t.Parallel()
+
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Network: schema.CaptureNetwork{
+				Stats: schema.NetworkStats{
+					Filters: schema.SignalFilters{
+						Traces: schema.AttributeFilters{
+							"src.address": {Match: "10.*"},
+						},
+						Metrics: schema.AttributeFilters{
+							"dst.address": {Match: "10.*"},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.ErrorContains(
+		t,
+		err,
+		"capture.network.stats.filters.metrics cannot differ from "+
+			"capture.network.stats.filters.traces",
+	)
+}
+
+func TestV2ToRuntimeRejectsUnsupportedNetworkProperties(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		path   string
+		mutate func(*schema.CaptureNetwork)
+	}{
+		{
+			name: "capture",
+			path: "capture.network.capture.custom_capture_option",
+			mutate: func(network *schema.CaptureNetwork) {
+				network.Capture.AdditionalProperties = map[string]any{
+					"custom_capture_option": true,
+				}
+			},
+		},
+		{
+			name: "stats",
+			path: "capture.network.stats.custom_stats_option",
+			mutate: func(network *schema.CaptureNetwork) {
+				network.Stats.AdditionalProperties = map[string]any{
+					"custom_stats_option": true,
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			network := schema.CaptureNetwork{}
+			tc.mutate(&network)
+			_, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Network: network,
+				},
+			})
+			require.ErrorContains(t, err, tc.path)
+		})
+	}
 }

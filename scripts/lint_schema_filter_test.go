@@ -33,21 +33,18 @@ func runLintSchemaFilter(t *testing.T, diagnostics string) []json.RawMessage {
 	return remaining
 }
 
-const expectedDNSDuplicate = `[{
+const expectedUnstable = `[{
 	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateMetricName": {
-		"metric_name": "dns.lookup.duration",
-		"provenances": [
-			{"path": ".deps/upstream-v1.41.0/model/dns/metrics.yaml"},
-			{"path": "/obi-registry/groups/dns.yaml"}
-		]
-	}}
+	"error": {"FailToResolveDefinition": {"UnstableFileFormat" :{
+		"file_format": "definition/2",
+		"provenances": "/obi-registry/groups/dns.yaml"
+	}}}
 }]`
 
-func TestLintSchemaFilterAllowsExpectedDNSDuplicate(t *testing.T) {
-	remaining := runLintSchemaFilter(t, expectedDNSDuplicate)
+func TestLintSchemaFilterAllowsExpectedUnstable(t *testing.T) {
+	remaining := runLintSchemaFilter(t, expectedUnstable)
 	if len(remaining) != 0 {
-		t.Fatalf("expected the documented dns.lookup.duration duplicate to be filtered, got %d diagnostics", len(remaining))
+		t.Fatalf("expected the documented unstable error to be filtered, got %d diagnostics", len(remaining))
 	}
 }
 
@@ -102,12 +99,33 @@ const expectedEnumOverrideDuplicates = `[{
 		"attribute_id": "error.type",
 		"group_ids": ["registry.error", "x.obi.error"]
 	}}
+}, {
+	"diagnostic": {"severity": "Error"},
+	"error": {"DuplicateAttributeId": {
+		"attribute_id": "network.type",
+		"group_ids": ["registry.network", "x.obi.network"]
+	}}
 }]`
 
 func TestLintSchemaFilterAllowsExpectedEnumOverrideDuplicates(t *testing.T) {
 	remaining := runLintSchemaFilter(t, expectedEnumOverrideDuplicates)
 	if len(remaining) != 0 {
 		t.Fatalf("expected the documented enum-override attribute duplicates to be filtered, got %d diagnostics", len(remaining))
+	}
+}
+
+// expectedDeprecatedIncludeUnreferenced mirrors the diagnostic weaver 0.25
+// emits (promoted to Error by --future) for OBI's use of the deprecated
+// --include-unreferenced flag, which OBI still needs.
+const expectedDeprecatedIncludeUnreferenced = `[{
+	"diagnostic": {"severity": "Error"},
+	"error": {"DeprecatedIncludeUnreferencedWarning": {}}
+}]`
+
+func TestLintSchemaFilterAllowsDeprecatedIncludeUnreferenced(t *testing.T) {
+	remaining := runLintSchemaFilter(t, expectedDeprecatedIncludeUnreferenced)
+	if len(remaining) != 0 {
+		t.Fatalf("expected the deprecated include-unreferenced warning to be filtered, got %d diagnostics", len(remaining))
 	}
 }
 

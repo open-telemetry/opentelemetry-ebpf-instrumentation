@@ -1144,8 +1144,8 @@ func BenchmarkHTTPEnricher_HeadersOnly(b *testing.B) {
 	enricher := NewHTTPEnricher(cfg)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		span := &request.Span{Method: "GET", Path: "/api/v1/users"}
 		req := &http.Request{Header: http.Header{
 			"Authorization": []string{"Bearer token"},
@@ -1188,8 +1188,8 @@ func BenchmarkHTTPEnricher_BodyInclude_SmallJSON(b *testing.B) {
 	enricher := NewHTTPEnricher(cfg)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		span := &request.Span{Method: "POST", Path: "/api/users"}
 		req := &http.Request{
 			Header: http.Header{"Content-Type": []string{"application/json"}},
@@ -1227,8 +1227,8 @@ func BenchmarkHTTPEnricher_BodyObfuscate_SmallJSON(b *testing.B) {
 	enricher := NewHTTPEnricher(cfg)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		span := &request.Span{Method: "POST", Path: "/api/users"}
 		req := &http.Request{
 			Header: http.Header{"Content-Type": []string{"application/json"}},
@@ -1271,8 +1271,8 @@ func BenchmarkHTTPEnricher_BodyObfuscate_LargeJSON(b *testing.B) {
 	enricher := NewHTTPEnricher(cfg)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		span := &request.Span{Method: "POST", Path: "/api/bulk"}
 		req := &http.Request{
 			Header: http.Header{"Content-Type": []string{"application/json"}},
@@ -1300,8 +1300,8 @@ func BenchmarkHTTPEnricher_BodyExcludedByDefault(b *testing.B) {
 	enricher := NewHTTPEnricher(cfg)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		span := &request.Span{Method: "POST", Path: "/api/users"}
 		req := &http.Request{
 			Header: http.Header{"Content-Type": []string{"application/json"}},
@@ -1351,8 +1351,8 @@ func BenchmarkHTTPEnricher_HeadersAndBody(b *testing.B) {
 	enricher := NewHTTPEnricher(cfg)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		span := &request.Span{Method: "POST", Path: "/api/users"}
 		req := &http.Request{
 			Header: http.Header{

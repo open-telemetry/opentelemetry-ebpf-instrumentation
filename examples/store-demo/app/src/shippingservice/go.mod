@@ -7,7 +7,7 @@ toolchain go1.26.5
 require (
 	github.com/sirupsen/logrus v1.9.4
 	golang.org/x/net v0.57.0
-	google.golang.org/grpc v1.82.0
+	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 )
 

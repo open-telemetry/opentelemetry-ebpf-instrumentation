@@ -16,8 +16,11 @@ data:
       patterns:
         - /pingpong
       unmatched: path
+    # Traces go through the weaver-tapped otelcol (which forwards them to
+    # jaeger, keeping the jaeger-based assertions working) so weaver can
+    # validate them — OBI exports nothing else in this suite.
     otel_traces_export:
-      endpoint: http://jaeger:4318
+      endpoint: http://otelcol:4318
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -61,7 +64,7 @@ spec:
             - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL
               value: "500ms"
             - name: OTEL_EBPF_METRICS_INTERVAL
-              value: "10ms"
+              value: "1s"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
             - name: OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT

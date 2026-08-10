@@ -38,7 +38,11 @@
         "[1.23.0]gcMiscSys",
         "[1.23.0]other_sys"
       ],
-      "runtime.gcControllerState": ["[1.19.0]memoryLimit", "gcPercent"],
+      "runtime.gcControllerState": [
+        "[1.17.0,1.18.10]heapGoal",
+        "[1.19.0]memoryLimit",
+        "gcPercent"
+      ],
       "runtime.hchan": ["qcount", "dataqsiz", "sendx", "recvx"],
       "runtime.consistentHeapStats": ["[1.23.0]stats"],
       "runtime.heapStatsDelta": [
@@ -48,6 +52,19 @@
         "[1.23.0]largeAllocCount",
         "[1.23.0]smallAllocCount",
         "[1.23.0]smallFreeCount"
+      ],
+      "runtime.schedt": [
+        "ngsys",
+        "gFree",
+        "[1.20.0]timeToRun",
+        "[1.22.0]stwTotalTimeGC"
+      ],
+      "runtime.p": ["gFree"],
+      "runtime.gList": ["[1.25.0]size"],
+      "runtime.mutex": ["key"],
+      "runtime.timeHistogram": [
+        "[1.20.0]underflow",
+        "[1.20.0]overflow"
       ],
       "runtime.workType": ["[1.23.0]cpuStats"],
       "runtime.cpuStats": [
@@ -147,6 +164,13 @@
     "versions": ">= v1.10.0",
     "fields": {
       "go.opentelemetry.io/otel/internal/global.tracer": ["delegate"]
+    }
+  },
+  "go.opentelemetry.io/auto/sdk": {
+    "inspect": "./configs/offsets/autosdk/inspect.go",
+    "versions": ">= v1.1.0",
+    "fields": {
+      "go.opentelemetry.io/auto/sdk.span": ["spanContext"]
     }
   },
   "go.opentelemetry.io/otel/trace": {

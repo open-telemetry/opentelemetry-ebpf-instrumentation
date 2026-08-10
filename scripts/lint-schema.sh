@@ -36,8 +36,8 @@ out=$($OCI_BIN run --rm \
   -w /obi-registry \
   "$WEAVER_IMAGE" registry check \
     --registry /obi-registry \
-    --include-unreferenced \
     --future \
+    --v2=true \
     --diagnostic-format json \
     --diagnostic-stdout 2>"$stderr") || rc=$?
 

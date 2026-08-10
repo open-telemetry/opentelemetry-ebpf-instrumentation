@@ -376,9 +376,21 @@ func TestSuite_NodeJS(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
-	t.Run("NodeJS RED metrics", testREDMetricsNodeJSHTTP)
+	t.Run("NodeJS RED metrics", testREDMetricsJSHTTP)
 	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
-	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedNodeJSLargeHTTPS)
+	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_Deno(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-deno.yml", path.Join(pathOutput, "test-suite-deno.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
+	require.NoError(t, compose.Up())
+	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
+	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -533,6 +545,58 @@ func TestSuite_PythonPostgres(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Postgres tests", testPythonPostgres)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonPostgresAfterHeaders(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-postgresql-after-headers.yml", path.Join(pathOutput, "test-suite-python-postgresql-after-headers.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Postgres after headers", func(t *testing.T) {
+		testPythonPostgresAfterHeaders(t, "http://localhost:8381")
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonPostgresAfterHeadersHighRequestVolume(t *testing.T) {
+	compose, err := docker.ComposeSuite(
+		"docker-compose-python-postgresql-after-headers.yml",
+		path.Join(pathOutput, "test-suite-python-postgresql-after-headers-high-request-volume.log"),
+	)
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_OPEN_PORT=8080`,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME=true`,
+		`TEST_SERVICE_PORTS=8381:8080`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("Python Postgres after headers with high request volume", func(t *testing.T) {
+		testPythonPostgresAfterHeaders(t, "http://localhost:8381")
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonPostgresAfterHeadersTLS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-postgresql-after-headers.yml", path.Join(pathOutput, "test-suite-python-postgresql-after-headers-tls.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_OPEN_PORT=8080`,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`TEST_SERVICE_PORTS=8381:8080`,
+		`PYTHON_SQL_TLS=true`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("Python Postgres after TLS headers", func(t *testing.T) {
+		testPythonPostgresAfterHeaders(t, "https://localhost:8381")
+	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

@@ -22,7 +22,7 @@ metadata:
     # kind, to force OBI writing the coverage data
     teardown: delete
   annotations:
-    resource.opentelemetry.io/deployment.environment: 'integration-test'
+    resource.opentelemetry.io/deployment.environment.name: 'test'
     resource.opentelemetry.io/service.version: '3.2.1'
 spec:
   shareProcessNamespace: true
@@ -66,7 +66,7 @@ spec:
         - name: OTEL_EBPF_EXECUTABLE_PATH
           value: "httppinger"
         - name: OTEL_EBPF_METRICS_INTERVAL
-          value: "10ms"
+          value: "1s"
         - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
           value: "10ms"
         - name: OTEL_EBPF_LOG_LEVEL
