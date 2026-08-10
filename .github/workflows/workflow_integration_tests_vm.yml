@@ -254,7 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         kernel: ${{ fromJson(needs.vm-test-matrix.outputs.kernels).include }}
         test: ${{ fromJson(needs.vm-test-matrix.outputs.matrix).include }}
@@ -350,4 +350,3 @@ jobs:
           path: |
             testoutput/*.log
             testoutput/kind
-

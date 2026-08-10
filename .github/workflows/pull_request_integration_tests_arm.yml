@@ -123,7 +123,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -207,11 +207,9 @@ jobs:
 
           mkdir -p /home/runner/reports
 
-          go tool -modfile=./internal/tools/go.mod gotestsum \
-              --rerun-fails=2 --rerun-fails-max-failures=2 --rerun-fails-abort-on-data-race \
-              --packages="./internal/test/integration" -ftestname \
+          go tool -modfile=./internal/tools/go.mod gotestsum -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
-              -- -count=1 -timeout 40m \
+              -- -count=1 -failfast -timeout 40m \
               -run="^(${MATRIX_TEST_PATTERN})$" ./internal/test/integration
 
       - name: Process coverage data

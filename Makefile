@@ -463,11 +463,11 @@ run-integration-test-vm:
 		echo "Using pre-compiled integration tests with gotestsum"; \
 		chmod +x $(PRECOMPILED_TESTS_DIR)/integration.test $(PRECOMPILED_TESTS_DIR)/gotestsum; \
 		$(PRECOMPILED_TESTS_DIR)/gotestsum \
-			--rerun-fails=2 --rerun-fails-max-failures=2 \
 			--raw-command -ftestname \
 			--jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log \
 			-- go tool test2json -t -p integration \
 			$(PRECOMPILED_TESTS_DIR)/integration.test \
+			-test.failfast \
 			-test.parallel=$$TEST_PARALLEL \
 			-test.timeout=$$TEST_TIMEOUT \
 			-test.v \
@@ -476,6 +476,7 @@ run-integration-test-vm:
 		echo "Using pre-compiled integration tests (gotestsum not available)"; \
 		chmod +x $(PRECOMPILED_TESTS_DIR)/integration.test; \
 		$(PRECOMPILED_TESTS_DIR)/integration.test \
+			-test.failfast \
 			-test.parallel=$$TEST_PARALLEL \
 			-test.timeout=$$TEST_TIMEOUT \
 			-test.v \
@@ -483,9 +484,9 @@ run-integration-test-vm:
 	else \
 		echo "Pre-compiled tests not found, compiling in VM"; \
 		go tool $(TOOLS_MODFILE) gotestsum \
-			--rerun-fails=2 --rerun-fails-max-failures=2 \
 			-ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
 			-p $$TEST_PARALLEL \
+			-failfast \
 			-timeout $$TEST_TIMEOUT \
 			-v -a \
 			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \

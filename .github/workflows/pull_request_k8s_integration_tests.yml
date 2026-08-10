@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,11 +146,9 @@ jobs:
 
           mkdir -p /home/runner/reports
 
-          go tool -modfile=./internal/tools/go.mod gotestsum \
-              --rerun-fails=2 --rerun-fails-max-failures=2 --rerun-fails-abort-on-data-race \
-              --packages="${MATRIX_TEST_PATTERN}" -ftestname \
+          go tool -modfile=./internal/tools/go.mod gotestsum -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
-              -- -race -count=1 -timeout 40m \
+              -- -race -count=1 -failfast -timeout 40m \
               ${MATRIX_TEST_PATTERN}
 
       - name: Process coverage data
