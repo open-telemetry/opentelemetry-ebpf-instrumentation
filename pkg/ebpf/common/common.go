@@ -102,6 +102,7 @@ const (
 	ProtocolTypeSunRPC
 	ProtocolTypeNATS // placeholder for future kernel-space detection
 	ProtocolTypeAMQP // placeholder for future kernel-space detection
+	ProtocolTypeAerospike
 )
 
 const (

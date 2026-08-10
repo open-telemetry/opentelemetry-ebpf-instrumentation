@@ -23,6 +23,8 @@ enum protocol_type : u8 {
     k_protocol_type_mqtt = 5,
     k_protocol_type_mssql = 6,
     k_protocol_type_sunrpc = 7,
+    // NOTE: 8 and 9 are reserved for NATS and AMQP (userspace placeholders).
+    k_protocol_type_aerospike = 10,
 };
 
 // Struct to keep information on the connections in flight
