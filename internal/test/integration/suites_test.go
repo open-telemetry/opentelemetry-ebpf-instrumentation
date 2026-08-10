@@ -63,6 +63,7 @@ func TestSuite_Go(t *testing.T) {
 			t.Run("RED JSON RPC metrics", testREDMetricsJSONRPCHTTP)
 			t.Run("HTTP traces", testHTTPTraces)
 			t.Run("HTTP traces (no traceID)", testHTTPTracesNoTraceID)
+			t.Run("HTTP traces (url.query redaction)", testHTTPTracesURLQuery)
 			t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
 			t.Run("GRPC traces", testGRPCTraces)
 			t.Run("GRPC RED metrics", testREDMetricsGRPC)
@@ -161,6 +162,7 @@ func TestSuite_NoDebugInfo(t *testing.T) {
 
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
+	t.Run("HTTP traces (url.query redaction)", testHTTPTracesURLQuery)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
