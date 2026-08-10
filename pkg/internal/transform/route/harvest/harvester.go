@@ -127,7 +127,11 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 					resultChan <- result{err: err}
 					return
 				}
-				h.log.Debug("found JavaScript application routes", "routes", r.Routes)
+				runtimeName := runtime.String()
+				if runtime == svc.InstrumentableDeno {
+					runtimeName = "deno"
+				}
+				h.log.Debug("found application routes", "runtime", runtimeName, "routes", r.Routes)
 
 				resultChan <- result{r: r}
 			} else {
