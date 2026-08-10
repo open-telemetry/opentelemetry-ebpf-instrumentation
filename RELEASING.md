@@ -179,6 +179,18 @@ Once the workflow completes successfully, a draft release is automatically creat
    - Verify the matching GHCR image as well:
      `cosign verify --certificate-identity 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/<tag>' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:<tag>`
    - Review auto-generated release notes for accuracy
+   - When the supported configuration contract changes, link the
+     [Config v1 to v2 migration guide](devdocs/config/version-2.0/migration.md)
+     and state:
+     - the first release that can load the new version in standalone and
+       Collector receiver modes;
+     - whether the previous configuration version remains supported;
+     - any migration limitations that affect compatibility.
+   - Link those release notes back from the
+     [Config v2 release gate](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2251)
+     and the
+     [stable v1.0 release epic](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1133)
+     before publishing the release.
 4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
 5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
 
@@ -191,6 +203,7 @@ When release artifact names, verification commands, or installation steps change
 update the user-facing docs in both places before or alongside the release:
 
 - Repository quick-start guide: [README.md](README.md)
+- Repository [Config v1 to v2 migration guide](devdocs/config/version-2.0/migration.md)
 - OpenTelemetry [docs for standalone installs](https://opentelemetry.io/docs/zero-code/obi/setup/standalone/)
 - OpenTelemetry [docs for container installs](https://opentelemetry.io/docs/zero-code/obi/setup/docker/)
 

@@ -1,0 +1,57 @@
+file_format: "1.0"
+log_level: info
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 1
+        exporter:
+          otlp_grpc:
+            endpoint: http://jaeger:4317
+            tls:
+              insecure: true
+meter_provider:
+  readers:
+    - periodic:
+        interval: 1000
+        exporter:
+          otlp_grpc:
+            endpoint: http://otelcol:4317
+            default_histogram_aggregation: explicit_bucket_histogram
+            tls:
+              insecure: true
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 8999
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 500ms
+      rules:
+        - action: include
+          match:
+            process:
+              exe_path_glob: ["*testserver"]
+      instrumentation:
+        http:
+          enabled:
+            traces: true
+            metrics: true
+          routes:
+            incoming:
+              patterns:
+                - /basic/:rnd
+              unmatched: path
+              ignored_patterns:
+                - /metrics
+              ignore_mode: traces
+    enrich:
+      enrichers:
+        kubernetes:
+          mode: disabled
+    daemon:
+      logging:
+        format: json

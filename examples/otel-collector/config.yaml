@@ -1,6 +1,8 @@
 receivers:
   obi:
     version: "2.0"
+    policy:
+      default_action: exclude
     rules:
       - action: include
         match:

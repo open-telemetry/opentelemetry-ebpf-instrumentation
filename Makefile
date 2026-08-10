@@ -321,10 +321,13 @@ compile-cache-for-coverage:
 	@echo "### Compiling K8s cache service to generate coverage profiles"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
-.PHONY: test
+.PHONY: test test-rerun-flaky
 test: testoutput
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+
+test-rerun-flaky:
+	@./scripts/rerun-flaky_test.sh
 
 .PHONY: test-privileged
 test-privileged: $(ENVTEST) testoutput
@@ -920,7 +923,8 @@ CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
 # separate from conversion logic so reviewers can inspect drift intentionally.
 CONFIG_V2_DIR ?= devdocs/config/version-2.0
 CONFIG_V2_SCHEMA_FILE ?= $(CONFIG_V2_DIR)/obi-extension.schema.json
-CONFIG_V2_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
+CONFIG_V2_DEFAULT_REFERENCE_FILE ?= $(CONFIG_V2_DIR)/examples/default-values-reference.fragment.yaml
+CONFIG_V2_RUNNABLE_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
 
 .PHONY: generate-config-schema
 generate-config-schema:
@@ -959,12 +963,14 @@ check-config-schema:
 .PHONY: check-config-v2-parity
 check-config-v2-parity:
 	@echo "### Checking config v2 default parity"
-	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_EXAMPLE_FILE)
+	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_DEFAULT_REFERENCE_FILE)
 
 .PHONY: check-config-v2-artifacts
 check-config-v2-artifacts: check-config-v2-parity
 	@echo "### Checking hidden config v2 artifacts"
-	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) -example $(CONFIG_V2_EXAMPLE_FILE)
+	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) \
+		-default-reference $(CONFIG_V2_DEFAULT_REFERENCE_FILE) \
+		-runnable-example $(CONFIG_V2_RUNNABLE_EXAMPLE_FILE)
 
 .PHONY: fix-store-demo-architecture
 fix-store-demo-architecture:

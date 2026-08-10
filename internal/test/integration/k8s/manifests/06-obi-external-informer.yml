@@ -17,7 +17,7 @@ data:
         cluster_name: my-kube
         meta_cache_address: k8s-cache:50055
         resource_labels:
-          deployment.environment: ["${DEPLOYMENT_ENVIRONMENT:-deployment.environment}"]
+          deployment.environment.name: ["${DEPLOYMENT_ENVIRONMENT:-deployment.environment.name}"]
       select:
         "*":
           include: [ "*" ]
@@ -87,7 +87,7 @@ spec:
             - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL
               value: "500ms"
             - name: OTEL_EBPF_METRICS_INTERVAL
-              value: "10ms"
+              value: "1s"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
           ports:

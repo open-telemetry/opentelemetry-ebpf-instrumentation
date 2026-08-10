@@ -134,3 +134,63 @@ func TestV2ToRuntimeEmptyEnrichPreservesDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.Attributes.Select, got.Attributes.Select)
 	require.Equal(t, obi.DefaultConfig.Attributes.ExtraGroupAttributes, got.Attributes.ExtraGroupAttributes)
 }
+
+func TestV2ToRuntimeRejectsUnsupportedEnrichment(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		path   string
+		mutate func(*schema.Enrich)
+	}{
+		{
+			name: "enrich root",
+			path: "enrich.custom",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.AdditionalProperties = map[string]any{"custom": true}
+			},
+		},
+		{
+			name: "DNS enricher",
+			path: "enrich.enrichers.dns",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.Enrichers.AdditionalProperties = map[string]any{
+					"dns": map[string]any{"enabled": true},
+				}
+			},
+		},
+		{
+			name: "Kubernetes enricher",
+			path: "enrich.enrichers.kubernetes.custom",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.Enrichers.Kubernetes.AdditionalProperties = map[string]any{"custom": true}
+			},
+		},
+		{
+			name: "service name rules",
+			path: "enrich.service_name.rules",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.ServiceName.AdditionalProperties = map[string]any{"rules": []any{}}
+			},
+		},
+		{
+			name: "attribute rules",
+			path: "enrich.attributes.rules",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.Attributes.AdditionalProperties = map[string]any{"rules": []any{}}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			enrich := &schema.Enrich{}
+			tc.mutate(enrich)
+			_, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Enrich:  enrich,
+			})
+			require.ErrorContains(t, err, tc.path)
+		})
+	}
+}

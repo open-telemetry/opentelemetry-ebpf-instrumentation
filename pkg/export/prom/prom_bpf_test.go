@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
@@ -24,7 +25,7 @@ import (
 
 func TestBPFCollectorEnabled(t *testing.T) {
 	cfg := &PrometheusConfig{}
-	mpCfg := &perapp.MetricsConfig{}
+	mpCfg := &perapp.GlobalMetricsConfig{}
 
 	t.Run("disabled without reporter", func(t *testing.T) {
 		assert.False(t, bpfCollectorEnabled(cfg, mpCfg, nil))
@@ -85,7 +86,7 @@ func TestBPFMetricsCollectsInternalMetricsForPrometheusReporter(t *testing.T) {
 		newInternalBPFCollectorFn = originalNewInternalBPFCollector
 	})
 
-	newInternalBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) *BPFCollector {
+	newInternalBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 		var collected bool
 		return &BPFCollector{
 			promCfg:         cfg,
@@ -118,7 +119,7 @@ func TestBPFMetricsCollectsInternalMetricsForPrometheusReporter(t *testing.T) {
 		}
 	}
 
-	runFn, err := BPFMetrics(ctxInfo, &PrometheusConfig{}, &perapp.MetricsConfig{})(context.Background())
+	runFn, err := BPFMetrics(ctxInfo, &PrometheusConfig{}, &perapp.GlobalMetricsConfig{})(context.Background())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -167,7 +168,7 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 	)
 	ctxInfo := &global.ContextInfo{Metrics: internalMetrics}
 	cfg := &PrometheusConfig{Port: 1}
-	mpCfg := &perapp.MetricsConfig{Features: export.FeatureEBPF}
+	mpCfg := &perapp.GlobalMetricsConfig{Features: export.FeatureEBPF}
 
 	originalNewBPFCollector := newBPFCollectorFn
 	originalNewInternalBPFCollector := newInternalBPFCollectorFn
@@ -177,7 +178,7 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 	})
 
 	var promCollector *BPFCollector
-	newBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) *BPFCollector {
+	newBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 		var collected bool
 		promCollector = &BPFCollector{
 			promCfg:         cfg,
@@ -229,7 +230,7 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 		return promCollector
 	}
 
-	newInternalBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) *BPFCollector {
+	newInternalBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 		var collected bool
 		return &BPFCollector{
 			promCfg:         cfg,
@@ -327,7 +328,7 @@ func TestBPFMetricsDoesNotStartInternalCollectorForZeroIntervalReporter(t *testi
 		),
 	}
 	cfg := &PrometheusConfig{Port: 1}
-	mpCfg := &perapp.MetricsConfig{Features: export.FeatureEBPF}
+	mpCfg := &perapp.GlobalMetricsConfig{Features: export.FeatureEBPF}
 
 	originalNewBPFCollector := newBPFCollectorFn
 	originalNewInternalBPFCollector := newInternalBPFCollectorFn
@@ -336,7 +337,7 @@ func TestBPFMetricsDoesNotStartInternalCollectorForZeroIntervalReporter(t *testi
 		newInternalBPFCollectorFn = originalNewInternalBPFCollector
 	})
 
-	newBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) *BPFCollector {
+	newBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 		return &BPFCollector{
 			promCfg:         cfg,
 			commonCfg:       mpCfg,
@@ -347,7 +348,7 @@ func TestBPFMetricsDoesNotStartInternalCollectorForZeroIntervalReporter(t *testi
 	}
 
 	var internalCollectorStarted atomic.Bool
-	newInternalBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) *BPFCollector {
+	newInternalBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 		return &BPFCollector{
 			promCfg:         cfg,
 			commonCfg:       mpCfg,
@@ -375,6 +376,40 @@ func TestBPFMetricsDoesNotStartInternalCollectorForZeroIntervalReporter(t *testi
 
 	time.Sleep(10 * time.Millisecond)
 	assert.False(t, internalCollectorStarted.Load())
+}
+
+func TestBPFCollectorDoesNotCollectAfterContextCleanup(t *testing.T) {
+	collector := newCollector(
+		&global.ContextInfo{},
+		&PrometheusConfig{},
+		&perapp.MetricsConfig{},
+		false,
+	)
+	collector.progs[ebpf.ProgramID(1)] = &BPFProgram{}
+
+	var collectionCalls atomic.Int32
+	collector.probeMetrics = func() []ProbeMetrics {
+		collectionCalls.Add(1)
+		return nil
+	}
+	collector.mapMetrics = func() []BpfMapMetrics {
+		collectionCalls.Add(1)
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	collector.cleanupOnContext(ctx)
+	cancel()
+
+	require.Eventually(t, func() bool {
+		collector.mu.Lock()
+		defer collector.mu.Unlock()
+		return len(collector.progs) == 0
+	}, time.Second, 10*time.Millisecond)
+
+	collector.collectMetrics()
+
+	require.Zero(t, collectionCalls.Load())
 }
 
 func gatheredMetric(t *testing.T, registry *prometheus.Registry, name string, labels map[string]string) *dto.Metric {

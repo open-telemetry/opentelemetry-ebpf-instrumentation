@@ -28,5 +28,5 @@ typedef struct tp_info_pid {
     u8 valid;
     u8 written;
     u8 req_type;
-    u8 _pad[1];
+    u8 response_sent;
 } tp_info_pid_t;

@@ -31,7 +31,7 @@ import (
 // NetMetricsConfig extends MetricsConfig for Network Metrics
 type NetMetricsConfig struct {
 	Metrics     *otelcfg.MetricsConfig
-	CommonCfg   *perapp.MetricsConfig
+	CommonCfg   *perapp.GlobalMetricsConfig
 	SelectorCfg *attributes.SelectorConfig
 	GuessPorts  flowdef.PortGuessPolicy
 }

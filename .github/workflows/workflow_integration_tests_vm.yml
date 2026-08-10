@@ -9,11 +9,31 @@ on:
     branches: [main, release-*]
     paths:
       - ".github/workflows/workflow_integration_tests_vm.yml"
+      - ".github/actions/free-disk/**"
+      - ".github/actions/setup-lvh-kernel/**"
+      - ".dockerignore"
+      - "go.mod"
+      - "go.sum"
       - "bpf/**"
+      - "cmd/**"
+      - "configs/**"
+      - "internal/config/**"
       - "internal/test/integration/**"
+      - "internal/test/tools/**"
       - "internal/test/vm/**"
+      - "internal/test/weavercheck/**"
+      - "internal/tools/go.mod"
+      - "internal/tools/go.sum"
+      - "pkg/**"
+      - "schemas/obi/**"
+      - "scripts/discover-integration-images.sh"
+      - "scripts/fetch-upstream-semconv.sh"
       - "scripts/generate-integration-matrix.sh"
+      - "scripts/integration-test-weights.generated.json"
       - "scripts/kernel-matrix-json.sh"
+      - "scripts/pull-base-images.sh"
+      - "Makefile"
+      - "!**/*.md"
   workflow_call:
     inputs:
       ref:
@@ -117,7 +137,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.check-docker-token.outputs.has_token == 'true'
-        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
@@ -151,8 +171,8 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
         with:
           path: compiled-tests/docker-images.tar
-          # OBI binary bakes bpf/cmd/pkg sources; hash them too or source changes reuse stale images.
-          key: vm-docker-images-${{ hashFiles('internal/test/integration/docker-compose-multiexec*.yml', 'internal/test/integration/**/Dockerfile*', 'bpf/**', 'cmd/**', 'pkg/**', 'go.mod', 'go.sum') }}
+          # Hash every discovered build input so source changes cannot reuse stale images.
+          key: vm-docker-images-${{ hashFiles('internal/test/integration/**', 'internal/config/**', 'Makefile', '.dockerignore', 'scripts/discover-integration-images.sh', 'bpf/**', 'cmd/**', 'pkg/**', 'go.mod', 'go.sum') }}
 
       - name: Pre-build Docker images
         if: steps.docker-images-cache.outputs.cache-hit != 'true'
@@ -190,7 +210,8 @@ jobs:
           fi
 
           IMAGE_SCOPE="$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)"
-          echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}" >> "$GITHUB_OUTPUT"
+          PULL_SCRIPT_SCOPE="$(sha256sum scripts/pull-base-images.sh | cut -d' ' -f1)"
+          echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}-${PULL_SCRIPT_SCOPE}" >> "$GITHUB_OUTPUT"
 
       - name: Cache base images
         id: base-images-cache

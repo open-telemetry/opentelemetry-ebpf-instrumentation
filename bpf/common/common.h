@@ -29,6 +29,7 @@ enum : u32 {
     k_tcp_max_len = 256,
     k_tcp_res_len = 128,
     k_path_max_len = 100,
+    k_query_max_len = 100,
     k_pattern_max_len = 96,
     k_method_max_len = 7, // Longest method: OPTIONS
     k_remote_addr_max_len =
@@ -85,8 +86,10 @@ typedef struct http_request_trace {
     s64 content_length;
     s64 response_length;
     unsigned char path[k_path_max_len];
+    unsigned char raw_query[k_query_max_len];
     unsigned char pattern[k_pattern_max_len];
     unsigned char host[k_host_max_len];
+    u8 _pad1[4];
     tp_info_t tp;
     connection_info_t conn;
     pid_info pid;
