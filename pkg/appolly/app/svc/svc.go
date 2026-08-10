@@ -28,6 +28,7 @@ const (
 	InstrumentablePython
 	InstrumentableRuby
 	InstrumentableNodejs
+	InstrumentableDeno
 	InstrumentableRust
 	InstrumentableGeneric
 	InstrumentablePHP
@@ -48,6 +49,11 @@ func (it InstrumentableType) String() string {
 		return semconv.TelemetrySDKLanguageRuby.Value.AsString()
 	case InstrumentableNodejs:
 		return semconv.TelemetrySDKLanguageNodejs.Value.AsString()
+	case InstrumentableDeno:
+		// There is no stable OTEL convention for Deno runtime.
+		// However, Deno sets "deno-rust" in its own native OTEL instrumentation
+		// https://docs.deno.com/runtime/fundamentals/open_telemetry/
+		return "deno-rust"
 	case InstrumentableRust:
 		return semconv.TelemetrySDKLanguageRust.Value.AsString()
 	case InstrumentablePHP:
