@@ -13,9 +13,38 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
+
+func TestAzureVMAttributeFilter(t *testing.T) {
+	for _, key := range []attribute.Key{
+		semconv.CloudProviderKey,
+		semconv.CloudPlatformKey,
+		semconv.HostIDKey,
+		semconv.CloudRegionKey,
+		semconv.CloudResourceIDKey,
+		semconv.HostNameKey,
+		semconv.HostTypeKey,
+		semconv.OSTypeKey,
+		semconv.OSVersionKey,
+	} {
+		assert.True(t, azureVMAttributeFilter(key.String("value")), key)
+	}
+
+	for _, key := range []attribute.Key{
+		"azure.resource_group.name",
+		"azure.vm.name",
+		"azure.vm.scaleset.name",
+		"azure.vm.size",
+		semconv.CloudAccountIDKey,
+		semconv.CloudAvailabilityZoneKey,
+	} {
+		assert.False(t, azureVMAttributeFilter(key.String("value")), key)
+	}
+}
 
 func TestFetchEntries_RetryAndKeepOrder(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
