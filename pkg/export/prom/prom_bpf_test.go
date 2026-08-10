@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
@@ -375,6 +376,40 @@ func TestBPFMetricsDoesNotStartInternalCollectorForZeroIntervalReporter(t *testi
 
 	time.Sleep(10 * time.Millisecond)
 	assert.False(t, internalCollectorStarted.Load())
+}
+
+func TestBPFCollectorDoesNotCollectAfterContextCleanup(t *testing.T) {
+	collector := newCollector(
+		&global.ContextInfo{},
+		&PrometheusConfig{},
+		&perapp.MetricsConfig{},
+		false,
+	)
+	collector.progs[ebpf.ProgramID(1)] = &BPFProgram{}
+
+	var collectionCalls atomic.Int32
+	collector.probeMetrics = func() []ProbeMetrics {
+		collectionCalls.Add(1)
+		return nil
+	}
+	collector.mapMetrics = func() []BpfMapMetrics {
+		collectionCalls.Add(1)
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	collector.cleanupOnContext(ctx)
+	cancel()
+
+	require.Eventually(t, func() bool {
+		collector.mu.Lock()
+		defer collector.mu.Unlock()
+		return len(collector.progs) == 0
+	}, time.Second, 10*time.Millisecond)
+
+	collector.collectMetrics()
+
+	require.Zero(t, collectionCalls.Load())
 }
 
 func gatheredMetric(t *testing.T, registry *prometheus.Registry, name string, labels map[string]string) *dto.Metric {
