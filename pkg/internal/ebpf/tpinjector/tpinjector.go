@@ -257,13 +257,30 @@ func (p *Tracer) SocketFilters() []*ebpf.Program {
 }
 
 func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg {
-	return []ebpfcommon.SockMsg{
+	msgs := []ebpfcommon.SockMsg{
 		{
 			Program:  p.bpfObjects.ObiPacketExtender,
 			MapFD:    p.bpfObjects.SockDir.FD(),
 			AttachAs: ebpf.AttachSkMsgVerdict,
 		},
 	}
+
+	// On kernels carrying commit 929e30f93125, sockets enrolled in sock_dir
+	// without a verdict program can lose the receive-side readiness wakeup.
+	// The FIONREAD fixup only repairs ioctl-based readers; a no-op SK_SKB
+	// verdict moves enrolled sockets onto the receive path kernel fix
+	// 04af4efde58a targets, restoring epoll/poll readiness for runtimes that
+	// never call ioctl(FIONREAD) (Node.js, the Go netpoller, Python asyncio).
+	// Same detection as the FIONREAD fixup, so the two travel together.
+	if p.kernelBreaksFIONREAD() {
+		msgs = append(msgs, ebpfcommon.SockMsg{
+			Program:  p.bpfObjects.ObiSkSkbVerdict,
+			MapFD:    p.bpfObjects.SockDir.FD(),
+			AttachAs: ebpf.AttachSkSKBVerdict,
+		})
+	}
+
+	return msgs
 }
 
 func (p *Tracer) SockOps() []ebpfcommon.SockOps {

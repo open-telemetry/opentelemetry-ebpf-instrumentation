@@ -1160,6 +1160,21 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
+// A no-op stream verdict attached to sock_dir. Kernels carrying commit
+// 929e30f93125 (present in 6.6.128+, 6.12.75+, 6.18.14+ and 6.19+) can lose the
+// receive-side readiness wakeup for a socket enrolled in a sockhash that has no
+// verdict program: bytes sit in the receive queue but the epoll/poll edge is
+// never delivered. fionread_fixup.c handles the ioctl(FIONREAD) half of the
+// same regression (nginx, Java NIO, .NET); it cannot help readers that block on
+// epoll/poll (Node.js/libuv, the Go netpoller, Python asyncio). Attaching a
+// verdict program moves enrolled sockets onto the receive path that kernel fix
+// 04af4efde58a targets, which restores the readiness notification. The program
+// passes every skb through unchanged — the attachment is the fix, not the body.
+SEC("sk_skb/verdict")
+int obi_sk_skb_verdict(struct __sk_buff *skb __maybe_unused) {
+    return SK_PASS;
+}
+
 //k_tail_write_msg_traceparent
 SEC("sk_msg")
 int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
