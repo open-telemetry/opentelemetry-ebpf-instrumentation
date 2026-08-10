@@ -228,7 +228,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				log: slog.With("component", "javaagent.Injector"),
 			}
 
-			target := TargetFrom(&ebpf.Instrumentable{
+			target := InjectionTargetFrom(&ebpf.Instrumentable{
 				FileInfo: exec.New(exec.Init{
 					Pid: tt.pid,
 					Service: svc.Attrs{
@@ -367,7 +367,7 @@ func TestJavaInjector_FindTempDir(t *testing.T) {
 				cfg: &obi.Config{},
 			}
 
-			target := TargetFrom(&ebpf.Instrumentable{
+			target := InjectionTargetFrom(&ebpf.Instrumentable{
 				FileInfo: exec.New(exec.Init{
 					Service: svc.Attrs{
 						EnvVars: tt.envVars,

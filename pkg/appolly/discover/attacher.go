@@ -154,7 +154,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 					// discovery loop. The target is copied out here so the goroutine
 					// does not share instr.Obj with the consumers it was just sent to.
 					if ta.javaInjector != nil {
-						target := javaagent.TargetFrom(&instr.Obj)
+						target := javaagent.InjectionTargetFrom(&instr.Obj)
 						javaInjections.Add(1)
 						go func() {
 							defer javaInjections.Done()

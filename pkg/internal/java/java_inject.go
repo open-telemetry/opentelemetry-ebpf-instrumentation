@@ -134,7 +134,7 @@ func (i *JavaInjector) runIfCurrentAttach(
 	return fn()
 }
 
-func (i *JavaInjector) NewExecutable(target Target) error {
+func (i *JavaInjector) NewExecutable(target InjectionTarget) error {
 	if target.Type != svc.InstrumentableJava {
 		return nil
 	}
