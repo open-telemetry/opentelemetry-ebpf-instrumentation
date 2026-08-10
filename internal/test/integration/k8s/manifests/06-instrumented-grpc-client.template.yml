@@ -22,7 +22,7 @@ metadata:
     # this label will trigger a deletion of OBI pods before tearing down
     # kind, to force OBI writing the coverage data
     teardown: delete
-    deployment.environment.name: to-be-ignored-in-favor-of-annotation
+    deployment.environment.name: development
     app.kubernetes.io/version: '3.2.1'
   annotations:
     resource.opentelemetry.io/deployment.environment.name: 'test'

@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 		kube.Deploy(testpath.Manifests+"/02-prometheus-otelscrape.yml"),
 		// weaver-tapped otelcol + in-cluster weaver pod, validated at suite
 		// teardown (enforcing)
-		kube.WeaverValidation(),
+		kube.WeaverValidation(kube.WeaverRequireSpans()),
 		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver.yml"),
 		kube.Deploy(testpath.Manifests+"/04-jaeger.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-service.yml"),
