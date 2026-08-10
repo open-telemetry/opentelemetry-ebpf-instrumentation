@@ -141,6 +141,42 @@ func TestVerifyDefaultsDetectsMappedDefaultMismatch(t *testing.T) {
 	t.Fatalf("expected batch_length failure, got: %v", failures)
 }
 
+func TestVerifyDefaultsRejectsLanguageSkipAsCaptureExclusion(t *testing.T) {
+	cur, ex := loadCurrentAndExample(t)
+	rules, ok := get(ex, "obi", "capture", "rules")
+	if !ok {
+		t.Fatal("missing capture rules")
+	}
+	existing, ok := rules.([]any)
+	if !ok {
+		t.Fatal("capture rules are not a list")
+	}
+	capture, ok := get(ex, "obi", "capture")
+	if !ok {
+		t.Fatal("missing capture")
+	}
+	captureMap, ok := capture.(map[string]any)
+	if !ok {
+		t.Fatal("capture is not a map")
+	}
+	captureMap["rules"] = append(existing, map[string]any{
+		"action": "exclude",
+		"match": map[string]any{
+			"process": map[string]any{
+				"exe_path_glob": []any{"/usr/sbin/*"},
+			},
+		},
+	})
+
+	failures, _ := verifyDefaults(cur, ex)
+	for _, failure := range failures {
+		if strings.Contains(failure.Error(), "language-detection skip") {
+			return
+		}
+	}
+	t.Fatalf("expected language-detection skip failure, got: %v", failures)
+}
+
 func loadCurrentAndExample(t *testing.T) (map[string]any, map[string]any) {
 	t.Helper()
 
