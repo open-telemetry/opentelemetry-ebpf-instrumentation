@@ -139,20 +139,26 @@ func (i *NodeInjector) isNodeInspector(conn net.Conn) bool {
 //go:embed fdextractor.js
 var _extractorCode string
 
-// rtEnabledPlaceholder is substituted at injection time so a traces-only
-// injection never installs the runtime-metrics sampling machinery in the
-// target process (see the RT_ENABLED comment in fdextractor.js).
+// Substituted at injection time so each injection installs only the
+// machinery its configuration asks for (see the OBI_RT_ENABLED and
+// OBI_TRACES_ENABLED comments in fdextractor.js).
 const (
-	rtEnabledPlaceholder = "= false; /*OBI_RT_ENABLED*/"
-	rtEnabledOn          = "= true; /*OBI_RT_ENABLED*/"
+	rtEnabledPlaceholder     = "= false; /*OBI_RT_ENABLED*/"
+	rtEnabledOn              = "= true; /*OBI_RT_ENABLED*/"
+	tracesEnabledPlaceholder = "= false; /*OBI_TRACES_ENABLED*/"
+	tracesEnabledOn          = "= true; /*OBI_TRACES_ENABLED*/"
 )
 
-// agentCode returns the extractor script with the runtime-metrics gate set
-// from the same config gate that drives the nodejs_runtime_metrics_enabled
-// BPF constant, so the agent and the decoder cannot disagree.
+// agentCode returns the extractor script with the RT gate substituted from
+// the same predicate that sets the nodejs_runtime_metrics_enabled BPF
+// constant, so the agent and the eBPF side cannot disagree.
 func (i *NodeInjector) agentCode() string {
-	if !i.cfg.AppRuntimeMetricsEnabled() {
-		return _extractorCode
+	code := _extractorCode
+	if i.cfg.AppRuntimeMetricsEnabled() {
+		code = strings.Replace(code, rtEnabledPlaceholder, rtEnabledOn, 1)
 	}
-	return strings.Replace(_extractorCode, rtEnabledPlaceholder, rtEnabledOn, 1)
+	if i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled() {
+		code = strings.Replace(code, tracesEnabledPlaceholder, tracesEnabledOn, 1)
+	}
+	return code
 }
