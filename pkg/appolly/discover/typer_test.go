@@ -325,7 +325,7 @@ func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
 			}
 			ty := typer{cfg: &obi.Config{
 				Routes:  &transform.RoutesConfig{},
-				Metrics: perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+				Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureSpanOTel},
 			}}
 			attrs := ty.makeServiceAttrs(proc)
 			assert.Equal(t, "svc1", attrs.UID.Name)

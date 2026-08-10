@@ -26,7 +26,7 @@ import (
 // BPFCollector implements prometheus.Collector for collecting metrics about currently loaded eBPF programs.
 type BPFCollector struct {
 	promCfg         *PrometheusConfig
-	commonCfg       *perapp.MetricsConfig
+	commonCfg       *perapp.GlobalMetricsConfig
 	internalMetrics imetrics.Reporter
 	promConnect     *connector.PrometheusManager
 	ctxInfo         *global.ContextInfo
@@ -87,7 +87,7 @@ type BpfMapMetrics struct {
 func BPFMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
-	mpCfg *perapp.MetricsConfig,
+	mpCfg *perapp.GlobalMetricsConfig,
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
 		promEnabled := promMetricsEnabled(cfg, mpCfg)
@@ -129,23 +129,23 @@ func internalMetricsEnabled(internalMetrics imetrics.Reporter) bool {
 	return internalMetrics.BpfInternalMetricsScrapeInterval() > 0
 }
 
-func promMetricsEnabled(cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) bool {
+func promMetricsEnabled(cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) bool {
 	return cfg.EndpointEnabled() && mpCfg.Features.BPF()
 }
 
-func bpfCollectorEnabled(cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig, internalMetrics imetrics.Reporter) bool {
+func bpfCollectorEnabled(cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig, internalMetrics imetrics.Reporter) bool {
 	return promMetricsEnabled(cfg, mpCfg) || internalMetricsEnabled(internalMetrics)
 }
 
-func newBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) *BPFCollector {
+func newBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 	return newCollector(ctxInfo, cfg, mpCfg, true)
 }
 
-func newInternalBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) *BPFCollector {
+func newInternalBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
 	return newCollector(ctxInfo, cfg, mpCfg, false)
 }
 
-func newCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig, registerProm bool) *BPFCollector {
+func newCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig, registerProm bool) *BPFCollector {
 	c := &BPFCollector{
 		promCfg:         cfg,
 		commonCfg:       mpCfg,
