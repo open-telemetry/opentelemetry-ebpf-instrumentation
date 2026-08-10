@@ -50,7 +50,10 @@ exporters:
       enabled: true
       queue_size: 500
     retry_on_failure:
-      enabled: false
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 15s
 service:
   # own telemetry exposed for validateWeaver's first-hop drop check (00-kind*.yml)
   telemetry:
