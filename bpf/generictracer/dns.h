@@ -20,6 +20,7 @@
 #include <generictracer/k_tracer_defs.h>
 
 #include <maps/sock_pids.h>
+#include <maps/unconn_dns_socks.h>
 
 #include <pid/types/pid_info.h>
 
@@ -136,13 +137,6 @@ static __always_inline u8 is_dns_msg(connection_info_t *conn, struct msghdr *msg
     }
     return 0;
 }
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64); // (u64)struct sock *
-    __type(value, u8);
-    __uint(max_entries, 1024);
-} unconn_dns_socks SEC(".maps");
 
 static __always_inline void obi_note_unconn_dns_sock(void *sk) {
     u64 k = (u64)sk;
