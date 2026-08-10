@@ -48,6 +48,7 @@ func updateLoop(
 					log.Debug("adding process", "pid", ev.Obj.FileInfo.Pid())
 					store.AddProcess(ev.Obj.FileInfo.Pid())
 				case EventDeleted:
+					log.Debug("deleting process", "pid", ev.Obj.FileInfo.Pid())
 					// Apply deletion in this stage's event order so a delayed create cannot
 					// restore stale PID state after upstream cleanup.
 					store.DeleteProcess(ev.Obj.FileInfo.Pid())
