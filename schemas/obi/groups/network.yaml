@@ -111,12 +111,12 @@ groups:
         type: string
         stability: development
         brief: Autonomous System Number of the source endpoint, from GeoIP lookup.
-        examples: ["15169"]
+        examples: ["AS15169"]
       - id: dst.asn
         type: string
         stability: development
         brief: Autonomous System Number of the destination endpoint, from GeoIP lookup.
-        examples: ["15169"]
+        examples: ["AS15169"]
       - id: src.country
         type: string
         stability: development
@@ -319,6 +319,10 @@ groups:
       - ref: dst.zone
       - ref: src.name
       - ref: dst.name
+      - ref: src.asn
+      - ref: dst.asn
+      - ref: src.country
+      - ref: dst.country
 
   # Overrides `network.type`: extends the upstream `ipv4`/`ipv6` enum with
   # `arp`, which OBI reports for ARP frames — OBI observes raw L2 frames, a
