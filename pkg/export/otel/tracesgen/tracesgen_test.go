@@ -46,6 +46,9 @@ func TestAcceptSpanUsesEventInstrumentation(t *testing.T) {
 		{eventType: request.EventTypeManualSpan, accepted: true},
 		{eventType: request.EventTypeFailedConnect, accepted: true},
 		{eventType: request.EventTypeGPUCudaKernelLaunch, accepted: false},
+		{eventType: request.EventTypeGPUCudaGraphLaunch, accepted: false},
+		{eventType: request.EventTypeGPUCudaMalloc, accepted: false},
+		{eventType: request.EventTypeGPUCudaMemcpy, accepted: false},
 		{eventType: request.EventTypeProcessAlive, accepted: false},
 		{eventType: request.EventType(255), accepted: false},
 	}
