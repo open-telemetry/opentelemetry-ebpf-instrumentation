@@ -229,6 +229,8 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         // capture so classification doesn't reduce what userspace sees.
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;
+    case k_protocol_type_nats:
+    case k_protocol_type_amqp:
     case k_protocol_type_unknown:
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;

@@ -53,7 +53,7 @@ static __always_inline u8 is_aerospike(connection_info_t *conn_info,
         return 0;
     }
 
-    unsigned char hdr[k_aerospike_proto_header_len + 1];
+    unsigned char hdr[k_aerospike_proto_header_len + 1] = {};
     if (bpf_probe_read(hdr, sizeof(hdr), data) != 0) {
         return 0;
     }

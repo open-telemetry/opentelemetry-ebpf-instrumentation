@@ -91,6 +91,7 @@ const (
 )
 
 // Kernel-side classification
+// Keep these values aligned with protocol_type in bpf/common/connection_info.h
 const (
 	ProtocolTypeUnknown uint8 = iota
 	ProtocolTypeMySQL

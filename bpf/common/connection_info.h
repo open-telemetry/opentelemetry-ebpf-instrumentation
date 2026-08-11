@@ -12,6 +12,7 @@
 
 #include <logger/bpf_dbg.h>
 
+// Keep these values aligned with consts in pkg/ebpf/common/common.go
 enum protocol_type : u8 {
     // Default value, used when the protocol is not known or will be determined/classified
     // in userspace.
@@ -23,7 +24,8 @@ enum protocol_type : u8 {
     k_protocol_type_mqtt = 5,
     k_protocol_type_mssql = 6,
     k_protocol_type_sunrpc = 7,
-    // NOTE: 8 and 9 are reserved for NATS and AMQP (userspace placeholders).
+    k_protocol_type_nats = 8,
+    k_protocol_type_amqp = 9,
     k_protocol_type_aerospike = 10,
 };
 
