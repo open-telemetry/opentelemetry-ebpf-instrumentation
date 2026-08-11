@@ -4,6 +4,8 @@
 package main
 
 import (
+	"encoding/json"
+	"encoding/xml"
 	"go/parser"
 	"go/token"
 	"reflect"
@@ -726,4 +728,50 @@ func TestIsZeroDefault(t *testing.T) {
 	assert.False(t, isZeroDefault(int64(0)))
 	assert.False(t, isZeroDefault("hello"))
 	assert.False(t, isZeroDefault([]any{"a"}))
+}
+
+func TestCheckTypeNameCollisions(t *testing.T) {
+	t.Run("no collision", func(t *testing.T) {
+		g := NewSchemaGenerator()
+		g.recordTypeName(reflect.TypeFor[json.Decoder]())
+		g.recordTypeName(reflect.TypeFor[json.Decoder]())
+		g.recordTypeName(reflect.TypeFor[xml.Encoder]())
+
+		require.NoError(t, g.checkTypeNameCollisions())
+	})
+
+	t.Run("same name in two packages", func(t *testing.T) {
+		g := NewSchemaGenerator()
+		g.recordTypeName(reflect.TypeFor[json.Decoder]())
+		g.recordTypeName(reflect.TypeFor[xml.Decoder]())
+
+		err := g.checkTypeNameCollisions()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Decoder")
+		assert.Contains(t, err.Error(), "encoding/json")
+		assert.Contains(t, err.Error(), "encoding/xml")
+	})
+
+	t.Run("types with no name or no package are ignored", func(t *testing.T) {
+		g := NewSchemaGenerator()
+		g.recordTypeName(reflect.TypeFor[struct{ A int }]())
+		g.recordTypeName(reflect.TypeFor[int]())
+
+		require.NoError(t, g.checkTypeNameCollisions())
+		assert.Empty(t, g.reflectedTypeNames)
+	})
+}
+
+// TestConfigTypeNamesAreUnique guards the whole configuration graph: the schema
+// keys definitions by bare type name, so two config types sharing a name would
+// silently share one definition.
+func TestConfigTypeNamesAreUnique(t *testing.T) {
+	g := NewSchemaGenerator()
+	g.newReflector().Reflect(&obi.Config{})
+
+	// Without this the test would pass vacuously if the reflector ever stopped
+	// recording type names.
+	require.Contains(t, g.reflectedTypeNames, "Config")
+
+	require.NoError(t, g.checkTypeNameCollisions())
 }
