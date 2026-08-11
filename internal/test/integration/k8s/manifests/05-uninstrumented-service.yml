@@ -84,7 +84,7 @@ spec:
       labels:
         app: otherinstance
       annotations:
-        resource.opentelemetry.io/deployment.environment.name: 'to-be-ignored-in-favor-of-env-var'
+        resource.opentelemetry.io/deployment.environment.name: 'development'
     spec:
       containers:
         - name: otherinstance

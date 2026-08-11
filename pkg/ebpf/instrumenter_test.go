@@ -743,14 +743,15 @@ type processScopedGoProbeRecorder struct {
 }
 
 func (r *processScopedGoProbeRecorder) RegisterProcessScopedGoProbe(
-	key ExecutableKey,
+	dev uint64,
+	ino uint64,
 	_ ebpfcommon.GoProbe,
 ) {
-	r.registeredKeys = append(r.registeredKeys, key)
+	r.registeredKeys = append(r.registeredKeys, ExecutableKey{Dev: dev, Ino: ino})
 }
 
-func (r *processScopedGoProbeRecorder) UnregisterProcessScopedGoProbes(key ExecutableKey) {
-	r.unregistered = append(r.unregistered, key)
+func (r *processScopedGoProbeRecorder) UnregisterProcessScopedGoProbes(dev, ino uint64) {
+	r.unregistered = append(r.unregistered, ExecutableKey{Dev: dev, Ino: ino})
 }
 
 func TestProcessScopedGoProbeRegistrationIsDeferred(t *testing.T) {
@@ -760,7 +761,6 @@ func TestProcessScopedGoProbeRegistrationIsDeferred(t *testing.T) {
 		key: key,
 		processScopedGoProbes: []processScopedGoProbeRegistration{{
 			tracer: recorder,
-			key:    key,
 			probe: ebpfcommon.GoProbe{
 				Symbol:        "newSpan",
 				ProcessScoped: true,

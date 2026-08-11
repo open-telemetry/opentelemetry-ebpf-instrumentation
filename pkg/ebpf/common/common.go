@@ -87,6 +87,7 @@ const (
 	EventTypeJVMMemoryPoolGC    = 19 // EVENT_JVM_MEM_POOL_GC - JVM memory pool GC metrics
 	EventTypeGoAutoSpan         = 20 // EVENT_GO_AUTO_SPAN - Go Auto SDK OTLP JSON span
 	EventTypeGoRuntimeHistogram = 21 // EVENT_GO_RUNTIME_HISTOGRAM - Go runtime histogram metrics
+	EventTypeGoAutoActivated    = 22 // EVENT_GO_AUTO_ACTIVATED - internal Auto SDK activation control event
 )
 
 // Kernel-side classification

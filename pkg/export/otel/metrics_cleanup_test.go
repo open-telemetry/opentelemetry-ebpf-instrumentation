@@ -144,7 +144,7 @@ func newCleanupTestMetricsReporter(ctx context.Context) *MetricsReporter {
 		cfg: &otelcfg.MetricsConfig{
 			TTL: time.Minute,
 		},
-		jointMetricsCfg: &perapp.MetricsConfig{
+		jointMetricsCfg: &perapp.GlobalMetricsConfig{
 			Features: export.FeatureApplicationRED | export.FeatureSpanOTel | export.FeatureSpanSizes,
 		},
 		is: instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{

@@ -66,7 +66,7 @@ metadata:
     deployment.environment.name: test
     app.kubernetes.io/service.version: 3.2.1
   annotations:
-    resource.opentelemetry.io/deployment.environment.name: 'to-be-ignored-in-favor-of-env'
+    resource.opentelemetry.io/deployment.environment.name: 'development'
 spec:
   shareProcessNamespace: true
   serviceAccountName: obi

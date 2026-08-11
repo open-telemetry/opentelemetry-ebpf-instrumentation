@@ -19,10 +19,11 @@ typedef struct http_client_data {
     s64 content_length;
     pid_info pid;
     unsigned char path[k_path_max_len];
+    unsigned char raw_query[k_query_max_len];
     unsigned char host[k_host_max_len];
     unsigned char scheme[k_scheme_max_len];
     unsigned char method[k_method_max_len];
-    u8 _pad[3];
+    u8 _pad[7];
 } http_client_data_t;
 
 typedef struct server_http_func_invocation {
@@ -34,10 +35,11 @@ typedef struct server_http_func_invocation {
     tp_info_t tp;
     u8 method[k_method_max_len];
     u8 path[k_path_max_len];
+    u8 raw_query[k_query_max_len];
     u8 pattern[k_pattern_max_len];
     u8 is_tls;
     bool is_jsonrpc;
-    u8 _pad[3];
+    u8 _pad[7];
 } server_http_func_invocation_t;
 
 typedef struct framer_func_invocation {

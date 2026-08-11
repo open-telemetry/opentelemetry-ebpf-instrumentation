@@ -3,8 +3,7 @@ groups:
   # `generic`, which pkg/appolly/app/svc/svc.go (InstrumentableType.String)
   # reports for executables with no recognized language runtime — OBI
   # instruments processes that carry no SDK at all, a case the upstream enum
-  # has no member for. The `unknown` fallback in the same switch is a bug
-  # marker and is deliberately NOT declared here, so weaver keeps flagging it.
+  # has no member for.
   #
   # See ../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
