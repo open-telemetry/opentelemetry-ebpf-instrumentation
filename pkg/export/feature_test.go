@@ -104,7 +104,7 @@ func TestLoadFeaturesRejectsUnknownNames(t *testing.T) {
 }
 
 // An unset OTEL_EBPF_METRICS_FEATURES resolves to an empty envDefault string
-// (perapp.MetricsConfig), so UnmarshalText("") runs on every default
+// (perapp.GlobalMetricsConfig), so UnmarshalText("") runs on every default
 // deployment and must keep yielding Undefined rather than an error.
 func TestFeatureUnmarshalTextEmpty(t *testing.T) {
 	var features Features

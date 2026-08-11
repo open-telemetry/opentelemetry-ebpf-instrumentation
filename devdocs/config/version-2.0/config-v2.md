@@ -42,7 +42,7 @@ To ensure that the redesign is guided by consistent values and priorities, we de
 - **Deployment-aware structure**
   - OBI runs in two modes: standalone daemon and Collector receiver.
   - Configuration structure should reflect which parts are valid in each mode.
-  - The receiver-valid sub-config should be embeddable directly, without requiring users to manually extract a subset.
+  - The receiver-valid sub-config should have an unambiguous derivation from the standalone shape.
   - Standalone-only concerns (daemon process management, enrichment, log annotation) must not leak into receiver deployments.
 
 - **Protocol-local ownership over global toggles**
@@ -143,21 +143,28 @@ OBI adopts the standard declarative fields incrementally. For the first stable v
 | Declarative section | Stable v2 behavior |
 | --- | --- |
 | `file_format` | Required and restricted to `"1.0"`. |
-| `resource` | Partial: string `host.name` overrides OBI hostname and string `host.id` overrides OBI host ID. Other attributes are currently ignored. |
+| `resource` | Partial: string `host.name`, `host.id`, `service.name`, and `service.namespace` attributes are imported. Other attributes, detection configuration, and schema URLs are rejected by the target adapter in #2682. |
 | `tracer_provider.sampler` | Partial: `always_on`, `always_off`, `trace_id_ratio_based`, and simple `parent_based` roots that use those samplers. |
-| `tracer_provider.processors` | Partial: one batch processor with one OTLP/gRPC exporter. |
-| `meter_provider.readers` | Partial: at most one periodic OTLP/gRPC reader and one Prometheus development pull reader. |
+| `tracer_provider.processors` | Partial: one batch processor with one OTLP exporter. Automatic migration emits gRPC; the gated standalone importer in [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682) also accepts HTTP/protobuf, HTTP/JSON, and declarative exporter headers. |
+| `meter_provider.readers` | Partial: at most one periodic OTLP reader and one Prometheus development pull reader. Automatic migration emits OTLP/gRPC; the gated standalone importer in [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682) also accepts OTLP/HTTP and declarative exporter headers. |
 | `log_level` | Supported for OBI daemon logging. OTel `trace*` and `debug*` severities map to `DEBUG`; `info*` to `INFO`; `warn*` to `WARN`; `error*` and `fatal*` to `ERROR`. `extensions.obi.daemon.logging.level` is not part of v2; use the top-level field. |
-| `propagator`, `attribute_limits`, `disabled`, `distribution`, `instrumentation/development`, `logger_provider` | Parsed by the declarative model but not applied to OBI runtime behavior in the stable milestone. |
+| `attribute_limits` | Rejected whenever present by the target adapter in #2682. |
+| `disabled`, `distribution`, `propagator` | `disabled: true`, non-empty `distribution`, and non-empty propagator configuration are rejected. Empty/default placeholders do not enable runtime behavior. |
+| `instrumentation/development`, `logger_provider` | Rejected when present by the target adapter in #2682. |
 
-Environment-variable substitution depends on the loader. The upstream `otelconf/x.ParseYAML` path expands `${VAR}`, `${env:VAR}`, and `${VAR:-fallback}` before decoding. OBI's internal `schema.ParseStandaloneYAML` parser decodes the supplied bytes directly, so callers using that parser must perform any desired substitution before calling it.
+Environment-variable substitution depends on the loader. The upstream `otelconf/x.ParseYAML` path expands `${VAR}`, `${env:VAR}`, `${VAR:-fallback}`, and `${env:VAR:-fallback}` before decoding. OBI's internal `schema.ParseStandaloneYAML` parser decodes the supplied bytes directly, so callers using that parser must perform any desired substitution before calling it.
 
 The `extensions.obi` block is divided by deployment scope:
 
-- `capture`: valid in **all** deployment modes. Contains everything OBI needs to select workloads and capture telemetry. When running OBI as a Collector receiver, this block is embedded directly in the receiver configuration — no manual extraction required.
+- `capture`: valid in **all** deployment modes. Contains everything OBI needs to select workloads and capture telemetry. A receiver component places the children of this block beside its own `version`; it does not retain the `capture` wrapper.
 - `enrich`, `correlation`, `daemon`: **standalone-mode only**. These sections are not valid in Collector receiver deployments. The Collector pipeline handles enrichment (via processors) and process lifecycle (logging, profiling, shutdown) in receiver mode.
 
-```yaml
+The following is a non-runnable structural sketch. It omits exporter settings
+and many values deliberately. Use the tested
+[generated standalone fixture](examples/migration-v2.yaml) or
+[receiver component body](examples/migration-receiver-v2.yaml) for validation.
+
+```text
 file_format: '1.0'
 log_level: info
 
@@ -176,6 +183,7 @@ extensions:
         default_action: include
         match_order: first_match_wins
       rules: []
+      # ...
       instrumentation:
         http:
           enabled: { traces: true, metrics: true }
@@ -246,6 +254,7 @@ extensions:
           multiline: first_line
 
     daemon:
+      # ...
       logging: {}
       profiling: {}
       shutdown: {}
@@ -256,22 +265,23 @@ extensions:
 ### `version` property
 
 The `extensions.obi.version` field defines the version of the OBI extension schema being used.
-This allows the parsing and validation logic to apply the correct schema rules and migration logic based on the declared version.
+It selects the supported extension schema; the only supported value is currently `"2.0"`.
 
 ### `capture` Section
 
 The `extensions.obi.capture` section is the receiver-embeddable core of the OBI configuration.
 It defines what OBI instruments and how it captures telemetry.
-This is the **only** section valid in Collector receiver deployments.
+Its children are the **only** OBI extension fields valid in Collector receiver deployments.
+Receiver configuration flattens those children beside its own `version` field rather than retaining the `capture` wrapper.
 
 #### Why `capture` is a named grouping
 
 Early design iterations kept all top-level OBI sections flat: `selection`, `instrumentation`, `runtimes`, `network`, `operations`, `enrich`, `correlation`.
 The `capture` grouping was introduced for two reasons:
 
-1. **Receiver embedding**: OBI runs in two deployment modes — standalone daemon and Collector receiver. In receiver mode, OBI is a telemetry source only. Side-effect features (k8s enrichment, log annotation) and process management (logging, profiling, shutdown) are not the receiver's responsibility — the Collector pipeline handles those. Having a single named block (`capture`) that represents exactly what the receiver embeds makes the boundary unambiguous and avoids requiring users or tools to manually enumerate which fields are valid.
+1. **Receiver embedding**: OBI runs in two deployment modes — standalone daemon and Collector receiver. In receiver mode, OBI is a telemetry source only. Side-effect features (k8s enrichment, log annotation) and process management (logging, profiling, shutdown) are not the receiver's responsibility — the Collector pipeline handles those. Having a single named block (`capture`) that represents exactly what the receiver shape flattens makes the boundary unambiguous and avoids requiring users or tools to manually enumerate which fields are valid.
 
-2. **Correctness over documentation**: An alternative was a flat structure with a `deployment: standalone | receiver` flag, where the parser would reject standalone-only fields in receiver mode. This was rejected because it makes the boundary a runtime enforcement concern rather than a structural schema concern. With `capture` as an explicit block, the schema itself communicates the boundary, and a schema-only view of the Collector receiver config is the `capture` block — no validation flags needed.
+2. **Correctness over documentation**: An alternative was a flat standalone structure with a `deployment: standalone | receiver` flag, where one parser would reject standalone-only fields in receiver mode. This was rejected because it makes the boundary a runtime enforcement concern rather than a structural schema concern. The named `capture` block communicates the boundary in standalone configuration, while the receiver uses its distinct flattened shape. Select the matching parser when validating: standalone is the default, and receiver configuration requires `--mode=receiver`.
 
 `capture` contains:
 
@@ -292,6 +302,24 @@ The `capture` grouping was introduced for two reasons:
 Rules are based on process identity, network identity, language, Kubernetes metadata, and already-instrumented status.
 These are the primary user controls for defining which services get instrumented by OBI.
 
+The target adapter in
+[#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682)
+accepts `first_match_wins` and `last_match_wins`. Runtime selection always
+gives matching exclusions precedence. To preserve that behavior,
+`first_match_wins` requires exclusions before includes, while
+`last_match_wins` requires includes before exclusions. With
+`first_match_wins`, the first matching YAML include refinement wins. The
+migrator reverses effective v1 include-selector order because the v1 runtime
+applies the later matching selector's refinement. Preserve generated rule
+order during migration. When multiple include rules use an export or HTTP-route
+refinement, omitting that refinement on another include rule resets it instead
+of inheriting a prior rule's value. The migrator therefore rejects v1 selector
+lists that mix explicit and omitted `exports`, or mix explicit and omitted
+`routes`; make each field explicit on every selector and test overlapping and
+selector-only matches, or keep v1 when behavior depends on conditional
+inheritance. Writing `rules: []` explicitly also removes the generated
+built-in workload exclusions.
+
 **Why `policy` and `rules` are direct children of `capture`, not nested under `capture.selection`**
 
 An earlier draft had a `selection` sub-section under `capture` (i.e., `capture.selection.policy` and `capture.selection.rules`).
@@ -309,8 +337,13 @@ It does not only copy `discovery.instrument` literally. It uses the same effecti
 
 - `target_pids` becomes a single include rule that matches `process.target_pids`.
 - Modern glob selectors from `discovery.instrument`, `discovery.exclude_instrument`, and environment auto-target fields become include/exclude rules with `*_glob` match fields.
-- Legacy regex selectors from `discovery.services`, `discovery.exclude_services`, `executable_path`, and `open_port` become include/exclude rules with `*_regex` match fields.
-- Default excludes and already-instrumented-service detection become explicit exclude rules.
+- Legacy regex selectors from `discovery.services`, `discovery.exclude_services`, and `executable_path` become include/exclude rules with `*_regex` match fields. The `open_port` fallback becomes `open_ports`.
+- Default workload excludes and already-instrumented-service detection become explicit exclude rules.
+
+`discovery.excluded_linux_system_paths` is not a workload exclusion. It skips
+an early language-detection pass while an explicitly selected process still
+reaches later type detection. Its built-in default remains internal runtime
+behavior; custom values have no v2 field and migration rejects them.
 
 Known `match.process` fields exported today:
 
@@ -388,7 +421,11 @@ Current overridable fields in `refine`:
 
 - `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
-- `http.filters`: replace HTTP trace/metric filters for this workload.
+
+The schema reserves refinement `http.filters`, but the target runtime adapter
+rejects a non-empty value. Do not use it to narrow a migrated configuration;
+filter semantics remain tracked in
+[#1282](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1282).
 
 New fields can be added to the `refine` vocabulary deliberately as use cases emerge.
 
@@ -437,40 +474,14 @@ For a matched workload, an omitted direction or field inherits the corresponding
 An explicitly configured scalar replaces the global scalar, and an explicitly configured array replaces the global array; use an empty array to clear inherited patterns.
 
 Sampling overrides are **not** part of the `refine` block.
-Per-workload sampling is handled via `tracer_provider.sampler` using the `obi_rule_based` custom sampler, which matches on resource attributes.
 See the [Sampling model](#sampling-model) section below.
 
 ### Sampling model
 
-Sampling remains owned by top-level OTel declarative configuration under `tracer_provider.sampler`.
-OBI does not define a parallel sampling section under `extensions.obi`, and selection rules do not override sampler behavior.
-
-**Why sampling is not in `capture.rules[].refine`**
-
-The `tracer_provider.sampler` is already the standard, extensible place for sampling policy in OTel declarative config.
-Adding a parallel `sampler` field inside `capture.rules[].refine` would violate the "compatible with OTel declarative configuration" principle by introducing a competing pipeline model.
-Instead, the `obi_rule_based` custom sampler plugin (a planned v2 deliverable) allows workload-matching sampling behavior to be expressed inside `tracer_provider.sampler`, keeping the concern in its canonical location while still meeting the per-workload use case.
-
-For v2 scope, OBI will provide and ship an OBI sampler plugin implementation in this project,
-so users can reference it directly from `tracer_provider.sampler`.
-
-When workload-specific sampling behavior is needed, users should configure it through the sampler itself:
-
-- Use built-in OTel samplers when global behavior is sufficient.
-- Use the `obi_rule_based` custom sampler plugin when rule/pattern-based workload sampling is required.
-
-The plugin implementation will include:
-
-- sampler component implementation in OBI,
-- registration/wiring in OBI runtime initialization,
-- validation/documentation for supported sampler rule semantics.
-
-This keeps concerns separated and explicit:
-
-- `extensions.obi.capture`: workload discovery and capture configuration.
-- `tracer_provider.sampler`: trace sampling policy.
-
-Example (global built-in sampler):
+Sampling is owned by top-level OTel declarative configuration under
+`tracer_provider.sampler`. The current runtime adapter supports the built-in
+always-on, always-off, trace-ID-ratio, and corresponding parent-based shapes.
+For example, this provider fragment uses parent-based ratio sampling:
 
 ```yaml
 tracer_provider:
@@ -481,37 +492,28 @@ tracer_provider:
           ratio: 0.10
 ```
 
-Example (custom sampler plugin with workload-matching semantics):
-
-```yaml
-tracer_provider:
-  sampler:
-    obi_rule_based:
-      fallback:
-        always_on: {}
-      rules:
-        - match:
-            attributes:
-              service.namespace:
-                - low-priority
-          sample:
-            trace_id_ratio_based:
-              ratio: 0.01
-        - match:
-            attributes:
-              service.name:
-                - checkout
-          sample:
-            always_on: {}
-```
+Per-workload v1 samplers have no current v2 migration target. Vendor sampler
+shapes such as `obi_rule_based` are not imported by the runtime. Keep v1 when
+workload-specific sampling is required; broader per-workload pipeline work is
+tracked in
+[#923](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/923).
 
 ### `capture.instrumentation` Section
 
 The `capture.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
 
-All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike) have a consistent base structure for defining whether traces and metrics are enabled and what filters apply to each signal.
-Each protocol can also have its own specific configuration subsections.
-For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP has `routes.discovery` for route harvesting controls, etc.
+All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU,
+Aerospike) have a consistent base structure for trace and metric enablement.
+Each protocol can also have specific subsections; for example, SQL has `mysql`
+and `postgres`, while HTTP has `routes.discovery`.
+
+Filter fields are schema-modelled but only a compatibility subset is imported.
+The target adapter compares every application protocol's trace and metric maps
+with `http.filters.traces` and rejects any difference because the runtime uses
+one application filter. It likewise requires identical trace and metric maps
+within network flow capture and within TCP stats. Migrated v1 filters remain
+fanned out and equal pending
+[#1282](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1282).
 
 HTTP route normalization is directional. `http.routes.incoming` applies to requests handled by an instrumented workload and `http.routes.outgoing` applies to requests made by it.
 Each direction has the same route-policy fields: `patterns`, `ignored_patterns`, `ignore_mode`, `unmatched`, `wildcard_char`, and `max_path_segment_cardinality`.
@@ -521,7 +523,7 @@ Global route discovery remains under `http.routes.discovery` because harvesting 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `jsonrpc`, and `enrichment`.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `openai_compatible`, `jsonrpc`, and `enrichment`.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
@@ -531,8 +533,10 @@ The `capture.runtimes` section defines how language-specific runtime instrumenta
 These include Go probes, Node.js SIGUSR1 signal injection, and Java agent attachment.
 
 Unlike protocol instrumentation, runtimes are not about capturing specific telemetry signals — they are about *how* to instrument a service once it's selected.
-Each runtime has a simple structure: `enabled` (boolean) controls whether to attempt injection, and `filter` provides optional per-runtime refinement for which selected services receive the injection.
+Each runtime has a simple structure: `enabled` (boolean) controls whether to attempt injection.
 Java also includes additional runtime-specific configuration such as debug controls and attachment timeout.
+Runtime `filter` fields are reserved by the schema but non-empty values are not
+supported by the current adapter; use capture rules for workload selection.
 
 ### `capture.network` Section
 
@@ -573,16 +577,9 @@ This was raised directly by reviewers (dmitryax) who noted the overlap with exis
 
 In standalone mode, `enrich` remains essential — there is no Collector pipeline to delegate enrichment to.
 
-For Kubernetes environments using OBI as a receiver, use `k8sattributesprocessor` and set `enrich.enrichers.kubernetes.mode: disabled` if the `enrich` section is present (or omit `enrich` entirely):
-
-```yaml
-extensions:
-  obi:
-    enrich:
-      enrichers:
-        kubernetes:
-          mode: disabled   # use k8sattributesprocessor in the Collector pipeline instead
-```
+For Kubernetes environments using OBI as a receiver, omit `enrich` entirely
+and use `k8sattributesprocessor` in the Collector pipeline. Receiver validation
+rejects the standalone-only `enrich` section.
 
 The `mode` field supports: `autodetect` (default — enable if k8s environment is detected), `enabled`, and `disabled`.
 
@@ -630,14 +627,19 @@ The name `daemon` was chosen over `process` (too generic), `agent` (overloaded i
 ### Compatibility and mapping from v1
 
 v2 is a structural redesign of v1, with deterministic compatibility mapping.
-Use the table below to find any v1 field and its v2 canonical location.
+The table lists fields whose canonical location or behavior changes, including
+explicit no-target rows for removed settings.
+The migration command combines round-trip comparison with guards for
+non-1:1 mappings and rejects detected values that cannot be preserved. See the
+[migration guide](migration.md#handle-fields-that-need-manual-intervention)
+for unsupported and manual cases.
 
 Important mapping notes:
 
 - OTel pipeline structure ownership moved to top-level declarative sections:
-  - `otel_metrics_export` pipeline structure and transport settings → `meter_provider.*`
-  - `prometheus_export.path` → `meter_provider.*`
-  - `otel_traces_export` pipeline structure and transport/sampler settings → `tracer_provider.*`
+  - the automatically migrated `otel_metrics_export` OTLP/gRPC subset → `meter_provider.*`; gated OTLP/HTTP uses the manual provider mapping in the migration guide
+  - `prometheus_export.port` → `meter_provider.*`
+  - the automatically migrated `otel_traces_export` OTLP/gRPC and global sampler subset → `tracer_provider.*`; gated OTLP/HTTP uses the manual provider mapping in the migration guide
 - The old flat `operations` section is split by deployment scope:
   - Capture-valid fields move into `extensions.obi.capture.*` (valid in all deployment modes).
   - Daemon-only fields move into `extensions.obi.daemon.*` (standalone mode only).
@@ -645,45 +647,82 @@ Important mapping notes:
   - `filter.application` fans out to `capture.instrumentation.<protocol>.filters.{traces,metrics}`.
   - `filter.network` fans out to `capture.network.capture.filters.{traces,metrics}`.
   - `filter.stats` fans out to `capture.network.stats.filters.{traces,metrics}`.
-  - `metrics.features` maps to `capture.instrumentation.<protocol>.enabled.metrics`, `capture.network.capture.enabled`, and `capture.network.stats.{enabled,features}`.
+  - Supported `metrics.features` values map to `capture.instrumentation.<protocol>.enabled.metrics`, `capture.network.capture.enabled`, and `capture.network.stats.{enabled,features}`. These are application RED, basic network flow, and individual network-stat features.
   - Discovery selectors are exported as effective `capture.rules` after legacy/new selector precedence is resolved.
   - `discovery.skip_go_specific_tracers` maps to `capture.runtimes.go.enabled` with inverted semantics.
 
 | v1 field | v2 canonical location | Notes |
 |---|---|---|
+| `attributes.extra_group_attributes` | `extensions.obi.enrich.attributes.extra_group_attributes` | Move |
+| `attributes.host_id.override` | String `resource.attributes[]` entry named `host.id` | Move to standard resource metadata |
+| `attributes.instance_id.override_hostname` | String `resource.attributes[]` entry named `host.name` | Move to standard resource metadata |
+| `attributes.kubernetes.cluster_name` | `extensions.obi.enrich.enrichers.kubernetes.cluster_name` | Move |
+| `attributes.kubernetes.disable_informers` | `extensions.obi.enrich.enrichers.kubernetes.informers.disabled` | Move + rename |
+| `attributes.kubernetes.drop_external` | `extensions.obi.enrich.enrichers.kubernetes.drop_external` | Move |
+| `attributes.kubernetes.enable` | `extensions.obi.enrich.enrichers.kubernetes.mode` | Reshape `true`, `false`, and `autodetect` to `enabled`, `disabled`, and `autodetect` |
 | `attributes.kubernetes.informers_sync_timeout` | `extensions.obi.enrich.enrichers.kubernetes.informers.initial_sync_timeout` | Move |
 | `attributes.kubernetes.informers_resync_period` | `extensions.obi.enrich.enrichers.kubernetes.informers.resync_period` | Move |
+| `attributes.kubernetes.kubeconfig_path` | `extensions.obi.enrich.enrichers.kubernetes.auth.kubeconfig_path` | Move |
+| `attributes.kubernetes.meta_cache_address` | `extensions.obi.enrich.enrichers.kubernetes.metadata_cache.address` | Move + rename |
+| `attributes.kubernetes.meta_restrict_local_node` | `extensions.obi.enrich.enrichers.kubernetes.metadata_cache.restrict_local_node` | Move + rename |
+| `attributes.kubernetes.meta_source_labels.service_name` | `extensions.obi.enrich.enrichers.kubernetes.metadata_cache.source_labels.service_name` | Move |
+| `attributes.kubernetes.meta_source_labels.service_namespace` | `extensions.obi.enrich.enrichers.kubernetes.metadata_cache.source_labels.service_namespace` | Move |
+| `attributes.kubernetes.reconnect_initial_interval` | `extensions.obi.enrich.enrichers.kubernetes.informers.reconnect_initial_interval` | Move |
+| `attributes.kubernetes.resource_labels` | `extensions.obi.enrich.enrichers.kubernetes.resource_labels` | Move |
+| `attributes.kubernetes.service_name_template` | `extensions.obi.enrich.enrichers.kubernetes.service_name_template` | Move |
+| `attributes.metadata_retry.max_interval` | `extensions.obi.enrich.attributes.metadata_retry.max_interval` | Move |
+| `attributes.metadata_retry.start_interval` | `extensions.obi.enrich.attributes.metadata_retry.start_interval` | Move |
+| `attributes.metadata_retry.timeout` | `extensions.obi.enrich.attributes.metadata_retry.timeout` | Move |
 | `attributes.metric_span_names_limit` | `extensions.obi.capture.limits.metric_span_names` | Move + rename |
 | `attributes.rename_unresolved_hosts` | `extensions.obi.enrich.service_name.unresolved_hosts.names.default` | Move |
+| `attributes.rename_unresolved_hosts_incoming` | `extensions.obi.enrich.service_name.unresolved_hosts.names.incoming` | Move |
+| `attributes.rename_unresolved_hosts_outgoing` | `extensions.obi.enrich.service_name.unresolved_hosts.names.outgoing` | Move |
+| `attributes.select` | `extensions.obi.enrich.attributes.select` | Move |
 | `channel_buffer_len` | `extensions.obi.capture.channels.buffer_len` | Move |
 | `channel_send_timeout` | `extensions.obi.capture.channels.send_timeout` | Move |
 | `channel_send_timeout_panic` | `extensions.obi.capture.channels.panic_on_send_timeout` | Move + rename |
 | `discovery.bpf_pid_filter_off` | `extensions.obi.capture.engine.pid_filter.disabled` | Move + rename |
-| `discovery.default_otlp_grpc_port` | `extensions.obi.capture.rules[].match.process.exports_otlp.port` | Move + reshape |
+| `discovery.default_otlp_grpc_port` | `extensions.obi.capture.rules[].match.process.exports_otlp.port` | Emitted only when `exclude_otel_instrumented_services` is enabled |
 | `discovery.default_exclude_instrument` | `extensions.obi.capture.rules[]` (exclude rules with glob selectors) | Move + reshape |
 | `discovery.default_exclude_services` | `extensions.obi.capture.rules[]` (exclude rules with legacy regex selectors) | Legacy move + reshape |
 | `discovery.disabled_route_harvesters` | `extensions.obi.capture.instrumentation.http.routes.discovery.disabled_languages` | Move + rename |
 | `discovery.exclude_instrument` | `extensions.obi.capture.rules[]` (exclude rules with glob selectors) | Move + reshape |
 | `discovery.exclude_otel_instrumented_services` | `extensions.obi.capture.rules[].match.process.exports_otlp` (exclude rule) | Move + reshape |
 | `discovery.exclude_services` | `extensions.obi.capture.rules[]` (exclude rules with legacy regex selectors) | Legacy move + reshape |
-| `discovery.excluded_linux_system_paths` | *No v2 field* | Internal language-detection optimization; built-in defaults remain active and custom v1 values cannot be migrated |
-| `discovery.instrument` | `extensions.obi.capture.rules[]` (include rules with glob selectors) | Move + reshape |
+| `discovery.excluded_linux_system_paths` | *No v2 field* | The built-in default remains an internal language-detection optimization. Migration rejects custom or explicitly empty values; an exclude rule is not equivalent. |
+| `discovery.instrument` | `extensions.obi.capture.rules[]` (include rules with glob selectors) | Effective match fields only; see selector limitations in the migration guide |
+| `discovery.instrument[].exports` | `extensions.obi.capture.rules[].refine.exports.{traces,metrics}` | Logs cannot be represented |
+| `discovery.instrument[].routes.incoming` | `extensions.obi.capture.rules[].refine.http.routes.incoming.patterns` | Supported only when global `routes.patterns` is empty |
+| `discovery.instrument[].routes.outgoing` | `extensions.obi.capture.rules[].refine.http.routes.outgoing.patterns` | Supported only when global `routes.patterns` is empty |
 | `discovery.min_process_age` | `extensions.obi.capture.policy.min_process_age` | Move |
+| `discovery.poll_interval` | `extensions.obi.capture.policy.poll_interval` | Move |
 | `discovery.route_harvester_advanced.java_harvest_delay` | `extensions.obi.capture.instrumentation.http.routes.discovery.java.delay` | Move + rename |
 | `discovery.route_harvester_timeout` | `extensions.obi.capture.instrumentation.http.routes.discovery.timeout` | Move + rename |
-| `discovery.services` | `extensions.obi.capture.rules[]` (include rules with legacy regex selectors) | Legacy move + reshape |
+| `discovery.services` | `extensions.obi.capture.rules[]` (include rules with legacy regex selectors) | Effective match fields only; see selector limitations in the migration guide |
+| `discovery.services[].exports` | `extensions.obi.capture.rules[].refine.exports.{traces,metrics}` | Logs cannot be represented |
+| `discovery.services[].routes.incoming` | `extensions.obi.capture.rules[].refine.http.routes.incoming.patterns` | Supported only when global `routes.patterns` is empty |
+| `discovery.services[].routes.outgoing` | `extensions.obi.capture.rules[].refine.http.routes.outgoing.patterns` | Supported only when global `routes.patterns` is empty |
 | `discovery.skip_go_specific_tracers` | `extensions.obi.capture.runtimes.go.enabled` | Inverted boolean mapping |
 | `ebpf.batch_length` | `extensions.obi.capture.engine.batching.batch_length` | Move |
 | `ebpf.batch_timeout` | `extensions.obi.capture.engine.batching.batch_timeout` | Move |
+| `ebpf.bpf_debug` | `extensions.obi.capture.engine.debug.bpf` | Move |
 | `ebpf.bpf_fs_path` | `extensions.obi.capture.engine.bpf_filesystem.path` | Move + rename |
+| `ebpf.buffer_sizes.tcp` | `extensions.obi.capture.network.capture.buffer_size` | Move |
 | `ebpf.buffer_sizes.http` | `extensions.obi.capture.instrumentation.http.buffer_size` | Move |
 | `ebpf.buffer_sizes.kafka` | `extensions.obi.capture.instrumentation.kafka.buffer_size` | Move |
 | `ebpf.buffer_sizes.mssql` | `extensions.obi.capture.instrumentation.sql.mssql.buffer_size` | Move |
 | `ebpf.buffer_sizes.mysql` | `extensions.obi.capture.instrumentation.sql.mysql.buffer_size` | Move |
 | `ebpf.buffer_sizes.postgres` | `extensions.obi.capture.instrumentation.sql.postgres.buffer_size` | Move |
+| `ebpf.context_propagation` | `extensions.obi.capture.engine.propagation.context_propagation` | Move |
+| `ebpf.couchbase_db_cache_size` | `extensions.obi.capture.instrumentation.couchbase.db_cache_size` | Move |
+| `ebpf.disable_black_box_cp` | `extensions.obi.capture.engine.propagation.disable_black_box_cp` | Move |
 | `ebpf.dns_request_timeout` | `extensions.obi.capture.instrumentation.dns.request_timeout` | Move |
 | `ebpf.force_bpf_map_reader` | `extensions.obi.capture.engine.traffic.force_map_reader` | Move + rename |
+| `ebpf.go_http_client_buffer_timeout` | `extensions.obi.capture.instrumentation.http.go_http_client_buffer_timeout` | Move |
+| `ebpf.high_request_volume` | `extensions.obi.capture.engine.traffic.high_request_volume` | Move |
 | `ebpf.heuristic_sql_detect` | `extensions.obi.capture.instrumentation.sql.heuristic_detect` | Move + rename |
+| `ebpf.http_request_timeout` | `extensions.obi.capture.instrumentation.http.request_timeout` | Move |
+| `ebpf.instrument_cuda` | `extensions.obi.capture.instrumentation.gpu.enabled_mode` | Move + reshape |
 | `ebpf.kafka_topic_uuid_cache_size` | `extensions.obi.capture.instrumentation.kafka.topic_uuid_cache_size` | Move |
 | `ebpf.log_enricher.cache_size` | `extensions.obi.correlation.log_trace_annotation.cache.size` | Move + rename |
 | `ebpf.log_enricher.cache_ttl` | `extensions.obi.correlation.log_trace_annotation.cache.ttl` | Move + rename |
@@ -696,6 +735,7 @@ Important mapping notes:
 | `ebpf.log_enricher.plain_text.multiline` | `extensions.obi.correlation.log_trace_annotation.plain_text.multiline` | Move |
 | `ebpf.maps_config.global_scale_factor` | `extensions.obi.capture.engine.maps.global_scale_factor` | Move + rename |
 | `ebpf.max_transaction_time` | `extensions.obi.capture.engine.transactions.max_duration` | Move + rename |
+| `ebpf.mongo_requests_cache_size` | `extensions.obi.capture.instrumentation.mongo.requests_cache_size` | Move |
 | `ebpf.mssql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mssql.prepared_statements_cache_size` | Move |
 | `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
 | `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `graphql` | Move + normalize |
@@ -709,6 +749,9 @@ Important mapping notes:
 | `ebpf.payload_extraction.http.genai.qwen.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `qwen` | Move + normalize |
 | `ebpf.payload_extraction.http.genai.bedrock.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `bedrock` | Move + normalize |
 | `ebpf.payload_extraction.http.genai.mcp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `mcp` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.ollama.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `ollama` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.openai_compatible.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `openai_compatible` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.openai_compatible.gateways` | `extensions.obi.capture.instrumentation.http.payload_extraction.openai_compatible.gateways` | Move |
 | `ebpf.payload_extraction.http.genai.embedding.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `embedding` | Move + normalize |
 | `ebpf.payload_extraction.http.genai.rerank.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `rerank` | Move + normalize |
 | `ebpf.payload_extraction.http.genai.retrieval.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `retrieval` | Move + normalize |
@@ -719,8 +762,12 @@ Important mapping notes:
 | `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.obfuscation_string` | Move |
 | `ebpf.payload_extraction.http.enrichment.rules` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.rules` | Move |
 | `ebpf.postgres_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.postgres.prepared_statements_cache_size` | Move |
+| `ebpf.protocol_debug_print` | `extensions.obi.capture.engine.debug.protocol_print` | Move |
 | `ebpf.redis_db_cache.enabled` | `extensions.obi.capture.instrumentation.redis.db_cache.enabled` | Move |
+| `ebpf.redis_db_cache.max_size` | `extensions.obi.capture.instrumentation.redis.db_cache.max_size` | Move |
+| `ebpf.track_request_headers` | `extensions.obi.capture.instrumentation.http.track_request_headers` | Move |
 | `ebpf.traffic_control_backend` | `extensions.obi.capture.engine.traffic.control_backend` | Move + rename |
+| `ebpf.override_bpfloop_enabled` | `extensions.obi.capture.engine.propagation.override_bpfloop_enabled` | Move |
 | `ebpf.wakeup_len` | `extensions.obi.capture.engine.batching.wakeup_len` | Move |
 | `enforce_sys_caps` | `extensions.obi.capture.safety.enforce_system_capabilities` | Move + rename |
 | `executable_path` | `extensions.obi.capture.rules[].match.process.exe_path_regex` (include rule) | Legacy fallback selector |
@@ -732,21 +779,23 @@ Important mapping notes:
 | `internal_metrics.bpf_metric_scrape_interval` | `extensions.obi.daemon.internal_metrics.bpf.scrape_interval` | Move + rename |
 | `internal_metrics.exporter` | `extensions.obi.daemon.internal_metrics.exporter` | Move |
 | `internal_metrics.prometheus.path` | `extensions.obi.daemon.internal_metrics.prometheus.path` | Move |
+| `internal_metrics.prometheus.port` | `extensions.obi.daemon.internal_metrics.prometheus.port` | Move |
 | `javaagent.attach_timeout` | `extensions.obi.capture.runtimes.java.attach_timeout` | Move |
 | `javaagent.debug` | `extensions.obi.capture.runtimes.java.debug.enabled` | Move + rename |
 | `javaagent.debug_instrumentation` | `extensions.obi.capture.runtimes.java.debug.bytecode_instrumentation` | Move + rename |
-| `javaagent.enabled` | `extensions.obi.capture.runtimes.java.enabled` | Simplified to boolean |
+| `javaagent.enabled` | `extensions.obi.capture.runtimes.java.enabled` | Move |
 | `log_config` | `extensions.obi.daemon.logging.config_format` | Move + rename |
 | `log_format` | `extensions.obi.daemon.logging.format` | Move + rename |
 | `log_level` | Top-level `log_level` | Move to standard field |
-| `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` + `extensions.obi.capture.network.stats.{enabled,features}` | Split mapping |
+| `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` + `extensions.obi.capture.network.stats.{enabled,features}` | Split mapping for application RED, basic network flow, and individual network-stat features only |
 | `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |
 | `name_resolver.cache_len` | `extensions.obi.enrich.service_name.cache.size` | Move + rename |
+| `name_resolver.sources` | `extensions.obi.enrich.service_name.sources` | Move |
 | `network.agent_ip` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip` | Move |
 | `network.agent_ip_iface` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip_interface` | Move + rename |
 | `network.agent_ip_type` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip_family` | Move + rename |
 | `network.cache_active_timeout` | `extensions.obi.capture.network.capture.flow_lifecycle.active_timeout` | Move + rename |
-| `network.cache_max_flows` | `extensions.obi.capture.network.capture.flow_lifecycle.max_tracked_flows` | Move + rename |
+| `network.cache_max_flows` | `extensions.obi.capture.network.capture.flow_lifecycle.max_tracked_flows` and `extensions.obi.capture.limits.network_packets` | Split mapping |
 | `network.cidrs` | `extensions.obi.capture.network.capture.selection.cidrs` | Move |
 | `network.deduper` | `extensions.obi.capture.network.capture.flow_lifecycle.deduplication.strategy` | Move + rename |
 | `network.deduper_fc_ttl` | `extensions.obi.capture.network.capture.flow_lifecycle.deduplication.first_come_ttl` | Move + rename |
@@ -760,29 +809,42 @@ Important mapping notes:
 | `network.guess_ports` | `extensions.obi.capture.network.capture.flow_lifecycle.guess_ports` | Move |
 | `network.listen_interfaces` | `extensions.obi.capture.network.capture.interface_discovery.mode` | Move + reshape |
 | `network.listen_poll_period` | `extensions.obi.capture.network.capture.interface_discovery.poll_interval` | Move + rename |
+| `network.exclude_interfaces` | `extensions.obi.capture.network.capture.selection.interfaces.exclude` | Move + reshape |
+| `network.exclude_protocols` | `extensions.obi.capture.network.capture.selection.protocols.exclude` | Move + reshape |
+| `network.interfaces` | `extensions.obi.capture.network.capture.selection.interfaces.include` | Move + reshape |
+| `network.protocols` | `extensions.obi.capture.network.capture.selection.protocols.include` | Move + reshape |
 | `network.print_flows` | `extensions.obi.capture.network.capture.diagnostics.print_flows` | Move |
 | `network.reverse_dns.cache_expiry` | `extensions.obi.capture.network.capture.enrichment.reverse_dns.cache.ttl` | Move + rename |
 | `network.reverse_dns.cache_len` | `extensions.obi.capture.network.capture.enrichment.reverse_dns.cache.size` | Move + rename |
 | `network.reverse_dns.type` | `extensions.obi.capture.network.capture.enrichment.reverse_dns.mode` | Move + rename |
 | `network.sampling` | `extensions.obi.capture.network.capture.flow_lifecycle.sampling` | Move |
 | `network.source` | `extensions.obi.capture.network.capture.source` | Move |
-| `nodejs.enabled` | `extensions.obi.capture.runtimes.nodejs.enabled` | Simplified to boolean |
+| `nodejs.enabled` | `extensions.obi.capture.runtimes.nodejs.enabled` | Move |
+| `otel_metrics_export.endpoint` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
+| `otel_metrics_export.features` | Split through the effective `metrics.features` mapping | Deprecated; an enabled OTLP exporter whose deprecated `features` field is present (including `[]`) takes precedence, otherwise enabled Prometheus features may supply it |
 | `otel_metrics_export.histogram_aggregation` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.default_histogram_aggregation` | OTel ownership move + declarative reader/exporter shape |
+| `otel_metrics_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` | Only protocols modeled by v2; migration rejects differing active OTLP and Prometheus lists |
+| `otel_metrics_export.interval` | `meter_provider.readers[0].periodic.interval` | Converted to milliseconds |
+| `otel_metrics_export.protocol` | Selects `meter_provider.readers[0].periodic.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
 | `otel_metrics_export.reporters_cache_len` | `extensions.obi.capture.telemetry.metrics.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
-| `otel_metrics_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
+| `otel_traces_export.endpoint` | `tracer_provider.processors[0].batch.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
+| `otel_traces_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.traces` | Only protocols modeled by v2 |
+| `otel_traces_export.protocol` | Selects `tracer_provider.processors[0].batch.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
 | `otel_traces_export.batch_timeout` | `tracer_provider.processors[0].batch.schedule_delay` | OTel ownership move + rename + duration(ms) representation |
 | `otel_traces_export.queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
 | `otel_traces_export.batch_max_size` | `tracer_provider.processors[0].batch.max_export_batch_size` | OTel ownership move + declarative processor list shape |
 | `otel_traces_export.reporters_cache_len` | `extensions.obi.capture.telemetry.traces.reporters_cache_len` | Move to capture telemetry tuning |
-| `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler arguments when possible; per-workload semantics require the `obi_rule_based` sampler plugin. |
-| `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler names when possible; per-workload semantics require the `obi_rule_based` sampler plugin. |
+| `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move for supported global built-in samplers; per-workload sampler arguments are unsupported |
+| `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move for supported global built-in samplers; per-workload samplers are unsupported |
 | `profile_port` | `extensions.obi.daemon.profiling.port` | Move |
 | `prometheus_export.allow_service_graph_self_references` | `extensions.obi.daemon.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_resource_attributes` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
 | `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
 | `prometheus_export.path` | *No canonical OTel core path in current declarative schema* | Distribution-specific/unsupported in current target shape |
+| `prometheus_export.features` | Split through the effective `metrics.features` mapping | Deprecated; used only when the OTLP metric exporter does not provide features |
+| `prometheus_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` | Only protocols modeled by v2; migration rejects differing active Prometheus and OTLP lists |
 | `prometheus_export.service_cache_size` | `extensions.obi.daemon.telemetry.metrics.prometheus.span_metrics_service_cache_size` | Move to daemon telemetry tuning + rename |
 | `routes.ignore_mode` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.ignore_mode` | Move + duplicate v1 global value into both directions |
 | `routes.ignored_patterns` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.ignored_patterns` | Move + duplicate v1 global value into both directions |
@@ -790,6 +852,8 @@ Important mapping notes:
 | `routes.patterns` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.patterns` | Move + duplicate v1 global value into both directions |
 | `routes.unmatched` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.unmatched` | Move + duplicate v1 global value into both directions |
 | `routes.wildcard_char` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.wildcard_char` | Move + duplicate v1 global value into both directions |
+| `service_name` | String `resource.attributes[]` entry named `service.name` | Manual standalone mapping; automatic migration rejects the deprecated OBI-wide override |
+| `service_namespace` | String `resource.attributes[]` entry named `service.namespace` | Manual standalone mapping; automatic migration rejects the deprecated OBI-wide override |
 | `shutdown_timeout` | `extensions.obi.daemon.shutdown.timeout` | Move |
 | `stats.agent_ip` | `extensions.obi.capture.network.stats.endpoint_identity.agent_ip` | Move |
 | `stats.agent_ip_iface` | `extensions.obi.capture.network.stats.endpoint_identity.agent_ip_interface` | Move + rename |
@@ -806,14 +870,28 @@ Important mapping notes:
 | `stats.reverse_dns.type` | `extensions.obi.capture.network.stats.enrichment.reverse_dns.mode` | Move + rename |
 | `trace_printer` | `extensions.obi.daemon.logging.debug_trace_output` | Move + rename |
 
+Both v2 paths for `network.cache_max_flows` configure the same runtime value.
+Migration writes them identically. If an authored document sets both
+`capture.limits.network_packets` and
+`capture.network.capture.flow_lifecycle.max_tracked_flows`, they must be equal;
+each explicitly authored value must also be greater than zero. Validation
+rejects zero or divergent values instead of silently choosing one.
+
 ## Related docs
 
-- Migration, validation, and tooling plan: [migration.md](migration.md)
+- Config v1 to v2 migration guide: [migration.md](migration.md)
 - OBI extension schema: [obi-extension.schema.json](obi-extension.schema.json)
 - Runnable standalone configuration:
   [examples/default-configuration.yaml](examples/default-configuration.yaml)
 - Authored default-values reference fragment (not a standalone document):
   [examples/default-values-reference.fragment.yaml](examples/default-values-reference.fragment.yaml)
+- Tested migration input and generated result:
+  [examples/migration-v1.yaml](examples/migration-v1.yaml) and
+  [examples/migration-v2.yaml](examples/migration-v2.yaml)
+- Tested receiver migration input and generated component body:
+  [examples/migration-receiver-v1.yaml](examples/migration-receiver-v1.yaml)
+  and
+  [examples/migration-receiver-v2.yaml](examples/migration-receiver-v2.yaml)
 
 ## Appendix: upstream alignment status (2026-02-24)
 
