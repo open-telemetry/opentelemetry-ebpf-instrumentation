@@ -259,6 +259,7 @@ issuer and certificate identity shown above.
 
 ## Examples
 
+- [Go Trace API Example](./examples/go-trace-api/README.md)
 - [OTel Collector Receiver Example](./examples/otel-collector/README.md)
 - [NGINX Multi-Route And Proxy Example](./examples/nginx/README.md)
 
