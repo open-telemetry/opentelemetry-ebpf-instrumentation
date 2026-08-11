@@ -189,18 +189,11 @@ typedef struct go_executable_key {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64);           // key: visible inode
-    __type(value, off_table_t); // the offset table
-    __uint(max_entries, MAX_GO_PROGRAMS);
-} go_offsets_map SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u32);           // key: host PID
+    __type(key, go_executable_key_t);
     __type(value, off_table_t); // the offset table
     __uint(max_entries, MAX_GO_PROGRAMS);
     __uint(pinning, OBI_PIN_INTERNAL);
-} go_offsets_by_pid SEC(".maps");
+} go_offsets_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -253,14 +246,14 @@ int obi_resolve_go_executable_identity(struct pt_regs *ctx) {
 
 static __always_inline off_table_t *get_offsets_table() {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    const u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    off_table_t *offsets = (off_table_t *)bpf_map_lookup_elem(&go_offsets_by_pid, &pid);
-    if (offsets) {
-        return offsets;
+
+    struct inode *inode = BPF_CORE_READ(task, mm, exe_file, f_inode);
+    go_executable_key_t key = {};
+    if (!go_executable_key(inode, &key)) {
+        return NULL;
     }
 
-    const u64 ino = (u64)BPF_CORE_READ(task, mm, exe_file, f_inode, i_ino);
-    return (off_table_t *)bpf_map_lookup_elem(&go_offsets_map, &ino);
+    return (off_table_t *)bpf_map_lookup_elem(&go_offsets_map, &key);
 }
 
 static __always_inline u64 go_offset_of(off_table_t *ot, go_offset off) {

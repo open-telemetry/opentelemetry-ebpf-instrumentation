@@ -84,6 +84,7 @@ func unloadInternalMaps(eventContext *common.EBPFEventContext) {
 
 func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer, cfg *obi.Config, metrics imetrics.Reporter) *ProcessTracer {
 	return &ProcessTracer{
+		log:                       ptlog().With("type", tracerType),
 		Programs:                  programs,
 		Type:                      tracerType,
 		Instrumentables:           map[ExecutableKey]*instrumenter{},
@@ -105,8 +106,6 @@ func (pt *ProcessTracer) Run(
 	ebpfEventContext *common.EBPFEventContext,
 	out *msg.Queue[[]request.Span],
 ) {
-	pt.log = ptlog().With("type", pt.Type)
-
 	pt.log.Debug("starting process tracer")
 
 	// Searches for traceable functions

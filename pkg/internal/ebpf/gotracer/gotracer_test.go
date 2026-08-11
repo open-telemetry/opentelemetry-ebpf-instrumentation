@@ -30,6 +30,41 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 )
 
+func TestGoOffsetsMapKey(t *testing.T) {
+	const inode = uint64(123)
+
+	testCases := []struct {
+		name      string
+		statDev   uint64
+		kernelDev uint64
+	}{
+		{
+			name:      "regular device",
+			statDev:   0xfc01,
+			kernelDev: 0xfc00001,
+		},
+		{
+			name:      "large minor number",
+			statDev:   0x1000ed,
+			kernelDev: 0x1ed,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fileInfo := exec.New(exec.Init{
+				Dev: tc.statDev,
+				Ino: inode,
+			})
+
+			assert.Equal(t, executableIdentity{
+				Dev: tc.kernelDev,
+				Ino: inode,
+			}, goOffsetsMapKey(fileInfo))
+		})
+	}
+}
+
 func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	disableContextPropagationForTest(t)
 
