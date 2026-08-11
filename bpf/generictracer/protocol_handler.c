@@ -10,6 +10,7 @@
 #include <common/protocol_http2_helpers.h>
 #include <common/tc_common.h>
 
+#include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_kafka.h>
@@ -93,6 +94,12 @@ int obi_handle_buf_with_args(void *ctx) {
                                                 args->bytes_len,
                                                 &args->protocol_type)) {
         bpf_dbg_printk("Found SunRPC connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    } else if (args->protocols.tcp && is_aerospike(&args->pid_conn.conn,
+                                                   (const unsigned char *)args->u_buf,
+                                                   args->bytes_len,
+                                                   &args->protocol_type)) {
+        bpf_dbg_printk("Found Aerospike connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
