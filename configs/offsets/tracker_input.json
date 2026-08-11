@@ -9,7 +9,7 @@
         "ContentLength",
         "Header"
       ],
-      "net/url.URL": ["Path", "Host", "Scheme"],
+      "net/url.URL": ["Path", "RawQuery", "Host", "Scheme"],
       "net/http.Response": ["StatusCode", "ContentLength"],
       "net.TCPAddr": ["IP", "Port"],
       "context.valueCtx": ["val"],

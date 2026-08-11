@@ -854,6 +854,32 @@ func TestDetectsOTelExport(t *testing.T) {
 			span:    Span{Type: EventTypeGRPCClient, HostPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0},
 			exports: false,
 		},
+		{
+			name: fmt.Sprintf("undecoded path on the default %d port doesn't identify the signal", defaultOtlpGRPCPort),
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+			},
+			exports: false,
+		},
+		{
+			name: "undecoded path on a generic OTEL_EXPORTER_OTLP_ENDPOINT doesn't identify the signal",
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:9090"}},
+			},
+			exports: false,
+		},
+		{
+			name: "signal endpoints on distinct ports export",
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{
+					"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4317",
+					"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "http://localhost:4318",
+				}},
+			},
+			exports: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -985,6 +1011,32 @@ func TestDetectsOTelExport(t *testing.T) {
 			name:    fmt.Sprintf("no otel environment sends to anything other the %d doesn't export", defaultOtlpGRPCPort),
 			span:    Span{Type: EventTypeGRPCClient, HostPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0},
 			exports: false,
+		},
+		{
+			name: fmt.Sprintf("undecoded path on the default %d port doesn't identify the signal", defaultOtlpGRPCPort),
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+			},
+			exports: false,
+		},
+		{
+			name: "undecoded path on a generic OTEL_EXPORTER_OTLP_ENDPOINT doesn't identify the signal",
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:9090"}},
+			},
+			exports: false,
+		},
+		{
+			name: "signal endpoints on distinct ports export",
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 4318, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{
+					"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4317",
+					"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "http://localhost:4318",
+				}},
+			},
+			exports: true,
 		},
 	}
 

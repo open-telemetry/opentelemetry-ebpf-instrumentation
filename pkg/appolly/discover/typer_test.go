@@ -116,6 +116,20 @@ func TestMakeServiceAttrs(t *testing.T) {
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
 }
 
+func TestMakeServiceAttrsDefaultsSDKLanguageToGeneric(t *testing.T) {
+	pi := services.ProcessInfo{Pid: 1234}
+	proc := &ProcessMatch{
+		Process:  &pi,
+		Criteria: []services.Selector{dummyCriterion{name: "svc1"}},
+	}
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+
+	attrs := ty.makeServiceAttrs(proc)
+
+	assert.Equal(t, svc.InstrumentableGeneric, attrs.SDKLanguage)
+	assert.Equal(t, "generic", attrs.SDKLanguage.String())
+}
+
 func TestMakeServiceAttrs_DynamicPIDOptions(t *testing.T) {
 	d := NewDynamicPIDSelector()
 	d.Traces().AddPID(42, selection.DynamicPIDOptions{
@@ -311,7 +325,7 @@ func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
 			}
 			ty := typer{cfg: &obi.Config{
 				Routes:  &transform.RoutesConfig{},
-				Metrics: perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+				Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureSpanOTel},
 			}}
 			attrs := ty.makeServiceAttrs(proc)
 			assert.Equal(t, "svc1", attrs.UID.Name)

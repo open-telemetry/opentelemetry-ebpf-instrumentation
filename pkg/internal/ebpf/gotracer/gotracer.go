@@ -519,6 +519,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		// http
 		goexec.URLPtrPos,
 		goexec.PathPtrPos,
+		goexec.RawQueryPtrPos,
 		goexec.HostPtrPos,
 		goexec.SchemePtrPos,
 		goexec.MethodPtrPos,
