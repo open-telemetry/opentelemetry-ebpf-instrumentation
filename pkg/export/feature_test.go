@@ -70,20 +70,49 @@ func TestFeatureEnv_Separator(t *testing.T) {
 }
 
 func TestFeatureApplicationAliasDoesNotIncludeRuntime(t *testing.T) {
-	features := LoadFeatures([]string{"application"})
+	features := mustLoadFeatures(t, "application")
 
 	assert.True(t, features.has(FeatureApplicationRED))
 	assert.False(t, features.has(FeatureApplicationRuntime))
 	assert.False(t, AppO11yFeatures.has(FeatureApplicationRuntime))
-	assert.True(t, LoadFeatures([]string{"application_runtime"}).AnyAppO11yMetric())
-	assert.True(t, LoadFeatures([]string{"application_runtime"}).AppOrSpan())
+	assert.True(t, mustLoadFeatures(t, "application_runtime").AnyAppO11yMetric())
+	assert.True(t, mustLoadFeatures(t, "application_runtime").AppOrSpan())
 }
 
-func TestFeatureApplicationJVMAliasMapsToRuntime(t *testing.T) {
-	features := LoadFeatures([]string{"application_jvm"})
+func mustLoadFeatures(t *testing.T, names ...string) Features {
+	t.Helper()
+	features, err := LoadFeatures(names)
+	require.NoError(t, err)
+	return features
+}
 
-	assert.True(t, features.AppRuntime())
-	assert.True(t, features.AnyAppO11yMetric())
+func TestLoadFeaturesRejectsUnknownNames(t *testing.T) {
+	_, err := LoadFeatures([]string{"application_jvm"})
+	require.ErrorContains(t, err, `unknown metrics feature "application_jvm"`)
+
+	_, err = LoadFeatures([]string{"application", "application_runtme"})
+	require.ErrorContains(t, err, "application_runtme")
+
+	// empty entries (trailing commas in env values) are not an error
+	features, err := LoadFeatures([]string{"application", ""})
+	require.NoError(t, err)
+	assert.True(t, features.has(FeatureApplicationRED))
+
+	// the error names the valid features so a typo is self-diagnosing
+	_, err = LoadFeatures([]string{"no_such_feature"})
+	require.ErrorContains(t, err, "application_runtime")
+}
+
+// An unset OTEL_EBPF_METRICS_FEATURES resolves to an empty envDefault string
+// (perapp.GlobalMetricsConfig), so UnmarshalText("") runs on every default
+// deployment and must keep yielding Undefined rather than an error.
+func TestFeatureUnmarshalTextEmpty(t *testing.T) {
+	var features Features
+	require.NoError(t, features.UnmarshalText(nil))
+	assert.True(t, features.Undefined())
+
+	require.NoError(t, features.UnmarshalText([]byte("")))
+	assert.True(t, features.Undefined())
 }
 
 func TestFeatureEnv_All(t *testing.T) {

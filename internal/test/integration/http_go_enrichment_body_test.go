@@ -23,10 +23,10 @@ func TestSuiteGoBodyExtraction(t *testing.T) {
 
 	t.Run("Body extraction obfuscate", func(t *testing.T) {
 		waitForTestComponents(t, instrumentedServiceStdURL)
-		bodyExtractionObfuscate(t)
+		bodyExtractionObfuscate(t, "POST /rolldice/{id}")
 	})
 	t.Run("Body extraction include", func(t *testing.T) {
-		bodyExtractionInclude(t)
+		bodyExtractionInclude(t, "POST /rolldice/{id}")
 	})
 	t.Run("Body excluded by default", func(t *testing.T) {
 		// The Go uprobe tracer captures the native std-mux pattern, reported
@@ -34,7 +34,7 @@ func TestSuiteGoBodyExtraction(t *testing.T) {
 		bodyExtractionExcludedByDefault(t, "GET /rolldice/{id}")
 	})
 	t.Run("Body with Content-Type header", func(t *testing.T) {
-		bodyExtractionContentTypeHeader(t)
+		bodyExtractionContentTypeHeader(t, "POST /rolldice/{id}")
 	})
 
 	require.NoError(t, compose.Close())

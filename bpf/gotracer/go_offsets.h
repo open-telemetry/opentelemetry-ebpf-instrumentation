@@ -20,6 +20,7 @@ typedef enum {
     // http
     _url_ptr_pos,
     _path_ptr_pos,
+    _raw_query_ptr_pos,
     _host_ptr_pos,
     _scheme_ptr_pos,
     _method_ptr_pos,
@@ -88,6 +89,8 @@ typedef enum {
     _span_context_trace_id_pos,
     _span_context_span_id_pos,
     _span_context_trace_flags_pos,
+    _auto_sdk_span_context_pos,
+    _auto_sdk_activation_supported,
     // go runtime channels
     _hchan_qcount_pos,
     _hchan_dataqsiz_pos,
@@ -150,6 +153,10 @@ typedef enum {
     _runtime_p_gfree_pos,
     _runtime_glist_size_pos,
     _runtime_gc_controller_heap_goal_pos,
+    _runtime_sched_time_to_run_pos,
+    _runtime_sched_stw_total_time_gc_pos,
+    _runtime_time_histogram_underflow_pos,
+    _runtime_time_histogram_overflow_pos,
     _last_go_offset,
 } go_offset_const;
 

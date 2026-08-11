@@ -1,0 +1,20 @@
+# OBI configuration for the internal-metrics trace-error weaver suite. The OTEL
+# metrics endpoint points at the healthy collector (so the internal metrics,
+# including the error counter, still reach weaver), while the OTEL traces
+# endpoint points at a closed collector port so every trace export fails. With
+# the synchronous-exporter fix (#2716) instrumentedTracesExporter.ConsumeTraces
+# observes the real send failure and records obi.otel.trace.export.errors. A
+# short batch timeout flushes spans quickly and a bounded backoff keeps a failed
+# batch from blocking the pipeline.
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+otel_traces_export:
+  endpoint: http://otelcol:9999
+  batch_timeout: 100ms
+  backoff_max_elapsed_time: 1s
+internal_metrics:
+  exporter: otel
+attributes:
+  select:
+    "*":
+      include: ["*"]

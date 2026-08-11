@@ -68,6 +68,23 @@ func (r *recordingTracer) Capabilities() ebpfcommon.TracerCapability            
 func (r *recordingTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
 }
 
+func TestExecutableKeySeparatesFilesystems(t *testing.T) {
+	first := execpkg.New(execpkg.Init{Dev: 1, Ino: 42})
+	second := execpkg.New(execpkg.Init{Dev: 2, Ino: 42})
+	firstKey := executableKey(first)
+	secondKey := executableKey(second)
+
+	assert.NotEqual(t, firstKey, secondKey)
+
+	tracers := map[ebpf.ExecutableKey]executableTracer{
+		firstKey:  {tracer: &ebpf.ProcessTracer{Type: ebpf.Go}},
+		secondKey: {tracer: &ebpf.ProcessTracer{Type: ebpf.Generic}},
+	}
+	require.Len(t, tracers, 2)
+	assert.Equal(t, ebpf.Go, tracers[firstKey].tracer.Type)
+	assert.Equal(t, ebpf.Generic, tracers[secondKey].tracer.Type)
+}
+
 func TestSyntheticDeletePath_TraceAttacherDeletesTracer(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -103,8 +120,9 @@ func TestSyntheticDeletePath_TraceAttacherDeletesTracer(t *testing.T) {
 
 	prog := &recordingTracer{}
 	tracer := &ebpf.ProcessTracer{Type: ebpf.Generic, Programs: []ebpf.Tracer{prog}}
-	ta.existingTracers[fileInfo.Ino()] = tracer
-	ta.processInstances.Inc(fileInfo.Ino())
+	key := executableKey(fileInfo)
+	ta.existingTracers[key] = executableTracer{tracer: tracer, generation: 1}
+	ta.processInstances.Inc(key)
 
 	go run(ctx)
 
@@ -120,8 +138,9 @@ func TestSyntheticDeletePath_TraceAttacherDeletesTracer(t *testing.T) {
 	require.NotNil(t, ev.Obj)
 	assert.Equal(t, app.PID(42), ev.Obj.FileInfo.Pid())
 	assert.Same(t, tracer, ev.Obj.Tracer)
+	assert.Equal(t, uint64(1), ev.Obj.ExecutableGeneration)
 	assert.Equal(t, []blockedPID{{pid: 42, ns: 17}}, prog.blocked)
-	_, exists := ta.existingTracers[fileInfo.Ino()]
+	_, exists := ta.existingTracers[key]
 	assert.False(t, exists)
 }
 
@@ -160,9 +179,10 @@ func TestSyntheticDeletePath_TraceAttacherDeletesInstance(t *testing.T) {
 
 	prog := &recordingTracer{}
 	tracer := &ebpf.ProcessTracer{Type: ebpf.Generic, Programs: []ebpf.Tracer{prog}}
-	ta.existingTracers[fileInfo.Ino()] = tracer
-	ta.processInstances.Inc(fileInfo.Ino())
-	ta.processInstances.Inc(fileInfo.Ino())
+	key := executableKey(fileInfo)
+	ta.existingTracers[key] = executableTracer{tracer: tracer, generation: 1}
+	ta.processInstances.Inc(key)
+	ta.processInstances.Inc(key)
 
 	go run(ctx)
 
@@ -179,7 +199,7 @@ func TestSyntheticDeletePath_TraceAttacherDeletesInstance(t *testing.T) {
 	assert.Equal(t, app.PID(42), ev.Obj.FileInfo.Pid())
 	assert.Nil(t, ev.Obj.Tracer)
 	assert.Equal(t, []blockedPID{{pid: 42, ns: 17}}, prog.blocked)
-	assert.Same(t, tracer, ta.existingTracers[fileInfo.Ino()])
+	assert.Same(t, tracer, ta.existingTracers[key].tracer)
 }
 
 func startDeletedTyperPipeline(

@@ -5,6 +5,8 @@ package ebpfcommon
 
 import (
 	"bufio"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -112,6 +114,88 @@ func TestQwenSpan_DashScopeGeneration(t *testing.T) {
 	assert.Equal(t, 12, reportedValue(ai.Usage.InputTokenCount()))
 	assert.Equal(t, 10, reportedValue(ai.Usage.OutputTokenCount()))
 	assert.JSONEq(t, `{"text":"eBPF is a kernel programmability technology.","finish_reason":"stop"}`, ai.GetOutput())
+}
+
+// Native DashScope text-embedding bodies: input under input.texts, dimension
+// under parameters.dimension, vectors under output.embeddings[].embedding.
+const dashScopeEmbeddingRequestBody = `{
+  "model":"text-embedding-v2",
+  "input":{"texts":["Hello world","Goodbye world"]},
+  "parameters":{"dimension":1024,"output_type":"dense","text_type":"query"}
+}`
+
+const dashScopeEmbeddingResponseBody = `{
+  "output":{"embeddings":[
+    {"embedding":[0.1,0.2,0.3],"text_index":0},
+    {"embedding":[0.4,0.5,0.6],"text_index":1}
+  ]},
+  "usage":{"total_tokens":8},
+  "request_id":"req-emb-1"
+}`
+
+func TestQwenSpan_DashScopeNativeEmbedding(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding",
+		dashScopeEmbeddingRequestBody)
+	resp := makePlainResponse(http.StatusOK, qwenHeaders(), dashScopeEmbeddingResponseBody)
+
+	base := &request.Span{}
+	span, ok := QwenSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Qwen)
+
+	ai := span.GenAI.Qwen
+	assert.Equal(t, "embeddings", ai.OperationName)
+	assert.Equal(t, "text-embedding-v2", ai.Request.Model)
+	// Requested dimension comes from parameters.dimension (takes precedence).
+	assert.Equal(t, 1024, ai.GetEmbeddingDimensions())
+	// input_tokens falls back to total_tokens for embeddings.
+	assert.Equal(t, 8, reportedValue(span.GenAIInputTokenCount()))
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+}
+
+func TestQwenSpan_DashScopeNativeEmbedding_DimensionFromResponse(t *testing.T) {
+	// No parameters.dimension in the request: dimension is derived from the
+	// response output.embeddings[0].embedding vector length.
+	reqBody := `{"model":"text-embedding-v2","input":{"texts":["hi"]}}`
+	req := makeRequest(t, http.MethodPost,
+		"https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding",
+		reqBody)
+	resp := makePlainResponse(http.StatusOK, qwenHeaders(), dashScopeEmbeddingResponseBody)
+
+	base := &request.Span{}
+	span, ok := QwenSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.Qwen)
+	assert.Equal(t, 3, span.GenAI.Qwen.GetEmbeddingDimensions())
+}
+
+func TestQwenSpan_CompatibleModeBase64Embedding(t *testing.T) {
+	// OpenAI SDKs default to encoding_format=base64: data[].embedding is a
+	// base64 string of packed float32 values (1024 dims = 4096 bytes).
+	vec := base64.StdEncoding.EncodeToString(make([]byte, 1024*4))
+	respBody := fmt.Sprintf(
+		`{"data":[{"embedding":"%s","index":0,"object":"embedding"}],"model":"text-embedding-v3","usage":{"prompt_tokens":6,"total_tokens":6},"id":"eb4ea05e-18c5-9554-9234-78a1528e7be3"}`,
+		vec)
+	reqBody := `{"model":"text-embedding-v3","input":["hello"],"encoding_format":"base64"}`
+
+	req := makeRequest(t, http.MethodPost, "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings", reqBody)
+	resp := makePlainResponse(http.StatusOK, qwenHeaders(), respBody)
+
+	base := &request.Span{}
+	span, ok := QwenSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.Qwen)
+	ai := span.GenAI.Qwen
+	assert.Equal(t, "embeddings", ai.OperationName)
+	// Dimension resolved from the base64-decoded vector: 4096 bytes / 4 = 1024.
+	assert.Equal(t, 1024, ai.GetEmbeddingDimensions())
+	assert.Equal(t, "base64", ai.Request.EncodingFormat)
+	assert.Equal(t, 6, reportedValue(span.GenAIInputTokenCount()))
 }
 
 func TestQwenSpan_IDFallbackFromHeadersWhenBodyMissingID(t *testing.T) {

@@ -80,7 +80,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -377,6 +377,21 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:  "aerospike only",
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationAerospike},
+			expected: []string{
+				"db_client_operation_duration_seconds",
+				"aerospike_get",
+			},
+			unexpected: []string{
+				`db_operation_name="SELECT"`,
+				`db_operation_name="SET"`,
+				`db_operation_name="GET"`,
+				`db_operation_name="find"`,
+			},
+		},
+
+		{
 			name:     "none",
 			instr:    nil,
 			expected: []string{},
@@ -403,6 +418,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_client_call_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
+				"aerospike_get",
 			},
 		},
 		{
@@ -451,6 +467,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			go exporter(ctx)
 
 			promInput.Send([]request.Span{
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAerospikeClient, Method: "aerospike_get", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
@@ -872,7 +889,7 @@ func makePromExporter(
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            instrumentations,
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -1453,7 +1470,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{

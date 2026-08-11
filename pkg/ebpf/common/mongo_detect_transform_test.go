@@ -471,7 +471,7 @@ func TestGetMongoInfoErrorCodeFromBsonRoundTrip(t *testing.T) {
 func TestParseOpMessageShortBufferReturnsError(t *testing.T) {
 	buf := make([]byte, msgHeaderSize) // header only, missing flagBits
 
-	request, moreToCome, err := parseOpMessage(buf, 0, false, nil)
+	request, moreToCome, err := parseOpMessage(buf, 0, false, nil, false)
 
 	require.Error(t, err)
 	require.EqualError(t, err, "packet too short for MongoDB flag bits")
@@ -483,7 +483,7 @@ func TestParseSectionsDocSequenceShortReturnsError(t *testing.T) {
 	// Include the section type byte, but not enough bytes for the document sequence length.
 	buf := []byte{byte(sectionTypeDocumentSequence), 0x01, 0x02, 0x03}
 
-	sections, err := parseSections(buf)
+	sections, err := parseSections(buf, false)
 
 	require.Error(t, err)
 	require.EqualError(t, err, "not enough data for MongoDB section length")

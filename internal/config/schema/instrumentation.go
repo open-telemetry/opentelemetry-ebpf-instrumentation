@@ -4,21 +4,24 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"go.yaml.in/yaml/v3"
+
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
 // Instrumentation groups protocol-specific capture settings.
 type Instrumentation struct {
-	HTTP      HTTPInstrumentation      `yaml:"http"`
-	GRPC      ProtocolInstrumentation  `yaml:"grpc"`
-	SQL       SQLInstrumentation       `yaml:"sql"`
-	Redis     RedisInstrumentation     `yaml:"redis"`
-	Kafka     KafkaInstrumentation     `yaml:"kafka"`
-	Mongo     MongoInstrumentation     `yaml:"mongo"`
-	Couchbase CouchbaseInstrumentation `yaml:"couchbase"`
-	DNS       DNSInstrumentation       `yaml:"dns"`
-	GPU       GPUInstrumentation       `yaml:"gpu"`
+	HTTP      HTTPInstrumentation       `yaml:"http"`
+	GRPC      ProtocolInstrumentation   `yaml:"grpc"`
+	SQL       SQLInstrumentation        `yaml:"sql"`
+	Redis     RedisInstrumentation      `yaml:"redis"`
+	Kafka     KafkaInstrumentation      `yaml:"kafka"`
+	Mongo     MongoInstrumentation      `yaml:"mongo"`
+	Couchbase CouchbaseInstrumentation  `yaml:"couchbase"`
+	DNS       DNSInstrumentation        `yaml:"dns"`
+	GPU       GPUInstrumentation        `yaml:"gpu"`
+	Aerospike *AerospikeInstrumentation `yaml:"aerospike,omitempty"`
 }
 
 // ProtocolInstrumentation describes common trace and metric enablement and
@@ -26,6 +29,21 @@ type Instrumentation struct {
 type ProtocolInstrumentation struct {
 	Enabled ProtocolEnablement `yaml:"enabled"`
 	Filters SignalFilters      `yaml:"filters"`
+}
+
+// AerospikeInstrumentation applies the documented signal defaults when the
+// optional Aerospike section is present but incomplete.
+type AerospikeInstrumentation ProtocolInstrumentation
+
+// UnmarshalYAML defaults omitted Aerospike signal fields to enabled.
+func (a *AerospikeInstrumentation) UnmarshalYAML(value *yaml.Node) error {
+	type plain AerospikeInstrumentation
+	decoded := plain{Enabled: ProtocolEnablement{Traces: true, Metrics: true}}
+	if err := decodeKnownFields(value, &decoded); err != nil {
+		return err
+	}
+	*a = AerospikeInstrumentation(decoded)
+	return nil
 }
 
 // ProtocolEnablement selects whether a protocol emits traces and metrics.
@@ -183,6 +201,28 @@ type SQLPPPayload struct {
 type HTTPEnrichment struct {
 	Policy HTTPEnrichmentPolicy     `yaml:"policy"`
 	Rules  []config.HTTPParsingRule `yaml:"rules"`
+}
+
+// UnmarshalYAML keeps the enrichment object strict while accepting the
+// implementation-specific properties allowed inside each rule.
+func (e *HTTPEnrichment) UnmarshalYAML(value *yaml.Node) error {
+	var decoded struct {
+		Policy HTTPEnrichmentPolicy `yaml:"policy"`
+		Rules  yaml.Node            `yaml:"rules"`
+	}
+	if err := decodeKnownFields(value, &decoded); err != nil {
+		return err
+	}
+
+	var rules []config.HTTPParsingRule
+	if decoded.Rules.Kind != 0 {
+		if err := decode(&decoded.Rules, &rules); err != nil {
+			return err
+		}
+	}
+	e.Policy = decoded.Policy
+	e.Rules = rules
+	return nil
 }
 
 // HTTPEnrichmentPolicy describes default HTTP payload enrichment actions.

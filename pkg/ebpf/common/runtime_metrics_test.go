@@ -19,24 +19,60 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
-func TestHandleRuntimeMetricsRecordForwardsGoRuntimeMetricRecord(t *testing.T) {
-	runtimeMetrics := &fakeRuntimeMetricsSender{}
-	ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
-	filter := fakeRuntimeServiceFilter{}
+func TestRuntimeMetricEventTypeABI(t *testing.T) {
+	assert.Equal(t, byte(17), byte(EventTypeGoRuntimeMetric))
+	assert.Equal(t, byte(19), byte(EventTypeJVMMemoryPoolGC))
+	assert.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
+}
 
-	handled, err := HandleRuntimeMetricsRecord(context.Background(), ctx, &ringbuf.Record{
-		RawSample: []byte{EventTypeGoRuntimeMetric},
-	}, filter, nil)
+func TestIsGoRuntimeMetricRecordRecognizesGoRuntimeEvents(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		record   *ringbuf.Record
+		expected bool
+	}{
+		{name: "nil record", record: nil},
+		{name: "empty record", record: &ringbuf.Record{}},
+		{name: "scalar", record: &ringbuf.Record{RawSample: []byte{EventTypeGoRuntimeMetric}}, expected: true},
+		{name: "histogram", record: &ringbuf.Record{RawSample: []byte{EventTypeGoRuntimeHistogram}}, expected: true},
+		{name: "JVM", record: &ringbuf.Record{RawSample: []byte{EventTypeJVMMemoryPoolGC}}},
+		{name: "unknown", record: &ringbuf.Record{RawSample: []byte{EventTypeDNS}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsGoRuntimeMetricRecord(tc.record))
+		})
+	}
+}
 
-	require.NoError(t, err)
-	assert.True(t, handled)
-	assert.Equal(t, 1, runtimeMetrics.goRecords)
-	assert.Equal(t, filter, runtimeMetrics.goFilter)
+func TestHandleRuntimeMetricsRecordForwardsGoRuntimeMetricRecords(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		eventType byte
+	}{
+		{name: "scalar", eventType: EventTypeGoRuntimeMetric},
+		{name: "histogram", eventType: EventTypeGoRuntimeHistogram},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runtimeMetrics := &fakeRuntimeMetricsSender{}
+			ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
+			filter := fakeRuntimeServiceFilter{}
+
+			handled, err := HandleRuntimeMetricsRecord(context.Background(), ctx, &ringbuf.Record{
+				RawSample: []byte{tc.eventType},
+			}, filter, nil)
+
+			require.NoError(t, err)
+			assert.True(t, handled)
+			assert.Equal(t, 1, runtimeMetrics.goRecords)
+			assert.Equal(t, filter, runtimeMetrics.goFilter)
+		})
+	}
 }
 
 func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.T) {
 	for _, eventType := range []byte{
 		EventTypeGoRuntimeMetric,
+		EventTypeGoRuntimeHistogram,
 		EventTypeJVMMemoryPoolGC,
 	} {
 		runtimeMetrics := &fakeRuntimeMetricsSender{}
@@ -55,7 +91,7 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		require.NoError(t, err)
 		assert.True(t, handled)
 
-		if eventType == EventTypeGoRuntimeMetric {
+		if eventType == EventTypeGoRuntimeMetric || eventType == EventTypeGoRuntimeHistogram {
 			assert.Equal(t, 1, runtimeMetrics.goRecords)
 		} else {
 			assert.Zero(t, runtimeMetrics.goRecords)

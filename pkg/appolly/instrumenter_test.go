@@ -57,7 +57,7 @@ var allMetrics = attributes.Selection{
 	"*": attributes.InclusionLists{Include: []string{"*"}},
 }
 
-var mpConfig = perapp.MetricsConfig{
+var mpConfig = perapp.GlobalMetricsConfig{
 	Features: export.FeatureApplicationRED,
 }
 
