@@ -890,6 +890,47 @@ func TestSpanOTELGetters_GenAIProviderNameOmitted(t *testing.T) {
 	assert.Equal(t, "openai", kv.Value.AsString())
 }
 
+func TestSpanOTELGetters_DBSystemNameOmitted(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.DBSystemName)
+	require.True(t, ok, "getter should be found for DBSystemName")
+
+	kv := getter(&Span{Type: EventTypeHTTP})
+	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+
+	kv = getter(&Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch})
+	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+
+	kv = getter(&Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeSQLPP})
+	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+
+	kv = getter(&Span{
+		Type:          EventTypeHTTPClient,
+		SubType:       HTTPSubtypeElasticsearch,
+		Elasticsearch: &Elasticsearch{DBSystemName: "elasticsearch"},
+	})
+	require.True(t, kv.Valid())
+	assert.Equal(t, "elasticsearch", kv.Value.AsString())
+
+	kv = getter(&Span{Type: EventTypeRedisClient})
+	require.True(t, kv.Valid())
+	assert.Equal(t, "redis", kv.Value.AsString())
+}
+
+func TestSpanOTELGetters_MessagingSystemOmitted(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.MessagingSystem)
+	require.True(t, ok, "getter should be found for MessagingSystem")
+
+	kv := getter(&Span{Type: EventTypeHTTP})
+	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+
+	kv = getter(&Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS})
+	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+
+	kv = getter(&Span{Type: EventTypeKafkaClient})
+	require.True(t, kv.Valid())
+	assert.Equal(t, "kafka", kv.Value.AsString())
+}
+
 func TestSpanOTELGetters_GenAIInput(t *testing.T) {
 	tests := []struct {
 		name     string

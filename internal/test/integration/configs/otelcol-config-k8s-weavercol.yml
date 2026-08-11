@@ -12,9 +12,10 @@
 #     hundreds of thousands of samples and its report generation takes
 #     minutes.
 #   - Absorb weaver back-pressure: when weaver ingests slower than data
-#     arrives, this collector's queue overflows and drops (never blocks, no
-#     retries), and the failure the upstream otelcol sees is asynchronous —
-#     so nothing propagates back to OBI's export path (see the design note
+#     arrives, this collector buffers and retries transient failures without
+#     blocking the upstream otelcol. Exhausted retries or queue overflows are
+#     still dropped and counted, making the live-check fail without
+#     propagating the failure back to OBI's export path (see the design note
 #     in otelcol-config-k8s-weaver.yml).
 receivers:
   otlp:
@@ -37,7 +38,12 @@ exporters:
       queue_size: 500
       block_on_overflow: false
     retry_on_failure:
-      enabled: false
+      # Shorter than validateWeaver's final drain window, so an export either
+      # reaches weaver or increments send_failed before teardown scrapes it.
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 15s
 service:
   # Expose weavercol's own telemetry so the Go harness can read the
   # exporter's send/enqueue failure counters at teardown: any export dropped
