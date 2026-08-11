@@ -40,7 +40,7 @@ func TestBPFStatsRuntimeClosesWithCollector(t *testing.T) {
 	collector := newCollector(
 		&global.ContextInfo{},
 		&PrometheusConfig{},
-		&perapp.MetricsConfig{},
+		&perapp.GlobalMetricsConfig{},
 		false,
 	)
 	collector.getProbeMetrics()
@@ -69,7 +69,7 @@ func TestBPFStatsRuntimeEnableErrorDoesNotBreakCollectorClose(t *testing.T) {
 	collector := newCollector(
 		&global.ContextInfo{},
 		&PrometheusConfig{},
-		&perapp.MetricsConfig{},
+		&perapp.GlobalMetricsConfig{},
 		false,
 	)
 	collector.getProbeMetrics()
@@ -103,7 +103,7 @@ func TestBPFStatsRuntimeClosesWhenInstanceEndsBeforeCollectorStarts(t *testing.T
 	_, err := BPFMetrics(
 		&global.ContextInfo{Metrics: internalMetrics},
 		&PrometheusConfig{},
-		&perapp.MetricsConfig{},
+		&perapp.GlobalMetricsConfig{},
 	)(ctx)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), enableCalls.Load())
