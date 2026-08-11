@@ -806,16 +806,8 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if applicationEnabled && (c.Prometheus.EndpointEnabled() || otelMetricsEnabled) {
-		if c.Metrics.Features.InvalidSpanMetricsConfig() {
-			return ConfigError("you can only enable one format of span metrics," +
-				" application_span or application_span_otel")
-		}
-		// Only reachable for "all"/"*": setting both formats explicitly is rejected above.
-		// The user did not pick the legacy format, so this reports the resolution only and
-		// leaves the deprecation notice to the features that stay enabled.
-		if c.Metrics.Features.ResolveSpanMetricsConflict() {
-			slog.Warn("application_span and application_span_otel cannot be used together," +
-				" application_span_otel is selected automatically")
+		if err := c.resolveSpanMetricsFormats(); err != nil {
+			return err
 		}
 		// Per-service sections can enable features the top-level list does not, and they
 		// drive the exporters through JoinMetricsConfig, so report against the same set.
@@ -829,6 +821,46 @@ func (c *Config) validate(context validationContext) error {
 		return ConfigError("you can't enable OTEL internal metrics without enabling OTEL metrics")
 	}
 
+	return nil
+}
+
+// spanMetricsFeatureMasks returns every feature list that feeds the span-metrics exporters:
+// the top-level one plus each per-service one. JoinMetricsConfig ORs them together, so a
+// format conflict left unresolved in any of them decides the naming for all services.
+func (c *Config) spanMetricsFeatureMasks() []*export.Features {
+	masks := make([]*export.Features, 0, 1+len(c.Discovery.Instrument)+len(c.Discovery.Services))
+	masks = append(masks, &c.Metrics.Features)
+	for i := range c.Discovery.Instrument {
+		masks = append(masks, &c.Discovery.Instrument[i].Metrics.Features)
+	}
+	for i := range c.Discovery.Services {
+		masks = append(masks, &c.Discovery.Services[i].Metrics.Features)
+	}
+	return masks
+}
+
+// resolveSpanMetricsFormats rejects an explicit legacy + OTel combination and resolves the
+// implicit one coming from "all"/"*" in favor of OTel, for every feature list that reaches
+// the exporters. Resolving only the top-level list would let a per-service "all" put every
+// span-metrics service back on the legacy names.
+func (c *Config) resolveSpanMetricsFormats() error {
+	resolved := false
+	for _, features := range c.spanMetricsFeatureMasks() {
+		if features.InvalidSpanMetricsConfig() {
+			return ConfigError("you can only enable one format of span metrics," +
+				" application_span or application_span_otel")
+		}
+		if features.ResolveSpanMetricsConflict() {
+			resolved = true
+		}
+	}
+
+	// Reachable only through "all"/"*": an explicit combination is rejected above. The user
+	// did not pick the legacy format, so report the resolution without a deprecation notice.
+	if resolved {
+		slog.Warn("application_span and application_span_otel cannot be used together," +
+			" application_span_otel is selected automatically")
+	}
 	return nil
 }
 

@@ -650,6 +650,48 @@ func TestConfigValidate_DeprecatedMetricsFeatureWarning(t *testing.T) {
 		assert.Contains(t, logs, "feature=application_span_sizes")
 	})
 
+	// A per-service "all" is joined into the mask that selects the exported metric names,
+	// so it must be resolved to OTel just like the top-level list. Otherwise one service
+	// saying "all" silently puts every span-metrics service back on the legacy names.
+	t.Run("per-service all resolves to otel", func(t *testing.T) {
+		var cfg *Config
+		logs := captureWarnings(t, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+			loaded, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span_otel"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["all"]
+`))
+			require.NoError(t, err)
+			require.NoError(t, loaded.Validate())
+			cfg = loaded
+		})
+
+		assert.False(t, cfg.JoinMetricsConfig().Features.LegacySpanMetrics(),
+			"per-service all must not select the legacy span metric names")
+		assert.NotContains(t, logs, "feature=application_span ")
+		assert.Contains(t, logs, "application_span_otel is selected automatically")
+	})
+
+	t.Run("explicit legacy and otel per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span", "application_span_otel"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(), "only enable one format of span metrics")
+	})
+
 	// Per-service sections feed the exporters through JoinMetricsConfig, so a feature
 	// enabled only there must still be reported.
 	t.Run("warns for a feature enabled only per-service", func(t *testing.T) {
