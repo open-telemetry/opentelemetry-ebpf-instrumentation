@@ -382,7 +382,7 @@ func TestBPFCollectorDoesNotCollectAfterContextCleanup(t *testing.T) {
 	collector := newCollector(
 		&global.ContextInfo{},
 		&PrometheusConfig{},
-		&perapp.MetricsConfig{},
+		&perapp.GlobalMetricsConfig{},
 		false,
 	)
 	collector.progs[ebpf.ProgramID(1)] = &BPFProgram{}

@@ -577,7 +577,7 @@ func newGoRuntimeHistogramTestReporter(t *testing.T) (*metricsReporter, *prometh
 		t.Context(),
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&PrometheusConfig{Registry: registry, TTL: time.Minute},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{
 				Include: []string{"service.name", "service.namespace"},
