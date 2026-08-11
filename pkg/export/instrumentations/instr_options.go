@@ -99,6 +99,11 @@ func NewInstrumentationSelection(instrumentations []Instrumentation) Instrumenta
 	return selection
 }
 
+// Enabled reports whether the instrumentation is part of the selection.
+func (s InstrumentationSelection) Enabled(instrumentation Instrumentation) bool {
+	return s&instrumentationToFlag(instrumentation) != 0
+}
+
 func (s InstrumentationSelection) HTTPEnabled() bool {
 	return s&flagHTTP != 0
 }

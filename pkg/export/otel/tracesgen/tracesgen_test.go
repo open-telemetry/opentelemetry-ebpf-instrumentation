@@ -28,6 +28,34 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
 
+func TestAcceptSpanUsesEventInstrumentation(t *testing.T) {
+	selection := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{
+		instrumentations.InstrumentationHTTP,
+		instrumentations.InstrumentationSQL,
+		instrumentations.InstrumentationGPU,
+	})
+
+	tests := []struct {
+		eventType request.EventType
+		accepted  bool
+	}{
+		{eventType: request.EventTypeHTTP, accepted: true},
+		{eventType: request.EventTypeHTTPClient, accepted: true},
+		{eventType: request.EventTypeSQLClient, accepted: true},
+		{eventType: request.EventTypeRedisClient, accepted: false},
+		{eventType: request.EventTypeManualSpan, accepted: true},
+		{eventType: request.EventTypeFailedConnect, accepted: true},
+		{eventType: request.EventTypeGPUCudaKernelLaunch, accepted: false},
+		{eventType: request.EventTypeProcessAlive, accepted: false},
+		{eventType: request.EventType(255), accepted: false},
+	}
+
+	for _, test := range tests {
+		span := request.Span{Type: test.eventType}
+		assert.Equal(t, test.accepted, acceptSpan(selection, &span), test.eventType)
+	}
+}
+
 func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
 	span := &request.Span{
 		Type:   request.EventTypeDNS,
