@@ -103,21 +103,21 @@ func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]stri
 	}
 
 	allAttributes := map[string]string{
-		"k8s_namespace_name":       "^default$",
-		"k8s_node_name":            ".+-control-plane$",
-		"k8s_pod_uid":              UUIDRegex,
-		"k8s_pod_start_time":       TimeRegex,
-		"k8s_owner_name":           "^testserver$",
-		"k8s_deployment_name":      "^testserver$",
-		"k8s_replicaset_name":      "^testserver-",
-		"k8s_cluster_name":         "^obi-k8s-test-cluster$",
-		"server_service_namespace": "integration-test",
-		"server":                   "testserver",
-		"source":                   "obi",
-		"host_name":                "testserver",
-		"host_id":                  HostIDRegex,
-		"deployment_environment":   "integration-test",
-		"service_version":          "3.2.1",
+		"k8s_namespace_name":          "^default$",
+		"k8s_node_name":               ".+-control-plane$",
+		"k8s_pod_uid":                 UUIDRegex,
+		"k8s_pod_start_time":          TimeRegex,
+		"k8s_owner_name":              "^testserver$",
+		"k8s_deployment_name":         "^testserver$",
+		"k8s_replicaset_name":         "^testserver-",
+		"k8s_cluster_name":            "^obi-k8s-test-cluster$",
+		"server_service_namespace":    "integration-test",
+		"server":                      "testserver",
+		"source":                      "obi",
+		"host_name":                   "testserver",
+		"host_id":                     HostIDRegex,
+		"deployment_environment_name": "test",
+		"service_version":             "3.2.1",
 	}
 	// if service_instance_id is overridden to be empty, we will check that value for target_info{instance} instead
 	if overrideAttrs != nil {
@@ -232,17 +232,17 @@ func FeatureGRPCMetricsDecoration(manifest string, overrideAttrs map[string]stri
 	}
 
 	allAttributes := map[string]string{
-		"k8s_namespace_name":     "^default$",
-		"k8s_node_name":          ".+-control-plane$",
-		"k8s_pod_uid":            UUIDRegex,
-		"k8s_pod_start_time":     TimeRegex,
-		"k8s_cluster_name":       "^obi-k8s-test-cluster",
-		"k8s_owner_name":         "^testserver$",
-		"k8s_deployment_name":    "^testserver$",
-		"k8s_replicaset_name":    "^testserver-",
-		"service_instance_id":    "^default\\.testserver-.+\\.testserver",
-		"deployment_environment": "integration-test",
-		"service_version":        "3.2.1",
+		"k8s_namespace_name":          "^default$",
+		"k8s_node_name":               ".+-control-plane$",
+		"k8s_pod_uid":                 UUIDRegex,
+		"k8s_pod_start_time":          TimeRegex,
+		"k8s_cluster_name":            "^obi-k8s-test-cluster",
+		"k8s_owner_name":              "^testserver$",
+		"k8s_deployment_name":         "^testserver$",
+		"k8s_replicaset_name":         "^testserver-",
+		"service_instance_id":         "^default\\.testserver-.+\\.testserver",
+		"deployment_environment_name": "test",
+		"service_version":             "3.2.1",
 	}
 	// if service_instance_id is overridden to be empty, we will check that value for target_info{instance} instead
 	targetInfoInstance := ""
@@ -262,10 +262,10 @@ func FeatureGRPCMetricsDecoration(manifest string, overrideAttrs map[string]stri
 				attributeMap(allAttributes, overrideAttrs))).
 		Assess("target_info metrics exist",
 			testMetricsDecoration([]string{"target_info"}, `{job=~".*testserver"}`, map[string]string{
-				"host_name":              "testserver",
-				"host_id":                HostIDRegex,
-				"instance":               targetInfoInstance,
-				"deployment_environment": "integration-test",
+				"host_name":                   "testserver",
+				"host_id":                     HostIDRegex,
+				"instance":                    targetInfoInstance,
+				"deployment_environment_name": "test",
 			}),
 		).Feature()
 }

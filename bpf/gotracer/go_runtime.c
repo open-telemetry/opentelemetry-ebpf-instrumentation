@@ -72,7 +72,8 @@ static __always_inline void go_runtime_collect_histogram(u64 histogram_addr,
                                                          u64 underflow_offset,
                                                          u64 overflow_offset,
                                                          go_runtime_histogram_kind_t kind,
-                                                         const pid_info *pid) {
+                                                         const pid_info *pid,
+                                                         u64 generation) {
     if (!histogram_addr || underflow_offset % sizeof(u64)) {
         return;
     }
@@ -94,6 +95,7 @@ static __always_inline void go_runtime_collect_histogram(u64 histogram_addr,
     event->kind = kind;
     event->pid = *pid;
     event->bucket_count = bucket_count;
+    event->generation = generation;
 
     const u32 counts_size = bucket_count * sizeof(u64);
     if (bpf_probe_read_user(event->counts, counts_size, (void *)histogram_addr) ||
@@ -624,6 +626,7 @@ int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
 
     event->type = EVENT_GO_RUNTIME_METRICS;
     event->pid = key;
+    event->generation = target->generation;
     // Collectors set valid_mask bits for metric groups populated in this snapshot.
     __builtin_memset(&event->snapshot, 0, sizeof(event->snapshot));
 
@@ -648,8 +651,12 @@ int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
         const u64 histogram_addr =
             target->sched_addr +
             go_offset_of(ot, (go_offset){.v = _runtime_sched_stw_total_time_gc_pos});
-        go_runtime_collect_histogram(
-            histogram_addr, underflow_pos, overflow_pos, go_runtime_histogram_kind_gc_pause, &key);
+        go_runtime_collect_histogram(histogram_addr,
+                                     underflow_pos,
+                                     overflow_pos,
+                                     go_runtime_histogram_kind_gc_pause,
+                                     &key,
+                                     target->generation);
     }
 
     if (target->sched_addr &&
@@ -660,7 +667,8 @@ int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
                                      underflow_pos,
                                      overflow_pos,
                                      go_runtime_histogram_kind_scheduler_latency,
-                                     &key);
+                                     &key,
+                                     target->generation);
     }
     return 0;
 }

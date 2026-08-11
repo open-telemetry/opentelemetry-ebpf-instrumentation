@@ -248,7 +248,11 @@ func logTruncatedResponseBody(component string, err error, got int, resp *http.R
 	)
 }
 
-func parseOpenAIInput(body []byte) request.OpenAIInput {
+func isOpenAIResponsesRequest(req *http.Request) bool {
+	return strings.HasSuffix(strings.TrimSuffix(requestPath(req), "/"), "/v1/responses")
+}
+
+func parseOpenAIInput(body []byte, captureInputItems bool) request.OpenAIInput {
 	var parsed request.OpenAIInput
 	unmarshalJSONBestEffort(body, &parsed)
 	if parsed.Model == "" {
@@ -257,6 +261,23 @@ func parseOpenAIInput(body []byte) request.OpenAIInput {
 	if len(parsed.Messages) == 0 && len(body) > 0 {
 		parsed.Messages = extractJSONRawField(body, "messages")
 	}
+	// The `input` field is a plain string for Chat/text Completions, but an
+	// array of items for the Responses API and an object wrapping `messages`
+	// for native DashScope generation. Retain Responses items and unwrap the
+	// nested messages so content normalization can reach both schemas.
+	if len(body) > 0 {
+		switch raw := extractJSONRawField(body, "input"); firstJSONByte(raw) {
+		case '[':
+			if !captureInputItems {
+				break
+			}
+			parsed.InputItems = raw
+		case '{':
+			if len(parsed.Messages) == 0 {
+				parsed.Messages = extractJSONRawField(raw, "messages")
+			}
+		}
+	}
 	if len(parsed.Parameters) == 0 && len(body) > 0 {
 		parsed.Parameters = extractJSONRawField(body, "parameters")
 	}
@@ -264,6 +285,15 @@ func parseOpenAIInput(body []byte) request.OpenAIInput {
 		parsed.EncodingFormat = extractJSONStringField(body, "encoding_format", 0)
 	}
 	return parsed
+}
+
+// firstJSONByte returns the first non-whitespace byte of raw, or 0 when empty.
+func firstJSONByte(raw json.RawMessage) byte {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return 0
+	}
+	return trimmed[0]
 }
 
 // extractJSONRawField returns the raw value of a top-level field. It works on

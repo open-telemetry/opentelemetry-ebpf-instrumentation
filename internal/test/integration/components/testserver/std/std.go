@@ -309,12 +309,28 @@ func rolldice(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%v", n)
 }
 
+// rolldicePost handles POST /rolldice/{id} and returns a JSON response body so
+// that HTTP response-body extraction has non-empty JSON content to capture.
+func rolldicePost(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	n := rd.IntN(6) + 1
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Dice-Roll", strconv.Itoa(n))
+
+	slog.Info("rolldice POST called", "id", id, "dice", n)
+
+	fmt.Fprintf(w, `{"result":%d}`, n)
+}
+
 func Setup(port int) {
 	log := slog.With("component", "std.Server")
 	address := fmt.Sprintf(":%d", port)
 	log.Info("starting HTTP server", "address", address)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rolldice/{id}", rolldice)
+	mux.HandleFunc("POST /rolldice/{id}", rolldicePost)
 	mux.HandleFunc("/", HTTPHandler(log, port))
 
 	err := http.ListenAndServe(address, mux)
@@ -328,6 +344,7 @@ func SetupTLS(port int) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rolldice/{id}", rolldice)
+	mux.HandleFunc("POST /rolldice/{id}", rolldicePost)
 	mux.HandleFunc("/", HTTPHandler(log, port))
 
 	err := http.ListenAndServeTLS(address, "x509/server_test_cert.pem", "x509/server_test_key.pem", mux)

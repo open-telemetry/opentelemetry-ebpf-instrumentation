@@ -19,7 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-const defaultV2DefaultPath = "devdocs/config/version-2.0/examples/default-configuration.yaml"
+const defaultV2DefaultPath = "devdocs/config/version-2.0/examples/default-values-reference.fragment.yaml"
 
 func asMap(v any) map[string]any {
 	if v == nil {
@@ -531,6 +531,7 @@ func parityChecks() []parityCheck {
 		{[]string{"network", "agent_ip_iface"}, []string{"obi", "capture", "network", "capture", "endpoint_identity", "agent_ip_interface"}},
 		{[]string{"network", "agent_ip_type"}, []string{"obi", "capture", "network", "capture", "endpoint_identity", "agent_ip_family"}},
 		{[]string{"network", "cache_max_flows"}, []string{"obi", "capture", "network", "capture", "flow_lifecycle", "max_tracked_flows"}},
+		{[]string{"network", "cache_max_flows"}, []string{"obi", "capture", "limits", "network_packets"}},
 		{[]string{"network", "cache_active_timeout"}, []string{"obi", "capture", "network", "capture", "flow_lifecycle", "active_timeout"}},
 		{[]string{"network", "deduper"}, []string{"obi", "capture", "network", "capture", "flow_lifecycle", "deduplication", "strategy"}},
 		{[]string{"network", "deduper_fc_ttl"}, []string{"obi", "capture", "network", "capture", "flow_lifecycle", "deduplication", "first_come_ttl"}},

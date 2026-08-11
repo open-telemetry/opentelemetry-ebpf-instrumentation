@@ -104,6 +104,83 @@ groups:
         brief: CIDR block matched against the destination IP.
         examples: ["10.0.0.0/8"]
 
+      # Kubernetes decoration of the source / destination flow endpoints,
+      # attached by netolly (pkg/internal/netolly/transform/k8s) when
+      # Kubernetes metadata is available and the corresponding keys are
+      # selected. These `k8s.src.*` / `k8s.dst.*` keys are an OBI/netolly
+      # convention: unlike the upstream single-workload `k8s.*` semconv
+      # attributes, a flow has two endpoints to describe.
+      - id: k8s.src.owner.name
+        type: string
+        stability: development
+        brief: Name of the top-level Kubernetes owner of the source workload.
+        examples: ["frontend"]
+      - id: k8s.src.owner.type
+        type: string
+        stability: development
+        brief: Kind of the top-level Kubernetes owner of the source workload.
+        examples: ["Deployment"]
+      - id: k8s.src.namespace
+        type: string
+        stability: development
+        brief: Kubernetes namespace of the source workload.
+        examples: ["integration-test"]
+      - id: k8s.src.name
+        type: string
+        stability: development
+        brief: Name of the source Kubernetes object (e.g. Pod name).
+        examples: ["frontend-7d9c-abcde"]
+      - id: k8s.src.type
+        type: string
+        stability: development
+        brief: Type of the source Kubernetes object.
+        examples: ["Pod"]
+      - id: k8s.src.node.ip
+        type: string
+        stability: development
+        brief: IP address of the node hosting the source workload.
+        examples: ["10.0.1.5"]
+      - id: k8s.src.node.name
+        type: string
+        stability: development
+        brief: Name of the node hosting the source workload.
+        examples: ["node-1"]
+      - id: k8s.dst.owner.name
+        type: string
+        stability: development
+        brief: Name of the top-level Kubernetes owner of the destination workload.
+        examples: ["users-api"]
+      - id: k8s.dst.owner.type
+        type: string
+        stability: development
+        brief: Kind of the top-level Kubernetes owner of the destination workload.
+        examples: ["Deployment"]
+      - id: k8s.dst.namespace
+        type: string
+        stability: development
+        brief: Kubernetes namespace of the destination workload.
+        examples: ["integration-test"]
+      - id: k8s.dst.name
+        type: string
+        stability: development
+        brief: Name of the destination Kubernetes object (e.g. Pod name).
+        examples: ["users-api-65b8-fghij"]
+      - id: k8s.dst.type
+        type: string
+        stability: development
+        brief: Type of the destination Kubernetes object.
+        examples: ["Pod"]
+      - id: k8s.dst.node.ip
+        type: string
+        stability: development
+        brief: IP address of the node hosting the destination workload.
+        examples: ["10.0.1.6"]
+      - id: k8s.dst.node.name
+        type: string
+        stability: development
+        brief: Name of the node hosting the destination workload.
+        examples: ["node-2"]
+
   - id: metric.obi_network_flow_bytes
     type: metric
     metric_name: obi.network.flow.bytes
@@ -133,6 +210,20 @@ groups:
       - ref: dst.zone
       - ref: src.cidr
       - ref: dst.cidr
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
 
   - id: metric.obi_network_flow_packets
     type: metric
@@ -164,6 +255,20 @@ groups:
       - ref: dst.zone
       - ref: src.cidr
       - ref: dst.cidr
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
 
   - id: metric.obi_network_inter_zone_bytes
     type: metric
@@ -182,3 +287,40 @@ groups:
       - ref: dst.zone
       - ref: src.name
       - ref: dst.name
+
+  # Overrides `network.type`: extends the upstream `ipv4`/`ipv6` enum with
+  # `arp`, which OBI reports for ARP frames — OBI observes raw L2 frames, a
+  # case the upstream network-layer enum has no member for. Other non-IP
+  # EtherTypes fall back to `unknown` (pkg/internal/netolly/flow/transport,
+  # NetworkType.String); that bug-marker value is deliberately NOT declared
+  # here, so weaver keeps flagging it if it ever appears.
+  #
+  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # upstream member list, lint allowlist).
+  - id: x.obi.network
+    type: attribute_group
+    display_name: OBI Network Attribute Overrides
+    brief: >
+      OBI override of `network.type` extending the upstream enum with `arp`
+      for the ARP frames OBI observes at L2.
+    attributes:
+      - id: network.type
+        stability: stable
+        type:
+          members:
+            - id: ipv4
+              value: 'ipv4'
+              brief: "IPv4"
+              stability: stable
+            - id: ipv6
+              value: 'ipv6'
+              brief: "IPv6"
+              stability: stable
+            # --- OBI extension (not in upstream semconv v1.41) ---
+            - id: arp
+              value: 'arp'
+              brief: "ARP (Address Resolution Protocol) frame observed at L2."
+              stability: development
+        brief: '[OSI network layer](https://wikipedia.org/wiki/Network_layer) or non-OSI equivalent.'
+        note: The value SHOULD be normalized to lowercase.
+        examples: ['ipv4', 'ipv6']

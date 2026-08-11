@@ -71,6 +71,11 @@ as follows:
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`,
   falling back to `OTEL_EXPORTER_OTLP_ENDPOINT`, falling back to
   `default_otlp_grpc_port` (4317).
+- Accept the match only if it fits **one** signal. A single OTLP endpoint carries
+  every signal, so a port that matches traces and metrics equally well identifies
+  neither, and OBI leaves both flags unset. The heuristic still resolves a signal
+  whenever the per-signal `..._ENDPOINT` ports differ or a per-signal
+  `..._PROTOCOL` rules one of them out.
 
 Detection is per-telemetry-type and per-service: a service may be flagged for
 metrics but not traces, or vice versa. Once flagged, the flag is sticky for the
@@ -150,7 +155,24 @@ In practice this means:
   always produce duplicates.
 - The first few requests of a long-lived process are duplicated.
 
-### 2. Suppression is all-or-nothing per service
+### 2. Undecoded gRPC paths on a shared endpoint are never suppressed
+
+OBI cannot always recover a gRPC method: an OTLP exporter holds one long-lived
+HTTP/2 connection and sends an identical `:path` on every export, so HPACK
+compresses it to a dynamic-table index after the first request. OBI attaching
+mid-stream has no dynamic-table state to resolve that index. This is what the
+port fallback exists for, and it is common with Python `grpcio` exporters.
+
+When such a service also sends every signal to one endpoint — the usual
+`OTEL_EXPORTER_OTLP_ENDPOINT` setup — nothing distinguishes a traces export from
+a metrics export, so OBI suppresses neither and duplicates that service's
+telemetry for as long as it runs. This is deliberate: attributing the export to
+both signals would suppress the one the SDK never sends, and no other producer
+would replace it, so an ambiguous signal fails open. Configuring
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
+on different ports restores suppression.
+
+### 3. Suppression is all-or-nothing per service
 
 Once a service is flagged, OBI suppresses **every** span / metric it would
 produce for that service, regardless of category. There is no way to say "the

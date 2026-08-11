@@ -197,6 +197,9 @@ func goFunctionNames(cfg *obi.Config) []string {
 	for _, sym := range GoRuntimeMetricProbeSymbols() {
 		add(sym)
 	}
+	for _, sym := range GoAutoSDKActivationProbeSymbols() {
+		add(sym)
+	}
 	return funcs
 }
 

@@ -57,6 +57,9 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Test flaky-run supervisor
+        run: make test-rerun-flaky
+
       - name: Build test matrix
         id: build-matrix
         env:
