@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -1238,7 +1237,7 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 		values = append(values, span.Service.Metadata[k])
 	}
 
-	return values
+	return sanitizeValues(values)
 }
 
 type targetInfoResourceLabel struct {
@@ -1369,7 +1368,7 @@ func (r *metricsReporter) labelValuesForNodeMeta(service *svc.Attrs, nodeMeta *m
 		}
 	}
 
-	return values
+	return sanitizeValues(values)
 }
 
 func labelNames[T any](getters []attributes.Field[T, string]) []string {
@@ -1391,20 +1390,16 @@ func labelValuesSvcGraph(span *request.Span, getters []attributes.Field[*request
 func labelValues[T any](s T, getters []attributes.Field[T, string]) []string {
 	values := make([]string, 0, len(getters))
 	for _, getter := range getters {
-		rawValue := getter.Get(s)
-		sanitizedValue := sanitizeUTF8ForPrometheus(rawValue)
-		values = append(values, sanitizedValue)
+		values = append(values, getter.Get(s))
 	}
-	return values
+	return sanitizeValues(values)
 }
 
-// sanitizeUTF8ForPrometheus sanitizes a string to ensure it contains only valid UTF-8 characters.
-// Invalid UTF-8 sequences are removed entirely.
-func sanitizeUTF8ForPrometheus(s string) string {
-	if utf8.ValidString(s) {
-		return s
+func sanitizeValues(values []string) []string {
+	for i := range values {
+		values[i] = attributes.SanitizeUTF8(values[i])
 	}
-	return strings.ToValidUTF8(s, "")
+	return values
 }
 
 func (r *metricsReporter) createTargetInfo(service *svc.Attrs) {

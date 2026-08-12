@@ -419,6 +419,63 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	}, timeout, 100*time.Millisecond)
 }
 
+// Invalid UTF-8 in an attribute value makes protobuf marshalling of the whole
+// OTLP request fail, which drops every datapoint in the batch and not just the
+// offending one. Sanitizing on the OTLP path keeps the batch exportable.
+func TestAppMetrics_InvalidUTF8AttributeDoesNotDropBatch(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		CommonEndpoint:    otlp.ServerEndpoint,
+		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+		TTL:               3 * time.Minute,
+		ReportersCacheLen: 100,
+		Instrumentations: []instrumentations.Instrumentation{
+			instrumentations.InstrumentationALL,
+		},
+	}
+	otelExporter, err := ReportMetrics(
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		cfg, &mpConfig,
+		&attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
+					Include: []string{"url.path"},
+				},
+			},
+		}, request.UnresolvedNames{}, metrics, processEvents)(ctx)
+	require.NoError(t, err)
+
+	go otelExporter(ctx)
+
+	metrics.Send([]request.Span{
+		{
+			Service:      svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}},
+			Type:         request.EventTypeHTTP,
+			Path:         "/valid\xff\xfe",
+			RequestStart: 100,
+			End:          200,
+		},
+	})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		metric := readChan(ct, otlp.Records())
+		require.Equal(ct, "http.server.request.duration", metric.Name)
+		assert.Equal(ct, map[string]string{"url.path": "/valid"}, metric.Attributes)
+		assert.InEpsilon(ct, 100/float64(time.Second), metric.FloatVal, 0.001)
+	}, timeout, 100*time.Millisecond)
+}
+
 type syncedClock struct {
 	mt  sync.Mutex
 	now time.Time
