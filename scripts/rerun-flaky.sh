@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-MAX_ATTEMPTS=2
+MAX_ATTEMPTS=3
 # Bound untrusted API input to the maximum portable signed 32-bit integer.
 MAX_PORTABLE_SIGNED_INT=2147483647
 

@@ -170,8 +170,11 @@ run_case "PR lint failure" "PR checks" \
 run_case "PR ordinary failure" "PR checks" \
   '{"attempt":1,"name":"PR checks","jobs":[{"name":"build","conclusion":"failure"}]}' \
   0 "$rerun_call" "Re-running failed jobs"
-run_case "retry cap" "Unit tests" \
+run_case "second retry" "Unit tests" \
   '{"attempt":2,"name":"Unit tests","jobs":[{"name":"unit","conclusion":"failure"}]}' \
+  0 "$rerun_call" "Re-running failed jobs"
+run_case "retry cap" "Unit tests" \
+  '{"attempt":3,"name":"Unit tests","jobs":[{"name":"unit","conclusion":"failure"}]}' \
   0 "$view_call" "Maximum re-run attempts reached"
 run_case "irrelevant conclusions" "Unit tests" \
   '{"attempt":1,"name":"Unit tests","jobs":[{"name":"unit","conclusion":"cancelled"},{"name":"queued","conclusion":"skipped"}]}' \
