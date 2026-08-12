@@ -25,9 +25,16 @@ type NodeInjector struct {
 }
 
 func NewNodeInjector(cfg *obi.Config) *NodeInjector {
+	log := slog.With("component", "nodejs.Injector")
+
+	if !cfg.NodeJS.Enabled && cfg.AppRuntimeMetricsEnabled() {
+		log.Warn("application_runtime is enabled but the Node.js injector is disabled " +
+			"(nodejs.enabled=false): Node.js runtime metrics will not be collected")
+	}
+
 	return &NodeInjector{
 		cfg: cfg,
-		log: slog.With("component", "nodejs.Injector"),
+		log: log,
 	}
 }
 
