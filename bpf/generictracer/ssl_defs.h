@@ -34,12 +34,19 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
         void *ssl = ((void *)args->ssl);
         const u64 ssl_ptr = (u64)ssl;
         bpf_dbg_printk("SSL_buf id=%d ssl=%llx", id, ssl);
+
+        bpf_map_delete_elem(&ssl_to_pid_tid, &ssl_ptr);
+
+        if (bytes_len <= 0) {
+            return;
+        }
+
         ssl_pid_connection_info_t *conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
 
-        if (!conn) {
-            conn = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
+        if (!conn || conn->tentative) {
+            ssl_pid_connection_info_t *fallback_conn = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
 
-            if (!conn) {
+            if (!fallback_conn) {
                 // We try even harder, we might have an SSL pointer mapped on another
                 // thread, since tcp_rcv_established was handled on another thread pool.
                 // First we look up a pid_tid by the ssl pointer, which might've been established
@@ -50,9 +57,9 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
                 if (pid_tid_ptr) {
                     const u64 pid_tid = *pid_tid_ptr;
 
-                    conn = bpf_map_lookup_elem(&pid_tid_to_conn, &pid_tid);
+                    fallback_conn = bpf_map_lookup_elem(&pid_tid_to_conn, &pid_tid);
                     bpf_dbg_printk(
-                        "Separate pool lookup ssl=%llx, pid=%d, conn=%llx", ssl_ptr, pid_tid, conn);
+                        "Separate pool lookup ssl=%llx, pid=%d, conn=%llx", ssl_ptr, pid_tid, fallback_conn);
                 } else {
                     bpf_dbg_printk("Other thread lookup failed for ssl=%llx", ssl_ptr);
                 }
@@ -62,18 +69,14 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
             // we missed a SSL_do_handshake, update our ssl to connection map to be
             // used by the rest of the SSL lifecycle. We shouldn't rely on the SSL_write
             // being on the same thread as the SSL_read.
-            if (conn) {
+            if (fallback_conn) {
                 bpf_map_delete_elem(&pid_tid_to_conn, &id);
                 ssl_pid_connection_info_t c;
-                bpf_probe_read(&c, sizeof(ssl_pid_connection_info_t), conn);
+                bpf_probe_read(&c, sizeof(ssl_pid_connection_info_t), fallback_conn);
+                c.tentative = 1;
                 bpf_map_update_elem(&ssl_to_conn, &ssl, &c, BPF_ANY);
+                conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
             }
-        }
-
-        bpf_map_delete_elem(&ssl_to_pid_tid, &ssl_ptr);
-
-        if (bytes_len <= 0) {
-            return;
         }
 
         if (!conn) {
@@ -85,6 +88,7 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
             __builtin_memcpy(&p_c.p_conn.conn.s_addr, &ssl, sizeof(void *));
             p_c.p_conn.conn.d_port = p_c.p_conn.conn.s_port = p_c.orig_dport = 0;
             p_c.p_conn.pid = pid_from_pid_tgid(id);
+            p_c.tentative = 1;
 
             bpf_map_update_elem(&ssl_to_conn, &ssl, &p_c, BPF_ANY);
             conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);

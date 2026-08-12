@@ -407,6 +407,7 @@ setup_connection_to_pid_mapping(u64 id, pid_connection_info_t *p_conn, u16 orig_
         ssl_pid_connection_info_t ssl_conn = {0};
         ssl_conn.orig_dport = orig_dport;
         ssl_conn.p_conn = *p_conn;
+        ssl_conn.tentative = 1;
 
         bpf_map_update_elem(&pid_tid_to_conn, &id, &ssl_conn, BPF_ANY);
     }

@@ -6,9 +6,40 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <bpfcore/bpf_helpers.h>
+#include <stdbool.h>
 
-enum { BPF_ANY = 0, BPF_NOEXIST = 1 };
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+typedef int8_t s8;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
+typedef uint8_t __u8;
+typedef uint16_t __u16;
+typedef uint32_t __u32;
+typedef uint64_t __u64;
+
+#ifndef __always_inline
+#define __always_inline inline
+#endif
+#ifndef SEC
+#define SEC(name)
+#endif
+#ifndef __uint
+#define __uint(name, val) int name
+#endif
+#ifndef __type
+#define __type(name, val) typeof(val) *name
+#endif
+
+#ifndef valid_pid
+#define valid_pid(id) (1)
+#endif
+#ifndef pid_from_pid_tgid
+#define pid_from_pid_tgid(id) ((u32)((id) >> 32))
+#endif
 
 struct bpf_test_map {
     int id;
@@ -18,6 +49,11 @@ static void *test_map_lookup(void *map, const void *key);
 static long test_map_update(void *map, const void *key, const void *val, unsigned long long flags);
 static long test_map_delete(void *map, const void *key);
 static long test_probe_read(void *dst, unsigned int size, const void *src);
+
+#define __BPF_HELPERS__
+#define __BPF_HELPER_DEFS__
+#define IP_V6_ADDR_LEN 16
+#define IP_V6_ADDR_LEN_WORDS 4
 
 #define bpf_map_lookup_elem test_map_lookup
 #define bpf_map_update_elem test_map_update
@@ -254,6 +290,36 @@ static void test_successful_read_can_reuse_mapped_pid_tid_connection(void) {
     assert_u16_eq(8443, test_last_orig_dport, "mapped pid_tid connection preserves original dport");
 }
 
+static void test_tentative_connection_is_reevaluated(void) {
+    reset();
+    seed_existing_ssl_connection(8080);
+    test_ssl_conn.tentative = 1; // Mark existing as tentative guess
+
+    test_mapped_pid_tid = 0x2a00000001ULL;
+    test_mapped_pid_tid_available = 1;
+
+    ssl_args_t args = ssl_args();
+    handle_ssl_buf(NULL, 0x2a00000001ULL, &args, 64, TCP_RECV);
+
+    assert_int_eq(1, ssl_to_conn_update_count, "tentative connection is re-evaluated and updated");
+    assert_int_eq(1, (int)test_ssl_conn.tentative, "updated fallback connection remains marked tentative");
+}
+
+static void test_confirmed_connection_is_not_overwritten(void) {
+    reset();
+    seed_existing_ssl_connection(6379);
+    test_ssl_conn.tentative = 0; // Mark existing as confirmed socket connection
+
+    test_mapped_pid_tid = 0x2a00000001ULL;
+    test_mapped_pid_tid_available = 1;
+
+    ssl_args_t args = ssl_args();
+    handle_ssl_buf(NULL, 0x2a00000001ULL, &args, 64, TCP_RECV);
+
+    assert_int_eq(0, ssl_to_conn_update_count, "confirmed connection is preserved and not overwritten");
+    assert_u16_eq(6379, test_last_orig_dport, "confirmed connection dport is preserved");
+}
+
 static void test_missing_args_noops(void) {
     reset();
 
@@ -272,6 +338,8 @@ int main(void) {
     test_successful_write_still_parses();
     test_successful_read_can_create_fake_connection();
     test_successful_read_can_reuse_mapped_pid_tid_connection();
+    test_tentative_connection_is_reevaluated();
+    test_confirmed_connection_is_not_overwritten();
     test_missing_args_noops();
 
     return 0;

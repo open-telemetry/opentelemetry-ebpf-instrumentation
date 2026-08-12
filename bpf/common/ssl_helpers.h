@@ -22,6 +22,7 @@ static __always_inline void set_active_ssl_connection(ssl_pid_connection_info_t 
     bpf_dbg_printk("Correlating SSL %llx to connection", ssl);
     dbg_print_http_connection_info(&ssl_conn->p_conn.conn);
 
+    ssl_conn->tentative = 0;
     bpf_map_update_elem(&active_ssl_connections, &ssl_conn->p_conn, &ssl, BPF_ANY);
     bpf_map_update_elem(&ssl_to_conn, &ssl, ssl_conn, BPF_ANY);
 }
