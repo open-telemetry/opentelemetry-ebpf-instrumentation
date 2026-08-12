@@ -306,25 +306,19 @@ groups:
       Length of the groups of traces flushed from the eBPF tracer to the next
       pipeline stage.
 
-  - id: metric.obi.bpf.probe.executions
+  # Pre-aggregated: emitted through the SDK Producer interface rather than a
+  # Float64Histogram, because the kernel exposes only cumulative run_time_ns /
+  # run_cnt and bucket counts are derived from those rather than observed
+  # individually. Supersedes the former obi.bpf.probe.executions and
+  # obi.bpf.probe.latency_seconds_total, whose values are this histogram's
+  # count and sum.
+  - id: metric.obi.bpf.probe.latency
     type: metric
-    metric_name: obi.bpf.probe.executions
-    instrument: counter
-    unit: "{call}"
-    stability: development
-    brief: Total number of eBPF probe executions.
-    attributes:
-      - ref: bpf.probe.id
-      - ref: bpf.probe.type
-      - ref: bpf.probe.name
-
-  - id: metric.obi.bpf.probe.latency_seconds_total
-    type: metric
-    metric_name: obi.bpf.probe.latency_seconds_total
-    instrument: counter
+    metric_name: obi.bpf.probe.latency
+    instrument: histogram
     unit: "s"
     stability: development
-    brief: Total latency of the eBPF probe in seconds.
+    brief: Latency distribution of the eBPF probe in seconds.
     attributes:
       - ref: bpf.probe.id
       - ref: bpf.probe.type
