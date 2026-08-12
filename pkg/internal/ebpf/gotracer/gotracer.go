@@ -1663,6 +1663,11 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*persistConn).roundTrip": {{ // http client
 			Start: p.bpfObjects.ObiUprobePersistConnRoundTrip,
 		}},
+		// runs on persistConn.writeLoop, the only place the request's connection can be
+		// read when the application wraps net.Conn
+		"net/http.persistConnWriter.Write": {{
+			Start: p.bpfObjects.ObiUprobePersistConnWriterWrite,
+		}},
 		// sql
 		"database/sql.(*DB).queryDC": {{
 			Start: p.bpfObjects.ObiUprobeQueryDC,
