@@ -13,7 +13,6 @@ excluded-modules:
   - github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice
   - github.com/hashicorp/go-version
   - github.com/hashicorp/golang-lru/v2
-  - github.com/open-telemetry/opentelemetry-demo/src/checkout
   - go.opentelemetry.io/collector/cmd/builder
   - go.opentelemetry.io/obi/configs/offsets/gin
   - go.opentelemetry.io/obi/configs/offsets/kafkago
@@ -43,6 +42,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/goautosdk
   - go.opentelemetry.io/obi/internal/test/integration/components/gogeneric/fiber-example
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka
+  - go.opentelemetry.io/obi/internal/test/integration/components/gokafka/no-promise
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongo
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongov2
