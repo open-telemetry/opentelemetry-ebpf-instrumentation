@@ -74,7 +74,9 @@ func TestGoRuntimeDefinitions(t *testing.T) {
 	definitions := getDefinitions(0, NewGroupAttributes(nil))
 	for _, test := range tests {
 		t.Run(test.want.OTEL, func(t *testing.T) {
-			assert.Equal(t, test.want, test.name)
+			assert.Equal(t, test.want.Section, test.name.Section)
+			assert.Equal(t, test.want.OTEL, test.name.OTEL)
+			assert.Equal(t, test.want.Prom, test.name.Prom)
 
 			definition, ok := definitions[test.name.Section]
 			require.True(t, ok)
