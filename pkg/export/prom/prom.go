@@ -343,14 +343,16 @@ func newReporter(
 			attrsProvider.For(attributes.HTTPServerDuration))
 		attrHTTPClientDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPClientDuration))
-		attrHTTPRequestSize = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.HTTPServerRequestSize))
-		attrHTTPResponseSize = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.HTTPServerResponseSize))
-		attrHTTPClientRequestSize = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.HTTPClientRequestSize))
-		attrHTTPClientResponseSize = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.HTTPClientResponseSize))
+		if jointMetricsConfig.Features.AppHTTPSizes() {
+			attrHTTPRequestSize = attributes.PrometheusGetters(attributeGetters,
+				attrsProvider.For(attributes.HTTPServerRequestSize))
+			attrHTTPResponseSize = attributes.PrometheusGetters(attributeGetters,
+				attrsProvider.For(attributes.HTTPServerResponseSize))
+			attrHTTPClientRequestSize = attributes.PrometheusGetters(attributeGetters,
+				attrsProvider.For(attributes.HTTPClientRequestSize))
+			attrHTTPClientResponseSize = attributes.PrometheusGetters(attributeGetters,
+				attrsProvider.For(attributes.HTTPClientResponseSize))
+		}
 	}
 
 	var attrGRPCDuration, attrGRPCClientDuration []attributes.Field[*request.Span, string]
@@ -567,7 +569,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrMessagingProcessDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
-		httpRequestSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
+		httpRequestSize: optionalHistogramProvider(is.HTTPEnabled() && jointMetricsConfig.Features.AppHTTPSizes(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.HTTPServerRequestSize.Prom,
 				Help:                            "size, in bytes, of the HTTP request body as received at the server side",
@@ -577,7 +579,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrHTTPRequestSize)).MetricVec, timeNow, cfg.TTL)
 		}),
-		httpResponseSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
+		httpResponseSize: optionalHistogramProvider(is.HTTPEnabled() && jointMetricsConfig.Features.AppHTTPSizes(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.HTTPServerResponseSize.Prom,
 				Help:                            "size, in bytes, of the HTTP response body as received at the server side",
@@ -587,7 +589,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrHTTPResponseSize)).MetricVec, timeNow, cfg.TTL)
 		}),
-		httpClientRequestSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
+		httpClientRequestSize: optionalHistogramProvider(is.HTTPEnabled() && jointMetricsConfig.Features.AppHTTPSizes(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.HTTPClientRequestSize.Prom,
 				Help:                            "size, in bytes, of the HTTP request body as sent from the client side",
@@ -597,7 +599,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrHTTPClientRequestSize)).MetricVec, timeNow, cfg.TTL)
 		}),
-		httpClientResponseSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
+		httpClientResponseSize: optionalHistogramProvider(is.HTTPEnabled() && jointMetricsConfig.Features.AppHTTPSizes(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.HTTPClientResponseSize.Prom,
 				Help:                            "size, in bytes, of the HTTP response body as sent from the client side",
@@ -791,13 +793,17 @@ func newReporter(
 	if jointMetricsConfig.Features.AppRED() {
 		if is.HTTPEnabled() {
 			registeredMetrics = append(registeredMetrics,
-				mr.httpClientRequestSize,
-				mr.httpClientResponseSize,
 				mr.httpClientDuration,
-				mr.httpRequestSize,
-				mr.httpResponseSize,
 				mr.httpDuration,
 			)
+			if jointMetricsConfig.Features.AppHTTPSizes() {
+				registeredMetrics = append(registeredMetrics,
+					mr.httpClientRequestSize,
+					mr.httpClientResponseSize,
+					mr.httpRequestSize,
+					mr.httpResponseSize,
+				)
+			}
 		}
 
 		if is.GRPCEnabled() || is.SunRPCEnabled() {
@@ -1033,8 +1039,10 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
 			} else if r.is.HTTPEnabled() {
 				r.observeHistogram(r.httpDuration.WithLabelValues(labelValues(span, r.attrHTTPDuration)...).Metric, duration, span)
-				r.observeHistogram(r.httpRequestSize.WithLabelValues(labelValues(span, r.attrHTTPRequestSize)...).Metric, float64(span.RequestBodyLength()), span)
-				r.observeHistogram(r.httpResponseSize.WithLabelValues(labelValues(span, r.attrHTTPResponseSize)...).Metric, float64(span.ResponseBodyLength()), span)
+				if span.Service.Features.AppHTTPSizes() && r.httpRequestSize != nil {
+					r.observeHistogram(r.httpRequestSize.WithLabelValues(labelValues(span, r.attrHTTPRequestSize)...).Metric, float64(span.RequestBodyLength()), span)
+					r.observeHistogram(r.httpResponseSize.WithLabelValues(labelValues(span, r.attrHTTPResponseSize)...).Metric, float64(span.ResponseBodyLength()), span)
+				}
 			}
 		case request.EventTypeHTTPClient:
 			// HTTP client subtypes that are database calls get recorded as db client metrics
@@ -1055,8 +1063,10 @@ func (r *metricsReporter) observe(span *request.Span) {
 			default:
 				if r.is.HTTPEnabled() {
 					r.observeHistogram(r.httpClientDuration.WithLabelValues(labelValues(span, r.attrHTTPClientDuration)...).Metric, duration, span)
-					r.observeHistogram(r.httpClientRequestSize.WithLabelValues(labelValues(span, r.attrHTTPClientRequestSize)...).Metric, float64(span.RequestBodyLength()), span)
-					r.observeHistogram(r.httpClientResponseSize.WithLabelValues(labelValues(span, r.attrHTTPClientResponseSize)...).Metric, float64(span.ResponseBodyLength()), span)
+					if span.Service.Features.AppHTTPSizes() && r.httpClientRequestSize != nil {
+						r.observeHistogram(r.httpClientRequestSize.WithLabelValues(labelValues(span, r.attrHTTPClientRequestSize)...).Metric, float64(span.RequestBodyLength()), span)
+						r.observeHistogram(r.httpClientResponseSize.WithLabelValues(labelValues(span, r.attrHTTPClientResponseSize)...).Metric, float64(span.ResponseBodyLength()), span)
+					}
 				}
 			}
 		case request.EventTypeGRPC:

@@ -79,6 +79,18 @@ func TestFeatureApplicationAliasDoesNotIncludeRuntime(t *testing.T) {
 	assert.True(t, mustLoadFeatures(t, "application_runtime").AppOrSpan())
 }
 
+func TestFeatureApplicationHTTPSizes(t *testing.T) {
+	featuresOnlyApp := mustLoadFeatures(t, "application")
+	assert.True(t, featuresOnlyApp.AppRED())
+	assert.False(t, featuresOnlyApp.AppHTTPSizes())
+
+	featuresWithSizes := mustLoadFeatures(t, "application", "application_http_sizes")
+	assert.True(t, featuresWithSizes.AppRED())
+	assert.True(t, featuresWithSizes.AppHTTPSizes())
+	assert.True(t, AppO11yFeatures.has(FeatureApplicationHTTPSizes))
+	assert.True(t, featuresWithSizes.AppOrSpan())
+}
+
 func mustLoadFeatures(t *testing.T, names ...string) Features {
 	t.Helper()
 	features, err := LoadFeatures(names)

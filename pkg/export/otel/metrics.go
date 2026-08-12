@@ -250,14 +250,16 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.HTTPServerDuration))
 		mr.attrHTTPClientDuration = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.HTTPClientDuration))
-		mr.attrHTTPRequestSize = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
-		mr.attrHTTPResponseSize = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
-		mr.attrHTTPClientRequestSize = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
-		mr.attrHTTPClientResponseSize = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
+		if mr.jointMetricsCfg.Features.AppHTTPSizes() {
+			mr.attrHTTPRequestSize = attributes.OpenTelemetryGetters(
+				mr.attrGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
+			mr.attrHTTPResponseSize = attributes.OpenTelemetryGetters(
+				mr.attrGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
+			mr.attrHTTPClientRequestSize = attributes.OpenTelemetryGetters(
+				mr.attrGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
+			mr.attrHTTPClientResponseSize = attributes.OpenTelemetryGetters(
+				mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
+		}
 	}
 
 	if is.GRPCEnabled() || is.SunRPCEnabled() {
@@ -363,11 +365,15 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 		opts = append(opts,
 			metric.WithView(mr.otelHistogramConfig(attributes.HTTPServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 			metric.WithView(mr.otelHistogramConfig(attributes.HTTPClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
-			metric.WithView(mr.otelHistogramConfig(attributes.HTTPServerRequestSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram)),
-			metric.WithView(mr.otelHistogramConfig(attributes.HTTPServerResponseSize.OTEL, mr.cfg.Buckets.ResponseSizeHistogram)),
-			metric.WithView(mr.otelHistogramConfig(attributes.HTTPClientRequestSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram)),
-			metric.WithView(mr.otelHistogramConfig(attributes.HTTPClientResponseSize.OTEL, mr.cfg.Buckets.ResponseSizeHistogram)),
 		)
+		if mr.jointMetricsCfg.Features.AppHTTPSizes() {
+			opts = append(opts,
+				metric.WithView(mr.otelHistogramConfig(attributes.HTTPServerRequestSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram)),
+				metric.WithView(mr.otelHistogramConfig(attributes.HTTPServerResponseSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram)),
+				metric.WithView(mr.otelHistogramConfig(attributes.HTTPClientRequestSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram)),
+				metric.WithView(mr.otelHistogramConfig(attributes.HTTPClientResponseSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram)),
+			)
+		}
 	}
 
 	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
@@ -453,33 +459,35 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 		m.httpClientDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 			m.ctx, httpClientDuration, mr.attrHTTPClientDuration, timeNow, mr.cfg.TTL)
 
-		httpRequestSize, err := meter.Float64Histogram(attributes.HTTPServerRequestSize.OTEL, instrument.WithUnit("By"))
-		if err != nil {
-			return fmt.Errorf("creating http request size histogram metric: %w", err)
-		}
-		m.httpRequestSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
-			m.ctx, httpRequestSize, mr.attrHTTPRequestSize, timeNow, mr.cfg.TTL)
+		if mr.jointMetricsCfg.Features.AppHTTPSizes() {
+			httpRequestSize, err := meter.Float64Histogram(attributes.HTTPServerRequestSize.OTEL, instrument.WithUnit("By"))
+			if err != nil {
+				return fmt.Errorf("creating http request size histogram metric: %w", err)
+			}
+			m.httpRequestSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+				m.ctx, httpRequestSize, mr.attrHTTPRequestSize, timeNow, mr.cfg.TTL)
 
-		httpResponseSize, err := meter.Float64Histogram(attributes.HTTPServerResponseSize.OTEL, instrument.WithUnit("By"))
-		if err != nil {
-			return fmt.Errorf("creating http response size histogram metric: %w", err)
-		}
-		m.httpResponseSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
-			m.ctx, httpResponseSize, mr.attrHTTPResponseSize, timeNow, mr.cfg.TTL)
+			httpResponseSize, err := meter.Float64Histogram(attributes.HTTPServerResponseSize.OTEL, instrument.WithUnit("By"))
+			if err != nil {
+				return fmt.Errorf("creating http response size histogram metric: %w", err)
+			}
+			m.httpResponseSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+				m.ctx, httpResponseSize, mr.attrHTTPResponseSize, timeNow, mr.cfg.TTL)
 
-		httpClientRequestSize, err := meter.Float64Histogram(attributes.HTTPClientRequestSize.OTEL, instrument.WithUnit("By"))
-		if err != nil {
-			return fmt.Errorf("creating http client request size histogram metric: %w", err)
-		}
-		m.httpClientRequestSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
-			m.ctx, httpClientRequestSize, mr.attrHTTPClientRequestSize, timeNow, mr.cfg.TTL)
+			httpClientRequestSize, err := meter.Float64Histogram(attributes.HTTPClientRequestSize.OTEL, instrument.WithUnit("By"))
+			if err != nil {
+				return fmt.Errorf("creating http client request size histogram metric: %w", err)
+			}
+			m.httpClientRequestSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+				m.ctx, httpClientRequestSize, mr.attrHTTPClientRequestSize, timeNow, mr.cfg.TTL)
 
-		httpClientResponseSize, err := meter.Float64Histogram(attributes.HTTPClientResponseSize.OTEL, instrument.WithUnit("By"))
-		if err != nil {
-			return fmt.Errorf("creating http client response size histogram metric: %w", err)
+			httpClientResponseSize, err := meter.Float64Histogram(attributes.HTTPClientResponseSize.OTEL, instrument.WithUnit("By"))
+			if err != nil {
+				return fmt.Errorf("creating http client response size histogram metric: %w", err)
+			}
+			m.httpClientResponseSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+				m.ctx, httpClientResponseSize, mr.attrHTTPClientResponseSize, timeNow, mr.cfg.TTL)
 		}
-		m.httpClientResponseSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
-			m.ctx, httpClientResponseSize, mr.attrHTTPClientResponseSize, timeNow, mr.cfg.TTL)
 	}
 
 	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
@@ -924,11 +932,13 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				httpDuration, attrs := r.httpDuration.ForRecord(span)
 				httpDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 
-				httpRequestSize, attrs := r.httpRequestSize.ForRecord(span)
-				httpRequestSize.Record(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
+				if span.Service.Features.AppHTTPSizes() && r.httpRequestSize != nil {
+					httpRequestSize, attrs := r.httpRequestSize.ForRecord(span)
+					httpRequestSize.Record(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
 
-				httpResponseSize, attrs := r.httpResponseSize.ForRecord(span)
-				httpResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
+					httpResponseSize, attrs := r.httpResponseSize.ForRecord(span)
+					httpResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
+				}
 			}
 		case request.EventTypeGRPC:
 			if mr.is.GRPCEnabled() {
@@ -973,10 +983,12 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			} else if mr.is.HTTPEnabled() {
 				httpClientDuration, attrs := r.httpClientDuration.ForRecord(span)
 				httpClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-				httpClientRequestSize, attrs := r.httpClientRequestSize.ForRecord(span)
-				httpClientRequestSize.Record(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
-				httpClientResponseSize, attrs := r.httpClientResponseSize.ForRecord(span)
-				httpClientResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
+				if span.Service.Features.AppHTTPSizes() && r.httpClientRequestSize != nil {
+					httpClientRequestSize, attrs := r.httpClientRequestSize.ForRecord(span)
+					httpClientRequestSize.Record(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
+					httpClientResponseSize, attrs := r.httpClientResponseSize.ForRecord(span)
+					httpClientResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
+				}
 			}
 		case request.EventTypeRedisServer, request.EventTypeRedisClient:
 			if mr.is.RedisEnabled() {

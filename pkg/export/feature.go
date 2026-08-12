@@ -31,6 +31,7 @@ const (
 	FeatureStatsTCPIo
 	FeatureNetworkInterZone
 	FeatureApplicationRED
+	FeatureApplicationHTTPSizes
 	FeatureSpanLegacy
 	FeatureSpanOTel
 	FeatureSpanSizes
@@ -59,6 +60,7 @@ var FeatureMapper = map[string]Features{
 	"network_inter_zone":           FeatureNetworkInterZone,
 	"network_flow_packets":         FeatureNetworkFlowPackets,
 	"application":                  FeatureApplicationRED,
+	"application_http_sizes":       FeatureApplicationHTTPSizes,
 	"application_span":             FeatureSpanLegacy,
 	"application_span_otel":        FeatureSpanOTel,
 	"application_span_sizes":       FeatureSpanSizes,
@@ -90,6 +92,7 @@ func (Features) JSONSchema() *jsonschema.Schema {
 // AppO11yFeatures is a bitmask of all metrics that are enabled by default for Application RED
 // It can be overridden by extension packages
 var AppO11yFeatures = FeatureApplicationRED |
+	FeatureApplicationHTTPSizes |
 	FeatureSpanLegacy |
 	FeatureSpanOTel |
 	FeatureSpanSizes |
@@ -192,6 +195,7 @@ func (f Features) AnyNetwork() bool {
 
 func (f Features) AppOrSpan() bool {
 	return f.any(FeatureApplicationRED |
+		FeatureApplicationHTTPSizes |
 		FeatureSpanSizes |
 		FeatureApplicationHost |
 		FeatureApplicationRuntime |
@@ -217,6 +221,10 @@ func (f Features) AppRuntime() bool {
 
 func (f Features) AppRED() bool {
 	return f.any(FeatureApplicationRED)
+}
+
+func (f Features) AppHTTPSizes() bool {
+	return f.any(FeatureApplicationHTTPSizes)
 }
 
 func (f Features) SpanSizes() bool {

@@ -915,6 +915,7 @@
           "all",
           "application",
           "application_host",
+          "application_http_sizes",
           "application_runtime",
           "application_service_graph",
           "application_span",
