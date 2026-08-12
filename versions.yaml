@@ -3,7 +3,7 @@
 
 module-sets:
   obi:
-    version: v0.10.0
+    version: v0.11.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
@@ -13,6 +13,7 @@ excluded-modules:
   - github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice
   - github.com/hashicorp/go-version
   - github.com/hashicorp/golang-lru/v2
+  - github.com/open-telemetry/opentelemetry-demo/src/checkout
   - go.opentelemetry.io/collector/cmd/builder
   - go.opentelemetry.io/obi/configs/offsets/gin
   - go.opentelemetry.io/obi/configs/offsets/kafkago
@@ -29,6 +30,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/examples/go-trace-api/app
   - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl
   - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl/memsql
+  - go.opentelemetry.io/obi/internal/test/integration/components/ai/openai/go
   - go.opentelemetry.io/obi/internal/test/integration/components/go-runtime-metrics-server
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-client
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-server
@@ -38,6 +40,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
   - go.opentelemetry.io/obi/internal/test/integration/components/go_simple_grpc
+  - go.opentelemetry.io/obi/internal/test/integration/components/goautosdk
   - go.opentelemetry.io/obi/internal/test/integration/components/gogeneric/fiber-example
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg
