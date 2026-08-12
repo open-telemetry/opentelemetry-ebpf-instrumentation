@@ -716,7 +716,7 @@ func TestSpanMetricsNames(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			mr := &MetricsReporter{jointMetricsCfg: &perapp.MetricsConfig{Features: tc.features}}
+			mr := &MetricsReporter{jointMetricsCfg: &perapp.GlobalMetricsConfig{Features: tc.features}}
 			assert.Equal(t, tc.expectedLatency, mr.spanMetricsLatencyName())
 			assert.Equal(t, tc.expectedCalls, mr.spanMetricsCallsName())
 		})
