@@ -105,7 +105,9 @@ func (m *nodejsRuntimeMetrics) record(snapshot runtimemetrics.RuntimeMetricSnaps
 	}
 
 	values := snapshot.Nodejs.NodejsEventLoopValues
-	entry := m.entries.GetOrCreate([]string{strconv.Itoa(int(snapshot.PID))}, func() *nodejsEventLoopEntry {
+	// Keyed by the host-visible pid: snapshot.PID is namespace-local, and
+	// nested pid namespaces under one service instance could collide on it.
+	entry := m.entries.GetOrCreate([]string{strconv.Itoa(int(snapshot.Service.ProcPID))}, func() *nodejsEventLoopEntry {
 		state := attr.NodejsEventLoopState.OTEL()
 		return &nodejsEventLoopEntry{
 			idleAttrs:   attribute.NewSet(state.String("idle")),

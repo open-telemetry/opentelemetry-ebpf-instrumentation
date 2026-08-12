@@ -48,6 +48,7 @@ func nodejsTestSnapshot(features export.Features, values nodejsruntime.NodejsEve
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
 			Features: features,
+			ProcPID:  app.PID(1055),
 		},
 		PID:    app.PID(55),
 		Nodejs: &runtimemetrics.NodejsRuntimeMetricSnapshot{NodejsEventLoopValues: values},

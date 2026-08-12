@@ -134,15 +134,11 @@
     orig.ctxHook.enable();
   }
 
-  // Runtime metrics (nodejs.eventloop.*): sample the in-process ground truth
-  // (eventLoopUtilization + monitorEventLoopDelay) and pass it to the eBPF
-  // layer through the same fs.access side channel. The payload is fixed-width:
-  // 10 fields x 16 lowercase hex chars, decoded by bpf/generictracer/nodejs.c.
-  // Field order: elu_idle_ns, elu_active_ns, delay min/max/mean/stddev/p50/p90/
-  // p99 (ns), delay sample count. The histogram is reset after each read so the
-  // delay fields are per-interval; ELU values are cumulative since loop start.
-  // Fixed, unlike the JVM sampling interval: this script is embedded verbatim,
-  // so making it configurable means templating it at injection time.
+  // Runtime metrics (nodejs.eventloop.*): sample eventLoopUtilization and
+  // monitorEventLoopDelay and pass them to the eBPF layer through the same
+  // fs.access side channel; the payload format is documented at the decoder
+  // (bpf/generictracer/nodejs.c). The interval is fixed: this script is
+  // embedded verbatim, so making it configurable means templating it.
   const RT_SAMPLING_INTERVAL_MS = 1000;
 
   // Substituted by the injector from the same gate that sets the
@@ -183,6 +179,9 @@
     orig.rtTimer = setInterval(() => {
       const h = orig.rtHistogram;
       const elu = performance.eventLoopUtilization();
+      // Histogram.count needs Node 16.14+. Before that it is undefined, so
+      // empty stays false and rtHex clamps the count field to 0 — the
+      // exporters then skip the delay gauges while ELU keeps working.
       const empty = h.count === 0;
       const fields = [
         elu.idle * 1e6, // eventLoopUtilization reports milliseconds

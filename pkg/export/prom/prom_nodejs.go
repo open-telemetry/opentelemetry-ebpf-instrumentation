@@ -106,8 +106,10 @@ func (r *metricsReporter) collectNodejsRuntimeMetrics(snapshot runtimemetrics.Ru
 	values := snapshot.Nodejs.NodejsEventLoopValues
 	serviceLabels := runtimeServiceLabelValues(snapshot)
 
+	// keyed by the host-visible pid: namespace-local pids can collide
+	// (full rationale in otel/metrics_nodejs.go)
 	idleDelta, activeDelta := c.eluDeltas(
-		snapshot.Service.UID.Instance+"|"+strconv.Itoa(int(snapshot.PID)),
+		snapshot.Service.UID.Instance+"|"+strconv.Itoa(int(snapshot.Service.ProcPID)),
 		values.ELUIdleNs,
 		values.ELUActiveNs,
 	)
@@ -126,10 +128,9 @@ func (r *metricsReporter) collectNodejsRuntimeMetrics(snapshot runtimemetrics.Ru
 			Metric.Set(float64(activeDelta) / float64(total))
 	}
 
-	// An empty histogram window (DelayCount == 0) means the loop was fully
-	// blocked for the interval; recording zeros would invert reality, so
-	// keep the previous window's values (the Expirer retires them if the
-	// process stays silent).
+	// no delay samples (fully blocked interval): keep the previous window's
+	// values (full rationale in otel/metrics_nodejs.go); the Expirer retires
+	// them if the process stays silent
 	if values.DelayCount == 0 {
 		return
 	}

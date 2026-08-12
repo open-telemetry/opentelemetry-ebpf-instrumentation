@@ -665,6 +665,9 @@ type HostIDConfig struct {
 }
 
 type NodeJSConfig struct {
+	// Enabled turns on the Node.js injector agent, used for trace-context
+	// propagation and runtime metrics. Setting it to false disables the
+	// injection entirely, runtime metrics included.
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_NODEJS_ENABLED"`
 }
 

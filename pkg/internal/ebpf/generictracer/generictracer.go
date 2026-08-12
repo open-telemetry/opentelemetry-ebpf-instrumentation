@@ -697,9 +697,9 @@ func (p *Tracer) Run(
 	cfg := &p.cfg.EBPF
 	if p.cfg.AppRuntimeMetricsEnabled() {
 		if p.runtimeMetricsSender() == nil {
-			p.log.Warn("JVM runtime metrics enabled without runtime metrics queue")
+			p.log.Warn("runtime metrics enabled without runtime metrics queue")
 		} else {
-			p.log.Debug("reading JVM runtime metrics from shared ring buffer")
+			p.log.Debug("reading runtime metrics from shared ring buffer")
 		}
 	}
 

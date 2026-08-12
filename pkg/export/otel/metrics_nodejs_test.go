@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	nodejsruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -124,6 +125,7 @@ func TestRuntimeMetricsReporterRecordsNodejsEventLoop(t *testing.T) {
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders-node", Namespace: "prod", Instance: "orders-node-1"},
 			Features: export.FeatureApplicationRuntime,
+			ProcPID:  app.PID(1055),
 		},
 		PID: 55,
 		Nodejs: &runtimemetrics.NodejsRuntimeMetricSnapshot{

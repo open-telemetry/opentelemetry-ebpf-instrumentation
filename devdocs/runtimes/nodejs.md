@@ -3,11 +3,9 @@
 With `application_runtime` enabled, OBI collects event-loop metrics from
 instrumented Node.js services and exports the following metric set.
 
-The values are the in-process `perf_hooks` readings — OBI injects a small
-JavaScript agent through the Node.js inspector and the agent reports the
-runtime's own measurements, so the exported numbers match what
-`performance.eventLoopUtilization()` and `monitorEventLoopDelay()` report
-inside the application.
+The values are the runtime's own `perf_hooks` readings, reported by a small
+JavaScript agent that OBI injects through the Node.js inspector — the exported
+numbers match what the application itself would measure.
 
 ## Metrics
 
@@ -23,41 +21,33 @@ inside the application.
 | `nodejs.eventloop.delay.p90` | `nodejs_eventloop_delay_p90_seconds` | `monitorEventLoopDelay()` | Gauge; 90th percentile over the last sampling interval. |
 | `nodejs.eventloop.delay.p99` | `nodejs_eventloop_delay_p99_seconds` | `monitorEventLoopDelay()` | Gauge; 99th percentile over the last sampling interval. |
 
-Enable Node.js runtime metrics through the shared runtime metrics feature plus
-the Node.js injector:
+Enable Node.js runtime metrics through the shared runtime metrics feature:
 
 ```yaml
 metrics:
   features:
     - application_runtime
-nodejs:
-  enabled: true
 ```
 
-The agent samples at a fixed 1 s interval; there is no sampling-interval
-configuration (unlike `jvm_runtime_metrics.sampling_interval`) because the
-interval is compiled into the injected script.
+The agent samples at a fixed 1 s interval, independently of the exporter
+interval; there is no sampling-interval configuration because the interval is
+compiled into the injected script.
 
-`nodejs.enabled` defaults to `true`, so the `application_runtime` feature alone
-is enough to enable the injection — traces are not required. Note that this
-makes Node.js the only runtime whose metrics require running code inside the
-application: JVM metrics come from USDT probes and Go metrics from uprobes,
-while Node.js has neither (DTrace support was removed in v19 and V8 internals
-have no stable ABI). Enabling `application_runtime` therefore starts injecting
-the agent into every Node.js process OBI discovers, and each injection is
-logged with `trigger=runtime metrics`. Set `nodejs.enabled: false` to opt out —
-that also disables Node.js trace-context propagation.
+The `application_runtime` feature alone enables the injection — traces are not
+required. The metrics are produced by the injected agent running inside the
+application, so enabling the feature starts injecting the agent into every
+Node.js process OBI discovers, and each injection is logged with
+`trigger=runtime metrics`. `nodejs.enabled` (default `true`) is the global
+opt-out: setting it to `false` disables the injection entirely — runtime
+metrics included — and OBI logs a warning when `application_runtime` is
+enabled at the same time.
 
 ## Collection path
 
-Node.js has no USDT probes (DTrace support was removed in Node v19) and V8
-internals have no stable ABI, so neither the JVM nor the Go collection
-mechanism applies. Instead the injected agent reports in-process readings over
-an eBPF side channel:
+The injected agent reports in-process readings over an eBPF side channel:
 
 1. During discovery, the Node.js injector opens the inspector (sending
-   `SIGUSR1` if it is not already listening, after verifying the application
-   has no `SIGUSR1` handler of its own) and evaluates the OBI agent
+   `SIGUSR1` if it is not already listening) and evaluates the OBI agent
    (`fdextractor.js`) through a single `Runtime.evaluate` message.
 2. Every second the agent reads `performance.eventLoopUtilization()`
    (cumulative idle/active nanoseconds) and the `monitorEventLoopDelay()`
@@ -76,7 +66,10 @@ an eBPF side channel:
 
 ## Requirements and limitations
 
-- Node.js 14.10+ (`eventLoopUtilization` API).
+- Node.js 14.10+ (`eventLoopUtilization` API) for the event-loop time and
+  utilization metrics; the delay gauges additionally need Node.js 16.14+
+  (`Histogram.count`). On 14.10–16.13 the agent reports a zero sample count,
+  so the delay gauges are absent while ELU metrics keep working.
 - The inspector must be reachable: injection is skipped when the application
   registers its own `SIGUSR1` handler, and fails when the environment blocks
   the inspector (e.g. seccomp) — in both cases the metrics are silently
@@ -90,13 +83,5 @@ an eBPF side channel:
 - The inspector port (9229) is per network namespace, so among processes that
   share one — `cluster` workers, for instance — only the first to bind it is
   injected; the others log an attach error and report no metrics.
-- The delay metrics carry no attributes (as specified), so several Node
-  processes of the same service instance write to the same series; only the
-  event-loop time counters are separated per process.
-
-## Snapshot cadence
-
-Snapshots arrive once per second per instrumented process (the agent's fixed
-sampling interval), independent of the exporter interval. Delay gauges hold
-the last completed interval's histogram statistics; an interval in which the
-event loop never yielded (fully blocked) reports zero delay samples.
+- An interval in which the event loop never yielded (fully blocked) reports
+  zero delay samples; the exporters keep the previous window's delay values.

@@ -10,6 +10,7 @@
 
 #include <common/event_defs.h>
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 #include <common/strings.h>
 #include <common/tracing.h>
 
@@ -41,7 +42,11 @@ enum {
     k_rt_payload_offset = 17, // first hex char after "/dev/null/obi-rt/"
     k_rt_field_hex_len = 16,  // one u64 as fixed-width lowercase hex
     k_rt_field_count = 10,
+    // payload + the byte past it, which must be the path's NUL terminator
+    k_rt_payload_read_len = k_rt_field_count * k_rt_field_hex_len + 1,
 };
+
+SCRATCH_MEM_SIZED(nodejs_rt_payload, k_rt_payload_read_len)
 
 static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
     u32 fd = 0;
@@ -84,11 +89,14 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
     // could otherwise get residual heap bytes decoded into a plausible but
     // wrong event attributed to itself; the exact-length check turns that
     // into a dropped event.
-    unsigned char payload[k_rt_field_count * k_rt_field_hex_len + 1];
-    if (bpf_probe_read_user(payload, sizeof(payload), path + k_rt_payload_offset) != 0) {
+    unsigned char *payload = nodejs_rt_payload_mem();
+    if (!payload) {
         return 0;
     }
-    if (payload[sizeof(payload) - 1] != '\0') {
+    if (bpf_probe_read_user(payload, k_rt_payload_read_len, path + k_rt_payload_offset) != 0) {
+        return 0;
+    }
+    if (payload[k_rt_payload_read_len - 1] != '\0') {
         return 0;
     }
 
