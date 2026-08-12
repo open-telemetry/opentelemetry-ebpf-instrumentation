@@ -152,7 +152,8 @@ typedef struct tcp_req {
     u8 has_large_buffers;
     enum protocol_type protocol_type;
     bool is_server;
-    u8 _pad1[2];
+    enum parent_status parent_status;
+    u8 _pad1[1];
     connection_info_t conn_info;
     u32 len;
     u64 start_monotime_ns;
@@ -292,7 +293,8 @@ typedef struct mongo_go_client_req {
 typedef struct dns_req {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 dns_q;
-    u8 _pad1[2];
+    enum parent_status parent_status;
+    u8 _pad1[1];
     u32 len;
     connection_info_t conn;
     u16 id;

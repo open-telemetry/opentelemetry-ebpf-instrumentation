@@ -13,6 +13,7 @@
 #include <logger/bpf_dbg.h>
 
 volatile const u64 max_transaction_time;
+volatile const u32 high_request_volume;
 
 // Traceparent format: Traceparent: ver (2 chars) - trace_id (32 chars) - span_id (16 chars) - flags (2 chars)
 static __always_inline unsigned char *extract_trace_id(unsigned char *tp_start) {

@@ -83,7 +83,8 @@ static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
 }
 
 // Use the trace the Go uprobe wrote to outgoing_trace_map (replaces what find_trace_for_client_request returned).
-static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
+// Returns 1 when the injected context replaced the inferred one.
+static __always_inline u8 adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
     egress_key_t sorted_e = {
         .d_port = s_key->pid_conn.conn.d_port,
         .s_port = s_key->pid_conn.conn.s_port,
@@ -96,7 +97,11 @@ static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_
         bpf_memcpy(tp->trace_id, injected->tp.trace_id, TRACE_ID_SIZE_BYTES);
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
         bpf_memcpy(tp->parent_id, injected->tp.parent_id, SPAN_ID_SIZE_BYTES);
+
+        return 1;
     }
+
+    return 0;
 }
 
 // HPACK payload length + start offset within h2g_info->data
@@ -187,8 +192,9 @@ static __always_inline void http2_grpc_start(void *ctx,
     http2_grpc_request_t *existing = bpf_map_lookup_elem(&ongoing_http2_grpc, s_key);
     if (existing) {
         bpf_dbg_printk("already found existing grpcstart, ignoring this exchange");
-        if (existing->type == EVENT_HTTP_CLIENT) {
-            adopt_injected_trace(s_key, &existing->tp);
+        if (existing->type == EVENT_HTTP_CLIENT && adopt_injected_trace(s_key, &existing->tp)) {
+            // the uprobe's context comes from the running request itself
+            existing->parent_status = k_parent_status_live;
         }
         return;
     }
@@ -262,7 +268,11 @@ static __always_inline void http2_grpc_start(void *ctx,
     }
     u8 found_tp =
         find_trace_for_client_request(&s_key->pid_conn, orig_dport, k_lw_thread_none, &tp_p->tp);
-    adopt_injected_trace(s_key, &tp_p->tp);
+    h2g_info->parent_status = found_tp;
+    if (adopt_injected_trace(s_key, &tp_p->tp)) {
+        // the uprobe's context comes from the running request itself
+        h2g_info->parent_status = k_parent_status_live;
+    }
     if (valid_trace(tp_p->tp.trace_id)) {
         found_tp = 1;
     }
