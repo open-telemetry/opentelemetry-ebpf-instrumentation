@@ -69,9 +69,9 @@ groups:
 
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
-  - id: metric.traces_span_metrics_calls_total
+  - id: metric.traces.span.metrics.calls
     type: metric
-    metric_name: traces_span_metrics_calls_total
+    metric_name: traces.span.metrics.calls
     instrument: counter
     unit: ""
     stability: development
@@ -83,9 +83,9 @@ groups:
       - ref: status.code
       - ref: source
 
-  - id: metric.traces_span_metrics_duration
+  - id: metric.traces.span.metrics.duration
     type: metric
-    metric_name: traces_span_metrics_duration
+    metric_name: traces.span.metrics.duration
     instrument: histogram
     unit: "s"
     stability: development
@@ -100,7 +100,7 @@ groups:
 
   # Legacy Grafana-style names for the same two metrics, matching the older
   # spanmetrics processor output. This is what OBI emits by DEFAULT — the
-  # `traces_span_metrics_*` names above are the opt-in OTel naming
+  # `traces.span.metrics.*` names above are the opt-in OTel naming
   # (`OTEL_EBPF_OTEL_METRICS_FEATURES=application_span_otel`).
   - id: metric.traces_spanmetrics_calls_total
     type: metric

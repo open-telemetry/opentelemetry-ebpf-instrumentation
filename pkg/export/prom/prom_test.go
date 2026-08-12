@@ -80,7 +80,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -232,12 +232,18 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"messaging_process_duration_seconds",
 				"gpu_cuda_kernel_launch_calls_total",
 				"gpu_cuda_graph_launch_calls_total",
-				"gpu_cuda_kernel_grid_size",
-				"gpu_cuda_kernel_block_size",
 				"gpu_cuda_memory_allocations_bytes_total",
-				"gpu_cuda_memory_copies_bytes",
+				// the _count series of each histogram: the bare names are prefixes of
+				// the pre-rename _total names, so they would match either way
+				"gpu_cuda_kernel_grid_size_count",
+				"gpu_cuda_kernel_block_size_count",
+				"gpu_cuda_memory_copies_bytes_count",
 			},
-			unexpected: []string{},
+			unexpected: []string{
+				"gpu_cuda_kernel_grid_size_total",
+				"gpu_cuda_kernel_block_size_total",
+				"gpu_cuda_memory_copies_bytes_total",
+			},
 		},
 		{
 			name:  "http only",
@@ -889,7 +895,7 @@ func makePromExporter(
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            instrumentations,
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -1470,7 +1476,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{

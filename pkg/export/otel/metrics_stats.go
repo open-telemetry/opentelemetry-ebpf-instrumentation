@@ -32,7 +32,7 @@ const statScopeName = "stats_ebpf_events"
 // StatMetricsConfig extends MetricsConfig for Statistical Metrics
 type StatMetricsConfig struct {
 	Metrics     *otelcfg.MetricsConfig
-	CommonCfg   *perapp.MetricsConfig
+	CommonCfg   *perapp.GlobalMetricsConfig
 	SelectorCfg *attributes.SelectorConfig
 }
 

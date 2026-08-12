@@ -88,7 +88,7 @@ spec:
             - name: LOG_LEVEL
               value: "DEBUG"
             - name: OTEL_RESOURCE_ATTRIBUTES
-              value: "deployment.environment=integration-test,service.version=3.2.1"
+              value: "deployment.environment.name=test,service.version=3.2.1"
         - name: obi
           image: obi:dev
           imagePullPolicy: Never # loaded into Kind from localhost
@@ -113,7 +113,7 @@ spec:
             - name: OTEL_EBPF_SERVICE_NAMESPACE
               value: "integration-test"
             - name: OTEL_EBPF_METRICS_INTERVAL
-              value: "10ms"
+              value: "1s"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
             - name: OTEL_EBPF_LOG_LEVEL

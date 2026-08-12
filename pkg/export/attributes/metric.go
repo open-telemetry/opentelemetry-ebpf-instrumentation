@@ -21,22 +21,22 @@ type Section string
 type Instrument uint8
 
 const (
-	UnknownInstrument Instrument = iota
-	Counter
-	UpDownCounter
-	Gauge
-	Histogram
+	InstrumentUnknown Instrument = iota
+	InstrumentCounter
+	InstrumentUpDownCounter
+	InstrumentGauge
+	InstrumentHistogram
 )
 
 func (i Instrument) otlp() otlptranslator.MetricType {
 	switch i {
-	case Counter:
+	case InstrumentCounter:
 		return otlptranslator.MetricTypeMonotonicCounter
-	case UpDownCounter:
+	case InstrumentUpDownCounter:
 		return otlptranslator.MetricTypeNonMonotonicCounter
-	case Gauge:
+	case InstrumentGauge:
 		return otlptranslator.MetricTypeGauge
-	case Histogram:
+	case InstrumentHistogram:
 		return otlptranslator.MetricTypeHistogram
 	default:
 		return otlptranslator.MetricTypeUnknown
@@ -80,242 +80,243 @@ var (
 		Section: "obi.network.flow",
 		OTEL:    "obi.network.flow.bytes",
 		Unit:    "{bytes}",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	NetworkFlowPackets = metric(Name{
 		Section: "obi.network.flow.packets",
 		OTEL:    "obi.network.flow.packets",
 		Unit:    "{packets}",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	NetworkInterZone = metric(Name{
 		Section: "obi.network.inter.zone",
 		OTEL:    "obi.network.inter.zone.bytes",
 		Unit:    "{bytes}",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	HTTPServerRequestSize = metric(Name{
 		Section: "http.server.request.body.size",
 		OTEL:    "http.server.request.body.size",
 		Unit:    "By",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	HTTPServerResponseSize = metric(Name{
 		Section: "http.server.response.body.size",
 		OTEL:    "http.server.response.body.size",
 		Unit:    "By",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	HTTPClientRequestSize = metric(Name{
 		Section: "http.client.request.body.size",
 		OTEL:    "http.client.request.body.size",
 		Unit:    "By",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	HTTPClientResponseSize = metric(Name{
 		Section: "http.client.response.body.size",
 		OTEL:    "http.client.response.body.size",
 		Unit:    "By",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	HTTPServerDuration = metric(Name{
 		Section: "http.server.request.duration",
 		OTEL:    "http.server.request.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	HTTPClientDuration = metric(Name{
 		Section: "http.client.request.duration",
 		OTEL:    "http.client.request.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	RPCServerDuration = metric(Name{
 		Section: "rpc.server.call.duration",
 		OTEL:    "rpc.server.call.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	RPCClientDuration = metric(Name{
 		Section: "rpc.client.call.duration",
 		OTEL:    "rpc.client.call.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	DBClientDuration = metric(Name{
 		Section: "db.client.operation.duration",
 		OTEL:    "db.client.operation.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	MessagingPublishDuration = metric(Name{
 		Section: "messaging.client.operation.duration",
 		OTEL:    "messaging.client.operation.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	MessagingProcessDuration = metric(Name{
 		Section: "messaging.process.duration",
 		OTEL:    "messaging.process.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	GPUCudaKernelLaunchCalls = metric(Name{
 		Section: "gpu.cuda.kernel.launch.calls",
 		OTEL:    "gpu.cuda.kernel.launch.calls",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	GPUCudaGraphLaunchCalls = metric(Name{
 		Section: "gpu.cuda.graph.launch.calls",
 		OTEL:    "gpu.cuda.graph.launch.calls",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	GPUCudaKernelGridSize = metric(Name{
 		Section: "gpu.cuda.kernel.grid.size",
 		OTEL:    "gpu.cuda.kernel.grid.size",
 		Unit:    "1",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	GPUCudaKernelBlockSize = metric(Name{
 		Section: "gpu.cuda.kernel.block.size",
 		OTEL:    "gpu.cuda.kernel.block.size",
 		Unit:    "1",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	GPUCudaMemoryAllocations = metric(Name{
 		Section: "gpu.cuda.memory.allocations",
 		OTEL:    "gpu.cuda.memory.allocations",
 		Unit:    "By",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	GPUCudaMemoryCopies = metric(Name{
 		Section: "gpu.cuda.memory.copies",
 		OTEL:    "gpu.cuda.memory.copies",
 		Unit:    "By",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	DNSLookupDuration = metric(Name{
 		Section: "dns.lookup.duration",
 		OTEL:    "dns.lookup.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	GenAIClientInputTokenUsage = metric(Name{
 		Section: "gen_ai.client.token.usage.input",
 		OTEL:    "gen_ai.client.token.usage",
 		Unit:    "{token}",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	GenAIClientOutputTokenUsage = metric(Name{
 		Section: "gen_ai.client.token.usage.output",
 		OTEL:    "gen_ai.client.token.usage",
 		Unit:    "{token}",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	GenAIClientOperationDuration = metric(Name{
 		Section: "gen_ai.client.operation.duration",
 		OTEL:    "gen_ai.client.operation.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	GoRuntimeMemoryLimit = metric(Name{
 		Section: "go.memory.limit",
 		OTEL:    "go.memory.limit",
 		Unit:    "By",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	GoRuntimeMemoryGCGoal = metric(Name{
 		Section: "go.memory.gc.goal",
 		OTEL:    "go.memory.gc.goal",
 		Unit:    "By",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	GoRuntimeMemoryGCCycles = metric(Name{
 		Section: "go.memory.gc.cycles",
 		OTEL:    "go.memory.gc.cycles",
 		Unit:    "{gc_cycle}",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	GoRuntimeMemoryGCPauseDuration = metric(Name{
 		Section: "go.memory.gc.pause.duration",
 		OTEL:    "go.memory.gc.pause.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	GoRuntimeMemoryUsed = metric(Name{
 		Section: "go.memory.used",
 		OTEL:    "go.memory.used",
 		Unit:    "By",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	GoRuntimeMemoryAllocated = metric(Name{
 		Section: "go.memory.allocated",
 		OTEL:    "go.memory.allocated",
 		Unit:    "By",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	GoRuntimeMemoryAllocations = metric(Name{
 		Section: "go.memory.allocations",
 		OTEL:    "go.memory.allocations",
 		Unit:    "{allocation}",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	GoRuntimeCPUTime = metric(Name{
 		Section: "go.cpu.time",
 		OTEL:    "go.cpu.time",
 		Unit:    "s",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	GoRuntimeGoroutineCount = metric(Name{
 		Section: "go.goroutine.count",
 		OTEL:    "go.goroutine.count",
 		Unit:    "{goroutine}",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	GoRuntimeProcessorLimit = metric(Name{
 		Section: "go.processor.limit",
 		OTEL:    "go.processor.limit",
 		Unit:    "{thread}",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	GoRuntimeConfigGOGC = metric(Name{
 		Section: "go.config.gogc",
 		OTEL:    "go.config.gogc",
 		Unit:    "%",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	GoRuntimeScheduleDuration = metric(Name{
 		Section: "go.schedule.duration",
 		OTEL:    "go.schedule.duration",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	JVMMemoryUsed = metric(Name{
 		Section: "jvm.memory.used",
 		OTEL:    "jvm.memory.used",
 		Unit:    "By",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	JVMMemoryCommitted = metric(Name{
 		Section: "jvm.memory.committed",
 		OTEL:    "jvm.memory.committed",
 		Unit:    "By",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	JVMMemoryLimit = metric(Name{
 		Section: "jvm.memory.limit",
 		OTEL:    "jvm.memory.limit",
 		Unit:    "By",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
 	JVMMemoryUsedAfterLastGC = metric(Name{
 		Section: "jvm.memory.used_after_last_gc",
 		OTEL:    "jvm.memory.used_after_last_gc",
 		Unit:    "By",
-		Type:    UpDownCounter,
+		Type:    InstrumentUpDownCounter,
 	})
-	// Resource is not a metric. It only names the attributes.select section that
-	// selects resource attributes.
+	// Resource is not an instrument: it only names the attributes.select section
+	// that selects resource attributes. It still goes through metric() so its
+	// Prom and OTEL forms stay populated like every other entry.
 	Resource = metric(Name{
 		Section: "resource",
 		OTEL:    "resource",
@@ -324,23 +325,23 @@ var (
 		Section: "obi.stat.tcp.rtt",
 		OTEL:    "obi.stat.tcp.rtt",
 		Unit:    "s",
-		Type:    Histogram,
+		Type:    InstrumentHistogram,
 	})
 	StatTCPFailedConnections = metric(Name{
 		Section: "obi.stat.tcp.failed.connections",
 		OTEL:    "obi.stat.tcp.failed.connections",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	StatTCPRetransmits = metric(Name{
 		Section: "obi.stat.tcp.retransmits",
 		OTEL:    "obi.stat.tcp.retransmits",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 	StatTCPIo = metric(Name{
 		Section: "obi.stat.tcp.io",
 		OTEL:    "obi.stat.tcp.io",
 		Unit:    "By",
-		Type:    Counter,
+		Type:    InstrumentCounter,
 	})
 )
 

@@ -490,7 +490,7 @@ func (pt *ProcessTracer) UnlinkExecutable(info *exec.FileInfo, generation uint64
 func (pt *ProcessTracer) removeInstrumenterReference(key ExecutableKey, i *instrumenter) {
 	for _, p := range pt.Programs {
 		if processScopedTracer, ok := p.(processScopedGoProbeTracer); ok {
-			processScopedTracer.UnregisterProcessScopedGoProbes(key)
+			processScopedTracer.UnregisterProcessScopedGoProbes(key.Dev, key.Ino)
 		}
 	}
 	delete(pt.Instrumentables, key)

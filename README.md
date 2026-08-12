@@ -53,6 +53,11 @@ the [internal/test/integration](./internal/test/integration) and [internal/test/
 
 Below are quick reference instructions for getting OBI up and running with binary downloads or container images. For comprehensive setup, configuration, and troubleshooting guidance, refer to the [OpenTelemetry zero-code instrumentation documentation](https://opentelemetry.io/docs/zero-code/), which is the authoritative source of truth.
 
+When upgrading an existing configuration, follow the
+[Config v1 to v2 migration guide](devdocs/config/version-2.0/migration.md).
+Use Config v2 only with a release whose notes explicitly enable it for your
+standalone or Collector deployment mode.
+
 For release artifact verification and installation details, see:
 
 - [Run OBI as a standalone process](https://opentelemetry.io/docs/zero-code/obi/setup/standalone/)
@@ -254,6 +259,7 @@ issuer and certificate identity shown above.
 
 ## Examples
 
+- [Go Trace API Example](./examples/go-trace-api/README.md)
 - [OTel Collector Receiver Example](./examples/otel-collector/README.md)
 - [NGINX Multi-Route And Proxy Example](./examples/nginx/README.md)
 

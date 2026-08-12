@@ -42,10 +42,14 @@ const (
 	// pkg/export/attributes/metric.go file as we are disabling user-provided attribute
 	// selection for them. They are very specific metrics with an opinionated format
 	// for Span Metrics and Service Graph Metrics functionalities
-	SpanMetricsLatency       = "traces_spanmetrics_latency"
-	SpanMetricsLatencyOTel   = "traces_span_metrics_duration"
-	SpanMetricsCalls         = "traces_spanmetrics_calls_total"
-	SpanMetricsCallsOTel     = "traces_span_metrics_calls_total"
+	SpanMetricsLatency = "traces_spanmetrics_latency"
+	SpanMetricsCalls   = "traces_spanmetrics_calls_total"
+	// SpanMetricsLatencyOTel and SpanMetricsCallsOTel use OTel dot notation,
+	// matching the default `traces.span.metrics` namespace of the
+	// collector-contrib spanmetricsconnector. The Prometheus exporter emits the
+	// underscore counterparts (see pkg/export/prom).
+	SpanMetricsLatencyOTel   = "traces.span.metrics.duration"
+	SpanMetricsCallsOTel     = "traces.span.metrics.calls"
 	SpanMetricsRequestSizes  = "traces_spanmetrics_size_total"
 	SpanMetricsResponseSizes = "traces_spanmetrics_response_size_total"
 	// TracesTargetInfo, TargetInfo and TracesHostInfo use OTel dot notation.
@@ -73,7 +77,7 @@ var MetricTypes = []string{
 type MetricsReporter struct {
 	ctx              context.Context
 	cfg              *otelcfg.MetricsConfig
-	jointMetricsCfg  *perapp.MetricsConfig
+	jointMetricsCfg  *perapp.GlobalMetricsConfig
 	nodeMeta         meta.NodeMeta
 	attributes       *attributes.AttrSelector
 	exporter         sdkmetric.Exporter
@@ -168,7 +172,7 @@ type TargetMetrics struct {
 func ReportMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
-	jointMetricsCfg *perapp.MetricsConfig,
+	jointMetricsCfg *perapp.GlobalMetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
@@ -202,7 +206,7 @@ func newMetricsReporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
-	jointMetricsCfg *perapp.MetricsConfig,
+	jointMetricsCfg *perapp.GlobalMetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],

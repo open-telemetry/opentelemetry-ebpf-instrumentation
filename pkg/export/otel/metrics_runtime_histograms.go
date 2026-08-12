@@ -324,18 +324,18 @@ func produceGoRuntimeHistogram(
 	state goRuntimeHistogramState,
 	temporality metricdata.Temporality,
 ) (metricdata.Metrics, error) {
-	m, err := goRuntimeHistogramMetric(kind)
+	metric, err := goRuntimeHistogramMetric(kind)
 	if err != nil {
 		return metricdata.Metrics{}, err
 	}
 	data, err := state.histogram.Data()
 	if err != nil {
-		return metricdata.Metrics{}, fmt.Errorf("converting %s histogram: %w", m.OTEL, err)
+		return metricdata.Metrics{}, fmt.Errorf("converting %s histogram: %w", metric.OTEL, err)
 	}
 
 	return metricdata.Metrics{
-		Name: m.OTEL,
-		Unit: m.Unit,
+		Name: metric.OTEL,
+		Unit: metric.Unit,
 		Data: metricdata.Histogram[float64]{
 			Temporality: temporality,
 			DataPoints: []metricdata.HistogramDataPoint[float64]{

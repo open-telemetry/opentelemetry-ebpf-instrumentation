@@ -1,0 +1,148 @@
+# Weaver semantic-convention validator for the Kubernetes / kind suites.
+#
+# Receives OTLP (metrics + traces) from the otelcol weaver tap
+# (03-otelcol-weaver.yml + configs/otelcol-config-k8s-weaver.yml) and validates
+# the emitted telemetry against the OBI schema registry under `schemas/obi/`,
+# mounted read-only at /obi-registry via the kind `obi-registry` extraMount
+# (see 00-kind*.yml). It writes its live-check report to
+# /testoutput/weaver-out/live_check.json on the shared testoutput mount; the Go
+# harness reads it from the host after POSTing /stop to the admin port (4320),
+# which the kind config exposes on host port 32320.
+#
+# This is the in-cluster counterpart of components/weaver/service.yml.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: obi-registry
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadOnlyMany
+  capacity:
+    storage: 10Mi
+  hostPath:
+    # Value set by the `obi-registry` extraMount in 00-kind*.yml
+    path: /obi-registry
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: obi-registry
+spec:
+  volumeName: obi-registry
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 10Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaver
+spec:
+  selector:
+    app: weaver
+  ports:
+    - port: 4317
+      name: otlp-grpc
+      targetPort: otlp-grpc
+    - port: 4320
+      name: admin
+      targetPort: admin
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: weaver
+  labels:
+    app: weaver
+spec:
+  volumes:
+    - name: obi-registry
+      persistentVolumeClaim:
+        claimName: obi-registry
+  containers:
+    - name: weaver
+      # v0.25.1+ required: earlier live-check shuts its admin server down 60s
+      # after startup (weaver #1645), restarting weaver mid-suite and dropping
+      # the early span burst from the teardown report.
+      image: otel/weaver:v0.25.1@sha256:9ad46ca9cd4fa5974b121f886aa3e9946a8ef8ea905001a96c018d21f9db87ca
+      # Root, like the docker-compose weaver (user: "0:0").
+      securityContext:
+        runAsUser: 0
+      workingDir: /obi-registry
+      args:
+        - registry
+        - live-check
+        - --registry
+        - /obi-registry
+        - --include-unreferenced
+        - --inactivity-timeout
+        - "300"
+        - --admin-port
+        - "4320"
+        - --format
+        - compact
+        - --templates
+        - /obi-registry/.live_check_templates
+        - --diagnostic-format
+        - json
+        - --output
+        - http
+      volumeMounts:
+        - mountPath: /obi-registry
+          name: obi-registry
+          readOnly: true
+      ports:
+        - containerPort: 4317
+          name: otlp-grpc
+        - containerPort: 4320
+          name: admin
+          # exposed on the host via the kind extraPortMapping (host 32320)
+          hostPort: 4320
+---
+# Intermediate collector decoupling the suite otelcol from weaver's slow
+# ingestion (see configs/otelcol-config-k8s-weavercol.yml for the rationale).
+# Runs a newer contrib image than the base 03-otelcol pin for the `interval`
+# processor and `sending_queue.block_on_overflow`; safe to diverge here since
+# nothing in the production assertion path depends on it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: weavercol
+spec:
+  selector:
+    app: weavercol
+  ports:
+    - port: 4317
+      name: otlp-grpc
+      targetPort: otlp-grpc
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: weavercol
+  labels:
+    app: weavercol
+spec:
+  volumes:
+    - name: configs
+      persistentVolumeClaim:
+        claimName: configs
+  containers:
+    - name: weavercol
+      image: otel/opentelemetry-collector-contrib:0.155.0
+      args: [ "--config=/etc/otelcol-config/otelcol-config-k8s-weavercol.yml" ]
+      volumeMounts:
+        - mountPath: /etc/otelcol-config
+          name: configs
+      ports:
+        - containerPort: 4317
+          name: otlp-grpc
+        # weavercol's own telemetry, scraped from the host at teardown to
+        # detect exports dropped before weaver (exposed via the kind
+        # extraPortMapping 8888 -> WeaverColMetricsHostPort in 00-kind*.yml)
+        - containerPort: 8888
+          name: metrics
+          hostPort: 8888

@@ -87,9 +87,11 @@ const (
 	EventTypeJVMMemoryPoolGC    = 19 // EVENT_JVM_MEM_POOL_GC - JVM memory pool GC metrics
 	EventTypeGoAutoSpan         = 20 // EVENT_GO_AUTO_SPAN - Go Auto SDK OTLP JSON span
 	EventTypeGoRuntimeHistogram = 21 // EVENT_GO_RUNTIME_HISTOGRAM - Go runtime histogram metrics
+	EventTypeGoAutoActivated    = 22 // EVENT_GO_AUTO_ACTIVATED - internal Auto SDK activation control event
 )
 
 // Kernel-side classification
+// Keep these values aligned with protocol_type in bpf/common/connection_info.h
 const (
 	ProtocolTypeUnknown uint8 = iota
 	ProtocolTypeMySQL
@@ -101,6 +103,7 @@ const (
 	ProtocolTypeSunRPC
 	ProtocolTypeNATS // placeholder for future kernel-space detection
 	ProtocolTypeAMQP // placeholder for future kernel-space detection
+	ProtocolTypeAerospike
 )
 
 const (
@@ -572,7 +575,7 @@ func (ctx *EBPFEventContext) HandleInternalEvent(record *ringbuf.Record) (bool, 
 }
 
 func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {
-	if len(record.RawSample) == 0 {
+	if record == nil || len(record.RawSample) == 0 {
 		return request.Span{}, true, errors.New("invalid ringbuffer record size")
 	}
 

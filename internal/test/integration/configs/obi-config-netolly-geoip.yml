@@ -1,0 +1,25 @@
+log_format: json
+network:
+  guess_ports: ordinal
+  geo_ip:
+    maxmind:
+      country_path: /geoip/GeoIP2-Country-Test.mmdb
+      asn_path: /geoip/GeoLite2-ASN-Test.mmdb
+internal_metrics:
+  exporter: otel
+attributes:
+  select:
+    obi_network_flow_bytes:
+      include:
+      - obi.ip
+      - src.address
+      - dst.address
+      - src.name
+      - dst.name
+      - src.asn
+      - dst.asn
+      - src.country
+      - dst.country
+      - iface
+      - iface_direction
+      - direction
