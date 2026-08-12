@@ -1,0 +1,446 @@
+# OBI-emitted semconv metrics, narrowed to exactly the attributes OBI sets.
+# Each metric ref-s only what OBI emits so the registry resolves (without
+# --include-unreferenced) to OBI's true OTLP contract. Kubernetes attributes
+# are added once their upstream declarations land; per-suite validation keeps
+# --include-unreferenced so forwarded pass-through attributes are tolerated.
+groups:
+  - id: metric.obi.db.client.operation.duration
+    type: metric
+    metric_name: db.client.operation.duration
+    brief: OBI-emitted db.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: db.collection.name
+      - ref: db.operation.name
+      - ref: db.system.name
+      - ref: error.type
+      - ref: server.address
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.gen_ai.client.operation.duration
+    type: metric
+    metric_name: gen_ai.client.operation.duration
+    brief: OBI-emitted gen_ai.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: error.type
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.gen_ai.client.token.usage
+    type: metric
+    metric_name: gen_ai.client.token.usage
+    brief: OBI-emitted gen_ai.client.token.usage
+    instrument: histogram
+    unit: "{token}"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: gen_ai.token.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.config.gogc
+    type: metric
+    metric_name: go.config.gogc
+    brief: OBI-emitted go.config.gogc
+    instrument: updowncounter
+    unit: "%"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.cpu.time
+    type: metric
+    metric_name: go.cpu.time
+    brief: OBI-emitted go.cpu.time
+    instrument: counter
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: go.cpu.state
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.goroutine.count
+    type: metric
+    metric_name: go.goroutine.count
+    brief: OBI-emitted go.goroutine.count
+    instrument: updowncounter
+    unit: "{goroutine}"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.memory.allocated
+    type: metric
+    metric_name: go.memory.allocated
+    brief: OBI-emitted go.memory.allocated
+    instrument: counter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.memory.allocations
+    type: metric
+    metric_name: go.memory.allocations
+    brief: OBI-emitted go.memory.allocations
+    instrument: counter
+    unit: "{allocation}"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.memory.gc.cycles
+    type: metric
+    metric_name: go.memory.gc.cycles
+    brief: OBI-emitted go.memory.gc.cycles
+    instrument: counter
+    unit: "{gc_cycle}"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.memory.gc.goal
+    type: metric
+    metric_name: go.memory.gc.goal
+    brief: OBI-emitted go.memory.gc.goal
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.memory.gc.pause.duration
+    type: metric
+    metric_name: go.memory.gc.pause.duration
+    brief: OBI-emitted go.memory.gc.pause.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.memory.limit
+    type: metric
+    metric_name: go.memory.limit
+    brief: OBI-emitted go.memory.limit
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.memory.used
+    type: metric
+    metric_name: go.memory.used
+    brief: OBI-emitted go.memory.used
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: go.memory.type
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.processor.limit
+    type: metric
+    metric_name: go.processor.limit
+    brief: OBI-emitted go.processor.limit
+    instrument: updowncounter
+    unit: "{thread}"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.go.schedule.duration
+    type: metric
+    metric_name: go.schedule.duration
+    brief: OBI-emitted go.schedule.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.http.client.request.body.size
+    type: metric
+    metric_name: http.client.request.body.size
+    brief: OBI-emitted http.client.request.body.size
+    instrument: histogram
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: http.route
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace
+      - ref: url.path
+      - ref: url.scheme
+  - id: metric.obi.http.client.request.duration
+    type: metric
+    metric_name: http.client.request.duration
+    brief: OBI-emitted http.client.request.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: http.route
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace
+      - ref: url.path
+      - ref: url.scheme
+  - id: metric.obi.http.client.response.body.size
+    type: metric
+    metric_name: http.client.response.body.size
+    brief: OBI-emitted http.client.response.body.size
+    instrument: histogram
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: http.route
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace
+      - ref: url.path
+      - ref: url.scheme
+  - id: metric.obi.http.server.request.body.size
+    type: metric
+    metric_name: http.server.request.body.size
+    brief: OBI-emitted http.server.request.body.size
+    instrument: histogram
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: client.address
+      - ref: container.id
+      - ref: container.name
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: http.route
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace
+      - ref: url.path
+      - ref: url.scheme
+  - id: metric.obi.http.server.request.duration
+    type: metric
+    metric_name: http.server.request.duration
+    brief: OBI-emitted http.server.request.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: client.address
+      - ref: container.id
+      - ref: container.name
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: http.route
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace
+      - ref: url.path
+      - ref: url.scheme
+  - id: metric.obi.http.server.response.body.size
+    type: metric
+    metric_name: http.server.response.body.size
+    brief: OBI-emitted http.server.response.body.size
+    instrument: histogram
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: client.address
+      - ref: container.id
+      - ref: container.name
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: http.route
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace
+      - ref: url.path
+      - ref: url.scheme
+  - id: metric.obi.jvm.memory.committed
+    type: metric
+    metric_name: jvm.memory.committed
+    brief: OBI-emitted jvm.memory.committed
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.jvm.memory.limit
+    type: metric
+    metric_name: jvm.memory.limit
+    brief: OBI-emitted jvm.memory.limit
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.jvm.memory.used
+    type: metric
+    metric_name: jvm.memory.used
+    brief: OBI-emitted jvm.memory.used
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.jvm.memory.used.after.last.gc
+    type: metric
+    metric_name: jvm.memory.used_after_last_gc
+    brief: OBI-emitted jvm.memory.used_after_last_gc
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.messaging.client.operation.duration
+    type: metric
+    metric_name: messaging.client.operation.duration
+    brief: OBI-emitted messaging.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: messaging.destination.name
+      - ref: messaging.operation.name
+      - ref: messaging.system
+      - ref: server.address
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.messaging.process.duration
+    type: metric
+    metric_name: messaging.process.duration
+    brief: OBI-emitted messaging.process.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: messaging.destination.name
+      - ref: messaging.operation.name
+      - ref: messaging.system
+      - ref: server.address
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.rpc.client.call.duration
+    type: metric
+    metric_name: rpc.client.call.duration
+    brief: OBI-emitted rpc.client.call.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: container.id
+      - ref: container.name
+      - ref: rpc.method
+      - ref: rpc.response.status_code
+      - ref: rpc.system.name
+      - ref: server.address
+      - ref: service.name
+      - ref: service.namespace
+  - id: metric.obi.rpc.server.call.duration
+    type: metric
+    metric_name: rpc.server.call.duration
+    brief: OBI-emitted rpc.server.call.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: client.address
+      - ref: container.id
+      - ref: container.name
+      - ref: rpc.method
+      - ref: rpc.response.status_code
+      - ref: rpc.system.name
+      - ref: server.address
+      - ref: server.port
+      - ref: service.name
+      - ref: service.namespace

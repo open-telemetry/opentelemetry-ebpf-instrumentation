@@ -1,11 +1,8 @@
 file_format: definition/2
 
 imports:
-  entities: ["*"]
-  events: ["*"]
-  metrics: ["*"]
-  spans: ["*"]
-  attribute_groups: ["*"]
+  metrics:
+    - dns.lookup.duration
 
 metric_refinements:
   # OBI override of the upstream metric.dns.lookup.duration definition.

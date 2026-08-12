@@ -8,8 +8,9 @@ upstream dependency it forms the complete contract of what OBI emits
 ## Overriding an upstream definition
 
 Weaver has **no precedence or merge semantics** between a local group and the
-groups a dependency contributes to the resolved registry
-(`groups/dns.yaml` imports all upstream groups). When the same attribute id is
+groups a dependency contributes to the resolved registry (OBI's group files
+`import` the definitions they refine and `ref` the attributes they emit, both
+of which pull the upstream groups in). When the same attribute id is
 declared by more than one group, live-check silently resolves
 the duplicate in favor of the group whose id sorts **last lexicographically** —
 including the upstream `span.*` / `metric.*` groups that `ref` an attribute
