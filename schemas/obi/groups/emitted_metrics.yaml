@@ -10,7 +10,7 @@ groups:
     brief: OBI-emitted db.client.operation.duration
     instrument: histogram
     unit: "s"
-    stability: development
+    stability: stable
     attributes:
       - ref: container.id
       - ref: container.name
@@ -230,7 +230,7 @@ groups:
     brief: OBI-emitted http.client.request.duration
     instrument: histogram
     unit: "s"
-    stability: development
+    stability: stable
     attributes:
       - ref: container.id
       - ref: container.name
@@ -288,7 +288,7 @@ groups:
     brief: OBI-emitted http.server.request.duration
     instrument: histogram
     unit: "s"
-    stability: development
+    stability: stable
     attributes:
       - ref: client.address
       - ref: container.id
@@ -328,7 +328,7 @@ groups:
     brief: OBI-emitted jvm.memory.committed
     instrument: updowncounter
     unit: "By"
-    stability: development
+    stability: stable
     attributes:
       - ref: container.id
       - ref: container.name
@@ -342,7 +342,7 @@ groups:
     brief: OBI-emitted jvm.memory.limit
     instrument: updowncounter
     unit: "By"
-    stability: development
+    stability: stable
     attributes:
       - ref: container.id
       - ref: container.name
@@ -356,7 +356,7 @@ groups:
     brief: OBI-emitted jvm.memory.used
     instrument: updowncounter
     unit: "By"
-    stability: development
+    stability: stable
     attributes:
       - ref: container.id
       - ref: container.name
@@ -370,7 +370,7 @@ groups:
     brief: OBI-emitted jvm.memory.used_after_last_gc
     instrument: updowncounter
     unit: "By"
-    stability: development
+    stability: stable
     attributes:
       - ref: container.id
       - ref: container.name
@@ -416,7 +416,7 @@ groups:
     brief: OBI-emitted rpc.client.call.duration
     instrument: histogram
     unit: "s"
-    stability: development
+    stability: release_candidate
     attributes:
       - ref: container.id
       - ref: container.name
@@ -432,7 +432,7 @@ groups:
     brief: OBI-emitted rpc.server.call.duration
     instrument: histogram
     unit: "s"
-    stability: development
+    stability: release_candidate
     attributes:
       - ref: client.address
       - ref: container.id
