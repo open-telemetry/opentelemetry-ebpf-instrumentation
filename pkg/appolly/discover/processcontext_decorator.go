@@ -188,7 +188,7 @@ func (pcd *processContextDecorator) applyContext(fi *execpkg.FileInfo, info proc
 		}
 	}
 
-	for _, kv := range info.Context.GetExtraAttributes() {
+	for _, kv := range info.Context.GetAttributes() {
 		if kv == nil || kv.Key == "" {
 			continue
 		}

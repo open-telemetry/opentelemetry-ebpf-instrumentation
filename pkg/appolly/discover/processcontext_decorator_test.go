@@ -152,7 +152,7 @@ func TestProcessContextDecorator_HandleCreated_ResourceAttributes(t *testing.T) 
 
 func TestProcessContextDecorator_HandleCreated_ExtraAttributes(t *testing.T) {
 	ctx := &processcontextpb.ProcessContext{
-		ExtraAttributes: []*commonpb.KeyValue{
+		Attributes: []*commonpb.KeyValue{
 			{
 				Key: "custom.key",
 				Value: &commonpb.AnyValue{
