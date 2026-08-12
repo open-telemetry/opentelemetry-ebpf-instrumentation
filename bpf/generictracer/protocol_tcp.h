@@ -21,6 +21,7 @@
 #include <maps/tp_info_mem.h>
 
 #include <generictracer/failed_connect.h>
+#include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
@@ -225,10 +226,8 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;
     case k_protocol_type_aerospike:
-        // No protocol-specific large buffers yet: keep the generic wire-layer
-        // capture so classification doesn't reduce what userspace sees.
-        unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
-        break;
+        return aerospike_send_large_buffer(
+            req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
     case k_protocol_type_nats:
     case k_protocol_type_amqp:
     case k_protocol_type_unknown:
