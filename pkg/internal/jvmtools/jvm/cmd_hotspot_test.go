@@ -22,28 +22,107 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAttachContextReturnsCanceledContext(t *testing.T) {
+func TestAttachReturnsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	out, err := attacher.AttachContext(ctx, os.Getpid(), []string{"jcmd"}, true)
+	out, err := attacher.Attach(ctx, os.Getpid(), []string{"jcmd"}, true)
 	require.Nil(t, out)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-func TestCleanupIsIdempotent(t *testing.T) {
+func TestCleanupWithoutInitDoesNotSetCredentials(t *testing.T) {
+	originalSetEUID := setEUID
+	originalSetEGID := setEGID
+	t.Cleanup(func() {
+		setEUID = originalSetEUID
+		setEGID = originalSetEGID
+	})
+
+	var euidCalls []int
+	var egidCalls []int
+	setEUID = func(id int) error {
+		euidCalls = append(euidCalls, id)
+		return nil
+	}
+	setEGID = func(id int) error {
+		egidCalls = append(egidCalls, id)
+		return nil
+	}
+
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	require.NoError(t, attacher.Cleanup())
-	require.False(t, attacher.initialized)
+	require.Empty(t, euidCalls)
+	require.Empty(t, egidCalls)
+}
 
+func TestInitIsIdempotent(t *testing.T) {
+	originalGetEUID := getEUID
+	originalGetEGID := getEGID
+	t.Cleanup(func() {
+		getEUID = originalGetEUID
+		getEGID = originalGetEGID
+	})
+
+	euidCalls := 0
+	egidCalls := 0
+	getEUID = func() int {
+		euidCalls++
+		return 123
+	}
+	getEGID = func() int {
+		egidCalls++
+		return 456
+	}
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	attacher.Init()
-	require.True(t, attacher.initialized)
+	attacher.Init()
+
+	require.Equal(t, 1, euidCalls)
+	require.Equal(t, 1, egidCalls)
+	require.Equal(t, 123, attacher.myUID)
+	require.Equal(t, 456, attacher.myGID)
+}
+
+func TestCleanupIsIdempotent(t *testing.T) {
+	originalGetEUID := getEUID
+	originalGetEGID := getEGID
+	originalSetEUID := setEUID
+	originalSetEGID := setEGID
+	t.Cleanup(func() {
+		getEUID = originalGetEUID
+		getEGID = originalGetEGID
+		setEUID = originalSetEUID
+		setEGID = originalSetEGID
+	})
+
+	var euidCalls []int
+	var egidCalls []int
+	getEUID = func() int {
+		return 123
+	}
+	getEGID = func() int {
+		return 456
+	}
+	setEUID = func(id int) error {
+		euidCalls = append(euidCalls, id)
+		return nil
+	}
+	setEGID = func(id int) error {
+		egidCalls = append(egidCalls, id)
+		return nil
+	}
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	attacher.Init()
 	require.NoError(t, attacher.Cleanup())
-	require.False(t, attacher.initialized)
 	require.NoError(t, attacher.Cleanup())
+	require.Equal(t, []int{123}, euidCalls)
+	require.Equal(t, []int{456}, egidCalls)
 }
 
 func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *testing.T) {

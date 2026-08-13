@@ -20,6 +20,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/util"
 )
 
+// extracted for testing
+var (
+	getEUID = syscall.Geteuid
+	getEGID = syscall.Getegid
+	setEUID = syscall.Seteuid
+	setEGID = syscall.Setegid
+)
+
 type JAttacher struct {
 	logger      *slog.Logger
 	j9attacher  *j9Attacher
@@ -48,8 +56,8 @@ func (j *JAttacher) Init() {
 		return
 	}
 
-	j.myUID = syscall.Geteuid()
-	j.myGID = syscall.Getegid()
+	j.myUID = getEUID()
+	j.myGID = getEGID()
 	j.initialized = true
 }
 
@@ -73,10 +81,10 @@ func (j *JAttacher) Cleanup() error {
 	// happens only on the dedicated sacrificial thread spawned by Attach, which
 	// is destroyed once attach completes — the runtime's pool threads never
 	// leave their original namespaces, so there is nothing to roll back.
-	if err := syscall.Seteuid(j.myUID); err != nil {
+	if err := setEUID(j.myUID); err != nil {
 		cleanupErr = errors.Join(cleanupErr, err)
 	}
-	if err := syscall.Setegid(j.myGID); err != nil {
+	if err := setEGID(j.myGID); err != nil {
 		cleanupErr = errors.Join(cleanupErr, err)
 	}
 
@@ -164,8 +172,8 @@ func (j *JAttacher) attachInNamespace(ctx context.Context, pid, nspid, targetUID
 
 	// In HotSpot, dynamic attach is allowed only for the clients with the same euid/egid.
 	// If we are running under root, switch to the required euid/egid automatically.
-	if (j.myGID != targetGID && syscall.Setegid(targetGID) != nil) ||
-		(j.myUID != targetUID && syscall.Seteuid(targetUID) != nil) {
+	if (j.myGID != targetGID && setEGID(targetGID) != nil) ||
+		(j.myUID != targetUID && setEUID(targetUID) != nil) {
 		return nil, errors.New("failed to change credentials to match the target process")
 	}
 
