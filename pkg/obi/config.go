@@ -6,7 +6,6 @@ package obi // import "go.opentelemetry.io/obi/pkg/obi"
 import (
 	"encoding"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -497,6 +496,7 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 		DecodeHook: mapstructure.ComposeDecodeHookFunc(
 			mapstructure.StringToTimeDurationHookFunc(),
 			mapstructure.TextUnmarshallerHookFunc(),
+			bpfDebugModeDecodeHookFunc(),
 			stringSliceToTextUnmarshalerHookFunc(),
 			inlineMetadataHookFunc(),
 		),
@@ -542,6 +542,24 @@ func (c *Config) Log() {
 	}
 }
 
+func bpfDebugModeDecodeHookFunc() mapstructure.DecodeHookFunc {
+	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
+		if to.Kind() == reflect.Ptr {
+			to = to.Elem()
+		}
+		if to != reflect.TypeOf(config.BPFDebugMode(0)) {
+			return data, nil
+		}
+
+		switch data.(type) {
+		case []any, []string:
+			return data, fmt.Errorf("cannot unmarshal !!seq into config.BPFDebugMode")
+		default:
+			return data, nil
+		}
+	}
+}
+
 // stringSliceToTextUnmarshalerHookFunc returns a DecodeHookFunc that converts
 // slices of strings (or []interface{} containing strings) to types implementing
 // encoding.TextUnmarshaler by joining them with commas.
@@ -559,9 +577,6 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 		}
 
 		if slice, ok := data.([]any); ok {
-			if to == reflect.TypeOf(config.BPFDebugMode(0)) {
-				return data, errors.New("bpf_debug_mode expects a string, not a list")
-			}
 			strs := make([]string, 0, len(slice))
 			for _, v := range slice {
 				if s, ok := v.(string); ok {
@@ -576,9 +591,6 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 
 		// Handle []string directly
 		if slice, ok := data.([]string); ok {
-			if to == reflect.TypeOf(config.BPFDebugMode(0)) {
-				return data, errors.New("bpf_debug_mode expects a string, not a list")
-			}
 			return strings.Join(slice, ","), nil
 		}
 

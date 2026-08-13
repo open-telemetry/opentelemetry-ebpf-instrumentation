@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr/funcr"
-
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
