@@ -84,7 +84,7 @@ groups:
     type: metric
     metric_name: gpu.cuda.memory.copies
     instrument: histogram
-    unit: "1"
+    unit: "By"
     stability: development
     brief: >
       Distribution of CUDA memory copy sizes (cudaMemcpy / cudaMemcpyAsync),

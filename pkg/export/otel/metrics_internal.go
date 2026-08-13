@@ -212,7 +212,8 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 
 	queueCapacityRatio, err := meter.Float64Gauge(
 		attr.VendorPrefix+".queue.capacity.ratio",
-		instrument.WithUnit("Ratio [0-1] between the unread messages of an internal Go channel and its total capacity"))
+		instrument.WithDescription("Ratio [0-1] between the unread messages of an internal Go channel and its total capacity"),
+		instrument.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
