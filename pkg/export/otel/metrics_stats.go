@@ -147,7 +147,7 @@ func newStatMetricsExporter(
 
 		tcpRtt, err := ebpfEvents.Float64Histogram(
 			attributes.StatTCPRtt.OTEL,
-			metric2.WithUnit("s"),
+			metric2.WithUnit(attributes.StatTCPRtt.Unit),
 		)
 		if err != nil {
 			log.Error("creating stats tcp rtt histogram", "error", err)
@@ -181,7 +181,7 @@ func newStatMetricsExporter(
 	if cfg.CommonCfg.Features.StatsTCPIo() {
 		log := log.With("metricFamily", "StatsTCPIo")
 
-		tcpIo, err := ebpfEvents.Int64Counter(attributes.StatTCPIo.OTEL, metric2.WithUnit("By"))
+		tcpIo, err := ebpfEvents.Int64Counter(attributes.StatTCPIo.OTEL, metric2.WithUnit(attributes.StatTCPIo.Unit))
 		if err != nil {
 			log.Error("creating stats tcp io counter", "error", err)
 			return nil, err
