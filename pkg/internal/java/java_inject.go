@@ -112,6 +112,10 @@ func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string
 }
 
 func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
+	if ie.Type != svc.InstrumentableJava {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), i.cfg.Java.Timeout)
 	defer cancel()
 
@@ -127,75 +131,65 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	defer func() {
-		if err := attacher.Cleanup(); err != nil {
-			slog.Warn("error on JVM attach cleanup", "error", err)
-		}
-	}()
-
-	if ie.Type == svc.InstrumentableJava {
-		// Run the attach procedure in a goroutine, so that we can terminate on stuck attach
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					resultChan <- result{err: &JavaInjectError{Message: "attach failed"}}
-				}
-			}()
-
-			ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid())
-			if !ok {
-				resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
-				return
+	// Run the attach procedure in a goroutine, so that we can terminate on stuck attach
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				resultChan <- result{err: &JavaInjectError{Message: "attach failed"}}
 			}
-
-			var loaded bool
-			var err error
-			if jdk8 {
-				loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid())
-			} else {
-				loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid())
-			}
-
-			if err != nil {
-				resultChan <- result{err: err}
-				return
-			}
-
-			if loaded {
-				i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
-				resultChan <- result{attached: false}
-				return
-			}
-
-			i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid())
-
-			agentPath, err := i.copyAgent(ie)
-			if err != nil {
-				i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid(), "error", err)
-				resultChan <- result{err: err}
-				return
-			}
-
-			if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid(), agentPath); err != nil {
-				i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
-				resultChan <- result{err: err}
-				return
-			}
-
-			resultChan <- result{attached: true}
 		}()
 
-		// Wait for either completion or timeout
-		select {
-		case result := <-resultChan:
-			return result.err
-		case <-ctx.Done():
-			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid())
-			return &JavaInjectError{Message: "java attach timed out"}
+		ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid())
+		if !ok {
+			resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
+			return
 		}
-	}
 
-	return nil
+		var loaded bool
+		var err error
+		if jdk8 {
+			loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid())
+		} else {
+			loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid())
+		}
+
+		if err != nil {
+			resultChan <- result{err: err}
+			return
+		}
+
+		if loaded {
+			i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
+			resultChan <- result{attached: false}
+			return
+		}
+
+		i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid())
+
+		agentPath, err := i.copyAgent(ie)
+		if err != nil {
+			i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid(), "error", err)
+			resultChan <- result{err: err}
+			return
+		}
+
+		if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid(), agentPath); err != nil {
+			i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
+			resultChan <- result{err: err}
+			return
+		}
+
+		resultChan <- result{attached: true}
+	}()
+
+	// Wait for either completion or timeout
+	select {
+	case result := <-resultChan:
+		return result.err
+	case <-ctx.Done():
+		i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid())
+		return &JavaInjectError{Message: "java attach timed out"}
+	}
 }
 
 func ensureEmbeddedAgent() error {
