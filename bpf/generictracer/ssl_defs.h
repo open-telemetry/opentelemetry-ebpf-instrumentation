@@ -15,6 +15,7 @@
 
 #include <generictracer/maps/pid_tid_to_conn.h>
 #include <generictracer/maps/ssl_to_pid_tid.h>
+#include <generictracer/tls_prefix.h>
 
 #include <maps/ssl_to_conn.h>
 

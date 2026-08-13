@@ -41,6 +41,7 @@
 #include <generictracer/protocol_mssql.h>
 #include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
+#include <generictracer/tls_prefix.h>
 
 #include <maps/ongoing_http2_connections.h>
 
@@ -451,12 +452,29 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
         setup_connection_to_pid_mapping(id, &s_args.p_conn, orig_dport);
 
         u64 *ssl = is_ssl_connection(&s_args.p_conn);
+
         if (size > 0) {
             if (!ssl) {
                 unsigned char *buf = iovec_memory();
                 if (buf) {
+                    const size_t avail = size;
+
                     size = read_msghdr_buf(msg, buf, size);
 
+                    // A memory BIO stack reaches the socket from the event
+                    // loop, after the SSL_write uprobe has returned. Bind it
+                    // here by matching this record against the prefix recorded
+                    // when OpenSSL wrote it to the write BIO.
+                    if (size >= k_tls_hdr_len && tls_record_plausible_start(buf, (u32)size) &&
+                        tls_prefix_try_bind(
+                            id, buf, (u32)size, (u32)avail, &s_args.p_conn, orig_dport)) {
+                        // Now a known TLS connection, so leave the ciphertext
+                        // for the TLS path and skip the plaintext parsers.
+                        ssl = is_ssl_connection(&s_args.p_conn);
+                    }
+                }
+
+                if (buf && !ssl) {
                     // If a sock_msg program is installed, this kprobe will fail to
                     // read anything, because the data is in bvec physical pages. However,
                     // the sock_msg will setup a buffer for us if this is the case. We

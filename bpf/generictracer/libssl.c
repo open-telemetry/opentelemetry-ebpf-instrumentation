@@ -10,6 +10,7 @@
 #include <common/preempt_guard.h>
 
 #include <generictracer/ssl_defs.h>
+#include <generictracer/tls_prefix.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -331,8 +332,52 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_shutdown, void *s) {
 
     bpf_map_delete_elem(&ssl_to_conn, &s);
     bpf_map_delete_elem(&ssl_to_pid_tid, &s);
+    ssl_bios_forget(pid_from_pid_tgid(id), s);
 
     bpf_map_delete_elem(&pid_tid_to_conn, &id);
+
+    return 0;
+}
+
+// Records which BIOs this SSL reads from and writes to.
+//
+// CPython (_ssl.c) and Node (crypto_tls.cc) both call this when building the
+// connection. It names the connection's own BIOs, separating them from
+// OpenSSL's internal staging BIOs, and identifies the SSL behind a BIO level
+// write during the handshake, while SSL_write is off the stack.
+SEC("uprobe/libssl.so:SSL_set_bio")
+int BPF_UPROBE(obi_uprobe_ssl_set_bio, void *ssl, void *rbio, void *wbio) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== SSL_set_bio id=%d ssl=%llx rbio=%llx wbio=%llx ===", id, ssl, rbio, wbio);
+
+    ssl_bios_track(pid_from_pid_tgid(id), ssl, rbio, wbio);
+
+    return 0;
+}
+
+// The seam where ciphertext becomes observable for every TLS stack.
+//
+// OpenSSL writes a finished record out through the BIO the same way for a
+// socket BIO and a memory BIO, whatever the application does with the buffer
+// afterwards. It is a libcrypto symbol.
+SEC("uprobe/libcrypto.so:BIO_write")
+int BPF_UPROBE(obi_uprobe_bio_write, void *bio, const void *buf, int len) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    tls_prefix_register_egress(bio, buf, len);
 
     return 0;
 }

@@ -38,6 +38,48 @@ typedef struct tls_prefix_key {
     u8 _pad[7];
 } tls_prefix_key_t;
 
+// Correlation data model. Kept away from the map definitions so the host
+// compiled unit tests share the exact types the BPF maps are declared with.
+
+// A userspace pointer scoped to the process it belongs to.
+//
+// The correlation maps are pinned and shared node-wide, and entries outlive the
+// process that made them, so the pid keeps each process's pointers distinct.
+typedef struct pid_ptr_key {
+    u64 ptr;
+    u32 pid;
+    u32 _pad;
+} pid_ptr_key_t;
+
+static __always_inline pid_ptr_key_t pid_ptr_key(u32 pid, const void *ptr) {
+    pid_ptr_key_t key = {.ptr = (u64)ptr, .pid = pid, ._pad = 0};
+
+    return key;
+}
+
+typedef struct bio_ssl_info {
+    u64 ssl;
+    u8 is_wbio; // 1 for the write BIO (egress), 0 for the read BIO (ingress)
+    u8 _pad[7];
+} bio_ssl_info_t;
+
+typedef struct ssl_bios {
+    u64 rbio;
+    u64 wbio;
+} ssl_bios_t;
+
+typedef struct tls_prefix_val {
+    u64 ssl;
+    u64 ts_ns;
+    u32 pid;
+    u32 _pad;
+} tls_prefix_val_t;
+
+typedef struct tls_prefix_scratch {
+    tls_prefix_key_t key;
+    unsigned char record[k_tls_prefix_max];
+} tls_prefix_scratch_t;
+
 // Two byte test for the start of a TLS record, cheap enough for every plaintext
 // socket write. The version byte also screens out kTLS, where the kernel
 // encrypts below us and the socket carries plaintext.

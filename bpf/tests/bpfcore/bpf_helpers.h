@@ -67,11 +67,18 @@ static inline unsigned long long bpf_ringbuf_query(void *rb, int flags) {
 #define BPF_RB_NO_WAKEUP 1
 #define BPF_RB_FORCE_WAKEUP 2
 #define BPF_RB_AVAIL_DATA 0
+// Tests that care about time set this; the rest see a frozen clock.
+static unsigned long long bpf_ktime_ns_value;
+static inline unsigned long long bpf_ktime_get_ns(void) {
+    return bpf_ktime_ns_value;
+}
 static inline void *bpf_get_current_task(void) {
     return NULL;
 }
+// Tests that care which process is running set this.
+static unsigned long long bpf_current_pid_tgid_value;
 static inline unsigned long long bpf_get_current_pid_tgid(void) {
-    return 0;
+    return bpf_current_pid_tgid_value;
 }
 static inline long bpf_get_current_comm(void *buf, unsigned int sz) {
     return 0;
