@@ -29,6 +29,34 @@ finish_possible_delayed_tls_http_request(pid_connection_info_t *pid_conn) {
     }
 }
 
+// Releases the state keyed on an SSL that has reached the end of its life.
+//
+// Both SSL_shutdown and SSL_free lead here. SSL_free matters on its own because
+// allocators reuse SSL pointers quickly, so a runtime that opens a connection
+// per request hands the same address to a new connection almost immediately.
+//
+// Everything here is keyed on the SSL, so releasing twice is harmless: the
+// second call finds nothing left and emits no event.
+static __always_inline void ssl_release_connection_state(u64 id, void *s) {
+    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &s);
+    if (s_conn) {
+        finish_possible_delayed_tls_http_request(&s_conn->p_conn);
+        bpf_map_delete_elem(&active_ssl_connections, &s_conn->p_conn);
+    }
+
+    bpf_map_delete_elem(&ssl_to_conn, &s);
+    bpf_map_delete_elem(&ssl_to_pid_tid, &s);
+    ssl_bios_forget(pid_from_pid_tgid(id), s);
+}
+
+// Releases the fallback binding this thread left behind, for SSL_shutdown only.
+//
+// pid_tid_to_conn is keyed on the thread, and a thread can free one SSL while
+// another is still in flight on it.
+static __always_inline void ssl_release_thread_state(u64 id) {
+    bpf_map_delete_elem(&pid_tid_to_conn, &id);
+}
+
 static __always_inline void
 handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction) {
     if (args) {

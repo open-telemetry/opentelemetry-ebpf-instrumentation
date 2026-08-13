@@ -447,6 +447,10 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Required: false,
 				Start:    p.bpfObjects.ObiUprobeSslSetBio,
 			}},
+			"SSL_free": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslFree,
+			}},
 		},
 		// BIO_write is a libcrypto symbol. A process that links libssl and
 		// libcrypto separately, as CPython does, resolves it from its own

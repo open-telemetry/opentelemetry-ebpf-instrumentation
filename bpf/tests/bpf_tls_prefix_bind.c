@@ -427,9 +427,97 @@ static void test_bound_ssl_survives_the_event_loop_write(void) {
               "a bound SSL reports the peer it connected to");
 }
 
-// The correlation is not handshake-only: any TLS record registers a key while
-// the SSL still has no peer. This is what a connection that predates
-// attachment depends on, since its handshake is long gone.
+// Mirror the two uprobe call sites in libssl.c, so the split between SSL-keyed
+// and thread-keyed teardown is asserted the way the probes actually use it.
+static void ssl_shutdown_probe(u64 id, void *ssl) {
+    ssl_release_connection_state(id, ssl);
+    ssl_release_thread_state(id);
+}
+
+static void ssl_free_probe(u64 id, void *ssl) {
+    ssl_release_connection_state(id, ssl);
+}
+
+// SSL_free must leave pid_tid_to_conn alone. It is keyed on the thread, and an
+// event loop routinely frees one connection while another is still in flight on
+// the same thread.
+static void test_free_keeps_the_threads_fallback_binding(void) {
+    reset();
+    run_handshake_egress();
+    seed_inbound_guess();
+
+    ssl_free_probe(k_id, k_ssl);
+
+    check(map_get(&pid_tid_to_conn, &k_id) != NULL,
+          "freeing an SSL does not drop the thread's fallback binding");
+
+    // A second, uncorrelated SSL on the same thread still resolves through it.
+    void *const other_ssl = (void *)0x5600;
+    ssl_args_t args = ssl_args();
+    args.ssl = (u64)other_ssl;
+    handle_ssl_buf(NULL, k_id, &args, 16, TCP_SEND);
+
+    check_u16(8080,
+              test_last_orig_dport,
+              "an in-flight SSL on the same thread still resolves after another is freed");
+}
+
+// SSL_shutdown still releases the thread's binding.
+static void test_shutdown_clears_the_threads_fallback_binding(void) {
+    reset();
+    run_handshake_egress();
+    seed_inbound_guess();
+
+    ssl_shutdown_probe(k_id, k_ssl);
+
+    check(map_get(&pid_tid_to_conn, &k_id) == NULL,
+          "shutting an SSL down drops the thread's fallback binding");
+}
+
+// A second connection whose SSL pointer is the address a previous one used.
+// Runs the same handshake against a different peer and reports which peer the
+// SSL ends up bound to.
+static u16 recycled_pointer_binds_to(int tear_down_first) {
+    reset();
+    run_handshake_egress(); // first connection, upstream:8443
+
+    if (tear_down_first) {
+        ssl_free_probe(k_id, k_ssl);
+    }
+
+    // The allocator hands the same address to a new connection talking to a
+    // different peer.
+    pid_connection_info_t other = upstream_conn();
+    other.conn.d_port = 9443;
+    other.conn.s_port = 51001;
+
+    ssl_bios_track(k_pid, k_ssl, k_rbio, k_wbio);
+    tls_prefix_register_egress(k_wbio, client_hello, (int)client_hello_len);
+    tls_prefix_try_bind(k_id, client_hello, k_tls_prefix_max, client_hello_len, &other, 9443);
+
+    ssl_pid_connection_info_t *bound = map_get(&ssl_to_conn, &k_ssl);
+    return bound ? bound->orig_dport : 0;
+}
+
+// A binding that survives its SSL reads as a good one, so the correlation is
+// skipped and the new connection inherits the dead connection's peer.
+static void test_recycled_pointer_without_teardown_inherits_the_old_peer(void) {
+    check_u16(8443,
+              recycled_pointer_binds_to(0),
+              "a stale binding suppresses correlation and the old peer is inherited");
+}
+
+// Releasing the SSL on SSL_free clears the binding, so the next connection to
+// receive that address correlates normally.
+static void test_freed_ssl_lets_a_recycled_pointer_recorrelate(void) {
+    check_u16(9443,
+              recycled_pointer_binds_to(1),
+              "a recycled pointer binds to its own peer once the SSL was freed");
+}
+
+// Any TLS record registers a key while the SSL still has no peer, which is what
+// a connection predating attachment depends on, since its handshake is long
+// gone.
 static void test_application_data_record_also_correlates(void) {
     reset();
 
@@ -489,6 +577,10 @@ int main(void) {
     test_other_process_does_not_match();
     test_uncorrelated_write_takes_the_inbound_guess();
     test_bound_ssl_survives_the_event_loop_write();
+    test_free_keeps_the_threads_fallback_binding();
+    test_shutdown_clears_the_threads_fallback_binding();
+    test_recycled_pointer_without_teardown_inherits_the_old_peer();
+    test_freed_ssl_lets_a_recycled_pointer_recorrelate();
     test_application_data_record_also_correlates();
     test_unknown_bio_never_correlates();
 
