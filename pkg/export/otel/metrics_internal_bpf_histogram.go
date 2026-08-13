@@ -14,13 +14,9 @@ import (
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
-
-// bpfProbeLatencyMetricName is the OTLP counterpart of the Prometheus
-// bpf_probe_latency_seconds const histogram.
-var bpfProbeLatencyMetricName = attr.VendorPrefix + ".bpf.probe.latency"
 
 type bpfProbeKey struct {
 	probeID   string
@@ -156,9 +152,9 @@ func (p *bpfProbeLatencyProducer) Produce(ctx context.Context) ([]metricdata.Sco
 	return []metricdata.ScopeMetrics{{
 		Scope: instrumentation.Scope{Name: internalMetricsMeterName},
 		Metrics: []metricdata.Metrics{{
-			Name:        bpfProbeLatencyMetricName,
+			Name:        attributes.InternalBpfProbeLatency.OTEL,
 			Description: "Latency distribution of the eBPF probe in seconds",
-			Unit:        "s",
+			Unit:        attributes.InternalBpfProbeLatency.Unit,
 			Data: metricdata.Histogram[float64]{
 				Temporality: metricdata.CumulativeTemporality,
 				DataPoints:  dataPoints,
