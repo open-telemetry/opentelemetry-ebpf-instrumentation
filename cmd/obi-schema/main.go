@@ -399,6 +399,8 @@ func main() {
 
 	schema := reflector.Reflect(&obi.Config{})
 
+	inlineTypeSchemas := g.buildInlineTypeSchemas(reflect.TypeFor[obi.Config]())
+
 	// A collision makes every later step operate on a schema that already
 	// merged two unrelated types, so stop before post-processing it.
 	if err := g.checkTypeNameCollisions(); err != nil {
@@ -410,7 +412,7 @@ func main() {
 	schema.Description = "JSON Schema for OpenTelemetry eBPF Instrumentation (OBI) configuration"
 
 	// Process inline fields first (merge properties from inline types)
-	g.processInlineFields(schema)
+	g.processInlineFields(schema, inlineTypeSchemas)
 
 	// Process deprecated annotations from comments
 	processDeprecated(schema)
@@ -465,7 +467,9 @@ type jsonSchemaer interface {
 
 // buildInlineTypeSchemas uses reflection to find inline fields that implement JSONSchema().
 // It walks the type hierarchy starting from rootType and returns a map of type name to schema function.
-func buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema.Schema {
+// Walking also records the package of every named inline field type, which is
+// what makes those types visible to checkTypeNameCollisions.
+func (g *SchemaGenerator) buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema.Schema {
 	result := make(map[string]func() *jsonschema.Schema)
 	visited := make(map[reflect.Type]bool)
 
@@ -510,6 +514,9 @@ func buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema
 				for fieldType.Kind() == reflect.Pointer {
 					fieldType = fieldType.Elem()
 				}
+
+				// The reflector never names inline types, so the collision check only sees them from here.
+				g.recordTypeName(fieldType)
 
 				// Check if it implements JSONSchema()
 				if hasJSONSchemaMethod(fieldType) {
@@ -566,13 +573,10 @@ func callJSONSchemaMethod(t reflect.Type) *jsonschema.Schema {
 }
 
 // processInlineFields merges properties from inline field types into their parent schemas.
-func (g *SchemaGenerator) processInlineFields(schema *jsonschema.Schema) {
+func (g *SchemaGenerator) processInlineFields(schema *jsonschema.Schema, inlineTypeSchemas map[string]func() *jsonschema.Schema) {
 	if schema == nil {
 		return
 	}
-
-	// Build inline type schemas dynamically using reflection
-	inlineTypeSchemas := buildInlineTypeSchemas(reflect.TypeFor[obi.Config]())
 
 	// Process each definition that has inline fields
 	for typeName, inlineTypes := range g.inlineFields {
