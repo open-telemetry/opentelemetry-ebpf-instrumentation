@@ -401,6 +401,11 @@ func (p *Tracer) supportsContextPropagation() bool {
 	return !ebpfcommon.IntegrityModeOverride && supportsContextPropagationWithProbe(p.log)
 }
 
+func (p *Tracer) headerPropagationEnabled() bool {
+	return p != nil && p.cfg != nil && p.cfg.ContextPropagation.HasHeaders() &&
+		p.supportsContextPropagation()
+}
+
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if !p.supportsContextPropagation() {
 		p.log.Info("Kernel in lockdown mode or missing CAP_SYS_ADMIN.")
@@ -431,22 +436,24 @@ func (p *Tracer) constants() map[string]any {
 		blackBoxCP = uint32(1)
 	}
 
+	writeUserSupported := p.supportsContextPropagation()
 	m := map[string]any{
-		"g_bpf_debug":               p.cfg.BpfDebug,
-		"g_bpf_header_propagation":  p.supportsContextPropagation(),
-		"wakeup_data_bytes":         uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
-		"disable_black_box_cp":      blackBoxCP,
-		"attr_type_invalid":         uint64(attribute.INVALID),
-		"attr_type_bool":            uint64(attribute.BOOL),
-		"attr_type_int64":           uint64(attribute.INT64),
-		"attr_type_float64":         uint64(attribute.FLOAT64),
-		"attr_type_string":          uint64(attribute.STRING),
-		"attr_type_boolslice":       uint64(attribute.BOOLSLICE),
-		"attr_type_int64slice":      uint64(attribute.INT64SLICE),
-		"attr_type_float64slice":    uint64(attribute.FLOAT64SLICE),
-		"attr_type_stringslice":     uint64(attribute.STRINGSLICE),
-		"g_bpf_traceparent_enabled": true,
-		"g_bpf_loop_enabled":        p.supportsBPFLoop,
+		"g_bpf_debug":                    p.cfg.BpfDebug,
+		"g_bpf_header_propagation":       p.cfg.ContextPropagation.HasHeaders() && writeUserSupported,
+		"g_bpf_probe_write_user_enabled": writeUserSupported,
+		"wakeup_data_bytes":              uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
+		"disable_black_box_cp":           blackBoxCP,
+		"attr_type_invalid":              uint64(attribute.INVALID),
+		"attr_type_bool":                 uint64(attribute.BOOL),
+		"attr_type_int64":                uint64(attribute.INT64),
+		"attr_type_float64":              uint64(attribute.FLOAT64),
+		"attr_type_string":               uint64(attribute.STRING),
+		"attr_type_boolslice":            uint64(attribute.BOOLSLICE),
+		"attr_type_int64slice":           uint64(attribute.INT64SLICE),
+		"attr_type_float64slice":         uint64(attribute.FLOAT64SLICE),
+		"attr_type_stringslice":          uint64(attribute.STRINGSLICE),
+		"g_bpf_traceparent_enabled":      true,
+		"g_bpf_loop_enabled":             p.supportsBPFLoop,
 	}
 
 	if p.cfg.TrackRequestHeaders ||
@@ -1978,7 +1985,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 	}
 
-	if p.supportsContextPropagation() {
+	if p.headerPropagationEnabled() {
 		m["net/http.Header.writeSubset"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeWriteSubset,        // http 1.x context propagation
 			End:   p.bpfObjects.ObiUprobeWriteSubsetReturns, // inject only if no traceparent present

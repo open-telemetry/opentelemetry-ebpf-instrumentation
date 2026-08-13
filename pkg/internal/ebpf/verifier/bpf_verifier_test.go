@@ -194,12 +194,17 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_debug", []any{true, false}},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"g_bpf_header_propagation", []any{true, false}},
+		{"g_bpf_probe_write_user_enabled", []any{true}},
 		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
 		{"capture_header_buffer", []any{int32(0), int32(1)}},
 		{"high_request_volume", []any{uint32(0), uint32(1)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+	})
+	loadAndVerify(t, "gotracer/Bpf/no-write-user", gotracerbpf.LoadBpf, map[string]any{
+		"g_bpf_header_propagation":       false,
+		"g_bpf_probe_write_user_enabled": false,
 	})
 
 	// tpinjector
