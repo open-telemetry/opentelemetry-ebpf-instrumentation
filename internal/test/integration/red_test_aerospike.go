@@ -94,6 +94,14 @@ func testREDMetricsAerospikeOnly(t *testing.T) {
 					attribute.String("db.operation.name", "PUT"),
 					attribute.String("db.query.text", "obi"),
 				}},
+				// The create-only PUT on an existing record fails with KEY_EXISTS_ERROR.
+				// The Java client reads the response header and body in separate recv()
+				// calls, so this status is only visible with kernel-side response
+				// reassembly (OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE in the compose file).
+				{Name: "PUT test.demo", Attributes: []attribute.KeyValue{
+					attribute.String("db.operation.name", "PUT"),
+					attribute.String("db.response.status_code", "KEY_EXISTS_ERROR"),
+				}},
 				{Name: "GET test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "GET")}},
 				{Name: "DELETE test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "DELETE")}},
 				{Name: "SCAN test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "SCAN")}},
