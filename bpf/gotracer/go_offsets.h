@@ -6,8 +6,6 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_core_read.h>
-#include <bpfcore/bpf_tracing.h>
-
 #include <common/pin_internal.h>
 #include <gotracer/go_constants.h>
 
@@ -195,22 +193,6 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } go_offsets_map SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, u8);
-    __type(value, u8);
-    __uint(max_entries, 1);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} go_executable_identity_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, u8);
-    __type(value, go_executable_key_t);
-    __uint(max_entries, 1);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} go_executable_identities SEC(".maps");
-
 static __always_inline bool go_executable_key(struct inode *inode, go_executable_key_t *key) {
     if (!inode) {
         return false;
@@ -219,29 +201,6 @@ static __always_inline bool go_executable_key(struct inode *inode, go_executable
     key->dev = (u64)BPF_CORE_READ(inode, i_sb, s_dev);
     key->ino = (u64)BPF_CORE_READ(inode, i_ino);
     return key->ino != 0;
-}
-
-SEC("kprobe/uprobe_register")
-int obi_capture_go_executable_identity(struct pt_regs *ctx) {
-    const u8 request_key = 0;
-    if (!bpf_map_lookup_elem(&go_executable_identity_requests, &request_key)) {
-        return 0;
-    }
-
-    struct inode *inode = (struct inode *)PT_REGS_PARM1(ctx);
-    go_executable_key_t key = {};
-    if (go_executable_key(inode, &key)) {
-        bpf_map_update_elem(&go_executable_identities, &request_key, &key, BPF_ANY);
-        bpf_map_delete_elem(&go_executable_identity_requests, &request_key);
-    }
-
-    return 0;
-}
-
-SEC("uprobe")
-int obi_resolve_go_executable_identity(struct pt_regs *ctx) {
-    (void)ctx;
-    return 0;
 }
 
 static __always_inline off_table_t *get_offsets_table() {

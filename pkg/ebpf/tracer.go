@@ -156,7 +156,6 @@ type ProcessTracer struct {
 	instrumentablesMu         sync.Mutex
 	nextExecutableGeneration  uint64
 	instrumentableGenerations map[ExecutableKey]uint64
-	goInstrumentables         map[ExecutableKey]*instrumenter
 
 	Type            ProcessTracerType
 	Instrumentables map[ExecutableKey]*instrumenter
