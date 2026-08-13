@@ -7,10 +7,11 @@ This document describes the Aerospike protocol parser that OBI provides.
 Aerospike clients talk to the server over a custom binary protocol (the native
 "proto version 2" protocol) on the service port (default **3000**). It is a
 length-prefixed binary protocol — not HTTP, gRPC, or Protocol Buffers despite
-the unfortunate "proto" name. OBI parses this wire format in userspace: the
-request and response payloads of an unclassified TCP connection are handed to
-the Aerospike parser. The protocol is **one-request-one-response per connection
-(FIFO)**, so the generic per-connection direction-flip correlation is exact.
+the unfortunate "proto" name. Connections are classified as Aerospike in kernel
+space (eBPF) from the frame signature; the request and response payloads are
+then parsed in userspace. The protocol is **one-request-one-response per
+connection (FIFO)**, so the generic per-connection direction-flip correlation
+is exact.
 
 ### proto header (8 bytes, every message)
 
@@ -112,10 +113,17 @@ plus, for writes, the per-op type bytes:
 
 ## Protocol Parsing
 
-1. TCP packets arrive at `ReadTCPRequestIntoSpan`
+1. `is_aerospike` in
+   [protocol_aerospike.h](../../../bpf/generictracer/protocol_aerospike.h)
+   classifies the connection in kernel space from the frame signature
+   (proto version 2, type-3 AS_MSG, `header_sz` 22, sane body length) and
+   caches it in `protocol_cache`, so classification runs once per connection.
+2. TCP events arrive at `ReadTCPRequestIntoSpan`
    in [tcp_detect_transform.go](../../../pkg/ebpf/common/tcp_detect_transform.go).
-2. `matchAerospike` (in the heuristic detection stage) recognizes the proto
-   header and parses the request.
+   Kernel-classified events dispatch directly to the Aerospike parser
+   (`dispatchAerospike`); for connections the kernel missed (e.g. OBI attached
+   mid-connection) `matchAerospike` in the heuristic detection stage recognizes
+   the proto header as a fallback.
 3. Parsing logic lives in
    [aerospike_detect_transform.go](../../../pkg/ebpf/common/aerospike_detect_transform.go):
    `parseAerospikeRequest` (op classification + field extraction),
@@ -182,8 +190,9 @@ the decrypted payloads, so the AS_MSG frames are parsed the same as cleartext.
     in the captured buffer, so the `result_code` is read and error status is
     emitted.
 
-  Capturing the body regardless of the client's read pattern would require
-  kernel-side response reassembly (an eBPF change outside this parser's scope).
+  Capturing the body regardless of the client's read pattern requires
+  kernel-side response reassembly, a planned follow-up now that connections are
+  classified as Aerospike in kernel space.
 
 ## Configuration
 

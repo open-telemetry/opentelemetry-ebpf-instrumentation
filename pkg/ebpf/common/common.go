@@ -91,6 +91,7 @@ const (
 )
 
 // Kernel-side classification
+// Keep these values aligned with protocol_type in bpf/common/connection_info.h
 const (
 	ProtocolTypeUnknown uint8 = iota
 	ProtocolTypeMySQL
@@ -102,6 +103,7 @@ const (
 	ProtocolTypeSunRPC
 	ProtocolTypeNATS // placeholder for future kernel-space detection
 	ProtocolTypeAMQP // placeholder for future kernel-space detection
+	ProtocolTypeAerospike
 )
 
 const (
