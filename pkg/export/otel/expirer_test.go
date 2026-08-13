@@ -419,7 +419,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	}, timeout, 100*time.Millisecond)
 }
 
-// Invalid UTF-8 in an attribute value makes protobuf marshalling of the whole
+// Invalid UTF-8 in an attribute value makes protobuf marshaling of the whole
 // OTLP request fail, which drops every datapoint in the batch and not just the
 // offending one. Sanitizing on the OTLP path keeps the batch exportable.
 func TestAppMetrics_InvalidUTF8AttributeDoesNotDropBatch(t *testing.T) {
