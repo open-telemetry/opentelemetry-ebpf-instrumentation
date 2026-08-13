@@ -63,7 +63,8 @@ type noopEmbeddingReporter struct {
 	NoopReporter
 }
 
-func (n *noopEmbeddingReporter) BpfProbeStats(_, _, _ string, _ uint64, _ float64) {}
+func (n *noopEmbeddingReporter) BpfProbeStats(_, _, _ string, _ uint64, _ float64, _ map[float64]uint64) {
+}
 
 func TestPrometheusReporterAvoidedServicesBounded(t *testing.T) {
 	registry := prometheus.NewRegistry()
