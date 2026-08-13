@@ -131,6 +131,15 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	// We need to call cleanup here even though init may not have
+	// happened, to ensure the case when the JVM never responds and
+	// we've terminated with a timeout. Cleanup() is idempotent.
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			i.log.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
+
 	// Run the attach procedure in a goroutine, so that we can terminate on stuck attach
 	go func() {
 		defer func() {

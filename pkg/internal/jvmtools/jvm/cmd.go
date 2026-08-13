@@ -14,16 +14,19 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"sync"
 	"syscall"
 
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/util"
 )
 
 type JAttacher struct {
-	logger     *slog.Logger
-	j9attacher *j9Attacher
-	myUID      int
-	myGID      int
+	logger      *slog.Logger
+	j9attacher  *j9Attacher
+	myUID       int
+	myGID       int
+	mu          sync.Mutex
+	initialized bool
 }
 
 func NewJAttacher(logger *slog.Logger) *JAttacher {
@@ -38,11 +41,27 @@ func NewJAttacher(logger *slog.Logger) *JAttacher {
 }
 
 func (j *JAttacher) Init() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if j.initialized {
+		return
+	}
+
 	j.myUID = syscall.Geteuid()
 	j.myGID = syscall.Getegid()
+	j.initialized = true
 }
 
 func (j *JAttacher) Cleanup() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if !j.initialized {
+		return nil
+	}
+	j.initialized = false
+
 	var cleanupErr error
 
 	if j.j9attacher != nil {

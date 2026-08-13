@@ -33,6 +33,19 @@ func TestAttachContextReturnsCanceledContext(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+func TestCleanupIsIdempotent(t *testing.T) {
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	require.NoError(t, attacher.Cleanup())
+	require.False(t, attacher.initialized)
+
+	attacher.Init()
+	require.True(t, attacher.initialized)
+	require.NoError(t, attacher.Cleanup())
+	require.False(t, attacher.initialized)
+	require.NoError(t, attacher.Cleanup())
+}
+
 func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
