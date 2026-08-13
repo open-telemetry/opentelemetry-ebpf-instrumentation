@@ -148,7 +148,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 			}
 		}()
 
-		ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid())
+		ok, jdk8 := i.verifyJVMVersion(ctx, attacher, ie.FileInfo.Pid())
 		if !ok {
 			resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
 			return
@@ -157,9 +157,9 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		var loaded bool
 		var err error
 		if jdk8 {
-			loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid())
+			loaded, err = i.jdkAgentAlreadyLoadedHotspot8(ctx, attacher, ie.FileInfo.Pid())
 		} else {
-			loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid())
+			loaded, err = i.jdkAgentAlreadyLoaded(ctx, attacher, ie.FileInfo.Pid())
 		}
 
 		if err != nil {
@@ -182,7 +182,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 			return
 		}
 
-		if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid(), agentPath); err != nil {
+		if err = i.attachJDKAgent(ctx, attacher, ie.FileInfo.Pid(), agentPath); err != nil {
 			i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
 			resultChan <- result{err: err}
 			return
@@ -289,7 +289,7 @@ func (i *JavaInjector) attachOpts() string {
 	return "=" + strings.Join(opts, ",")
 }
 
-func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid app.PID, path string) error {
+func (i *JavaInjector) attachJDKAgent(ctx context.Context, attacher *jvm.JAttacher, pid app.PID, path string) error {
 	attacher.Init()
 
 	defer func() {
@@ -297,7 +297,7 @@ func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid app.PID, path
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
-	out, err := attacher.Attach(int(pid), []string{"load", "instrument", "false", path + i.attachOpts()}, false)
+	out, err := attacher.Attach(ctx, int(pid), []string{"load", "instrument", "false", path + i.attachOpts()}, false)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return err
@@ -338,7 +338,7 @@ func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid app.PID, path
 	return nil
 }
 
-func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PID) (bool, error) {
+func (i *JavaInjector) jdkAgentAlreadyLoaded(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) (bool, error) {
 	attacher.Init()
 
 	defer func() {
@@ -347,7 +347,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PI
 		}
 	}()
 	// OpenJ9 doesn't support listing loaded classes
-	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.class_hierarchy"}, true)
+	out, err := attacher.Attach(ctx, int(pid), []string{"jcmd", "VM.class_hierarchy"}, true)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return false, err
@@ -376,7 +376,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PI
 
 // Hotspot version 8 doesn't support VM.class_hierarchy, we use GC.class_histogram and look for the class itself
 // without the address
-func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pid app.PID) (bool, error) {
+func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) (bool, error) {
 	attacher.Init()
 
 	defer func() {
@@ -385,7 +385,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pi
 		}
 	}()
 	// OpenJ9 doesn't support listing loaded classes
-	out, err := attacher.Attach(int(pid), []string{"jcmd", "GC.class_histogram"}, true)
+	out, err := attacher.Attach(ctx, int(pid), []string{"jcmd", "GC.class_histogram"}, true)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return false, err
@@ -412,7 +412,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pi
 	return false, nil
 }
 
-func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid app.PID) (bool, bool) {
+func (i *JavaInjector) verifyJVMVersion(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) (bool, bool) {
 	attacher.Init()
 
 	defer func() {
@@ -421,7 +421,7 @@ func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid app.PID) (b
 		}
 	}()
 	// OpenJ9 doesn't support VM.version command
-	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.version"}, true)
+	out, err := attacher.Attach(ctx, int(pid), []string{"jcmd", "VM.version"}, true)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return false, false

@@ -87,11 +87,7 @@ func (j *JAttacher) Cleanup() error {
 	return cleanupErr
 }
 
-func (j *JAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
-	return j.AttachContext(context.Background(), pid, argv, ignoreOnJ9)
-}
-
-func (j *JAttacher) AttachContext(ctx context.Context, pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+func (j *JAttacher) Attach(ctx context.Context, pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
