@@ -357,6 +357,11 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PI
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		i.log.Error("error reading JVM command output", "pid", pid, "error", err)
+		return false, err
+	}
+
 	return false, nil
 }
 
@@ -388,6 +393,11 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pi
 		if strings.Contains(s, "io.opentelemetry.obi.java.Agent") {
 			return true, nil
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		i.log.Error("error reading JVM command output", "pid", pid, "error", err)
+		return false, err
 	}
 
 	return false, nil
