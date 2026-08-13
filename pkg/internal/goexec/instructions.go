@@ -83,12 +83,15 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 		allSyms, _ = procs.FindExeSymbols(elfF, funcNames)
 	}
 
+	// Prefer usable offsets from exact requested names over vendor aliases,
+	// regardless of symbol-table traversal order. At the same priority, keep the
+	// first usable offset found.
 	allOffsets := map[string]FuncOffsets{}
-	exactOffsets := map[string]bool{}
+	selectedIsExact := map[string]bool{}
 	for _, f := range symTab.Funcs {
-		fName, exact, ok := requestedFunctionName(f.Name, functions)
+		fName, isExact, ok := requestedFunctionName(f.Name, functions)
 		if ok {
-			if exactOffsets[fName] && !exact {
+			if selectedIsExact[fName] && !isExact {
 				continue
 			}
 
@@ -98,7 +101,7 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 			if gosyms == nil && len(allSyms) > 0 {
 				offs, found := staticSymbolOffsets(fName, allSyms, ilog)
 				if found {
-					storeFunctionOffset(allOffsets, exactOffsets, fName, offs, exact)
+					storeFunctionOffset(allOffsets, selectedIsExact, fName, offs, isExact)
 				}
 				continue
 			}
@@ -109,7 +112,7 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 			}
 			if ok {
 				ilog.Debug("found relevant function for instrumentation", "function", fName, "offsets", offs)
-				storeFunctionOffset(allOffsets, exactOffsets, fName, offs, exact)
+				storeFunctionOffset(allOffsets, selectedIsExact, fName, offs, isExact)
 			}
 		}
 	}
@@ -133,17 +136,17 @@ func requestedFunctionName(rawName string, functions map[string]struct{}) (strin
 
 func storeFunctionOffset(
 	allOffsets map[string]FuncOffsets,
-	exactOffsets map[string]bool,
+	selectedIsExact map[string]bool,
 	fName string,
 	offs FuncOffsets,
-	exact bool,
+	isExact bool,
 ) {
-	if previousExact, found := exactOffsets[fName]; found && (previousExact || !exact) {
+	if previousIsExact, found := selectedIsExact[fName]; found && (previousIsExact || !isExact) {
 		return
 	}
 
 	allOffsets[fName] = offs
-	exactOffsets[fName] = exact
+	selectedIsExact[fName] = isExact
 }
 
 func staticSymbolOffsets(fName string, allSyms map[string]procs.Sym, ilog *slog.Logger) (FuncOffsets, bool) {

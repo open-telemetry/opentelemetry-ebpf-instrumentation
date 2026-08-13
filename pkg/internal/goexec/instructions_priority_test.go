@@ -43,33 +43,33 @@ func TestStoreFunctionOffsetExactNameWinsInEitherOrder(t *testing.T) {
 		name       string
 		candidates []struct {
 			offsets FuncOffsets
-			exact   bool
+			isExact bool
 		}
 	}{
 		{
 			name: "alias before exact",
 			candidates: []struct {
 				offsets FuncOffsets
-				exact   bool
+				isExact bool
 			}{{alias, false}, {exact, true}},
 		},
 		{
 			name: "exact before alias",
 			candidates: []struct {
 				offsets FuncOffsets
-				exact   bool
+				isExact bool
 			}{{exact, true}, {alias, false}},
 		},
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			allOffsets := map[string]FuncOffsets{}
-			exactOffsets := map[string]bool{}
+			selectedIsExact := map[string]bool{}
 			for _, candidate := range order.candidates {
-				storeFunctionOffset(allOffsets, exactOffsets, name, candidate.offsets, candidate.exact)
+				storeFunctionOffset(allOffsets, selectedIsExact, name, candidate.offsets, candidate.isExact)
 			}
 
 			assert.Equal(t, exact, allOffsets[name])
-			assert.True(t, exactOffsets[name])
+			assert.True(t, selectedIsExact[name])
 		})
 	}
 }
@@ -77,11 +77,11 @@ func TestStoreFunctionOffsetExactNameWinsInEitherOrder(t *testing.T) {
 func TestStoreFunctionOffsetKeepsFirstAliasFallback(t *testing.T) {
 	const name = "golang.org/x/net/http2/hpack.(*Encoder).WriteField"
 	allOffsets := map[string]FuncOffsets{}
-	exactOffsets := map[string]bool{}
+	selectedIsExact := map[string]bool{}
 
-	storeFunctionOffset(allOffsets, exactOffsets, name, FuncOffsets{Start: 1}, false)
-	storeFunctionOffset(allOffsets, exactOffsets, name, FuncOffsets{Start: 2}, false)
+	storeFunctionOffset(allOffsets, selectedIsExact, name, FuncOffsets{Start: 1}, false)
+	storeFunctionOffset(allOffsets, selectedIsExact, name, FuncOffsets{Start: 2}, false)
 
 	assert.Equal(t, uint64(1), allOffsets[name].Start)
-	assert.False(t, exactOffsets[name])
+	assert.False(t, selectedIsExact[name])
 }
