@@ -578,3 +578,18 @@ func TestEnsureEmbeddedAgent_PlaceholderBytesError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
 }
+
+func TestJavaInjector_NewExecutable_NonJavaEarlyReturn(t *testing.T) {
+	injector := &JavaInjector{
+		cfg: &obi.DefaultConfig,
+		log: slog.With("component", "javaagent.Injector"),
+	}
+
+	ie := &ebpf.Instrumentable{
+		Type: svc.InstrumentableGeneric,
+	}
+
+	err := injector.NewExecutable(ie)
+	require.NoError(t, err)
+}
+

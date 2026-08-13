@@ -22,6 +22,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewJAttacherInitializesCredentials(t *testing.T) {
+	attacher := NewJAttacher(nil)
+	require.Equal(t, syscall.Geteuid(), attacher.myUID)
+	require.Equal(t, syscall.Getegid(), attacher.myGID)
+}
+
 func TestAttachContextReturnsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

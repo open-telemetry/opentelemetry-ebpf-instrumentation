@@ -34,6 +34,8 @@ func NewJAttacher(logger *slog.Logger) *JAttacher {
 	return &JAttacher{
 		logger:     logger,
 		j9attacher: nil,
+		myUID:      syscall.Geteuid(),
+		myGID:      syscall.Getegid(),
 	}
 }
 
