@@ -703,9 +703,6 @@ int obi_uprobe_runtime_newproc1(struct pt_regs *ctx) {
         bpf_dbg_printk("can't update map element");
     }
 
-    // Delete any stale info on go_trace_map
-    bpf_map_delete_elem(&go_trace_map, &g_key);
-
     return 0;
 }
 
@@ -759,6 +756,8 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     }
 
 done:
+    // Delete any stale info on go_trace_map
+    bpf_map_delete_elem(&go_trace_map, &g_key);
     bpf_map_delete_elem(&newproc1, &c_key);
 
     return 0;
