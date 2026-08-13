@@ -84,19 +84,22 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 	}
 
 	allOffsets := map[string]FuncOffsets{}
+	exactOffsets := map[string]bool{}
 	for _, f := range symTab.Funcs {
-		fName := f.Name
-		// fetch short path of function for vendor scene
-		if paths := strings.Split(fName, "/vendor/"); len(paths) > 1 {
-			fName = paths[1]
-		}
+		fName, exact, ok := requestedFunctionName(f.Name, functions)
+		if ok {
+			if exactOffsets[fName] && !exact {
+				continue
+			}
 
-		if _, ok := functions[fName]; ok {
 			// when we don't have a Go symbol table, the executable is statically linked, we don't look for offsets
 			// using the gosym tab, we lookup offsets just like a regular elf file.
 			// we still need to find the return statements, since go linkage is non-standard we can't use uretprobe
 			if gosyms == nil && len(allSyms) > 0 {
-				handleStaticSymbol(fName, allOffsets, allSyms, ilog)
+				offs, found := staticSymbolOffsets(fName, allSyms, ilog)
+				if found {
+					storeFunctionOffset(allOffsets, exactOffsets, fName, offs, exact)
+				}
 				continue
 			}
 
@@ -106,7 +109,7 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 			}
 			if ok {
 				ilog.Debug("found relevant function for instrumentation", "function", fName, "offsets", offs)
-				allOffsets[fName] = offs
+				storeFunctionOffset(allOffsets, exactOffsets, fName, offs, exact)
 			}
 		}
 	}
@@ -114,7 +117,36 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 	return allOffsets, nil
 }
 
-func handleStaticSymbol(fName string, allOffsets map[string]FuncOffsets, allSyms map[string]procs.Sym, ilog *slog.Logger) {
+func requestedFunctionName(rawName string, functions map[string]struct{}) (string, bool, bool) {
+	if _, ok := functions[rawName]; ok {
+		return rawName, true, true
+	}
+
+	if paths := strings.Split(rawName, "/vendor/"); len(paths) > 1 {
+		if _, ok := functions[paths[1]]; ok {
+			return paths[1], false, true
+		}
+	}
+
+	return "", false, false
+}
+
+func storeFunctionOffset(
+	allOffsets map[string]FuncOffsets,
+	exactOffsets map[string]bool,
+	fName string,
+	offs FuncOffsets,
+	exact bool,
+) {
+	if previousExact, found := exactOffsets[fName]; found && (previousExact || !exact) {
+		return
+	}
+
+	allOffsets[fName] = offs
+	exactOffsets[fName] = exact
+}
+
+func staticSymbolOffsets(fName string, allSyms map[string]procs.Sym, ilog *slog.Logger) (FuncOffsets, bool) {
 	s, ok := allSyms[fName]
 
 	if ok && s.Prog != nil {
@@ -122,18 +154,20 @@ func handleStaticSymbol(fName string, allOffsets map[string]FuncOffsets, allSyms
 		_, err := s.Prog.ReadAt(data, int64(s.Off-s.Prog.Off))
 		if err != nil {
 			ilog.Error("error reading instructions for symbol", "symbol", fName, "error", err)
-			return
+			return FuncOffsets{}, false
 		}
 
 		returns, err := FindReturnOffsets(s.Off, data)
 		if err != nil {
 			ilog.Error("error finding returns for symbol", "symbol", fName, "offset", s.Off-s.Prog.Off, "size", s.Len, "error", err)
-			return
+			return FuncOffsets{}, false
 		}
-		allOffsets[fName] = FuncOffsets{Start: s.Off, Returns: returns}
+		return FuncOffsets{Start: s.Off, Returns: returns}, true
 	} else {
 		ilog.Debug("can't find in elf symbol table", "symbol", fName, "ok", ok, "prog", s.Prog)
 	}
+
+	return FuncOffsets{}, false
 }
 
 // findFuncOffset gets the start address and end addresses of the function whose symbol is passed
