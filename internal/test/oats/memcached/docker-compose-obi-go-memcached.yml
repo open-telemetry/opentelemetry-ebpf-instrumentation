@@ -1,0 +1,48 @@
+services:
+  memcached:
+    image: memcached:1.6.39-alpine@sha256:c8503d4491edd3110cc07d0465089d3a41cf1daf8645e71149e39a51835e92cd
+    ports:
+      - "11211:11211"
+
+  testserver:
+    build:
+      context: ../../integration/components/gomemcached
+      dockerfile: Dockerfile
+    image: gomemcachedclient
+    ports:
+      - "8080:8080"
+    depends_on:
+      memcached:
+        condition: service_started
+
+  autoinstrumenter:
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/instrumenter-config-traces.yml
+    volumes:
+      - ./configs:/configs
+      - ./testoutput/run:/var/run/obi
+      - ../../../../testoutput:/coverage
+    privileged: true
+    network_mode: "service:testserver"
+    pid: "service:testserver"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "8080"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "true"
+      OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "true"
+      # Export through the weaver-tapping collector instead of straight to lgtm,
+      # so weaver validates the emitted telemetry (collector + weaver come from
+      # the shared ../weaver/docker-compose-weaver.yml fragment).
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+    depends_on:
+      testserver:
+        condition: service_started
