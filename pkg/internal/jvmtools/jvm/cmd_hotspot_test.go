@@ -54,7 +54,7 @@ func TestCleanupWithoutInitDoesNotSetCredentials(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	require.NoError(t, attacher.Cleanup())
+	require.NoError(t, attacher.Cleanup(true))
 	require.Empty(t, euidCalls)
 	require.Empty(t, egidCalls)
 }
@@ -62,9 +62,13 @@ func TestCleanupWithoutInitDoesNotSetCredentials(t *testing.T) {
 func TestInitIsIdempotent(t *testing.T) {
 	originalGetEUID := getEUID
 	originalGetEGID := getEGID
+	originalSetEUID := setEUID
+	originalSetEGID := setEGID
 	t.Cleanup(func() {
 		getEUID = originalGetEUID
 		getEGID = originalGetEGID
+		setEUID = originalSetEUID
+		setEGID = originalSetEGID
 	})
 
 	euidCalls := 0
@@ -77,18 +81,26 @@ func TestInitIsIdempotent(t *testing.T) {
 		egidCalls++
 		return 456
 	}
+	setEUID = func(int) error {
+		return nil
+	}
+	setEGID = func(int) error {
+		return nil
+	}
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	attacher.Init()
+	require.NoError(t, attacher.Cleanup(false))
 	attacher.Init()
 
 	require.Equal(t, 1, euidCalls)
 	require.Equal(t, 1, egidCalls)
 	require.Equal(t, 123, attacher.myUID)
 	require.Equal(t, 456, attacher.myGID)
+	require.True(t, attacher.initialized)
 }
 
-func TestCleanupIsIdempotent(t *testing.T) {
+func TestCleanupCanRunRepeatedly(t *testing.T) {
 	originalGetEUID := getEUID
 	originalGetEGID := getEGID
 	originalSetEUID := setEUID
@@ -119,10 +131,134 @@ func TestCleanupIsIdempotent(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	attacher.Init()
-	require.NoError(t, attacher.Cleanup())
-	require.NoError(t, attacher.Cleanup())
+	require.NoError(t, attacher.Cleanup(false))
+	require.NoError(t, attacher.Cleanup(false))
+	require.Equal(t, []int{123, 123}, euidCalls)
+	require.Equal(t, []int{456, 456}, egidCalls)
+	require.True(t, attacher.initialized)
+}
+
+func TestTerminalCleanupPreventsLaterCredentialChanges(t *testing.T) {
+	originalGetEUID := getEUID
+	originalGetEGID := getEGID
+	originalSetEUID := setEUID
+	originalSetEGID := setEGID
+	t.Cleanup(func() {
+		getEUID = originalGetEUID
+		getEGID = originalGetEGID
+		setEUID = originalSetEUID
+		setEGID = originalSetEGID
+	})
+
+	var euidCalls []int
+	var egidCalls []int
+	getEUID = func() int {
+		return 123
+	}
+	getEGID = func() int {
+		return 456
+	}
+	setEUID = func(id int) error {
+		euidCalls = append(euidCalls, id)
+		return nil
+	}
+	setEGID = func(id int) error {
+		egidCalls = append(egidCalls, id)
+		return nil
+	}
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	attacher.Init()
+	require.NoError(t, attacher.Cleanup(true))
+
+	require.ErrorIs(t, attacher.setEUID(789), errTerminated)
+	require.ErrorIs(t, attacher.setEGID(987), errTerminated)
+	require.NoError(t, attacher.setEUID(123))
+	require.NoError(t, attacher.setEGID(456))
+	require.Equal(t, []int{123, 123}, euidCalls)
+	require.Equal(t, []int{456, 456}, egidCalls)
+	require.True(t, attacher.initialized)
+	require.True(t, attacher.terminated)
+}
+
+func TestTerminalCleanupCanRunRepeatedly(t *testing.T) {
+	originalGetEUID := getEUID
+	originalGetEGID := getEGID
+	originalSetEUID := setEUID
+	originalSetEGID := setEGID
+	t.Cleanup(func() {
+		getEUID = originalGetEUID
+		getEGID = originalGetEGID
+		setEUID = originalSetEUID
+		setEGID = originalSetEGID
+	})
+
+	var euidCalls []int
+	var egidCalls []int
+	getEUID = func() int {
+		return 123
+	}
+	getEGID = func() int {
+		return 456
+	}
+	setEUID = func(id int) error {
+		euidCalls = append(euidCalls, id)
+		return nil
+	}
+	setEGID = func(id int) error {
+		egidCalls = append(egidCalls, id)
+		return nil
+	}
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	attacher.Init()
+	require.NoError(t, attacher.Cleanup(true))
+	require.NoError(t, attacher.Cleanup(false))
+
+	require.Equal(t, []int{123, 123}, euidCalls)
+	require.Equal(t, []int{456, 456}, egidCalls)
+	require.True(t, attacher.initialized)
+	require.True(t, attacher.terminated)
+}
+
+func TestTerminalCleanupWinsBetweenCredentialChanges(t *testing.T) {
+	originalGetEUID := getEUID
+	originalGetEGID := getEGID
+	originalSetEUID := setEUID
+	originalSetEGID := setEGID
+	t.Cleanup(func() {
+		getEUID = originalGetEUID
+		getEGID = originalGetEGID
+		setEUID = originalSetEUID
+		setEGID = originalSetEGID
+	})
+
+	var euidCalls []int
+	var egidCalls []int
+	getEUID = func() int {
+		return 123
+	}
+	getEGID = func() int {
+		return 456
+	}
+	setEUID = func(id int) error {
+		euidCalls = append(euidCalls, id)
+		return nil
+	}
+	setEGID = func(id int) error {
+		egidCalls = append(egidCalls, id)
+		return nil
+	}
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	attacher.Init()
+	require.NoError(t, attacher.setEGID(987))
+	require.NoError(t, attacher.Cleanup(true))
+	require.ErrorIs(t, attacher.setEUID(789), errTerminated)
+
 	require.Equal(t, []int{123}, euidCalls)
-	require.Equal(t, []int{456}, egidCalls)
+	require.Equal(t, []int{987, 456}, egidCalls)
+	require.True(t, attacher.terminated)
 }
 
 func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *testing.T) {

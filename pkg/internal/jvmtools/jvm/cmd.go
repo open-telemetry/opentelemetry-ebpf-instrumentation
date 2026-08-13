@@ -28,6 +28,8 @@ var (
 	setEGID = syscall.Setegid
 )
 
+var errTerminated = errors.New("attach terminated")
+
 type JAttacher struct {
 	logger      *slog.Logger
 	j9attacher  *j9Attacher
@@ -35,6 +37,7 @@ type JAttacher struct {
 	myGID       int
 	mu          sync.Mutex
 	initialized bool
+	terminated  bool
 }
 
 func NewJAttacher(logger *slog.Logger) *JAttacher {
@@ -46,6 +49,24 @@ func NewJAttacher(logger *slog.Logger) *JAttacher {
 		logger:     logger,
 		j9attacher: nil,
 	}
+}
+
+func (j *JAttacher) setEUID(euid int) (err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.terminated && euid != j.myUID {
+		return errTerminated
+	}
+	return setEUID(euid)
+}
+
+func (j *JAttacher) setEGID(egid int) (err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.terminated && egid != j.myGID {
+		return errTerminated
+	}
+	return setEGID(egid)
 }
 
 func (j *JAttacher) Init() {
@@ -61,14 +82,17 @@ func (j *JAttacher) Init() {
 	j.initialized = true
 }
 
-func (j *JAttacher) Cleanup() error {
+func (j *JAttacher) Cleanup(terminate bool) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+
+	if terminate {
+		j.terminated = true
+	}
 
 	if !j.initialized {
 		return nil
 	}
-	j.initialized = false
 
 	var cleanupErr error
 
@@ -172,8 +196,11 @@ func (j *JAttacher) attachInNamespace(ctx context.Context, pid, nspid, targetUID
 
 	// In HotSpot, dynamic attach is allowed only for the clients with the same euid/egid.
 	// If we are running under root, switch to the required euid/egid automatically.
-	if (j.myGID != targetGID && setEGID(targetGID) != nil) ||
-		(j.myUID != targetUID && setEUID(targetUID) != nil) {
+	// We must use j.setEGID and j.setEUID instead of setEUID and setEGID to ensure OBI
+	// is still waiting on the attach, rather than changing the user credentials after OBI
+	// has abandoned this attach in the pipeline.
+	if (j.myGID != targetGID && j.setEGID(targetGID) != nil) ||
+		(j.myUID != targetUID && j.setEUID(targetUID) != nil) {
 		return nil, errors.New("failed to change credentials to match the target process")
 	}
 

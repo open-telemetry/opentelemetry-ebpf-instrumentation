@@ -135,7 +135,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	// happened, to ensure the case when the JVM never responds and
 	// we've terminated with a timeout. Cleanup() is idempotent.
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(true); err != nil {
 			i.log.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
@@ -293,7 +293,7 @@ func (i *JavaInjector) attachJDKAgent(ctx context.Context, attacher *jvm.JAttach
 	attacher.Init()
 
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(false); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
@@ -342,7 +342,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(ctx context.Context, attacher *jvm.
 	attacher.Init()
 
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(false); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
@@ -380,7 +380,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(ctx context.Context, attach
 	attacher.Init()
 
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(false); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
@@ -416,7 +416,7 @@ func (i *JavaInjector) verifyJVMVersion(ctx context.Context, attacher *jvm.JAtta
 	attacher.Init()
 
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(false); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
