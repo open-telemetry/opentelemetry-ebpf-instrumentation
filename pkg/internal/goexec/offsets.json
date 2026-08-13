@@ -566,7 +566,7 @@
       "fr": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.56.0"
+          "newest": "0.57.0"
         },
         "offsets": [
           {
@@ -606,7 +606,7 @@
       "nextStreamID": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.56.0"
+          "newest": "0.57.0"
         },
         "offsets": [
           {
@@ -647,13 +647,33 @@
     "golang.org/x/net/http2.Framer": {
       "w": {
         "versions": {
-          "oldest": "0.12.0",
-          "newest": "0.56.0"
+          "oldest": "0.0.0",
+          "newest": "0.57.0"
         },
         "offsets": [
           {
+            "offset": 112,
+            "since": "0.0.0"
+          },
+          {
             "offset": 120,
-            "since": "0.12.0"
+            "since": "0.4.0"
+          }
+        ]
+      },
+      "wbuf": {
+        "versions": {
+          "oldest": "0.0.0",
+          "newest": "0.57.0"
+        },
+        "offsets": [
+          {
+            "offset": 128,
+            "since": "0.0.0"
+          },
+          {
+            "offset": 136,
+            "since": "0.4.0"
           }
         ]
       }
@@ -1233,6 +1253,22 @@
           },
           {
             "offset": 120,
+            "since": "1.18.0"
+          }
+        ]
+      },
+      "wbuf": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.4"
+        },
+        "offsets": [
+          {
+            "offset": 128,
+            "since": "1.17.0"
+          },
+          {
+            "offset": 136,
             "since": "1.18.0"
           }
         ]

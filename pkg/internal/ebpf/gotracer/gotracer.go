@@ -453,6 +453,8 @@ func (p *Tracer) constants() map[string]any {
 		"attr_type_stringslice":          uint64(attribute.STRINGSLICE),
 		"g_bpf_traceparent_enabled":      true,
 		"g_bpf_loop_enabled":             p.supportsBPFLoop,
+		"g_go_h2_audit":                  os.Getenv("OTEL_EBPF_GO_H2_AUDIT") == "1",
+		"g_go_h2_force_socket_fallback":  os.Getenv("OTEL_EBPF_GO_H2_FORCE_SOCKET_FALLBACK") == "1",
 	}
 
 	if p.cfg.TrackRequestHeaders ||
@@ -517,6 +519,11 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	offTable := BpfOffTableT{}
 	initMissingGoChannelOffsets(&offTable)
 	initMissingGoAutoSDKSpanContextOffsets(&offTable)
+	offTable.Table[goexec.FramerWbufPos] = missingGoOffset
+	offTable.Table[goexec.FramerWbufVendoredPos] = missingGoOffset
+	offTable.Table[goexec.FramerWVendoredPos] = missingGoOffset
+	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
+	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
 		goexec.ConnFdPos,
@@ -543,6 +550,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.CcFramerPos,
 		goexec.CcFramerVendoredPos,
 		goexec.FramerWPos,
+		goexec.FramerWbufPos,
+		goexec.FramerWbufVendoredPos,
+		goexec.FramerWVendoredPos,
 		goexec.PcConnPos,
 		goexec.PcTLSPos,
 		goexec.NetConnPos,
@@ -622,6 +632,12 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			offTable.Table[field] = val
 		}
 	}
+	if fn, ok := exactGoFunctionOffset(offsets, "golang.org/x/net/http2.(*Framer).WriteHeaders"); ok && fn.PadOffset != 0 {
+		offTable.Table[goexec.FramerPadLengthStackPos] = fn.PadOffset
+	}
+	if fn, ok := exactGoFunctionOffset(offsets, "net/http.(*http2Framer).WriteHeaders"); ok && fn.PadOffset != 0 {
+		offTable.Table[goexec.FramerPadLengthStackVendoredPos] = fn.PadOffset
+	}
 	setGoAutoSDKSpanContextOffsets(&offTable, offsets)
 	for _, field := range goRuntimeMetricOffsetFields {
 		if val, ok := offsets.Field[field].(uint64); ok {
@@ -671,6 +687,19 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	} else {
 		p.deleteRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns())
 	}
+}
+
+func exactGoFunctionOffset(offsets *goexec.Offsets, symbol string) (goexec.FuncOffsets, bool) {
+	functions := offsets.Funcs[symbol]
+	for _, function := range functions {
+		if function.Symbol == symbol {
+			return function, true
+		}
+	}
+	if len(functions) == 0 {
+		return goexec.FuncOffsets{}, false
+	}
+	return functions[0], true
 }
 
 func initMissingGoChannelOffsets(offTable *BpfOffTableT) {
@@ -1549,6 +1578,28 @@ var goAutoSDKActivationPrerequisiteSymbols = []string{
 	"go.opentelemetry.io/auto/sdk.(*span).End",
 }
 
+var goH2OwnershipProbeSymbols = []string{
+	"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders",
+	"golang.org/x/net/http2.(*ClientConn).encodeHeaders",
+	"golang.org/x/net/http2.(*ClientConn).writeHeader",
+	"golang.org/x/net/http2.(*ClientConn).writeHeaders",
+	"golang.org/x/net/http2.(*Framer).WriteHeaders",
+	"golang.org/x/net/http2.(*Framer).WriteContinuation",
+	"golang.org/x/net/http2.(*Framer).endWrite",
+	"net/http.(*http2clientStream).encodeAndWriteHeaders",
+	"net/http.(*http2ClientConn).encodeHeaders",
+	"net/http.(*http2ClientConn).writeHeader",
+	"net/http.(*http2ClientConn).writeHeaders",
+	"net/http.(*http2Framer).WriteHeaders",
+	"net/http.(*http2Framer).WriteContinuation",
+	"net/http.(*http2Framer).endWrite",
+	"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
+	"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut",
+	"google.golang.org/grpc/internal/transport.(*loopyWriter).headerHandler",
+	"google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler",
+	"golang.org/x/net/http2/hpack.(*Encoder).WriteField",
+}
+
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
 func GoChannelLinkProbeSymbols() []string {
 	return append([]string(nil), goChannelLinkProbeSymbols...)
@@ -1562,6 +1613,11 @@ func GoRuntimeMetricProbeSymbols() []string {
 // GoAutoSDKActivationProbeSymbols returns the symbols in activation-safe attachment order.
 func GoAutoSDKActivationProbeSymbols() []string {
 	return append([]string(nil), goAutoSDKActivationProbeSymbols...)
+}
+
+// GoH2OwnershipProbeSymbols returns every symbol used by the atomic HTTP/2 ownership groups.
+func GoH2OwnershipProbeSymbols() []string {
+	return append([]string(nil), goH2OwnershipProbeSymbols...)
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -1617,12 +1673,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"golang.org/x/net/http2.(*responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
-		}},
-		"golang.org/x/net/http2.(*ClientConn).writeHeaders": {{ // http2 client
-			Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders,
-		}},
-		"net/http.(*http2ClientConn).writeHeaders": {{ // http2 client vendored in Go, but used from http 1.1 transition
-			Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored,
 		}},
 		"golang.org/x/net/http2.(*responseWriterState).writeHeader": {{ // http2 server request done, capture the response code
 			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
@@ -1726,18 +1776,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"google.golang.org/grpc.(*clientStream).CloseSend": {{
 			End: p.bpfObjects.ObiUprobeClientConnInvokeReturn,
-		}},
-		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream": {{
-			Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream,
-			End:   p.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns,
-		}},
-		// Closes the loopyWriter race for stream registration — see
-		// the two-hop bridge in go_grpc.c (executeAndPut → originateStream)
-		"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut": {{
-			Start: p.bpfObjects.ObiUprobeGrpcControlBufferExecuteAndPut,
-		}},
-		"google.golang.org/grpc/internal/transport.(*loopyWriter).originateStream": {{
-			Start: p.bpfObjects.ObiUprobeGrpcLoopyWriterOriginateStream,
 		}},
 		"google.golang.org/grpc/internal/transport.(*http2Server).operateHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerOperateHeaders,
@@ -1996,61 +2034,154 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeWriteSubset,        // http 1.x context propagation
 			End:   p.bpfObjects.ObiUprobeWriteSubsetReturns, // inject only if no traceparent present
 		}}
-		m["golang.org/x/net/http2.(*Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{
-			{ // http2 context propagation
-				Start: p.bpfObjects.ObiUprobeGolangHttp2FramerWriteHeaders,
-				End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
-			},
-			{ // for grpc
-				Start: p.bpfObjects.ObiUprobeGrpcFramerWriteHeaders,
-				End:   p.bpfObjects.ObiUprobeGrpcFramerWriteHeadersReturns,
-			},
-		}
-		m["net/http.(*http2Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{{ // http2 context propagation
-			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
-			End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
-		}}
 	}
 
 	return m
 }
 
 func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
-	if !p.goAutoSDKActivationProbesEnabled() {
-		return nil
+	var groups []ebpfcommon.GoProbeGroup
+	if p.headerPropagationEnabled() {
+		groups = append(groups, p.goH2OwnershipProbeGroups()...)
 	}
 
-	return []ebpfcommon.GoProbeGroup{{
-		Name:          "go_auto_sdk_activation",
-		Prerequisites: append([]string(nil), goAutoSDKActivationPrerequisiteSymbols...),
-		Probes: []ebpfcommon.GoProbe{
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[0],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkTracerStart,
+	if p.goAutoSDKActivationProbesEnabled() {
+		groups = append(groups, ebpfcommon.GoProbeGroup{
+			Name:          "go_auto_sdk_activation",
+			Prerequisites: append([]string(nil), goAutoSDKActivationPrerequisiteSymbols...),
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[0],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkTracerStart,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[1],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkContextWithValue,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[2],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[3],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeTracerNewSpan,
+					},
+					ProcessScoped: true,
 				},
 			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[1],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkContextWithValue,
-				},
-			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[2],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
-				},
-			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[3],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeTracerNewSpan,
-				},
-				ProcessScoped: true,
+		})
+	}
+
+	return groups
+}
+
+func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
+	const (
+		xnetRoundTrip       = "golang.org/x/net/http2.(*ClientConn).RoundTrip"
+		xnetRoundTripNew    = "golang.org/x/net/http2.(*ClientConn).roundTrip"
+		xnetEncodeOld       = "golang.org/x/net/http2.(*ClientConn).encodeHeaders"
+		stdlibRoundTrip     = "net/http.(*http2ClientConn).RoundTrip"
+		stdlibEncodeOld     = "net/http.(*http2ClientConn).encodeHeaders"
+		grpcInvoke          = "google.golang.org/grpc.(*ClientConn).Invoke"
+		grpcNewStream       = "google.golang.org/grpc.(*ClientConn).NewStream"
+		grpcTransportStream = "google.golang.org/grpc/internal/transport.(*http2Client).NewStream"
+		grpcExecuteAndPut   = "google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut"
+		grpcHpackWriteField = "golang.org/x/net/http2/hpack.(*Encoder).WriteField"
+		grpcFramer          = "golang.org/x/net/http2.(*Framer).WriteHeaders"
+		grpcContinuation    = "golang.org/x/net/http2.(*Framer).WriteContinuation"
+		grpcEndWrite        = "golang.org/x/net/http2.(*Framer).endWrite"
+	)
+
+	groups := []ebpfcommon.GoProbeGroup{
+		{
+			Name:             "go_http2_xnet_ownership",
+			PrerequisitesAny: []string{xnetRoundTrip, xnetRoundTripNew},
+			Probes: []ebpfcommon.GoProbe{
+				{Symbol: "golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeHeaders, End: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeHeadersReturns}},
+				{Symbol: "golang.org/x/net/http2.(*ClientConn).writeHeader", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientWriteHeader}},
+				{Symbol: "golang.org/x/net/http2.(*ClientConn).writeHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders}},
+				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGolangHttp2FramerWriteHeaders, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
+				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePadding, UsePadStart: true}},
+				{Symbol: grpcContinuation, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuation, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
+				{Symbol: grpcEndWrite, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerEndWrite}},
+				{Symbol: grpcEndWrite, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerPreWrite, UseWriteStart: true}},
 			},
 		},
-	}}
+		{
+			Name:          "go_http2_xnet_legacy_ownership",
+			Prerequisites: []string{xnetRoundTrip},
+			Conflicts:     []string{"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{Symbol: xnetEncodeOld, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientConnEncodeHeaders}},
+				{Symbol: "golang.org/x/net/http2.(*ClientConn).writeHeader", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientWriteHeader}},
+				{Symbol: "golang.org/x/net/http2.(*ClientConn).writeHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders}},
+				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGolangHttp2FramerWriteHeaders, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
+				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePadding, UsePadStart: true}},
+				{Symbol: grpcContinuation, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuation, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
+				{Symbol: grpcEndWrite, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerEndWrite}},
+				{Symbol: grpcEndWrite, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerPreWrite, UseWriteStart: true}},
+			},
+		},
+		{
+			Name:          "go_http2_stdlib_ownership",
+			Prerequisites: []string{stdlibRoundTrip},
+			Probes: []ebpfcommon.GoProbe{
+				{Symbol: "net/http.(*http2clientStream).encodeAndWriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeHeaders, End: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeHeadersReturns}},
+				{Symbol: "net/http.(*http2ClientConn).writeHeader", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientWriteHeader}},
+				{Symbol: "net/http.(*http2ClientConn).writeHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored}},
+				{Symbol: "net/http.(*http2Framer).WriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
+				{Symbol: "net/http.(*http2Framer).WriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePaddingVendored, UsePadStart: true}},
+				{Symbol: "net/http.(*http2Framer).WriteContinuation", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuationVendored, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
+				{Symbol: "net/http.(*http2Framer).endWrite", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerEndWriteVendored}},
+				{Symbol: "net/http.(*http2Framer).endWrite", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerPreWriteVendored, UseWriteStart: true}},
+			},
+		},
+		{
+			Name:          "go_http2_stdlib_legacy_ownership",
+			Prerequisites: []string{stdlibRoundTrip},
+			Conflicts:     []string{"net/http.(*http2clientStream).encodeAndWriteHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{Symbol: stdlibEncodeOld, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientConnEncodeHeaders}},
+				{Symbol: "net/http.(*http2ClientConn).writeHeader", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientWriteHeader}},
+				{Symbol: "net/http.(*http2ClientConn).writeHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored}},
+				{Symbol: "net/http.(*http2Framer).WriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
+				{Symbol: "net/http.(*http2Framer).WriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePaddingVendored, UsePadStart: true}},
+				{Symbol: "net/http.(*http2Framer).WriteContinuation", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuationVendored, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
+				{Symbol: "net/http.(*http2Framer).endWrite", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerEndWriteVendored}},
+				{Symbol: "net/http.(*http2Framer).endWrite", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerPreWriteVendored, UseWriteStart: true}},
+			},
+		},
+	}
+
+	grpcCommon := func(handler string, handlerStart *ebpf.Program) ebpfcommon.GoProbeGroup {
+		return ebpfcommon.GoProbeGroup{
+			Name:          "go_grpc_ownership_" + handler,
+			Prerequisites: []string{grpcInvoke, grpcNewStream},
+			Probes: []ebpfcommon.GoProbe{
+				{Symbol: grpcTransportStream, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream, End: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns}},
+				{Symbol: grpcExecuteAndPut, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGrpcControlBufferExecuteAndPut, End: p.bpfObjects.ObiUprobeGrpcControlBufferExecuteAndPutReturns}},
+				{Symbol: handler, Probe: &ebpfcommon.ProbeDesc{Start: handlerStart, End: p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandlerReturns}},
+				{Symbol: grpcHpackWriteField, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGrpcHpackEncoderWriteField}},
+				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGrpcFramerWriteHeaders, End: p.bpfObjects.ObiUprobeGrpcFramerWriteHeadersReturns}},
+				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePadding, UsePadStart: true}},
+				{Symbol: grpcContinuation, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGrpcFramerWriteContinuation, End: p.bpfObjects.ObiUprobeGrpcFramerWriteHeadersReturns}},
+				{Symbol: grpcEndWrite, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerEndWrite}},
+				{Symbol: grpcEndWrite, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2FramerPreWrite, UseWriteStart: true}},
+			},
+		}
+	}
+	groups = append(groups,
+		grpcCommon("google.golang.org/grpc/internal/transport.(*loopyWriter).headerHandler", p.bpfObjects.ObiUprobeGrpcLoopyWriterHeaderHandler),
+		grpcCommon("google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler", p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandler),
+	)
+	return groups
 }
 
 func (p *Tracer) goAutoSDKActivationProbesEnabled() bool {
@@ -2124,6 +2255,9 @@ func (p *Tracer) AlreadyInstrumentedLib(_ uint64) bool {
 }
 
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
+	stopAuditServer := p.startGoH2AuditServer()
+	defer stopAuditServer()
+
 	parseContext := ebpfcommon.NewEBPFParseContext(p.cfg, eventsChan, p.pidsFilter)
 	defer parseContext.Close()
 	defer func() {

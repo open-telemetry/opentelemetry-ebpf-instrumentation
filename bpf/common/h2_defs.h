@@ -32,7 +32,7 @@ enum {
     k_h2_priority_prefix_len = 5,
     k_h2_preface_len = 24,
     k_h2_preface_check_len = 4,
-    k_h2_max_frame_len = 65535,
+    k_h2_max_frame_len = 0xffffff,
     k_h2_max_frame_scan = 4,
     k_h2_reserved_bit_mask = 0x80,
     k_h2_priority_payload_len = 5,
@@ -84,6 +84,7 @@ enum {
     // --- Full HPACK traceparent entry sizes ---
     k_h2_tp_hpack_size = k_hpack_tp_val_offset + k_hpack_value_len_tp,
     k_h2_tp_hpack_huffman_size = k_hpack_tp_val_offset_huffman + k_hpack_value_len_tp,
+    k_h2_tp_continuation_size = k_h2_frame_header_len + k_h2_tp_hpack_size,
 };
 
 static const char k_hpack_tp_name[] = "traceparent";

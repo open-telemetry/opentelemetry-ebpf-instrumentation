@@ -156,6 +156,131 @@ func testGRPCHuffmanTraceparentAdoptedGoSender(t *testing.T) {
 	assertHuffmanTraceparentAdopted(t, "http://localhost:8081", "nodejs-relay")
 }
 
+func readGoH2AuditSnapshot(t require.TestingT) goHTTP2AuditSnapshot {
+	resp, err := http.Get("http://127.0.0.1:16061/debug/obi/go-h2-audit")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var snapshot goHTTP2AuditSnapshot
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&snapshot))
+	return snapshot
+}
+
+func goH2AuditStreamKey(event goHTTP2AuditEvent) string {
+	return fmt.Sprintf("%d/%d/%s:%d/%s:%d/%d/%s",
+		event.PID, event.ProcessStart, event.SourceAddress, event.SourcePort,
+		event.DestinationAddress, event.DestinationPort, event.StreamID, event.Protocol)
+}
+
+func goH2AuditEventKey(event goHTTP2AuditEvent) string {
+	return goH2AuditStreamKey(event) + "/" + event.Event
+}
+
+func goH2AuditEventDelta(
+	before goHTTP2AuditSnapshot,
+	after goHTTP2AuditSnapshot,
+	protocol string,
+	eventName string,
+) int {
+	baseline := map[string]int{}
+	for _, event := range before.Events {
+		baseline[goH2AuditEventKey(event)] = event.Count
+	}
+	delta := 0
+	for _, event := range after.Events {
+		if event.Protocol == protocol && event.Event == eventName {
+			delta += event.Count - baseline[goH2AuditEventKey(event)]
+		}
+	}
+	return delta
+}
+
+func assertGoH2AuditCohort(
+	t require.TestingT,
+	before goHTTP2AuditSnapshot,
+	after goHTTP2AuditSnapshot,
+	protocol string,
+	expectedStreams int,
+	expectedOwned int,
+	expectedPublishedState string,
+	expectedWriteEvent string,
+) {
+	baseline := map[string]int{}
+	for _, event := range before.Events {
+		baseline[goH2AuditEventKey(event)] = event.Count
+	}
+
+	streams := map[string]map[string]goHTTP2AuditEvent{}
+	for _, event := range after.Events {
+		if event.Protocol != protocol {
+			continue
+		}
+		delta := event.Count - baseline[goH2AuditEventKey(event)]
+		if delta == 0 {
+			continue
+		}
+		require.Equal(t, 1, delta, goH2AuditEventKey(event))
+		event.Count = delta
+		key := goH2AuditStreamKey(event)
+		if streams[key] == nil {
+			streams[key] = map[string]goHTTP2AuditEvent{}
+		}
+		streams[key][event.Event] = event
+	}
+	require.Len(t, streams, expectedStreams)
+
+	owned := 0
+	for key, events := range streams {
+		require.Contains(t, events, "encoder_hook", key)
+		require.Contains(t, events, "stream_published", key)
+		require.Contains(t, events, "cleanup", key)
+		require.NotContains(t, events, "state_missing", key)
+		require.NotContains(t, events, "rollback", key)
+		traceID := events["encoder_hook"].TraceID
+		require.NotEqual(t, strings.Repeat("0", 32), traceID, key)
+		require.Equal(t, traceID, events["stream_published"].TraceID, key)
+
+		_, applicationOwned := events["application_traceparent"]
+		_, directWrite := events["direct_write"]
+		_, prewriteWrite := events["prewrite_write"]
+		_, socketFrameWrite := events["socket_write"]
+		_, socketContinuationWrite := events["socket_continuation_write"]
+		socketWrite := socketFrameWrite || socketContinuationWrite
+		require.False(t, socketFrameWrite && socketContinuationWrite, key)
+		if applicationOwned {
+			owned++
+			publishedState := expectedPublishedState
+			if publishedState == "obi_pending" {
+				publishedState = "application"
+			}
+			require.Equal(t, publishedState, events["stream_published"].State, key)
+			require.False(t, directWrite, key)
+			require.False(t, prewriteWrite, key)
+			require.False(t, socketWrite, key)
+			require.Equal(t, "application", events["application_traceparent"].State, key)
+		} else {
+			require.Equal(t, expectedPublishedState, events["stream_published"].State, key)
+			require.Equal(t, expectedWriteEvent == "direct_write", directWrite || prewriteWrite, key)
+			require.False(t, directWrite && prewriteWrite, key)
+			require.Equal(t, expectedWriteEvent == "socket_write", socketWrite, key)
+			write := events[expectedWriteEvent]
+			if expectedWriteEvent == "direct_write" && prewriteWrite {
+				write = events["prewrite_write"]
+			} else if expectedWriteEvent == "socket_write" && socketContinuationWrite {
+				write = events["socket_continuation_write"]
+			}
+			require.Equal(t, "obi_written", write.State, key)
+			require.Equal(t, traceID, write.TraceID, key)
+		}
+	}
+	require.Equal(t, expectedOwned, owned)
+
+	for _, stream := range after.Active {
+		if stream.Protocol == protocol {
+			require.Failf(t, "active semantic stream remained", "%+v", stream)
+		}
+	}
+}
+
 // App sends its own traceparent: OBI must not append a second, receivers discard multi-value.
 // Repeated on one channel, the client encoder puts the whole field in its dynamic table and
 // sends it as a single index byte from the second call on, so nothing is left on the wire to detect.

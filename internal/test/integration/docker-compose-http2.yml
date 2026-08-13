@@ -9,6 +9,49 @@ services:
     environment:
       TARGET_URL: "https://testserver:7373"
       TEST_HTTP2_PROTOCOLS: ${TEST_HTTP2_PROTOCOLS}
+    ports:
+      - "127.0.0.1:28080:8080"
+    healthcheck:
+      test: ["CMD", "/http2client", "healthcheck"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+    depends_on:
+      testserver:
+        condition: service_started
+
+  testclient-xnet-legacy:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/gohttp2/client_xnet_legacy/Dockerfile
+    image: hatest-testclient-xnet-legacy
+    environment:
+      TARGET_URL: "https://testserver:7373"
+    ports:
+      - "127.0.0.1:28081:8080"
+    healthcheck:
+      test: ["CMD", "/http2client", "healthcheck"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+    depends_on:
+      testserver:
+        condition: service_started
+
+  testclient-stdlib-legacy:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/gohttp2/client_stdlib_legacy/Dockerfile
+    image: hatest-testclient-stdlib-legacy
+    environment:
+      TARGET_URL: "https://testserver:7373"
+    ports:
+      - "127.0.0.1:28082:8080"
+    healthcheck:
+      test: ["CMD", "/http2client", "healthcheck"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
     depends_on:
       testserver:
         condition: service_started
@@ -39,6 +82,7 @@ services:
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-http2:/var/run/obi
     image: hatest-obi
+    init: true
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "host"
     environment:
@@ -50,9 +94,17 @@ services:
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_GO_H2_AUDIT: "1"
+      OTEL_EBPF_GO_H2_AUDIT_ADDR: "0.0.0.0"
+    ports:
+      - "127.0.0.1:16061:6061"
     depends_on:
       testclient:
-        condition: service_started
+        condition: service_healthy
+      testclient-xnet-legacy:
+        condition: service_healthy
+      testclient-stdlib-legacy:
+        condition: service_healthy
 
   # OpenTelemetry Collector — fans OBI's OTLP push out to jaeger (production
   # path used by the test's trace assertions) and to weaver (semconv tap).

@@ -113,6 +113,9 @@ func TestTracer_Constants(t *testing.T) {
 			_, ok = c["g_bpf_debug"]
 			assert.True(t, ok, "g_bpf_debug should be present")
 
+			_, ok = c["g_go_h2_audit"]
+			assert.True(t, ok, "g_go_h2_audit should be present")
+
 			// Spec 1 (sock_iter) carries only the debug flag.
 			iterC := bundles[1].Constants
 			_, ok = iterC["g_bpf_debug"]
@@ -120,4 +123,22 @@ func TestTracer_Constants(t *testing.T) {
 			assert.Len(t, iterC, 1, "iter spec should have only g_bpf_debug")
 		})
 	}
+}
+
+func TestDisableH2SocketMutation(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	fallback := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	require.NotNil(t, fallback)
+
+	disableH2SocketMutation(spec)
+
+	assert.Same(t, fallback, spec.Programs["obi_packet_extender_write_h2_tp"])
+	assert.Equal(t, "obi_packet_extender_write_h2_tp", fallback.Name)
+
+	disabledFallback := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	require.NotNil(t, disabledFallback)
+	assert.Equal(t, "obi_packet_extender_write_h2_tp_no_rollback", disabledFallback.Name)
+	assert.Len(t, disabledFallback.Instructions, 2)
 }

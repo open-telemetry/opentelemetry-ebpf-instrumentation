@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -508,12 +509,21 @@ func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 	})
 	tracer.ProcessBinary(fileInfo)
 
-	assert.Empty(t, tracer.GoProbeGroups())
+	for _, group := range tracer.GoProbeGroups() {
+		assert.NotEqual(t, "go_auto_sdk_activation", group.Name)
+	}
 
 	tracer.recordGoAutoSDKActivationSupport(fileInfo, goAutoSDKSpanContextOffsets())
 	groups := tracer.GoProbeGroups()
-	require.Len(t, groups, 1)
-	assert.Equal(t, goAutoSDKActivationPrerequisiteSymbols, groups[0].Prerequisites)
+	var activationGroup *ebpfcommon.GoProbeGroup
+	for index := range groups {
+		if groups[index].Name == "go_auto_sdk_activation" {
+			activationGroup = &groups[index]
+			break
+		}
+	}
+	require.NotNil(t, activationGroup)
+	assert.Equal(t, goAutoSDKActivationPrerequisiteSymbols, activationGroup.Prerequisites)
 	expectedSymbols := []string{
 		"go.opentelemetry.io/auto/sdk.(*tracer).start",
 		"context.WithValue",
@@ -521,14 +531,62 @@ func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 		"go.opentelemetry.io/otel/internal/global.(*tracer).newSpan",
 	}
 	assert.Equal(t, expectedSymbols, GoAutoSDKActivationProbeSymbols())
-	require.Len(t, groups[0].Probes, len(expectedSymbols))
+	require.Len(t, activationGroup.Probes, len(expectedSymbols))
 	for index, symbol := range expectedSymbols {
-		assert.Equal(t, symbol, groups[0].Probes[index].Symbol)
+		assert.Equal(t, symbol, activationGroup.Probes[index].Symbol)
 	}
-	assert.False(t, groups[0].Probes[0].ProcessScoped)
-	assert.False(t, groups[0].Probes[1].ProcessScoped)
-	assert.False(t, groups[0].Probes[2].ProcessScoped)
-	assert.True(t, groups[0].Probes[3].ProcessScoped)
+	assert.False(t, activationGroup.Probes[0].ProcessScoped)
+	assert.False(t, activationGroup.Probes[1].ProcessScoped)
+	assert.False(t, activationGroup.Probes[2].ProcessScoped)
+	assert.True(t, activationGroup.Probes[3].ProcessScoped)
+}
+
+func TestGoH2OwnershipProbeGroupsAreComplete(t *testing.T) {
+	setContextPropagationSupportForTest(t, true)
+
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{ContextPropagation: config.ContextPropagationHeaders},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	groups := tracer.GoProbeGroups()
+	require.Len(t, groups, 6)
+	assert.Equal(t, "go_http2_xnet_ownership", groups[0].Name)
+	assert.Len(t, groups[0].PrerequisitesAny, 2)
+	assert.Len(t, groups[0].Probes, 8)
+	assert.Equal(t, "go_http2_xnet_legacy_ownership", groups[1].Name)
+	assert.Len(t, groups[1].Prerequisites, 1)
+	assert.Len(t, groups[1].Conflicts, 1)
+	assert.Len(t, groups[1].Probes, 8)
+	assert.Equal(t, "go_http2_stdlib_ownership", groups[2].Name)
+	assert.Len(t, groups[2].Prerequisites, 1)
+	assert.Len(t, groups[2].Probes, 8)
+	assert.Equal(t, "go_http2_stdlib_legacy_ownership", groups[3].Name)
+	assert.Len(t, groups[3].Prerequisites, 1)
+	assert.Len(t, groups[3].Conflicts, 1)
+	assert.Len(t, groups[3].Probes, 8)
+	assert.Contains(t, groups[4].Name, "headerHandler")
+	assert.Contains(t, groups[5].Name, "clientHeaderHandler")
+	assert.Len(t, groups[4].Probes, 9)
+	assert.Len(t, groups[5].Probes, 9)
+	for _, group := range groups {
+		require.True(t, group.Probes[len(group.Probes)-4].Probe.UsePadStart)
+		require.True(t, group.Probes[len(group.Probes)-1].Probe.UseWriteStart)
+	}
+
+	discovered := map[string]struct{}{}
+	for _, symbol := range GoH2OwnershipProbeSymbols() {
+		discovered[symbol] = struct{}{}
+	}
+	for _, group := range groups {
+		if !strings.HasPrefix(group.Name, "go_http2_") &&
+			!strings.HasPrefix(group.Name, "go_grpc_ownership_") {
+			continue
+		}
+		for _, probe := range group.Probes {
+			_, ok := discovered[probe.Symbol]
+			assert.True(t, ok, probe.Symbol)
+		}
+	}
 }
 
 func TestGoAutoSDKActivationProbeGroupRequiresWriteUserSupport(t *testing.T) {
@@ -563,14 +621,11 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 
 	headerProbeSymbols := []string{
 		"net/http.Header.writeSubset",
-		"golang.org/x/net/http2.(*Framer).WriteHeaders",
-		"net/http.(*http2Framer).WriteHeaders",
 	}
 	tracingProbeSymbols := []string{
 		"net/http.(*Transport).roundTrip",
 		"google.golang.org/grpc.(*ClientConn).Invoke",
 		"google.golang.org/grpc.(*ClientConn).NewStream",
-		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
 	}
 
 	for _, tt := range tests {
@@ -595,6 +650,11 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 			}
 			for _, symbol := range tracingProbeSymbols {
 				assert.Contains(t, probes, symbol)
+			}
+			if tt.writeProbesEnabled {
+				assert.NotEmpty(t, tracer.GoProbeGroups())
+			} else {
+				assert.Empty(t, tracer.GoProbeGroups())
 			}
 		})
 	}

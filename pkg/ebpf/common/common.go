@@ -146,6 +146,14 @@ type ProbeDesc struct {
 	// Optional list of the offsets of every RET instruction in the symbol
 	ReturnOffsets []uint64
 
+	// UseWriteStart attaches Start at the source-line boundary immediately
+	// before the function's final indirect Writer.Write call.
+	UseWriteStart bool
+
+	// UsePadStart attaches Start after WriteHeaders has spilled PadLength to
+	// its stack slot and before the value is first consumed.
+	UsePadStart bool
+
 	// SymbolMatcher controls how the map key for this probe is matched against
 	// executable symbols. The zero value preserves exact symbol matching.
 	SymbolMatcher SymbolMatcher
@@ -165,7 +173,11 @@ type GoProbe struct {
 type GoProbeGroup struct {
 	Name          string
 	Prerequisites []string
-	Probes        []GoProbe
+	// PrerequisitesAny requires at least one attached symbol when non-empty.
+	PrerequisitesAny []string
+	// Conflicts skips the group when an earlier group attached any listed symbol.
+	Conflicts []string
+	Probes    []GoProbe
 }
 
 type USDTSpecManager struct {

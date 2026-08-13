@@ -6,12 +6,11 @@
 #include <bpfcore/vmlinux.h>
 
 #include <common/common.h>
+#include <common/go_addr_key.h>
+#include <common/go_h2_stream_state.h>
 #include <common/tp_info.h>
 
-#define HTTP2_ENCODED_HEADER_LEN                                                                   \
-    66 // 1 + 1 + 8 + 1 + 55 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(55) + generated traceparent id
-
-#define MAX_W_PTR_N 1024
+#define MAX_W_PTR_N 65535
 
 static const char traceparent[] = "traceparent: ";
 
@@ -44,6 +43,26 @@ typedef struct server_http_func_invocation {
 
 typedef struct framer_func_invocation {
     u64 framer_ptr;
-    tp_info_t tp;
+    u64 writer_pos;
     s64 initial_n;
+    go_h2_stream_key_t stream;
+    u8 frame_type;
+    bool reserved_padding;
+    u8 _pad[2];
 } framer_func_invocation_t;
+
+typedef struct http2_writer_stream {
+    u64 framer_ptr;
+    go_h2_stream_key_t stream;
+    u8 _pad[4];
+} http2_writer_stream_t;
+
+typedef struct http2_header_context {
+    tp_info_t tp;
+    go_addr_key_t request_key;
+    u64 started_ns;
+    bool observed;
+    bool app_traceparent;
+    bool read_failed;
+    u8 _pad[5];
+} http2_header_context_t;

@@ -10,3 +10,5 @@ volatile const bool g_bpf_traceparent_enabled = false;
 volatile const bool g_bpf_header_propagation = false;
 volatile const bool g_bpf_probe_write_user_enabled = false;
 volatile const bool g_bpf_loop_enabled = false;
+volatile const bool g_go_h2_audit = false;
+volatile const bool g_go_h2_force_socket_fallback = false;

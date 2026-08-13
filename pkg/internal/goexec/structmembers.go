@@ -232,6 +232,11 @@ const (
 	RuntimeSchedSTWTotalTimeGCPos
 	RuntimeTimeHistogramUnderflowPos
 	RuntimeTimeHistogramOverflowPos
+	FramerWbufPos
+	FramerWbufVendoredPos
+	FramerWVendoredPos
+	FramerPadLengthStackPos
+	FramerPadLengthStackVendoredPos
 )
 
 //go:embed offsets.json
@@ -379,14 +384,24 @@ var structMembers = map[string]structInfo{
 	"net/http.http2Framer": {
 		lib: "go",
 		fields: map[string]GoOffset{
-			"w": FramerWPos,
+			"w":    FramerWVendoredPos,
+			"wbuf": FramerWbufVendoredPos,
 		},
+	},
+	"net/http.http2clientStream": {
+		lib:    "go",
+		fields: map[string]GoOffset{},
 	},
 	"golang.org/x/net/http2.Framer": {
 		lib: "golang.org/x/net",
 		fields: map[string]GoOffset{
-			"w": FramerWPos,
+			"w":    FramerWPos,
+			"wbuf": FramerWbufPos,
 		},
+	},
+	"golang.org/x/net/http2.clientStream": {
+		lib:    "golang.org/x/net",
+		fields: map[string]GoOffset{},
 	},
 	"golang.org/x/net/http2.MetaHeadersFrame": {
 		lib: "golang.org/x/net",

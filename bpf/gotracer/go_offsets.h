@@ -157,6 +157,11 @@ typedef enum {
     _runtime_sched_stw_total_time_gc_pos,
     _runtime_time_histogram_underflow_pos,
     _runtime_time_histogram_overflow_pos,
+    _framer_wbuf_pos,
+    _framer_wbuf_vendored_pos,
+    _framer_w_vendored_pos,
+    _framer_pad_length_stack_pos,
+    _framer_pad_length_stack_vendored_pos,
     _last_go_offset,
 } go_offset_const;
 

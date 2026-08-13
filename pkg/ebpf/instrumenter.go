@@ -157,10 +157,16 @@ func (i *instrumenter) goprobes(p Tracer) error {
 				if len(groupClosers) == 0 {
 					continue
 				}
+				for _, candidate := range resolvedGroup.Probes {
+					attachedSymbols[candidate.Symbol] = true
+				}
 				closer := &reverseCloser{closers: groupClosers}
 				i.closables = append(i.closables, closer)
 				i.optionalGoProbeGroupClosers = append(i.optionalGoProbeGroupClosers, closer)
 				p.AddCloser(closer)
+				ilog().Info("attached optional Go probe group",
+					"group", resolvedGroup.Name,
+					"process", i.processName)
 				if hasProcessScopedTracer {
 					for _, candidate := range resolvedGroup.Probes {
 						if candidate.ProcessScoped {
@@ -274,12 +280,29 @@ func goProbeGroupPrerequisitesAttached(
 	attachedSymbols map[string]bool,
 ) bool {
 	log := ilog().With("probes", "instrumentOptionalGoProbeGroup", "group", group.Name)
+	for _, symbol := range group.Conflicts {
+		if attachedSymbols[symbol] {
+			log.Debug("skipping optional uprobe group because a conflicting group was attached",
+				"function", symbol)
+			return false
+		}
+	}
 	for _, symbol := range group.Prerequisites {
 		if !attachedSymbols[symbol] {
 			log.Debug("skipping optional uprobe group because a prerequisite was not attached",
 				"function", symbol)
 			return false
 		}
+	}
+	if len(group.PrerequisitesAny) > 0 {
+		for _, symbol := range group.PrerequisitesAny {
+			if attachedSymbols[symbol] {
+				return true
+			}
+		}
+		log.Debug("skipping optional uprobe group because no alternative prerequisite was attached",
+			"functions", group.PrerequisitesAny)
+		return false
 	}
 	return true
 }
@@ -1238,22 +1261,35 @@ func (i *instrumenter) gatherGoOffsets(goProbes map[string][]*ebpfcommon.ProbeDe
 					continue
 				}
 				probeCopy := *probe
-				probeCopy.Skip = false
-				probeCopy.StartOffset = offs.Start
-				probeCopy.ReturnOffsets = append([]uint64(nil), offs.Returns...)
+				if !applyGoProbeOffset(&probeCopy, offs) {
+					continue
+				}
 				resolved = append(resolved, &probeCopy)
 				resolvedForProbe++
 			}
 			if resolvedForProbe == 0 {
 				probeCopy := *probe
-				probeCopy.Skip = false
-				probeCopy.StartOffset = offsets[0].Start
-				probeCopy.ReturnOffsets = append([]uint64(nil), offsets[0].Returns...)
-				resolved = append(resolved, &probeCopy)
+				if applyGoProbeOffset(&probeCopy, offsets[0]) {
+					resolved = append(resolved, &probeCopy)
+				}
 			}
 		}
 		goProbes[symbolName] = resolved
 	}
+}
+
+func applyGoProbeOffset(probe *ebpfcommon.ProbeDesc, offs goexec.FuncOffsets) bool {
+	probe.Skip = false
+	probe.StartOffset = offs.Start
+	if probe.UseWriteStart {
+		probe.StartOffset = offs.WriteStart
+		probe.Skip = probe.StartOffset == 0
+	} else if probe.UsePadStart {
+		probe.StartOffset = offs.PadStart
+		probe.Skip = probe.StartOffset == 0 || offs.PadOffset == 0
+	}
+	probe.ReturnOffsets = append([]uint64(nil), offs.Returns...)
+	return !probe.Skip
 }
 
 func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) []ebpfcommon.GoProbeGroup {
@@ -1291,16 +1327,21 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 				complete = false
 				break
 			}
+			resolvedProbeCount := len(resolved.Probes)
 			for _, offs := range offsets {
 				probeCopy := *candidate.Probe
-				probeCopy.Skip = false
-				probeCopy.StartOffset = offs.Start
-				probeCopy.ReturnOffsets = append([]uint64(nil), offs.Returns...)
+				if !applyGoProbeOffset(&probeCopy, offs) {
+					continue
+				}
 				resolved.Probes = append(resolved.Probes, ebpfcommon.GoProbe{
 					Symbol:        candidate.Symbol,
 					Probe:         &probeCopy,
 					ProcessScoped: candidate.ProcessScoped,
 				})
+			}
+			if len(resolved.Probes) == resolvedProbeCount {
+				complete = false
+				break
 			}
 		}
 		if complete {

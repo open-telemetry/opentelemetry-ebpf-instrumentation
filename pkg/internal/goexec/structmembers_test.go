@@ -203,6 +203,23 @@ func TestPrefetchedOffsetsPreserveResolvedOffsets(t *testing.T) {
 	assert.Equal(t, resolvedOffset, got[RuntimeGCControllerGCPercentPos])
 }
 
+func TestPrefetchedHTTP2FramerOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	assertPrefetchedOffset(t, track, "golang.org/x/net/http2.Framer", "w", "0.0.0", 112)
+	assertPrefetchedOffset(t, track, "golang.org/x/net/http2.Framer", "wbuf", "0.0.0", 128)
+	assertPrefetchedOffset(t, track, "golang.org/x/net/http2.Framer", "w", "0.9.0", 120)
+	assertPrefetchedOffset(t, track, "golang.org/x/net/http2.Framer", "wbuf", "0.9.0", 136)
+	assertPrefetchedOffset(t, track, "golang.org/x/net/http2.Framer", "w", "0.53.0", 120)
+	assertPrefetchedOffset(t, track, "golang.org/x/net/http2.Framer", "wbuf", "0.53.0", 136)
+	assertPrefetchedOffset(t, track, "golang.org/x/net/http2.Framer", "wbuf", "0.57.0", 136)
+	assertPrefetchedOffset(t, track, "net/http.http2Framer", "w", "1.17.13", 112)
+	assertPrefetchedOffset(t, track, "net/http.http2Framer", "wbuf", "1.17.13", 128)
+	assertPrefetchedOffset(t, track, "net/http.http2Framer", "w", "1.26.3", 120)
+	assertPrefetchedOffset(t, track, "net/http.http2Framer", "wbuf", "1.26.3", 136)
+}
+
 func TestGoroutineRuntimeOffsetsWithoutDwarf(t *testing.T) {
 	offsets, err := structMemberOffsets(smallELF)
 	require.NoError(t, err)

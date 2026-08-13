@@ -110,6 +110,17 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]Fun
 		// we still need to find the return statements, since go linkage is non-standard we can't use uretprobe
 		if gosyms == nil && len(allSyms) > 0 {
 			offs, found = staticSymbolOffsets(f.Name, allSyms, ilog)
+			if found && (isFramerEndWrite(f.Name) || isFramerWriteHeaders(f.Name)) {
+				goOffsets, goFound, err := findFuncOffset(&f, elfF)
+				if err != nil {
+					return nil, err
+				}
+				if goFound {
+					offs.WriteStart = goOffsets.WriteStart
+					offs.PadStart = goOffsets.PadStart
+					offs.PadOffset = goOffsets.PadOffset
+				}
+			}
 		}
 		if !found {
 			var err error
@@ -155,6 +166,15 @@ func storeFunctionOffset(
 		}
 
 		existing.Returns = sortedUniqueOffsets(append(existing.Returns, offs.Returns...))
+		if existing.WriteStart == 0 {
+			existing.WriteStart = offs.WriteStart
+		}
+		if existing.PadStart == 0 {
+			existing.PadStart = offs.PadStart
+		}
+		if existing.PadOffset == 0 {
+			existing.PadOffset = offs.PadOffset
+		}
 		if offs.Symbol == fName || (existing.Symbol != fName && offs.Symbol < existing.Symbol) {
 			existing.Symbol = offs.Symbol
 		}
@@ -237,11 +257,46 @@ func findFuncOffset(f *gosym.Func, elfF *elf.File) (FuncOffsets, bool, error) {
 			if err != nil {
 				return FuncOffsets{}, false, fmt.Errorf("finding function return: %w", err)
 			}
-			return FuncOffsets{Start: off, Returns: returns}, true, nil
+			writeStart := uint64(0)
+			if isFramerEndWrite(f.Name) && f.LineTable != nil {
+				writeStart, err = FindWriteStartOffset(off, f.Entry, data, f.LineTable.PCToLine)
+				if err != nil {
+					return FuncOffsets{}, false, fmt.Errorf("finding Writer.Write boundary: %w", err)
+				}
+				if writeStart <= off {
+					writeStart = 0
+				}
+			}
+			padStart := uint64(0)
+			padOffset := uint64(0)
+			if isFramerWriteHeaders(f.Name) {
+				padStart, padOffset, err = FindPadStartOffset(off, data)
+				if err != nil {
+					return FuncOffsets{}, false, fmt.Errorf("finding HeadersFrameParam padding boundary: %w", err)
+				}
+				if padStart <= off {
+					padStart = 0
+					padOffset = 0
+				}
+			}
+			return FuncOffsets{
+				Start: off, Returns: returns, WriteStart: writeStart,
+				PadStart: padStart, PadOffset: padOffset,
+			}, true, nil
 		}
 	}
 
 	return FuncOffsets{}, false, nil
+}
+
+func isFramerEndWrite(name string) bool {
+	return strings.HasSuffix(name, ".(*Framer).endWrite") ||
+		strings.HasSuffix(name, ".(*http2Framer).endWrite")
+}
+
+func isFramerWriteHeaders(name string) bool {
+	return strings.HasSuffix(name, ".(*Framer).WriteHeaders") ||
+		strings.HasSuffix(name, ".(*http2Framer).WriteHeaders")
 }
 
 func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {

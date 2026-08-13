@@ -515,7 +515,8 @@ run-integration-test-vm:
 run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
+	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration \
+		-run "^(TestMultiProcess|TestHTTP2Go|TestHTTP2GoWithHTTPProtocols|TestSuite_GRPCGoTraceparentOwnership)$$"
 
 .PHONY: unit-test-matrix-json
 unit-test-matrix-json:
@@ -536,11 +537,11 @@ integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
 
 # Shared matrix for workflows that run the VM-side test suite. Pattern
-# covers multiprocess context propagation, gRPC relay, the HTTP
-# logenricher pipeline, and the large HTTP request body path.
+# covers multiprocess context propagation, gRPC relay, Go HTTP/2 ownership,
+# the HTTP logenricher pipeline, and the large HTTP request body path.
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestHTTP2Go|TestHTTP2GoWithHTTPProtocols|TestSuite_GRPCGoTraceparentOwnership|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:

@@ -32,25 +32,34 @@ Injection requires *proving* the block carries no traceparent, not merely failin
 
 The scan recognizes the encodings that put identifying bytes on the wire: a literal name in any of the three literal prefixes, plain or huffman, and a dyn-table name reference whose value is plain (`0x37` + `00-` + dash positions). On egress a compressed value still counts only as *present*, not adoptable; ingress decodes it.
 
-Some encodings leave nothing at all: a dyn-table name reference with a compressed value, or — when a sender repeats the *same* traceparent, as a service fanning one incoming context out to several downstream calls — a single index byte standing for the whole field. Measured on grpc-js: request 1 is a 74-byte block holding `40 88 <huffman traceparent> a5 <huffman value>`, requests 2-4 are 25 bytes with no trace of it.
-
-No content scan can see those, and none needs to. An index only exists because the encoder inserted the entry, and at insertion time the name was on the wire in full — so matching the name once and latching `k_h2_sk_app_tp` on the socket covers every later reference to it exactly, with no table state and no guesswork. OBI then stands down on that socket for good.
-
-Two consequences follow, and both are properties of the rule rather than gaps in it. A socket shared between callers that propagate and callers that do not loses injection for the quiet ones — chosen deliberately, since a second field voids the header for the whole downstream chain. And a connection whose insertions predate attachment has a table OBI never watched being built, so a traceparent already reduced to an index there is invisible; that case is bounded by `k_h2_skip_unscanned` only when the block is too long to walk, not when it is short and opaque.
+Some encodings leave nothing at all: a dyn-table name reference with a compressed value, or — when a sender repeats the *same* traceparent — a single index byte standing for the whole field. The generic socket path therefore keeps its conservative connection latch for non-Go senders. Go HTTP/2 and grpc-go use the pre-serialization ownership path below instead; their decision is exact per stream and does not rely on wire bytes or dynamic-table history.
 
 Parent lookup priority in `create_tp`:
 
-1. `outgoing_trace_map[{ports, stream_id}]` — written by Go uprobe or kprobe CLIENT
+1. exact Go stream state, then `outgoing_trace_map[{ports, stream_id}]` for non-Go senders
 2. `find_parent_trace` — general fallback chain: Node.js → Python → nginx → Puma → Java → process traces → `cp_support_connect_info`
 
 ### Go Uprobe Path
 
-1. **`transport_http2Client_NewStream`** — caches `conn_ptr → connection_info_t` in `grpc_conn_ptr_to_conn`
-2. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. Writes `outgoing_trace_map[{ports, stream_id}]`. Also marks the conn via `mark_go_grpc_client_conn` and injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true.
+Go HTTP/2 and grpc-go publish a directional key containing PID, process start time, both addresses and ports, and the HTTP/2 stream ID. The process identity prevents a reused PID from adopting an earlier process's state. The value records whether the application supplied `traceparent`, OBI may inject, OBI committed a write, or the request must fail closed.
+
+- net/http's vendored HTTP/2 client and `golang.org/x/net/http2` observe each field at `ClientConn.writeHeader`, before HPACK serialization. `writeHeaders` supplies the stream ID and connection, and `Framer.endWrite` provides entry and pre-`Writer.Write` commit points.
+- grpc-go bridges the caller and loopy-writer goroutines with the `headerFrame` pointer at `controlBuffer.executeAndPut`. The version-appropriate `headerHandler` or `clientHeaderHandler` supplies the stream ID. `hpack.Encoder.WriteField` then observes application metadata before serialization, and `Framer.endWrite` commits before its underlying writer can consume the frame.
+
+Probe sets attach atomically for each library family. Missing symbols or a missing pre-write boundary disable the whole ownership path for that family instead of leaving partial state. Before Go appends a small final `HEADERS` payload, OBI reserves 69 bytes of RFC-valid padding and converts it into the HPACK traceparent at `endWrite` entry. Go therefore allocates the memory itself, including on the first unbuffered TLS request. An interior source boundary immediately before `Writer.Write` handles a full final `HEADERS` or `CONTINUATION` by appending a separate continuation frame. User-memory updates are read back, and both the writer length and frame metadata are restored and verified after a failed transaction.
 
 ### sk_msg Per-Stream Fallback for Go gRPC Conns
 
-Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_conn` first: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, sets `tailcall_ctx.go_grpc_conn` and tail-calls `detect_h2`. No TCP option scheduling. Per stream, the chain then honors the `written` handshake: `written=1` means the uprobe's user-buffer HPACK carries the traceparent — skip the frame; `written=0` means the uprobe write failed or went unconfirmed — the wire scan adopts an on-wire traceparent if one is found, otherwise `create_h2_tp` injects the stored tp. Streams with no stored tp at all are never touched on a Go conn (`go_grpc_conn` guard). Since `originateStream` publishes a tp for every client stream, that guard rarely fires now; TLS is kept out by the socket state machine instead — ciphertext has no preface and cannot pass the mid-stream sniff, so `detect_h2` never runs on it. HTTP/1 traffic from the same Go process is unmarked and goes through the HTTP/1 detection path.
+The socket injector consults exact Go stream state before scanning HPACK or applying the generic socket latch. Application-owned, committed, and fail-closed streams are never modified. A pending stream bypasses the wire ownership scan and uses the exact stored OBI context, so an indexed application field on a different stream cannot suppress it. A marked Go connection with missing or stale exact state fails closed.
+
+Socket mutation is transactional: frame length is changed, space is pushed, HPACK bytes and both metadata updates are read back, and the state changes to written only after every check succeeds. Failures pop the bytes and restore the old frame length; an unverified rollback changes the stream to fail-closed. Kernels without `bpf_msg_pop_data` load a separate program that performs no HTTP/2 socket mutation. TLS ciphertext never reaches the confirmed HTTP/2 path.
+
+The socket fallback can only rewrite a complete HTTP/2 frame present in one
+`sk_msg` buffer. If a missed uprobe leaves a large `HEADERS` or `CONTINUATION`
+frame split across socket callbacks, the fallback fails closed because its
+length field may already be on the wire. Normal Go instrumentation injects at
+the user buffer before this split; the socket fallback remains best effort for
+missed probes and pre-existing connections.
 
 ## Ingress
 
@@ -72,11 +81,11 @@ Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_
 
 Writers:
 
-- **Go uprobes** (`loopyWriter.originateStream` + `grpcFramerWriteHeaders` entry) — `BPF_ANY` with `written=0`; the `WriteHeaders` return probe flips it to `written=1` only after every `bpf_probe_write_user` landed and `n == off + 9 + frame_len` still holds (a mid-write flush or CONTINUATION split moved the frame — patching then would corrupt the stream, so sk_msg injects instead)
+- **Go uprobes** — publish only the exact PID/process/connection/stream state. They do not write the weak port-only map.
 - **kprobe CLIENT** (`http2_grpc_start`) — `BPF_NOEXIST` with `written=0`, used only when no uprobe wrote first; span_id comes from `urand_bytes`
 - **sk_msg** (`find_existing_h2_tp` / `create_h2_tp`) — `BPF_ANY`, used by non-Go senders. Persists the traceparent that was just written onto the wire so kprobe CLIENT can adopt the same context
 
-`adopt_injected_trace`: called after `find_trace_for_client_request` in the kprobe CLIENT path. Overrides stale traces with whatever is in `outgoing_trace_map[{ports, stream_id}]`.
+`adopt_injected_trace`: called after `find_trace_for_client_request` in the kprobe CLIENT path. It adopts a committed exact Go stream first. The PID-checked `outgoing_trace_map[{ports, stream_id}]` fallback is used only when neither exact stream state nor a fresh semantic Go connection marker exists.
 
 ### Cleanup
 
@@ -104,7 +113,7 @@ Connections established before OBI attached are recognized (mid-stream sniff), p
 
 **With uprobes**: Not affected.
 
-### Two uprobes for the loopyWriter race — `executeAndPut` + `originateStream`
+### Two stages for the loopyWriter race
 
 **The race.** When a Go gRPC client opens a new stream, two goroutines are involved:
 
@@ -123,7 +132,7 @@ We need a key both goroutines can agree on. The `*headerFrame` pointer fits: it'
 **The bridge** (`bpf/gotracer/go_grpc.c`):
 
 - **`(*controlBuffer).executeAndPut`** — runs on the caller goroutine just before the `headerFrame` is queued. Stashes the invocation in `pending_h2_invocations[hdr_ptr]`.
-- **`(*loopyWriter).originateStream`** — runs on the loopyWriter goroutine just before `WriteHeaders`. By now `outStream.id` is assigned. Looks up the stash by `hdr_ptr`, then publishes `ongoing_streams[{conn_ptr, stream_id}]` so the existing `grpcFramerWriteHeaders` uprobe sees it.
+- **`(*loopyWriter).headerHandler` / `clientHeaderHandler`** — runs on the loopyWriter goroutine after the stream ID is assigned. It looks up the stash by `hdr_ptr`, then publishes the exact directional stream state before HPACK encoding begins.
 
 ## Maps
 
@@ -133,7 +142,10 @@ We need a key both goroutines can agree on. The `*headerFrame` pointer fits: it'
 | `ongoing_http2_connections` | HASH | `pid_connection_info_t` | `http2_conn_info_data_t` | H2 connection tracking |
 | `outgoing_trace_map` | LRU_HASH | `egress_key_t{ports, stream_id}` | `tp_info_pid_t` | Per-stream sender trace context |
 | `incoming_trace_map` | LRU_HASH | `connection_info_t` | `tp_info_pid_t` | Receiver trace context (HTTP/1 path only; gRPC uses per-stream maps) |
-| `grpc_conn_ptr_to_conn` | LRU_HASH | `u64 (conn_ptr)` | `connection_info_t` | Go conn pointer → TCP ports |
+| `grpc_conn_ptr_to_conn` | LRU_HASH | `go_addr_key_t{pid, conn_ptr}` | `connection_info_t` | Go conn pointer → directional TCP connection |
 | `ongoing_grpc_server_stream_tps` | LRU_HASH | `stream_key_t{tr_ptr, stream_id}` | `tp_info_t` | Per-stream parsed traceparent (Go gRPC server) |
-| `pending_h2_invocations` | LRU_HASH | `u64 (hdr ptr)` | `pending_h2_invocation_t{inv, conn_ptr}` | Two-hop bridge from `executeAndPut` to `originateStream` |
-| `go_grpc_client_conns` | LRU_HASH | `pid_connection_info_t` | `u8` | Marks Go gRPC client conns (via `mark_go_grpc_client_conn`); sk_msg bails on `is_go_grpc_client_conn` hit |
+| `pending_h2_invocations` | LRU_HASH | `go_addr_key_t{pid, hdr ptr}` | `pending_h2_invocation_t{tp, request, conn_ptr}` | Bridge from `executeAndPut` to the loopy-writer header handler |
+| `go_h2_stream_states` | LRU_HASH | `{pid, process start, directional conn, stream_id}` | `go_h2_stream_value_t` | Exact application/OBI ownership and fallback state |
+| `go_h2_client_conns` | LRU_HASH | `{pid, process start, directional conn}` | `go_h2_conn_value_t` | Fresh directional marker; missing exact stream state fails closed |
+
+Exact stream entries are deleted when the HTTP/2 header encoder or gRPC client request completes. Pending cross-goroutine entries are deleted on queue errors, handler consumption, and LRU eviction. Connection markers and all values carry a 30-second freshness bound, which limits missed-return, process-exit, and PID/pointer-reuse residue in addition to LRU eviction.

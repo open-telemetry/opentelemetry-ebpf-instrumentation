@@ -6,6 +6,10 @@
 package goexec
 
 import (
+	"debug/elf"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -158,4 +162,104 @@ func TestFindReturnOffsets_TruncatedInstruction(t *testing.T) {
 	offsets, err := FindReturnOffsets(0, buf)
 	require.NoError(t, err)
 	require.Empty(t, offsets)
+}
+
+func TestFindWriteStartOffset(t *testing.T) {
+	data := []byte{
+		0xe8, 0x00, 0x00, 0x00, 0x00, // direct CALL
+		0x90,                   // separate source line
+		0x48, 0x8b, 0x50, 0x70, // Writer.Write argument setup
+		0xff, 0xd2, // indirect CALL DX
+		0xc3,
+	}
+	lineAt := func(pc uint64) int {
+		switch {
+		case pc < 5:
+			return 10
+		case pc < 6:
+			return 11
+		case pc < 12:
+			return 12
+		default:
+			return 13
+		}
+	}
+	offset, err := FindWriteStartOffset(0x1000, 0, data, lineAt)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x1006), offset)
+}
+
+func TestFindWriteStartOffsetUsesBranchJoin(t *testing.T) {
+	data := []byte{
+		0x74, 0x07, // JE to Writer.Write argument setup
+		0xe8, 0x00, 0x00, 0x00, 0x00, // optional direct CALL
+		0x90, 0x90, // fallthrough on the same source line
+		0x48, 0x8b, 0x50, 0x70, // Writer.Write argument setup
+		0xff, 0xd2, // indirect CALL DX
+		0xc3,
+	}
+	lineAt := func(pc uint64) int {
+		if pc < 2 {
+			return 11
+		}
+		if pc < 15 {
+			return 12
+		}
+		return 13
+	}
+	offset, err := FindWriteStartOffset(0x1000, 0, data, lineAt)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x1009), offset)
+}
+
+func TestFindPadStartOffset(t *testing.T) {
+	data := []byte{
+		0x48, 0x83, 0x7c, 0x24, 0x20, 0x00, // CMPQ 0x20(SP), $0
+		0x0f, 0xb6, 0x94, 0x24, 0xaa, 0x00, 0x00, 0x00, // MOVZX 0xaa(SP), EDX
+		0x84, 0xd2, // TEST DL, DL
+		0x74, 0x00, // JE
+		0xc3,
+	}
+	offset, stackOffset, err := FindPadStartOffset(0x1000, data)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x1006), offset)
+	require.Equal(t, uint64(0xaa), stackOffset)
+}
+
+func TestInstrumentationPointsFindsStaticWriteBoundary(t *testing.T) {
+	const source = `package main
+
+type writer interface { Write([]byte) (int, error) }
+type sink struct{}
+func (sink) Write(p []byte) (int, error) { return len(p), nil }
+type Framer struct { w writer; wbuf []byte }
+//go:noinline
+func (f *Framer) endWrite() error {
+	_, err := f.w.Write(f.wbuf)
+	return err
+}
+var frame = Framer{w: sink{}, wbuf: []byte("frame")}
+func main() { _ = frame.endWrite() }
+`
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "main.go")
+	binaryPath := filepath.Join(dir, "fixture")
+	require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o600))
+	command := exec.Command("go", "build", "-o", binaryPath, sourcePath)
+	command.Env = append(os.Environ(), "GOCACHE="+filepath.Join(dir, "gocache"))
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+
+	file, err := elf.Open(binaryPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, file.Close()) })
+	require.Nil(t, file.Section(".gosymtab"))
+	require.NotNil(t, file.Section(".symtab"))
+
+	const symbol = "main.(*Framer).endWrite"
+	offsets, err := instrumentationPoints(file, []string{symbol})
+	require.NoError(t, err)
+	require.Contains(t, offsets, symbol)
+	require.NotZero(t, offsets[symbol][0].WriteStart)
+	require.Greater(t, offsets[symbol][0].WriteStart, offsets[symbol][0].Start)
 }

@@ -1,0 +1,16 @@
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  services:
+    - name: go-ownership-receiver
+      open_ports: 50070
+    - name: go-ownership-receiver-tls
+      open_ports: 50071
+    - name: go-ownership-current
+      open_ports: 8082
+    - name: go-ownership-legacy
+      open_ports: 8083
+    - name: go-ownership-current-unbuffered
+      open_ports: 8084

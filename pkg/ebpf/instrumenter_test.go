@@ -296,6 +296,23 @@ func TestGatherGoOffsetsKeepsCompatibleCopy(t *testing.T) {
 	assert.Equal(t, []uint64{0x21}, probes[symbol][0].ReturnOffsets)
 }
 
+func TestGatherGoOffsetsUsesSpecialOffsetsPerCopy(t *testing.T) {
+	const symbol = "example.com/library.Function"
+	probes := probeDescMap{symbol: {{UseWriteStart: true}}}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		symbol: {
+			{Symbol: symbol, Start: 0x10, WriteStart: 0x11},
+			{Symbol: "one/vendor/" + symbol, Start: 0x20, WriteStart: 0x21},
+		},
+	}}}
+
+	i.gatherGoOffsets(probes)
+
+	require.Len(t, probes[symbol], 2)
+	assert.Equal(t, uint64(0x11), probes[symbol][0].StartOffset)
+	assert.Equal(t, uint64(0x21), probes[symbol][1].StartOffset)
+}
+
 func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 	i := &instrumenter{}
 	probes := probeDescMap{
@@ -324,6 +341,20 @@ func TestGoProbeGroupRequiresAttachedPrerequisites(t *testing.T) {
 	assert.True(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
 		"synthetic-start": true,
 		"synthetic-end":   true,
+	}))
+}
+
+func TestGoProbeGroupSkipsAttachedConflicts(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name:      "legacy-layout",
+		Conflicts: []string{"modern-layout"},
+	}
+
+	assert.True(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"modern-layout": false,
+	}))
+	assert.False(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"modern-layout": true,
 	}))
 }
 

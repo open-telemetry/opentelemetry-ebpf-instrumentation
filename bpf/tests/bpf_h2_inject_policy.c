@@ -47,6 +47,24 @@ int main(void) {
     expect(f, k_h2_skip_server_socket, "server socket skips");
 
     f = request();
+    f.semantic_conn = true;
+    f.semantic_state = k_go_h2_state_app;
+    expect(f, k_h2_skip_semantic_state, "application-owned Go stream skips");
+
+    f.semantic_state = k_go_h2_state_obi_written;
+    expect(f, k_h2_skip_semantic_state, "directly written Go stream skips");
+
+    f.semantic_state = k_go_h2_state_skip;
+    expect(f, k_h2_skip_semantic_state, "failed closed Go stream skips");
+
+    f.semantic_state = k_go_h2_state_obi_pending;
+    f.sk_app_tp = true;
+    expect(f, k_h2_inject_allow, "pending Go stream ignores socket latch");
+
+    f.semantic_state = k_go_h2_state_unknown;
+    expect(f, k_h2_skip_semantic_miss, "missing Go stream state fails closed");
+
+    f = request();
     f.uprobe_wrote = true;
     expect(f, k_h2_skip_uprobe_wrote, "uprobe-written stream skips");
 

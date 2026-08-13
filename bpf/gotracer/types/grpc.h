@@ -6,6 +6,8 @@
 #include <bpfcore/vmlinux.h>
 
 #include <common/tp_info.h>
+#include <common/go_addr_key.h>
+#include <common/go_h2_stream_state.h>
 
 #include <gotracer/types/stream_key.h>
 
@@ -28,20 +30,30 @@ typedef struct grpc_client_func_invocation {
 typedef struct transport_new_client_invocation {
     grpc_client_func_invocation_t inv;
     stream_key_t s_key;
+    go_addr_key_t request_key;
 } transport_new_client_invocation_t;
 
 typedef struct grpc_framer_func_invocation {
     u64 framer_ptr;
-    tp_info_t tp;
     s64 offset;
-    u16 s_port;
-    u16 d_port;
-    u32 stream_id;
+    go_h2_stream_key_t stream;
+    u8 frame_type;
+    bool reserved_padding;
+    u8 _pad[2];
 } grpc_framer_func_invocation_t;
 
 // Bridge state stashed by executeAndPut on the NewStream goroutine and consumed
-// by originateStream on the loopyWriter goroutine. Keyed by *headerFrame ptr
+// by the header handler on the loopyWriter goroutine. Keyed by *headerFrame ptr.
 typedef struct pending_h2_invocation {
-    grpc_client_func_invocation_t inv;
+    tp_info_t tp;
+    go_addr_key_t request_key;
     u64 conn_ptr;
+    u64 updated_ns;
 } pending_h2_invocation_t;
+
+typedef struct active_h2_invocation {
+    go_h2_stream_key_t stream;
+    bool observed;
+    bool read_failed;
+    u8 _pad[2];
+} active_h2_invocation_t;

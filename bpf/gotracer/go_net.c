@@ -49,6 +49,8 @@
 #include <gotracer/maps/ongoing_large_buffers.h>
 #include <gotracer/maps/ongoing_ssl_ops.h>
 
+#include <maps/go_h2_stream_states.h>
+
 #include <pid/pid_helpers.h>
 
 #include <shared/obi_ctx.h>
@@ -275,6 +277,7 @@ int GUARDED_PROG(obi_uprobe_netFdClose, struct pt_regs *, ctx) {
         return 0;
     }
 
+    const connection_info_t directional_conn = key.conn;
     sort_connection_info(&key.conn);
 
     bpf_map_delete_elem(&ongoing_large_buffers, &key);
@@ -282,6 +285,16 @@ int GUARDED_PROG(obi_uprobe_netFdClose, struct pt_regs *, ctx) {
     dbg_print_http_connection_info(&key.conn);
 
     remove_go_handled_connection(&key.conn);
+
+    go_h2_conn_key_t h2_key = {
+        .p_conn =
+            {
+                .conn = directional_conn,
+                .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
+            },
+    };
+    set_go_h2_process_identity(&h2_key.process_start_lo, &h2_key.process_start_hi);
+    bpf_map_delete_elem(&go_h2_client_conns, &h2_key);
 
     return 0;
 }

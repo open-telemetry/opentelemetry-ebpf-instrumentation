@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/asm"
+	"github.com/cilium/ebpf/features"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/sys/unix"
 
@@ -138,6 +140,11 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := features.HaveProgramHelper(ebpf.SkMsg, asm.FnMsgPopData); err != nil {
+		p.log.Warn("HTTP/2 socket fallback disabled because transactional rollback is unavailable",
+			"helper", asm.FnMsgPopData, "error", err)
+		disableH2SocketMutation(spec)
+	}
 
 	bundles := []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
@@ -180,6 +187,24 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	return bundles, nil
 }
 
+func disableH2SocketMutation(spec *ebpf.CollectionSpec) {
+	fallback, ok := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	if !ok {
+		return
+	}
+	fallback.Name = "obi_packet_extender_write_h2_tp"
+	spec.Programs["obi_packet_extender_write_h2_tp"] = fallback
+	spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"] = &ebpf.ProgramSpec{
+		Name: "obi_packet_extender_write_h2_tp_no_rollback",
+		Type: ebpf.SkMsg,
+		Instructions: asm.Instructions{
+			asm.Mov.Imm(asm.R0, 1),
+			asm.Return(),
+		},
+		License: "Dual MIT/GPL",
+	}
+}
+
 func (p *Tracer) constants() map[string]any {
 	flags := uint32(0)
 	if p.cfg.EBPF.ContextPropagation.HasHeaders() {
@@ -199,6 +224,7 @@ func (p *Tracer) constants() map[string]any {
 		"max_transaction_time": uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds()),
 		"inject_flags":         flags,
 		"g_bpf_debug":          p.cfg.EBPF.BpfDebug,
+		"g_go_h2_audit":        os.Getenv("OTEL_EBPF_GO_H2_AUDIT") == "1",
 	}
 }
 

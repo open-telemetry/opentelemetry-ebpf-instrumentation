@@ -10,6 +10,7 @@
 #include <common/connection_info.h>
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
+#include <common/pin_internal.h>
 
 #include <gotracer/types/nethttp.h>
 #include <gotracer/types/stream_key.h>
@@ -49,12 +50,19 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } header_req_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);   // PID + *http.Request
+    __type(value, go_addr_key_t); // outer Transport.roundTrip goroutine
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} http2_request_contexts SEC(".maps");
+
 // HTTP 2.0 client support
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, stream_key_t); // key: stream id + connection info
-    // the goroutine of the round trip request, which is the key for our traceparent info
-    __type(value, u64);
+    __type(value, go_h2_stream_key_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } http2_req_map SEC(".maps");
 
@@ -66,6 +74,20 @@ struct {
         framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } framer_invocation_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // internal clientStream writer goroutine
+    __type(value, http2_header_context_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} http2_header_contexts SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // internal clientStream writer goroutine
+    __type(value, http2_writer_stream_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} http2_stream_by_writer SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);

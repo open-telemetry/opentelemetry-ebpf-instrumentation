@@ -31,6 +31,7 @@
 #include <generictracer/maps/ongoing_http2_grpc.h>
 
 #include <maps/active_ssl_connections.h>
+#include <maps/go_h2_stream_states.h>
 #include <maps/ongoing_http2_connections.h>
 
 // These are bit flags, if you add any use power of 2 values
@@ -83,9 +84,31 @@ static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
     return random_id;
 }
 
-// Use the trace the Go uprobe wrote to outgoing_trace_map (replaces what find_trace_for_client_request returned).
+// Use the trace the Go uprobe wrote before falling back to the legacy socket key.
 // Returns 1 when the injected context replaced the inferred one.
-static __always_inline u8 adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
+static __always_inline u8 adopt_injected_trace(http2_conn_stream_t *s_key,
+                                               tp_info_t *tp,
+                                               u16 orig_dport) {
+    go_h2_stream_key_t go_stream = {
+        .p_conn = s_key->pid_conn,
+        .stream_id = s_key->stream_id,
+    };
+    go_h2_restore_client_direction(&go_stream, orig_dport);
+    set_go_h2_stream_process_identity(&go_stream);
+    go_h2_stream_value_t *go_state = fresh_go_h2_stream_state(&go_stream, bpf_ktime_get_ns());
+    if (go_state) {
+        if (go_state->state == k_go_h2_state_obi_written && valid_trace(go_state->tp.trace_id)) {
+            bpf_memcpy(tp->trace_id, go_state->tp.trace_id, TRACE_ID_SIZE_BYTES);
+            bpf_memcpy(tp->span_id, go_state->tp.span_id, SPAN_ID_SIZE_BYTES);
+            bpf_memcpy(tp->parent_id, go_state->tp.parent_id, SPAN_ID_SIZE_BYTES);
+            return 1;
+        }
+        return 0;
+    }
+    if (fresh_go_h2_client_conn(go_h2_stream_conn_key(&go_stream), bpf_ktime_get_ns())) {
+        return 0;
+    }
+
     egress_key_t sorted_e = {
         .d_port = s_key->pid_conn.conn.d_port,
         .s_port = s_key->pid_conn.conn.s_port,
@@ -94,7 +117,8 @@ static __always_inline u8 adopt_injected_trace(http2_conn_stream_t *s_key, tp_in
     sort_egress_key(&sorted_e);
     tp_info_pid_t *injected = bpf_map_lookup_elem(&outgoing_trace_map, &sorted_e);
     // written=1 means a uprobe wrote the entry (not a kprobe's random one).
-    if (injected && injected->valid && injected->written && valid_trace(injected->tp.trace_id)) {
+    if (injected && injected->pid == s_key->pid_conn.pid && injected->valid && injected->written &&
+        valid_trace(injected->tp.trace_id)) {
         bpf_memcpy(tp->trace_id, injected->tp.trace_id, TRACE_ID_SIZE_BYTES);
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
         bpf_memcpy(tp->parent_id, injected->tp.parent_id, SPAN_ID_SIZE_BYTES);
@@ -193,7 +217,8 @@ static __always_inline void http2_grpc_start(void *ctx,
     http2_grpc_request_t *existing = bpf_map_lookup_elem(&ongoing_http2_grpc, s_key);
     if (existing) {
         bpf_dbg_printk("already found existing grpcstart, ignoring this exchange");
-        if (existing->type == EVENT_HTTP_CLIENT && adopt_injected_trace(s_key, &existing->tp)) {
+        if (existing->type == EVENT_HTTP_CLIENT &&
+            adopt_injected_trace(s_key, &existing->tp, orig_dport)) {
             // the uprobe's context comes from the running request itself
             existing->parent_status = k_parent_status_live;
         }
@@ -271,7 +296,7 @@ static __always_inline void http2_grpc_start(void *ctx,
     u8 found_tp =
         find_trace_for_client_request(&s_key->pid_conn, orig_dport, k_lw_thread_none, &tp_p->tp);
     h2g_info->parent_status = found_tp;
-    if (adopt_injected_trace(s_key, &tp_p->tp)) {
+    if (adopt_injected_trace(s_key, &tp_p->tp, orig_dport)) {
         // the uprobe's context comes from the running request itself
         h2g_info->parent_status = k_parent_status_live;
     }
@@ -330,7 +355,10 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
         .stream_id = stream->stream_id,
     };
     sort_egress_key(&e_key);
-    bpf_map_delete_elem(&outgoing_trace_map, &e_key);
+    tp_info_pid_t *outgoing = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
+    if (outgoing && outgoing->pid == stream->pid_conn.pid) {
+        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
+    }
 }
 
 static __always_inline frame_header_t next_frame(const grpc_frames_ctx_t *g_ctx) {

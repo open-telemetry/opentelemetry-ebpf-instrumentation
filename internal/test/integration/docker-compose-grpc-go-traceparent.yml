@@ -1,0 +1,129 @@
+services:
+  go-ownership-receiver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go/Dockerfile
+    image: hatest-grpc-go-ownership-receiver
+    init: true
+    environment:
+      GRPC_PORT: "50070"
+      HEALTH_PORT: "8097"
+      OBSERVE_TRACEPARENT: "1"
+    ports:
+      - "127.0.0.1:8097:8097"
+
+  go-ownership-receiver-tls:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go/Dockerfile
+    image: hatest-grpc-go-ownership-receiver-tls
+    init: true
+    environment:
+      GRPC_PORT: "50071"
+      HEALTH_PORT: "8098"
+      GRPC_TLS: "1"
+      OBSERVE_TRACEPARENT: "1"
+    ports:
+      - "127.0.0.1:8098:8098"
+
+  go-ownership-current:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go/Dockerfile
+    image: hatest-grpc-go-ownership-current
+    init: true
+    environment:
+      HTTP_PORT: "8082"
+      OWNERSHIP_NEXT_HOP: "go-ownership-receiver:50070"
+    ports:
+      - "127.0.0.1:18082:8082"
+    depends_on:
+      go-ownership-receiver:
+        condition: service_started
+
+  go-ownership-legacy:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go_legacy/Dockerfile
+    image: hatest-grpc-go-ownership-legacy
+    init: true
+    environment:
+      HTTP_PORT: "8083"
+      OWNERSHIP_NEXT_HOP: "go-ownership-receiver:50070"
+    ports:
+      - "127.0.0.1:18083:8083"
+    depends_on:
+      go-ownership-receiver:
+        condition: service_started
+
+  go-ownership-current-unbuffered:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go/Dockerfile
+    image: hatest-grpc-go-ownership-current-unbuffered
+    init: true
+    environment:
+      HTTP_PORT: "8084"
+      OWNERSHIP_NEXT_HOP: "go-ownership-receiver-tls:50071"
+      GRPC_DISABLE_WRITE_BUFFER: "1"
+      GRPC_NEXT_HOP_TLS: "1"
+    ports:
+      - "127.0.0.1:18084:8084"
+    depends_on:
+      go-ownership-receiver-tls:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-grpc-go-traceparent.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /sys/fs/cgroup:/sys/fs/cgroup
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-grpc-go-traceparent:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    init: true
+    pid: "host"
+    cgroup: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "250ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "200ms"
+      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "all"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: "1s"
+      OTEL_EBPF_LOG_LEVEL: "INFO"
+      OTEL_EBPF_GO_H2_AUDIT: "1"
+      OTEL_EBPF_GO_H2_FORCE_SOCKET_FALLBACK: "${GO_H2_FORCE_SOCKET_FALLBACK:-0}"
+      OTEL_EBPF_GO_H2_AUDIT_ADDR: "0.0.0.0"
+    ports:
+      - "127.0.0.1:16061:6061"
+    depends_on:
+      go-ownership-current:
+        condition: service_started
+      go-ownership-legacy:
+        condition: service_started
+      go-ownership-current-unbuffered:
+        condition: service_started
+      go-ownership-receiver-tls:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    command:
+      - "--set=service.telemetry.logs.level=debug"

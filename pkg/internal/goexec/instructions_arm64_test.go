@@ -95,3 +95,76 @@ func TestFindReturnOffsets_Truncated_ARM64(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, offsets)
 }
+
+func TestFindWriteStartOffset_ARM64(t *testing.T) {
+	data := []byte{
+		0x00, 0x00, 0x00, 0x94, // BL, direct call
+		0xe0, 0x03, 0x00, 0xaa, // MOV X0, X0
+		0x00, 0x02, 0x3f, 0xd6, // BLR X16, indirect call
+		0xc0, 0x03, 0x5f, 0xd6, // RET
+	}
+	lineAt := func(pc uint64) int {
+		switch {
+		case pc < 4:
+			return 10
+		case pc < 12:
+			return 11
+		default:
+			return 12
+		}
+	}
+	offset, err := FindWriteStartOffset(0x2000, 0, data, lineAt)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x2004), offset)
+}
+
+func TestFindWriteStartOffsetUsesBranchJoin_ARM64(t *testing.T) {
+	data := []byte{
+		0x60, 0x00, 0x00, 0x34, // CBZ W0, +12
+		0x00, 0x00, 0x00, 0x94, // optional BL
+		0x1f, 0x20, 0x03, 0xd5, // NOP on the same source line
+		0xe0, 0x03, 0x00, 0xaa, // Writer.Write argument setup
+		0x00, 0x02, 0x3f, 0xd6, // BLR X16
+		0xc0, 0x03, 0x5f, 0xd6, // RET
+	}
+	lineAt := func(pc uint64) int {
+		if pc < 4 {
+			return 10
+		}
+		if pc < 20 {
+			return 11
+		}
+		return 12
+	}
+	offset, err := FindWriteStartOffset(0x2000, 0, data, lineAt)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x200c), offset)
+}
+
+func TestFindPadStartOffset_ARM64(t *testing.T) {
+	data := []byte{
+		0xe5, 0x03, 0x42, 0x39, // LDRB W5, [SP, #128] (EndStream)
+		0x3f, 0x00, 0x00, 0x71, // CMP W1, #0 (not the loaded register)
+		0xe5, 0x0b, 0x42, 0x39, // LDRB W5, [SP, #130] (PadLength)
+		0xe6, 0x03, 0x05, 0xaa, // MOV X6, X5
+		0x26, 0x03, 0x00, 0x34, // CBZ W6
+		0xc0, 0x03, 0x5f, 0xd6, // RET
+	}
+	offset, stackOffset, err := FindPadStartOffset(0x2000, data)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x2008), offset)
+	require.Equal(t, uint64(130), stackOffset)
+}
+
+func TestFindPadStartOffsetRejectsUnrelatedLoad_ARM64(t *testing.T) {
+	data := []byte{
+		0xe5, 0x03, 0x42, 0x39, // LDRB W5, [SP, #128]
+		0xe6, 0x03, 0x07, 0xaa, // MOV X6, X7 (different source)
+		0x26, 0x03, 0x00, 0x34, // CBZ W6
+		0xc0, 0x03, 0x5f, 0xd6, // RET
+	}
+	offset, stackOffset, err := FindPadStartOffset(0x2000, data)
+	require.NoError(t, err)
+	require.Zero(t, offset)
+	require.Zero(t, stackOffset)
+}

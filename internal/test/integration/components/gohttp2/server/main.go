@@ -4,39 +4,75 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
+	"sync"
+	"time"
 
 	"golang.org/x/net/http2"
 )
 
-func checkErr(err error, msg string) {
-	if err == nil {
-		return
-	}
-	fmt.Printf("ERROR: %s: %s\n", msg, err)
-	os.Exit(1)
+type serverObservation struct {
+	CaseID       string   `json:"case_id"`
+	Traceparents []string `json:"traceparents"`
+	ProtoMajor   int      `json:"proto_major"`
+	RemoteAddr   string   `json:"remote_addr"`
+	MaxActive    int      `json:"max_active"`
+	LargeLength  int      `json:"large_length"`
+	LargeSHA256  string   `json:"large_sha256"`
+}
+
+var concurrency struct {
+	sync.Mutex
+	active    int
+	maxActive int
 }
 
 func main() {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Hello, %v, http: %v\n", r.URL.Path, r.TLS == nil)
+		concurrency.Lock()
+		concurrency.active++
+		if concurrency.active > concurrency.maxActive {
+			concurrency.maxActive = concurrency.active
+		}
+		concurrency.Unlock()
+
+		defer func() {
+			concurrency.Lock()
+			concurrency.active--
+			concurrency.Unlock()
+		}()
+
+		if r.Header.Get("X-OBI-Hold") == "1" {
+			time.Sleep(250 * time.Millisecond)
+		}
+
+		concurrency.Lock()
+		maxActive := concurrency.maxActive
+		concurrency.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		large := r.Header.Get("X-OBI-Large")
+		_ = json.NewEncoder(w).Encode(serverObservation{
+			CaseID:       r.Header.Get("X-OBI-Case"),
+			Traceparents: r.Header.Values("traceparent"),
+			ProtoMajor:   r.ProtoMajor,
+			RemoteAddr:   r.RemoteAddr,
+			MaxActive:    maxActive,
+			LargeLength:  len(large),
+			LargeSHA256:  fmt.Sprintf("%x", sha256.Sum256([]byte(large))),
+		})
 	})
 
-	server := &http.Server{
-		Addr:    "0.0.0.0:7373",
-		Handler: handler,
+	server := &http.Server{Addr: "0.0.0.0:7373", Handler: handler}
+	if err := http2.ConfigureServer(server, &http2.Server{MaxReadFrameSize: 1 << 14}); err != nil {
+		panic(err)
 	}
 
-	if os.Getenv("TEST_HTTP2_PROTOCOLS") == "1" {
-		protocols := &http.Protocols{}
-		protocols.SetHTTP2(true)
-		server.Protocols = protocols
-	} else {
-		http2.ConfigureServer(server, nil)
+	fmt.Println("Listening [0.0.0.0:7373]")
+	if err := server.ListenAndServeTLS("cert.pem", "key.pem"); err != nil {
+		panic(err)
 	}
-
-	fmt.Printf("Listening [0.0.0.0:7373]...\n")
-	checkErr(server.ListenAndServeTLS("cert.pem", "key.pem"), "while listening")
 }

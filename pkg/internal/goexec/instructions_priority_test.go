@@ -88,12 +88,19 @@ func TestStoreFunctionOffsetDeduplicatesAttachmentOffsets(t *testing.T) {
 	const name = "golang.org/x/net/http2/hpack.(*Encoder).WriteField"
 	allOffsets := map[string][]FuncOffsets{}
 
-	storeFunctionOffset(allOffsets, name, FuncOffsets{Symbol: "z/vendor/" + name, Start: 1, Returns: []uint64{4, 3}})
-	storeFunctionOffset(allOffsets, name, FuncOffsets{Symbol: "a/vendor/" + name, Start: 1, Returns: []uint64{3, 5}})
+	storeFunctionOffset(allOffsets, name, FuncOffsets{
+		Symbol: "z/vendor/" + name, Start: 1, Returns: []uint64{4, 3}, WriteStart: 6,
+	})
+	storeFunctionOffset(allOffsets, name, FuncOffsets{
+		Symbol: "a/vendor/" + name, Start: 1, Returns: []uint64{3, 5}, PadStart: 7, PadOffset: 8,
+	})
 
 	require.Len(t, allOffsets[name], 1)
 	assert.Equal(t, "a/vendor/"+name, allOffsets[name][0].Symbol)
 	assert.Equal(t, []uint64{3, 4, 5}, allOffsets[name][0].Returns)
+	assert.Equal(t, uint64(6), allOffsets[name][0].WriteStart)
+	assert.Equal(t, uint64(7), allOffsets[name][0].PadStart)
+	assert.Equal(t, uint64(8), allOffsets[name][0].PadOffset)
 }
 
 func TestStoreFunctionOffsetKeepsCanonicalIdentityWhenOffsetsMatch(t *testing.T) {

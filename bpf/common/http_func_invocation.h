@@ -9,5 +9,6 @@
 
 typedef struct http_func_invocation {
     u64 start_monotime_ns;
+    u64 request_ptr;
     tp_info_t tp;
 } http_func_invocation_t;

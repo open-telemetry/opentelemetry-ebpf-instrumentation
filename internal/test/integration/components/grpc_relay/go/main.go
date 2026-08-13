@@ -5,22 +5,31 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const grpcCallTimeout = 10 * time.Second
+
+const ownershipTraceparent = "00-33333333333333333333333333333333-4444444444444444-01"
 
 // relayServicer is the interface that gRPC uses for HandlerType.
 type relayServicer interface {
@@ -31,10 +40,14 @@ type relayServicer interface {
 type relayServer struct {
 	nextHop     string
 	nextHopHTTP string // when set, forward via HTTP GET instead of gRPC
+	observe     bool
 }
 
 func (s *relayServer) Relay(ctx context.Context, _ *emptypb.Empty) (*emptypb.Empty, error) {
 	log.Println("received Relay RPC")
+	if s.observe {
+		observeRelay(ctx)
+	}
 	if s.nextHopHTTP != "" {
 		if err := callNextHopHTTP(ctx, s.nextHopHTTP); err != nil {
 			return nil, err
@@ -45,6 +58,80 @@ func (s *relayServer) Relay(ctx context.Context, _ *emptypb.Empty) (*emptypb.Emp
 		}
 	}
 	return &emptypb.Empty{}, nil
+}
+
+var observedConcurrency struct {
+	sync.Mutex
+	runs map[string]*concurrencyState
+}
+
+type concurrencyState struct {
+	active    int
+	maxActive int
+}
+
+type ownershipObservation struct {
+	CaseID       string   `json:"case_id"`
+	Traceparents []string `json:"traceparents"`
+	Peer         string   `json:"peer"`
+	MaxActive    int      `json:"max_active"`
+	LargeLength  int      `json:"large_length"`
+	LargeSHA256  string   `json:"large_sha256"`
+}
+
+func observeRelay(ctx context.Context) {
+	md, _ := metadata.FromIncomingContext(ctx)
+	caseID := ""
+	if values := md.Get("x-obi-case"); len(values) == 1 {
+		caseID = values[0]
+	}
+	runID := caseID
+	if slash := strings.IndexByte(caseID, '/'); slash >= 0 {
+		runID = caseID[:slash]
+	}
+
+	observedConcurrency.Lock()
+	if observedConcurrency.runs == nil {
+		observedConcurrency.runs = map[string]*concurrencyState{}
+	}
+	state := observedConcurrency.runs[runID]
+	if state == nil {
+		state = &concurrencyState{}
+		observedConcurrency.runs[runID] = state
+	}
+	state.active++
+	if state.active > state.maxActive {
+		state.maxActive = state.active
+	}
+	observedConcurrency.Unlock()
+	defer func() {
+		observedConcurrency.Lock()
+		state.active--
+		observedConcurrency.Unlock()
+	}()
+
+	if len(md.Get("x-obi-hold")) > 0 {
+		time.Sleep(250 * time.Millisecond)
+	}
+	observedConcurrency.Lock()
+	maxActive := state.maxActive
+	observedConcurrency.Unlock()
+	peerAddr := ""
+	if remote, ok := peer.FromContext(ctx); ok {
+		peerAddr = remote.Addr.String()
+	}
+	observation := ownershipObservation{
+		Traceparents: md.Get("traceparent"),
+		Peer:         peerAddr,
+		MaxActive:    maxActive,
+	}
+	if values := md.Get("x-obi-large"); len(values) == 1 {
+		observation.LargeLength = len(values[0])
+		observation.LargeSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(values[0])))
+	}
+	observation.CaseID = caseID
+	encoded, _ := json.Marshal(observation)
+	log.Printf("OBI_GRPC_OBSERVATION %s", encoded)
 }
 
 func callNextHopHTTP(ctx context.Context, url string) error {
@@ -78,7 +165,17 @@ func nextHopConn(addr string) (*grpc.ClientConn, error) {
 	if c, ok := nextHopConns[addr]; ok {
 		return c, nil
 	}
-	c, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	var transportCredentials credentials.TransportCredentials
+	if os.Getenv("GRPC_NEXT_HOP_TLS") == "1" {
+		transportCredentials = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	} else {
+		transportCredentials = insecure.NewCredentials()
+	}
+	options := []grpc.DialOption{grpc.WithTransportCredentials(transportCredentials)}
+	if os.Getenv("GRPC_DISABLE_WRITE_BUFFER") == "1" {
+		options = append(options, grpc.WithWriteBufferSize(0))
+	}
+	c, err := grpc.NewClient(addr, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -129,14 +226,27 @@ func main() {
 		nextHopMux = nextHop
 	}
 
-	srv := &relayServer{nextHop: nextHop, nextHopHTTP: nextHopHTTP}
+	srv := &relayServer{
+		nextHop:     nextHop,
+		nextHopHTTP: nextHopHTTP,
+		observe:     os.Getenv("OBSERVE_TRACEPARENT") == "1",
+	}
 
 	if grpcPort != "" {
 		lis, err := net.Listen("tcp", ":"+grpcPort)
 		if err != nil {
 			log.Fatal(err)
 		}
-		s := grpc.NewServer()
+		var serverOptions []grpc.ServerOption
+		if os.Getenv("GRPC_TLS") == "1" {
+			creds, err := credentials.NewServerTLSFromFile(
+				"/server_test_cert.pem", "/server_test_key.pem")
+			if err != nil {
+				log.Fatal(err)
+			}
+			serverOptions = append(serverOptions, grpc.Creds(creds))
+		}
+		s := grpc.NewServer(serverOptions...)
 		s.RegisterService(&relayServiceDesc, srv)
 		log.Printf("gRPC listening on :%s", grpcPort)
 		go func() { log.Fatal(s.Serve(lis)) }()
@@ -153,6 +263,26 @@ func main() {
 	}
 
 	if httpPort != "" {
+		ownershipNextHop := os.Getenv("OWNERSHIP_NEXT_HOP")
+		if ownershipNextHop != "" {
+			http.HandleFunc("/ownership", func(w http.ResponseWriter, r *http.Request) {
+				runID := r.URL.Query().Get("run")
+				var err error
+				if r.URL.Query().Get("mode") == "socket" {
+					err = runOwnershipSocketControl(r.Context(), ownershipNextHop, runID)
+				} else if r.URL.Query().Get("mode") == "prewrite" {
+					err = runOwnershipPrewriteControl(r.Context(), ownershipNextHop, runID)
+				} else {
+					err = runOwnershipBatch(r.Context(), ownershipNextHop, runID)
+				}
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			})
+		}
 		http.HandleFunc("/relay", func(w http.ResponseWriter, r *http.Request) {
 			if err := callNextHop(r.Context(), nextHop); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -258,4 +388,139 @@ func main() {
 		// Block forever when running as gRPC-only relay/terminal
 		select {}
 	}
+}
+
+type ownershipCase struct {
+	name         string
+	traceparent  string
+	hold         bool
+	large        bool
+	boundaryLen  int
+	entropyBytes int
+}
+
+func runOwnershipBatch(ctx context.Context, addr, runID string) error {
+	if runID == "" {
+		return fmt.Errorf("run is required")
+	}
+	conn, err := nextHopConn(addr)
+	if err != nil {
+		return err
+	}
+
+	sequential := []ownershipCase{
+		{name: "owned-index-1", traceparent: ownershipTraceparent},
+		{name: "owned-index-2", traceparent: ownershipTraceparent},
+		{name: "owned-index-3", traceparent: ownershipTraceparent},
+		{name: "owned-index-4", traceparent: ownershipTraceparent},
+		{name: "control-after-index"},
+		{name: "owned-continuation", traceparent: ownershipTraceparent, large: true},
+		{name: "control-continuation", large: true},
+		{name: "control-after-continuation"},
+	}
+	for length := 32500; length <= 32768; length += 4 {
+		sequential = append(sequential, ownershipCase{
+			name: fmt.Sprintf("control-prewrite-%d", length), boundaryLen: length,
+		})
+	}
+	for _, testCase := range sequential {
+		if err := invokeOwnership(ctx, conn, runID, testCase); err != nil {
+			return err
+		}
+	}
+
+	concurrent := []ownershipCase{
+		{name: "mux-owned-1", traceparent: ownershipTraceparent, hold: true},
+		{name: "mux-control-1", hold: true},
+		{name: "mux-owned-2", traceparent: ownershipTraceparent, hold: true},
+		{name: "mux-control-2", hold: true},
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, len(concurrent))
+	for _, testCase := range concurrent {
+		wg.Add(1)
+		go func(testCase ownershipCase) {
+			defer wg.Done()
+			errs <- invokeOwnership(ctx, conn, runID, testCase)
+		}(testCase)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return invokeOwnership(ctx, conn, runID, ownershipCase{name: "control-after-mux"})
+}
+
+func runOwnershipSocketControl(ctx context.Context, addr, runID string) error {
+	if runID == "" {
+		return fmt.Errorf("run is required")
+	}
+	conn, err := nextHopConn(addr)
+	if err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name: "socket-continuation", entropyBytes: 15020,
+	}); err != nil {
+		return err
+	}
+	return invokeOwnership(ctx, conn, runID, ownershipCase{name: "socket-control"})
+}
+
+func runOwnershipPrewriteControl(ctx context.Context, addr, runID string) error {
+	if runID == "" {
+		return fmt.Errorf("run is required")
+	}
+	conn, err := nextHopConn(addr)
+	if err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{name: "prewrite-first-control"}); err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name: "prewrite-capacity", traceparent: ownershipTraceparent, large: true,
+	}); err != nil {
+		return err
+	}
+	return invokeOwnership(ctx, conn, runID, ownershipCase{name: "prewrite-postwarm-control"})
+}
+
+func invokeOwnership(ctx context.Context, conn *grpc.ClientConn, runID string, testCase ownershipCase) error {
+	pairs := []string{"x-obi-case", runID + "/" + testCase.name}
+	if testCase.traceparent != "" {
+		pairs = append(pairs, "traceparent", testCase.traceparent)
+	}
+	if testCase.hold {
+		pairs = append(pairs, "x-obi-hold", "1")
+	}
+	if testCase.large {
+		pairs = append(pairs, "x-obi-large", ownershipLargeHeader())
+	} else if testCase.entropyBytes > 0 {
+		pairs = append(pairs, "x-obi-large", ownershipEntropyHeader(testCase.entropyBytes))
+	} else if testCase.boundaryLen > 0 {
+		pairs = append(pairs, "x-obi-large", strings.Repeat("~", testCase.boundaryLen))
+	}
+	callCtx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(ctx, pairs...), grpcCallTimeout)
+	defer cancel()
+	return conn.Invoke(callCtx, "/relay.Relay/Relay", &emptypb.Empty{}, &emptypb.Empty{})
+}
+
+func ownershipLargeHeader() string {
+	return ownershipEntropyHeader(32 * 1024)
+}
+
+func ownershipEntropyHeader(size int) string {
+	data := make([]byte, size)
+	state := uint32(0x2769a5c3)
+	for i := range data {
+		state ^= state << 13
+		state ^= state >> 17
+		state ^= state << 5
+		data[i] = byte(state)
+	}
+	return base64.RawStdEncoding.EncodeToString(data)
 }

@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/h2_defs.h>
+#include <common/go_h2_stream_state.h>
 
 // Whether a HEADERS frame may receive a traceparent. The facts arrive in two stages —
 // detect_h2 knows the direction, create_h2_tp knows what the block already carries — so the
@@ -20,6 +21,8 @@ typedef enum {
     k_h2_skip_go_no_tp,       // Go conn with no stored tp: uprobes own creation
     k_h2_skip_app_propagates, // sender sends its own, a second field invalidates both
     k_h2_skip_unscanned,      // block not walked to the end, absence unproven
+    k_h2_skip_semantic_state, // a semantic Go client owns this stream
+    k_h2_skip_semantic_miss,  // semantic Go connection without authoritative stream state
 } h2_inject_verdict_t;
 
 typedef struct h2_inject_facts {
@@ -31,6 +34,8 @@ typedef struct h2_inject_facts {
     bool uprobe_wrote;
     bool go_conn_without_tp;
     bool scan_incomplete;
+    bool semantic_conn;
+    u8 semantic_state;
 } h2_inject_facts_t;
 
 static __always_inline h2_inject_verdict_t h2_inject_verdict(const h2_inject_facts_t *f) {
@@ -42,6 +47,15 @@ static __always_inline h2_inject_verdict_t h2_inject_verdict(const h2_inject_fac
     }
     if (f->sk_server) {
         return k_h2_skip_server_socket;
+    }
+    if (f->semantic_conn) {
+        if (go_h2_state_can_inject(f->semantic_state)) {
+            return k_h2_inject_allow;
+        }
+        if (go_h2_state_suppresses_injection(f->semantic_state)) {
+            return k_h2_skip_semantic_state;
+        }
+        return k_h2_skip_semantic_miss;
     }
     if (f->uprobe_wrote) {
         return k_h2_skip_uprobe_wrote;

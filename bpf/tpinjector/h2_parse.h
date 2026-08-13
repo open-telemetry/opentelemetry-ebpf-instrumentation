@@ -13,12 +13,13 @@
 // (PADDED prefix and trailing pad bytes are excluded).
 typedef struct {
     u32 stream_id;
-    u32 payload_len;         // raw frame payload length (after 9-byte header)
-    u32 hpack_offset_in_msg; // start of HPACK bytes inside the sk_msg
-    u32 hpack_len;           // HPACK block length
-    bool is_headers_end;     // true for HEADERS with END_HEADERS, payload_len > 0
-    u8 ftype;                // raw HTTP/2 frame type byte
-    u8 _pad[2];
+    u32 payload_len;          // raw frame payload length (after 9-byte header)
+    u32 hpack_offset_in_msg;  // start of HPACK bytes inside the sk_msg
+    u32 hpack_len;            // HPACK block length
+    bool is_headers_end;      // true for HEADERS with END_HEADERS, payload_len > 0
+    bool is_continuation_end; // true for a final CONTINUATION with payload bytes
+    u8 ftype;                 // raw HTTP/2 frame type byte
+    u8 _pad[1];
 } h2_frame_info_t;
 
 // Parses the HTTP/2 frame header at `pos` inside `msg` and fills `out`.
@@ -53,13 +54,21 @@ parse_h2_frame_at(struct sk_msg_md *msg, u32 pos, u32 msg_size, h2_frame_info_t 
     out->ftype = ftype;
     out->is_headers_end =
         (ftype == k_h2_frame_headers) && (flags & k_h2_flag_end_headers) && (len > 0);
+    out->is_continuation_end =
+        (ftype == k_h2_frame_continuation) && (flags & k_h2_flag_end_headers) && (len > 0);
 
-    if (!out->is_headers_end) {
+    if (!out->is_headers_end && !out->is_continuation_end) {
         return 1;
     }
 
     out->stream_id =
         (((u32)(d[5] & 0x7f) << 24) | ((u32)d[6] << 16) | ((u32)d[7] << 8) | (u32)d[8]);
+
+    if (out->is_continuation_end) {
+        out->hpack_offset_in_msg = pos + k_h2_frame_header_len;
+        out->hpack_len = len;
+        return 1;
+    }
 
     // RFC 7540 §6.2: PADDED/PRIORITY take bytes off the HPACK window
     u32 prefix = 0;

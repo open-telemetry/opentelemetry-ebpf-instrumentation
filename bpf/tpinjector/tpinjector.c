@@ -10,7 +10,7 @@
 #include <common/connection_info.h>
 #include <common/egress_key.h>
 #include <common/event_defs.h>
-#include <common/go_grpc_client_conn.h>
+#include <common/go_h2_stream_state.h>
 #include <common/h2_defs.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
@@ -35,6 +35,7 @@
 #include <maps/incoming_trace_map.h>
 #include <maps/msg_buffers.h>
 #include <maps/outgoing_trace_map.h>
+#include <maps/go_h2_stream_states.h>
 #include <maps/sock_dir.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tracked_sock_cookies.h>
@@ -43,6 +44,7 @@
 
 #include <tpinjector/h2_parse.h>
 #include <tpinjector/inject_policy.h>
+#include <tpinjector/h2_write_transaction.h>
 #include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
@@ -170,26 +172,33 @@ struct {
 // Set in obi_packet_extender; read/written by the H2 and HTTP/1 chains.
 typedef struct tailcall_ctx {
     pid_connection_info_t p_conn; // sorted connection + caller PID
-    tp_info_t parent_tp;          // parent trace context (set by init_tp_ctx_parent_tp)
-    egress_key_t e_key;           // {ports, stream_id} key for outgoing_trace_map
-    u32 h2_frame_offset;          // start of the HEADERS frame in msg
-    u32 h2_payload_len;           // HEADERS payload length
-    u32 h2_hpack_offset;          // start of HPACK bytes (after PADDED/PRIORITY prefix)
-    u32 h2_hpack_len;             // HPACK length (frame payload minus prefix and trailing pad)
-    u32 h2_scan_pos;              // resume offset for detect_h2 across tail calls
-    u32 h2_tp_candidate_pos;      // HPACK scan start or found candidate offset (>= max = none)
-    u8 niter;                     // HTTP/1 find-existing scan iteration counter
-    u8 h2_frames;                 // H2 frames already injected this packet (capped)
-    u8 h2_tp_retries;             // malformed HPACK traceparent candidates retried this packet
-    bool has_parent_tp;           // true if parent_tp holds a valid context
-    bool go_grpc_conn;            // Go gRPC egress: use uprobe-stored tps, never create
-    bool tp_present;              // frame already carries a traceparent we cannot adopt
-    bool scan_exhausted;          // retry budget ran out before the block was walked
-    u8 opener;                    // first HPACK field byte of the frame being considered
+    go_h2_stream_key_t go_stream;
+    u8 _stream_pad[4];
+    tp_info_t parent_tp;     // parent trace context (set by init_tp_ctx_parent_tp)
+    egress_key_t e_key;      // {ports, stream_id} key for outgoing_trace_map
+    u32 h2_frame_offset;     // start of the HEADERS frame in msg
+    u32 h2_payload_len;      // HEADERS payload length
+    u32 h2_hpack_offset;     // start of HPACK bytes (after PADDED/PRIORITY prefix)
+    u32 h2_hpack_len;        // HPACK length (frame payload minus prefix and trailing pad)
+    u32 h2_scan_pos;         // resume offset for detect_h2 across tail calls
+    u32 h2_tp_candidate_pos; // HPACK scan start or found candidate offset (>= max = none)
+    u8 niter;                // HTTP/1 find-existing scan iteration counter
+    u8 h2_frames;            // H2 frames already injected this packet (capped)
+    u8 h2_tp_retries;        // malformed HPACK traceparent candidates retried this packet
+    bool has_parent_tp;      // true if parent_tp holds a valid context
+    bool go_h2_conn;         // semantic Go HTTP/2 or gRPC client direction
+    u8 go_h2_protocol;
+    bool go_h2_continuation;
+    bool tp_present;     // frame already carries a traceparent we cannot adopt
+    bool scan_exhausted; // retry budget ran out before the block was walked
+    u8 opener;           // first HPACK field byte of the frame being considered
+    u8 _pad[6];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
 SCRATCH_MEM_SIZED(tp_str_buf, 64);
+SCRATCH_MEM_SIZED(h2_write_expected, k_h2_tp_hpack_size);
+SCRATCH_MEM_SIZED(h2_write_continuation, k_h2_tp_continuation_size);
 
 // Resume detect_h2 at next_pos for the next batched HEADERS frame.
 // Bumps the per-packet frame counter, then tail-calls back into detect_h2.
@@ -862,6 +871,17 @@ make_h2_tp_hpack(unsigned char *buf, const tp_info_t *tp, const unsigned char *e
     *buf++ = '0' + (tp->flags & k_flag_sampled);
 }
 
+static __always_inline void
+make_h2_tp_continuation(unsigned char *buf, const tp_info_t *tp, u32 stream_id) {
+    bpf_memset(buf, 0, k_h2_tp_continuation_size);
+    buf[2] = k_h2_tp_hpack_size;
+    buf[3] = k_h2_frame_continuation;
+    buf[4] = k_h2_flag_end_headers;
+    const u32 wire_stream_id = bpf_htonl(stream_id);
+    __builtin_memcpy(buf + 5, &wire_stream_id, sizeof(wire_stream_id));
+    make_h2_tp_hpack(buf + k_h2_frame_header_len, tp, buf + k_h2_tp_continuation_size);
+}
+
 static __always_inline bool
 extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
     const long err = bpf_msg_push_data(msg, offset, TP_SIZE, 0);
@@ -1114,14 +1134,20 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     const egress_key_t e_key = make_egress_key(&conn);
 
     t_ctx->p_conn.conn = conn;
-    sort_connection_info(&t_ctx->p_conn.conn);
     t_ctx->p_conn.pid = pid_from_pid_tgid(id);
+    t_ctx->go_stream.p_conn = t_ctx->p_conn;
+    set_go_h2_stream_process_identity(&t_ctx->go_stream);
+    go_h2_conn_value_t *go_conn =
+        fresh_go_h2_client_conn(go_h2_stream_conn_key(&t_ctx->go_stream), bpf_ktime_get_ns());
+    t_ctx->go_h2_conn = go_conn != 0;
+    t_ctx->go_h2_protocol = go_conn ? go_conn->protocol : 0;
+    sort_connection_info(&t_ctx->p_conn.conn);
     t_ctx->e_key = e_key;
     t_ctx->niter = 0;
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
     t_ctx->h2_tp_retries = 0;
-    t_ctx->go_grpc_conn = false;
+    t_ctx->go_h2_continuation = false;
 
     // skip H2 here — it uses HPACK for per-stream traceparents
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
@@ -1130,12 +1156,14 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
-        bpf_msg_pull_data(msg, 0, msg->size, 0);
-        fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
-        // per-stream decision in the h2 chain: inject only streams the uprobe left written=0
-        t_ctx->go_grpc_conn = true;
-        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+    if (t_ctx->go_h2_conn) {
+        if (is_h2_socket(msg)) {
+            bpf_msg_pull_data(msg, 0, msg->size, 0);
+            fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+            bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+            return SK_PASS;
+        }
+        wrap_http2_traceparent(msg, &t_ctx->p_conn);
         return SK_PASS;
     }
 
@@ -1458,7 +1486,34 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
         if (!parse_h2_frame_at(msg, pos, msg_size, &f)) {
             return SK_PASS;
         }
-        if (f.is_headers_end) {
+        if (f.is_headers_end || f.is_continuation_end) {
+            t_ctx->go_stream.stream_id = f.stream_id;
+            go_h2_stream_value_t *go_state =
+                fresh_go_h2_stream_state(&t_ctx->go_stream, bpf_ktime_get_ns());
+            if (go_state) {
+                t_ctx->go_h2_conn = true;
+                t_ctx->go_h2_protocol = go_state->protocol;
+            }
+
+            if (f.is_continuation_end) {
+                if (!go_state || !go_h2_state_can_inject(go_state->state)) {
+                    h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
+                    return SK_PASS;
+                }
+                t_ctx->e_key.stream_id = f.stream_id;
+                t_ctx->h2_frame_offset = pos;
+                t_ctx->h2_payload_len = f.payload_len;
+                t_ctx->h2_hpack_offset = f.hpack_offset_in_msg;
+                t_ctx->h2_hpack_len = f.hpack_len;
+                t_ctx->tp_present = false;
+                t_ctx->scan_exhausted = false;
+                t_ctx->h2_tp_retries = 0;
+                t_ctx->opener = 0x82;
+                t_ctx->go_h2_continuation = true;
+                bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+                return SK_PASS;
+            }
+
             h2_inject_facts_t facts = {0};
             facts.opener_readable =
                 h2_headers_opener(msg, f.hpack_offset_in_msg, msg_size, &facts.opener);
@@ -1482,6 +1537,26 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             t_ctx->scan_exhausted = false;
             t_ctx->h2_tp_retries = 0;
             t_ctx->opener = facts.opener;
+
+            if (t_ctx->go_h2_conn) {
+                h2_inject_facts_t semantic_facts = facts;
+                semantic_facts.semantic_conn = true;
+                semantic_facts.semantic_state = go_state ? go_state->state : k_go_h2_state_unknown;
+                if (h2_inject_verdict(&semantic_facts) != k_h2_inject_allow) {
+                    if (!go_state) {
+                        audit_go_h2_stream(&t_ctx->go_stream,
+                                           t_ctx->go_h2_protocol,
+                                           k_go_h2_audit_missing,
+                                           k_go_h2_state_unknown,
+                                           0);
+                    }
+                    h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
+                    return SK_PASS;
+                }
+
+                bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+                return SK_PASS;
+            }
 
             tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
             if (go_tp && go_tp->valid && go_tp->written) {
@@ -1751,6 +1826,10 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
 
     tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key);
     const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id);
+    go_h2_stream_value_t *go_state = 0;
+    if (t_ctx->go_h2_conn) {
+        go_state = fresh_go_h2_stream_state(&t_ctx->go_stream, bpf_ktime_get_ns());
+    }
 
     h2_inject_facts_t facts = {0};
     facts.opener = t_ctx->opener;
@@ -1758,9 +1837,11 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     facts.sk_server = h2_sk_flag(msg, k_h2_sk_server);
     facts.frame_tp_present = t_ctx->tp_present;
     facts.sk_app_tp = h2_sk_flag(msg, k_h2_sk_app_tp);
-    facts.uprobe_wrote = have_existing && existing->written;
-    facts.go_conn_without_tp = !have_existing && t_ctx->go_grpc_conn;
+    facts.uprobe_wrote = !t_ctx->go_h2_conn && have_existing && existing->written;
+    facts.go_conn_without_tp = false;
     facts.scan_incomplete = t_ctx->scan_exhausted || t_ctx->h2_hpack_len > k_h2_max_hpack_scan;
+    facts.semantic_conn = t_ctx->go_h2_conn;
+    facts.semantic_state = go_state ? go_state->state : k_go_h2_state_unknown;
 
     if (h2_inject_verdict(&facts) != k_h2_inject_allow) {
         h2_resume_after(
@@ -1768,16 +1849,19 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (have_existing) {
+    if (go_state) {
+        tp_p->tp = go_state->tp;
+        tp_p->valid = 1;
+        tp_p->written = 0;
+        tp_p->pid = t_ctx->p_conn.pid;
+        tp_p->req_type = EVENT_HTTP_CLIENT;
+    } else if (have_existing) {
         bpf_memcpy(tp_p, existing, sizeof(*tp_p));
-        tp_p->written = 1;
-        set_tp_info_pid(&t_ctx->e_key, tp_p);
     } else {
         init_tp_ctx_parent_tp(t_ctx);
         if (!create_trace_info(t_ctx, tp_p)) {
             return SK_PASS;
         }
-        tp_p->written = 1;
         if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_NOEXIST) != 0) {
             existing = get_tp_info_pid(&t_ctx->e_key);
             if (existing) {
@@ -1792,33 +1876,132 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
-// Rewrites the 3-byte length field of the frame at frame_offset.
-static __always_inline bool h2_write_frame_len(struct sk_msg_md *msg, u32 frame_offset, u32 len) {
-    enum { k_h2_frame_len_field = 3 };
-
-    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + k_h2_frame_len_field, 0) != 0) {
-        return false;
+static __always_inline void mark_go_h2_socket_write_uncertain(tailcall_ctx *t_ctx) {
+    if (!t_ctx->go_h2_conn) {
+        return;
     }
-
-    unsigned char *data = msg->data;
-    if (!data || (void *)data + k_h2_frame_len_field > msg->data_end) {
-        return false;
+    go_h2_stream_value_t *state = fresh_go_h2_stream_state(&t_ctx->go_stream, bpf_ktime_get_ns());
+    if (!state) {
+        return;
     }
+    state->state =
+        h2_socket_transaction_next_state(k_h2_socket_transaction_rollback_uncertain, state->state);
+    state->updated_ns = bpf_ktime_get_ns();
+    audit_go_h2_stream(
+        &t_ctx->go_stream, t_ctx->go_h2_protocol, k_go_h2_audit_rollback, state->state, &state->tp);
+}
 
-    data[0] = (len >> 16) & 0xFF;
-    data[1] = (len >> 8) & 0xFF;
-    data[2] = len & 0xFF;
-
+static __always_inline bool commit_go_h2_socket_write(tailcall_ctx *t_ctx,
+                                                      tp_info_pid_t *tp_p,
+                                                      enum go_h2_audit_event audit_event) {
+    if (t_ctx->go_h2_conn) {
+        go_h2_stream_value_t *state =
+            fresh_go_h2_stream_state(&t_ctx->go_stream, bpf_ktime_get_ns());
+        if (!state || state->state != k_go_h2_state_obi_pending) {
+            return false;
+        }
+        state->state =
+            h2_socket_transaction_next_state(k_h2_socket_transaction_committed, state->state);
+        if (state->state != k_go_h2_state_obi_written) {
+            return false;
+        }
+        state->updated_ns = bpf_ktime_get_ns();
+        audit_go_h2_stream(
+            &t_ctx->go_stream, t_ctx->go_h2_protocol, audit_event, state->state, &state->tp);
+        tp_p->written = 1;
+        return true;
+    }
+    tp_p->written = 1;
+    set_tp_info_pid(&t_ctx->e_key, tp_p);
     return true;
 }
 
-// Undoes a push whose bytes were never filled: leftover bytes are a COMPRESSION_ERROR and a
-// restored length alone leaves a bogus frame header behind, both connection-level (RFC 7540 4.3)
-static __always_inline void
-h2_undo_tp_push(struct sk_msg_md *msg, u32 frame_offset, u32 inject_offset, u32 payload_len) {
-    if (bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0) {
-        h2_write_frame_len(msg, frame_offset, payload_len);
+static __always_inline int rollback_go_h2_socket_continuation(struct sk_msg_md *msg,
+                                                              tailcall_ctx *t_ctx,
+                                                              u32 append_offset,
+                                                              u32 frame_offset,
+                                                              u8 original_flags) {
+    const h2_socket_transaction_outcome_t outcome =
+        rollback_h2_socket_continuation(msg, append_offset, frame_offset, original_flags, true)
+            ? k_h2_socket_transaction_rollback_verified
+            : k_h2_socket_transaction_rollback_uncertain;
+    if (outcome == k_h2_socket_transaction_rollback_uncertain) {
+        mark_go_h2_socket_write_uncertain(t_ctx);
     }
+    return h2_socket_transaction_verdict(outcome);
+}
+
+static __always_inline int
+write_h2_tp_as_continuation(struct sk_msg_md *msg, tailcall_ctx *t_ctx, tp_info_pid_t *tp_p) {
+    const u32 frame_offset = t_ctx->h2_frame_offset;
+    const u32 payload_len = t_ctx->h2_payload_len;
+    if (payload_len > k_h2_max_frame_len || frame_offset > msg->size ||
+        msg->size - frame_offset < k_h2_frame_header_len ||
+        payload_len > msg->size - frame_offset - k_h2_frame_header_len) {
+        return SK_PASS;
+    }
+    const u32 append_offset = frame_offset + k_h2_frame_header_len + payload_len;
+
+    u8 original_flags = 0;
+    if (!h2_read_frame_flags(msg, frame_offset, &original_flags) ||
+        !(original_flags & k_h2_flag_end_headers)) {
+        return SK_PASS;
+    }
+
+    if (bpf_msg_push_data(msg, append_offset, k_h2_tp_continuation_size, 0) != 0) {
+        return SK_PASS;
+    }
+    if (bpf_msg_pull_data(msg, append_offset, append_offset + k_h2_tp_continuation_size, 0) != 0) {
+        return rollback_go_h2_socket_continuation(
+            msg, t_ctx, append_offset, frame_offset, original_flags);
+    }
+
+    unsigned char *data = msg->data;
+    const unsigned char *end = msg->data_end;
+    if (!data || (void *)data + k_h2_tp_continuation_size > (void *)end) {
+        return rollback_go_h2_socket_continuation(
+            msg, t_ctx, append_offset, frame_offset, original_flags);
+    }
+
+    unsigned char *expected = h2_write_continuation_mem();
+    if (!expected) {
+        return rollback_go_h2_socket_continuation(
+            msg, t_ctx, append_offset, frame_offset, original_flags);
+    }
+    make_h2_tp_continuation(expected, &tp_p->tp, t_ctx->go_stream.stream_id);
+    __builtin_memcpy(data, expected, k_h2_tp_continuation_size);
+    if (bpf_msg_pull_data(msg, append_offset, append_offset + k_h2_tp_continuation_size, 0) != 0) {
+        return rollback_go_h2_socket_continuation(
+            msg, t_ctx, append_offset, frame_offset, original_flags);
+    }
+
+    const unsigned char *readback = msg->data;
+    const unsigned char *readback_end = msg->data_end;
+    if (!readback || (void *)readback + k_h2_tp_continuation_size > (void *)readback_end) {
+        return rollback_go_h2_socket_continuation(
+            msg, t_ctx, append_offset, frame_offset, original_flags);
+    }
+    asm volatile("" : "+r"(readback));
+    if (bpf_memcmp(readback, expected, k_h2_tp_continuation_size) != 0) {
+        return rollback_go_h2_socket_continuation(
+            msg, t_ctx, append_offset, frame_offset, original_flags);
+    }
+
+    const u8 continued_flags = original_flags & ~k_h2_flag_end_headers;
+    if (!h2_write_frame_flags(msg, frame_offset, continued_flags) ||
+        !h2_frame_flags_are(msg, frame_offset, continued_flags)) {
+        return rollback_go_h2_socket_continuation(
+            msg, t_ctx, append_offset, frame_offset, original_flags);
+    }
+
+    if (!commit_go_h2_socket_write(t_ctx, tp_p, k_go_h2_audit_socket_continuation_commit)) {
+        return rollback_go_h2_socket_continuation(
+            msg, t_ctx, append_offset, frame_offset, original_flags);
+    }
+
+    print_tp("h2: written TP continuation to HPACK", &tp_p->tp);
+    h2_resume_after(msg, t_ctx, append_offset + k_h2_tp_continuation_size);
+    return SK_PASS;
 }
 
 // k_tail_write_h2_traceparent — push k_h2_tp_hpack_size bytes of HPACK at
@@ -1842,40 +2025,106 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
     const u32 payload_len = t_ctx->h2_payload_len;
 
     if (payload_len + k_h2_tp_hpack_size > k_h2_default_max_frame_size) {
-        return SK_PASS;
+        return write_h2_tp_as_continuation(msg, t_ctx, tp_p);
     }
 
     const u32 inject_offset = t_ctx->h2_hpack_offset + t_ctx->h2_hpack_len;
 
-    // linearize before push, as the HTTP/1 path does
-    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    if (frame_offset + k_h2_frame_header_len + payload_len > msg->size) {
+        return SK_PASS;
+    }
+
+    if (bpf_msg_pull_data(msg, 0, msg->size, 0) != 0) {
+        return SK_PASS;
+    }
 
     // length before push: a failed push then changes nothing on the wire
     if (!h2_write_frame_len(msg, frame_offset, payload_len + k_h2_tp_hpack_size)) {
         return SK_PASS;
     }
+    if (!h2_frame_len_is(msg, frame_offset, payload_len + k_h2_tp_hpack_size)) {
+        if (!rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, false)) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
+        return SK_PASS;
+    }
     if (bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
-        // a failed push leaves the message untouched, so restoring the length cannot fail
-        h2_write_frame_len(msg, frame_offset, payload_len);
+        if (!rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, false)) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
         return SK_PASS;
     }
 
     // past the push the inserted bytes exist but hold no field, so every exit has to undo
     if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
-        h2_undo_tp_push(msg, frame_offset, inject_offset, payload_len);
+        const bool pristine =
+            rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, true);
+        if (!pristine) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
         return SK_PASS;
     }
 
     unsigned char *data = msg->data;
     const unsigned char *end = msg->data_end;
     if (!data || (void *)data + k_h2_tp_hpack_size > (void *)end) {
-        h2_undo_tp_push(msg, frame_offset, inject_offset, payload_len);
+        if (!rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, true)) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
         return SK_PASS;
     }
 
-    make_h2_tp_hpack(data, &tp_p->tp, end);
+    unsigned char *expected = h2_write_expected_mem();
+    if (!expected) {
+        if (!rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, true)) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
+        return SK_PASS;
+    }
+    make_h2_tp_hpack(expected, &tp_p->tp, expected + k_h2_tp_hpack_size);
+    __builtin_memcpy(data, expected, k_h2_tp_hpack_size);
 
-    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
+        const bool pristine =
+            rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, true);
+        if (!pristine) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
+        return SK_PASS;
+    }
+
+    const unsigned char *readback = msg->data;
+    const unsigned char *readback_end = msg->data_end;
+    if (!readback || (void *)readback + k_h2_tp_hpack_size > (void *)readback_end) {
+        if (!rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, true)) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
+        return SK_PASS;
+    }
+    asm volatile("" : "+r"(readback));
+    if (bpf_memcmp(readback, expected, k_h2_tp_hpack_size) != 0 ||
+        !h2_frame_len_is(msg, frame_offset, payload_len + k_h2_tp_hpack_size)) {
+        if (!rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, true)) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
+        return SK_PASS;
+    }
+
+    if (!commit_go_h2_socket_write(t_ctx, tp_p, k_go_h2_audit_socket_commit)) {
+        if (!rollback_h2_socket_write(msg, inject_offset, frame_offset, payload_len, true)) {
+            mark_go_h2_socket_write_uncertain(t_ctx);
+            return SK_DROP;
+        }
+        return SK_PASS;
+    }
 
     print_tp("h2: written TP to HPACK", &tp_p->tp);
 
@@ -1886,5 +2135,16 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
                     t_ctx,
                     t_ctx->h2_frame_offset + k_h2_frame_header_len + payload_len +
                         k_h2_tp_hpack_size);
+    return SK_PASS;
+}
+
+SEC("sk_msg")
+int obi_packet_extender_write_h2_tp_no_rollback(struct sk_msg_md *msg) {
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+    h2_resume_after(
+        msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
     return SK_PASS;
 }

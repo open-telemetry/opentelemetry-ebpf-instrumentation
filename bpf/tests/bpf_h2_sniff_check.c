@@ -200,10 +200,10 @@ static void test_rejects_per_type_rules(void) {
     n = frame(buf, n, 18, k_h2_frame_headers, k_h2_flag_end_headers, 5);
     assertf(tile(buf, n) == 0, "DATA on stream 0 rejected");
 
-    // oversized frame
+    // declared payload is not present
     n = frame(buf, 0, 20, k_h2_frame_headers, k_h2_flag_end_headers, 1);
-    buf[0] = 0x01; // length 0x01xxxx > k_h2_max_frame_len
-    assertf(tile(buf, n) == 0, "oversized frame rejected");
+    buf[0] = 0x01;
+    assertf(tile(buf, n) == 0, "truncated frame rejected");
 }
 
 static void test_rejects_lookalikes(void) {
