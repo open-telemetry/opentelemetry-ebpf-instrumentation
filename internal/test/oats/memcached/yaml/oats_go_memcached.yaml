@@ -1,7 +1,7 @@
 oats-schema-version: 2
 docker-compose:
   files:
-  - ../docker-compose-obi-python-memcached.yml
+  - ../docker-compose-obi-go-memcached.yml
   - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /memcached
