@@ -4,8 +4,10 @@
 package transform
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +31,11 @@ import (
 const timeout = 5 * time.Second
 
 func TestDecoration(t *testing.T) {
+	originalInfoForPID := kube.InfoForPID
+	t.Cleanup(func() {
+		kube.InfoForPID = originalInfoForPID
+	})
+
 	inf := &fakeInformer{}
 	store := kube.NewStore(inf, kube.ResourceLabels{
 		"service.name":      []string{"app.kubernetes.io/name"},
@@ -346,6 +353,13 @@ func TestDecoration(t *testing.T) {
 }
 
 func TestDecorationProcessEvents(t *testing.T) {
+	originalInfoForPID := kube.InfoForPID
+	originalContainerInfoForPID := containerInfoForPID
+	t.Cleanup(func() {
+		kube.InfoForPID = originalInfoForPID
+		containerInfoForPID = originalContainerInfoForPID
+	})
+
 	inf := &fakeInformer{}
 	store := kube.NewStore(inf, kube.ResourceLabels{
 		"service.name":      []string{"app.kubernetes.io/name"},
@@ -390,18 +404,31 @@ func TestDecorationProcessEvents(t *testing.T) {
 	podInfoCh := make(chan Event[*informer.ObjectMeta])
 
 	dec := &procEventMetadataDecorator{
-		log:         slog.With("component", "transform.KubeProcessEventDecoratorProvider"),
-		store:       store,
-		clusterName: "the-cluster",
-		input:       inputQueue.Subscribe(msg.SubscriberName("transform.KubeProcessEventDecorator")),
-		output:      msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10)),
-		podsInfoCh:  podInfoCh,
-		tracker:     newPidContainerTracker(),
+		log:                 slog.With("component", "transform.KubeProcessEventDecoratorProvider"),
+		store:               store,
+		clusterName:         "the-cluster",
+		input:               inputQueue.Subscribe(msg.SubscriberName("transform.KubeProcessEventDecorator")),
+		output:              msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10)),
+		podsInfoCh:          podInfoCh,
+		observerDone:        make(chan struct{}),
+		subscribeObserver:   store.Subscribe,
+		waitForSubscription: waitForSubscription,
+		unsubscribeObserver: store.Unsubscribe,
+		tracker:             newPidContainerTracker(),
 	}
 
 	outputCh := dec.output.Subscribe()
-	defer inputQueue.Close()
-	go dec.k8sLoop(t.Context())
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		dec.k8sLoop(ctx)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		inputQueue.Close()
+		waitForLoop(t, done)
+	})
 
 	autoNameSvc := svc.Attrs{}
 	autoNameSvc.SetAutoName()
@@ -565,6 +592,452 @@ func TestDecorationProcessEvents(t *testing.T) {
 
 	// no more events
 	testutil.ChannelEmpty(t, outputCh, 100*time.Millisecond)
+}
+
+type procEventDecoratorHarness struct {
+	decorator   *procEventMetadataDecorator
+	store       *kube.Store
+	input       chan exec.ProcessEvent
+	output      <-chan exec.ProcessEvent
+	outputQueue *msg.Queue[exec.ProcessEvent]
+	cancel      context.CancelFunc
+	loopDone    <-chan struct{}
+}
+
+func newProcEventDecoratorHarness(t *testing.T) *procEventDecoratorHarness {
+	t.Helper()
+
+	originalInfoForPID := kube.InfoForPID
+	kube.InfoForPID = func(pid app.PID) (container.Info, error) {
+		return container.Info{
+			ContainerID:  fmt.Sprintf("container-%d", pid),
+			PIDNamespace: 1000 + uint32(pid),
+		}, nil
+	}
+	t.Cleanup(func() {
+		kube.InfoForPID = originalInfoForPID
+	})
+
+	notifier := meta.NewBaseNotifier(slog.Default())
+	store := kube.NewStore(&notifier, nil, nil, imetrics.NoopReporter{})
+	input := make(chan exec.ProcessEvent)
+	output := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	decorator := &procEventMetadataDecorator{
+		log:                 slog.With("component", "transform.KubeProcessEventDecoratorProvider"),
+		store:               store,
+		clusterName:         "the-cluster",
+		input:               input,
+		output:              output,
+		podsInfoCh:          make(chan Event[*informer.ObjectMeta]),
+		observerDone:        make(chan struct{}),
+		subscribeObserver:   store.Subscribe,
+		waitForSubscription: waitForSubscription,
+		unsubscribeObserver: store.Unsubscribe,
+		tracker:             newPidContainerTracker(),
+	}
+	harness := &procEventDecoratorHarness{
+		decorator:   decorator,
+		store:       store,
+		input:       input,
+		output:      output.Subscribe(),
+		outputQueue: output,
+	}
+	t.Cleanup(func() {
+		if harness.cancel != nil {
+			harness.cancel()
+		}
+		if harness.loopDone != nil {
+			select {
+			case <-harness.loopDone:
+			case <-time.After(timeout):
+				t.Errorf("kubernetes process event decoration loop leaked")
+			}
+		}
+		harness.outputQueue.Close()
+		store.Unsubscribe(decorator)
+	})
+
+	return harness
+}
+
+func (h *procEventDecoratorHarness) addTrackedPod(t *testing.T, pid app.PID, name string) {
+	t.Helper()
+
+	h.store.AddProcess(pid)
+	processEvent := procEventDecoratorProcessEvent(pid)
+	h.decorator.tracker.track(fmt.Sprintf("container-%d", pid), &processEvent)
+	require.NoError(t, h.store.On(procEventDecoratorPodEvent(name, pid)))
+}
+
+func (h *procEventDecoratorHarness) start(t *testing.T) (context.CancelFunc, <-chan struct{}) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	h.cancel = cancel
+	h.loopDone = done
+	go func() {
+		h.decorator.k8sLoop(ctx)
+		close(done)
+	}()
+	return cancel, done
+}
+
+func procEventDecoratorPodEvent(name string, pid app.PID) *informer.Event {
+	return &informer.Event{
+		Type: informer.EventType_CREATED,
+		Resource: &informer.ObjectMeta{
+			Name:      name,
+			Namespace: "the-ns",
+			Kind:      "Pod",
+			Pod: &informer.PodInfo{
+				Uid:        "uid-" + name,
+				Containers: []*informer.ContainerInfo{{Name: "app", Id: fmt.Sprintf("container-%d", pid)}},
+			},
+		},
+	}
+}
+
+func procEventDecoratorProcessEvent(pid app.PID) exec.ProcessEvent {
+	service := svc.Attrs{}
+	service.SetAutoName()
+	return exec.ProcessEvent{
+		File: exec.New(exec.Init{Pid: pid, Ns: 1000 + uint32(pid), Service: service}),
+		Type: exec.ProcessEventCreated,
+	}
+}
+
+func waitForLoop(t *testing.T, done <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatal("kubernetes process event decoration loop did not stop")
+	}
+}
+
+func requireOutputClosed(t *testing.T, output <-chan exec.ProcessEvent) {
+	t.Helper()
+	select {
+	case _, ok := <-output:
+		require.False(t, ok, "decorator output remained open after loop exit")
+	case <-time.After(timeout):
+		t.Fatal("decorator output remained open after loop exit")
+	}
+}
+
+func requirePodNotifyReturns(t *testing.T, h *procEventDecoratorHarness) {
+	t.Helper()
+	notifyDone := make(chan struct{})
+	go func() {
+		h.store.Notify(procEventDecoratorPodEvent("after-shutdown", 99))
+		close(notifyDone)
+	}()
+
+	select {
+	case <-notifyDone:
+		return
+	case <-time.After(timeout):
+	}
+
+	// Release the callback before failing so the regression test cannot leak a
+	// goroutine when run against the broken implementation.
+	select {
+	case <-h.decorator.podsInfoCh:
+	case <-time.After(timeout):
+		t.Fatal("failed to release blocked pod notification")
+	}
+	select {
+	case <-notifyDone:
+	case <-time.After(timeout):
+		t.Fatal("pod notification remained blocked after the callback was released")
+	}
+	t.Fatal("pod notification blocked after decorator shutdown")
+}
+
+func TestProcEventMetadataDecoratorStopsInFlightDelivery(t *testing.T) {
+	h := newProcEventDecoratorHarness(t)
+	deliveryReady := make(chan struct{}, 1)
+	h.decorator.deliveryReady = deliveryReady
+	deliveryResult := make(chan error, 1)
+	deliveryDone := make(chan struct{})
+	go func() {
+		defer close(deliveryDone)
+		deliveryResult <- h.decorator.On(procEventDecoratorPodEvent("in-flight", 1))
+	}()
+	var stopOnce sync.Once
+	stopObserver := func() {
+		stopOnce.Do(func() {
+			close(h.decorator.observerDone)
+		})
+	}
+	t.Cleanup(func() {
+		stopObserver()
+		select {
+		case <-deliveryDone:
+			return
+		case <-h.decorator.podsInfoCh:
+		case <-time.After(timeout):
+			t.Errorf("in-flight pod callback could not be released")
+			return
+		}
+		select {
+		case <-deliveryDone:
+		case <-time.After(timeout):
+			t.Errorf("in-flight pod callback leaked")
+		}
+	})
+
+	select {
+	case <-deliveryReady:
+	case <-time.After(timeout):
+		t.Fatal("pod callback did not reach the delivery handoff")
+	}
+	stopObserver()
+	select {
+	case err := <-deliveryResult:
+		require.ErrorIs(t, err, errProcEventDecoratorStopped)
+	case <-time.After(timeout):
+		t.Fatal("in-flight pod delivery did not observe observer shutdown")
+	}
+}
+
+func TestProcEventMetadataDecoratorCachedAndLiveDelivery(t *testing.T) {
+	h := newProcEventDecoratorHarness(t)
+	h.addTrackedPod(t, 1, "cached-pod")
+	h.addTrackedPod(t, 2, "second-cached-pod")
+
+	cancel, done := h.start(t)
+
+	cached := []string{
+		testutil.ReadChannel(t, h.output, timeout).File.ServiceAttrs().UID.Instance,
+		testutil.ReadChannel(t, h.output, timeout).File.ServiceAttrs().UID.Instance,
+	}
+	require.ElementsMatch(t, []string{"the-ns.cached-pod.app", "the-ns.second-cached-pod.app"}, cached)
+
+	h.addTrackedPod(t, 3, "live-pod")
+	live := testutil.ReadChannel(t, h.output, timeout)
+	require.Equal(t, "the-ns.live-pod.app", live.File.ServiceAttrs().UID.Instance)
+
+	cancel()
+	waitForLoop(t, done)
+	requireOutputClosed(t, h.output)
+}
+
+type gatedReplayObserver struct {
+	meta.Observer
+	delivered chan<- struct{}
+	release   <-chan struct{}
+	once      sync.Once
+}
+
+func (g *gatedReplayObserver) On(event *informer.Event) error {
+	err := g.Observer.On(event)
+	g.once.Do(func() {
+		g.delivered <- struct{}{}
+		<-g.release
+	})
+	return err
+}
+
+func TestProcEventMetadataDecoratorDefersCachedReplayHandling(t *testing.T) {
+	h := newProcEventDecoratorHarness(t)
+	h.addTrackedPod(t, 1, "cached-pod")
+
+	replayDelivered := make(chan struct{}, 1)
+	releaseReplay := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			close(releaseReplay)
+		})
+	}
+	t.Cleanup(release)
+	h.decorator.subscribeObserver = func(observer meta.Observer) {
+		h.store.Subscribe(&gatedReplayObserver{
+			Observer:  observer,
+			delivered: replayDelivered,
+			release:   releaseReplay,
+		})
+	}
+
+	cancel, done := h.start(t)
+	select {
+	case <-replayDelivered:
+	case <-time.After(timeout):
+		t.Fatal("cached replay did not reach the decorator")
+	}
+
+	writerDone := make(chan struct{})
+	go func() {
+		h.store.AddProcess(2)
+		close(writerDone)
+	}()
+	t.Cleanup(func() {
+		release()
+		select {
+		case <-writerDone:
+		case <-time.After(timeout):
+			t.Errorf("store writer leaked")
+		}
+	})
+
+	inputAccepted := make(chan struct{})
+	go func() {
+		h.input <- procEventDecoratorProcessEvent(2)
+		close(inputAccepted)
+	}()
+	t.Cleanup(func() {
+		select {
+		case <-inputAccepted:
+			return
+		default:
+		}
+		select {
+		case <-h.input:
+		case <-inputAccepted:
+		case <-time.After(timeout):
+			t.Errorf("staged process event could not be released")
+			return
+		}
+		select {
+		case <-inputAccepted:
+		case <-time.After(timeout):
+			t.Errorf("staged process event sender leaked")
+		}
+	})
+	select {
+	case <-inputAccepted:
+	case <-time.After(timeout):
+		t.Fatal("process event was not staged during cached replay")
+	}
+	select {
+	case <-h.output:
+		t.Fatal("decorator handled cached replay before subscription completed")
+	default:
+	}
+
+	release()
+	select {
+	case <-writerDone:
+	case <-time.After(timeout):
+		t.Fatal("store writer remained blocked after cached replay")
+	}
+
+	cached := testutil.ReadChannel(t, h.output, timeout)
+	require.Equal(t, "the-ns.cached-pod.app", cached.File.ServiceAttrs().UID.Instance)
+	testutil.ReadChannel(t, h.output, timeout)
+
+	cancel()
+	waitForLoop(t, done)
+	requireOutputClosed(t, h.output)
+}
+
+func TestProcEventMetadataDecoratorShutdown(t *testing.T) {
+	tests := map[string]func(context.CancelFunc, chan exec.ProcessEvent){
+		"context cancellation": func(cancel context.CancelFunc, _ chan exec.ProcessEvent) {
+			cancel()
+		},
+		"input closure": func(_ context.CancelFunc, input chan exec.ProcessEvent) {
+			close(input)
+		},
+	}
+
+	for name, shutdown := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := newProcEventDecoratorHarness(t)
+			h.addTrackedPod(t, 1, "cached-pod")
+
+			cancel, done := h.start(t)
+			decorated := testutil.ReadChannel(t, h.output, timeout)
+			require.Equal(t, "the-ns.cached-pod.app", decorated.File.ServiceAttrs().UID.Instance)
+
+			shutdown(cancel, h.input)
+			waitForLoop(t, done)
+			requireOutputClosed(t, h.output)
+			h.decorator.observerDone = make(chan struct{})
+			requirePodNotifyReturns(t, h)
+		})
+	}
+}
+
+func TestProcEventMetadataDecoratorWaitsForLateSubscription(t *testing.T) {
+	h := newProcEventDecoratorHarness(t)
+
+	subscribeStarted := make(chan struct{})
+	allowSubscribe := make(chan struct{})
+	var allowSubscribeOnce sync.Once
+	releaseSubscribe := func() {
+		allowSubscribeOnce.Do(func() {
+			close(allowSubscribe)
+		})
+	}
+	t.Cleanup(releaseSubscribe)
+	subscribeObserver := h.decorator.subscribeObserver
+	h.decorator.subscribeObserver = func(observer meta.Observer) {
+		close(subscribeStarted)
+		<-allowSubscribe
+		subscribeObserver(observer)
+	}
+
+	waitStarted := make(chan struct{})
+	allowWait := make(chan struct{})
+	var allowWaitOnce sync.Once
+	releaseWait := func() {
+		allowWaitOnce.Do(func() {
+			close(allowWait)
+		})
+	}
+	t.Cleanup(releaseWait)
+	waitForSubscription := h.decorator.waitForSubscription
+	h.decorator.waitForSubscription = func(done <-chan struct{}) {
+		close(waitStarted)
+		<-allowWait
+		waitForSubscription(done)
+	}
+
+	unsubscribed := make(chan struct{})
+	unsubscribeObserver := h.decorator.unsubscribeObserver
+	h.decorator.unsubscribeObserver = func(observer meta.Observer) {
+		unsubscribeObserver(observer)
+		close(unsubscribed)
+	}
+
+	_, done := h.start(t)
+	select {
+	case <-subscribeStarted:
+	case <-time.After(timeout):
+		t.Fatal("decorator subscription did not start")
+	}
+
+	close(h.input)
+	select {
+	case <-h.decorator.observerDone:
+	case <-time.After(timeout):
+		t.Fatal("decorator did not begin observer shutdown")
+	}
+	select {
+	case <-waitStarted:
+	case <-time.After(timeout):
+		t.Fatal("decorator did not wait for its pending subscription")
+	}
+	select {
+	case <-unsubscribed:
+		t.Fatal("decorator unsubscribed before its pending subscription completed")
+	default:
+	}
+
+	releaseSubscribe()
+	releaseWait()
+	waitForLoop(t, done)
+	select {
+	case <-unsubscribed:
+	default:
+		t.Fatal("decorator did not unsubscribe after its pending subscription completed")
+	}
+	requireOutputClosed(t, h.output)
+	h.decorator.observerDone = make(chan struct{})
+	requirePodNotifyReturns(t, h)
 }
 
 type fakeInformer struct {
