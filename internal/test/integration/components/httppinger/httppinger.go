@@ -16,7 +16,7 @@ import (
 )
 
 type wrappedTLSConn struct {
-	unused int
+	_ int
 	*tls.Conn
 }
 
@@ -48,7 +48,7 @@ func httpClient() *http.Client {
 	}
 
 	dialer := tls.Dialer{
-		Config: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		Config: &tls.Config{InsecureSkipVerify: true},
 	}
 	transport := &http.Transport{
 		DialTLSContext: func(ctx context.Context, network, address string) (net.Conn, error) {
