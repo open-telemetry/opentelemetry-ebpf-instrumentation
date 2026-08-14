@@ -46,8 +46,8 @@ If both paths are active, each path owns a separate collector.
 
 | Prometheus metric | OpenTelemetry metric | Value |
 | --- | --- | --- |
-| `obi_bpf_probe_executions_total` | `obi.bpf.probe.executions` | Probe executions |
-| `obi_bpf_probe_latency_seconds_total` | `obi.bpf.probe.latency_seconds_total` | Total probe runtime in seconds |
+| `obi_bpf_probe_executions_total` | *(none: see `obi.bpf.probe.latency` count)* | Probe executions |
+| `obi_bpf_probe_latency_seconds_total` | `obi.bpf.probe.latency` | Probe latency distribution in seconds |
 | `obi_bpf_map_entries_total` | `obi.bpf.map.entries_total` | Current map entry count |
 | `obi_bpf_map_max_entries_total` | `obi.bpf.map.max_entries_total` | Configured maximum map entries |
 

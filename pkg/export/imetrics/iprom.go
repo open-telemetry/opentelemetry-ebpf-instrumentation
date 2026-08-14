@@ -250,7 +250,7 @@ func (p *PrometheusReporter) AvoidInstrumentationTraces(serviceName, serviceName
 	p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "traces")
 }
 
-func (p *PrometheusReporter) BpfProbeStats(probeID, probeType, probeName string, count uint64, latencySumSeconds float64) {
+func (p *PrometheusReporter) BpfProbeStats(probeID, probeType, probeName string, count uint64, latencySumSeconds float64, _ map[float64]uint64) {
 	p.bpfProbeExecutions.WithLabelValues(probeID, probeType, probeName).Add(float64(count))
 	p.bpfProbeLatencySum.WithLabelValues(probeID, probeType, probeName).Add(latencySumSeconds)
 }

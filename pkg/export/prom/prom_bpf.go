@@ -240,12 +240,15 @@ func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
 					continue
 				}
 
+				metric.program.updateBuckets(metric.latency, metric.count)
+
 				bc.ctxInfo.Metrics.BpfProbeStats(
 					metric.probeID,
 					metric.probeType,
 					metric.probeName,
 					metric.count,
 					metric.latency*float64(metric.count),
+					metric.program.buckets,
 				)
 			}
 
