@@ -36,6 +36,7 @@
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
+#include <gotracer/maps/go_persist_conn.h>
 #include <gotracer/maps/nethttp.h>
 
 #include <gotracer/types/nethttp.h>
@@ -802,7 +803,14 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
         bpf_map_delete_elem(&go_ongoing_http, &e_key);
     } else {
-        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
+        // persistConn.conn was unreadable, so take the connection the write side read
+        // from the netFD instead of reporting this call without a peer.
+        connection_info_t *published = persist_conn_lookup(&g_key);
+        if (published) {
+            bpf_memcpy(&trace->conn, published, sizeof(connection_info_t));
+        } else {
+            bpf_memset(&trace->conn, 0, sizeof(connection_info_t));
+        }
     }
 
     trace->tp = invocation->tp;
@@ -839,6 +847,7 @@ done:
     bpf_map_delete_elem(&go_ongoing_http_client_requests, &g_key);
     bpf_map_delete_elem(&ongoing_http_client_requests_data, &g_key);
     bpf_map_delete_elem(&ongoing_client_connections, &g_key);
+    bpf_map_delete_elem(&go_persist_conn_request, &g_key);
     return 0;
 }
 
@@ -1644,6 +1653,28 @@ int obi_uprobe_connServeRet(struct pt_regs *ctx) {
     return 0;
 }
 
+// net/http writes the request through this io.Writer on persistConn.writeLoop.
+// Its receiver is the persistConn, which the netFD write that follows on this same
+// goroutine cannot see.
+SEC("uprobe/persistConnWriterWrite")
+int obi_uprobe_persistConnWriterWrite(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    const u64 pc = (u64)GO_PARAM1(ctx);
+
+    bpf_dbg_printk(
+        "=== uprobe/persistConnWriter.Write goroutine=%lx, pc=%llx ===", goroutine_addr, pc);
+
+    if (!pc) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    store_persist_conn_writer(&g_key, pc);
+
+    return 0;
+}
+
 SEC("uprobe/persistConnRoundTrip")
 int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/persistConnRoundTrip ===");
@@ -1662,6 +1693,10 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
     }
 
     void *pc_ptr = GO_PARAM1(ctx);
+
+    // the write side resolves this persistConn's connection from its netFD
+    store_persist_conn_request(&g_key, (u64)pc_ptr);
+
     if (pc_ptr) {
         void *conn_conn_ptr = pc_ptr + k_go_iface_data_offset +
                               go_offset_of(ot, (go_offset){.v = _pc_conn_pos}); // embedded struct
@@ -1684,9 +1719,14 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
             bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
             if (conn_ptr) {
                 connection_info_t conn = {0};
-                get_conn_info(
-                    conn_ptr,
-                    &conn); // initialized to 0, no need to check the result if we succeeded
+                if (!get_conn_info(conn_ptr, &conn)) {
+                    // an app wrapping net.Conn leaves this unreadable; storing the zero
+                    // connection would claim it as the Go-handled one and set it as this
+                    // request's peer, neither of which is true
+                    bpf_dbg_printk("can't read client connection, leaving it unassociated");
+                    return 0;
+                }
+
                 const u64 pid_tid = bpf_get_current_pid_tgid();
                 const u32 pid = pid_from_pid_tgid(pid_tid);
                 tp_info_pid_t tp_p = {
