@@ -535,7 +535,7 @@
         "process_context_poll_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Controls how often OBI re-reads the OTEL_CTX mapping of each discovered process.  Polling handles both SDKs that publish the mapping after startup and context updates published later. 0 is treated as a default (1s).",
+          "description": "Controls how often OBI re-reads the OTEL_CTX mapping of each discovered process.  Polling handles both SDKs that publish the mapping after startup and context updates published later. 0 disables polling; only the initial enrichment on process creation runs.",
           "default": "1s",
           "examples": [
             "30s",
