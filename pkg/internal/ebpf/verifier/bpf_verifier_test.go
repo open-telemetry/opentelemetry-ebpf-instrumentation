@@ -203,7 +203,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 	})
 	loadAndVerify(t, "gotracer/Bpf/no-write-user", gotracerbpf.LoadBpf, map[string]any{
-		"g_bpf_header_propagation":       false,
+		"g_bpf_header_propagation":       true,
 		"g_bpf_probe_write_user_enabled": false,
 	})
 

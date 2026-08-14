@@ -545,19 +545,20 @@ func TestGoAutoSDKActivationProbeGroupRequiresWriteUserSupport(t *testing.T) {
 
 func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 	tests := []struct {
-		name          string
-		mode          config.ContextPropagationMode
-		writeUser     bool
-		headerEnabled bool
+		name               string
+		mode               config.ContextPropagationMode
+		writeUser          bool
+		wireEnabled        bool
+		writeProbesEnabled bool
 	}{
 		{name: "disabled supported", mode: config.ContextPropagationDisabled, writeUser: true},
 		{name: "tcp supported", mode: config.ContextPropagationTCP, writeUser: true},
-		{name: "headers supported", mode: config.ContextPropagationHeaders, writeUser: true, headerEnabled: true},
-		{name: "all supported", mode: config.ContextPropagationAll, writeUser: true, headerEnabled: true},
+		{name: "headers supported", mode: config.ContextPropagationHeaders, writeUser: true, wireEnabled: true, writeProbesEnabled: true},
+		{name: "all supported", mode: config.ContextPropagationAll, writeUser: true, wireEnabled: true, writeProbesEnabled: true},
 		{name: "disabled unsupported", mode: config.ContextPropagationDisabled},
 		{name: "tcp unsupported", mode: config.ContextPropagationTCP},
-		{name: "headers unsupported", mode: config.ContextPropagationHeaders},
-		{name: "all unsupported", mode: config.ContextPropagationAll},
+		{name: "headers unsupported", mode: config.ContextPropagationHeaders, wireEnabled: true},
+		{name: "all unsupported", mode: config.ContextPropagationAll, wireEnabled: true},
 	}
 
 	headerProbeSymbols := []string{
@@ -581,12 +582,12 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 				log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 			}
 			constants := tracer.constants()
-			assert.Equal(t, tt.headerEnabled, constants["g_bpf_header_propagation"])
+			assert.Equal(t, tt.wireEnabled, constants["g_bpf_header_propagation"])
 			assert.Equal(t, tt.writeUser, constants["g_bpf_probe_write_user_enabled"])
 
 			probes := tracer.GoProbes()
 			for _, symbol := range headerProbeSymbols {
-				if tt.headerEnabled {
+				if tt.writeProbesEnabled {
 					assert.Contains(t, probes, symbol)
 				} else {
 					assert.NotContains(t, probes, symbol)
@@ -597,6 +598,18 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManualSpanProbesDoNotRequireWriteUserSupport(t *testing.T) {
+	setContextPropagationSupportForTest(t, false)
+
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	probes := tracer.GoProbes()
+	assert.Contains(t, probes, "go.opentelemetry.io/otel/internal/global.(*tracer).Start")
+	assert.Contains(t, probes, "go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).End")
 }
 
 func TestGoAutoSDKActivationProbeGroupIgnoresPropagationMode(t *testing.T) {

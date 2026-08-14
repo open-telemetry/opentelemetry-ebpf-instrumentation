@@ -990,7 +990,7 @@ client_request_has_traceparent(void *buf_ptr,
 static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
                                                   unsigned char *(*tp_loop_fn)(unsigned char *,
                                                                                const u16)) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
 
@@ -1432,7 +1432,7 @@ int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
 
 SEC("uprobe/http2FramerWriteHeaders_returns")
 int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
 
