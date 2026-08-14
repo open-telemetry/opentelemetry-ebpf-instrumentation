@@ -54,7 +54,7 @@ func TestCleanupWithoutInitDoesNotSetCredentials(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	require.NoError(t, attacher.Cleanup(true))
+	require.NoError(t, attacher.Terminate())
 	require.Empty(t, euidCalls)
 	require.Empty(t, egidCalls)
 }
@@ -90,7 +90,7 @@ func TestInitIsIdempotent(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	attacher.Init()
-	require.NoError(t, attacher.Cleanup(false))
+	require.NoError(t, attacher.Cleanup())
 	attacher.Init()
 
 	require.Equal(t, 1, euidCalls)
@@ -131,8 +131,8 @@ func TestCleanupCanRunRepeatedly(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	attacher.Init()
-	require.NoError(t, attacher.Cleanup(false))
-	require.NoError(t, attacher.Cleanup(false))
+	require.NoError(t, attacher.Cleanup())
+	require.NoError(t, attacher.Cleanup())
 	require.Equal(t, []int{123, 123}, euidCalls)
 	require.Equal(t, []int{456, 456}, egidCalls)
 	require.True(t, attacher.initialized)
@@ -169,7 +169,7 @@ func TestTerminalCleanupPreventsLaterCredentialChanges(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	attacher.Init()
-	require.NoError(t, attacher.Cleanup(true))
+	require.NoError(t, attacher.Terminate())
 
 	require.ErrorIs(t, attacher.setEUID(789), errTerminated)
 	require.ErrorIs(t, attacher.setEGID(987), errTerminated)
@@ -212,8 +212,8 @@ func TestTerminalCleanupCanRunRepeatedly(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	attacher.Init()
-	require.NoError(t, attacher.Cleanup(true))
-	require.NoError(t, attacher.Cleanup(false))
+	require.NoError(t, attacher.Terminate())
+	require.NoError(t, attacher.Cleanup())
 
 	require.Equal(t, []int{123, 123}, euidCalls)
 	require.Equal(t, []int{456, 456}, egidCalls)
@@ -253,7 +253,7 @@ func TestTerminalCleanupWinsBetweenCredentialChanges(t *testing.T) {
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	attacher.Init()
 	require.NoError(t, attacher.setEGID(987))
-	require.NoError(t, attacher.Cleanup(true))
+	require.NoError(t, attacher.Terminate())
 	require.ErrorIs(t, attacher.setEUID(789), errTerminated)
 
 	require.Equal(t, []int{123}, euidCalls)

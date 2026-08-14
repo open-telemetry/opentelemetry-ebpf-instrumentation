@@ -82,13 +82,43 @@ func (j *JAttacher) Init() {
 	j.initialized = true
 }
 
-func (j *JAttacher) Cleanup(terminate bool) error {
+func (j *JAttacher) restoreCredentialsLocked() error {
+	var restoreErr error
+	// Credentials (euid/egid) are switched process-wide during Attach, so they
+	// must be restored here. Namespaces are NOT restored: the namespace switch
+	// happens only on the dedicated sacrificial thread spawned by Attach, which
+	// is destroyed once attach completes — the runtime's pool threads never
+	// leave their original namespaces, so there is nothing to roll back.
+	if err := setEUID(j.myUID); err != nil {
+		restoreErr = errors.Join(restoreErr, err)
+	}
+	if err := setEGID(j.myGID); err != nil {
+		restoreErr = errors.Join(restoreErr, err)
+	}
+
+	// No need to restore the pid namespace, since we do this on a
+	// locked thread that's never unlocked, which means the Go runtime
+	// will destroy it when the goroutine ends.
+
+	return restoreErr
+}
+
+func (j *JAttacher) Terminate() error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	if terminate {
-		j.terminated = true
+	j.terminated = true
+
+	if !j.initialized {
+		return nil
 	}
+
+	return j.restoreCredentialsLocked()
+}
+
+func (j *JAttacher) Cleanup() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
 
 	if !j.initialized {
 		return nil
@@ -100,21 +130,7 @@ func (j *JAttacher) Cleanup(terminate bool) error {
 		cleanupErr = errors.Join(cleanupErr, j.j9attacher.detach())
 	}
 
-	// Credentials (euid/egid) are switched process-wide during Attach, so they
-	// must be restored here. Namespaces are NOT restored: the namespace switch
-	// happens only on the dedicated sacrificial thread spawned by Attach, which
-	// is destroyed once attach completes — the runtime's pool threads never
-	// leave their original namespaces, so there is nothing to roll back.
-	if err := setEUID(j.myUID); err != nil {
-		cleanupErr = errors.Join(cleanupErr, err)
-	}
-	if err := setEGID(j.myGID); err != nil {
-		cleanupErr = errors.Join(cleanupErr, err)
-	}
-
-	// No need to restore the pid namespace, since we do this on a
-	// locked thread that's never unlocked, which means the Go runtime
-	// will destroy it when the goroutine ends.
+	cleanupErr = errors.Join(cleanupErr, j.restoreCredentialsLocked())
 
 	return cleanupErr
 }
