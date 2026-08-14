@@ -10,13 +10,17 @@ input:
 interval: 500ms
 expected:
   traces:
-  - traceql: '{ .db.operation.name = "SET" && .db.system.name = "memcached" } | count() = 1'
+  - traceql: '{ .db.operation.name = "SET" && .db.system.name = "memcached" }'
     equals: SET
     attributes:
       db.operation.name: SET
       db.system.name: memcached
       db.query.text: session-key
       server.port: '11211'
+  - traceql: '{ .db.operation.name = "SET" && .db.system.name = "memcached" } | count() > 1'
+    count:
+      min: 0
+      max: 0
   - traceql: '{ .db.operation.name = "GET" && .db.system.name = "memcached" } | count() = 1'
     equals: GET
     attributes:
