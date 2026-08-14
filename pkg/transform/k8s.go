@@ -34,6 +34,8 @@ var containerInfoForPID = container.InfoForPID
 
 var errProcEventDecoratorStopped = errors.New("process event metadata decorator stopped")
 
+const procEventDecoratorMaxPendingProcessEvents = 1024
+
 func klog() *slog.Logger {
 	return slog.With("component", "transform.KubernetesDecorator")
 }
@@ -317,9 +319,6 @@ func (md *procEventMetadataDecorator) On(event *informer.Event) error {
 }
 
 func (md *procEventMetadataDecorator) k8sLoop(ctx context.Context) {
-	// output channel must be closed so later stages in the pipeline can finish in cascade
-	defer md.output.Close()
-
 	md.log.Debug("starting kubernetes process event decoration loop")
 	subscriptionDone := make(chan struct{})
 	go func() {
@@ -331,8 +330,11 @@ func (md *procEventMetadataDecorator) k8sLoop(ctx context.Context) {
 		md.waitForSubscription(subscriptionDone)
 		md.unsubscribeObserver(md)
 	}()
+	// output channel must be closed so later stages in the pipeline can finish in cascade
+	defer md.output.Close()
 	subscribing := (<-chan struct{})(subscriptionDone)
 	var pending []procEventDecoratorInput
+	pendingProcessEvents := 0
 
 mainLoop:
 	for {
@@ -349,6 +351,7 @@ mainLoop:
 				pending = nil
 			}
 			if event.processEvent != nil {
+				pendingProcessEvents--
 				md.handleProcessEvent(*event.processEvent)
 			} else {
 				md.handlePodEvent(*event.podEvent)
@@ -356,17 +359,23 @@ mainLoop:
 			continue
 		}
 
+		input := md.input
+		if subscribing != nil && pendingProcessEvents >= procEventDecoratorMaxPendingProcessEvents {
+			input = nil
+		}
+
 		select {
 		case <-ctx.Done():
 			break mainLoop
 		case <-subscribing:
 			subscribing = nil
-		case pe, ok := <-md.input:
+		case pe, ok := <-input:
 			if !ok {
 				break mainLoop
 			}
 			if subscribing != nil {
 				pending = append(pending, procEventDecoratorInput{processEvent: &pe})
+				pendingProcessEvents++
 			} else {
 				md.handleProcessEvent(pe)
 			}

@@ -933,6 +933,57 @@ func TestProcEventMetadataDecoratorDefersCachedReplayHandling(t *testing.T) {
 	requireOutputClosed(t, h.output)
 }
 
+func TestProcEventMetadataDecoratorBoundsPendingProcessEvents(t *testing.T) {
+	h := newProcEventDecoratorHarness(t)
+
+	subscribeStarted := make(chan struct{})
+	allowSubscribe := make(chan struct{})
+	h.decorator.subscribeObserver = func(meta.Observer) {
+		close(subscribeStarted)
+		<-allowSubscribe
+	}
+
+	cancel, done := h.start(t)
+	select {
+	case <-subscribeStarted:
+	case <-time.After(timeout):
+		t.Fatal("decorator subscription did not start")
+	}
+
+	inputAccepted := make(chan struct{})
+	senderDone := make(chan struct{})
+	go func() {
+		defer close(senderDone)
+		for i := 0; i <= procEventDecoratorMaxPendingProcessEvents; i++ {
+			h.input <- procEventDecoratorProcessEvent(app.PID(i + 1))
+			inputAccepted <- struct{}{}
+		}
+	}()
+	for range procEventDecoratorMaxPendingProcessEvents {
+		testutil.ReadChannel(t, inputAccepted, timeout)
+	}
+	select {
+	case <-inputAccepted:
+		t.Fatal("decorator accepted process input beyond the pending limit")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	podDelivered := make(chan error, 1)
+	go func() {
+		podDelivered <- h.decorator.On(procEventDecoratorPodEvent("cached-pod", 1))
+	}()
+	require.NoError(t, testutil.ReadChannel(t, podDelivered, timeout))
+
+	cancel()
+	close(allowSubscribe)
+	waitForLoop(t, done)
+	requireOutputClosed(t, h.output)
+
+	testutil.ReadChannel(t, h.input, timeout)
+	testutil.ReadChannel(t, inputAccepted, timeout)
+	testutil.ReadChannel(t, senderDone, timeout)
+}
+
 func TestProcEventMetadataDecoratorShutdown(t *testing.T) {
 	tests := map[string]func(context.CancelFunc, chan exec.ProcessEvent){
 		"context cancellation": func(cancel context.CancelFunc, _ chan exec.ProcessEvent) {
@@ -1021,6 +1072,7 @@ func TestProcEventMetadataDecoratorWaitsForLateSubscription(t *testing.T) {
 	case <-time.After(timeout):
 		t.Fatal("decorator did not wait for its pending subscription")
 	}
+	requireOutputClosed(t, h.output)
 	select {
 	case <-unsubscribed:
 		t.Fatal("decorator unsubscribed before its pending subscription completed")
