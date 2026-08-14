@@ -493,8 +493,10 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
 		// Large buffer multi-batch emission
-		p.bpfObjects.ObiLargeBufEmitContinue,                          // 13  k_tail_large_buf_emit_continue
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit, // 14
+		p.bpfObjects.ObiLargeBufEmitContinue,                            // 13  k_tail_large_buf_emit_continue
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit,   // 14
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerHuffman,  // 15
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerHuffscan, // 16
 	} {
 		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
 		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {

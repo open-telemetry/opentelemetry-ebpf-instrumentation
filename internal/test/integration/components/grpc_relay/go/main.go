@@ -10,11 +10,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -204,6 +206,40 @@ func main() {
 			done.Wait()
 			close(errs)
 			for err := range errs {
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
+			fmt.Fprintln(w, "ok")
+		})
+		// /self-prop?tp=<traceparent>&n=<calls>: sets traceparent metadata like an SDK.
+		// A fresh connection per request keeps the field a literal on every attempt —
+		// on a reused channel the encoder would index it after the first call and
+		// leave nothing on the wire, making test retries meaningless
+		http.HandleFunc("/self-prop", func(w http.ResponseWriter, r *http.Request) {
+			tp := r.URL.Query().Get("tp")
+			if tp == "" {
+				http.Error(w, "missing tp", http.StatusBadRequest)
+				return
+			}
+			n, _ := strconv.Atoi(r.URL.Query().Get("n"))
+			if n < 1 {
+				n = 3
+			}
+
+			conn, err := grpc.NewClient(nextHop, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer conn.Close()
+
+			for i := 0; i < n; i++ {
+				ctx, cancel := context.WithTimeout(r.Context(), grpcCallTimeout)
+				ctx = metadata.AppendToOutgoingContext(ctx, "traceparent", tp)
+				err := conn.Invoke(ctx, "/relay.Relay/Relay", &emptypb.Empty{}, &emptypb.Empty{})
+				cancel()
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
