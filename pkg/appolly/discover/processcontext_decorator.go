@@ -66,8 +66,12 @@ type processContextDecorator struct {
 func (pcd *processContextDecorator) decorate(ctx context.Context) {
 	defer pcd.out.Close()
 
-	ticker := time.NewTicker(pcd.pollInterval)
-	defer ticker.Stop()
+	var tickerC <-chan time.Time
+	if pcd.pollInterval > 0 {
+		ticker := time.NewTicker(pcd.pollInterval)
+		defer ticker.Stop()
+		tickerC = ticker.C
+	}
 
 	pcd.log.Debug("starting node")
 	for {
@@ -90,65 +94,53 @@ func (pcd *processContextDecorator) decorate(ctx context.Context) {
 				}
 			}
 			pcd.out.SendCtx(ctx, evs)
-		case <-ticker.C:
+		case <-tickerC:
 			pcd.poll()
 		}
 	}
 }
 
-// handleCreated attempts an immediate enrichment on process creation and registers
-// the process for ongoing polling to handle SDK startup delays and context updates.
+// handleCreated registers the process and attempts an immediate enrichment.
 func (pcd *processContextDecorator) handleCreated(ev *Event[ebpf.Instrumentable]) {
 	pid := ev.Obj.FileInfo.Pid()
 	entry := &processEntry{fi: ev.Obj.FileInfo}
-
-	if addr, ok := pcd.findOTELContextMapping(pid); ok {
-		entry.mappingAddr = addr
-		rm := remotememory.NewProcessVirtualMemory(libpf.PID(pid))
-		info, err := processcontext.Read(addr, rm, 0, 0)
-		switch {
-		case err == nil && info.Context != nil:
-			pcd.applyContext(entry.fi, info)
-			entry.lastPublishedAt = info.PublishedAtNs
-		case errors.Is(err, processcontext.ErrInvalidContext):
-			pcd.log.Debug("no valid ProcessContext in process", "pid", pid)
-		case err != nil:
-			pcd.log.Debug("failed to read ProcessContext", "pid", pid, "error", err)
-		}
-	}
-
 	pcd.tracked[pid] = entry
+	pcd.pollEntry(pid, entry)
 }
 
 // poll checks all tracked processes for new or updated process context.
 func (pcd *processContextDecorator) poll() {
 	for pid, entry := range pcd.tracked {
-		// Locate the mapping if not yet found (handles SDK startup delay).
-		if entry.mappingAddr == 0 {
-			addr, ok := pcd.findOTELContextMapping(pid)
-			if !ok {
-				continue
-			}
-			entry.mappingAddr = addr
-		}
+		pcd.pollEntry(pid, entry)
+	}
+}
 
-		rm := remotememory.NewProcessVirtualMemory(libpf.PID(pid))
-		info, err := processcontext.Read(entry.mappingAddr, rm, entry.lastPublishedAt, 0)
-		switch {
-		case err == nil:
-			if info.Context == nil {
-				continue
-			}
-			pcd.applyContext(entry.fi, info)
-			entry.lastPublishedAt = info.PublishedAtNs
-		case errors.Is(err, processcontext.ErrNoUpdate), errors.Is(err, processcontext.ErrConcurrentUpdate):
-			// No change or transient update in progress; retry on next tick.
-		case errors.Is(err, processcontext.ErrInvalidContext):
-			// Mapping may have disappeared; re-scan on next tick.
-			entry.mappingAddr = 0
-		default:
-			pcd.log.Debug("failed to poll ProcessContext", "pid", pid, "error", err)
+// pollEntry locates the OTEL_CTX mapping if needed and reads any new context.
+func (pcd *processContextDecorator) pollEntry(pid app.PID, entry *processEntry) {
+	if entry.mappingAddr == 0 {
+		addr, ok := pcd.findOTELContextMapping(pid)
+		if !ok {
+			return
 		}
+		entry.mappingAddr = addr
+	}
+
+	rm := remotememory.NewProcessVirtualMemory(libpf.PID(pid))
+	info, err := processcontext.Read(entry.mappingAddr, rm, entry.lastPublishedAt, 0)
+	switch {
+	case err == nil:
+		if info.Context == nil {
+			return
+		}
+		pcd.applyContext(entry.fi, info)
+		entry.lastPublishedAt = info.PublishedAtNs
+	case errors.Is(err, processcontext.ErrNoUpdate), errors.Is(err, processcontext.ErrConcurrentUpdate):
+		// No change or transient update in progress; retry on next tick.
+	case errors.Is(err, processcontext.ErrInvalidContext):
+		// Mapping may have disappeared; re-scan on next tick.
+		entry.mappingAddr = 0
+	default:
+		pcd.log.Debug("failed to read ProcessContext", "pid", pid, "error", err)
 	}
 }
 
