@@ -31,23 +31,27 @@ var (
 var errTerminated = errors.New("attach terminated")
 
 type JAttacher struct {
-	logger      *slog.Logger
-	j9attacher  *j9Attacher
-	myUID       int
-	myGID       int
-	mu          sync.Mutex
-	initialized bool
-	terminated  bool
+	logger         *slog.Logger
+	j9attacher     *j9Attacher
+	myUID          int
+	myGID          int
+	mu             sync.Mutex
+	initialized    bool
+	terminated     bool
+	attachID       int64
+	activeAttachID func() int64
 }
 
-func NewJAttacher(logger *slog.Logger) *JAttacher {
+func NewJAttacher(logger *slog.Logger, attachID int64, activeAttachID func() int64) *JAttacher {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	return &JAttacher{
-		logger:     logger,
-		j9attacher: nil,
+		logger:         logger,
+		j9attacher:     nil,
+		attachID:       attachID,
+		activeAttachID: activeAttachID,
 	}
 }
 
@@ -130,7 +134,14 @@ func (j *JAttacher) Cleanup() error {
 		cleanupErr = errors.Join(cleanupErr, j.j9attacher.detach())
 	}
 
-	cleanupErr = errors.Join(cleanupErr, j.restoreCredentialsLocked())
+	activeAttachID := j.activeAttachID()
+
+	// Restore credentials if we are the active attach happening on the pipeline.
+	// If we were delayed and the main loop abandoned us, they would reset the
+	// credentials in Terminate and they might be in process of other JVM attach.
+	if activeAttachID == j.attachID {
+		cleanupErr = errors.Join(cleanupErr, j.restoreCredentialsLocked())
+	}
 
 	return cleanupErr
 }

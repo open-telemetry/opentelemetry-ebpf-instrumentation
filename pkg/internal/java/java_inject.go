@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -44,8 +45,9 @@ func (e *JavaInjectError) Error() string {
 }
 
 type JavaInjector struct {
-	log *slog.Logger
-	cfg *obi.Config
+	log             *slog.Logger
+	cfg             *obi.Config
+	currentAttachID atomic.Int64
 }
 
 func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
@@ -57,8 +59,9 @@ func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
 	}
 
 	return &JavaInjector{
-		cfg: cfg,
-		log: slog.With("component", "javaagent.Injector"),
+		cfg:             cfg,
+		log:             slog.With("component", "javaagent.Injector"),
+		currentAttachID: atomic.Int64{},
 	}, nil
 }
 
@@ -116,6 +119,8 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		return nil
 	}
 
+	attachID := i.currentAttachID.Add(1)
+
 	ctx, cancel := context.WithTimeout(context.Background(), i.cfg.Java.Timeout)
 	defer cancel()
 
@@ -127,7 +132,10 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 
 	resultChan := make(chan result, 1)
 
-	attacher := jvm.NewJAttacher(i.log)
+	attacher := jvm.NewJAttacher(i.log, attachID, func() int64 {
+		return i.currentAttachID.Load()
+	})
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 

@@ -26,7 +26,11 @@ func TestAttachReturnsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const attachID int64 = 1
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
+		return attachID
+	})
 
 	out, err := attacher.Attach(ctx, os.Getpid(), []string{"jcmd"}, true)
 	require.Nil(t, out)
@@ -52,7 +56,11 @@ func TestCleanupWithoutInitDoesNotSetCredentials(t *testing.T) {
 		return nil
 	}
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const attachID int64 = 1
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
+		return attachID
+	})
 
 	require.NoError(t, attacher.Terminate())
 	require.Empty(t, euidCalls)
@@ -88,7 +96,12 @@ func TestInitIsIdempotent(t *testing.T) {
 		return nil
 	}
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const attachID int64 = 1
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
+		return attachID
+	})
+
 	attacher.Init()
 	require.NoError(t, attacher.Cleanup())
 	attacher.Init()
@@ -129,13 +142,74 @@ func TestCleanupCanRunRepeatedly(t *testing.T) {
 		return nil
 	}
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const attachID int64 = 1
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
+		return attachID
+	})
+
 	attacher.Init()
 	require.NoError(t, attacher.Cleanup())
 	require.NoError(t, attacher.Cleanup())
 	require.Equal(t, []int{123, 123}, euidCalls)
 	require.Equal(t, []int{456, 456}, egidCalls)
 	require.True(t, attacher.initialized)
+}
+
+func TestDelayedCleanupDoesNotRestoreCredentialsDuringNewAttachAttemptForSamePID(t *testing.T) {
+	originalGetEUID := getEUID
+	originalGetEGID := getEGID
+	originalSetEUID := setEUID
+	originalSetEGID := setEGID
+	t.Cleanup(func() {
+		getEUID = originalGetEUID
+		getEGID = originalGetEGID
+		setEUID = originalSetEUID
+		setEGID = originalSetEGID
+	})
+
+	var euidCalls []int
+	var egidCalls []int
+	getEUID = func() int {
+		return 123
+	}
+	getEGID = func() int {
+		return 456
+	}
+	setEUID = func(id int) error {
+		euidCalls = append(euidCalls, id)
+		return nil
+	}
+	setEGID = func(id int) error {
+		egidCalls = append(egidCalls, id)
+		return nil
+	}
+
+	activeAttachID := int64(1)
+	getActiveAttachID := func() int64 {
+		return activeAttachID
+	}
+
+	oldAttacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), activeAttachID, getActiveAttachID)
+	oldAttacher.Init()
+	require.NoError(t, oldAttacher.Terminate())
+
+	euidCalls = nil
+	egidCalls = nil
+	activeAttachID = 2
+
+	newAttacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), activeAttachID, getActiveAttachID)
+	newAttacher.Init()
+	require.NoError(t, newAttacher.setEGID(987))
+	require.NoError(t, newAttacher.setEUID(789))
+
+	require.NoError(t, oldAttacher.Cleanup())
+	require.Equal(t, []int{789}, euidCalls)
+	require.Equal(t, []int{987}, egidCalls)
+
+	require.NoError(t, newAttacher.Cleanup())
+	require.Equal(t, []int{789, 123}, euidCalls)
+	require.Equal(t, []int{987, 456}, egidCalls)
 }
 
 func TestTerminalCleanupPreventsLaterCredentialChanges(t *testing.T) {
@@ -167,7 +241,11 @@ func TestTerminalCleanupPreventsLaterCredentialChanges(t *testing.T) {
 		return nil
 	}
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const attachID int64 = 1
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
+		return attachID
+	})
 	attacher.Init()
 	require.NoError(t, attacher.Terminate())
 
@@ -210,7 +288,11 @@ func TestTerminalCleanupCanRunRepeatedly(t *testing.T) {
 		return nil
 	}
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const attachID int64 = 1
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
+		return attachID
+	})
 	attacher.Init()
 	require.NoError(t, attacher.Terminate())
 	require.NoError(t, attacher.Cleanup())
@@ -250,7 +332,11 @@ func TestTerminalCleanupWinsBetweenCredentialChanges(t *testing.T) {
 		return nil
 	}
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const attachID int64 = 1
+
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
+		return attachID
+	})
 	attacher.Init()
 	require.NoError(t, attacher.setEGID(987))
 	require.NoError(t, attacher.Terminate())
