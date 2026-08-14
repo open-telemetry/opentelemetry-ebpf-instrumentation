@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync/atomic"
+	"sync"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -47,7 +47,8 @@ func (e *JavaInjectError) Error() string {
 type JavaInjector struct {
 	log             *slog.Logger
 	cfg             *obi.Config
-	currentAttachID atomic.Int64
+	currentAttachID int64
+	mu              sync.Mutex
 }
 
 func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
@@ -61,7 +62,7 @@ func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
 	return &JavaInjector{
 		cfg:             cfg,
 		log:             slog.With("component", "javaagent.Injector"),
-		currentAttachID: atomic.Int64{},
+		currentAttachID: 0,
 	}, nil
 }
 
@@ -114,12 +115,34 @@ func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string
 	return "", errors.New("couldn't find suitable temp directory for injection")
 }
 
+func (i *JavaInjector) nextAttachID() int64 {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	i.currentAttachID++
+	return i.currentAttachID
+}
+
+func (i *JavaInjector) runIfCurrentAttach(
+	attachID int64,
+	fn func() error,
+) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if i.currentAttachID != attachID {
+		return nil
+	}
+
+	return fn()
+}
+
 func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	if ie.Type != svc.InstrumentableJava {
 		return nil
 	}
 
-	attachID := i.currentAttachID.Add(1)
+	attachID := i.nextAttachID()
 
 	ctx, cancel := context.WithTimeout(context.Background(), i.cfg.Java.Timeout)
 	defer cancel()
@@ -132,9 +155,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 
 	resultChan := make(chan result, 1)
 
-	attacher := jvm.NewJAttacher(i.log, attachID, func() int64 {
-		return i.currentAttachID.Load()
-	})
+	attacher := jvm.NewJAttacher(i.log, attachID, i.runIfCurrentAttach)
 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

@@ -22,15 +22,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func alwaysRunForCurrentAttach(_ int64, fn func() error) error {
+	return fn()
+}
+
 func TestAttachReturnsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	const attachID int64 = 1
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
-		return attachID
-	})
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 
 	out, err := attacher.Attach(ctx, os.Getpid(), []string{"jcmd"}, true)
 	require.Nil(t, out)
@@ -58,9 +60,7 @@ func TestCleanupWithoutInitDoesNotSetCredentials(t *testing.T) {
 
 	const attachID int64 = 1
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
-		return attachID
-	})
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 
 	require.NoError(t, attacher.Terminate())
 	require.Empty(t, euidCalls)
@@ -98,9 +98,7 @@ func TestInitIsIdempotent(t *testing.T) {
 
 	const attachID int64 = 1
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
-		return attachID
-	})
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 
 	attacher.Init()
 	require.NoError(t, attacher.Cleanup())
@@ -144,9 +142,7 @@ func TestCleanupCanRunRepeatedly(t *testing.T) {
 
 	const attachID int64 = 1
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
-		return attachID
-	})
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 
 	attacher.Init()
 	require.NoError(t, attacher.Cleanup())
@@ -186,11 +182,19 @@ func TestDelayedCleanupDoesNotRestoreCredentialsDuringNewAttachAttemptForSamePID
 	}
 
 	activeAttachID := int64(1)
-	getActiveAttachID := func() int64 {
-		return activeAttachID
+	var attachMu sync.Mutex
+	runIfCurrentAttach := func(attachID int64, fn func() error) error {
+		attachMu.Lock()
+		defer attachMu.Unlock()
+
+		if activeAttachID != attachID {
+			return nil
+		}
+
+		return fn()
 	}
 
-	oldAttacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), activeAttachID, getActiveAttachID)
+	oldAttacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), activeAttachID, runIfCurrentAttach)
 	oldAttacher.Init()
 	require.NoError(t, oldAttacher.Terminate())
 
@@ -198,7 +202,7 @@ func TestDelayedCleanupDoesNotRestoreCredentialsDuringNewAttachAttemptForSamePID
 	egidCalls = nil
 	activeAttachID = 2
 
-	newAttacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), activeAttachID, getActiveAttachID)
+	newAttacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), activeAttachID, runIfCurrentAttach)
 	newAttacher.Init()
 	require.NoError(t, newAttacher.setEGID(987))
 	require.NoError(t, newAttacher.setEUID(789))
@@ -243,9 +247,7 @@ func TestTerminalCleanupPreventsLaterCredentialChanges(t *testing.T) {
 
 	const attachID int64 = 1
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
-		return attachID
-	})
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 	attacher.Init()
 	require.NoError(t, attacher.Terminate())
 
@@ -290,9 +292,7 @@ func TestTerminalCleanupCanRunRepeatedly(t *testing.T) {
 
 	const attachID int64 = 1
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
-		return attachID
-	})
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 	attacher.Init()
 	require.NoError(t, attacher.Terminate())
 	require.NoError(t, attacher.Cleanup())
@@ -334,9 +334,7 @@ func TestTerminalCleanupWinsBetweenCredentialChanges(t *testing.T) {
 
 	const attachID int64 = 1
 
-	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, func() int64 {
-		return attachID
-	})
+	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 	attacher.Init()
 	require.NoError(t, attacher.setEGID(987))
 	require.NoError(t, attacher.Terminate())
