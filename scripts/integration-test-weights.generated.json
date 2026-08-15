@@ -48,6 +48,7 @@
   "TestSuiteNodeClient": 33,
   "TestSuiteNodeClientTLS": 31,
   "TestSuiteNodeMemoryBIOTLSClient": 60,
+  "TestSuiteNodeMemoryBIOTLSClientContextPropagation": 60,
   "TestSuiteOtherGRPCGo": 98,
   "TestSuitePythonAsyncMemoryBIOTLSClient": 60,
   "TestSuite_DisableKeepAlives": 93,

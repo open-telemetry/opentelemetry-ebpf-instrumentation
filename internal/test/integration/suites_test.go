@@ -1069,6 +1069,28 @@ func TestSuiteNodeMemoryBIOTLSClient(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// TestSuiteNodeMemoryBIOTLSClientContextPropagation is the same check with a sock_msg
+// program attached, which is a different code path rather than a different setting:
+// the send data lives in bvec pages, so tcp_sendmsg reads nothing from the msghdr and
+// the ciphertext reaches the correlation only through the sock_msg buffer. Node stands
+// in for both runtimes here, since the paths under test are the kernel's rather than
+// the TLS stack's.
+func TestSuiteNodeMemoryBIOTLSClientContextPropagation(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-memorybio-tls.yml", path.Join(pathOutput, "test-suite-memorybio-tls-node-cp.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=node`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-memorybio-tls-cp`,
+		`MEMORYBIO_DOCKERFILE=internal/test/integration/components/memorybio/Dockerfile_node`,
+		`MEMORYBIO_IMAGE=hatest-memorybio-node`,
+		`PROM_CONFIG_SUFFIX=`)
+	require.NoError(t, compose.Up())
+	t.Run("Node memory-BIO TLS client peer under context propagation", testMemoryBIOTLSClientPeer)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuiteNoRoutes(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-no-routes.log"))
 	require.NoError(t, err)
