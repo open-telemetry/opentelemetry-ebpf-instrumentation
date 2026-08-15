@@ -94,7 +94,8 @@ func byteFramer(data []uint8) *http2.Framer {
 	fr := http2.NewFramer(
 		// we never write. We can save some resources
 		io.Discard,
-		bytes.NewReader(data))
+		bytes.NewReader(data),
+	)
 
 	return fr
 }
@@ -132,6 +133,7 @@ func getOrInitH2ConnWithTrust(activeGRPCConnections *lru.Cache[uint64, *h2Connec
 func getOrInitH2Conn(activeGRPCConnections *lru.Cache[uint64, *h2Connection], connID uint64) *h2Connection {
 	return getOrInitH2ConnWithTrust(activeGRPCConnections, connID, true)
 }
+
 func protocolIsGRPC(activeGRPCConnections *lru.Cache[uint64, *h2Connection], connID uint64) {
 	h2c := getOrInitH2Conn(activeGRPCConnections, connID)
 	if h2c != nil {
@@ -672,7 +674,8 @@ func readHTTP2HeaderEvent(parseContext *EBPFParseContext, event *BPFHTTP2Info) e
 		return nil
 	}
 	h2c := getOrInitH2ConnWithTrust(
-		parseContext.h2c, connID, event.HpackFlags&h2HpackNewConnection != 0)
+		parseContext.h2c, connID, event.HpackFlags&h2HpackNewConnection != 0,
+	)
 	if h2c == nil {
 		return nil
 	}
@@ -746,7 +749,7 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 		delete(h2c.streams, event.StreamId)
 	}
 
-	response := h2ResponseMeta{}
+	var response h2ResponseMeta
 	if stream != nil && stream.responseSeen {
 		response = stream.response
 	} else {
@@ -778,7 +781,8 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 		peer = source
 	}
 	span := http2InfoToSpan(
-		event, cached.method, cached.path, cached.fullPath, peer, host, status, protocol)
+		event, cached.method, cached.path, cached.fullPath, peer, host, status, protocol,
+	)
 	return span, false, nil
 }
 

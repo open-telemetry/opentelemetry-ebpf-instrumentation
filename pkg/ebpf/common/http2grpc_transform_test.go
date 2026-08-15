@@ -360,7 +360,8 @@ func TestHPACKOpensResponseRejectsRequests(t *testing.T) {
 	for _, method := range methods {
 		for _, path := range paths {
 			for _, sizes := range [][]uint32{nil, {4096}, {0, 4096}} {
-				block := encodeHPACK(t, sizes,
+				block := encodeHPACK(
+					t, sizes,
 					hpack.HeaderField{Name: ":method", Value: method},
 					hpack.HeaderField{Name: ":path", Value: path},
 					hpack.HeaderField{Name: ":scheme", Value: "https"},
@@ -1265,5 +1266,3 @@ func mustLRU(t *testing.T, size int) *lru.Cache[uint64, *h2Connection] {
 	require.NoError(t, err)
 	return cache
 }
-
-func ptr[T any](v T) *T { return &v }
