@@ -257,10 +257,18 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        if (is_dns_msg(&s_args.p_conn.conn, msg)) {
+        const enum dns_msg_class dns = classify_dns_msg(&s_args.p_conn.conn, msg);
+
+        // this socket is being used for something else, so it must not stay
+        // classified by an earlier DNS query
+        if (dns == k_dns_msg_no) {
+            obi_forget_unconn_dns_sock(sk);
+        }
+
+        if (dns == k_dns_msg_yes) {
             // the answer is not classifiable from msg_name, so key on the socket
             if (orig_dport == 0) {
-                obi_note_unconn_dns_sock(sk);
+                obi_note_unconn_dns_query(sk, &s_args.p_conn.conn);
             }
             sort_connection_info(&s_args.p_conn.conn);
             s_args.p_conn.pid = pid_from_pid_tgid(id);
@@ -956,20 +964,36 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sock_recvmsg, int copied_len) {
     if (sock_ptr) {
         if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
             const u16 orig_dport = info.conn.d_port;
+
+            // the socket-identity tier matches on the local endpoint, which
+            // sorting may move into the destination fields
+            const connection_info_t local_conn = info.conn;
+
             sort_connection_info(&info.conn);
             info.pid = pid_from_pid_tgid(id);
             setup_cp_support_conn_info(&info, false);
             setup_connection_to_pid_mapping(id, &info, orig_dport);
 
-            u8 dns = is_dns_msg(&info.conn, (struct msghdr *)args->msg_ptr);
+            const enum dns_msg_class dns_class =
+                classify_dns_msg(&info.conn, (struct msghdr *)args->msg_ptr);
+
+            // an explicit non-DNS peer retires the socket's classification
+            if (dns_class == k_dns_msg_no) {
+                obi_forget_unconn_dns_sock(sock_ptr);
+            }
+
+            u8 dns = dns_class == k_dns_msg_yes;
+
             // msg_name did not classify it, but the answer arrived on a socket
-            // seen sending an unconnected UDP DNS query
-            if (!dns && orig_dport == 0 && obi_is_unconn_dns_sock(sock_ptr)) {
-                bpf_dbg_printk("UNCONN_DNS_RECVFROM: classified unconnected UDP DNS answer on "
+            // with an outstanding unconnected UDP DNS query
+            if (dns_class == k_dns_msg_unknown && orig_dport == 0 &&
+                obi_claim_unconn_dns_answer(sock_ptr, &local_conn)) {
+                bpf_dbg_printk("UNCONN_DNS_RECVFROM: claimed unconnected UDP DNS answer on "
                                "known DNS sock=%llx",
                                (u64)sock_ptr);
                 dns = 1;
             }
+
             if (dns) {
                 sort_connection_info(&info.conn);
 
