@@ -64,13 +64,68 @@ struct task_struct {
     struct pid *thread_pid;
 };
 
+enum {
+    TCP_ESTABLISHED = 1,
+    TCP_SYN_SENT = 2,
+    TCP_SYN_RECV = 3,
+    TCP_FIN_WAIT1 = 4,
+    TCP_FIN_WAIT2 = 5,
+    TCP_TIME_WAIT = 6,
+    TCP_CLOSE = 7,
+    TCP_CLOSE_WAIT = 8,
+    TCP_LAST_ACK = 9,
+    TCP_LISTEN = 10,
+    TCP_CLOSING = 11,
+};
+
+struct in6_addr {
+    union {
+        u8 u6_addr8[16];
+    } in6_u;
+};
+
+struct sockaddr {
+    u16 sa_family;
+};
+
+struct sockaddr_in {
+    u16 sin_family;
+    u16 sin_port;
+    u32 sin_addr;
+};
+
+struct sockaddr_in6 {
+    u16 sin6_family;
+    u16 sin6_port;
+    struct in6_addr sin6_addr;
+};
+
 struct sock_common {
+    u32 skc_daddr;
+    u32 skc_rcv_saddr;
     u16 skc_num;
+    u16 skc_dport;
+    u16 skc_family;
+    u8 skc_state;
+    struct in6_addr skc_v6_daddr;
+    struct in6_addr skc_v6_rcv_saddr;
     possible_net_t skc_net;
 };
 struct sock {
     struct sock_common __sk_common;
 };
+
+// Only the fields the failed-connect classification reads, in the order the
+// kernel declares them.
+struct tcp_sock {
+    u64 bytes_received;
+    u64 bytes_sent;
+    u64 bytes_acked;
+};
+struct socket {
+    struct sock *sk;
+};
+
 struct iov_iter {};
 struct iovec {
     void *iov_base;

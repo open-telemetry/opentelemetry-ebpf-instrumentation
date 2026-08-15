@@ -137,24 +137,42 @@ parse_sockaddr_info(const u32 pid, struct sockaddr *addr, connection_info_part_t
     return false;
 }
 
-static __always_inline bool is_tcp_socket_never_connected(struct sock *sk) {
-    if (!sk) {
-        return true;
-    }
-
-    // Read the socket state
-    const u8 sk_state = BPF_CORE_READ(sk, __sk_common.skc_state);
-
-    // Socket was never connected if it's in these states:
+// Decides whether a socket's handshake ever completed, from the two values the
+// kernel keeps for its whole lifetime.
+//
+// A socket that completed its handshake never returns to TCP_SYN_SENT or
+// TCP_SYN_RECV, so either state answers the question on its own. Every other
+// state except TCP_CLOSE is only reachable after the handshake completed.
+//
+// TCP_CLOSE is reached both ways: tcp_done() puts a connect that was refused,
+// reset or timed out there, and so does a close that ran to completion after a
+// normal exchange. bytes_acked separates them, because tcp_snd_una_update()
+// counts the SYN's own sequence byte when the peer acknowledges it. It is
+// therefore at least 1 for every socket whose handshake completed, whatever the
+// connection carried afterwards, and 0 for one whose handshake did not. A
+// socket the process never connected also reads 0 here; the callers gate on a
+// connect-time entry, so it never reaches this predicate.
+static __always_inline bool tcp_never_connected(u8 sk_state, u64 bytes_acked) {
     if (sk_state == TCP_SYN_SENT || // Connection attempt in progress
         sk_state == TCP_SYN_RECV    // SYN received but not established
     ) {
         return true;
     }
 
-    struct tcp_sock *tp = (struct tcp_sock *)sk;
-    const u64 bytes_sent = BPF_CORE_READ(tp, bytes_sent);
-    const u64 bytes_received = BPF_CORE_READ(tp, bytes_received);
+    if (sk_state != TCP_CLOSE) {
+        return false;
+    }
 
-    return (bytes_sent == 0 && bytes_received == 0);
+    return bytes_acked == 0;
+}
+
+static __always_inline bool is_tcp_socket_never_connected(struct sock *sk) {
+    if (!sk) {
+        return true;
+    }
+
+    const u8 sk_state = BPF_CORE_READ(sk, __sk_common.skc_state);
+    const struct tcp_sock *tp = (const struct tcp_sock *)sk;
+
+    return tcp_never_connected(sk_state, BPF_CORE_READ(tp, bytes_acked));
 }
