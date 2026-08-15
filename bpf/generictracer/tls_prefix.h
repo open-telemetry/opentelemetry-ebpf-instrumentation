@@ -82,6 +82,26 @@ static __always_inline void ssl_bios_track(u32 pid, void *ssl, void *rbio, void 
     bpf_map_update_elem(&ssl_to_bios, &ssl_key, &bios, BPF_ANY);
 }
 
+// True while the SSL named by a bio_to_ssl entry still claims that BIO.
+//
+// bio_to_ssl and ssl_to_bios are independent LRUs, so the reverse entry can be
+// evicted on its own. ssl_bios_forget then has nothing to follow and leaves the
+// forward entries behind, and the next connection to be handed that BIO address
+// would inherit the dead SSL. Eviction gives no callback to keep the pair
+// together, so the forward entry is validated against the reverse instead.
+static __always_inline u8 bio_owner_is_current(u32 pid,
+                                               const void *bio,
+                                               const bio_ssl_info_t *info) {
+    const pid_ptr_key_t ssl_key = pid_ptr_key(pid, (void *)info->ssl);
+    const ssl_bios_t *bios = bpf_map_lookup_elem(&ssl_to_bios, &ssl_key);
+
+    if (!bios) {
+        return 0;
+    }
+
+    return info->is_wbio ? bios->wbio == (u64)bio : bios->rbio == (u64)bio;
+}
+
 // True when this SSL has no known peer yet, so correlating is worth the work.
 // A connection awaiting a peer is recorded with a zeroed destination port.
 static __always_inline u8 tls_prefix_needs_binding(u64 ssl_ptr) {
@@ -105,6 +125,13 @@ static __always_inline void tls_prefix_register_egress(void *bio, const void *bu
     // Only a BIO named by SSL_set_bio is an endpoint of a connection; OpenSSL
     // stages the same record through internal BIOs too.
     if (!info) {
+        return;
+    }
+
+    // Ownership the SSL no longer confirms cannot be trusted, and the entry
+    // would outlive every connection that could correct it.
+    if (!bio_owner_is_current(pid, bio, info)) {
+        bpf_map_delete_elem(&bio_to_ssl, &bio_key);
         return;
     }
 
@@ -162,14 +189,20 @@ static __always_inline void tls_prefix_register_egress(void *bio, const void *bu
 }
 
 // Called from the socket send path with bytes already copied out of the
-// transfer. `copied` is how much of the record `buf` holds, `avail` the size of
-// the whole send. Returns 1 when an SSL was bound to this connection.
+// transfer, whichever buffer source produced them. `copied` is how much of the
+// record `buf` holds, `avail` the size of the whole send. Returns 1 when an SSL
+// was bound to this connection.
 static __always_inline u8 tls_prefix_try_bind(u64 id,
                                               const unsigned char *buf,
                                               u32 copied,
                                               u32 avail,
                                               pid_connection_info_t *p_conn,
                                               u16 orig_dport) {
+    // Screened before the scratch lookup: most sends are plaintext.
+    if (!tls_record_plausible_start(buf, copied)) {
+        return 0;
+    }
+
     tls_prefix_scratch_t *scratch = tls_prefix_mem();
 
     if (!scratch) {

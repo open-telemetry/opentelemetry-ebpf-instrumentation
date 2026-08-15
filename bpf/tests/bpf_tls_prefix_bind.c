@@ -330,6 +330,50 @@ static void test_recycled_bio_is_not_attributed_to_the_dead_ssl(void) {
           "a recycled BIO pointer does not register against the freed SSL");
 }
 
+// bio_to_ssl and ssl_to_bios are independent LRUs of different sizes, so one
+// side of a pair can be evicted on its own. The BIO address the orphaned
+// forward entry names will be handed out again, and nothing else would correct
+// it, so it may not be trusted.
+static void test_orphaned_bio_entry_is_discarded(void) {
+    reset();
+
+    ssl_bios_track(k_pid, k_ssl, k_rbio, k_wbio);
+
+    // ssl_to_bios holds half as many entries as bio_to_ssl, so it is the side
+    // that gives way under pressure.
+    test_map_delete(&ssl_to_bios, &(pid_ptr_key_t){.ptr = (u64)k_ssl, .pid = k_pid});
+
+    tls_prefix_register_egress(k_wbio, client_hello, (int)client_hello_len);
+
+    check(map_count(&tls_prefix_to_ssl) == 0,
+          "a BIO its SSL no longer claims does not register a correlation key");
+    check(map_get(&bio_to_ssl, &(pid_ptr_key_t){.ptr = (u64)k_wbio, .pid = k_pid}) == NULL,
+          "the orphaned entry is dropped rather than left for a reused address");
+}
+
+// Validating ownership must not cost the recycled BIO its own correlation: the
+// connection that now names it still binds normally.
+static void test_recycled_bio_after_eviction_binds_its_own_ssl(void) {
+    reset();
+
+    ssl_bios_track(k_pid, k_ssl, k_rbio, k_wbio);
+    test_map_delete(&ssl_to_bios, &(pid_ptr_key_t){.ptr = (u64)k_ssl, .pid = k_pid});
+
+    // The allocator hands the write BIO to a new connection, which names it.
+    void *const new_ssl = (void *)0x5700;
+    ssl_bios_track(k_pid, new_ssl, k_rbio, k_wbio);
+
+    tls_prefix_register_egress(k_wbio, client_hello, (int)client_hello_len);
+
+    pid_connection_info_t conn = upstream_conn();
+
+    check(tls_prefix_try_bind(
+              k_id, client_hello, k_tls_prefix_max, client_hello_len, &conn, 8443) == 1,
+          "the recycled BIO correlates for the connection that now owns it");
+    check(map_get(&ssl_to_conn, &k_ssl) == NULL, "the evicted SSL is not bound to the new socket");
+    check(map_get(&ssl_to_conn, &new_ssl) != NULL, "the owning SSL is the one bound");
+}
+
 // bio_to_ssl and ssl_to_bios are pinned and shared by every instrumented
 // process, and nothing removes a dead process's entries. Two processes are
 // therefore expected to allocate objects at the same address, and neither may
@@ -422,9 +466,7 @@ static void test_bound_ssl_survives_the_event_loop_write(void) {
     handle_ssl_buf(NULL, k_id, &args, 16, TCP_SEND);
 
     check(test_parser_call_count == 1, "the write is reported");
-    check_u16(8443,
-              test_last_orig_dport,
-              "a bound SSL reports the peer it connected to");
+    check_u16(8443, test_last_orig_dport, "a bound SSL reports the peer it connected to");
 }
 
 // Mirror the two uprobe call sites in libssl.c, so the split between SSL-keyed
@@ -572,6 +614,8 @@ int main(void) {
     test_internal_bio_writes_are_ignored();
     test_read_bio_write_is_not_egress();
     test_recycled_bio_is_not_attributed_to_the_dead_ssl();
+    test_orphaned_bio_entry_is_discarded();
+    test_recycled_bio_after_eviction_binds_its_own_ssl();
     test_bio_tracking_is_scoped_to_the_process();
     test_stale_prefix_is_not_matched();
     test_other_process_does_not_match();

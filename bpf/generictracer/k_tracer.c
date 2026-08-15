@@ -465,8 +465,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
                     // loop, after the SSL_write uprobe has returned. Bind it
                     // here by matching this record against the prefix recorded
                     // when OpenSSL wrote it to the write BIO.
-                    if (size >= k_tls_hdr_len && tls_record_plausible_start(buf, (u32)size) &&
-                        tls_prefix_try_bind(
+                    if (tls_prefix_try_bind(
                             id, buf, (u32)size, (u32)avail, &s_args.p_conn, orig_dport)) {
                         // Now a known TLS connection, so leave the ciphertext
                         // for the TLS path and skip the plaintext parsers.
@@ -535,16 +534,26 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
                         bpf_dbg_printk("can't find iovec ptr in msghdr, not tracking sendmsg");
                         return 0;
                     }
-                    s_args.buffer_read = 1;
+                    // The ciphertext only becomes readable here when a sock_msg
+                    // program moved it into bvec pages, so this is the memory
+                    // BIO match's only chance under context propagation.
+                    if (tls_prefix_try_bind(
+                            id, buf, (u32)size, (u32)size, &s_args.p_conn, orig_dport)) {
+                        ssl = is_ssl_connection(&s_args.p_conn);
+                    }
 
-                    const u64 sock_p = (u64)sk;
-                    bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
-                    bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
+                    if (!ssl) {
+                        s_args.buffer_read = 1;
 
-                    bpf_map_delete_elem(&msg_buffers, &e_key);
-                    // Logically last for !ssl.
-                    handle_buf_with_connection(
-                        ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                        const u64 sock_p = (u64)sk;
+                        bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
+                        bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
+
+                        bpf_map_delete_elem(&msg_buffers, &e_key);
+                        // Logically last for !ssl.
+                        handle_buf_with_connection(
+                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                    }
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);
             } else {
@@ -619,25 +628,37 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 // handle_buf_with_connection logic and then mark it as seen by making
                 // m_buf->pos be the size of the buffer.
                 if (!m_buf->pos) {
-                    s_args.buffer_read = 1;
                     const u16 size = use_fallback
                                          ? min(m_buf->real_size, (u16)k_kprobes_http2_buf_size)
                                          : m_buf->real_size;
                     m_buf->pos = size;
-                    s_args.size = size;
-                    bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);
-                    const u64 sock_p = (u64)sk;
-                    bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
-                    bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
-                    bpf_map_delete_elem(&msg_buffers, &e_key);
-                    // Logically last for !ssl.
-                    handle_buf_with_connection(
-                        ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                    // The sock_msg buffer is the only readable copy of this
+                    // send, so a memory BIO connection has to be matched here
+                    // as well as in tcp_sendmsg.
+                    if (tls_prefix_try_bind(id, buf, size, size, &s_args.p_conn, orig_dport)) {
+                        ssl = is_ssl_connection(&s_args.p_conn);
+                    }
+
+                    if (!ssl) {
+                        s_args.buffer_read = 1;
+                        s_args.size = size;
+                        bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);
+                        const u64 sock_p = (u64)sk;
+                        bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
+                        bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
+
+                        bpf_map_delete_elem(&msg_buffers, &e_key);
+                        // Logically last for !ssl.
+                        handle_buf_with_connection(
+                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                    }
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);
             }
-        } else {
+        }
+
+        if (ssl) {
             tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);
         }
     }

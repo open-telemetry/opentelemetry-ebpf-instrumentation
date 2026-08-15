@@ -10,3 +10,8 @@ attributes:
   select:
     "*":
       include: ["*"]
+# With a sock_msg program attached the send data lives in bvec pages, so the
+# ciphertext only becomes readable through the sock_msg buffer. Correlation has
+# to hold on that path too.
+ebpf:
+  context_propagation: all
