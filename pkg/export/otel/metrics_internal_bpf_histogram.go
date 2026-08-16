@@ -62,14 +62,16 @@ func subtractBpfProbeLatency(current, previous bpfProbeLatencyState) bpfProbeLat
 // instead and emits explicit bounds and bucket counts.
 type bpfProbeLatencyProducer struct {
 	mu           sync.Mutex
+	name         attributes.Name
 	temporality  metricdata.Temporality
 	startTime    time.Time
 	probes       map[bpfProbeKey]*bpfProbeLatencyState
 	lastProduced map[bpfProbeKey]bpfProbeLatencyState
 }
 
-func newBpfProbeLatencyProducer(temporality metricdata.Temporality) *bpfProbeLatencyProducer {
+func newBpfProbeLatencyProducer(name attributes.Name, temporality metricdata.Temporality) *bpfProbeLatencyProducer {
 	return &bpfProbeLatencyProducer{
+		name:         name,
 		temporality:  temporality,
 		startTime:    timeNow(),
 		probes:       make(map[bpfProbeKey]*bpfProbeLatencyState),
@@ -152,9 +154,9 @@ func (p *bpfProbeLatencyProducer) Produce(ctx context.Context) ([]metricdata.Sco
 	return []metricdata.ScopeMetrics{{
 		Scope: instrumentation.Scope{Name: internalMetricsMeterName},
 		Metrics: []metricdata.Metrics{{
-			Name:        attributes.InternalBpfProbeLatency.OTEL,
+			Name:        p.name.OTEL,
 			Description: "Latency distribution of the eBPF probe in seconds",
-			Unit:        attributes.InternalBpfProbeLatency.Unit,
+			Unit:        p.name.Unit,
 			Data: metricdata.Histogram[float64]{
 				Temporality: metricdata.CumulativeTemporality,
 				DataPoints:  dataPoints,

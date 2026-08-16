@@ -69,21 +69,26 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
+	internalNames := attributes.NewInternalMetrics(attr.VendorPrefix)
+
 	res := newResourceInternal(&ctxInfo.NodeMeta)
-	bpfProbeLatency := newBpfProbeLatencyProducer(exporter.Temporality(metric.InstrumentKindHistogram))
+	bpfProbeLatency := newBpfProbeLatencyProducer(
+		internalNames.BpfProbeLatency,
+		exporter.Temporality(metric.InstrumentKindHistogram),
+	)
 	provider := newInternalMeterProvider(res, &exporter, metrics.Interval, bpfProbeLatency)
 	meter := provider.Meter(internalMetricsMeterName)
 	tracerFlushes, err := meter.Float64Histogram(
-		attributes.InternalTracerFlushes.OTEL,
+		internalNames.TracerFlushes.OTEL,
 		instrument.WithDescription("Length of the groups of traces flushed from the eBPF tracer to the next pipeline stage"),
-		instrument.WithUnit(attributes.InternalTracerFlushes.Unit),
+		instrument.WithUnit(internalNames.TracerFlushes.Unit),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	otelMetricExports, err := meter.Float64Counter(
-		attributes.InternalOTELMetricExports.OTEL,
+		internalNames.OTELMetricExports.OTEL,
 		instrument.WithDescription("Length of the metric batches submitted to the remote OTEL collector"),
 	)
 	if err != nil {
@@ -91,7 +96,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	otelMetricExportErrs, err := meter.Float64Counter(
-		attributes.InternalOTELMetricExportErrors.OTEL,
+		internalNames.OTELMetricExportErrors.OTEL,
 		instrument.WithDescription("Error count on each failed OTEL metric export"),
 	)
 	if err != nil {
@@ -99,7 +104,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	otelTraceExports, err := meter.Float64Counter(
-		attributes.InternalOTELTraceExports.OTEL,
+		internalNames.OTELTraceExports.OTEL,
 		instrument.WithDescription("Length of the trace batches submitted to the remote OTEL collector"),
 	)
 	if err != nil {
@@ -107,7 +112,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	otelTraceExportErrs, err := meter.Float64Counter(
-		attributes.InternalOTELTraceExportErrors.OTEL,
+		internalNames.OTELTraceExportErrors.OTEL,
 		instrument.WithDescription("Error count on each failed OTEL trace export"),
 	)
 	if err != nil {
@@ -115,7 +120,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	instrumentedProcesses, err := meter.Int64UpDownCounter(
-		attributes.InternalInstrumentedProcesses.OTEL,
+		internalNames.InstrumentedProcesses.OTEL,
 		instrument.WithDescription("Total number of instrumented processes by process name"),
 	)
 	if err != nil {
@@ -123,7 +128,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	instrumentationErrors, err := meter.Int64Counter(
-		attributes.InternalInstrumentationErrors.OTEL,
+		internalNames.InstrumentationErrors.OTEL,
 		instrument.WithDescription("Total number of instrumentation errors by process name and error type"),
 	)
 	if err != nil {
@@ -134,7 +139,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	var avoidedServicesLimiter *avoidedsvc.Limiter
 	if !internalMetrics.AvoidedServices.Disabled {
 		avoidedServices, err = meter.Int64Gauge(
-			attributes.InternalAvoidedServices.OTEL,
+			internalNames.AvoidedServices.OTEL,
 			instrument.WithDescription("Services avoided due to existing OpenTelemetry instrumentation"),
 		)
 		if err != nil {
@@ -144,7 +149,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	buildInfo, err := meter.Int64Gauge(
-		attributes.InternalBuildInfo.OTEL,
+		internalNames.BuildInfo.OTEL,
 		instrument.WithDescription("A metric with a constant '1' value labeled by version, revision, branch, goversion, goos and goarch during build."),
 	)
 	if err != nil {
@@ -152,14 +157,14 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	bpfMapEntries, err := meter.Int64Gauge(
-		attributes.InternalBpfMapEntries.OTEL,
+		internalNames.BpfMapEntries.OTEL,
 		instrument.WithDescription("Number of entries in the eBPF map"),
 	)
 	if err != nil {
 		return nil, err
 	}
 	bpfMapMaxEntries, err := meter.Int64Gauge(
-		attributes.InternalBpfMapMaxEntries.OTEL,
+		internalNames.BpfMapMaxEntries.OTEL,
 		instrument.WithDescription("Max number of entries in the eBPF map"),
 	)
 	if err != nil {
@@ -167,9 +172,9 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	informerLag, err := meter.Float64Histogram(
-		attributes.InternalKubeCacheForwardLag.OTEL,
+		internalNames.KubeCacheForwardLag.OTEL,
 		instrument.WithDescription("How long, in seconds, it takes since a Kubernetes event happens until it is forwarded to the subscribers"),
-		instrument.WithUnit(attributes.InternalKubeCacheForwardLag.Unit),
+		instrument.WithUnit(internalNames.KubeCacheForwardLag.Unit),
 		instrument.WithExplicitBucketBoundaries(
 			imetrics.InformerLagBuckets...,
 		),
@@ -179,27 +184,27 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	bpfIgnoredPacketCount, err := meter.Int64Counter(
-		attributes.InternalBpfNetworkIgnoredPackets.OTEL,
+		internalNames.BpfNetworkIgnoredPackets.OTEL,
 		instrument.WithDescription("How many network packets have been internally ignored due to collisions in the internal eBPF cache"),
-		instrument.WithUnit(attributes.InternalBpfNetworkIgnoredPackets.Unit),
+		instrument.WithUnit(internalNames.BpfNetworkIgnoredPackets.Unit),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	bpfPacketCount, err := meter.Int64Counter(
-		attributes.InternalBpfNetworkPackets.OTEL,
+		internalNames.BpfNetworkPackets.OTEL,
 		instrument.WithDescription("How many network packets have been internally accounted"),
-		instrument.WithUnit(attributes.InternalBpfNetworkPackets.Unit),
+		instrument.WithUnit(internalNames.BpfNetworkPackets.Unit),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	queueCapacityRatio, err := meter.Float64Gauge(
-		attributes.InternalQueueCapacityRatio.OTEL,
+		internalNames.QueueCapacityRatio.OTEL,
 		instrument.WithDescription("Ratio [0-1] between the unread messages of an internal Go channel and its total capacity"),
-		instrument.WithUnit(attributes.InternalQueueCapacityRatio.Unit))
+		instrument.WithUnit(internalNames.QueueCapacityRatio.Unit))
 	if err != nil {
 		return nil, err
 	}
