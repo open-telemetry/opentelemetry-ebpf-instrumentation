@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
@@ -38,39 +39,77 @@ func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	reporter.BpfProbeStats("7", "kprobe", "tcp_connect", 3, 0.75)
+	// 3 executions averaging 0.0001s, which the accounting attributes to the 0.0001 bucket
+	reporter.BpfProbeStats("7", "kprobe", "tcp_connect", 3, 0.0003, map[float64]uint64{0.0001: 3})
 
 	records := readMetricsByName(t, metricRecords, time.Second,
-		attr.VendorPrefix+".bpf.probe.executions",
-		attr.VendorPrefix+".bpf.probe.latency_seconds_total",
+		attr.VendorPrefix+".bpf.probe.latency",
 	)
-	assert.Len(t, records, 2)
+	require.Len(t, records, 1)
 
-	expected := map[string]collector.MetricRecord{
-		attr.VendorPrefix + ".bpf.probe.executions": {
-			IntVal: 3,
-		},
-		attr.VendorPrefix + ".bpf.probe.latency_seconds_total": {
-			FloatVal: 0.75,
-		},
+	record := records[0]
+	assert.Equal(t, "7", record.Attributes["bpf.probe.id"])
+	assert.Equal(t, "kprobe", record.Attributes["bpf.probe.type"])
+	assert.Equal(t, "tcp_connect", record.Attributes["bpf.probe.name"])
+	assert.Equal(t, 3, record.Count)
+	assert.InDelta(t, 0.0003, record.FloatVal, 0.00001)
+}
+
+func TestBpfProbeLatencyProducerDeltaTemporality(t *testing.T) {
+	bound := imetrics.BpfLatenciesBuckets[0]
+	producer := newBpfProbeLatencyProducer(metricdata.DeltaTemporality)
+
+	producer.Update("7", "kprobe", "tcp_connect", 2, 0.5, map[float64]uint64{bound: 2})
+	first := produceHistogramPoint(t, producer)
+	assert.Equal(t, uint64(2), first.Count)
+	assert.InDelta(t, 0.5, first.Sum, 0.0001)
+
+	// the source snapshots are cumulative, so a second interval of 3 more observations
+	// arrives as a total of 5 and must be emitted as the delta
+	producer.Update("7", "kprobe", "tcp_connect", 3, 0.75, map[float64]uint64{bound: 5})
+	second := produceHistogramPoint(t, producer)
+	assert.Equal(t, uint64(3), second.Count)
+	assert.InDelta(t, 0.75, second.Sum, 0.0001)
+	assert.Equal(t, uint64(3), second.BucketCounts[0])
+	assert.Equal(t, first.Time, second.StartTime, "delta points must start where the previous one ended")
+}
+
+func produceHistogramPoint(t *testing.T, producer *bpfProbeLatencyProducer) metricdata.HistogramDataPoint[float64] {
+	t.Helper()
+
+	scopeMetrics, err := producer.Produce(t.Context())
+	require.NoError(t, err)
+	require.Len(t, scopeMetrics, 1)
+	require.Len(t, scopeMetrics[0].Metrics, 1)
+
+	histogram, ok := scopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64])
+	require.True(t, ok, "expected a float64 histogram")
+	require.Len(t, histogram.DataPoints, 1)
+
+	return histogram.DataPoints[0]
+}
+
+func TestBpfProbeLatencyProducerBucketCounts(t *testing.T) {
+	bounds := imetrics.BpfLatenciesBuckets
+	largest := bounds[len(bounds)-1]
+
+	// two observations land in a real bucket, a third exceeds every bound and so was
+	// never recorded by the accounting: it must surface in the overflow bucket
+	counts := bucketCounts(&bpfProbeLatencyState{
+		count:   3,
+		sum:     1.5,
+		buckets: map[float64]uint64{bounds[0]: 2},
+	})
+
+	require.Len(t, counts, len(bounds)+1)
+	assert.Equal(t, uint64(2), counts[0])
+	assert.Equal(t, uint64(1), counts[len(counts)-1], "observation above %v must land in the overflow bucket", largest)
+
+	var total uint64
+	for _, c := range counts {
+		total += c
 	}
-
-	for _, record := range records {
-		assert.Equal(t, "7", record.Attributes["bpf.probe.id"])
-		assert.Equal(t, "kprobe", record.Attributes["bpf.probe.type"])
-		assert.Equal(t, "tcp_connect", record.Attributes["bpf.probe.name"])
-
-		want, ok := expected[record.Name]
-		require.True(t, ok, "unexpected metric %q", record.Name)
-		if record.Name == attr.VendorPrefix+".bpf.probe.executions" {
-			assert.Equal(t, want.IntVal, record.IntVal)
-		} else {
-			assert.Equal(t, want.FloatVal, record.FloatVal)
-		}
-		delete(expected, record.Name)
-	}
-
-	assert.Empty(t, expected)
+	assert.Equal(t, uint64(3), total, "bucket counts must sum to the observation count")
 }
 
 func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {

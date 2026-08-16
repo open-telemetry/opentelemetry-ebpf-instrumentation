@@ -35,10 +35,10 @@ OCI_BIN ?= docker
 # User to run as in docker images.
 DOCKER_USER=$(shell id -u):$(shell id -g)
 DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
-GRADLE_IMAGE := $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
-GOLANG_IMAGE := $(shell awk '$$4=="golang" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
-PYTHON39_IMAGE := $(shell awk '$$4=="python39" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
-PYTHON314_IMAGE := $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+GRADLE_IMAGE = $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+GOLANG_IMAGE = $(shell awk '$$4=="golang" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+PYTHON39_IMAGE = $(shell awk '$$4=="python39" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+PYTHON314_IMAGE = $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 
 # BPF code generator dependencies
 CLANG ?= clang
@@ -158,7 +158,7 @@ lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
-WEAVERIMAGE := $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema
 lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
@@ -186,7 +186,7 @@ lint-collectt-fix:
 	@echo "### Checking EventuallyWithT callbacks use CollectT"
 	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
-MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+MARKDOWNIMAGE = $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-markdown
 lint-markdown:
 	@echo "### Linting markdown"
@@ -794,7 +794,9 @@ go-notices-update:
 				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=$(NOTICES_DIR)/$$arch --force; \
 			done'
 
-PYTHON_REQUIREMENTS_INS ?= $(shell find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
+# Guarded with test -d: the directory is absent in build contexts that only
+# copy the sources needed to compile (e.g. the integration-test OBI image).
+PYTHON_REQUIREMENTS_INS ?= $(shell [ -d ./internal/test/integration/components ] && find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
 PYTHON_REQUIREMENTS_DIRS := $(sort $(dir $(PYTHON_REQUIREMENTS_INS)))
 PYTHON_REQUIREMENTS_LOCKS := $(sort $(foreach dir,$(PYTHON_REQUIREMENTS_DIRS),$(wildcard $(dir)requirements.txt $(dir)requirements-*.txt)))
 PYTHON_REQUIREMENTS_UPDATE_TARGETS := $(patsubst %,%.update,$(PYTHON_REQUIREMENTS_LOCKS))

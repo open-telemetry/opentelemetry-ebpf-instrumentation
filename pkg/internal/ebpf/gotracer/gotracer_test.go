@@ -543,6 +543,88 @@ func TestGoAutoSDKActivationProbeGroupRequiresWriteUserSupport(t *testing.T) {
 	assert.Empty(t, tracer.GoProbeGroups())
 }
 
+func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
+	tests := []struct {
+		name               string
+		mode               config.ContextPropagationMode
+		writeUser          bool
+		wireEnabled        bool
+		writeProbesEnabled bool
+	}{
+		{name: "disabled supported", mode: config.ContextPropagationDisabled, writeUser: true},
+		{name: "tcp supported", mode: config.ContextPropagationTCP, writeUser: true},
+		{name: "headers supported", mode: config.ContextPropagationHeaders, writeUser: true, wireEnabled: true, writeProbesEnabled: true},
+		{name: "all supported", mode: config.ContextPropagationAll, writeUser: true, wireEnabled: true, writeProbesEnabled: true},
+		{name: "disabled unsupported", mode: config.ContextPropagationDisabled},
+		{name: "tcp unsupported", mode: config.ContextPropagationTCP},
+		{name: "headers unsupported", mode: config.ContextPropagationHeaders, wireEnabled: true},
+		{name: "all unsupported", mode: config.ContextPropagationAll, wireEnabled: true},
+	}
+
+	headerProbeSymbols := []string{
+		"net/http.Header.writeSubset",
+		"golang.org/x/net/http2.(*Framer).WriteHeaders",
+		"net/http.(*http2Framer).WriteHeaders",
+	}
+	tracingProbeSymbols := []string{
+		"net/http.(*Transport).roundTrip",
+		"google.golang.org/grpc.(*ClientConn).Invoke",
+		"google.golang.org/grpc.(*ClientConn).NewStream",
+		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setContextPropagationSupportForTest(t, tt.writeUser)
+
+			tracer := &Tracer{
+				cfg: &config.EBPFTracer{ContextPropagation: tt.mode},
+				log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			}
+			constants := tracer.constants()
+			assert.Equal(t, tt.wireEnabled, constants["g_bpf_header_propagation"])
+			assert.Equal(t, tt.writeUser, constants["g_bpf_probe_write_user_enabled"])
+
+			probes := tracer.GoProbes()
+			for _, symbol := range headerProbeSymbols {
+				if tt.writeProbesEnabled {
+					assert.Contains(t, probes, symbol)
+				} else {
+					assert.NotContains(t, probes, symbol)
+				}
+			}
+			for _, symbol := range tracingProbeSymbols {
+				assert.Contains(t, probes, symbol)
+			}
+		})
+	}
+}
+
+func TestManualSpanProbesDoNotRequireWriteUserSupport(t *testing.T) {
+	setContextPropagationSupportForTest(t, false)
+
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	probes := tracer.GoProbes()
+	assert.Contains(t, probes, "go.opentelemetry.io/otel/internal/global.(*tracer).Start")
+	assert.Contains(t, probes, "go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).End")
+}
+
+func TestGoAutoSDKActivationProbeGroupIgnoresPropagationMode(t *testing.T) {
+	setContextPropagationSupportForTest(t, true)
+
+	tracer := &Tracer{
+		cfg:                      &config.EBPFTracer{ContextPropagation: config.ContextPropagationDisabled},
+		log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		currentBinaryIno:         1,
+		goAutoSDKActivationByIno: map[uint64]bool{1: true},
+	}
+
+	assert.Len(t, tracer.GoProbeGroups(), 1)
+}
+
 func TestGoAutoSDKActivationUprobeOptionsArePIDScoped(t *testing.T) {
 	options := goAutoSDKActivationUprobeOptions(
 		goAutoSDKActivationProbe{offset: 0x1234},
