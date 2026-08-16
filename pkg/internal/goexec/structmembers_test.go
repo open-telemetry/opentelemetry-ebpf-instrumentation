@@ -348,17 +348,46 @@ func TestReadMembers_UnsupportedLocationType(t *testing.T) {
 		123456: {},
 		234567: {},
 	}
-	// Must return an error if there is a field with unsupported location type
-	require.Error(t, readMembers(fdr, map[string]GoOffset{
+	offsets := FieldOffsets{}
+	// A field with an unsupported location type must not abort the scan, so
+	// that the members after it are still read
+	require.NoError(t, readMembers(fdr, map[string]GoOffset{
 		"supported_loc":   123456,
 		"unsupported_loc": 234567,
-	}, notFoundFields, FieldOffsets{}))
-	// And this field will be kept in the "expectedFields" map, so OBI will
+	}, notFoundFields, offsets))
+	assert.Equal(t, FieldOffsets{GoOffset(123456): uint64(33)}, offsets)
+	// And the skipped field will be kept in the "expectedFields" map, so OBI will
 	// later know that it didn't manage to get that information from dwarf
 	// and will try to look for it in the precompiled offsets DB
 	assert.Equal(t, map[GoOffset]struct{}{
 		234567: {},
 	}, notFoundFields)
+}
+
+func TestReadMembers_UnnamedMember(t *testing.T) {
+	fdr := &fakeDwarfReader{
+		entries: []*dwarf.Entry{
+			{
+				Tag:   dwarf.TagStructType,
+				Field: []dwarf.Field{{Attr: dwarf.AttrDataMemberLoc, Val: int64(0)}},
+			}, {
+				Tag: dwarf.TagStructType,
+				Field: []dwarf.Field{
+					{Attr: dwarf.AttrName, Val: "named"},
+					{Attr: dwarf.AttrDataMemberLoc, Val: int64(8)},
+				},
+			},
+		},
+	}
+	notFoundFields := map[GoOffset]struct{}{123456: {}}
+	offsets := FieldOffsets{}
+	// A member without DW_AT_name must be skipped rather than panic, and the
+	// members after it must still be read
+	require.NoError(t, readMembers(fdr, map[string]GoOffset{
+		"named": 123456,
+	}, notFoundFields, offsets))
+	assert.Equal(t, FieldOffsets{GoOffset(123456): uint64(8)}, offsets)
+	assert.Empty(t, notFoundFields)
 }
 
 func TestOffsetsForLibVersions(t *testing.T) {

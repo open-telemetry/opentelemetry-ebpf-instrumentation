@@ -1123,19 +1123,29 @@ func readMembers(
 			return nil
 		}
 		attrs := getAttrs(entry)
-		if constName, ok := fields[attrs[dwarf.AttrName].(string)]; ok {
-			value := attrs[dwarf.AttrDataMemberLoc]
-			if constLocation, ok := value.(int64); ok {
-				delete(expectedReturns, constName)
-				log.Debug("found struct member offset",
-					"const", constName, "offset", attrs[dwarf.AttrDataMemberLoc])
-				offsets[constName] = uint64(constLocation)
-			} else {
-				// Temporary workaround
-				return fmt.Errorf("at the moment, OBI only supports constant values for DW_AT_data_member_location;"+
-					"got %s. OBI will read the offsets from a pre-fetched database", attrs[dwarf.AttrDataMemberLoc])
-			}
+		name, ok := attrs[dwarf.AttrName].(string)
+		if !ok {
+			// anonymous members (e.g. embedded fields) carry no DW_AT_name
+			continue
 		}
+		constName, ok := fields[name]
+		if !ok {
+			continue
+		}
+		value := attrs[dwarf.AttrDataMemberLoc]
+		constLocation, ok := value.(int64)
+		if !ok {
+			// Only constant locations are supported. Leaving the field in
+			// expectedReturns makes the caller fall back to the pre-fetched
+			// offsets database for it, while the remaining members of this and
+			// any later struct are still read from DWARF.
+			log.Debug("skipping member with non-constant DW_AT_data_member_location",
+				"field", name, "value", value)
+			continue
+		}
+		delete(expectedReturns, constName)
+		log.Debug("found struct member offset", "const", constName, "offset", constLocation)
+		offsets[constName] = uint64(constLocation)
 	}
 }
 
