@@ -89,7 +89,7 @@ below matches the release workflow at the release tag.
 
 ```bash
 # Set your desired version (find latest at https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
-export VERSION=1.0.0
+export VERSION=0.11.0
 
 # Determine your architecture
 # For Intel/AMD 64-bit: amd64
@@ -231,7 +231,7 @@ OBI is also available as container images:
 
 ```bash
 # Set your desired version.
-export VERSION=v0.7.0
+export VERSION=v0.11.0
 export CERTIFICATE_IDENTITY="https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/${VERSION}"
 
 # (Optional) Verify the signature of the container image

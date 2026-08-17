@@ -5,17 +5,11 @@ with a workflow designed to preserve effective behavior. It covers the
 standalone OBI binary and the OBI Collector receiver.
 
 > [!IMPORTANT]
-> Use Config v2 for standalone OBI only with a release whose notes explicitly
-> say that standalone Config v2 loading is enabled. Config v2 in OBI v0.10.0
-> is internal groundwork, not a public runtime configuration interface. The
-> complete public release is tracked by the
-> [Config v2 release gate](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2251),
-> including
-> [standalone loading](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2535)
-> and its
-> [implementation PR](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682).
-> A successful `obi config validate` checks the document; it does not prove
-> that the installed OBI runtime can load v2.
+> Config v2 is supported for standalone OBI and the OBI Collector receiver
+> starting with OBI v0.11.0. Config v1 remains supported. Before migrating,
+> confirm that every deployed OBI binary or container image is v0.11.0 or
+> later. A successful `obi config validate` checks the document but does not
+> prove that an older installed OBI runtime can load v2.
 
 The migration command is designed to preserve effective behavior. It combines
 a v2 round-trip comparison with checks for structural mappings that cannot be
