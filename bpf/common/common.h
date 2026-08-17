@@ -40,6 +40,7 @@ enum : u32 {
     k_kafka_max_len = 256,
     k_redis_max_len = 256,
     k_mongo_max_len = 256,
+    k_mongo_hostname_max_len = 96,
     k_max_topic_name_len = 64,
     k_host_max_len = 100,
     k_scheme_max_len = 10,
@@ -284,6 +285,7 @@ typedef struct mongo_go_client_req {
     unsigned char coll[32];
     connection_info_t conn;
     tp_info_t tp;
+    unsigned char hostname[k_mongo_hostname_max_len];
 } mongo_go_client_req_t;
 
 typedef struct dns_req {

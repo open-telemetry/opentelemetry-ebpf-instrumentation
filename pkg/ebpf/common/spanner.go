@@ -324,10 +324,7 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 		hostPort = int(trace.Conn.D_port)
 	}
 
-	hostname := cstr(trace.Hostname[:])
-	if idx := strings.LastIndex(hostname, ":"); idx != -1 {
-		hostname = hostname[:idx]
-	}
+	hostname := hostWithoutPort(cstr(trace.Hostname[:]))
 
 	subType := trace.SubType
 

@@ -6,12 +6,16 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"net"
 	"testing"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
 var requests = expirable.NewLRU[MongoRequestKey, *MongoRequestValue](1000, nil, 0)
@@ -665,4 +669,58 @@ func TestOpAndCollectionFromEvent(t *testing.T) {
 			assert.Equal(t, tt.wantColl, gotColl)
 		})
 	}
+}
+
+func goMongoRecord(t *testing.T, event GoMongoClientInfo) *ringbuf.Record {
+	t.Helper()
+
+	var raw bytes.Buffer
+	require.NoError(t, binary.Write(&raw, binary.LittleEndian, event))
+
+	return &ringbuf.Record{RawSample: raw.Bytes()}
+}
+
+func TestReadGoMongoRequestIntoSpanHostName(t *testing.T) {
+	tests := []struct {
+		name     string
+		hostname string
+		want     string
+	}{
+		{"host and port", "mongo:27017", "mongo"},
+		{"host without port", "mongo", "mongo"},
+		{"bracketed ipv6 and port", "[::1]:27017", "[::1]"},
+		{"tracer could not read it", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := GoMongoClientInfo{Op: [32]uint8{'f', 'i', 'n', 'd'}}
+			copy(event.Hostname[:], tt.hostname)
+
+			span, ignore, err := ReadGoMongoRequestIntoSpan(goMongoRecord(t, event))
+			require.NoError(t, err)
+			require.False(t, ignore)
+
+			assert.Equal(t, tt.want, span.HostName)
+		})
+	}
+}
+
+// The exported server.address attribute is derived from the span through
+// request.SpanHost, which prefers HostName over the address of the socket.
+func TestGoMongoSpanReportsHostNameAsServer(t *testing.T) {
+	event := GoMongoClientInfo{Op: [32]uint8{'f', 'i', 'n', 'd'}}
+	copy(event.Hostname[:], "mongo:27017")
+	copy(event.Conn.D_addr[:], net.ParseIP("10.0.0.4").To16())
+	event.Conn.S_port = 40000
+	event.Conn.D_port = 27017
+
+	span, ignore, err := ReadGoMongoRequestIntoSpan(goMongoRecord(t, event))
+	require.NoError(t, err)
+	require.False(t, ignore)
+
+	assert.Equal(t, "10.0.0.4", span.Host)
+	assert.Equal(t, 27017, span.HostPort)
+	assert.Equal(t, "mongo", request.SpanHost(&span))
+	assert.Equal(t, "mongo", request.HostAsServer(&span))
 }

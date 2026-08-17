@@ -827,6 +827,18 @@ func cstr(chars []uint8) string {
 	return string(chars[:addrLen])
 }
 
+// hostWithoutPort drops the trailing ":port" from a server address read from a
+// client library's configuration, e.g. "mongo:27017" or "sqlserver:5432".
+// Addresses without a port are returned unchanged. IPv6 literals are bracketed
+// in the configurations we read, so trimming at the last colon is safe.
+func hostWithoutPort(addr string) string {
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		return addr[:idx]
+	}
+
+	return addr
+}
+
 func (connInfo *BPFConnInfo) reqHostInfo() (source, target string) {
 	src := make(net.IP, net.IPv6len)
 	dst := make(net.IP, net.IPv6len)

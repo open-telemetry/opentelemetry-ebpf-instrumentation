@@ -111,3 +111,18 @@ func TestIsH2CPrefacePseudoRequest(t *testing.T) {
 		assert.False(t, isH2CPrefacePseudoRequest(&span), "span %+v must not be dropped", span)
 	}
 }
+
+func TestHostWithoutPort(t *testing.T) {
+	for _, tc := range []struct {
+		addr string
+		want string
+	}{
+		{"mongo:27017", "mongo"},
+		{"sqlserver:5432", "sqlserver"},
+		{"mongo", "mongo"},
+		{"[::1]:27017", "[::1]"},
+		{"", ""},
+	} {
+		assert.Equal(t, tc.want, hostWithoutPort(tc.addr), "addr %q", tc.addr)
+	}
+}
