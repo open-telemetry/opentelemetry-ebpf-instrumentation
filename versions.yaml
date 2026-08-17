@@ -3,7 +3,7 @@
 
 module-sets:
   obi:
-    version: v0.10.0
+    version: v0.11.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
@@ -29,6 +29,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/examples/go-trace-api/app
   - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl
   - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl/memsql
+  - go.opentelemetry.io/obi/internal/test/integration/components/ai/openai/go
   - go.opentelemetry.io/obi/internal/test/integration/components/go-runtime-metrics-server
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-client
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-server
@@ -38,8 +39,10 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
   - go.opentelemetry.io/obi/internal/test/integration/components/go_simple_grpc
+  - go.opentelemetry.io/obi/internal/test/integration/components/goautosdk
   - go.opentelemetry.io/obi/internal/test/integration/components/gogeneric/fiber-example
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka
+  - go.opentelemetry.io/obi/internal/test/integration/components/gokafka/no-promise
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongo
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongov2
