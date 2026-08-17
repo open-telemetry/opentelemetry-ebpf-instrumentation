@@ -169,6 +169,63 @@ func TestMatchAerospikeNonAerospike(t *testing.T) {
 	assert.False(t, matched, "HTTP must not be misclassified as Aerospike")
 }
 
+// TestDispatchAerospikeSpan covers the kernel-classified path: an event the
+// kernel marked as Aerospike goes straight to the parser and yields a span.
+func TestDispatchAerospikeSpan(t *testing.T) {
+	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
+	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
+
+	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike}
+	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	require.NoError(t, err)
+	require.True(t, matched, "kernel-classified aerospike event must be handled")
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeAerospikeClient, span.Type)
+	assert.Equal(t, "PUT", span.Method)
+	assert.Equal(t, "PUT test.s_put", span.TraceName())
+}
+
+// TestDispatchAerospikeIgnoresNoise ensures non-data frames on a classified
+// connection (info/tend traffic, junk) are consumed as ignored events instead of
+// falling through to the generic protocol detectors.
+func TestDispatchAerospikeIgnoresNoise(t *testing.T) {
+	// A type-1 info (tend) frame: "node\n" request, ASCII response.
+	infoFrame := append([]byte{2, 1, 0, 0, 0, 0, 0, 5}, []byte("node\n")...)
+
+	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike}
+	_, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event,
+		largebuf.NewLargeBufferFrom(infoFrame),
+		largebuf.NewLargeBufferFrom([]byte("node\tBB9146B478C3844\n")))
+	require.NoError(t, err)
+	assert.True(t, matched, "classified-connection noise must not leak to generic detectors")
+	assert.True(t, ignore, "noise frames must not produce a span")
+}
+
+// TestDispatchAerospikeServerSideIgnored mirrors the matchAerospike server-side
+// guard on the kernel-classified path.
+func TestDispatchAerospikeServerSideIgnored(t *testing.T) {
+	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
+	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
+
+	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike, IsServer: true}
+	_, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	require.NoError(t, err)
+	assert.True(t, matched)
+	assert.True(t, ignore, "server-side exchange must not produce a client span")
+}
+
+// TestDispatchAerospikeUnknownFallsThrough ensures unclassified events are left
+// for the generic/heuristic detection stages.
+func TestDispatchAerospikeUnknownFallsThrough(t *testing.T) {
+	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
+	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
+
+	event := &TCPRequestInfo{ProtocolType: ProtocolTypeUnknown}
+	_, _, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	require.NoError(t, err)
+	assert.False(t, matched, "unknown protocol must fall through to the detection stages")
+}
+
 // TestMatchAerospikeServerSideSkipped ensures a valid Aerospike exchange observed
 // from the server process (IsServer) does not produce a span, so an operation
 // instrumented on both peers is reported only once (client-side).

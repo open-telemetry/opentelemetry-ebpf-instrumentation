@@ -170,6 +170,8 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		EnabledMode: cfg.EBPF.InstrumentCuda,
 	}
 
+	aerospikeInstrumentation := schema.AerospikeInstrumentation(protocols[protocolAerospike])
+
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
 		GRPC:      protocols[protocolGRPC],
@@ -180,6 +182,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		Couchbase: couchbaseInstrumentation,
 		DNS:       dnsInstrumentation,
 		GPU:       gpuInstrumentation,
+		Aerospike: &aerospikeInstrumentation,
 	}
 }
 

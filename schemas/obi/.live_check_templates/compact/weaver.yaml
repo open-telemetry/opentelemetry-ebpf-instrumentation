@@ -1,0 +1,29 @@
+# `compact` live-check output format: the statistics block plus a deduplicated
+# list of findings (message, level, advice type, occurrence count, and the
+# distinct signals that triggered it) — the same detail the harness logs, but
+# collapsed.
+#
+# Must be a hidden directory: a
+# visible weaver.yaml inside the registry mount is parsed as a registry file
+# and rejected.
+whitespace_control:
+  trim_blocks: true
+  lstrip_blocks: true
+
+templates:
+  - template: report.json.j2
+    filter: >
+      { statistics: .statistics,
+        findings: (
+          [ .samples[] | .. | objects | select(has("all_advice")) | .all_advice[] ]
+          | group_by(.message)
+          | map({
+              message: .[0].message,
+              level:   .[0].level,
+              type:    .[0].id,
+              count:   length,
+              signals: ([ .[] | select((.signal_name // "") != "") | "\(.signal_type):\(.signal_name)" ] | unique)
+            })
+        ) }
+    application_mode: single
+    file_name: live_check.json

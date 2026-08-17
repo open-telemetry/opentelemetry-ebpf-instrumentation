@@ -14,7 +14,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"k8s.io/client-go/kubernetes/fake"
 
 	queuesync "go.opentelemetry.io/obi/pkg/internal/helpers/sync"
@@ -107,6 +109,8 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	var conn *grpc.ClientConn
 	var stream grpc.ServerStreamingClient[informer.Event]
+	streamCtx, streamCancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer streamCancel()
 
 	require.Eventually(t, func() bool {
 		var err error
@@ -116,7 +120,7 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 		}
 
 		client := informer.NewEventStreamServiceClient(conn)
-		stream, err = client.Subscribe(context.Background(), &informer.SubscribeMessage{})
+		stream, err = client.Subscribe(streamCtx, &informer.SubscribeMessage{})
 		return err == nil
 	}, 3*time.Second, 25*time.Millisecond, "server never accepted a streaming client")
 	t.Cleanup(func() {
@@ -126,8 +130,13 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 	cancel()
 	require.NoError(t, <-done)
 
-	_, err := stream.Recv()
-	require.Error(t, err, "stream should be closed when the server stops")
+	for {
+		_, err := stream.Recv()
+		if err != nil {
+			require.NotEqual(t, codes.DeadlineExceeded, status.Code(err), "stream was not closed when the server stopped")
+			break
+		}
+	}
 
 	lis, err := net.Listen("tcp", address)
 	require.NoError(t, err, "port still bound after Run returned")

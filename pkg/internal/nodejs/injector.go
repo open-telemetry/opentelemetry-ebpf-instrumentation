@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"syscall"
 	"time"
 
@@ -301,21 +300,14 @@ func (i *NodeInjector) injectViaConn(conn net.Conn) error {
 
 	i.log.Debug("found debugger url", "url", wsURL)
 
-	// All agent scripts are evaluated as a single expression, each isolated
-	// in its own IIFE.
-	scripts := []string{string(_extractorBytes)}
-
+	// Each agent script is a self-contained IIFE. Join with an explicit ';'
+	// so the next script's leading '(' is not parsed as a call of the
+	// previous IIFE's return value.
+	script := _extractorCode
 	if i.cfg.NodeJS.ManualSpans {
-		scripts = append(scripts, string(_spanBridgeBytes))
+		script += ";\n" + _spanBridgeCode
 	}
-
-	wrapped := make([]string, 0, len(scripts))
-
-	for _, script := range scripts {
-		wrapped = append(wrapped, fmt.Sprintf("(()=>{\n%s\n})();", script))
-	}
-
-	payload, err := evaluateRequest(strings.Join(wrapped, "\n"), 1)
+	payload, err := evaluateRequest(script, 1)
 	if err != nil {
 		conn.Close()
 		return err

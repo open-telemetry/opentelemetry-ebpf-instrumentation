@@ -28,8 +28,9 @@ func TestGoRuntimeMetricRawABI(t *testing.T) {
 	var event goRuntimeMetricRawEvent
 	var snapshot goRuntimeMetricRawSnapshot
 
-	require.Equal(t, uintptr(160), unsafe.Sizeof(event))
-	require.Equal(t, uintptr(16), unsafe.Offsetof(event.Snapshot))
+	require.Equal(t, uintptr(168), unsafe.Sizeof(event))
+	require.Equal(t, uintptr(16), unsafe.Offsetof(event.Generation))
+	require.Equal(t, uintptr(24), unsafe.Offsetof(event.Snapshot))
 	require.Equal(t, uintptr(144), unsafe.Sizeof(snapshot))
 	require.Equal(t, uintptr(0), unsafe.Offsetof(snapshot.ValidMask))
 	require.Equal(t, uintptr(8), unsafe.Offsetof(snapshot.NumGC))
@@ -51,6 +52,25 @@ func TestGoRuntimeMetricRawABI(t *testing.T) {
 	require.Equal(t, uintptr(120), unsafe.Offsetof(snapshot.MemoryAllocations))
 	require.Equal(t, uintptr(128), unsafe.Offsetof(snapshot.GoroutineCount))
 	require.Equal(t, uintptr(136), unsafe.Offsetof(snapshot.MemoryGCGoal))
+}
+
+func TestGoRuntimeHistogramRawABI(t *testing.T) {
+	var event goRuntimeHistogramRawEvent
+
+	require.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
+	require.Equal(t, GoHistogramKindGCPause, GoHistogramKind(0))
+	require.Equal(t, GoHistogramKindSchedLatency, GoHistogramKind(1))
+	require.Equal(t, uintptr(1328), unsafe.Sizeof(event))
+	require.Equal(t, uintptr(0), unsafe.Offsetof(event.Type))
+	require.Equal(t, uintptr(1), unsafe.Offsetof(event.Kind))
+	require.Equal(t, uintptr(2), unsafe.Offsetof(event.Pad))
+	require.Equal(t, uintptr(4), unsafe.Offsetof(event.PID))
+	require.Equal(t, uintptr(16), unsafe.Offsetof(event.BucketCount))
+	require.Equal(t, uintptr(20), unsafe.Offsetof(event.Pad2))
+	require.Equal(t, uintptr(24), unsafe.Offsetof(event.Underflow))
+	require.Equal(t, uintptr(32), unsafe.Offsetof(event.Overflow))
+	require.Equal(t, uintptr(40), unsafe.Offsetof(event.Generation))
+	require.Equal(t, uintptr(48), unsafe.Offsetof(event.Counts))
 }
 
 func TestGoRuntimeMetricValidMaskABI(t *testing.T) {
@@ -248,7 +268,8 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 	}
 	var record bytes.Buffer
 	require.NoError(t, binary.Write(&record, binary.LittleEndian, goRuntimeMetricRawEvent{
-		Type: EventTypeGoRuntimeMetric,
+		Type:       EventTypeGoRuntimeMetric,
+		Generation: 17,
 		PID: goRuntimeMetricRawKey{
 			HostPID: 1000,
 			UserPID: 123,
@@ -279,7 +300,8 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 
 	require.NoError(t, err)
 	require.False(t, ignore)
-	require.Equal(t, app.PID(123), snapshot.PID)
+	require.Equal(t, app.PID(1000), snapshot.PID)
+	require.Equal(t, uint64(17), snapshot.Generation)
 	require.Equal(t, service, snapshot.Service)
 	require.NotNil(t, snapshot.Go)
 	require.Equal(t, int64(1024), *snapshot.Go.MemoryLimit)
@@ -288,6 +310,115 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 	require.Equal(t, uint64(8192), *snapshot.Go.MemoryAllocated)
 	require.Equal(t, uint64(64), *snapshot.Go.MemoryAllocations)
 	require.Nil(t, snapshot.JVM)
+}
+
+func TestSnapshotFromRingbufDecodesHistogramAndCopiesCounts(t *testing.T) {
+	service := svc.Attrs{
+		SDKLanguage: svc.InstrumentableGolang,
+		Features:    export.FeatureApplicationRuntime,
+	}
+	event := goRuntimeHistogramRawEvent{
+		Type:       EventTypeGoRuntimeHistogram,
+		Kind:       GoHistogramKindSchedLatency,
+		Generation: 23,
+		PID: goRuntimeMetricRawKey{
+			HostPID: 1000,
+			UserPID: 123,
+			Ns:      33,
+		},
+		BucketCount: goRuntimeHistogramMaxBuckets,
+		Underflow:   4,
+		Overflow:    5,
+		Counts:      [goRuntimeHistogramMaxBuckets]uint64{10, 20, 30, 40},
+	}
+	record := histogramRecord(t, event)
+	before := time.Now()
+
+	snapshot, ignore, err := SnapshotFromRingbuf(record, runtimeMetricFilter{
+		current: map[uint32]map[app.PID]svc.Attrs{33: {123: service}},
+	})
+	after := time.Now()
+
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Equal(t, service, snapshot.Service)
+	require.Equal(t, app.PID(1000), snapshot.PID)
+	require.Equal(t, uint64(23), snapshot.Generation)
+	require.False(t, snapshot.Time.Before(before))
+	require.False(t, snapshot.Time.After(after))
+	require.Nil(t, snapshot.Go)
+	require.Nil(t, snapshot.JVM)
+	require.NotNil(t, snapshot.Histogram)
+	require.Equal(t, GoHistogramKindSchedLatency, snapshot.Histogram.Kind)
+	require.Len(t, snapshot.Histogram.Counts, goRuntimeHistogramMaxBuckets)
+	require.Equal(t, []uint64{10, 20, 30, 40}, snapshot.Histogram.Counts[:4])
+	require.Zero(t, snapshot.Histogram.Counts[4])
+	require.Equal(t, uint64(4), snapshot.Histogram.Underflow)
+	require.Equal(t, uint64(5), snapshot.Histogram.Overflow)
+
+	binary.LittleEndian.PutUint64(record.RawSample[unsafe.Offsetof(event.Counts):], 99)
+	require.Equal(t, []uint64{10, 20, 30, 40}, snapshot.Histogram.Counts[:4])
+}
+
+func TestSnapshotFromRingbufRejectsMalformedHistogram(t *testing.T) {
+	filter := runtimeMetricFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		33: {123: {Features: export.FeatureApplicationRuntime}},
+	}}
+
+	for _, tc := range []struct {
+		name    string
+		event   goRuntimeHistogramRawEvent
+		wantErr string
+	}{
+		{
+			name: "zero bucket count",
+			event: goRuntimeHistogramRawEvent{
+				Type: EventTypeGoRuntimeHistogram, Kind: GoHistogramKindGCPause,
+				PID: goRuntimeMetricRawKey{UserPID: 123, Ns: 33},
+			},
+			wantErr: "bucket count 0",
+		},
+		{
+			name: "short bucket count",
+			event: goRuntimeHistogramRawEvent{
+				Type: EventTypeGoRuntimeHistogram, Kind: GoHistogramKindGCPause,
+				PID: goRuntimeMetricRawKey{UserPID: 123, Ns: 33}, BucketCount: goRuntimeHistogramMaxBuckets - 1,
+			},
+			wantErr: "bucket count 159",
+		},
+		{
+			name: "excessive bucket count",
+			event: goRuntimeHistogramRawEvent{
+				Type: EventTypeGoRuntimeHistogram, Kind: GoHistogramKindGCPause,
+				PID: goRuntimeMetricRawKey{UserPID: 123, Ns: 33}, BucketCount: goRuntimeHistogramMaxBuckets + 1,
+			},
+			wantErr: "bucket count 161",
+		},
+		{
+			name: "unsupported kind",
+			event: goRuntimeHistogramRawEvent{
+				Type: EventTypeGoRuntimeHistogram, Kind: GoHistogramKind(2),
+				PID: goRuntimeMetricRawKey{UserPID: 123, Ns: 33}, BucketCount: goRuntimeHistogramMaxBuckets,
+			},
+			wantErr: "histogram kind 2",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ignore, err := SnapshotFromRingbuf(histogramRecord(t, tc.event), filter)
+
+			require.ErrorContains(t, err, tc.wantErr)
+			require.True(t, ignore)
+		})
+	}
+}
+
+func TestSnapshotFromRingbufRejectsTruncatedHistogram(t *testing.T) {
+	_, ignore, err := SnapshotFromRingbuf(&ringbuf.Record{
+		RawSample: []byte{EventTypeGoRuntimeHistogram},
+	}, nil)
+
+	require.ErrorContains(t, err, "decode Go runtime histogram event: byte slice too short")
+	require.True(t, ignore)
 }
 
 func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
@@ -382,6 +513,42 @@ func TestQueueSenderSendsGoRuntimeSnapshots(t *testing.T) {
 	require.Equal(t, service, batch[0].Service)
 	require.NotNil(t, batch[0].Go)
 	require.Equal(t, int64(1024), *batch[0].Go.MemoryLimit)
+}
+
+func TestQueueSenderSendsGoRuntimeHistogramSnapshots(t *testing.T) {
+	service := svc.Attrs{
+		SDKLanguage: svc.InstrumentableGolang,
+		Features:    export.FeatureApplicationRuntime,
+	}
+	record := histogramRecord(t, goRuntimeHistogramRawEvent{
+		Type:        EventTypeGoRuntimeHistogram,
+		Kind:        GoHistogramKindGCPause,
+		PID:         goRuntimeMetricRawKey{UserPID: 123, Ns: 33},
+		BucketCount: goRuntimeHistogramMaxBuckets,
+		Counts:      [goRuntimeHistogramMaxBuckets]uint64{7, 8},
+	})
+	queue := msg.NewQueue[[]RuntimeMetricSnapshot](msg.ChannelBufferLen(1))
+	received := queue.Subscribe(msg.SubscriberName("runtimemetrics-histogram-test"))
+
+	err := NewQueueSender(queue).SendGoRuntimeMetricRecord(t.Context(), record, runtimeMetricFilter{
+		current: map[uint32]map[app.PID]svc.Attrs{33: {123: service}},
+	})
+	require.NoError(t, err)
+
+	batch := <-received
+	require.Len(t, batch, 1)
+	require.Equal(t, service, batch[0].Service)
+	require.NotNil(t, batch[0].Histogram)
+	require.Len(t, batch[0].Histogram.Counts, goRuntimeHistogramMaxBuckets)
+	require.Equal(t, []uint64{7, 8}, batch[0].Histogram.Counts[:2])
+}
+
+func histogramRecord(t *testing.T, event goRuntimeHistogramRawEvent) *ringbuf.Record {
+	t.Helper()
+
+	var raw bytes.Buffer
+	require.NoError(t, binary.Write(&raw, binary.LittleEndian, event))
+	return &ringbuf.Record{RawSample: raw.Bytes()}
 }
 
 type runtimeMetricFilter struct {

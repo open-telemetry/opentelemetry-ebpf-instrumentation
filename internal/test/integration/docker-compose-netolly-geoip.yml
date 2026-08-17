@@ -1,0 +1,105 @@
+version: "3.8"
+
+networks:
+  geoip:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 216.160.83.0/24
+
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/testserver/Dockerfile
+    image: hatest-testserver
+    networks:
+      default: {}
+      geoip:
+        ipv4_address: 216.160.83.57
+    ports:
+      - "8080:8080"
+    environment:
+      LOG_LEVEL: DEBUG
+
+  netclient:
+    image: alpine/curl@sha256:e62df00da54d9b51ae83ecdf4ad84a4fc4bca3a91189f1d6eae84d5f46d3a9cc
+    networks:
+      geoip:
+        ipv4_address: 216.160.83.100
+    command:
+      - sh
+      - -c
+      - "while true; do curl -s --max-time 2 http://216.160.83.57:8080/ || true; sleep 1; done"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-netolly:/var/run/obi
+      - ../geoip:/geoip:ro
+    image: hatest-obi
+    privileged: true
+    network_mode: service:testserver
+    environment:
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly-geoip.yml
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_NETWORK_METRICS: "true" # explicitly enabling network metrics
+      OTEL_EBPF_NETWORK_PRINT_FLOWS: "true"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "1s"
+      OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT: "1s"
+      OTEL_EBPF_NETWORK_DEDUPER: "none"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otelcol:4318
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.158.0@sha256:c5918f78992ee73b0d6f0e599423ac5ec52dd5d9726733114d6eca53d5a32ed5
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317" # OTLP over gRPC receiver
+      - "4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
+    depends_on:
+      prometheus:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config${PROM_CONFIG_SUFFIX}.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"

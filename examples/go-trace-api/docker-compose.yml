@@ -1,0 +1,38 @@
+services:
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    environment:
+      OTEL_SERVICE_NAME: go-trace-api-example
+    ports:
+      - "8080:8080"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+
+  obi:
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:main@sha256:0545e3f2566c3e763475571a863d0fc162b52db2b98ce8d3d9a06564d49d2c63}
+    privileged: true
+    pid: host
+    environment:
+      OTEL_EBPF_EXECUTABLE_PATH: go-trace-api
+      OTEL_EBPF_OPEN_PORT: "8080"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_LOG_LEVEL: ${OBI_LOG_LEVEL:-INFO}
+      OTEL_EBPF_TRACE_PRINTER: ${OBI_TRACE_PRINTER:-disabled}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4317
+      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: grpc
+    volumes:
+      - /sys/kernel/security:/sys/kernel/security:ro
+    depends_on:
+      - app
+      - jaeger

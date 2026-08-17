@@ -66,6 +66,12 @@ func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []reque
 func looksLikeOpenAIBody(reqB, respB []byte, path string) bool {
 	model := strings.ToLower(genaiModel(reqB, respB))
 
+	// DashScope embedding models are named "text-embedding-v<N>": leave them
+	// for the Qwen detector.
+	if isDashScopeEmbeddingModel(model) {
+		return false
+	}
+
 	// "gpt" covers chat/completions and responses; "text-embedding" covers the
 	// embeddings.
 	return strings.HasPrefix(model, "gpt") || (strings.HasPrefix(model, "text-embedding") && strings.Contains(path, "/v1/embeddings"))
@@ -111,7 +117,7 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 
 	slog.Debug("OpenAI", "request", string(reqB), "response", string(respB))
 
-	parsedRequest := parseOpenAIInput(reqB)
+	parsedRequest := parseOpenAIInput(reqB, isOpenAIResponsesRequest(req))
 	parsedResponse, toolCalls := parseOpenAICompatibleResponse(respB)
 
 	if parsedResponse.ResponseModel == "" {

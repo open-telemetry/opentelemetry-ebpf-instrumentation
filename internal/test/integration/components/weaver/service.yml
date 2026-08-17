@@ -17,15 +17,13 @@
 # volumes resolve against the file that declares them, so the consuming
 # compose must own its own bind mount or the registry path would be wrong.
 #
-# weaver writes its live-check report to /tmp/weaver-out/live_check.json,
-# bind-mounted to /tmp/obi-weaver-out on the docker host. Test harness reads
-# directly from the host path — docker cp from a stopped container on RHEL
-# overlayfs returned sparse files with mid-stream NUL holes. user: 0 lets
-# the container write into the docker-managed bind mount source regardless
-# of host ownership.
+# weaver runs with `--output http`: the test harness POSTs the admin /stop
+# endpoint and reads the live-check report back from the response body. The
+# `compact` template keeps that body small enough to avoid the truncation that
+# large reports hit when weaver closes the connection on exit.
 services:
   weaver:
-    image: otel/weaver:v0.24.1@sha256:263964a7d444e77812f7a2d654e17683c4760a968c91278acdb7a44c20ccd572
+    image: otel/weaver:v0.25.1@sha256:9ad46ca9cd4fa5974b121f886aa3e9946a8ef8ea905001a96c018d21f9db87ca
     container_name: weaver
     user: "0:0"
     working_dir: /obi-registry
@@ -40,13 +38,13 @@ services:
       - --admin-port
       - "4320"
       - --format
-      - json
+      - compact
+      - --templates
+      - /obi-registry/.live_check_templates
       - --diagnostic-format
       - json
       - --output
-      - /tmp/weaver-out
-    volumes:
-      - /tmp/obi-weaver-out:/tmp/weaver-out
+      - http
     ports:
       - "4320:4320" # admin port (for /stop from test host)
     healthcheck:

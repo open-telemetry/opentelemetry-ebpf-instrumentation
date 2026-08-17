@@ -17,6 +17,7 @@ import (
 
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -41,18 +42,25 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
 		cfg,
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
 	defer reporter.close()
 
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+		Features: export.FeatureApplicationRuntime,
+	}
+	reporter.onProcessEvent(&exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{Pid: 101, Service: service}),
+	})
+
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: svc.Attrs{
-			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
-			Features: export.FeatureApplicationRuntime,
-		},
+		Service: service,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,
@@ -88,18 +96,25 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
 		cfg,
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
 	defer reporter.close()
 
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+		Features: export.FeatureApplicationRuntime,
+	}
+	reporter.onProcessEvent(&exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{Pid: 101, Service: service}),
+	})
+
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: svc.Attrs{
-			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
-			Features: export.FeatureApplicationRuntime,
-		},
+		Service: service,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,

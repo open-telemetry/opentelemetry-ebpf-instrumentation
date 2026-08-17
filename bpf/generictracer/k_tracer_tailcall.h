@@ -6,13 +6,6 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-struct {
-    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __type(key, u32);
-    __type(value, u32);
-    __uint(max_entries, 16);
-} jump_table SEC(".maps");
-
 enum {
     // HTTP/1
     k_tail_protocol_http = 0,
@@ -33,4 +26,16 @@ enum {
     k_tail_protocol_http2_grpc_handle_start_frame_server_finalize = 12,
     // Large buffer multi-batch emission
     k_tail_large_buf_emit_continue = 13,
+    k_tail_protocol_http2_grpc_handle_start_frame_server_commit = 14,
+    k_tail_protocol_http2_grpc_handle_start_frame_server_huffman = 15,
+    k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan = 16,
+
+    k_tail_count,
 };
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __type(key, u32);
+    __type(value, u32);
+    __uint(max_entries, k_tail_count);
+} jump_table SEC(".maps");

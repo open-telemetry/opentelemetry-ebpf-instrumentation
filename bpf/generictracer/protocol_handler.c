@@ -7,8 +7,10 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/protocol_http2_helpers.h>
 #include <common/tc_common.h>
 
+#include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_kafka.h>
@@ -35,7 +37,9 @@ int obi_handle_buf_with_args(void *ctx) {
     if (args->protocols.http && is_http(args->small_buf, MIN_HTTP_SIZE, &args->packet_type)) {
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_http);
     } else if ((args->protocol_type != k_protocol_type_http) &&
-               is_http2_or_grpc(args->small_buf, MIN_HTTP2_SIZE)) {
+               (is_http2_or_grpc(args->small_buf, MIN_HTTP2_SIZE) ||
+                (!already_tracked_http2(&args->pid_conn) &&
+                 looks_like_http2_frames(args->u_buf, args->bytes_len)))) {
         // check after the main if condition to avoid sending the undesired http2 to the tcp parsers
         if (!args->protocols.http2) {
             return 0;
@@ -90,6 +94,12 @@ int obi_handle_buf_with_args(void *ctx) {
                                                 args->bytes_len,
                                                 &args->protocol_type)) {
         bpf_dbg_printk("Found SunRPC connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    } else if (args->protocols.tcp && is_aerospike(&args->pid_conn.conn,
+                                                   (const unsigned char *)args->u_buf,
+                                                   args->bytes_len,
+                                                   &args->protocol_type)) {
+        bpf_dbg_printk("Found Aerospike connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);

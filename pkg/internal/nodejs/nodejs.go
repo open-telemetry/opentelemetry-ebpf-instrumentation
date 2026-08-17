@@ -122,7 +122,7 @@ func (i *NodeInjector) isNodeInspector(conn net.Conn) bool {
 }
 
 //go:embed fdextractor.js
-var _extractorBytes []byte
+var _extractorCode string
 
 //go:embed spanbridge.js
-var _spanBridgeBytes []byte
+var _spanBridgeCode string

@@ -4,14 +4,22 @@
 package ebpfcommon
 
 import (
+	"bytes"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 func TestHTTP2InfoToSpanSetsFullPath(t *testing.T) {
@@ -192,12 +200,323 @@ func TestHTTP2Parsing(t *testing.T) {
 				}
 
 				if ff, ok := f.(*http2.HeadersFrame); ok {
-					method, path, contentType, _ := readMetaFrame(parseContext, 0, framer, ff)
+					method, path, contentType, _, _ := readMetaFrame(parseContext, 0, framer, ff)
 					assert.Equal(t, tt.method, method)
 					assert.Equal(t, tt.path, path)
 					assert.Equal(t, tt.contentType, contentType)
 				}
 			}
+		})
+	}
+}
+
+// HEADERS frame with END_HEADERS carrying the given HPACK block
+func headersFrame(t *testing.T, payload []byte) *http2.HeadersFrame {
+	t.Helper()
+
+	frame := append([]byte{0, 0, byte(len(payload)), 1, 4, 0, 0, 0, 5}, payload...)
+	f, err := byteFramer(frame).ReadFrame()
+	require.NoError(t, err)
+	hf, ok := f.(*http2.HeadersFrame)
+	require.True(t, ok)
+
+	return hf
+}
+
+// literal with incremental indexing, name referenced from the static table
+func indexedNameField(nameIdx byte, value string) []byte {
+	return append([]byte{0x40 | nameIdx, byte(len(value))}, value...)
+}
+
+func TestHTTP2ResponseDetection(t *testing.T) {
+	// :status 200 (indexed, 0x88) + content-type: application/grpc
+	payload := append([]byte{0x88, 0x10, 0xc}, []byte("content-type")...)
+	payload = append(payload, 0x10)
+	payload = append(payload, []byte("application/grpc")...)
+
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	framer := byteFramer(nil)
+
+	_, _, _, _, isResponse := readMetaFrame(parseContext, 1, framer, headersFrame(t, payload))
+	assert.True(t, isResponse, "HEADERS opening with :status must be flagged as a response")
+}
+
+// A response block decoded with the request decoder inserts into the wrong dynamic table, and
+// every index the peer sends afterwards resolves one entry off.
+//
+// Only 200, 204, 206, 304, 400, 404 and 500 have a static entry of their own. Every other code
+// is a literal with the name referenced from the static table, and all of entries 8-14 name
+// :status, so the opener check has to accept every one of them.
+func TestHTTP2ResponseDoesNotPolluteRequestTable(t *testing.T) {
+	// literal with incremental indexing, :status name referenced from nameIdx
+	status418 := func(nameIdx byte) []byte {
+		return indexedNameField(nameIdx, "418")
+	}
+
+	for _, tc := range []struct {
+		name   string
+		opener []byte
+	}{
+		{":status 200, fully indexed", []byte{0x88}},
+		{":status 418, name ref 8", status418(8)},
+		{":status 418, name ref 11", status418(11)},
+		{":status 418, name ref 14", status418(14)},
+		{":status 418, without indexing", append([]byte{0x0e, 3}, "418"...)},
+		{":status 418, never indexed", append([]byte{0x1e, 3}, "418"...)},
+		{"size update, then :status 418", append([]byte{0x20}, status418(8)...)},
+		{"two size updates, then :status 418", append([]byte{0x20, 0x20}, status418(8)...)},
+		{"multi-byte size update, then :status 418", append([]byte{0x3f, 0xe1, 0x1f}, status418(8)...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const (
+				pathStaticIdx = 4
+				mostRecentIdx = 0xbe // dynamic table entry 62
+				secondIdx     = 0xbf // dynamic table entry 63
+			)
+
+			parseContext := NewEBPFParseContext(nil, nil, nil)
+			framer := byteFramer(nil)
+
+			// peer inserts (:path, /p1)
+			first := append([]byte{0x82}, indexedNameField(pathStaticIdx, "/p1")...)
+			_, path, _, _, isResponse := readMetaFrame(parseContext, 1, framer, headersFrame(t, first))
+			require.False(t, isResponse)
+			require.Equal(t, "/p1", path)
+
+			// a response lands on the same connection, inserting (:path, /bad) if it is decoded here
+			resp := append(append([]byte{}, tc.opener...), indexedNameField(pathStaticIdx, "/bad")...)
+			_, _, _, _, isResponse = readMetaFrame(parseContext, 1, framer, headersFrame(t, resp))
+			require.True(t, isResponse)
+
+			// peer inserts (:path, /p2), so its own table holds /p2 at 62 and /p1 at 63
+			second := append([]byte{0x82}, indexedNameField(pathStaticIdx, "/p2")...)
+			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer, headersFrame(t, second))
+			require.Equal(t, "/p2", path)
+
+			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer,
+				headersFrame(t, []byte{0x82, mostRecentIdx}))
+			assert.Equal(t, "/p2", path, "entry 62 must be the peer's most recent insertion")
+
+			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer,
+				headersFrame(t, []byte{0x82, secondIdx}))
+			assert.Equal(t, "/p1", path, "entry 63 must be the peer's previous insertion, not the response")
+		})
+	}
+}
+
+// encodeHPACK writes fields with a real encoder, so the representation each field gets is not
+// this test's guess. tableSizes are applied first, which makes the encoder emit size updates
+// ahead of the block.
+func encodeHPACK(t *testing.T, tableSizes []uint32, fields ...hpack.HeaderField) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	enc := hpack.NewEncoder(&buf)
+	for _, size := range tableSizes {
+		enc.SetMaxDynamicTableSize(size)
+	}
+	for _, f := range fields {
+		require.NoError(t, enc.WriteField(f))
+	}
+
+	return buf.Bytes()
+}
+
+// Every status code a server can send must be recognized, not only the seven with a static
+// entry. x/net names :status through entry 14, so a first non-static code opens with 0x4e.
+func TestHPACKOpensResponseAgainstEncoder(t *testing.T) {
+	for code := 100; code < 600; code++ {
+		status := hpack.HeaderField{Name: ":status", Value: strconv.Itoa(code)}
+
+		for _, tc := range []struct {
+			name       string
+			tableSizes []uint32
+			field      hpack.HeaderField
+		}{
+			{"plain", nil, status},
+			{"sensitive", nil, hpack.HeaderField{Name: status.Name, Value: status.Value, Sensitive: true}},
+			{"after a size update", []uint32{4096}, status},
+			{"after two size updates", []uint32{0, 4096}, status},
+		} {
+			block := encodeHPACK(t, tc.tableSizes, tc.field)
+
+			// the encoder deciding to emit no update would leave the skip untested
+			require.Equal(t, len(tc.tableSizes) > 0, hpackFieldStart(block) > 0,
+				"%s must carry a size update, got % x", tc.name, block)
+
+			assert.True(t, hpackOpensResponse(block),
+				":status %d %s must open a response, got % x", code, tc.name, block)
+		}
+	}
+}
+
+// The mirror case: a request block must never be taken for a response, or the guard would stop
+// decoding the requests OBI reports.
+func TestHPACKOpensResponseRejectsRequests(t *testing.T) {
+	paths := []string{"/", "/index.html", "/a", "/relay.Relay/Relay"}
+	methods := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "CONNECT"}
+
+	for _, method := range methods {
+		for _, path := range paths {
+			for _, sizes := range [][]uint32{nil, {4096}, {0, 4096}} {
+				block := encodeHPACK(t, sizes,
+					hpack.HeaderField{Name: ":method", Value: method},
+					hpack.HeaderField{Name: ":path", Value: path},
+					hpack.HeaderField{Name: ":scheme", Value: "https"},
+					hpack.HeaderField{Name: ":authority", Value: "host:8080"},
+					hpack.HeaderField{Name: "content-type", Value: "application/grpc"},
+				)
+				assert.False(t, hpackOpensResponse(block),
+					"%s %s must not open a response, got % x", method, path, block)
+			}
+		}
+	}
+
+	// a gRPC trailer block opens with a new name, neither a request nor a response
+	trailers := encodeHPACK(t, nil, hpack.HeaderField{Name: "grpc-status", Value: "0"})
+	assert.False(t, hpackOpensResponse(trailers), "trailers must not open a response")
+}
+
+// hpackReference decodes the first byte of a representation per RFC 7541 6.1-6.3 and reports
+// the static index the field names, plus whether the byte is a field at all. Written from the
+// RFC rather than from the code under test, so the two can disagree.
+func hpackReference(b byte) (idx int, isField bool) {
+	switch {
+	case b&0x80 == 0x80: // 6.1 indexed header field, 7-bit index
+		return int(b & 0x7f), true
+	case b&0xc0 == 0x40: // 6.2.1 literal with incremental indexing, 6-bit name index
+		return int(b & 0x3f), true
+	case b&0xe0 == 0x20: // 6.3 dynamic table size update, carries no field
+		return 0, false
+	case b&0xf0 == 0x00: // 6.2.2 literal without indexing, 4-bit name index
+		return int(b & 0x0f), true
+	default: // b&0xf0 == 0x10, 6.2.3 literal never indexed, 4-bit name index
+		return int(b & 0x0f), true
+	}
+}
+
+// Static entries 8-14 all name :status (A. Static Table Definition). A 4-bit prefix cannot hold
+// an index of 15 or more, so 0x0f and 0x1f start a varint instead of naming an entry.
+func TestHPACKOpensResponseExhaustive(t *testing.T) {
+	const (
+		statusFirst = 8
+		statusLast  = 14
+		varintMore  = 15
+	)
+
+	for b := 0; b < 256; b++ {
+		idx, isField := hpackReference(byte(b))
+		fourBit := b&0x80 == 0 && b&0xc0 != 0x40 && b&0xe0 != 0x20
+
+		want := isField && idx >= statusFirst && idx <= statusLast
+		if fourBit && idx >= varintMore {
+			want = false
+		}
+
+		assert.Equal(t, want, hpackOpensResponse([]byte{byte(b)}), "byte 0x%02x", b)
+	}
+}
+
+// A block cannot open a request and a response at once, so the BPF sniffer's two predicates
+// must not overlap. Mirrors h2_hpack_opens_request, which has no Go counterpart to call.
+func TestHPACKOpenersAreDisjoint(t *testing.T) {
+	opensRequest := func(b byte) bool {
+		idx, isField := hpackReference(b)
+		if !isField {
+			return false
+		}
+		if b&0x80 != 0 {
+			return (idx >= 1 && idx <= 7) || idx >= 62
+		}
+		return idx >= 1 && idx <= 7
+	}
+
+	for b := 0; b < 256; b++ {
+		if hpackOpensResponse([]byte{byte(b)}) {
+			assert.False(t, opensRequest(byte(b)), "byte 0x%02x opens both", b)
+		}
+	}
+}
+
+// hpackSizeUpdate encodes a dynamic table size update per RFC 7541 5.1 and 6.3.
+func hpackSizeUpdate(size uint32) []byte {
+	const prefix5 = 0x1f
+
+	if size < prefix5 {
+		return []byte{0x20 | byte(size)}
+	}
+
+	out := []byte{0x20 | prefix5}
+	for size -= prefix5; size >= 0x80; size >>= 7 {
+		out = append(out, byte(size&0x7f)|0x80)
+	}
+
+	return append(out, byte(size))
+}
+
+// The opener sits past any size updates, whatever their encoded width. Callers that misjudge
+// the width read a varint octet as the opener and misclassify the block.
+func TestHPACKFieldStartSkipsSizeUpdates(t *testing.T) {
+	// 5.1 boundaries: prefix-only, prefix exhausted, and each added continuation octet
+	sizes := []uint32{0, 30, 31, 32, 158, 159, 4096, 16384, 65536, 1 << 21, 1 << 28, math.MaxUint32}
+
+	for _, size := range sizes {
+		for updates := 1; updates <= 3; updates++ {
+			t.Run(fmt.Sprintf("size %d, %d updates", size, updates), func(t *testing.T) {
+				var frag []byte
+				for range updates {
+					frag = append(frag, hpackSizeUpdate(size)...)
+				}
+				want := len(frag)
+				frag = append(frag, 0x4e) // :status name ref 14
+
+				assert.Equal(t, want, hpackFieldStart(frag))
+				assert.True(t, hpackOpensResponse(frag), "response must survive the updates")
+			})
+		}
+	}
+
+	assert.Len(t, hpackSizeUpdate(math.MaxUint32), 6, "a u32 update is at most six octets")
+}
+
+func TestHPACKFieldStartRejectsTruncated(t *testing.T) {
+	full := append(hpackSizeUpdate(math.MaxUint32), 0x4e)
+
+	for cut := 1; cut < len(full); cut++ {
+		frag := full[:cut]
+		assert.Equal(t, -1, hpackFieldStart(frag), "%d octets hold no field", cut)
+		assert.False(t, hpackOpensResponse(frag))
+	}
+
+	assert.Equal(t, len(full)-1, hpackFieldStart(full))
+}
+
+func TestHPACKOpensResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		frag []byte
+		want bool
+	}{
+		{":status 200 indexed", []byte{0x88}, true},
+		{":status 504 indexed", []byte{0x8e}, true},
+		{"name ref 8, incremental", []byte{0x48}, true},
+		{"name ref 14, incremental", []byte{0x4e}, true},
+		{"name ref 12, without indexing", []byte{0x0c}, true},
+		{"name ref 12, never indexed", []byte{0x1c}, true},
+		{"size update then name ref", []byte{0x20, 0x48}, true},
+		{":method indexed", []byte{0x83}, false},
+		{":path name ref", []byte{0x44}, false},
+		{"dyn-table entry", []byte{0xc3}, false},
+		{"new name, no index ref", []byte{0x40}, false},
+		{"index 15 is a varint continuation", []byte{0x1f}, false},
+		// 0x50 is not a literal prefix, so the low bits are not a name index
+		{"0x5a is not a literal form", []byte{0x5a}, false},
+		{"empty block", nil, false},
+		{"only a size update", []byte{0x20}, false},
+		{"truncated size update varint", []byte{0x3f, 0xe1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, hpackOpensResponse(tc.frag))
 		})
 	}
 }
@@ -560,4 +879,264 @@ func BenchmarkIsHTTP2(b *testing.B) {
 			_ = isHTTP2(largebuf.NewLargeBufferFrom(tt.input), tt.inputLen)
 		}
 	}
+}
+
+// A desynced HPACK dynamic table can hand :path another field's value; anything
+// that is not an absolute path must degrade to "*", never become a metric label
+func TestValidPathRequiresAbsolutePath(t *testing.T) {
+	valid := []string{
+		"/ipservice.IPService/GetIpV4Info",
+		"/relay.Relay/Relay",
+		"/",
+	}
+	for _, p := range valid {
+		assert.True(t, validPath.MatchString(p), p)
+	}
+
+	invalid := []string{
+		"00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-02",
+		"application/grpc",
+		"*",
+		"",
+		"grpc-timeout",
+	}
+	for _, p := range invalid {
+		assert.False(t, validPath.MatchString(p), p)
+	}
+}
+
+func makeHeadersFrame(t *testing.T, block []byte) []byte {
+	t.Helper()
+	require.Less(t, len(block), 1<<24)
+	frame := []byte{
+		byte(len(block) >> 16), byte(len(block) >> 8), byte(len(block)),
+		0x1, // HEADERS
+		0x4, // END_HEADERS
+		0, 0, 0, 0x1,
+	}
+
+	return append(frame, block...)
+}
+
+// requestFields mirrors what a Java gRPC client sends: unique traceparent and
+// timeout per request keep those literal on the wire, the rest gets indexed.
+func requestFields(path, traceparent string) []hpack.HeaderField {
+	return []hpack.HeaderField{
+		{Name: ":method", Value: "POST"},
+		{Name: ":scheme", Value: "http"},
+		{Name: ":path", Value: path},
+		{Name: ":authority", Value: "ipservice.ipservice.svc.cluster.local:9090"},
+		{Name: "content-type", Value: "application/grpc"},
+		{Name: "user-agent", Value: "grpc-java-netty/1.60.1 (linux/amd64; openjdk 17.0.9)"},
+		{Name: "te", Value: "trailers"},
+		{Name: "grpc-accept-encoding", Value: "gzip"},
+		{Name: "traceparent", Value: traceparent},
+		{Name: "grpc-timeout", Value: "98136u"},
+	}
+}
+
+type h2ConnEncoder struct {
+	buf bytes.Buffer
+	enc *hpack.Encoder
+}
+
+func (c *h2ConnEncoder) frame(t *testing.T, fields []hpack.HeaderField) []byte {
+	t.Helper()
+	c.buf.Reset()
+	for _, f := range fields {
+		require.NoError(t, c.enc.WriteField(f))
+	}
+	return makeHeadersFrame(t, c.buf.Bytes())
+}
+
+func h2Event(frame []byte, connID uint64, seq uint32) BPFHTTP2Info {
+	info := makeBPFHTTP2InfoNewRequest(frame, nil, len(frame))
+	info.NewConnId = connID
+	info.Seq = seq
+	return info
+}
+
+const (
+	pathA = "/ipservice.IPService/GetIpV4Info"
+	pathB = "/ipservice.IPService/GetIpV6Info"
+)
+
+// Contiguous events keep the dynamic table in sync: repeated methods resolve
+// even when nothing readable is left on the wire.
+func TestSequentialRequestsKeepResolvingMethods(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 810, 1)))
+	require.False(t, ignore)
+	require.Equal(t, pathA, span.Path)
+
+	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), 810, 2)))
+	require.False(t, ignore)
+	require.Equal(t, pathB, span.Path)
+
+	// repeat of pathB: :path now rides as a pure dynamic-table index
+	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01")), 810, 3)))
+	require.False(t, ignore)
+	require.Equal(t, pathB, span.Path)
+}
+
+// A lost request event carried a header block the decoders never saw: later
+// indexed lookups may name the wrong method. The sequence gap must degrade the
+// connection to "*", never to another request's method (discussion #2916).
+func TestLostHeadersEventPoisonsConnection(t *testing.T) {
+	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(8))
+	emitted := spans.Subscribe()
+	parseContext := NewEBPFParseContext(nil, spans, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 916, 1)))
+	require.False(t, ignore)
+	require.Equal(t, pathA, span.Path)
+
+	// this event is dropped before user space sees it
+	_ = enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01"))
+
+	// successors of the missing ordinal are held back while the gap could
+	// still be an inversion in flight
+	for seq := uint32(3); seq <= 3+seqReorderWindow-1; seq++ {
+		_, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01")), 916, seq)))
+		require.True(t, ignore, "seq %d must be held while the gap is within the window", seq)
+	}
+
+	// the gap outlives the window: everything drains degraded instead of
+	// resolving stale indexes
+	_, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-0a0a4bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703c-01")), 916, 3+seqReorderWindow)))
+	require.True(t, ignore)
+
+	select {
+	case replayed := <-emitted:
+		require.NotEmpty(t, replayed)
+		for _, replay := range replayed {
+			require.NotEqual(t, pathA, replay.Path, "a desynced lookup must never resolve another request's method")
+			require.Equal(t, "*", replay.Path)
+		}
+	default:
+		t.Fatal("the held events were never replayed")
+	}
+}
+
+// Multiplexed streams can complete in a different order than their header
+// blocks were captured: decoding must follow capture order, or the second
+// block resolves against a table missing the first block's insertions.
+func TestInvertedCompletionKeepsCaptureOrder(t *testing.T) {
+	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	emitted := spans.Subscribe()
+	parseContext := NewEBPFParseContext(nil, spans, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	// a baseline request establishes the connection ordinal
+	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 919, 1)))
+	require.False(t, ignore)
+	require.Equal(t, pathA, span.Path)
+
+	// capture order: B then C, each inserting new table entries
+	frameB := enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01"))
+	frameC := enc.frame(t, requestFields(pathA, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01"))
+
+	// C completes first: held until B arrives
+	_, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(frameC, 919, 3)))
+	require.True(t, ignore)
+
+	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(frameB, 919, 2)))
+	require.False(t, ignore)
+	require.Equal(t, pathB, span.Path)
+
+	select {
+	case replayed := <-emitted:
+		require.Len(t, replayed, 1)
+		require.Equal(t, pathA, replayed[0].Path,
+			"the held block must decode against the table that includes its predecessor")
+	default:
+		t.Fatal("the held event was never replayed")
+	}
+}
+
+// Two requests ending concurrently can take their ordinals in one order and
+// their ring buffer slots in the other: a single swapped pair must not poison
+// the connection.
+func TestReorderedEventsDoNotPoison(t *testing.T) {
+	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	emitted := spans.Subscribe()
+	parseContext := NewEBPFParseContext(nil, spans, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 917, 1)))
+	require.False(t, ignore)
+	require.Equal(t, pathA, span.Path)
+
+	// two requests whose events arrive swapped; the second inserts new table
+	// entries, so decoding it out of order would corrupt the dynamic table
+	second := enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01"))
+	third := enc.frame(t, requestFields(pathB, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01"))
+
+	// the successor is held back until its predecessor arrives
+	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(third, 917, 3)))
+	require.True(t, ignore)
+
+	// the predecessor decodes first, then the held event replays in order
+	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(second, 917, 2)))
+	require.False(t, ignore)
+	require.Equal(t, pathB, span.Path)
+
+	select {
+	case replayed := <-emitted:
+		require.Len(t, replayed, 1)
+		require.Equal(t, pathB, replayed[0].Path, "a healed reorder must decode the held event correctly")
+	default:
+		t.Fatal("the held event was never replayed")
+	}
+
+	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-0a0a4bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703c-01")), 917, 4)))
+	require.False(t, ignore)
+	require.Equal(t, pathA, span.Path, "a healed reorder must not degrade later requests")
+}
+
+// A header block larger than the eBPF capture window arrives truncated with its
+// true length restored in the frame header: the decoder resumes the cut field on
+// the next event, so the connection keeps resolving methods.
+func TestOversizedHeadersBlockStillResolves(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	fields := requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")
+	fields = append(fields, hpack.HeaderField{Name: "x-envoy-peer-metadata", Value: strings.Repeat("m", 1200)})
+	oversized := enc.frame(t, fields)
+	require.Greater(t, len(oversized), len(BPFHTTP2Info{}.Data))
+
+	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(oversized, 1024, 1)))
+	require.False(t, ignore)
+	require.Equal(t, pathA, span.Path, ":path precedes the cut and still resolves")
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// The BPF side signals exhausted ordinal allocation with a sentinel: the event
+// must poison the decoders instead of bypassing gap detection.
+func TestUnreliableSeqSentinelPoisonsConnection(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 918, 1)))
+	require.False(t, ignore)
+	require.Equal(t, pathA, span.Path)
+
+	_, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), 918, h2SeqUnreliable)))
+	require.False(t, ignore)
+
+	// index-only repeat: with the table poisoned it must degrade, not resolve
+	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 918, 2)))
+	require.False(t, ignore)
+	require.Equal(t, "*", span.Path, "a sentinel event must not leave dynamic-table state trusted")
 }

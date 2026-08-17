@@ -7,6 +7,7 @@ package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gener
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -73,12 +74,16 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 	}
 }
 
-// Updating these requires updating the constants below in pid.h
-// #define MAX_CONCURRENT_PIDS 3001 // estimate: 1000 concurrent processes (including children) * 3 namespaces per pid
-// #define PRIME_HASH 192053 // closest prime to 3001 * 64
+// Keep in sync with the BPF side, which asserts the relation between both
+// constants at compile time (bpf/pid/pid.h).
 const (
+	// mirrors k_max_concurrent_pids (bpf/pid/maps/map_sizing.h): estimate of
+	// 1000 concurrent processes (including children) * 3 namespaces per pid
 	maxConcurrentPids = 3001
-	primeHash         = 192053
+	// mirrors k_prime_hash (bpf/pid/pid.h): closest prime below
+	// maxConcurrentPids * 64; modulo by a prime distributes the hash evenly
+	// across the segment bit array
+	primeHash = 192053
 )
 
 func pidSegmentBit(k uint64) (uint32, uint32) {
@@ -109,24 +114,46 @@ func (p *Tracer) buildPidFilter() []uint64 {
 	return result
 }
 
-func (p *Tracer) rebuildValidPids() {
-	if p.bpfObjects.ValidPids != nil {
-		v := p.buildPidFilter()
+// validateValidPidsMap ensures the loaded map matches the index space written
+// by rebuildValidPids: a smaller map makes pid_matches() lookups miss and fail
+// open, while a larger one leaves segments unset, silently filtering out
+// matching PIDs.
+func (p *Tracer) validateValidPidsMap() error {
+	if got := p.bpfObjects.ValidPids.MaxEntries(); got != maxConcurrentPids {
+		return fmt.Errorf(
+			"valid_pids BPF map holds %d entries, expected %d: BPF and userspace PID filter constants have diverged",
+			got, maxConcurrentPids)
+	}
 
-		p.log.Debug("number of segments in pid filter cache", "len", len(v))
+	return nil
+}
 
-		for i, segment := range v {
-			err := p.bpfObjects.ValidPids.Put(uint32(i), segment)
-			if err != nil {
-				p.log.Error("Error setting up pid in BPF space, sizes of Go and BPF maps don't match", "error", err, "i", i)
-			}
+func (p *Tracer) rebuildValidPids() error {
+	if p.bpfObjects.ValidPids == nil {
+		return nil
+	}
+
+	v := p.buildPidFilter()
+
+	p.log.Debug("number of segments in pid filter cache", "len", len(v))
+
+	for i, segment := range v {
+		if err := p.bpfObjects.ValidPids.Put(uint32(i), segment); err != nil {
+			return fmt.Errorf("setting up pid segment %d in BPF space: %w", i, err)
 		}
 	}
+
+	return nil
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
-	p.rebuildValidPids()
+
+	if err := p.rebuildValidPids(); err != nil {
+		p.log.Error("rebuilding the BPF PID filter", "error", err)
+		return
+	}
+
 	// Keep the cache consistent with the updated filter.
 	if p.bpfObjects.PidCache != nil {
 		pidU32 := uint32(pid)
@@ -136,7 +163,12 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
-	p.rebuildValidPids()
+
+	if err := p.rebuildValidPids(); err != nil {
+		p.log.Error("rebuilding the BPF PID filter", "error", err)
+		return
+	}
+
 	// Remove from cache so next access re-evaluates.
 	if p.bpfObjects.PidCache != nil {
 		pidU32 := uint32(pid)
@@ -181,7 +213,10 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
 		// Large buffer multi-batch emission
-		p.bpfObjects.ObiLargeBufEmitContinue, // 13  k_tail_large_buf_emit_continue
+		p.bpfObjects.ObiLargeBufEmitContinue,                            // 13  k_tail_large_buf_emit_continue
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit,   // 14
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerHuffman,  // 15
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerHuffscan, // 16
 	} {
 		if prog == nil {
 			continue
@@ -226,6 +261,9 @@ func (p *Tracer) constants() map[string]any {
 	} else {
 		m["disable_black_box_cp"] = uint32(0)
 	}
+
+	// gates the bpf_loop paths; unset it defaults to false and const-DCE drops them
+	m["g_bpf_loop_enabled"] = ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled)
 
 	m["http_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.HTTP
 	m["tcp_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.TCP
@@ -567,6 +605,10 @@ func (p *Tracer) runItersForPids() {
 				if err := netns.WithNetNS(int(pid), func() error {
 					return it.Run(p.log)
 				}); err != nil {
+					if errors.Is(err, os.ErrNotExist) {
+						p.log.Debug("process gone before iterating its netns", "pid", pid)
+						break
+					}
 					p.log.Error("error running iterator in netns", "pid", pid, "error", err)
 				}
 			}
@@ -626,7 +668,12 @@ func (p *Tracer) Run(
 	// At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map
 	if p.bpfObjects.ValidPids != nil {
-		p.rebuildValidPids()
+		if err := p.validateValidPidsMap(); err != nil {
+			p.log.Error("BPF PID filter map sizing is invalid, discovery filtering may not be enforced", "error", err)
+		}
+		if err := p.rebuildValidPids(); err != nil {
+			p.log.Error("setting up the BPF PID filter, discovery filtering may not be enforced", "error", err)
+		}
 	} else {
 		p.log.Error("BPF Pids map is not created yet, this is a bug.")
 	}
@@ -675,6 +722,10 @@ func (p *Tracer) processSharedRingbufRecord(
 	cfg *config.EBPFTracer,
 	record *ringbuf.Record,
 ) (request.Span, bool, error) {
+	if handled, err := p.eventCtx.HandleInternalEvent(record); handled {
+		return request.Span{}, true, err
+	}
+
 	if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(
 		ctx,
 		p.eventCtx,

@@ -9,20 +9,29 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 
 	"go.yaml.in/yaml/v3"
 	legacyyaml "gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/collector/consumer/consumertest"
+
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 const (
@@ -107,6 +116,8 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 
 var errInvalidMode = errors.New("invalid validation mode")
 
+var runtimeValidationMu sync.Mutex
+
 func validateConfig(data []byte, mode validationMode) error {
 	data = obiconfig.ReplaceEnv(data)
 
@@ -131,24 +142,39 @@ func validateConfig(data []byte, mode validationMode) error {
 	if err != nil {
 		return err
 	}
-	if mode == validationModeReceiver {
-		err = cfg.ValidateStaticForReceiver()
-	} else {
-		err = cfg.ValidateStatic()
-	}
+	err = validateRuntimeConfig(cfg, mode)
 	if err != nil {
 		return fmt.Errorf("runtime configuration: %w", err)
 	}
 	return nil
 }
 
+func validateRuntimeConfig(cfg *obi.Config, mode validationMode) error {
+	runtimeValidationMu.Lock()
+	defer runtimeValidationMu.Unlock()
+
+	logger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer slog.SetDefault(logger)
+
+	switch mode {
+	case validationModeStandalone:
+		return cfg.ValidateStatic()
+	case validationModeReceiver:
+		return cfg.ValidateStaticForReceiver()
+	default:
+		return fmt.Errorf("%w %q; expected standalone or receiver", errInvalidMode, mode)
+	}
+}
+
 func runMigrate(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("obi config migrate", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
-		fmt.Fprintln(flags.Output(), "usage: obi config migrate <path>")
+		fmt.Fprintln(flags.Output(), "usage: obi config migrate [--mode=standalone|receiver] <path>")
 		flags.PrintDefaults()
 	}
+	mode := flags.String("mode", string(validationModeStandalone), "migration mode: standalone or receiver")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitSuccess
@@ -159,13 +185,18 @@ func runMigrate(args []string, stdout, stderr io.Writer) int {
 		flags.Usage()
 		return ExitUsage
 	}
+	selectedMode := validationMode(*mode)
+	if selectedMode != validationModeStandalone && selectedMode != validationModeReceiver {
+		fmt.Fprintf(stderr, "invalid migration mode %q; expected standalone or receiver\n", *mode)
+		return ExitUsage
+	}
 
 	data, err := os.ReadFile(flags.Arg(0))
 	if err != nil {
 		fmt.Fprintf(stderr, "migration failed: read %s: %v\n", flags.Arg(0), err)
 		return ExitError
 	}
-	output, report, err := migrateConfig(data)
+	output, report, err := migrateConfigForMode(data, selectedMode)
 	if err != nil {
 		fmt.Fprintf(stderr, "migration failed: %v\n", err)
 		return ExitError
@@ -181,43 +212,72 @@ func runMigrate(args []string, stdout, stderr io.Writer) int {
 }
 
 func migrateConfig(data []byte) ([]byte, string, error) {
+	return migrateConfigForMode(data, validationModeStandalone)
+}
+
+func migrateConfigForMode(
+	data []byte,
+	mode validationMode,
+) ([]byte, string, error) {
 	replaced := obiconfig.ReplaceEnv(data)
-	if _, _, err := schema.ParseStandaloneYAML(replaced); err == nil {
-		return nil, "", errors.New("input is already a standalone OBI config v2 document")
+	var v2Err error
+	switch mode {
+	case validationModeStandalone:
+		_, _, v2Err = schema.ParseStandaloneYAML(replaced)
+	case validationModeReceiver:
+		_, v2Err = schema.ParseReceiverYAML(replaced)
+	default:
+		return nil, "", fmt.Errorf("%w %q; expected standalone or receiver", errInvalidMode, mode)
+	}
+	if v2Err == nil {
+		return nil, "", fmt.Errorf("input is already a %s OBI config v2 document", mode)
 	} else {
 		var notV2 *schema.NotV2Error
-		if !errors.As(err, &notV2) {
-			return nil, "", fmt.Errorf("source is not supported v1 YAML: %w", err)
+		if !errors.As(v2Err, &notV2) {
+			return nil, "", fmt.Errorf("source is not supported v1 YAML: %w", v2Err)
 		}
 	}
-	cfg, err := loadV1Config(replaced)
+	cfg, err := loadV1ConfigForMode(replaced, mode)
 	if err != nil {
 		return nil, "", err
 	}
-	if err := cfg.ValidateStatic(); err != nil {
+	if err := validateRuntimeConfig(cfg, mode); err != nil {
 		return nil, "", fmt.Errorf("v1 runtime configuration: %w", err)
+	}
+	if err := validateMigratableSelectorRefinements(cfg); err != nil {
+		return nil, "", err
 	}
 
 	doc, ext := convert.RuntimeToV2(cfg)
 	if !cfg.Enabled(obi.FeatureAppO11y) {
 		ext.Capture.Policy.DefaultAction = schema.CaptureActionExclude
 	}
-	output, err := yaml.Marshal(doc)
-	if err != nil {
-		return nil, "", fmt.Errorf("encode config v2 YAML: %w", err)
-	}
-	output = obiconfig.EscapeEnv(output)
-	if err := validateConfig(output, validationModeStandalone); err != nil {
-		return nil, "", fmt.Errorf("migrated config v2 did not validate: %w", err)
-	}
+	preserveV1DNSMetrics(cfg, ext)
 
-	roundTripped, err := convert.DocumentToRuntime(doc)
+	var roundTripped *obi.Config
+	switch mode {
+	case validationModeStandalone:
+		roundTripped, err = convert.DocumentToRuntime(doc)
+	case validationModeReceiver:
+		roundTripped, err = convert.V2ToRuntime(&schema.Extension{
+			Version: ext.Version,
+			Capture: ext.Capture,
+		})
+		if err == nil {
+			setReceiverConsumers(roundTripped)
+		}
+	}
 	if err != nil {
 		return nil, "", fmt.Errorf("verify migrated config v2: %w", err)
 	}
 	unsupported, err := changedInputFields(replaced, cfg, roundTripped)
 	if err != nil {
 		return nil, "", fmt.Errorf("verify migrated fields: %w", err)
+	}
+	if mode == validationModeReceiver {
+		unsupported = append(unsupported, receiverExporterPaths(replaced)...)
+		sort.Strings(unsupported)
+		unsupported = slices.Compact(unsupported)
 	}
 	if len(unsupported) != 0 {
 		return nil, "", fmt.Errorf(
@@ -226,10 +286,106 @@ func migrateConfig(data []byte) ([]byte, string, error) {
 		)
 	}
 
+	var output []byte
+	switch mode {
+	case validationModeStandalone:
+		output, err = yaml.Marshal(doc)
+	case validationModeReceiver:
+		output, err = yaml.Marshal(struct {
+			Version        string `yaml:"version"`
+			schema.Capture `yaml:",inline"`
+		}{
+			Version: ext.Version,
+			Capture: ext.Capture,
+		})
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("encode config v2 YAML: %w", err)
+	}
+	output = obiconfig.EscapeEnv(output)
+	if err := validateConfig(output, mode); err != nil {
+		return nil, "", fmt.Errorf("migrated config v2 did not validate: %w", err)
+	}
+
 	return output, migrationReport(replaced), nil
 }
 
-func loadV1Config(data []byte) (*obi.Config, error) {
+func validateMigratableSelectorRefinements(cfg *obi.Config) error {
+	selectors := discover.FindingCriteria(cfg)
+	if len(selectors) < 2 {
+		return nil
+	}
+
+	var exportsSet, exportsOmitted bool
+	var routesSet, routesOmitted bool
+	for _, selector := range selectors {
+		if selector.GetExportModes() == services.ExportModeUnset {
+			exportsOmitted = true
+		} else {
+			exportsSet = true
+		}
+		if selector.GetRoutesConfig() == nil {
+			routesOmitted = true
+		} else {
+			routesSet = true
+		}
+	}
+
+	var mixed []string
+	if exportsSet && exportsOmitted {
+		mixed = append(mixed, "exports")
+	}
+	if routesSet && routesOmitted {
+		mixed = append(mixed, "routes")
+	}
+	if len(mixed) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"v1 selector refinements cannot be migrated safely: multiple effective discovery selectors mix explicit and omitted fields: %s; each field must be set on every effective selector or omitted from every effective selector",
+		strings.Join(mixed, ", "),
+	)
+}
+
+func receiverExporterPaths(data []byte) []string {
+	var source map[string]any
+	if err := yaml.Unmarshal(data, &source); err != nil {
+		return nil
+	}
+
+	var paths []string
+	for _, section := range []string{
+		"otel_traces_export",
+		"otel_metrics_export",
+		"prometheus_export",
+	} {
+		value, ok := source[section]
+		if !ok {
+			continue
+		}
+		for _, path := range leafPaths(value, yamlPath{section}) {
+			paths = append(paths, formatPath(path))
+		}
+	}
+	return paths
+}
+
+func preserveV1DNSMetrics(cfg *obi.Config, ext *schema.Extension) {
+	otelDNS := cfg.OTELMetrics.EndpointEnabled() &&
+		instrumentations.NewInstrumentationSelection(
+			cfg.OTELMetrics.Instrumentations,
+		).DNSEnabled()
+	prometheusDNS := cfg.Prometheus.EndpointEnabled() &&
+		instrumentations.NewInstrumentationSelection(
+			cfg.Prometheus.Instrumentations,
+		).DNSEnabled()
+	if otelDNS || prometheusDNS {
+		ext.Capture.Instrumentation.DNS.Enabled.Metrics = true
+	}
+}
+
+func loadV1ConfigForMode(data []byte, mode validationMode) (*obi.Config, error) {
 	cfg := obi.DefaultConfig
 	if cfg.Routes != nil {
 		routes := *cfg.Routes
@@ -239,6 +395,13 @@ func loadV1Config(data []byte) (*obi.Config, error) {
 		nameResolver := *cfg.NameResolver
 		cfg.NameResolver = &nameResolver
 	}
+	switch mode {
+	case validationModeStandalone:
+	case validationModeReceiver:
+		setReceiverConsumers(&cfg)
+	default:
+		return nil, fmt.Errorf("%w %q; expected standalone or receiver", errInvalidMode, mode)
+	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return &cfg, nil
 	}
@@ -247,6 +410,13 @@ func loadV1Config(data []byte) (*obi.Config, error) {
 	decoder := legacyyaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&cfg); err != nil {
+		if paths := unsupportedFeaturePathsFromYAML(data); len(paths) != 0 {
+			return nil, fmt.Errorf(
+				"decode v1 YAML fields at %s: %w",
+				strings.Join(paths, ", "),
+				err,
+			)
+		}
 		return nil, fmt.Errorf("decode v1 YAML fields: %w", err)
 	}
 	var extra any
@@ -270,6 +440,11 @@ func loadV1Config(data []byte) (*obi.Config, error) {
 	return &cfg, nil
 }
 
+func setReceiverConsumers(cfg *obi.Config) {
+	cfg.Traces.TracesConsumer = consumertest.NewNop()
+	cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
+}
+
 type yamlPath []any
 
 func changedInputFields(data []byte, before, after *obi.Config) ([]string, error) {
@@ -289,8 +464,21 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 	}
 
 	var changed []string
+	languageDetectionSkipsPath := yamlPath{"discovery", "excluded_linux_system_paths"}
+	languageDetectionSkipsName := formatPath(languageDetectionSkipsPath)
+	if _, configured := valueAtPath(source, languageDetectionSkipsPath); configured {
+		beforeValue, beforeOK := valueAtPath(beforeMap, languageDetectionSkipsPath)
+		afterValue, afterOK := valueAtPath(afterMap, languageDetectionSkipsPath)
+		if beforeOK != afterOK || !reflect.DeepEqual(beforeValue, afterValue) {
+			changed = append(changed, languageDetectionSkipsName)
+		}
+	}
+
 	for _, path := range leafPaths(source, nil) {
 		name := formatPath(path)
+		if name == languageDetectionSkipsName || strings.HasPrefix(name, languageDetectionSkipsName+"[") {
+			continue
+		}
 		if migrationAlias(name) {
 			continue
 		}
@@ -300,8 +488,146 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 			changed = append(changed, name)
 		}
 	}
+	for _, path := range sequencePaths(source, nil) {
+		name := formatPath(path)
+		if migrationAlias(name) || migrationSequenceAlias(name) {
+			continue
+		}
+		beforeValue, beforeOK := valueAtPath(beforeMap, path)
+		afterValue, afterOK := valueAtPath(afterMap, path)
+		if beforeOK != afterOK || !reflect.DeepEqual(beforeValue, afterValue) {
+			changed = append(changed, name)
+		}
+	}
+	root, _ := source.(map[string]any)
+	changed = append(changed, unsupportedLayeredRoutePaths(root, before.Routes)...)
+	changed = append(changed, unsupportedFeaturePaths(root)...)
+	if hasAnyPath(root, "otel_traces_export.sampler") {
+		if path := changedMigrationSamplerPath(
+			before.Traces.SamplerConfig,
+			after.Traces.SamplerConfig,
+		); path != "" {
+			changed = append(changed, path)
+		}
+	}
+	if hasAnyPath(root, "otel_metrics_export.interval") &&
+		before.OTELMetrics.GetInterval() != after.OTELMetrics.GetInterval() {
+		changed = append(changed, "otel_metrics_export.interval")
+	}
+	if (before.Traces.Enabled() ||
+		hasNonEmptyStringPath(root, "otel_traces_export.protocol")) &&
+		before.Traces.GetProtocol() != after.Traces.GetProtocol() {
+		changed = append(changed, migrationOTLPProtocolPath(root, "otel_traces_export"))
+	}
+	if (before.OTELMetrics.EndpointEnabled() ||
+		hasNonEmptyStringPath(root, "otel_metrics_export.protocol")) &&
+		before.OTELMetrics.GetProtocol() != after.OTELMetrics.GetProtocol() {
+		changed = append(changed, migrationOTLPProtocolPath(root, "otel_metrics_export"))
+	}
+	if !equalMigrationFeatures(before.Metrics.Features, after.Metrics.Features) {
+		for _, path := range []string{
+			"metrics.features",
+			"otel_metrics_export.features",
+			"prometheus_export.features",
+		} {
+			if hasAnyPath(root, path) {
+				changed = append(changed, path)
+			}
+		}
+	}
+	if before.Enabled(obi.FeatureNetO11y) != after.Enabled(obi.FeatureNetO11y) {
+		changed = append(changed, migrationNetworkEnablePath(root))
+	}
+	for _, comparison := range []struct {
+		path    string
+		enabled bool
+		before  []instrumentations.Instrumentation
+		after   []instrumentations.Instrumentation
+	}{
+		{
+			path:    "otel_traces_export.instrumentations",
+			enabled: before.Traces.Enabled(),
+			before:  before.Traces.Instrumentations,
+			after:   after.Traces.Instrumentations,
+		},
+		{
+			path:    "otel_metrics_export.instrumentations",
+			enabled: before.OTELMetrics.EndpointEnabled(),
+			before:  before.OTELMetrics.Instrumentations,
+			after:   after.OTELMetrics.Instrumentations,
+		},
+		{
+			path:    "prometheus_export.instrumentations",
+			enabled: before.Prometheus.EndpointEnabled(),
+			before:  before.Prometheus.Instrumentations,
+			after:   after.Prometheus.Instrumentations,
+		},
+	} {
+		if (comparison.enabled || hasAnyPath(root, comparison.path)) &&
+			!equalMigrationInstrumentations(comparison.before, comparison.after) {
+			changed = append(changed, comparison.path)
+		}
+	}
 	sort.Strings(changed)
-	return changed, nil
+	return slices.Compact(changed), nil
+}
+
+func equalMigrationFeatures(before, after featureexport.Features) bool {
+	return before&^featureexport.FeatureEmpty == after&^featureexport.FeatureEmpty
+}
+
+func equalMigrationInstrumentations(
+	before, after []instrumentations.Instrumentation,
+) bool {
+	if len(before) != len(after) {
+		return false
+	}
+	counts := make(map[instrumentations.Instrumentation]int, len(before))
+	for _, instrumentation := range before {
+		counts[instrumentation]++
+	}
+	for _, instrumentation := range after {
+		counts[instrumentation]--
+	}
+	for _, count := range counts {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func changedMigrationSamplerPath(
+	before, after services.SamplerConfig,
+) string {
+	beforeName := normalizedMigrationSamplerName(before.Name)
+	afterName := normalizedMigrationSamplerName(after.Name)
+	beforeRatio, beforeErr := strconv.ParseFloat(before.Arg, 64)
+	if (beforeName == services.SamplerTraceIDRatio ||
+		beforeName == services.SamplerParentBasedTraceIDRatio) &&
+		beforeErr != nil {
+		return "otel_traces_export.sampler.arg"
+	}
+	if beforeName != afterName {
+		return "otel_traces_export.sampler.name"
+	}
+	if beforeName != services.SamplerTraceIDRatio &&
+		beforeName != services.SamplerParentBasedTraceIDRatio {
+		return ""
+	}
+
+	afterRatio, afterErr := strconv.ParseFloat(after.Arg, 64)
+	if afterErr != nil || beforeRatio != afterRatio {
+		return "otel_traces_export.sampler.arg"
+	}
+	return ""
+}
+
+func normalizedMigrationSamplerName(name services.SamplerName) services.SamplerName {
+	if name == "" {
+		return services.SamplerParentBasedAlwaysOn
+	}
+	return name
 }
 
 func equalMigrationValues(path string, before, after any) bool {
@@ -345,6 +671,25 @@ func leafPaths(value any, prefix yamlPath) []yamlPath {
 		return paths
 	default:
 		return []yamlPath{prefix}
+	}
+}
+
+func sequencePaths(value any, prefix yamlPath) []yamlPath {
+	switch value := value.(type) {
+	case map[string]any:
+		var paths []yamlPath
+		for key, child := range value {
+			paths = append(paths, sequencePaths(child, appendPath(prefix, key))...)
+		}
+		return paths
+	case []any:
+		paths := []yamlPath{prefix}
+		for index, child := range value {
+			paths = append(paths, sequencePaths(child, appendPath(prefix, index))...)
+		}
+		return paths
+	default:
+		return nil
 	}
 }
 
@@ -394,23 +739,227 @@ func formatPath(path yamlPath) string {
 }
 
 func migrationAlias(path string) bool {
-	if migrationDiscoveryLegacyPathRegexpAlias(path) || migrationDiscoveryExclusionAlias(path) {
+	if migrationDiscoveryLegacyPathRegexpAlias(path) ||
+		migrationDiscoveryExclusionAlias(path) ||
+		migrationDiscoveryRouteAlias(path) {
 		return true
 	}
 	for _, prefix := range []string{
-		"discovery.excluded_linux_system_paths",
 		"executable_path",
 		"open_port",
 		"target_pids",
 		"network.enable",
 		"otel_metrics_export.features",
+		"otel_metrics_export.interval",
+		"otel_metrics_export.protocol",
 		"prometheus_export.features",
+		"routes",
+		"otel_traces_export.protocol",
+		"otel_traces_export.sampler",
+		"otel_traces_export.instrumentations",
+		"otel_metrics_export.instrumentations",
+		"prometheus_export.instrumentations",
 	} {
 		if path == prefix || strings.HasPrefix(path, prefix+".") || strings.HasPrefix(path, prefix+"[") {
 			return true
 		}
 	}
 	return false
+}
+
+func migrationOTLPProtocolPath(root map[string]any, exporter string) string {
+	if hasNonEmptyStringPath(root, exporter+".protocol") {
+		return exporter + ".protocol"
+	}
+	return exporter + ".endpoint"
+}
+
+func migrationNetworkEnablePath(root map[string]any) string {
+	for _, path := range []string{
+		"network.enable",
+		"metrics.features",
+		"otel_metrics_export.features",
+		"prometheus_export.features",
+	} {
+		if hasAnyPath(root, path) {
+			return path
+		}
+	}
+	return "network.enable"
+}
+
+func hasNonEmptyStringPath(root map[string]any, path string) bool {
+	value, ok := rawValueAtPath(root, path)
+	if !ok {
+		return false
+	}
+	text, ok := value.(string)
+	return ok && text != ""
+}
+
+func unsupportedFeaturePaths(root map[string]any) []string {
+	var paths []string
+	for _, path := range []string{
+		"metrics.features",
+		"otel_metrics_export.features",
+		"prometheus_export.features",
+	} {
+		value, ok := rawValueAtPath(root, path)
+		if ok && containsUnknownFeature(value) {
+			paths = append(paths, path)
+		}
+	}
+
+	discovery, ok := root["discovery"].(map[string]any)
+	if !ok {
+		return paths
+	}
+	for _, field := range []string{
+		"instrument",
+		"services",
+		"exclude_instrument",
+		"exclude_services",
+		"default_exclude_instrument",
+		"default_exclude_services",
+	} {
+		selectors, ok := discovery[field].([]any)
+		if !ok {
+			continue
+		}
+		for index, rawSelector := range selectors {
+			selector, ok := rawSelector.(map[string]any)
+			if !ok {
+				continue
+			}
+			metrics, ok := selector["metrics"].(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, ok := metrics["features"]; ok {
+				paths = append(paths, fmt.Sprintf(
+					"discovery.%s[%d].metrics.features",
+					field,
+					index,
+				))
+			}
+		}
+	}
+	return paths
+}
+
+func unsupportedFeaturePathsFromYAML(data []byte) []string {
+	var root map[string]any
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil
+	}
+	return unsupportedFeaturePaths(root)
+}
+
+func rawValueAtPath(root map[string]any, path string) (any, bool) {
+	var current any = root
+	for _, part := range strings.Split(path, ".") {
+		mapping, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = mapping[part]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
+}
+
+func containsUnknownFeature(value any) bool {
+	features, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range features {
+		feature, ok := value.(string)
+		if !ok {
+			return true
+		}
+		if _, ok := featureexport.FeatureMapper[feature]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func migrationSequenceAlias(path string) bool {
+	switch path {
+	case "metrics.features",
+		"otel_metrics_export.features",
+		"prometheus_export.features",
+		"otel_traces_export.instrumentations",
+		"otel_metrics_export.instrumentations",
+		"prometheus_export.instrumentations",
+		"discovery.instrument",
+		"discovery.services",
+		"discovery.exclude_services":
+		return true
+	default:
+		return false
+	}
+}
+
+func migrationDiscoveryRouteAlias(path string) bool {
+	for _, prefix := range []string{
+		"discovery.instrument",
+		"discovery.services",
+	} {
+		field, ok := migrationDiscoverySelectorField(path, prefix)
+		if ok && field == "routes" {
+			return true
+		}
+	}
+	return false
+}
+
+func unsupportedLayeredRoutePaths(
+	root map[string]any,
+	routes *transform.RoutesConfig,
+) []string {
+	policies := routes.DirectionalPolicies()
+	directions := map[string]bool{
+		"incoming": len(policies.Incoming.Patterns) > 0,
+		"outgoing": len(policies.Outgoing.Patterns) > 0,
+	}
+
+	discovery, ok := root["discovery"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	var paths []string
+	for _, field := range []string{"instrument", "services"} {
+		selectors, ok := discovery[field].([]any)
+		if !ok {
+			continue
+		}
+		for index, rawSelector := range selectors {
+			selector, ok := rawSelector.(map[string]any)
+			if !ok {
+				continue
+			}
+			customRoutes, ok := selector["routes"].(map[string]any)
+			if !ok {
+				continue
+			}
+			for direction, globalPatterns := range directions {
+				values, ok := customRoutes[direction].([]any)
+				if globalPatterns && ok && len(values) > 0 {
+					paths = append(paths, fmt.Sprintf(
+						"discovery.%s[%d].routes.%s",
+						field,
+						index,
+						direction,
+					))
+				}
+			}
+		}
+	}
+	return paths
 }
 
 func migrationDiscoveryLegacyPathRegexpAlias(path string) bool {
@@ -487,10 +1036,35 @@ func migrationReport(data []byte) string {
 	if hasAnyPath(root, "discovery.skip_go_specific_tracers") {
 		lines = append(lines, "- inverted discovery.skip_go_specific_tracers into capture.runtimes.go.enabled")
 	}
+	if hasAnyPath(root, "routes") || hasDiscoveryRoutes(root) {
+		lines = append(lines, "- expanded v1 route settings into incoming and outgoing HTTP route policies")
+	}
 	if hasAnyPath(root, "otel_traces_export", "otel_metrics_export", "prometheus_export") {
 		lines = append(lines, "- moved exporter configuration into top-level OpenTelemetry providers")
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func hasDiscoveryRoutes(root map[string]any) bool {
+	discovery, ok := root["discovery"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, field := range []string{"instrument", "services"} {
+		selectors, ok := discovery[field].([]any)
+		if !ok {
+			continue
+		}
+		for _, selector := range selectors {
+			selector, ok := selector.(map[string]any)
+			if ok {
+				if _, ok := selector["routes"]; ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func hasAnyPath(root map[string]any, paths ...string) bool {

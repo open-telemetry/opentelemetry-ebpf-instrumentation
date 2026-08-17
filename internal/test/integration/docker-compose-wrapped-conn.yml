@@ -1,0 +1,66 @@
+version: "3.8"
+
+# vmagent is the driver because its statConn wraps net.Conn without holding it as the
+# first field, and it scrapes several targets at once over pooled keep-alive
+# connections: the workload where a client request ends up reported by both the Go
+# uprobes and the generic kprobe pipeline.
+
+x-target: &target
+  image: python:3.14.3-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456
+  command: ["python", "-m", "http.server", "8000"]
+
+services:
+  target-a: *target
+  target-b: *target
+  target-c: *target
+  target-d: *target
+  target-e: *target
+  target-f: *target
+
+  vmagent:
+    image: victoriametrics/vmagent:v1.150.0@sha256:3eff5874d59292714878dcb6aee14f048bf19b7312b727860ba5e7d29e2e0c07
+    command:
+      - -promscrape.config=/etc/vmagent/scrape.yml
+      - -remoteWrite.url=http://target-a:8000/
+      - -remoteWrite.tmpDataPath=/tmp/vmagent
+      - -httpListenAddr=:8429
+    volumes:
+      - ./configs/vmagent-scrape.yml:/etc/vmagent/scrape.yml:ro
+    depends_on:
+      target-a:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-wrapped-conn.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+    depends_on:
+      vmagent:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    command:
+      - "--set=service.telemetry.logs.level=debug"

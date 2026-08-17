@@ -68,6 +68,48 @@ static __always_inline bool go_runtime_read_offset(void *dst, u32 size, u64 base
     return go_runtime_read(dst, size, base + offset);
 }
 
+static __always_inline void go_runtime_collect_histogram(u64 histogram_addr,
+                                                         u64 underflow_offset,
+                                                         u64 overflow_offset,
+                                                         go_runtime_histogram_kind_t kind,
+                                                         const pid_info *pid,
+                                                         u64 generation) {
+    if (!histogram_addr || underflow_offset % sizeof(u64)) {
+        return;
+    }
+
+    const u64 derived_bucket_count = underflow_offset / sizeof(u64);
+    if (derived_bucket_count != k_hist_max_buckets ||
+        overflow_offset != underflow_offset + sizeof(u64)) {
+        return;
+    }
+    const u32 bucket_count = (u32)derived_bucket_count;
+
+    go_runtime_histogram_event_t *event =
+        bpf_ringbuf_reserve(&events, sizeof(go_runtime_histogram_event_t), 0);
+    if (!event) {
+        return;
+    }
+
+    event->type = EVENT_GO_RUNTIME_HISTOGRAM;
+    event->kind = kind;
+    event->pid = *pid;
+    event->bucket_count = bucket_count;
+    event->generation = generation;
+
+    const u32 counts_size = bucket_count * sizeof(u64);
+    if (bpf_probe_read_user(event->counts, counts_size, (void *)histogram_addr) ||
+        !go_runtime_read_offset(
+            &event->underflow, sizeof(event->underflow), histogram_addr, underflow_offset) ||
+        !go_runtime_read_offset(
+            &event->overflow, sizeof(event->overflow), histogram_addr, overflow_offset)) {
+        bpf_ringbuf_discard(event, 0);
+        return;
+    }
+
+    bpf_ringbuf_submit(event, get_flags());
+}
+
 static __always_inline void go_runtime_collect_gc(const go_runtime_metric_target_t *target,
                                                   off_table_t *ot,
                                                   go_runtime_metric_snapshot_t *snapshot) {
@@ -584,6 +626,7 @@ int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
 
     event->type = EVENT_GO_RUNTIME_METRICS;
     event->pid = key;
+    event->generation = target->generation;
     // Collectors set valid_mask bits for metric groups populated in this snapshot.
     __builtin_memset(&event->snapshot, 0, sizeof(event->snapshot));
 
@@ -597,6 +640,36 @@ int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
     go_runtime_collect_goroutine_count(target, ot, &event->snapshot);
 
     bpf_ringbuf_submit(event, get_flags());
+
+    const u64 underflow_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_time_histogram_underflow_pos});
+    const u64 overflow_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_time_histogram_overflow_pos});
+
+    if (target->sched_addr &&
+        (target->available_mask & go_runtime_metric_valid_gc_pause_histogram)) {
+        const u64 histogram_addr =
+            target->sched_addr +
+            go_offset_of(ot, (go_offset){.v = _runtime_sched_stw_total_time_gc_pos});
+        go_runtime_collect_histogram(histogram_addr,
+                                     underflow_pos,
+                                     overflow_pos,
+                                     go_runtime_histogram_kind_gc_pause,
+                                     &key,
+                                     target->generation);
+    }
+
+    if (target->sched_addr &&
+        (target->available_mask & go_runtime_metric_valid_schedule_duration_histogram)) {
+        const u64 histogram_addr =
+            target->sched_addr + go_offset_of(ot, (go_offset){.v = _runtime_sched_time_to_run_pos});
+        go_runtime_collect_histogram(histogram_addr,
+                                     underflow_pos,
+                                     overflow_pos,
+                                     go_runtime_histogram_kind_scheduler_latency,
+                                     &key,
+                                     target->generation);
+    }
     return 0;
 }
 
@@ -643,6 +716,10 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
 
     bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);
 
+    // The result of newproc1 is the new goroutine
+    void *goroutine_addr = (void *)GO_PARAM1(ctx);
+    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
+
     // Lookup the newproc1 invocation metadata
     new_func_invocation_t *invocation = bpf_map_lookup_elem(&newproc1, &c_key);
     if (invocation == NULL) {
@@ -654,8 +731,6 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     void *parent_goroutine = (void *)invocation->parent;
     bpf_dbg_printk("parent_goroutine=%lx", parent_goroutine);
 
-    // The result of newproc1 is the new goroutine
-    void *goroutine_addr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     go_addr_key_t p_key = {.addr = (u64)parent_goroutine, .pid = pid};
@@ -671,8 +746,6 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
         }
     }
 
-    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
-
     goroutine_metadata metadata = {
         .timestamp = bpf_ktime_get_ns(),
         .parent = p_key,
@@ -683,6 +756,8 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     }
 
 done:
+    // Delete any stale info on go_trace_map
+    bpf_map_delete_elem(&go_trace_map, &g_key);
     bpf_map_delete_elem(&newproc1, &c_key);
 
     return 0;

@@ -110,3 +110,271 @@ groups:
       - ref: host.id
         requirement_level: opt_in
 
+  # ======================================================================
+  # OBI internal ("meta") metrics emitted over OTLP by the
+  # InternalMetricsReporter (pkg/export/otel/metrics_internal.go) when
+  # internal_metrics.exporter=otel. These describe OBI's own behaviour
+  # (exporter throughput, instrumentation accounting, eBPF probe/map stats,
+  # build info), NOT the instrumented application. All names use the `obi.`
+  # vendor prefix (attr.VendorPrefix).
+  #
+  # Attribute keys are namespaced to satisfy weaver's "must include a
+  # namespace" advice. Where an existing semantic-convention attribute fits,
+  # the metric references it directly (`process.executable.name` for the
+  # instrumented process, `error.type` for the instrumentation-error class);
+  # the OBI build version / revision reuse `obi.version` / `obi.revision`
+  # declared above; everything else takes the `obi.` vendor prefix. The
+  # matching keys are emitted by the OTLP InternalMetricsReporter. (OBI's
+  # Prometheus internal exporter keeps underscore keys — Prometheus labels
+  # cannot carry dots — but weaver only validates the OTLP tap.)
+  # ======================================================================
+  - id: registry.obi.internal_metrics
+    type: attribute_group
+    display_name: OBI Internal Metrics
+    brief: >
+      Attributes carried by OBI's own internal (obi.*) OTLP metrics. Keys are
+      namespaced; where a semantic-convention attribute already fits
+      (`process.executable.name`, `error.type`) the metrics reference it
+      directly rather than declaring an OBI-specific alias.
+    attributes:
+      - id: obi.error
+        type: string
+        stability: development
+        brief: >
+          Raw error message from a failed OTLP export.
+        examples: ["context deadline exceeded"]
+      - id: obi.goarch
+        type: string
+        stability: development
+        brief: Go build target architecture (runtime.GOARCH).
+        examples: ["amd64", "arm64"]
+      - id: obi.goos
+        type: string
+        stability: development
+        brief: Go build target OS (runtime.GOOS).
+        examples: ["linux"]
+      - id: obi.goversion
+        type: string
+        stability: development
+        brief: Go toolchain version OBI was built with (runtime.Version()).
+        examples: ["go1.25.11"]
+      - id: bpf.probe.id
+        type: string
+        stability: development
+        brief: Identifier of the eBPF program (probe) the stats belong to.
+        examples: ["42"]
+      - id: bpf.probe.type
+        type: string
+        stability: development
+        brief: eBPF program type of the probe.
+        examples: ["kprobe", "tracepoint"]
+      - id: bpf.probe.name
+        type: string
+        stability: development
+        brief: Name of the eBPF probe.
+        examples: ["kprobe_tcp_sendmsg"]
+      - id: bpf.map.id
+        type: string
+        stability: development
+        brief: Identifier of the eBPF map the stats belong to.
+        examples: ["17"]
+      - id: bpf.map.type
+        type: string
+        stability: development
+        brief: eBPF map type.
+        examples: ["hash", "lru_hash", "perf_event_array"]
+      - id: bpf.map.name
+        type: string
+        stability: development
+        brief: Name of the eBPF map.
+        examples: ["events", "ongoing_http"]
+      - id: telemetry.type
+        type: string
+        stability: development
+        brief: >
+          Which OBI pipeline avoided instrumenting a service that already has
+          OpenTelemetry instrumentation. Value is "metrics" or "traces".
+        examples: ["metrics", "traces"]
+      - id: otel.metric.overflow
+        type: boolean
+        stability: development
+        brief: >
+          Set by the OpenTelemetry SDK cardinality limiter when the
+          avoided-services attribute set overflows its configured limit.
+
+  # --- OTLP exporter throughput / errors ---------------------------------
+  - id: metric.obi.otel.metric.exports
+    type: metric
+    metric_name: obi.otel.metric.exports
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: Length of the metric batches submitted to the remote OTEL collector.
+
+  - id: metric.obi.otel.metric.export.errors
+    type: metric
+    metric_name: obi.otel.metric.export.errors
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: Error count on each failed OTEL metric export.
+    attributes:
+      - ref: obi.error
+
+  - id: metric.obi.otel.trace.exports
+    type: metric
+    metric_name: obi.otel.trace.exports
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: Length of the trace batches submitted to the remote OTEL collector.
+
+  - id: metric.obi.otel.trace.export.errors
+    type: metric
+    metric_name: obi.otel.trace.export.errors
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: Error count on each failed OTEL trace export.
+    attributes:
+      - ref: obi.error
+
+  # --- Instrumentation accounting ----------------------------------------
+  - id: metric.obi.instrumented.processes
+    type: metric
+    metric_name: obi.instrumented.processes
+    instrument: updowncounter
+    unit: ""
+    stability: development
+    brief: Total number of instrumented processes, by process name.
+    attributes:
+      - ref: process.executable.name
+
+  - id: metric.obi.instrumentation.errors
+    type: metric
+    metric_name: obi.instrumentation.errors
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Total number of instrumentation errors, by process name and error type.
+    attributes:
+      - ref: process.executable.name
+      - ref: error.type
+
+  - id: metric.obi.avoided.services
+    type: metric
+    metric_name: obi.avoided.services
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: >
+      Services OBI avoided instrumenting because they already carry
+      OpenTelemetry instrumentation. Only emitted when the avoided-services
+      internal metric is enabled.
+    attributes:
+      - ref: service.name
+      - ref: service.namespace
+      - ref: telemetry.type
+      - ref: otel.metric.overflow
+
+  # --- Build info --------------------------------------------------------
+  - id: metric.obi.internal.build.info
+    type: metric
+    metric_name: obi.internal.build.info
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: >
+      Constant '1' gauge labelled with build metadata (version, revision,
+      goversion, goos, goarch), in the style of Prometheus `*_build_info`.
+    attributes:
+      - ref: obi.goarch
+      - ref: obi.goos
+      - ref: obi.goversion
+      - ref: obi.version
+      - ref: obi.revision
+
+  # --- eBPF tracer / probe / map stats -----------------------------------
+  - id: metric.obi.ebpf.tracer.flushes
+    type: metric
+    metric_name: obi.ebpf.tracer.flushes
+    instrument: histogram
+    unit: "1"
+    stability: development
+    brief: >
+      Length of the groups of traces flushed from the eBPF tracer to the next
+      pipeline stage.
+
+  # Pre-aggregated: emitted through the SDK Producer interface rather than a
+  # Float64Histogram, because the kernel exposes only cumulative run_time_ns /
+  # run_cnt and bucket counts are derived from those rather than observed
+  # individually. Supersedes the former obi.bpf.probe.executions and
+  # obi.bpf.probe.latency_seconds_total, whose values are this histogram's
+  # count and sum.
+  - id: metric.obi.bpf.probe.latency
+    type: metric
+    metric_name: obi.bpf.probe.latency
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: Latency distribution of the eBPF probe in seconds.
+    attributes:
+      - ref: bpf.probe.id
+      - ref: bpf.probe.type
+      - ref: bpf.probe.name
+
+  - id: metric.obi.bpf.map.entries_total
+    type: metric
+    metric_name: obi.bpf.map.entries_total
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: Number of entries in the eBPF map.
+    attributes:
+      - ref: bpf.map.id
+      - ref: bpf.map.type
+      - ref: bpf.map.name
+
+  - id: metric.obi.bpf.map.max_entries_total
+    type: metric
+    metric_name: obi.bpf.map.max_entries_total
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: Maximum number of entries the eBPF map can hold.
+    attributes:
+      - ref: bpf.map.id
+      - ref: bpf.map.type
+      - ref: bpf.map.name
+
+  # --- Network packet accounting (netolly) -------------------------------
+  - id: metric.obi.bpf.network.packets.total
+    type: metric
+    metric_name: obi.bpf.network.packets.total
+    instrument: counter
+    unit: "{packet}"
+    stability: development
+    brief: How many network packets have been internally accounted.
+
+  - id: metric.obi.bpf.network.ignored.packets.total
+    type: metric
+    metric_name: obi.bpf.network.ignored.packets.total
+    instrument: counter
+    unit: "{packet}"
+    stability: development
+    brief: >
+      How many network packets have been internally ignored due to collisions
+      in the internal eBPF cache.
+
+  # --- Kubernetes informer ------------------------------------------------
+  - id: metric.obi.kube.cache.forward.lag
+    type: metric
+    metric_name: obi.kube.cache.forward.lag
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      How long, in seconds, it takes from a Kubernetes event happening until
+      it is forwarded to the subscribers.
+

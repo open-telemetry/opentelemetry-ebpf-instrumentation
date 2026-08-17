@@ -57,7 +57,7 @@ func TestNativeHistogramSchemaAppliedToExportedMetrics(t *testing.T) {
 					NativeHistogram:  tc.nhCfg,
 					ExemplarFilter:   "always_off",
 				},
-				&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 				&attributes.SelectorConfig{},
 				request.UnresolvedNames{},
 				promInput,
@@ -77,23 +77,25 @@ func TestNativeHistogramSchemaAppliedToExportedMetrics(t *testing.T) {
 				End:          100_000_000,
 				Service:      svcAttrs,
 			}})
-			awaitSpanProcessing()
 
-			mfs, err := registry.Gather()
-			require.NoError(t, err)
+			var schema int32
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				mfs, err := registry.Gather()
+				require.NoError(ct, err)
 
-			var schema *int32
-			for _, mf := range mfs {
-				if mf.GetName() != attributes.HTTPServerDuration.Prom {
-					continue
+				found := false
+				for _, mf := range mfs {
+					if mf.GetName() != attributes.HTTPServerDuration.Prom {
+						continue
+					}
+					for _, m := range mf.GetMetric() {
+						schema = m.GetHistogram().GetSchema()
+						found = true
+					}
 				}
-				for _, m := range mf.GetMetric() {
-					s := m.GetHistogram().GetSchema()
-					schema = &s
-				}
-			}
-			require.NotNil(t, schema, "HTTP server duration metric not found in registry")
-			assert.Equal(t, tc.expectedSchema, *schema)
+				require.True(ct, found, "HTTP server duration metric not found in registry")
+			}, time.Second, 10*time.Millisecond)
+			assert.Equal(t, tc.expectedSchema, schema)
 		})
 	}
 }

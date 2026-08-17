@@ -35,10 +35,10 @@ OCI_BIN ?= docker
 # User to run as in docker images.
 DOCKER_USER=$(shell id -u):$(shell id -g)
 DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
-GRADLE_IMAGE := $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
-GOLANG_IMAGE := $(shell awk '$$4=="golang" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
-PYTHON39_IMAGE := $(shell awk '$$4=="python39" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
-PYTHON314_IMAGE := $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+GRADLE_IMAGE = $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+GOLANG_IMAGE = $(shell awk '$$4=="golang" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+PYTHON39_IMAGE = $(shell awk '$$4=="python39" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+PYTHON314_IMAGE = $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 
 # BPF code generator dependencies
 CLANG ?= clang
@@ -135,6 +135,13 @@ fmt:
 clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs clang-tidy
 
+# Golangci-lint reuses the same cache across worktrees, this causes that the "excludes" entries in the
+# .golangci.yml configuration do not match the relative paths from the worktree and linting will fail
+# unless you clean the cache.
+.PHONY: lint-clean-cache
+lint-clean-cache:
+	go tool $(TOOLS_MODFILE) golangci-lint cache clean
+
 .PHONY: lint
 lint: LINT_EXTRA_ARGS =
 lint: lint-run
@@ -151,7 +158,7 @@ lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
-WEAVERIMAGE := $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema
 lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
@@ -179,7 +186,7 @@ lint-collectt-fix:
 	@echo "### Checking EventuallyWithT callbacks use CollectT"
 	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
-MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+MARKDOWNIMAGE = $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-markdown
 lint-markdown:
 	@echo "### Linting markdown"
@@ -314,8 +321,8 @@ compile-cache-for-coverage:
 	@echo "### Compiling K8s cache service to generate coverage profiles"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
-.PHONY: test
-test:
+.PHONY: test test-rerun-flaky
+test: testoutput
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
@@ -324,8 +331,11 @@ test-nodejs:
 	@echo "### Testing the Node.js manual-span bridge (spanbridge.js)"
 	cd pkg/internal/nodejs/spanbridge_test && npm ci && node --test
 
+test-rerun-flaky:
+	@./scripts/rerun-flaky_test.sh
+
 .PHONY: test-privileged
-test-privileged: $(ENVTEST)
+test-privileged: $(ENVTEST) testoutput
 	@echo "### Testing only privileged-tagged tests"
 	go test -short -race -tags=privileged_tests -a \
 	$$(grep -rl '//go:build.*privileged_tests' . --include='*.go' | xargs -I{} dirname {} | sort -u | tr '\n' ' ') \
@@ -337,7 +347,7 @@ run-bpf-verifier-vm:
 	go test -count=1 -timeout 20m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
-cov-exclude-generated:
+cov-exclude-generated: testoutput
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/cover.all.txt > $(TEST_OUTPUT)/cover.txt
 
 .PHONY: coverage-report
@@ -711,8 +721,12 @@ clean-release-dir:
 	rm -f bin/obi-*.tar.gz
 	rm -rf bin/LICENSE bin/NOTICE bin/NOTICES
 
+.PHONY: testoutput
+testoutput:
+	mkdir -p ${TEST_OUTPUT}
+
 .PHONY: clean-testoutput
-clean-testoutput:
+clean-testoutput: testoutput
 	@echo "### Cleaning ${TEST_OUTPUT} folder"
 	rm -rf ${TEST_OUTPUT}/*
 
@@ -785,7 +799,9 @@ go-notices-update:
 				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=$(NOTICES_DIR)/$$arch --force; \
 			done'
 
-PYTHON_REQUIREMENTS_INS ?= $(shell find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
+# Guarded with test -d: the directory is absent in build contexts that only
+# copy the sources needed to compile (e.g. the integration-test OBI image).
+PYTHON_REQUIREMENTS_INS ?= $(shell [ -d ./internal/test/integration/components ] && find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
 PYTHON_REQUIREMENTS_DIRS := $(sort $(dir $(PYTHON_REQUIREMENTS_INS)))
 PYTHON_REQUIREMENTS_LOCKS := $(sort $(foreach dir,$(PYTHON_REQUIREMENTS_DIRS),$(wildcard $(dir)requirements.txt $(dir)requirements-*.txt)))
 PYTHON_REQUIREMENTS_UPDATE_TARGETS := $(patsubst %,%.update,$(PYTHON_REQUIREMENTS_LOCKS))
@@ -914,7 +930,8 @@ CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
 # separate from conversion logic so reviewers can inspect drift intentionally.
 CONFIG_V2_DIR ?= devdocs/config/version-2.0
 CONFIG_V2_SCHEMA_FILE ?= $(CONFIG_V2_DIR)/obi-extension.schema.json
-CONFIG_V2_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
+CONFIG_V2_DEFAULT_REFERENCE_FILE ?= $(CONFIG_V2_DIR)/examples/default-values-reference.fragment.yaml
+CONFIG_V2_RUNNABLE_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
 
 .PHONY: generate-config-schema
 generate-config-schema:
@@ -953,12 +970,14 @@ check-config-schema:
 .PHONY: check-config-v2-parity
 check-config-v2-parity:
 	@echo "### Checking config v2 default parity"
-	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_EXAMPLE_FILE)
+	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_DEFAULT_REFERENCE_FILE)
 
 .PHONY: check-config-v2-artifacts
 check-config-v2-artifacts: check-config-v2-parity
 	@echo "### Checking hidden config v2 artifacts"
-	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) -example $(CONFIG_V2_EXAMPLE_FILE)
+	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) \
+		-default-reference $(CONFIG_V2_DEFAULT_REFERENCE_FILE) \
+		-runnable-example $(CONFIG_V2_RUNNABLE_EXAMPLE_FILE)
 
 .PHONY: fix-store-demo-architecture
 fix-store-demo-architecture:
