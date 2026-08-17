@@ -5,7 +5,7 @@ go 1.25.11
 require (
 	github.com/grafana/oats v0.7.0
 	github.com/onsi/ginkgo/v2 v2.32.0
-	github.com/onsi/gomega v1.41.0
+	github.com/onsi/gomega v1.42.1
 	go.opentelemetry.io/obi v0.0.0-00010101000000-000000000000
 )
 
