@@ -9,6 +9,7 @@
 #include <common/globals.h>
 #include <common/h2_defs.h>
 #include <common/iov_iter.h>
+#include <common/preempt_guard.h>
 #include <common/scratch_mem.h>
 #include <common/http_buf_size.h>
 #include <common/ringbuf.h>
@@ -253,7 +254,8 @@ static __always_inline void http2_grpc_start(void *ctx,
 
     if (!is_client) {
         // Server finalize tail-called to stay under verifier insn limit on 5.15
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server);
+        preempt_guarded_tail_call(
+            ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server);
         return;
     }
 
@@ -381,14 +383,16 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
         g_ctx->saved_buf_pos = g_ctx->pos;
 
         if (http_grpc_stream_ended(frame)) {
-            bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
+            preempt_guarded_tail_call(
+                ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
             return 0; // normally unreachable
         }
     } else {
         // Not starting new grpc request, found end frame in a start, likely
         // just terminating prev connection
         if (!(is_flags_only_frame(frame) && http_grpc_stream_ended(frame))) {
-            bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame);
+            preempt_guarded_tail_call(
+                ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame);
             return 0; // normally unreachable
         }
     }
@@ -411,13 +415,13 @@ static __always_inline void handle_data_frame(void *ctx, grpc_frames_ctx_t *g_ct
         g_ctx->stream.pid_conn = g_ctx->args.pid_conn;
         g_ctx->stream.stream_id = g_ctx->saved_stream_id;
 
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
     }
 }
 
 // k_tail_protocol_http2_grpc_handle_start_frame
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame, void *, ctx) {
     (void)ctx;
 
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
@@ -439,7 +443,7 @@ int obi_protocol_http2_grpc_handle_start_frame(void *ctx) {
 // SERVER tail call: HPACK parse first (per-stream, no trace_map race), per-conn
 // fallback if missed. Skips optional PADDED/PRIORITY prefix + trailing pad
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -458,7 +462,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     g_ctx->huff.next = k_h2_huff_then_finalize;
 
     if (parse_hpack_traceparent(h2g_info->data + hpack_off, hpack_len, &tp_p->tp, &g_ctx->huff)) {
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
         return 0;
     }
@@ -467,24 +471,25 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     if (g_bpf_loop_enabled) {
         // name matched, value compressed: decoding needs its own program
         if (g_ctx->huff.len) {
-            bpf_tail_call(
+            preempt_guarded_tail_call(
                 ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
             return 0;
         }
 
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
         return 0;
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
+    preempt_guarded_tail_call(
+        ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
     return 0;
 }
 
 // SERVER huffscan: an indexed name leaves nothing to fingerprint, so locate the compressed
 // value alone; ranked above the connection heuristic, unlike the weak fingerprint in finalize
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_huffscan(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffscan, void *, ctx) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -506,21 +511,22 @@ int obi_protocol_http2_grpc_handle_start_frame_server_huffscan(void *ctx) {
     if (find_hpack_traceparent_huffman(h2g_info->data, hpack_off, hpack_len, &g_ctx->huff_scan)) {
         g_ctx->huff.at = g_ctx->huff_scan.at[0];
         g_ctx->huff.len = g_ctx->huff_scan.len[0];
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
         return 0;
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
+    preempt_guarded_tail_call(
+        ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
     return 0;
 }
 
 // SERVER huffman: decodes the value the scan located, in its own tail-call program
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_huffman(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffman, void *, ctx) {
     // needs bpf_loop; without it the block keeps its existing fallback
     if (!g_bpf_loop_enabled) {
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
         return 0;
     }
@@ -550,14 +556,14 @@ int obi_protocol_http2_grpc_handle_start_frame_server_huffman(void *ctx) {
         h2g_info->data + hpack_off, hpack_len, &g_ctx->huff, w, out, &tp_p->tp);
 
     if (g_ctx->huff.next == k_h2_huff_then_commit) {
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_commit);
         return 0;
     }
 
     // rejected candidate: name-matched falls back to the scan, scan advances
     if (!g_ctx->huff_scan.done) {
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
         return 0;
     }
@@ -570,7 +576,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server_huffman(void *ctx) {
         g_ctx->huff.len = g_ctx->huff_scan.len[next_idx];
         g_ctx->huff.next = k_h2_huff_then_finalize;
         g_ctx->huff_scan.idx = next_idx;
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
         return 0;
     }
@@ -579,17 +585,18 @@ int obi_protocol_http2_grpc_handle_start_frame_server_huffman(void *ctx) {
     // falls through to finalize when the tail call budget runs out
     if (g_ctx->huff_scan.count == k_h2_tp_huff_max_candidates) {
         g_ctx->huff_scan.resume = g_ctx->huff_scan.at[k_h2_tp_huff_max_candidates - 1];
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
+    preempt_guarded_tail_call(
+        ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
     return 0;
 }
 
 // SERVER finalize: dyn-table traceparent scan, then tail-calls commit
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_finalize, void *, ctx) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -614,7 +621,8 @@ int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
         (void)find_hpack_traceparent_value(h2g_info->data + hpack_off, hpack_len, &tp_p->tp);
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_commit);
+    preempt_guarded_tail_call(
+        ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_commit);
     return 0;
 }
 
@@ -622,7 +630,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
 // set_trace_info_for_connection, server_or_client_trace, server_traces,
 // ongoing_http2_grpc.
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_commit(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_commit, void *, ctx) {
     (void)ctx;
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
@@ -646,7 +654,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server_commit(void *ctx) {
 
 // k_tail_protocol_http2_grpc_handle_end_frame
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_end_frame(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_end_frame, void *, ctx) {
     (void)ctx;
 
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
@@ -688,7 +696,7 @@ int obi_protocol_http2_grpc_handle_end_frame(void *ctx) {
 // information to evaluate whether the parsed data is potentially a GRPC
 // frame, and if so, we ship it to userspace for further processing.
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_frames(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_frames, void *, ctx) {
     const u8 k_max_loop_iterations = 4; // the maximum number of the for loop iterations
     const u8 k_loop_count = 3;          // the number of times we will retry the loop
     const u8 k_iterations = k_max_loop_iterations * k_loop_count;
@@ -745,7 +753,7 @@ int obi_protocol_http2_grpc_frames(void *ctx) {
     // want to abuse bpf_tail_call as things can get slow (and limited), so we
     // use this mirror-cracking hybrid approach
     if (!g_ctx->terminate_search && g_ctx->iterations < k_iterations) {
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
         return 0; // unreachable, but bail safely if bpf_tail_call fails
     }
 
@@ -759,7 +767,7 @@ int obi_protocol_http2_grpc_frames(void *ctx) {
 
 // k_tail_protocol_http2
 SEC("kprobe/http2")
-int obi_protocol_http2(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2, void *, ctx) {
     call_protocol_args_t *args = protocol_args();
 
     if (!args) {
@@ -780,7 +788,7 @@ int obi_protocol_http2(void *ctx) {
     g_ctx->args = *args;
     g_ctx->stream.pid_conn = args->pid_conn;
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
+    preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
 
     return 0;
 }

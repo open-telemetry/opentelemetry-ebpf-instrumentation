@@ -15,6 +15,7 @@
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/lw_thread.h>
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
 #include <common/scratch_mem.h>
@@ -448,7 +449,7 @@ static __always_inline int http_send_large_buffer(void *ctx,
     state->direction = direction;
     state->action = action;
 
-    bpf_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
+    preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
     return 0;
 }
 
@@ -494,7 +495,7 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
 
 // k_tail_continue2_protocol_http
 SEC("kprobe/http")
-int obi_continue2_protocol_http(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_continue2_protocol_http, struct pt_regs *, ctx) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
@@ -616,14 +617,14 @@ done:
     if (tp_loop_fn == bpf_strstr_tp_loop) {
         return __obi_continue2_protocol_http(ctx, args, info, meta);
     } else {
-        bpf_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
         return 0;
     }
 }
 
 // k_tail_continue_protocol_http_tp
 SEC("kprobe/http")
-int obi_continue_protocol_http_tp(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_continue_protocol_http_tp, struct pt_regs *, ctx) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
@@ -734,7 +735,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     if (tp_loop_fn == bpf_strstr_tp_loop) {
         return __obi_continue_protocol_http_tp(ctx, args, info, meta, tp_loop_fn);
     } else {
-        bpf_tail_call(ctx, &jump_table, k_tail_continue_protocol_http_tp);
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_protocol_http_tp);
         return 0;
     }
 
@@ -742,14 +743,14 @@ skip_tp:
     if (tp_loop_fn == bpf_strstr_tp_loop) {
         return __obi_continue2_protocol_http(ctx, args, info, meta);
     } else {
-        bpf_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
         return 0;
     }
 }
 
 // k_tail_continue_protocol_http (legacy)
 SEC("kprobe/http")
-int obi_continue_protocol_http_legacy(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_continue_protocol_http_legacy, struct pt_regs *, ctx) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
@@ -765,7 +766,7 @@ int obi_continue_protocol_http_legacy(struct pt_regs *ctx) {
 
 // k_tail_continue_protocol_http (new kernels)
 SEC("kprobe/http")
-int obi_continue_protocol_http(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_continue_protocol_http, struct pt_regs *, ctx) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
@@ -831,7 +832,7 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
         (info->start_monotime_ns == 0)) {
 
         args->use_bpf_loop = tp_loop_fn == bpf_strstr_tp_loop;
-        bpf_tail_call(ctx, &jump_table, k_tail_continue_protocol_http);
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_protocol_http);
 
         return 0;
     } else if ((args->packet_type == PACKET_TYPE_RESPONSE) && (info->status == 0)) {
@@ -874,19 +875,19 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
 
 // k_tail_protocol_http
 SEC("kprobe/http")
-int obi_protocol_http(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_protocol_http, struct pt_regs *, ctx) {
     return __obi_protocol_http(ctx, bpf_strstr_tp_loop);
 }
 
 // k_tail_protocol_http
 SEC("kprobe/http")
-int obi_protocol_http_legacy(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_protocol_http_legacy, struct pt_regs *, ctx) {
     return __obi_protocol_http(ctx, bpf_strstr_tp_loop__legacy);
 }
 
 // k_tail_large_buf_emit_continue
 SEC("kprobe/http")
-int obi_large_buf_emit_continue(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_large_buf_emit_continue, struct pt_regs *, ctx) {
     large_buf_emit_state_t *state = (large_buf_emit_state_t *)large_buf_emit_state_mem();
     if (!state || state->remaining_bytes == 0) {
         return 0;
@@ -929,7 +930,7 @@ int obi_large_buf_emit_continue(struct pt_regs *ctx) {
 
     if (state->remaining_bytes > 0 && consumed_bytes > 0 &&
         state->batch_iter < k_large_buf_max_batches) {
-        bpf_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
+        preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
     }
 
     return 0;

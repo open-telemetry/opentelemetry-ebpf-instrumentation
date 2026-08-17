@@ -26,6 +26,7 @@
 #include <common/globals.h>
 #include <common/http_types.h>
 #include <common/map_sizing.h>
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/scratch_mem.h>
 
@@ -413,17 +414,17 @@ static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) 
 }
 
 SEC("uprobe/tracer_Start")
-int obi_uprobe_tracer_Start(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_tracer_Start, struct pt_regs *, ctx) {
     return tracer_start(ctx, 0);
 }
 
 SEC("uprobe/tracer_Start_global")
-int obi_uprobe_tracer_Start_global(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_tracer_Start_global, struct pt_regs *, ctx) {
     return tracer_start(ctx, 1);
 }
 
 SEC("uprobe/tracer_new_span")
-int obi_uprobe_tracer_NewSpan(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_tracer_NewSpan, struct pt_regs *, ctx) {
     u64 generation = 0;
     if (!go_auto_target_generation(&generation) || !g_bpf_probe_write_user_enabled ||
         !span_context_offsets_available()) {
@@ -526,7 +527,7 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
 // func (t *tracer) Start(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span)
 // https://github.com/open-telemetry/opentelemetry-go/blob/98b32a6c3a87fbee5d34c063b9096f416b250897/internal/global/trace.go#L149
 SEC("uprobe/tracer_Start_ret")
-int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_tracer_Start_Returns, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     void *span_ptr = (void *)GO_PARAM4(ctx);
     bpf_dbg_printk("=== uprobe/tracer_Start_ret ===");
@@ -590,7 +591,7 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/auto_sdk_tracer_start")
-int obi_uprobe_auto_sdk_tracer_Start(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_auto_sdk_tracer_Start, struct pt_regs *, ctx) {
     u64 generation = 0;
     if (!go_auto_target_generation(&generation) || !g_bpf_probe_write_user_enabled ||
         !span_context_offsets_available()) {
@@ -643,7 +644,7 @@ int obi_uprobe_auto_sdk_tracer_Start(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/auto_sdk_context_with_value")
-int obi_uprobe_auto_sdk_context_WithValue(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_auto_sdk_context_WithValue, struct pt_regs *, ctx) {
     if (!g_bpf_probe_write_user_enabled) {
         return 0;
     }
@@ -675,7 +676,7 @@ int obi_uprobe_auto_sdk_context_WithValue(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/nonRecordingSpan_End")
-int obi_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_nonRecordingSpan_End, struct pt_regs *, ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("=== uprobe/nonRecordingSpan_End ===");
     bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
@@ -712,7 +713,7 @@ int obi_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/auto_sdk_span_ended")
-int obi_uprobe_auto_sdk_span_Ended(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_auto_sdk_span_Ended, struct pt_regs *, ctx) {
     void *span_ptr = GO_PARAM1(ctx);
 
     go_addr_key_t s_key = {};
@@ -768,7 +769,7 @@ int obi_uprobe_auto_sdk_span_Ended(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/span_SetStatus")
-int obi_uprobe_SetStatus(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_SetStatus, struct pt_regs *, ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("=== uprobe/span_SetStatus ===");
     bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
@@ -799,7 +800,7 @@ int obi_uprobe_SetStatus(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/span_SetAttributes")
-int obi_uprobe_SetAttributes(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_SetAttributes, struct pt_regs *, ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("=== uprobe/span_SetAttributes ===");
     bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
@@ -820,7 +821,7 @@ int obi_uprobe_SetAttributes(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/span_SetName")
-int obi_uprobe_SetName(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_SetName, struct pt_regs *, ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("=== uprobe/span_SetName ===");
     bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
@@ -851,7 +852,7 @@ int obi_uprobe_SetName(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/span_RecordError")
-int obi_uprobe_RecordError(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_RecordError, struct pt_regs *, ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("=== uprobe/span_RecordError ===");
     bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
