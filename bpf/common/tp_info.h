@@ -34,6 +34,9 @@ enum parent_status : u8 {
     k_parent_status_conditional = 2,
 };
 
+_Static_assert(k_parent_status_conditional == 2,
+               "value mirrored in pkg/ebpf/common (parentStatusConditional)");
+
 typedef struct tp_info_pid {
     tp_info_t tp;
     u32 pid;

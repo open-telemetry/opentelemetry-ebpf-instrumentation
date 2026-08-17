@@ -204,15 +204,6 @@ func assertCallsParented(t *testing.T, service string) {
 			"calls made during the response lost their parent", parented)
 }
 
-func spanKind(s jaeger.Span) string {
-	if tag, ok := jaeger.FindIn(s.Tags, "span.kind"); ok {
-		if v, ok := tag.Value.(string); ok {
-			return v
-		}
-	}
-	return ""
-}
-
 func serverAddress(s jaeger.Span) string {
 	if tag, ok := jaeger.FindIn(s.Tags, "server.address"); ok {
 		if v, ok := tag.Value.(string); ok {
