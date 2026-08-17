@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -174,6 +175,20 @@ func signalFilters(in filter.AttributeFamilyConfig) schema.SignalFilters {
 	return schema.SignalFilters{
 		Traces:  filterMap(in),
 		Metrics: filterMap(in),
+	}
+}
+
+func applicationSignalFilters(
+	filters filter.AttributesConfig,
+	instrumentation instrumentations.Instrumentation,
+) schema.SignalFilters {
+	scoped, ok := filters.ApplicationByInstrumentation[instrumentation]
+	if !ok {
+		return signalFilters(filters.Application)
+	}
+	return schema.SignalFilters{
+		Traces:  filterMap(scoped.Traces),
+		Metrics: filterMap(scoped.Metrics),
 	}
 }
 
