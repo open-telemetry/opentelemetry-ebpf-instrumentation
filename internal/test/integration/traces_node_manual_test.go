@@ -124,3 +124,65 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 	)
 	assert.Empty(t, sd, sd.String())
 }
+
+// testHTTPTracesNodeManualBackgroundSpan covers the stale-context clear: the
+// app runs a background timer that creates manual spans OUTSIDE any request
+// context ("bg-tick"), overlapping a slow request (/manual-slow). Without the
+// explicit no-request clear emitted by fdextractor's async hook, the kernel
+// context map would still hold the in-flight request's trace context when a
+// background span ends, mis-parenting it into that trace. The request's own
+// manual span ("slow-op") must still re-anchor correctly afterwards.
+func testHTTPTracesNodeManualBackgroundSpan(t *testing.T) {
+	for i := 0; i < 3; i++ {
+		ti.DoHTTPGet(t, "http://localhost:3031/manual-slow", 200)
+	}
+
+	var trace jaeger.Trace
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual-slow")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/manual-slow"})
+		require.NotEmpty(ct, traces)
+		for i := range traces {
+			if len(traces[i].FindByOperationName("slow-op", "internal")) > 0 {
+				trace = traces[i]
+				return
+			}
+		}
+		require.Fail(ct, "no trace with the slow-op manual span yet")
+	}, testTimeout, 100*time.Millisecond)
+
+	// The in-request manual span re-anchors onto the request trace even after
+	// background callbacks cleared the kernel context in between.
+	res := trace.FindByOperationName("slow-op", "internal")
+	require.Len(t, res, 1)
+
+	// Background spans that fired while this request was in flight must NOT be
+	// pulled into its trace: the no-request clear removes the stale context
+	// before they end.
+	assert.Empty(t, trace.FindByOperationName("bg-tick", "internal"),
+		"background span must not be parented into the request trace")
+
+	// The background spans are still captured, on their own traces.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=bg-tick")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NotEmpty(ct, tq.Data, "standalone background spans must still be exported")
+		for i := range tq.Data {
+			assert.Empty(ct, tq.Data[i].FindByOperationName("GET /manual-slow", "server"),
+				"a bg-tick trace must not contain the slow request's server span")
+		}
+	}, testTimeout, 100*time.Millisecond)
+}

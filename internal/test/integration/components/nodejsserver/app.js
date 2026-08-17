@@ -45,6 +45,29 @@ app.get("/manual", (req, res, next) => {
   });
 });
 
+// Background manual spans, deliberately created OUTSIDE any request context:
+// the interval callback runs with no request in its async context. If one
+// fires while a request is still in flight, the kernel-side context map must
+// have been cleared (fdextractor's no-request signal) so the span is NOT
+// re-anchored into that request's trace. unref() keeps the timer from holding
+// the process open.
+setInterval(() => {
+  tracer.startSpan("bg-tick").end();
+}, 100).unref();
+
+// A slow handler that stays in flight long enough for several bg-tick spans
+// to fire in between its callbacks. The timer created INSIDE the handler runs
+// within the request's async context, so slow-op must still re-anchor onto
+// the request trace even after bg-tick callbacks cleared the kernel context.
+app.get("/manual-slow", (req, res) => {
+  setTimeout(() => {
+    tracer.startActiveSpan("slow-op", (s) => {
+      s.end();
+      res.sendStatus(200);
+    });
+  }, 300);
+});
+
 app.get("/greeting", (req, res, next) => {
   res.json("Hello!");
 });

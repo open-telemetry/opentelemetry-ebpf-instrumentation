@@ -142,6 +142,48 @@ func TestReadNodeSpanEventIntoSpan_RootUnderServerSpan(t *testing.T) {
 	assert.Equal(t, "a0a1a2a3a4a5a6a7", span.ParentSpanID.String())
 }
 
+func TestReadNodeSpanEventIntoSpan_ExternalParentFlattened(t *testing.T) {
+	// The app supplied a parent context the bridge does not own (extParent).
+	// Re-anchoring rewrites the trace id to the OBI request trace, so keeping
+	// the external parent span id would export a cross-trace parent reference.
+	// The span must be flattened under the OBI request parent instead.
+	ev := NodeSpanEvent{HasParentCtx: 1, EndKtime: 4_000_000_000}
+	for i := range ev.ParentSpanId {
+		ev.ParentSpanId[i] = uint8(i + 0xa0)
+	}
+	for i := range ev.ParentTraceId {
+		ev.ParentTraceId[i] = uint8(i + 1)
+	}
+
+	payload := `{"v":1,"name":"with-ext-parent","tid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",` +
+		`"sid":"eee19b7ec3c1b174","psid":"bbbbbbbbbbbbbbbb","extParent":true,` +
+		`"durNs":"1000","status":0}`
+
+	span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+	require.NoError(t, err)
+
+	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", span.TraceID.String())
+	assert.Equal(t, "a0a1a2a3a4a5a6a7", span.ParentSpanID.String(),
+		"external parent must be replaced by the OBI request parent when re-anchoring")
+}
+
+func TestReadNodeSpanEventIntoSpan_ExternalParentKeptWithoutRequestContext(t *testing.T) {
+	// With no OBI request context there is no re-anchoring: the span keeps the
+	// external trace id, so honoring the external parent id stays consistent.
+	ev := NodeSpanEvent{EndKtime: 5_000_000_000}
+
+	payload := `{"v":1,"name":"with-ext-parent","tid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",` +
+		`"sid":"eee19b7ec3c1b174","psid":"bbbbbbbbbbbbbbbb","extParent":true,` +
+		`"durNs":"1000","status":0}`
+
+	span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+	require.NoError(t, err)
+
+	assert.Equal(t, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", span.TraceID.String())
+	assert.Equal(t, "bbbbbbbbbbbbbbbb", span.ParentSpanID.String(),
+		"without re-anchoring the external parent is honored as-is")
+}
+
 func TestReadNodeSpanEventIntoSpan_Invalid(t *testing.T) {
 	// malformed JSON
 	ev := NodeSpanEvent{EndKtime: 1}

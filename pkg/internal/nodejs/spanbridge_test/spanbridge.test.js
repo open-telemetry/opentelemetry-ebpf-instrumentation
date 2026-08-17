@@ -94,6 +94,36 @@ test('mixed reachable + unreachable copies: registry-appearance drives the hando
   assert.ok(!r.bridge.includes('after'), 'bridge must stop emitting once the app provider appears in the registry');
 });
 
+test('external parent contexts are flagged; bridge-owned parents are not', () => {
+  // A parent SpanContext the bridge does not own must be flagged extParent so
+  // user space flattens the span under the OBI request parent when re-anchoring
+  // (keeping the external psid would export a cross-trace parent reference).
+  // In-bridge nesting must stay unflagged — its chain survives re-anchoring.
+  const r = runScript('scenario_ext_parent.js');
+  assert.deepStrictEqual(r.names.sort(), ['bridge-child', 'bridge-root', 'orphan', 'with-ext-parent']);
+  assert.strictEqual(r.ext.extParent, true, 'external parent must be flagged extParent');
+  assert.strictEqual(r.ext.psid, 'bbbbbbbbbbbbbbbb', 'external parent span id is carried');
+  assert.strictEqual(r.ext.tid, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'span joins the external trace');
+  assert.strictEqual(r.child.extParent, undefined, 'bridge-owned parent must NOT be flagged');
+  assert.strictEqual(r.child.psid, r.root.sid, 'nested span keeps its in-bridge parent chain');
+  assert.strictEqual(r.root.extParent, undefined, 'root without external parent is unflagged');
+  assert.strictEqual(r.orphan.psid, undefined, 'orphan has no parent id');
+  assert.strictEqual(r.orphan.extParent, undefined, 'orphan is unflagged');
+});
+
+test('multibyte strings truncate on a valid UTF-8 byte boundary', () => {
+  // Attribute keys/values and names are budgeted in UTF-8 BYTES (the Go side
+  // copies into fixed byte arrays). A multibyte character straddling the
+  // budget must be dropped whole, never split into invalid UTF-8.
+  const r = runScript('scenario_multibyte.js');
+  assert.ok(r.keyBytes <= 31, `key must fit its 31-byte budget (got ${r.keyBytes})`);
+  assert.ok(r.keyOK, 'key must be whole characters (15 x é), no split sequence');
+  assert.ok(r.valueBytes <= 127, `value must fit its 127-byte budget (got ${r.valueBytes})`);
+  assert.ok(r.valueOK, 'value must be whole characters (42 x €), no split sequence');
+  assert.ok(r.nameBytes <= 128, `name must fit its 128-byte budget (got ${r.nameBytes})`);
+  assert.ok(r.nameOK, 'name must be whole characters (42 x €), no split sequence');
+});
+
 test('SDK registers after injection: bridge yields and the app SDK takes over', () => {
   const r = runScenario('late-sdk');
   assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-handover span');

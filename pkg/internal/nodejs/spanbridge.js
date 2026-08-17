@@ -67,7 +67,26 @@
     }
   };
 
-  const truncate = (s, max) => (s.length > max ? s.slice(0, max) : s);
+  // Truncate a string to a UTF-8 BYTE budget, never splitting a multi-byte
+  // sequence. The BPF/Go side copies keys/values into fixed byte arrays, so a
+  // UTF-16 code-unit budget (String#length) is wrong twice over: a multi-byte
+  // character can blow the byte budget while passing the unit check, and a cut
+  // inside a sequence would export invalid UTF-8.
+  const truncateUtf8 = (s, maxBytes) => {
+    if (Buffer.byteLength(s, 'utf8') <= maxBytes) return s;
+    const buf = Buffer.from(s, 'utf8');
+    let end = maxBytes;
+    // Find the start of the sequence containing the cut point; drop the
+    // sequence if the cut left it incomplete.
+    let i = end - 1;
+    while (i >= 0 && (buf[i] & 0xc0) === 0x80) i--;
+    if (i >= 0 && buf[i] >= 0x80) {
+      const lead = buf[i];
+      const seqLen = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : 2;
+      if (end - i < seqLen) end = i;
+    }
+    return buf.subarray(0, end).toString('utf8');
+  };
 
   // App-provided values (span names, attribute values, status messages) may be
   // objects whose toString()/Symbol.toPrimitive throws. This code runs inside
@@ -198,10 +217,15 @@
   const hrNs = () => process.hrtime.bigint();
 
   class Span {
-    constructor(name, kind, parentSpanContext) {
+    constructor(name, kind, parentSpanContext, extParent) {
       this.name = safeStr(name);
       this.kind = kind ?? 0;
       this._parent = parentSpanContext;
+      // True when the parent context came from a span the bridge does not own
+      // (an app/remote SpanContext). User space must not keep such a parent id
+      // while re-anchoring the span onto the OBI request trace — that would
+      // export a cross-trace parent reference.
+      this._extParent = !!(parentSpanContext && extParent);
       this._spanContext = {
         traceId: parentSpanContext
           ? parentSpanContext.traceId
@@ -280,13 +304,13 @@
       for (const [rawKey, value] of Object.entries(this.attributes)) {
         if (count >= MAX_ATTRS) break;
         count++;
-        const key = truncate(rawKey, MAX_ATTR_KEY_LEN);
+        const key = truncateUtf8(rawKey, MAX_ATTR_KEY_LEN);
         if (typeof value === 'string') {
-          out[key] = truncate(value, MAX_ATTR_VALUE_LEN);
+          out[key] = truncateUtf8(value, MAX_ATTR_VALUE_LEN);
         } else if (typeof value === 'number' || typeof value === 'boolean') {
           out[key] = value;
         } else {
-          out[key] = truncate(safeStr(value), MAX_ATTR_VALUE_LEN);
+          out[key] = truncateUtf8(safeStr(value), MAX_ATTR_VALUE_LEN);
         }
       }
       return out;
@@ -294,15 +318,16 @@
     _emit(durNs) {
       const rec = {
         v: 1,
-        name: truncate(this.name, MAX_NAME_LEN),
+        name: truncateUtf8(this.name, MAX_NAME_LEN),
         tid: this._spanContext.traceId,
         sid: this._spanContext.spanId,
         psid: this._parent ? this._parent.spanId : undefined,
+        extParent: this._extParent ? true : undefined,
         kind: this.kind,
         startNs: this._startWallNs.toString(),
         durNs: durNs.toString(),
         status: this.status.code,
-        statusMsg: this.status.message ? truncate(safeStr(this.status.message), MAX_STATUS_MSG_LEN) : undefined,
+        statusMsg: this.status.message ? truncateUtf8(safeStr(this.status.message), MAX_STATUS_MSG_LEN) : undefined,
         attrs: this._serializeAttributes(),
       };
       let payload = JSON.stringify(rec);
@@ -366,16 +391,18 @@
       const ctx = context ?? contextManager.active();
       const opts = options ?? {};
       let parent;
+      let extParent = false;
       if (opts.root !== true) {
         const parentSpan = ctx.getValue(SPAN_KEY);
         if (parentSpan && typeof parentSpan.spanContext === 'function') {
           const sc = parentSpan.spanContext();
           if (sc && typeof sc.traceId === 'string' && /^[0-9a-f]{32}$/.test(sc.traceId)) {
             parent = sc;
+            extParent = !(parentSpan instanceof Span);
           }
         }
       }
-      const span = new Span(name, opts.kind, parent);
+      const span = new Span(name, opts.kind, parent, extParent);
       span._scope = this._scope;
       if (opts.attributes) span.setAttributes(opts.attributes);
       return span;

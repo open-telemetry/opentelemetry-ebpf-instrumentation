@@ -29,6 +29,7 @@ type nodeSpanRecord struct {
 	TraceID   string         `json:"tid"`
 	SpanID    string         `json:"sid"`
 	ParentID  string         `json:"psid"`
+	ExtParent bool           `json:"extParent"`
 	Kind      int            `json:"kind"`
 	StartNs   string         `json:"startNs"`
 	DurNs     string         `json:"durNs"`
@@ -104,8 +105,13 @@ func ReadNodeSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, erro
 		traceID = tid
 	}
 	// An in-bridge parent (nested manual span) wins over the request context:
-	// its own root is the one anchored to the automatic span.
-	if rec.ParentID != "" {
+	// its own root is the one anchored to the automatic span. An EXTERNAL
+	// parent (the app supplied a parent context the bridge does not own) is
+	// honored only when there is no OBI request context: re-anchoring rewrites
+	// the trace ID, so keeping the external parent span id would export a
+	// parent reference into a different trace. In that case the span is
+	// flattened under the OBI request parent instead.
+	if rec.ParentID != "" && !(rec.ExtParent && event.HasParentCtx != 0) {
 		if psid, err := parseSpanID(rec.ParentID); err == nil {
 			parentSpanID = psid
 		}
