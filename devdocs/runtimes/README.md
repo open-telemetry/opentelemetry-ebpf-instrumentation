@@ -10,3 +10,5 @@ services without requiring runtime SDK changes in the target process.
   metrics.
 - [JVM](jvm.md): HotSpot memory-pool probes for JVM memory
   metrics.
+- [Node.js](nodejs.md): event-loop metrics reported by the injected OBI agent
+  over a BPF side channel.

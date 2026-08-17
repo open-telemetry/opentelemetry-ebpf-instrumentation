@@ -52,8 +52,9 @@ type RuntimeMetrics struct {
 	provider            *metric.MeterProvider
 	goHistogramProducer *goRuntimeHistogramProducer
 
-	goMetrics  goRuntimeMetrics
-	jvmMetrics jvmRuntimeMetrics
+	goMetrics     goRuntimeMetrics
+	jvmMetrics    jvmRuntimeMetrics
+	nodejsMetrics nodejsRuntimeMetrics
 }
 
 type goRuntimeMetrics struct {
@@ -207,6 +208,9 @@ func setupRuntimeMeters(
 		return err
 	}
 	if err := setupJVMRuntimeMeters(metrics.ctx, &metrics.jvmMetrics, meter, ttl); err != nil {
+		return err
+	}
+	if err := setupNodejsRuntimeMeters(metrics.ctx, &metrics.nodejsMetrics, meter, ttl); err != nil {
 		return err
 	}
 	return nil
@@ -364,6 +368,12 @@ func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot
 			return
 		}
 		metrics.jvmMetrics.record(snapshot)
+	}
+	if snapshot.Nodejs != nil {
+		if !snapshot.Service.ExportModes.CanExportMetrics() || !snapshot.Service.Features.AppRuntime() {
+			return
+		}
+		metrics.nodejsMetrics.record(snapshot)
 	}
 }
 

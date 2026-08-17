@@ -189,6 +189,17 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 	})
 
+	// nodejs_runtime_metrics_enabled only gates the decode path in nodejs.c,
+	// which shares no code with the constants above except the debug and
+	// traceparent machinery — a dedicated small matrix keeps the nodejs path
+	// verified in both states without doubling the full generictracer
+	// cross-product.
+	forEachCombination(t, "generictracer/BpfNodejs", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true, false}},
+		{"nodejs_runtime_metrics_enabled", []any{uint64(0), uint64(1)}},
+	})
+
 	// gotracer
 	forEachCombination(t, "gotracer/Bpf", gotracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
