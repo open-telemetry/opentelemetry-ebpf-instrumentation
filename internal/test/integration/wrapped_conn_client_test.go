@@ -21,8 +21,12 @@ import (
 // enough scrapes that a per-request failure rate of a few percent shows up every run
 const minWrappedConnTraces = 200
 
+const minWrappedTLSConnTraces = 5
+
 // OBI names the service after the executable, there being no k8s metadata here
 const wrappedConnService = "vmagent-prod"
+
+const wrappedTLSConnService = "httppinger"
 
 // TestWrappedConnClientSpans covers a Go client whose net.Conn is wrapped by a struct
 // that does not hold the connection as its first field, so it cannot be read off the
@@ -30,20 +34,28 @@ const wrappedConnService = "vmagent-prod"
 // reports a request the Go uprobes already reported, leaving two parentless client
 // spans for the same call.
 func TestWrappedConnClientSpans(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-wrapped-conn.yml", path.Join(pathOutput, "test-suite-wrapped-conn.log"))
+	assertWrappedClientSpans(t, "docker-compose-wrapped-conn.yml", wrappedConnService, minWrappedConnTraces)
+}
+
+func TestWrappedTLSConnClientSpans(t *testing.T) {
+	assertWrappedClientSpans(t, "docker-compose-wrapped-tls-conn.yml", wrappedTLSConnService, minWrappedTLSConnTraces)
+}
+
+func assertWrappedClientSpans(t *testing.T, composeFile, service string, minTraces int) {
+	compose, err := docker.ComposeSuite(composeFile, path.Join(pathOutput, "test-suite-"+service+".log"))
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	var traces []jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + wrappedConnService + "&limit=1500")
+		resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&limit=1500")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		require.GreaterOrEqualf(ct, len(tq.Data), minWrappedConnTraces,
-			"need at least %d scrape traces before judging duplication", minWrappedConnTraces)
+		require.GreaterOrEqualf(ct, len(tq.Data), minTraces,
+			"need at least %d request traces before judging duplication", minTraces)
 		traces = tq.Data
 	}, 3*time.Minute, time.Second)
 

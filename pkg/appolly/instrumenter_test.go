@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -189,6 +190,84 @@ func TestTracerPipeline(t *testing.T) {
 	matchInnerTraceEvent(t, "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchTraceEvent(t, "GET", event)
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestInstrumentationFilterPreservesUnfilteredSQLChild(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+
+	tc, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	httpPort := 8787
+	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	gb := newGraphBuilder(&obi.Config{
+		Traces: otelcfg.TracesConfig{
+			BatchTimeout:      10 * time.Millisecond,
+			BatchMaxSize:      10,
+			QueueSize:         40,
+			TracesEndpoint:    tc.ServerEndpoint,
+			ReportersCacheLen: 16,
+			Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		},
+		Filters: filter.AttributesConfig{
+			ApplicationByInstrumentation: filter.InstrumentationAttributeFamilyConfig{
+				instrumentations.InstrumentationHTTP: {
+					Traces: filter.AttributeFamilyConfig{
+						"server.port": {Equals: &httpPort},
+					},
+				},
+			},
+		},
+		Attributes: obi.Attributes{InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
+	}, gctx(0, nil), tracesInput, processEvents, nil)
+
+	traceID := trace.TraceID{1}
+	httpSpanID := trace.SpanID{1}
+	service := svc.Attrs{
+		HostName:    "the-host",
+		UID:         svc.UID{Namespace: "ns", Name: "checkout"},
+		SDKLanguage: svc.InstrumentableGolang,
+	}
+	tracesInput.Send([]request.Span{
+		{
+			Type: request.EventTypeHTTP, Method: http.MethodGet, Path: "/checkout", HostPort: httpPort,
+			Status: http.StatusOK, RequestStart: 1, Start: 1, End: 2, Service: service,
+			TraceID: traceID, SpanID: httpSpanID,
+		},
+		{
+			Type: request.EventTypeSQLClient, Method: "SELECT", Path: "orders", HostPort: 5432,
+			RequestStart: 2, Start: 2, End: 3, Service: service,
+			TraceID: traceID, SpanID: trace.SpanID{2}, ParentSpanID: httpSpanID,
+		},
+		{
+			Type: request.EventTypeHTTP, Method: http.MethodDelete, Path: "/admin", HostPort: 9999,
+			Status: http.StatusOK, RequestStart: 1, Start: 1, End: 2, Service: service,
+			TraceID: trace.TraceID{2}, SpanID: trace.SpanID{3},
+		},
+	})
+
+	pipe, err := gb.buildGraph(ctx)
+	require.NoError(t, err)
+	done := pipe.Start(ctx)
+
+	got := map[string]collector.TraceRecord{}
+	for range 2 {
+		event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
+		got[event.Name] = event
+	}
+	require.Contains(t, got, "GET")
+	require.Contains(t, got, "SELECT orders")
+	assert.Equal(t, httpSpanID.String(), got["SELECT orders"].Attributes["parent_span_id"])
+
+	select {
+	case event := <-tc.TraceRecords():
+		t.Fatalf("unexpected trace record %q", event.Name)
+	case <-time.After(200 * time.Millisecond):
+	}
 
 	cancel()
 	require.NoError(t, <-done)

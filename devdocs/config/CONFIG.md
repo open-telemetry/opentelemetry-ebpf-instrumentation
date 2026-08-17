@@ -490,7 +490,7 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `nodejs.enabled` | `boolean` | `OTEL_EBPF_NODEJS_ENABLED` | `true` |  |  |  |
+| `nodejs.enabled` | `boolean` | `OTEL_EBPF_NODEJS_ENABLED` | `true` |  |  | Turns on the Node.js injector agent, used for trace-context propagation and runtime metrics. Setting it to false disables the injection entirely, runtime metrics included. |
 | `nodejs.manual_spans` | `boolean` | `OTEL_EBPF_NODEJS_MANUAL_SPANS` | `false` |  |  | Injects the span bridge (spanbridge.js) into Node.js processes, capturing spans the application creates through the OpenTelemetry API when no OpenTelemetry SDK is registered. |
 
 ## `otel_metrics_export`

@@ -300,14 +300,7 @@ func (i *NodeInjector) injectViaConn(conn net.Conn) error {
 
 	i.log.Debug("found debugger url", "url", wsURL)
 
-	// Each agent script is a self-contained IIFE. Join with an explicit ';'
-	// so the next script's leading '(' is not parsed as a call of the
-	// previous IIFE's return value.
-	script := _extractorCode
-	if i.cfg.NodeJS.ManualSpans {
-		script += ";\n" + _spanBridgeCode
-	}
-	payload, err := evaluateRequest(script, 1)
+	payload, err := evaluateRequest(i.agentCode(), 1)
 	if err != nil {
 		conn.Close()
 		return err
