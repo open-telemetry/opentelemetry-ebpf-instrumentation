@@ -111,7 +111,7 @@ func ReadNodeSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, erro
 	// the trace ID, so keeping the external parent span id would export a
 	// parent reference into a different trace. In that case the span is
 	// flattened under the OBI request parent instead.
-	if rec.ParentID != "" && !(rec.ExtParent && event.HasParentCtx != 0) {
+	if rec.ParentID != "" && (!rec.ExtParent || event.HasParentCtx == 0) {
 		if psid, err := parseSpanID(rec.ParentID); err == nil {
 			parentSpanID = psid
 		}
