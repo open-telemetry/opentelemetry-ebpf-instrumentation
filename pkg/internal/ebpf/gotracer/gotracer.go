@@ -1246,7 +1246,7 @@ func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offs
 	heapMetricsEnabled := mask&goRuntimeMetricHeapSnapshotMask != 0
 	nextGenResolved := false
 	if offsets != nil {
-		_, nextGenResolved = offsets.Funcs[goRuntimeMetricHeapSnapshotSymbol]
+		nextGenResolved = len(offsets.Funcs[goRuntimeMetricHeapSnapshotSymbol]) > 0
 	}
 
 	if !supportsStableHeapSnapshotVersion {
@@ -1303,7 +1303,7 @@ func selectGoRuntimeGCGoalSource(
 	if hasGoRuntimeMetricOffsets(offsets, goexec.RuntimeGCControllerHeapGoalPos) {
 		return goRuntimeGCGoalSourceHeapGoalField
 	}
-	if _, ok := offsets.Funcs[goRuntimeMetricGCGoalSymbol]; ok && goalArgumentSupported {
+	if len(offsets.Funcs[goRuntimeMetricGCGoalSymbol]) > 0 && goalArgumentSupported {
 		return goRuntimeGCGoalSourcePaceScavengerArgument
 	}
 	return goRuntimeGCGoalSourceNone

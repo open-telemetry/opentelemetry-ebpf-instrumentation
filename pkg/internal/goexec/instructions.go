@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
@@ -56,7 +57,7 @@ func isSupportedGoBinary(elfF *elf.File) error {
 
 // instrumentationPoints loads the provided executable and looks for the addresses
 // where the start and return probes must be inserted.
-func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncOffsets, error) {
+func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]FuncOffsets, error) {
 	ilog := slog.With("component", "goexec.instructions")
 	ilog.Debug("searching for instrumentation points", "functions", funcNames)
 	functions := map[string]struct{}{}
@@ -75,45 +76,53 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string]FuncO
 
 	gosyms := elfF.Section(".gosymtab")
 
-	var allSyms map[string]procs.Sym
+	type functionCandidate struct {
+		requestedName string
+		function      gosym.Func
+	}
+	candidates := make([]functionCandidate, 0)
+	for _, f := range symTab.Funcs {
+		requestedName, _, ok := requestedFunctionName(f.Name, functions)
+		if ok {
+			candidates = append(candidates, functionCandidate{requestedName: requestedName, function: f})
+		}
+	}
 
 	// no go symbols in the executable, maybe it's statically linked
 	// find regular elf symbols
+	var allSyms map[string]procs.Sym
 	if gosyms == nil {
-		allSyms, _ = procs.FindExeSymbols(elfF, funcNames)
+		symbolNames := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			symbolNames = append(symbolNames, candidate.function.Name)
+		}
+		allSyms, _ = procs.FindExeSymbols(elfF, symbolNames)
 	}
 
-	// Prefer usable offsets from exact requested names over vendor aliases,
-	// regardless of symbol-table traversal order. At the same priority, keep the
-	// first usable offset found.
-	allOffsets := map[string]FuncOffsets{}
-	selectedIsExact := map[string]bool{}
-	for _, f := range symTab.Funcs {
-		fName, isExact, ok := requestedFunctionName(f.Name, functions)
-		if ok {
-			if selectedIsExact[fName] && !isExact {
-				continue
-			}
+	allOffsets := map[string][]FuncOffsets{}
+	for _, candidate := range candidates {
+		f := candidate.function
+		var offs FuncOffsets
+		var found bool
 
-			// when we don't have a Go symbol table, the executable is statically linked, we don't look for offsets
-			// using the gosym tab, we lookup offsets just like a regular elf file.
-			// we still need to find the return statements, since go linkage is non-standard we can't use uretprobe
-			if gosyms == nil && len(allSyms) > 0 {
-				offs, found := staticSymbolOffsets(fName, allSyms, ilog)
-				if found {
-					storeFunctionOffset(allOffsets, selectedIsExact, fName, offs, isExact)
-				}
-				continue
-			}
-
-			offs, ok, err := findFuncOffset(&f, elfF)
+		// when we don't have a Go symbol table, the executable is statically linked, we don't look for offsets
+		// using the gosym tab, we lookup offsets just like a regular elf file.
+		// we still need to find the return statements, since go linkage is non-standard we can't use uretprobe
+		if gosyms == nil && len(allSyms) > 0 {
+			offs, found = staticSymbolOffsets(f.Name, allSyms, ilog)
+		}
+		if !found {
+			var err error
+			offs, found, err = findFuncOffset(&f, elfF)
 			if err != nil {
 				return nil, err
 			}
-			if ok {
-				ilog.Debug("found relevant function for instrumentation", "function", fName, "offsets", offs)
-				storeFunctionOffset(allOffsets, selectedIsExact, fName, offs, isExact)
-			}
+		}
+		if found {
+			offs.Symbol = f.Name
+			ilog.Debug("found relevant function for instrumentation", "function", candidate.requestedName,
+				"matched_symbol", f.Name, "offsets", offs)
+			storeFunctionOffset(allOffsets, candidate.requestedName, offs)
 		}
 	}
 
@@ -135,18 +144,45 @@ func requestedFunctionName(rawName string, functions map[string]struct{}) (strin
 }
 
 func storeFunctionOffset(
-	allOffsets map[string]FuncOffsets,
-	selectedIsExact map[string]bool,
+	allOffsets map[string][]FuncOffsets,
 	fName string,
 	offs FuncOffsets,
-	isExact bool,
 ) {
-	if previousIsExact, found := selectedIsExact[fName]; found && (previousIsExact || !isExact) {
+	offs.Returns = sortedUniqueOffsets(offs.Returns)
+	for index, existing := range allOffsets[fName] {
+		if existing.Start != offs.Start {
+			continue
+		}
+
+		existing.Returns = sortedUniqueOffsets(append(existing.Returns, offs.Returns...))
+		if offs.Symbol == fName || (existing.Symbol != fName && offs.Symbol < existing.Symbol) {
+			existing.Symbol = offs.Symbol
+		}
+		allOffsets[fName][index] = existing
+		sortFunctionOffsets(allOffsets[fName])
 		return
 	}
 
-	allOffsets[fName] = offs
-	selectedIsExact[fName] = isExact
+	allOffsets[fName] = append(allOffsets[fName], offs)
+	sortFunctionOffsets(allOffsets[fName])
+}
+
+func sortedUniqueOffsets(offsets []uint64) []uint64 {
+	offsets = append([]uint64(nil), offsets...)
+	slices.Sort(offsets)
+	return slices.Compact(offsets)
+}
+
+func sortFunctionOffsets(offsets []FuncOffsets) {
+	slices.SortFunc(offsets, func(a, b FuncOffsets) int {
+		if a.Start < b.Start {
+			return -1
+		}
+		if a.Start > b.Start {
+			return 1
+		}
+		return strings.Compare(a.Symbol, b.Symbol)
+	})
 }
 
 func staticSymbolOffsets(fName string, allSyms map[string]procs.Sym, ilog *slog.Logger) (FuncOffsets, bool) {
