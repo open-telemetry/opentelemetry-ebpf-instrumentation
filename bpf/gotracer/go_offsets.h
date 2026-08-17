@@ -156,6 +156,9 @@ typedef enum {
     _runtime_sched_stw_total_time_gc_pos,
     _runtime_time_histogram_underflow_pos,
     _runtime_time_histogram_overflow_pos,
+    _mongo_deployment_pos,
+    _mongo_topology_cfg_pos,
+    _mongo_config_seedlist_pos,
     _last_go_offset,
 } go_offset_const;
 

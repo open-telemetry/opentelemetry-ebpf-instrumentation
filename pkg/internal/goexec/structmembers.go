@@ -229,6 +229,12 @@ const (
 	RuntimeSchedSTWTotalTimeGCPos
 	RuntimeTimeHistogramUnderflowPos
 	RuntimeTimeHistogramOverflowPos
+	// go mongodb topology. Appended here, and not next to the other mongodb
+	// offsets, because the values are positional and must keep matching
+	// go_offset_const in go_offsets.h
+	MongoDeploymentPos
+	MongoTopologyCfgPos
+	MongoConfigSeedListPos
 )
 
 //go:embed offsets.json
@@ -578,8 +584,29 @@ var structMembers = map[string]structInfo{
 	"go.mongodb.org/mongo-driver/x/mongo/driver.Operation": {
 		lib: "go.mongodb.org/mongo-driver",
 		fields: map[string]GoOffset{
-			"Name":     MongoOpNamePos,
-			"Database": MongoOpDBPos,
+			"Name":       MongoOpNamePos,
+			"Database":   MongoOpDBPos,
+			"Deployment": MongoDeploymentPos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology.Topology": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"cfg": MongoTopologyCfgPos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology.Config": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"SeedList": MongoConfigSeedListPos,
+		},
+	},
+	// the topology configuration was unexported up to driver v1.10.6, and is
+	// only reachable through DWARF: offsets.json tracks the exported spelling
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology.config": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"seedList": MongoConfigSeedListPos,
 		},
 	},
 	"go.mongodb.org/mongo-driver/v2/mongo.Collection": {
@@ -591,8 +618,21 @@ var structMembers = map[string]structInfo{
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": {
 		lib: "go.mongodb.org/mongo-driver",
 		fields: map[string]GoOffset{
-			"Name":     MongoOpNamePos,
-			"Database": MongoOpDBPos,
+			"Name":       MongoOpNamePos,
+			"Database":   MongoOpDBPos,
+			"Deployment": MongoDeploymentPos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Topology": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"cfg": MongoTopologyCfgPos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Config": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"SeedList": MongoConfigSeedListPos,
 		},
 	},
 	"database/sql.driverConn": {

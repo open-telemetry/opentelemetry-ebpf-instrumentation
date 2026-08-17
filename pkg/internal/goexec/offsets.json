@@ -418,7 +418,7 @@
       "name": {
         "versions": {
           "oldest": "2.0.1",
-          "newest": "2.7.0"
+          "newest": "2.8.0"
         },
         "offsets": [
           {
@@ -432,7 +432,7 @@
       "Database": {
         "versions": {
           "oldest": "2.0.1",
-          "newest": "2.7.0"
+          "newest": "2.8.0"
         },
         "offsets": [
           {
@@ -441,10 +441,22 @@
           }
         ]
       },
+      "Deployment": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.8.0"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "2.0.1"
+          }
+        ]
+      },
       "Name": {
         "versions": {
           "oldest": "2.0.1",
-          "newest": "2.7.0"
+          "newest": "2.8.0"
         },
         "offsets": [
           {
@@ -462,6 +474,34 @@
         ]
       }
     },
+    "go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Config": {
+      "SeedList": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.8.0"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "2.0.1"
+          }
+        ]
+      }
+    },
+    "go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Topology": {
+      "cfg": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.8.0"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "2.0.1"
+          }
+        ]
+      }
+    },
     "go.mongodb.org/mongo-driver/x/mongo/driver.Operation": {
       "Database": {
         "versions": {
@@ -471,6 +511,18 @@
         "offsets": [
           {
             "offset": 8,
+            "since": "1.10.1"
+          }
+        ]
+      },
+      "Deployment": {
+        "versions": {
+          "oldest": "1.10.1",
+          "newest": "1.17.9"
+        },
+        "offsets": [
+          {
+            "offset": 24,
             "since": "1.10.1"
           }
         ]
@@ -492,20 +544,30 @@
         ]
       }
     },
-    "go.opentelemetry.io/otel/internal/global.tracer": {
-      "delegate": {
+    "go.mongodb.org/mongo-driver/x/mongo/driver/topology.Config": {
+      "SeedList": {
         "versions": {
-          "oldest": "1.10.0",
-          "newest": "1.44.0"
+          "oldest": "1.11.3",
+          "newest": "1.17.9"
         },
         "offsets": [
           {
-            "offset": 48,
-            "since": "1.10.0"
-          },
+            "offset": 24,
+            "since": "1.11.3"
+          }
+        ]
+      }
+    },
+    "go.mongodb.org/mongo-driver/x/mongo/driver/topology.Topology": {
+      "cfg": {
+        "versions": {
+          "oldest": "1.10.1",
+          "newest": "1.17.9"
+        },
+        "offsets": [
           {
-            "offset": 64,
-            "since": "1.20.0"
+            "offset": 8,
+            "since": "1.10.1"
           }
         ]
       }
@@ -520,6 +582,24 @@
           {
             "offset": 80,
             "since": "1.1.0"
+          }
+        ]
+      }
+    },
+    "go.opentelemetry.io/otel/internal/global.tracer": {
+      "delegate": {
+        "versions": {
+          "oldest": "1.10.0",
+          "newest": "1.44.0"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.10.0"
+          },
+          {
+            "offset": 64,
+            "since": "1.20.0"
           }
         ]
       }
@@ -1358,20 +1438,6 @@
         ]
       }
     },
-    "runtime.gList": {
-      "size": {
-        "versions": {
-          "oldest": "1.25.0",
-          "newest": "1.26.5"
-        },
-        "offsets": [
-          {
-            "offset": 8,
-            "since": "1.25.0"
-          }
-        ]
-      }
-    },
     "runtime.consistentHeapStats": {
       "stats": {
         "versions": {
@@ -1480,6 +1546,20 @@
           {
             "offset": 72,
             "since": "1.23.0"
+          }
+        ]
+      }
+    },
+    "runtime.gList": {
+      "size": {
+        "versions": {
+          "oldest": "1.25.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.25.0"
           }
         ]
       }

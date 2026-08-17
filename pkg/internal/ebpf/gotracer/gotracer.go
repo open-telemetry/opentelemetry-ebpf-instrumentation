@@ -594,6 +594,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MongoOpNamePos,
 		goexec.MongoOpDBPos,
 		goexec.MongoOneThirteenOne,
+		goexec.MongoDeploymentPos,
+		goexec.MongoTopologyCfgPos,
+		goexec.MongoConfigSeedListPos,
 		// database/sql stdlib
 		goexec.DriverConnCiPos,
 		// lib/pq driver

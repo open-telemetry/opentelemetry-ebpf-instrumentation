@@ -191,8 +191,11 @@
       "go.mongodb.org/mongo-driver/mongo.Collection": ["name"],
       "go.mongodb.org/mongo-driver/x/mongo/driver.Operation": [
         "Name",
-        "Database"
-      ]
+        "Database",
+        "Deployment"
+      ],
+      "go.mongodb.org/mongo-driver/x/mongo/driver/topology.Topology": ["cfg"],
+      "go.mongodb.org/mongo-driver/x/mongo/driver/topology.Config": ["[1.11.0]SeedList"]
     }
   },
   "go.mongodb.org/mongo-driver/v2": {
@@ -202,8 +205,11 @@
       "go.mongodb.org/mongo-driver/v2/mongo.Collection": ["name"],
       "go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": [
         "Name",
-        "Database"
-      ]
+        "Database",
+        "Deployment"
+      ],
+      "go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Topology": ["cfg"],
+      "go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Config": ["SeedList"]
     }
   },
   "github.com/gorilla/mux": {
