@@ -1674,6 +1674,12 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"golang.org/x/net/http2.(*responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
+		"golang.org/x/net/http2.(*ClientConn).writeHeaders": {{
+			Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders,
+		}},
+		"net/http.(*http2ClientConn).writeHeaders": {{
+			Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored,
+		}},
 		"golang.org/x/net/http2.(*responseWriterState).writeHeader": {{ // http2 server request done, capture the response code
 			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
 		}},
@@ -1776,6 +1782,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"google.golang.org/grpc.(*clientStream).CloseSend": {{
 			End: p.bpfObjects.ObiUprobeClientConnInvokeReturn,
+		}},
+		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream": {{
+			Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream,
+			End:   p.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns,
 		}},
 		"google.golang.org/grpc/internal/transport.(*http2Server).operateHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerOperateHeaders,
@@ -2102,11 +2112,11 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 	groups := []ebpfcommon.GoProbeGroup{
 		{
 			Name:             "go_http2_xnet_ownership",
+			Prerequisites:    []string{"golang.org/x/net/http2.(*ClientConn).writeHeaders"},
 			PrerequisitesAny: []string{xnetRoundTrip, xnetRoundTripNew},
 			Probes: []ebpfcommon.GoProbe{
 				{Symbol: "golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeHeaders, End: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeHeadersReturns}},
 				{Symbol: "golang.org/x/net/http2.(*ClientConn).writeHeader", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientWriteHeader}},
-				{Symbol: "golang.org/x/net/http2.(*ClientConn).writeHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders}},
 				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGolangHttp2FramerWriteHeaders, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
 				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePadding, UsePadStart: true}},
 				{Symbol: grpcContinuation, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuation, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
@@ -2116,12 +2126,11 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 		},
 		{
 			Name:          "go_http2_xnet_legacy_ownership",
-			Prerequisites: []string{xnetRoundTrip},
+			Prerequisites: []string{xnetRoundTrip, "golang.org/x/net/http2.(*ClientConn).writeHeaders"},
 			Conflicts:     []string{"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders"},
 			Probes: []ebpfcommon.GoProbe{
 				{Symbol: xnetEncodeOld, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientConnEncodeHeaders}},
 				{Symbol: "golang.org/x/net/http2.(*ClientConn).writeHeader", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientWriteHeader}},
-				{Symbol: "golang.org/x/net/http2.(*ClientConn).writeHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders}},
 				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGolangHttp2FramerWriteHeaders, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
 				{Symbol: grpcFramer, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePadding, UsePadStart: true}},
 				{Symbol: grpcContinuation, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuation, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
@@ -2131,11 +2140,10 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 		},
 		{
 			Name:          "go_http2_stdlib_ownership",
-			Prerequisites: []string{stdlibRoundTrip},
+			Prerequisites: []string{stdlibRoundTrip, "net/http.(*http2ClientConn).writeHeaders"},
 			Probes: []ebpfcommon.GoProbe{
 				{Symbol: "net/http.(*http2clientStream).encodeAndWriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeHeaders, End: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeHeadersReturns}},
 				{Symbol: "net/http.(*http2ClientConn).writeHeader", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientWriteHeader}},
-				{Symbol: "net/http.(*http2ClientConn).writeHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored}},
 				{Symbol: "net/http.(*http2Framer).WriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
 				{Symbol: "net/http.(*http2Framer).WriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePaddingVendored, UsePadStart: true}},
 				{Symbol: "net/http.(*http2Framer).WriteContinuation", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuationVendored, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
@@ -2145,12 +2153,11 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 		},
 		{
 			Name:          "go_http2_stdlib_legacy_ownership",
-			Prerequisites: []string{stdlibRoundTrip},
+			Prerequisites: []string{stdlibRoundTrip, "net/http.(*http2ClientConn).writeHeaders"},
 			Conflicts:     []string{"net/http.(*http2clientStream).encodeAndWriteHeaders"},
 			Probes: []ebpfcommon.GoProbe{
 				{Symbol: stdlibEncodeOld, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientConnEncodeHeaders}},
 				{Symbol: "net/http.(*http2ClientConn).writeHeader", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2ClientWriteHeader}},
-				{Symbol: "net/http.(*http2ClientConn).writeHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored}},
 				{Symbol: "net/http.(*http2Framer).WriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
 				{Symbol: "net/http.(*http2Framer).WriteHeaders", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGoH2ReservePaddingVendored, UsePadStart: true}},
 				{Symbol: "net/http.(*http2Framer).WriteContinuation", Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuationVendored, End: p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns}},
@@ -2163,9 +2170,8 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 	grpcCommon := func(handler string, handlerStart *ebpf.Program) ebpfcommon.GoProbeGroup {
 		return ebpfcommon.GoProbeGroup{
 			Name:          "go_grpc_ownership_" + handler,
-			Prerequisites: []string{grpcInvoke, grpcNewStream},
+			Prerequisites: []string{grpcInvoke, grpcNewStream, grpcTransportStream},
 			Probes: []ebpfcommon.GoProbe{
-				{Symbol: grpcTransportStream, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream, End: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns}},
 				{Symbol: grpcExecuteAndPut, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGrpcControlBufferExecuteAndPut, End: p.bpfObjects.ObiUprobeGrpcControlBufferExecuteAndPutReturns}},
 				{Symbol: handler, Probe: &ebpfcommon.ProbeDesc{Start: handlerStart, End: p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandlerReturns}},
 				{Symbol: grpcHpackWriteField, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeGrpcHpackEncoderWriteField}},

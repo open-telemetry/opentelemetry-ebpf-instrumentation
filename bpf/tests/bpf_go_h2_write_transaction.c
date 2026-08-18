@@ -45,7 +45,6 @@ static long test_probe_write_user(void *dst, const void *src, unsigned int size)
 
 #define bpf_probe_read_user test_probe_read_user
 #define bpf_probe_write_user test_probe_write_user
-#define bpf_memset memset
 #undef SCRATCH_MEM_SIZED
 #define SCRATCH_MEM_SIZED(NAME, SIZE)                                                              \
     static unsigned char NAME##_storage[SIZE];                                                     \
@@ -55,7 +54,6 @@ static long test_probe_write_user(void *dst, const void *src, unsigned int size)
 #include <gotracer/go_h2_write.h>
 #undef bpf_probe_read_user
 #undef bpf_probe_write_user
-#undef bpf_memset
 
 struct writer {
     s64 n;

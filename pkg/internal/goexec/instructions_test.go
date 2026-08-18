@@ -253,7 +253,8 @@ func main() { _ = frame.endWrite() }
 	file, err := elf.Open(binaryPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, file.Close()) })
-	require.Nil(t, file.Section(".gosymtab"))
+	goSymbols := file.Section(".gosymtab")
+	require.True(t, goSymbols == nil || goSymbols.Size == 0)
 	require.NotNil(t, file.Section(".symtab"))
 
 	const symbol = "main.(*Framer).endWrite"

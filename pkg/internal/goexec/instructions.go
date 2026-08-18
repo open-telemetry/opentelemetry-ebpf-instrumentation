@@ -75,6 +75,7 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]Fun
 	}
 
 	gosyms := elfF.Section(".gosymtab")
+	hasGoSymbols := gosyms != nil && gosyms.Size > 0
 
 	type functionCandidate struct {
 		requestedName string
@@ -91,7 +92,7 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]Fun
 	// no go symbols in the executable, maybe it's statically linked
 	// find regular elf symbols
 	var allSyms map[string]procs.Sym
-	if gosyms == nil {
+	if !hasGoSymbols {
 		symbolNames := make([]string, 0, len(candidates))
 		for _, candidate := range candidates {
 			symbolNames = append(symbolNames, candidate.function.Name)
@@ -108,7 +109,7 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]Fun
 		// when we don't have a Go symbol table, the executable is statically linked, we don't look for offsets
 		// using the gosym tab, we lookup offsets just like a regular elf file.
 		// we still need to find the return statements, since go linkage is non-standard we can't use uretprobe
-		if gosyms == nil && len(allSyms) > 0 {
+		if !hasGoSymbols && len(allSyms) > 0 {
 			offs, found = staticSymbolOffsets(f.Name, allSyms, ilog)
 			if found && (isFramerEndWrite(f.Name) || isFramerWriteHeaders(f.Name)) {
 				goOffsets, goFound, err := findFuncOffset(&f, elfF)

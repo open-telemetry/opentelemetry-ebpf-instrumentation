@@ -552,22 +552,22 @@ func TestGoH2OwnershipProbeGroupsAreComplete(t *testing.T) {
 	require.Len(t, groups, 6)
 	assert.Equal(t, "go_http2_xnet_ownership", groups[0].Name)
 	assert.Len(t, groups[0].PrerequisitesAny, 2)
-	assert.Len(t, groups[0].Probes, 8)
+	assert.Len(t, groups[0].Probes, 7)
 	assert.Equal(t, "go_http2_xnet_legacy_ownership", groups[1].Name)
-	assert.Len(t, groups[1].Prerequisites, 1)
+	assert.Len(t, groups[1].Prerequisites, 2)
 	assert.Len(t, groups[1].Conflicts, 1)
-	assert.Len(t, groups[1].Probes, 8)
+	assert.Len(t, groups[1].Probes, 7)
 	assert.Equal(t, "go_http2_stdlib_ownership", groups[2].Name)
-	assert.Len(t, groups[2].Prerequisites, 1)
-	assert.Len(t, groups[2].Probes, 8)
+	assert.Len(t, groups[2].Prerequisites, 2)
+	assert.Len(t, groups[2].Probes, 7)
 	assert.Equal(t, "go_http2_stdlib_legacy_ownership", groups[3].Name)
-	assert.Len(t, groups[3].Prerequisites, 1)
+	assert.Len(t, groups[3].Prerequisites, 2)
 	assert.Len(t, groups[3].Conflicts, 1)
-	assert.Len(t, groups[3].Probes, 8)
+	assert.Len(t, groups[3].Probes, 7)
 	assert.Contains(t, groups[4].Name, "headerHandler")
 	assert.Contains(t, groups[5].Name, "clientHeaderHandler")
-	assert.Len(t, groups[4].Probes, 9)
-	assert.Len(t, groups[5].Probes, 9)
+	assert.Len(t, groups[4].Probes, 8)
+	assert.Len(t, groups[5].Probes, 8)
 	for _, group := range groups {
 		require.True(t, group.Probes[len(group.Probes)-4].Probe.UsePadStart)
 		require.True(t, group.Probes[len(group.Probes)-1].Probe.UseWriteStart)
@@ -624,8 +624,11 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 	}
 	tracingProbeSymbols := []string{
 		"net/http.(*Transport).roundTrip",
+		"golang.org/x/net/http2.(*ClientConn).writeHeaders",
+		"net/http.(*http2ClientConn).writeHeaders",
 		"google.golang.org/grpc.(*ClientConn).Invoke",
 		"google.golang.org/grpc.(*ClientConn).NewStream",
+		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
 	}
 
 	for _, tt := range tests {
