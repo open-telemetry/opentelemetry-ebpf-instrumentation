@@ -21,6 +21,7 @@ services:
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-instrumentation-errors:/var/run/obi
     image: hatest-obi

@@ -23,6 +23,7 @@ services:
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - /sys/fs/cgroup:/sys/fs/cgroup
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-large-http-req:/var/run/obi

@@ -43,6 +43,7 @@ type Tracer struct {
 	log                     *slog.Logger
 	iters                   []*ebpfcommon.Iter
 	fionreadOnce            sync.Once
+	fionreadProbe           func(cookies *ebpf.Map) (bool, error)
 	fionreadBroken          bool
 	fionreadFixupEnabled    bool
 	sockhashOnce            sync.Once
@@ -69,6 +70,7 @@ func New(cfg *obi.Config) *Tracer {
 	return &Tracer{
 		log:           log,
 		cfg:           cfg,
+		fionreadProbe: sockhashFIONREADProbe,
 		seenNetns:     expirable.NewLRU[uint64, struct{}](seenNetnsCacheLen, nil, seenNetnsTTL),
 		netnsAttempts: expirable.NewLRU[uint64, int](seenNetnsCacheLen, nil, seenNetnsTTL),
 	}

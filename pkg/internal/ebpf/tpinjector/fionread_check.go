@@ -115,7 +115,7 @@ func sockhashFIONREADProbe(cookies *ebpf.Map) (bool, error) {
 
 func (p *Tracer) kernelBreaksFIONREAD() bool {
 	p.fionreadOnce.Do(func() {
-		broken, err := sockhashFIONREADProbe(nil)
+		broken, err := p.fionreadProbe(nil)
 		if err != nil {
 			// an inconclusive probe must not enable propagation on its own; the
 			// end-to-end check in sockhashSafe makes the final call
@@ -157,9 +157,9 @@ func loadableFIONREADFixup() (*ebpf.CollectionSpec, error) {
 // every bail-out has the same consequence, so each reason is reported with a common explanation
 func (p *Tracer) reportPropagationDisabled(reason string, args ...any) {
 	p.log.Error("context propagation is disabled: "+reason+". This kernel misreports "+
-		"ioctl(FIONREAD) for sockets in a sockhash (kernel commit 929e30f93125), so keeping "+
-		"propagation enabled would make applications sizing reads via FIONREAD stall or "+
-		"truncate transfers", args...)
+		"ioctl(FIONREAD) for sockets in a sockhash (kernel commit 929e30f93125), or could not "+
+		"be verified to report it correctly, so keeping propagation enabled would risk making "+
+		"applications sizing reads via FIONREAD stall or truncate transfers", args...)
 }
 
 // Inserting sockets into a sockhash is what triggers the kernel bug, so on an affected
@@ -177,7 +177,7 @@ func (p *Tracer) sockhashSafe() bool {
 			return
 		}
 
-		stillBroken, err := sockhashFIONREADProbe(p.bpfObjects.TrackedSockCookies)
+		stillBroken, err := p.fionreadProbe(p.bpfObjects.TrackedSockCookies)
 		if err != nil {
 			p.reportPropagationDisabled("the BPF compensation cannot be verified", "error", err)
 			return
