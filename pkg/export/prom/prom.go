@@ -175,6 +175,7 @@ type metricsReporter struct {
 	grpcDuration           *Expirer[prometheus.Histogram]
 	grpcClientDuration     *Expirer[prometheus.Histogram]
 	dbClientDuration       *Expirer[prometheus.Histogram]
+	dbServerDuration       *Expirer[prometheus.Histogram]
 	msgPublishDuration     *Expirer[prometheus.Histogram]
 	msgProcessDuration     *Expirer[prometheus.Histogram]
 	httpRequestSize        *Expirer[prometheus.Histogram]
@@ -189,6 +190,7 @@ type metricsReporter struct {
 	attrGRPCDuration           []attributes.Field[*request.Span, string]
 	attrGRPCClientDuration     []attributes.Field[*request.Span, string]
 	attrDBClientDuration       []attributes.Field[*request.Span, string]
+	attrDBServerDuration       []attributes.Field[*request.Span, string]
 	attrMsgPublishDuration     []attributes.Field[*request.Span, string]
 	attrMsgProcessDuration     []attributes.Field[*request.Span, string]
 	attrHTTPRequestSize        []attributes.Field[*request.Span, string]
@@ -364,10 +366,13 @@ func newReporter(
 	}
 
 	var attrDBClientDuration []attributes.Field[*request.Span, string]
+	var attrDBServerDuration []attributes.Field[*request.Span, string]
 
 	if is.DBEnabled() {
 		attrDBClientDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.DBClientDuration))
+		attrDBServerDuration = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.DBServerDuration))
 	}
 
 	var attrMessagingProcessDuration, attrMessagingPublishDuration []attributes.Field[*request.Span, string]
@@ -468,6 +473,7 @@ func newReporter(
 		attrGRPCDuration:           attrGRPCDuration,
 		attrGRPCClientDuration:     attrGRPCClientDuration,
 		attrDBClientDuration:       attrDBClientDuration,
+		attrDBServerDuration:       attrDBServerDuration,
 		attrMsgPublishDuration:     attrMessagingPublishDuration,
 		attrMsgProcessDuration:     attrMessagingProcessDuration,
 		attrHTTPRequestSize:        attrHTTPRequestSize,
@@ -547,6 +553,16 @@ func newReporter(
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrDBClientDuration)).MetricVec, timeNow, cfg.TTL)
+		}),
+		dbServerDuration: optionalHistogramProvider(is.DBEnabled(), func() *Expirer[prometheus.Histogram] {
+			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+				Name:                            attributes.DBServerDuration.Prom,
+				Help:                            "duration of db server operations, in seconds",
+				Buckets:                         cfg.Buckets.DurationHistogram,
+				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
+				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
+				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
+			}, labelNames(attrDBServerDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		msgPublishDuration: optionalHistogramProvider(is.MQEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -812,6 +828,7 @@ func newReporter(
 		if is.DBEnabled() {
 			registeredMetrics = append(registeredMetrics,
 				mr.dbClientDuration,
+				mr.dbServerDuration,
 			)
 		}
 
@@ -1078,13 +1095,21 @@ func (r *metricsReporter) observe(span *request.Span) {
 			if r.is.SunRPCEnabled() {
 				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
 			}
-		case request.EventTypeRedisClient, request.EventTypeRedisServer:
+		case request.EventTypeRedisClient:
 			if r.is.RedisEnabled() {
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeRedisServer:
+			if r.is.RedisEnabled() {
+				r.observeHistogram(r.dbServerDuration.WithLabelValues(labelValues(span, r.attrDBServerDuration)...).Metric, duration, span)
 			}
 		case request.EventTypeSQLClient:
 			if r.is.SQLEnabled() {
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeSQLServer:
+			if r.is.SQLEnabled() {
+				r.observeHistogram(r.dbServerDuration.WithLabelValues(labelValues(span, r.attrDBServerDuration)...).Metric, duration, span)
 			}
 		case request.EventTypeMongoClient:
 			if r.is.MongoEnabled() {
@@ -1094,9 +1119,13 @@ func (r *metricsReporter) observe(span *request.Span) {
 			if r.is.CouchbaseEnabled() {
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
 			}
-		case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
+		case request.EventTypeMemcachedClient:
 			if r.is.MemcachedEnabled() {
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeMemcachedServer:
+			if r.is.MemcachedEnabled() {
+				r.observeHistogram(r.dbServerDuration.WithLabelValues(labelValues(span, r.attrDBServerDuration)...).Metric, duration, span)
 			}
 		case request.EventTypeAerospikeClient:
 			if r.is.AerospikeEnabled() {

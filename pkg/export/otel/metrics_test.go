@@ -220,8 +220,9 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc.server.call.duration",
 				"rpc.client.call.duration",
 				"db.client.operation.duration",        // SQL client SELECT
+				"db.server.operation.duration",        // SQL server SELECT
 				"db.client.operation.duration",        // REDIS client SET
-				"db.client.operation.duration",        // Redis server GET (TODO is this a bug?)
+				"db.server.operation.duration",        // Redis server GET
 				"db.client.operation.duration",        // MongoDB client find
 				"db.client.operation.duration",        // Aerospike client get
 				"messaging.client.operation.duration", // Kafka client
@@ -272,7 +273,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			extraColl: 0,
 			expected: []string{
 				"db.client.operation.duration",
-				"db.client.operation.duration",
+				"db.server.operation.duration",
 			},
 		},
 		{
@@ -281,6 +282,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			extraColl: 0,
 			expected: []string{
 				"db.client.operation.duration",
+				"db.server.operation.duration",
 			},
 		},
 		{
@@ -351,7 +353,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"db.client.operation.duration",
 				"db.client.operation.duration",
-				"db.client.operation.duration",
+				"db.server.operation.duration",
+				"db.server.operation.duration",
 			},
 			unexpectedOperations: []string{"aerospike_get"},
 		},
@@ -401,7 +404,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Path: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Method: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLServer, Method: "SELECT", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},

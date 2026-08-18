@@ -148,6 +148,12 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	DBServerDuration = metric(Name{
+		Section: "db.server.operation.duration",
+		OTEL:    "db.server.operation.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
 	MessagingPublishDuration = metric(Name{
 		Section: "messaging.client.operation.duration",
 		OTEL:    "messaging.client.operation.duration",
