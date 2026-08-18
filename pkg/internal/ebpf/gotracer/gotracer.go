@@ -304,13 +304,12 @@ type Tracer struct {
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
 	goRuntimeGCGoalSourceByExecutable map[executableIdentity]goRuntimeGCGoalSource
 	currentBinary                     executableIdentity
-	goAutoSDKActivationByIno          map[uint64]bool
+	goAutoSDKActivationByExecutable   map[executableIdentity]bool
 	goAutoSDKTargetsMu                sync.Mutex
 	goAutoSDKTargets                  map[app.PID]goAutoSDKTargetState
 	goAutoSDKActivationProbes         map[goAutoSDKExecutableKey]goAutoSDKActivationProbe
 	goAutoSDKActivationLinks          map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink
 	goAutoSDKTargetGeneration         uint64
-	currentBinaryIno                  uint64
 	goAutoSDKTargetMap                mapKeyPutDeleter
 	goAutoSDKAttemptMap               mapKeyDeleter
 	attachGoAutoSDKProbe              func(goAutoSDKActivationProbe, app.PID, uint64, uint64, uint64) (io.Closer, error)
@@ -344,7 +343,7 @@ func New(
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
 		goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{},
-		goAutoSDKActivationByIno:          map[uint64]bool{},
+		goAutoSDKActivationByExecutable:   map[executableIdentity]bool{},
 		goAutoSDKTargets:                  map[app.PID]goAutoSDKTargetState{},
 		goAutoSDKActivationProbes:         map[goAutoSDKExecutableKey]goAutoSDKActivationProbe{},
 		goAutoSDKActivationLinks:          map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink{},
@@ -680,7 +679,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			"pid", fileInfo.Pid(),
 			"ino", ino,
 			"error", err)
-		delete(p.goAutoSDKActivationByIno, ino)
+		delete(p.goAutoSDKActivationByExecutable, identity)
 		delete(p.goRuntimeMetricMaskByExecutable, identity)
 		p.deleteRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns())
 		return
@@ -1307,11 +1306,12 @@ func (p *Tracer) recordGoAutoSDKActivationSupport(fileInfo *exec.FileInfo, offse
 		return
 	}
 
-	if p.goAutoSDKActivationByIno == nil {
-		p.goAutoSDKActivationByIno = map[uint64]bool{}
+	if p.goAutoSDKActivationByExecutable == nil {
+		p.goAutoSDKActivationByExecutable = map[executableIdentity]bool{}
 	}
 
-	p.goAutoSDKActivationByIno[fileInfo.Ino()] = offsets.SupportsGoAutoSDKActivation()
+	identity := goOffsetsMapKey(fileInfo)
+	p.goAutoSDKActivationByExecutable[identity] = offsets.SupportsGoAutoSDKActivation()
 }
 
 func selectGoRuntimeGCGoalSource(
@@ -1529,12 +1529,10 @@ func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
 	}
 	if fileInfo == nil {
 		p.currentBinary = executableIdentity{}
-		p.currentBinaryIno = 0
 		return
 	}
 
 	p.currentBinary = goOffsetsMapKey(fileInfo)
-	p.currentBinaryIno = fileInfo.Ino()
 }
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
@@ -2078,11 +2076,11 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 }
 
 func (p *Tracer) goAutoSDKActivationProbesEnabled() bool {
-	if p == nil || p.currentBinaryIno == 0 {
+	if p == nil || p.currentBinary.Ino == 0 {
 		return false
 	}
 
-	return p.goAutoSDKActivationByIno[p.currentBinaryIno] && p.supportsContextPropagation()
+	return p.goAutoSDKActivationByExecutable[p.currentBinary] && p.supportsContextPropagation()
 }
 
 func (p *Tracer) goChannelLinkProbesEnabled() bool {
@@ -2110,7 +2108,9 @@ func (p *Tracer) goRuntimeGCGoalSourceEnabled() bool {
 }
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
-	return nil
+	return map[string]ebpfcommon.ProbeDesc{
+		"uprobe_register": {Start: p.bpfObjects.ObiCaptureGoExecutableIdentity},
+	}
 }
 
 func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {

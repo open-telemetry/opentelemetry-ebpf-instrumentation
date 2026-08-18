@@ -552,8 +552,7 @@ func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 			goexec.AutoSDKActivationSupported: uint64(1),
 		},
 	})
-	tracer.ProcessBinary(fileInfo)
-
+	tracer.recordGoChannelOffsetAvailability(fileInfo, &goexec.Offsets{})
 	assert.Empty(t, tracer.GoProbeGroups())
 
 	tracer.recordGoAutoSDKActivationSupport(fileInfo, goAutoSDKSpanContextOffsets())
@@ -577,13 +576,35 @@ func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 	assert.True(t, groups[0].Probes[3].ProcessScoped)
 }
 
+func TestGoAutoSDKActivationAvailabilityUsesExecutableIdentity(t *testing.T) {
+	setContextPropagationSupportForTest(t, true)
+
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	supported := exec.New(exec.Init{Dev: 1, Ino: 1})
+	unsupported := exec.New(exec.Init{Dev: 2, Ino: 1})
+
+	tracer.recordGoAutoSDKActivationSupport(supported, goAutoSDKSpanContextOffsets())
+	tracer.recordGoChannelOffsetAvailability(supported, &goexec.Offsets{})
+	require.Len(t, tracer.GoProbeGroups(), 1)
+
+	tracer.recordGoAutoSDKActivationSupport(unsupported, &goexec.Offsets{})
+	tracer.recordGoChannelOffsetAvailability(unsupported, &goexec.Offsets{})
+	assert.Empty(t, tracer.GoProbeGroups())
+
+	tracer.ProcessBinary(supported)
+	require.Len(t, tracer.GoProbeGroups(), 1)
+	tracer.ProcessBinary(unsupported)
+	assert.Empty(t, tracer.GoProbeGroups())
+}
+
 func TestGoAutoSDKActivationProbeGroupRequiresWriteUserSupport(t *testing.T) {
 	setContextPropagationSupportForTest(t, false)
 
+	identity := executableIdentity{Ino: 1}
 	tracer := &Tracer{
-		log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
-		currentBinaryIno:         1,
-		goAutoSDKActivationByIno: map[uint64]bool{1: true},
+		log:                             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		currentBinary:                   identity,
+		goAutoSDKActivationByExecutable: map[executableIdentity]bool{identity: true},
 	}
 
 	assert.Empty(t, tracer.GoProbeGroups())
