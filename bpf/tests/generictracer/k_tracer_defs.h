@@ -21,14 +21,18 @@ extern int test_last_parser_bytes_len;
 extern u8 test_last_ssl;
 extern u8 test_last_direction;
 extern u16 test_last_orig_dport;
+extern void *test_last_sock;
 
+// bpf/tests shadows generictracer/k_tracer_defs.h, so this signature has to track the
+// real one.
 static __always_inline void handle_buf_with_connection(void *ctx,
                                                        pid_connection_info_t *pid_conn,
                                                        void *u_buf,
                                                        int bytes_len,
                                                        u8 ssl,
                                                        u8 direction,
-                                                       u16 orig_dport) {
+                                                       u16 orig_dport,
+                                                       struct sock *sk) {
     (void)ctx;
     (void)pid_conn;
     (void)u_buf;
@@ -38,4 +42,5 @@ static __always_inline void handle_buf_with_connection(void *ctx,
     test_last_ssl = ssl;
     test_last_direction = direction;
     test_last_orig_dport = orig_dport;
+    test_last_sock = sk;
 }
