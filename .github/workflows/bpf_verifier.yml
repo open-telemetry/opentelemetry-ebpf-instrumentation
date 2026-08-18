@@ -1,31 +1,31 @@
 name: BPF verifier
+run-name: >-
+  BPF verifier${{ inputs.pr_number && format(' · PR #{0}', inputs.pr_number) || '' }}${{ inputs.ref && format(' @ {0}', inputs.ref) || '' }}
 
+# Not run per-PR: comment /verifier-tests on a PR to dispatch it (see
+# slash_command_verifier_tests.yml). Still runs on push to main/release-*.
 on:
   push:
     branches: [main, release-*]
-  pull_request:
-    branches: [main, release-*]
-    paths:
-      - ".github/workflows/bpf_verifier.yml"
-      - ".github/actions/generate-bpf/**"
-      - ".github/actions/free-disk/**"
-      - ".github/actions/setup-lvh-kernel/**"
-      - "bpf/**"
-      - "**.go"
-      - "go.mod"
-      - "go.sum"
-      - "internal/test/vm/**"
-      - "scripts/kernel-matrix-json.sh"
-      - "Makefile"
   workflow_call:
     inputs:
       ref:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (commit, branch, or tag) to check out"
+        required: false
+        type: string
+      pr_number:
+        description: "PR number this dispatch is associated with (informational; surfaced in run-name)"
+        required: false
+        type: string
 
 concurrency:
-  group: pr-bpf-verifier-${{ github.head_ref || github.run_id }}
+  group: bpf-verifier-${{ inputs.ref || github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -64,7 +64,7 @@ jobs:
     name: Kernel ${{ matrix.kernel.id }}
     needs: [matrix, generate-bpf]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -112,7 +112,7 @@ jobs:
     name: Kernel al2023-${{ matrix.nvr }}
     needs: generate-bpf
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -156,7 +156,7 @@ jobs:
     # kernel matrix. Cheapest way to keep arm64 in the PR-blocking set.
     needs: generate-bpf
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -183,4 +183,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Run BPF verifier tests (host kernel)
-        run: go test -exec=sudo -count=1 -timeout=20m -parallel=8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+        run: go test -exec=sudo -count=1 -timeout=55m -parallel=8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...

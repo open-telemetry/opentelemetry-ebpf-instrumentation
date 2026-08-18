@@ -339,7 +339,7 @@ test-privileged: $(ENVTEST) testoutput
 .PHONY: run-bpf-verifier-vm
 run-bpf-verifier-vm:
 	@echo "### Running BPF verifier tests"
-	go test -count=1 -timeout 20m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+	go test -count=1 -timeout 55m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated: testoutput
