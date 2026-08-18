@@ -10,16 +10,21 @@
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
 
-// Outstanding DNS queries sent over an unconnected UDP socket, keyed by
-// (u64)struct sock *. The local endpoint is recorded alongside the outstanding
-// query count so that a recycled struct sock * address cannot inherit the
-// classification of the socket that previously occupied it.
+// The most recent DNS query sent over an unconnected UDP socket, keyed by
+// (u64)struct sock *. The local endpoint is recorded alongside the timestamp so
+// that a recycled struct sock * address cannot inherit the classification of
+// the socket that previously occupied it.
+//
+// There is deliberately no outstanding-query counter. A resolver may have
+// several queries in flight on one socket (musl sends A and AAAA in parallel),
+// and a counter decremented per answer would leave the later answers
+// unclassified. The timestamp bounds how long the socket stays eligible, and it
+// is a single aligned store, so concurrent sends cannot corrupt it.
 typedef struct unconn_dns_sock {
     u64 last_query_ns;
     u8 s_addr[IP_V6_ADDR_LEN];
     u16 s_port;
-    u16 pending;
-    u8 _pad[4];
+    u8 _pad[6];
 } unconn_dns_sock_t;
 
 struct {

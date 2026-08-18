@@ -266,10 +266,8 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
         }
 
         if (dns == k_dns_msg_yes) {
-            // the answer is not classifiable from msg_name, so key on the socket
-            if (orig_dport == 0) {
-                obi_note_unconn_dns_query(sk, &s_args.p_conn.conn);
-            }
+            const connection_info_t local_conn = s_args.p_conn.conn;
+
             sort_connection_info(&s_args.p_conn.conn);
             s_args.p_conn.pid = pid_from_pid_tgid(id);
             s_args.orig_dport = orig_dport;
@@ -277,9 +275,11 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
             unsigned char *buf = iovec_memory();
             if (buf) {
                 len = read_msghdr_buf(msg, buf, len);
-                if (len) {
-                    bpf_dbg_printk("Got buffer with len: %d", len);
-                    handle_dns_buf(buf, len, &s_args.p_conn, orig_dport);
+                if (len && handle_dns_buf(buf, len, &s_args.p_conn, orig_dport) &&
+                    orig_dport == 0) {
+                    // the answer to this query will carry no peer, so the only
+                    // thing left to recognise it by is the socket it arrives on
+                    obi_note_unconn_dns_query(sk, &local_conn);
                 }
             }
         }
@@ -985,10 +985,10 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sock_recvmsg, int copied_len) {
             u8 dns = dns_class == k_dns_msg_yes;
 
             // msg_name did not classify it, but the answer arrived on a socket
-            // with an outstanding unconnected UDP DNS query
+            // that recently sent an unconnected UDP DNS query
             if (dns_class == k_dns_msg_unknown && orig_dport == 0 &&
-                obi_claim_unconn_dns_answer(sock_ptr, &local_conn)) {
-                bpf_dbg_printk("UNCONN_DNS_RECVFROM: claimed unconnected UDP DNS answer on "
+                obi_unconn_dns_answer_expected(sock_ptr, &local_conn)) {
+                bpf_dbg_printk("UNCONN_DNS_RECVFROM: expecting an unconnected UDP DNS answer on "
                                "known DNS sock=%llx",
                                (u64)sock_ptr);
                 dns = 1;

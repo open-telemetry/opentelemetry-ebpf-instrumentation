@@ -162,12 +162,11 @@ static __always_inline u8 is_dns_msg(const connection_info_t *conn, struct msghd
     return classify_dns_msg(conn, msg) == k_dns_msg_yes;
 }
 
-// An answer is only expected for as long as a query is outstanding; a resolver
-// that never sees its answer must not leave the socket classified forever.
-enum : u64 { k_unconn_dns_answer_timeout_ns = 10ULL * 1000000000ULL };
-
-// Bounds the state a single socket can accumulate when answers never arrive
-enum : u16 { k_unconn_dns_max_pending = 8 };
+// An answer is only expected for a short while after a query; a resolver that
+// never sees its answer must not leave the socket classified forever. Answers
+// arrive in milliseconds, so this is far longer than needed and still well
+// inside the usual 5s resolver timeout.
+enum : u64 { k_unconn_dns_answer_timeout_ns = 2ULL * 1000000000ULL };
 
 static __always_inline u8 obi_same_local_addr(const unconn_dns_sock_t *state,
                                               const connection_info_t *conn) {
@@ -181,23 +180,19 @@ static __always_inline void obi_forget_unconn_dns_sock(void *sk) {
     bpf_map_delete_elem(&unconn_dns_socks, &k);
 }
 
-// conn must be the unsorted tuple, so that s_addr/s_port name the local endpoint
+// Records that sk just sent a DNS query, opening the window in which a nameless
+// answer on this socket may be classified as DNS. Call this only once the sent
+// payload has been parsed as a DNS message, so that a send which never carried
+// DNS — or never left the host — does not open the window.
+//
+// conn must be the unsorted tuple, so that s_addr/s_port name the local endpoint.
+// The whole record is rewritten unconditionally: one map store, no
+// read-modify-write, so concurrent sends on the same socket cannot lose state.
 static __always_inline void obi_note_unconn_dns_query(void *sk, const connection_info_t *conn) {
     const u64 k = (u64)sk;
 
-    unconn_dns_sock_t *state = bpf_map_lookup_elem(&unconn_dns_socks, &k);
-
-    if (state && obi_same_local_addr(state, conn)) {
-        if (state->pending < k_unconn_dns_max_pending) {
-            state->pending++;
-        }
-        state->last_query_ns = bpf_ktime_get_ns();
-        return;
-    }
-
     unconn_dns_sock_t fresh = {
         .s_port = conn->s_port,
-        .pending = 1,
         .last_query_ns = bpf_ktime_get_ns(),
     };
     __builtin_memcpy(fresh.s_addr, conn->s_addr, sizeof(fresh.s_addr));
@@ -205,12 +200,17 @@ static __always_inline void obi_note_unconn_dns_query(void *sk, const connection
     bpf_map_update_elem(&unconn_dns_socks, &k, &fresh, BPF_ANY);
 }
 
-// Consumes one outstanding query on sk, if this socket is still the one that
-// sent it and the answer is not stale. conn must be the unsorted tuple.
-static __always_inline u8 obi_claim_unconn_dns_answer(void *sk, const connection_info_t *conn) {
+// Reports whether a nameless answer on sk may be attributed to DNS: the socket
+// must still be the one that sent the query, and the query must be recent. This
+// only decides eligibility; nothing is consumed, so several answers to queries
+// issued in parallel are all classified. A stale or mismatched record is
+// retired here so it cannot accumulate.
+//
+// conn must be the unsorted tuple.
+static __always_inline u8 obi_unconn_dns_answer_expected(void *sk, const connection_info_t *conn) {
     const u64 k = (u64)sk;
 
-    unconn_dns_sock_t *state = bpf_map_lookup_elem(&unconn_dns_socks, &k);
+    const unconn_dns_sock_t *state = bpf_map_lookup_elem(&unconn_dns_socks, &k);
 
     if (!state) {
         return 0;
@@ -222,16 +222,9 @@ static __always_inline u8 obi_claim_unconn_dns_answer(void *sk, const connection
         return 0;
     }
 
-    if (state->pending == 0 ||
-        bpf_ktime_get_ns() - state->last_query_ns > k_unconn_dns_answer_timeout_ns) {
+    if (bpf_ktime_get_ns() - state->last_query_ns > k_unconn_dns_answer_timeout_ns) {
         obi_forget_unconn_dns_sock(sk);
         return 0;
-    }
-
-    state->pending--;
-
-    if (state->pending == 0) {
-        obi_forget_unconn_dns_sock(sk);
     }
 
     return 1;

@@ -315,43 +315,53 @@ static connection_info_t local_endpoint(u16 port, u8 last_octet) {
     return conn;
 }
 
-static void test_unconn_sock_has_no_outstanding_query_by_default(void) {
+static void test_unconn_sock_has_no_expected_answer_by_default(void) {
     mock_map_reset();
     connection_info_t conn = local_endpoint(40100, 10);
 
-    check_u8("an unseen socket has no answer to claim",
+    check_u8("no answer is expected on an unseen socket",
              0,
-             obi_claim_unconn_dns_answer((void *)0x1000, &conn));
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
-static void test_unconn_sock_answer_is_claimed_once(void) {
+static void test_unconn_sock_answer_is_expected_after_a_query(void) {
     mock_map_reset();
     connection_info_t conn = local_endpoint(40100, 10);
     obi_note_unconn_dns_query((void *)0x1000, &conn);
 
-    check_u8("the answer to an outstanding query is claimed",
+    check_u8("an answer is expected after a query",
              1,
-             obi_claim_unconn_dns_answer((void *)0x1000, &conn));
-
-    // the query is no longer outstanding, so later traffic is not DNS by default
-    check_u8(
-        "a second receive claims nothing", 0, obi_claim_unconn_dns_answer((void *)0x1000, &conn));
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
-static void test_unconn_sock_claims_match_outstanding_queries(void) {
+// musl resolves A and AAAA in parallel on one socket, so consuming the window on
+// the first answer would leave the second unclassified
+static void test_unconn_sock_expects_every_parallel_answer(void) {
     mock_map_reset();
     connection_info_t conn = local_endpoint(40100, 10);
     obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    check_u8("the first parallel answer is expected",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+    check_u8("the second parallel answer is still expected",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// A datagram too short to parse, or one whose iovec could not be read, must not
+// spend the window that the real answer still needs
+static void test_unconn_sock_unparsed_receive_does_not_spend_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
     obi_note_unconn_dns_query((void *)0x1000, &conn);
 
-    check_u8("the first of two answers is claimed",
+    // the caller looked, then failed to read or parse the payload
+    obi_unconn_dns_answer_expected((void *)0x1000, &conn);
+
+    check_u8("the window survives a receive that never parsed",
              1,
-             obi_claim_unconn_dns_answer((void *)0x1000, &conn));
-    check_u8("the second of two answers is claimed",
-             1,
-             obi_claim_unconn_dns_answer((void *)0x1000, &conn));
-    check_u8(
-        "a third receive claims nothing", 0, obi_claim_unconn_dns_answer((void *)0x1000, &conn));
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
 static void test_unconn_sock_does_not_match_other_sockets(void) {
@@ -359,8 +369,46 @@ static void test_unconn_sock_does_not_match_other_sockets(void) {
     connection_info_t conn = local_endpoint(40100, 10);
     obi_note_unconn_dns_query((void *)0x1000, &conn);
 
-    check_u8(
-        "a different socket is unaffected", 0, obi_claim_unconn_dns_answer((void *)0x2000, &conn));
+    check_u8("a different socket is unaffected",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x2000, &conn));
+}
+
+// The socket is reused for unrelated traffic while a DNS answer could still
+// arrive. The non-DNS send retires the window, so a later nameless datagram is
+// not reported as DNS.
+static void test_unconn_sock_non_dns_send_retires_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    // classify_dns_msg returned k_dns_msg_no for the next datagram on this socket
+    struct sockaddr_in statsd = inet_addr_port(AF_INET, 8125);
+    struct msghdr non_dns = msg_with_addr(&statsd, sizeof(statsd));
+    check_u8("the intervening send is a positive non-DNS",
+             k_dns_msg_no,
+             classify_dns_msg(&conn, &non_dns));
+    obi_forget_unconn_dns_sock((void *)0x1000);
+
+    check_u8("a nameless datagram after a non-DNS send is not expected as DNS",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+static void test_unconn_sock_query_refreshes_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    // a second lookup, issued just before the first window would lapse
+    test_now_ns = k_unconn_dns_answer_timeout_ns;
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    test_now_ns += k_unconn_dns_answer_timeout_ns;
+
+    check_u8("a later query extends the window",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
 static void test_unconn_sock_rejects_a_recycled_pointer(void) {
@@ -374,12 +422,12 @@ static void test_unconn_sock_rejects_a_recycled_pointer(void) {
 
     check_u8("a recycled sock pointer does not inherit the classification",
              0,
-             obi_claim_unconn_dns_answer((void *)0x1000, &recycled));
+             obi_unconn_dns_answer_expected((void *)0x1000, &recycled));
 
-    // the stale entry is dropped, so the original endpoint cannot claim either
+    // the stale entry is dropped, so the original endpoint expects nothing either
     check_u8("the stale entry is retired on the mismatch",
              0,
-             obi_claim_unconn_dns_answer((void *)0x1000, &resolver));
+             obi_unconn_dns_answer_expected((void *)0x1000, &resolver));
 }
 
 static void test_unconn_sock_rejects_a_different_local_address(void) {
@@ -389,9 +437,9 @@ static void test_unconn_sock_rejects_a_different_local_address(void) {
 
     connection_info_t other_addr = local_endpoint(40100, 11);
 
-    check_u8("a matching port on a different local address does not claim",
+    check_u8("a matching port on a different local address expects nothing",
              0,
-             obi_claim_unconn_dns_answer((void *)0x1000, &other_addr));
+             obi_unconn_dns_answer_expected((void *)0x1000, &other_addr));
 }
 
 static void test_unconn_sock_answer_expires(void) {
@@ -401,40 +449,21 @@ static void test_unconn_sock_answer_expires(void) {
 
     test_now_ns = k_unconn_dns_answer_timeout_ns + 1;
 
-    check_u8("an answer arriving after the timeout is not claimed",
+    check_u8("an answer arriving after the timeout is not expected",
              0,
-             obi_claim_unconn_dns_answer((void *)0x1000, &conn));
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
-static void test_unconn_sock_answer_within_timeout_is_claimed(void) {
+static void test_unconn_sock_answer_within_timeout_is_expected(void) {
     mock_map_reset();
     connection_info_t conn = local_endpoint(40100, 10);
     obi_note_unconn_dns_query((void *)0x1000, &conn);
 
     test_now_ns = k_unconn_dns_answer_timeout_ns;
 
-    check_u8("an answer arriving on the timeout boundary is claimed",
+    check_u8("an answer arriving on the timeout boundary is expected",
              1,
-             obi_claim_unconn_dns_answer((void *)0x1000, &conn));
-}
-
-static void test_unconn_sock_pending_is_bounded(void) {
-    // answers that never arrive must not let one socket accumulate credit
-    mock_map_reset();
-    connection_info_t conn = local_endpoint(40100, 10);
-
-    for (int i = 0; i < k_unconn_dns_max_pending * 4; i++) {
-        obi_note_unconn_dns_query((void *)0x1000, &conn);
-    }
-
-    for (int i = 0; i < k_unconn_dns_max_pending; i++) {
-        check_u8("a bounded outstanding query is claimed",
-                 1,
-                 obi_claim_unconn_dns_answer((void *)0x1000, &conn));
-    }
-
-    check_u8(
-        "outstanding queries are capped", 0, obi_claim_unconn_dns_answer((void *)0x1000, &conn));
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
 static void test_unconn_sock_is_forgotten_on_demand(void) {
@@ -443,8 +472,9 @@ static void test_unconn_sock_is_forgotten_on_demand(void) {
     obi_note_unconn_dns_query((void *)0x1000, &conn);
     obi_forget_unconn_dns_sock((void *)0x1000);
 
-    check_u8(
-        "a forgotten socket claims nothing", 0, obi_claim_unconn_dns_answer((void *)0x1000, &conn));
+    check_u8("a forgotten socket expects nothing",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
 int main(void) {
@@ -467,15 +497,17 @@ int main(void) {
     test_classify_reports_no_for_explicit_non_dns_peer();
     test_classify_reports_no_for_connected_non_dns_peer();
 
-    test_unconn_sock_has_no_outstanding_query_by_default();
-    test_unconn_sock_answer_is_claimed_once();
-    test_unconn_sock_claims_match_outstanding_queries();
+    test_unconn_sock_has_no_expected_answer_by_default();
+    test_unconn_sock_answer_is_expected_after_a_query();
+    test_unconn_sock_expects_every_parallel_answer();
+    test_unconn_sock_unparsed_receive_does_not_spend_the_window();
     test_unconn_sock_does_not_match_other_sockets();
+    test_unconn_sock_non_dns_send_retires_the_window();
+    test_unconn_sock_query_refreshes_the_window();
     test_unconn_sock_rejects_a_recycled_pointer();
     test_unconn_sock_rejects_a_different_local_address();
     test_unconn_sock_answer_expires();
-    test_unconn_sock_answer_within_timeout_is_claimed();
-    test_unconn_sock_pending_is_bounded();
+    test_unconn_sock_answer_within_timeout_is_expected();
     test_unconn_sock_is_forgotten_on_demand();
 
     if (failures > 0) {
