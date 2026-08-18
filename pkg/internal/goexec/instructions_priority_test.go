@@ -34,10 +34,10 @@ func TestRequestedFunctionNameFallsBackToVendorAlias(t *testing.T) {
 	assert.Equal(t, "golang.org/x/net/http2/hpack.(*Encoder).WriteField", name)
 }
 
-func TestStoreFunctionOffsetExactNameWinsInEitherOrder(t *testing.T) {
+func TestStoreFunctionOffsetRetainsEveryCopyInTraversalIndependentOrder(t *testing.T) {
 	const name = "golang.org/x/net/http2/hpack.(*Encoder).WriteField"
-	alias := FuncOffsets{Start: 1}
-	exact := FuncOffsets{Start: 2}
+	alias := FuncOffsets{Symbol: "example.com/module/vendor/" + name, Start: 1}
+	exact := FuncOffsets{Symbol: name, Start: 2}
 
 	for _, order := range []struct {
 		name       string
@@ -62,26 +62,47 @@ func TestStoreFunctionOffsetExactNameWinsInEitherOrder(t *testing.T) {
 		},
 	} {
 		t.Run(order.name, func(t *testing.T) {
-			allOffsets := map[string]FuncOffsets{}
-			selectedIsExact := map[string]bool{}
+			allOffsets := map[string][]FuncOffsets{}
 			for _, candidate := range order.candidates {
-				storeFunctionOffset(allOffsets, selectedIsExact, name, candidate.offsets, candidate.isExact)
+				storeFunctionOffset(allOffsets, name, candidate.offsets)
 			}
 
-			assert.Equal(t, exact, allOffsets[name])
-			assert.True(t, selectedIsExact[name])
+			assert.Equal(t, []FuncOffsets{alias, exact}, allOffsets[name])
 		})
 	}
 }
 
-func TestStoreFunctionOffsetKeepsFirstAliasFallback(t *testing.T) {
+func TestStoreFunctionOffsetRetainsMultipleAliases(t *testing.T) {
 	const name = "golang.org/x/net/http2/hpack.(*Encoder).WriteField"
-	allOffsets := map[string]FuncOffsets{}
-	selectedIsExact := map[string]bool{}
+	allOffsets := map[string][]FuncOffsets{}
+	first := FuncOffsets{Symbol: "one/vendor/" + name, Start: 1}
+	second := FuncOffsets{Symbol: "two/vendor/" + name, Start: 2}
 
-	storeFunctionOffset(allOffsets, selectedIsExact, name, FuncOffsets{Start: 1}, false)
-	storeFunctionOffset(allOffsets, selectedIsExact, name, FuncOffsets{Start: 2}, false)
+	storeFunctionOffset(allOffsets, name, second)
+	storeFunctionOffset(allOffsets, name, first)
 
-	assert.Equal(t, uint64(1), allOffsets[name].Start)
-	assert.False(t, selectedIsExact[name])
+	assert.Equal(t, []FuncOffsets{first, second}, allOffsets[name])
+}
+
+func TestStoreFunctionOffsetDeduplicatesAttachmentOffsets(t *testing.T) {
+	const name = "golang.org/x/net/http2/hpack.(*Encoder).WriteField"
+	allOffsets := map[string][]FuncOffsets{}
+
+	storeFunctionOffset(allOffsets, name, FuncOffsets{Symbol: "z/vendor/" + name, Start: 1, Returns: []uint64{4, 3}})
+	storeFunctionOffset(allOffsets, name, FuncOffsets{Symbol: "a/vendor/" + name, Start: 1, Returns: []uint64{3, 5}})
+
+	require.Len(t, allOffsets[name], 1)
+	assert.Equal(t, "a/vendor/"+name, allOffsets[name][0].Symbol)
+	assert.Equal(t, []uint64{3, 4, 5}, allOffsets[name][0].Returns)
+}
+
+func TestStoreFunctionOffsetKeepsCanonicalIdentityWhenOffsetsMatch(t *testing.T) {
+	const name = "golang.org/x/net/http2/hpack.(*Encoder).WriteField"
+	allOffsets := map[string][]FuncOffsets{}
+
+	storeFunctionOffset(allOffsets, name, FuncOffsets{Symbol: "a/vendor/" + name, Start: 1})
+	storeFunctionOffset(allOffsets, name, FuncOffsets{Symbol: name, Start: 1})
+
+	require.Len(t, allOffsets[name], 1)
+	assert.Equal(t, name, allOffsets[name][0].Symbol)
 }

@@ -230,14 +230,14 @@ func TestGoRuntimeGCGoalSourceSelection(t *testing.T) {
 		want                  goRuntimeGCGoalSource
 	}{
 		{name: "missing metadata", offsets: nil, want: goRuntimeGCGoalSourceNone},
-		{name: "probe symbol with compatible signature", offsets: &goexec.Offsets{Funcs: map[string]goexec.FuncOffsets{
-			goRuntimeMetricGCGoalSymbol: {},
+		{name: "probe symbol with compatible signature", offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+			goRuntimeMetricGCGoalSymbol: {{}},
 		}}, goalArgumentSupported: true, want: goRuntimeGCGoalSourcePaceScavengerArgument},
-		{name: "probe symbol with incompatible signature", offsets: &goexec.Offsets{Funcs: map[string]goexec.FuncOffsets{
-			goRuntimeMetricGCGoalSymbol: {},
+		{name: "probe symbol with incompatible signature", offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+			goRuntimeMetricGCGoalSymbol: {{}},
 		}}, want: goRuntimeGCGoalSourceNone},
 		{name: "heap goal field preferred when both sources are present", offsets: &goexec.Offsets{
-			Funcs: map[string]goexec.FuncOffsets{goRuntimeMetricGCGoalSymbol: {}},
+			Funcs: map[string][]goexec.FuncOffsets{goRuntimeMetricGCGoalSymbol: {{}}},
 			Field: goexec.FieldOffsets{goexec.RuntimeGCControllerHeapGoalPos: uint64(112)},
 		}, want: goRuntimeGCGoalSourceHeapGoalField},
 		{name: "sources missing", offsets: &goexec.Offsets{}, want: goRuntimeGCGoalSourceNone},
@@ -368,7 +368,7 @@ func TestGoRuntimeMetricsUseResolvedHeapProbe(t *testing.T) {
 	))}
 	fileInfo := exec.New(exec.Init{ELF: currentExecutableELF(t), Ino: 1})
 	offsets := goRuntimeMetricOffsets()
-	offsets.Funcs[goRuntimeMetricProbeSymbols[1]] = goexec.FuncOffsets{}
+	offsets.Funcs[goRuntimeMetricProbeSymbols[1]] = []goexec.FuncOffsets{{}}
 
 	tracer.recordGoRuntimeMetricAvailability(fileInfo, offsets)
 	tracer.ProcessBinary(fileInfo)
@@ -1461,8 +1461,8 @@ func goAutoSDKSpanContextOffsets() *goexec.Offsets {
 
 func goRuntimeMetricOffsets() *goexec.Offsets {
 	offsets := &goexec.Offsets{
-		Funcs: map[string]goexec.FuncOffsets{
-			goRuntimeMetricProbeSymbols[0]: {},
+		Funcs: map[string][]goexec.FuncOffsets{
+			goRuntimeMetricProbeSymbols[0]: {{}},
 		},
 		Field: goexec.FieldOffsets{},
 	}
