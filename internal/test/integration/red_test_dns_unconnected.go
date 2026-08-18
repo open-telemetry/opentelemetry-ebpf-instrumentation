@@ -16,6 +16,11 @@ import (
 // Served by the compose network's embedded DNS, so no upstream resolver is involved
 const unconnectedDNSName = "valkey."
 
+// The question name carried by the workload's decoy UDP payload. It is only ever
+// sent to a non-DNS port, so a lookup reported for this name means unrelated
+// traffic was classified as DNS.
+const falsePositiveDNSName = "falsepositive.test."
+
 // The Redis traffic that follows each lookup. Instrumenting it confirms the
 // workload is being watched, so a missing DNS metric means the lookup was not
 // captured rather than that the process was never instrumented.
@@ -76,9 +81,43 @@ func testDNSMetricsCountEveryLookup(t *testing.T, namespace string) {
 	}, testTimeout, time.Second)
 }
 
+// The workload pairs every lookup with a decoy UDP exchange on an unconnected
+// socket: a DNS-shaped payload, a receive that names no peer, and a non-DNS peer
+// port. Classifying an answer by the socket it arrived on has to stop short of
+// this, or unrelated UDP shows up as DNS telemetry.
+func testDNSNoFalsePositiveFromNonDNSUDP(t *testing.T, namespace string) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+
+	// The decoy exchange follows each lookup in the same iteration, so several
+	// reported lookups mean several decoy exchanges have been seen and had every
+	// chance to be misreported.
+	const lookupsBeforeChecking = 5
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.LessOrEqual(ct, lookupsBeforeChecking, dnsLookupCount(ct, pq, namespace))
+	}, testTimeout, 100*time.Millisecond)
+
+	// Every name, rather than just the decoy's own: a false positive reported
+	// under any other name still means unrelated UDP became DNS telemetry.
+	results, err := pq.Query(`dns_lookup_duration_seconds_count{` +
+		`service_namespace="` + namespace + `"}`)
+	require.NoError(t, err)
+	require.NotEmpty(t, results, "no DNS lookups at all, so this proves nothing")
+
+	for _, result := range results {
+		assert.Equal(t, unconnectedDNSName, result.Metric["dns_question_name"],
+			"non-DNS UDP on an unconnected socket was reported as a DNS lookup; "+
+				"the decoy payload carries the name %q", falsePositiveDNSName)
+	}
+}
+
 func testDNSUnconnectedResolver(t *testing.T) {
 	testDNSUnconnectedResolverControl(t, "integration-test")
 	testDNSMetricsForUnconnectedResolver(t, "integration-test")
+}
+
+func testDNSNoFalsePositive(t *testing.T) {
+	testDNSNoFalsePositiveFromNonDNSUDP(t, "integration-test")
 }
 
 func testDNSEveryLookupCounted(t *testing.T) {
