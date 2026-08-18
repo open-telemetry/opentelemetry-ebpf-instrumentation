@@ -105,6 +105,7 @@ func TestBPFMetricsCollectsInternalMetricsForPrometheusReporter(t *testing.T) {
 					probeID:   "7",
 					latency:   0.25,
 					count:     count,
+					program:   &BPFProgram{},
 				}}
 			},
 			mapMetrics: func() []BpfMapMetrics {
@@ -249,6 +250,7 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 					probeID:   "7",
 					latency:   0.25,
 					count:     count,
+					program:   &BPFProgram{},
 				}}
 			},
 			mapMetrics: func() []BpfMapMetrics {

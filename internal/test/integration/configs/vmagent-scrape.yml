@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 1s
+scrape_configs:
+  - job_name: targets
+    static_configs:
+      - targets:
+          - "target-a:8000"
+          - "target-b:8000"
+          - "target-c:8000"
+          - "target-d:8000"
+          - "target-e:8000"
+          - "target-f:8000"
+  - job_name: self
+    static_configs:
+      - targets: ["127.0.0.1:8429"]

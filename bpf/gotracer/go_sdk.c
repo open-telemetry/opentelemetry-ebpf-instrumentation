@@ -23,6 +23,7 @@
 
 #include <common/algorithm.h>
 #include <common/common.h>
+#include <common/globals.h>
 #include <common/http_types.h>
 #include <common/map_sizing.h>
 #include <common/ringbuf.h>
@@ -424,7 +425,7 @@ int obi_uprobe_tracer_Start_global(struct pt_regs *ctx) {
 SEC("uprobe/tracer_new_span")
 int obi_uprobe_tracer_NewSpan(struct pt_regs *ctx) {
     u64 generation = 0;
-    if (!go_auto_target_generation(&generation) || !g_bpf_header_propagation ||
+    if (!go_auto_target_generation(&generation) || !g_bpf_probe_write_user_enabled ||
         !span_context_offsets_available()) {
         return 0;
     }
@@ -591,7 +592,7 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
 SEC("uprobe/auto_sdk_tracer_start")
 int obi_uprobe_auto_sdk_tracer_Start(struct pt_regs *ctx) {
     u64 generation = 0;
-    if (!go_auto_target_generation(&generation) || !g_bpf_header_propagation ||
+    if (!go_auto_target_generation(&generation) || !g_bpf_probe_write_user_enabled ||
         !span_context_offsets_available()) {
         return 0;
     }
@@ -643,7 +644,7 @@ int obi_uprobe_auto_sdk_tracer_Start(struct pt_regs *ctx) {
 
 SEC("uprobe/auto_sdk_context_with_value")
 int obi_uprobe_auto_sdk_context_WithValue(struct pt_regs *ctx) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_probe_write_user_enabled) {
         return 0;
     }
 

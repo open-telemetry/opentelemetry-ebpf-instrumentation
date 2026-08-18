@@ -30,7 +30,7 @@ Before injecting, `h2_inject_verdict` (`tpinjector/inject_policy.h`) decides eli
 
 Injection requires *proving* the block carries no traceparent, not merely failing to find one: a second field makes receivers discard both. `k_h2_skip_unscanned` covers a block longer than `k_h2_max_hpack_scan` and a scan that ran out of retries.
 
-The scan recognizes the encodings that put identifying bytes on the wire: a literal name in any of the three literal prefixes, plain or huffman, and a dyn-table name reference whose value is plain (`0x37` + `00-` + dash positions).
+The scan recognizes the encodings that put identifying bytes on the wire: a literal name in any of the three literal prefixes, plain or huffman, and a dyn-table name reference whose value is plain (`0x37` + `00-` + dash positions). On egress a compressed value still counts only as *present*, not adoptable; ingress decodes it.
 
 Some encodings leave nothing at all: a dyn-table name reference with a compressed value, or — when a sender repeats the *same* traceparent, as a service fanning one incoming context out to several downstream calls — a single index byte standing for the whole field. Measured on grpc-js: request 1 is a 74-byte block holding `40 88 <huffman traceparent> a5 <huffman value>`, requests 2-4 are 25 bytes with no trace of it.
 
@@ -55,6 +55,15 @@ Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_
 ## Ingress
 
 - **kprobe HPACK parser** (`http2_grpc_start`, SERVER side): parses HPACK first (per-stream, immune to per-connection trace_map race on multiplexed streams), bounded to the actual frame payload length so trailing batched HEADERS aren't adopted, with PADDED/PRIORITY shrink applied. Falls back to `find_trace_for_server_request` only if HPACK parsing finds no traceparent. Requests 2+ on a persistent connection carry `traceparent` as an HPACK dyn-table indexed name — no literal name on the wire — so the server finalize stage additionally runs `find_hpack_traceparent_value` (value fingerprint: `0x37` length byte + `00-` prefix + dash positions + hex spot-checks). That scan lives in its own tail-call program (`..._server_finalize` → `..._server_commit`, jump table slot 14): sharing a program with the commit body exceeds the verifier's 1M-instruction ceiling on kernels 6.12+
+- **Huffman values**: SDKs usually huffman-compress the traceparent value — 35 octets on the wire instead of 55 — so none of the plain-text scans above can read it. Decoding is cheap because the traceparent alphabet is tiny: every character it can contain (`0-9a-f-`) has a 5- or 6-bit code in RFC 7541 Appendix B, so reading 6 bits is always enough to identify the next character, and `h2_tp_huffman.h` does exactly that with a single 64-entry lookup table. The table doubles as the validator: 41 of its slots name no traceparent character, so decoding anything else hits an empty slot and rejects. The EOS prefix lands on slot `0x3f`, so encoded EOS rejects the same way.
+
+  The work spans three stages because a decode loop nested inside the HPACK scan is too much for one BPF program:
+
+  1. The scan only *records* where a compressed value sits (`h2_tp_huff_candidate_t`).
+  2. `..._server_huffman` (jump table slot 15) decodes it with `bpf_loop`.
+  3. `..._server_huffscan` (slot 16) covers the indexed-name case: a dyn-table name reference leaves no name on the wire to match, so this program sweeps the block for a plausible compressed value on its own. Its verdict ranks above `find_trace_for_server_request` — a successful decode is self-validating — while the weaker plain value fingerprint in finalize stays below it.
+
+  `bpf_loop` puts the feature's kernel floor at **5.17**. On older kernels `g_bpf_loop_enabled` is false, the decode never runs, and ingress keeps its existing fallbacks.
 - **Go uprobe** (`http2Server_operateHeaders` + `server_handleStream`): writes parsed traceparent to `ongoing_grpc_server_stream_tps[{tr_ptr, stream_id}]`. `handleStream` reads per-stream first, falls back to the legacy `ongoing_grpc_transports` per-transport entry. Per-stream key avoids the last-writer-wins race when the same transport carries concurrent streams
 
 ## Parent Trace Linking

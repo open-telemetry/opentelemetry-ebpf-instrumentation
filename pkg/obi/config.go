@@ -471,6 +471,10 @@ func (c *Config) JoinMetricsConfig() *perapp.GlobalMetricsConfig {
 	return &mc
 }
 
+func (c *Config) AppRuntimeMetricsEnabled() bool {
+	return c != nil && c.JoinMetricsConfig().Features.AppRuntime()
+}
+
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`
@@ -661,6 +665,9 @@ type HostIDConfig struct {
 }
 
 type NodeJSConfig struct {
+	// Enabled turns on the Node.js injector agent, used for trace-context
+	// propagation and runtime metrics. Setting it to false disables the
+	// injection entirely, runtime metrics included.
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_NODEJS_ENABLED"`
 }
 

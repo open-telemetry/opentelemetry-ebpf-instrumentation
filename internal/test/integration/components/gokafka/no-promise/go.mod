@@ -1,4 +1,4 @@
-module github.com/open-telemetry/opentelemetry-demo/src/checkout
+module go.opentelemetry.io/obi/internal/test/integration/components/gokafka/no-promise
 
 go 1.25.0
 

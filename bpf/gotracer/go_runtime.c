@@ -716,6 +716,10 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
 
     bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);
 
+    // The result of newproc1 is the new goroutine
+    void *goroutine_addr = (void *)GO_PARAM1(ctx);
+    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
+
     // Lookup the newproc1 invocation metadata
     new_func_invocation_t *invocation = bpf_map_lookup_elem(&newproc1, &c_key);
     if (invocation == NULL) {
@@ -727,8 +731,6 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     void *parent_goroutine = (void *)invocation->parent;
     bpf_dbg_printk("parent_goroutine=%lx", parent_goroutine);
 
-    // The result of newproc1 is the new goroutine
-    void *goroutine_addr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     go_addr_key_t p_key = {.addr = (u64)parent_goroutine, .pid = pid};
@@ -744,8 +746,6 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
         }
     }
 
-    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
-
     goroutine_metadata metadata = {
         .timestamp = bpf_ktime_get_ns(),
         .parent = p_key,
@@ -756,6 +756,8 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     }
 
 done:
+    // Delete any stale info on go_trace_map
+    bpf_map_delete_elem(&go_trace_map, &g_key);
     bpf_map_delete_elem(&newproc1, &c_key);
 
     return 0;

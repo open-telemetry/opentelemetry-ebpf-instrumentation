@@ -852,7 +852,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
 
 SEC("uprobe/grpcFramerWriteHeaders_returns")
 int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
 

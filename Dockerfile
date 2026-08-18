@@ -71,7 +71,7 @@ COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY internal/config/ internal/config/
 COPY pkg/ pkg/
-COPY Makefile dependencies.Dockerfile ./
+COPY Makefile ./
 COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/java/embedded/obi-java-agent.jar
 
 # Build
