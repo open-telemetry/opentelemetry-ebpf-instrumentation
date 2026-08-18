@@ -29,8 +29,9 @@ func log() *slog.Logger {
 // PrometheusManager allows exporting metrics from different sources (instrumented metrics, internal metrics...)
 // sharing the same port and path, or using different ones, depending on the configuration provided by the registrars.
 type PrometheusManager struct {
-	mt      sync.Mutex
-	started bool
+	mt sync.Mutex
+	// ports that already have a listener, so a later StartHTTP only opens the new ones
+	served map[int]struct{}
 	// key 1: port. Key 2: path
 	registries maps.Map2[int, string, *prometheus.Registry]
 
@@ -66,19 +67,23 @@ func (pm *PrometheusManager) Register(port int, path string, collectors ...prome
 	reg.MustRegister(collectors...)
 }
 
-// StartHTTP serves metrics in background. Its invocation won't have effect if it has been invoked previously,
-// so invoke it only after you are sure that all the collectors have been registered via the Register method.
+// StartHTTP serves metrics in background. Safe to call repeatedly: each call opens listeners for
+// registered ports that are not served yet, so a late Register still gets its port served.
 func (pm *PrometheusManager) StartHTTP(ctx context.Context) {
 	pm.mt.Lock()
 	defer pm.mt.Unlock()
-	if pm.started {
-		return
+
+	if pm.served == nil {
+		pm.served = map[int]struct{}{}
 	}
-	pm.started = true
 
 	log := log()
-	// Creating a serve mux for each port
+	// Creating a serve mux for each port not served yet
 	for port, paths := range pm.registries {
+		if _, ok := pm.served[port]; ok {
+			continue
+		}
+		pm.served[port] = struct{}{}
 		mux := http.NewServeMux()
 		for path, registry := range paths {
 			log.With("port", port, "path", path).Info("opening prometheus scrape endpoint")
