@@ -1,0 +1,91 @@
+version: "3.8"
+
+services:
+  peer:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-responseobservationclient
+    environment:
+      ROLE: "peer"
+      PEER_PORT: "9000"
+
+  relay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-responseobservationclient
+    environment:
+      ROLE: "relay"
+      RELAY_PORT: "9100"
+      PEER: "peer:9000"
+      RESEGMENT_DELAY_MS: "5"
+    depends_on:
+      peer:
+        condition: service_started
+
+  resetter:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-responseobservationclient
+    environment:
+      ROLE: "resetter"
+      RESETTER_PORT: "9200"
+
+  responseobservationclient:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-responseobservationclient
+    ports:
+      - "8080:8080"
+    environment:
+      # The response comes back re-segmented, so instrumentation never sees it.
+      RELAY: "relay:9100"
+      # The same peer, called directly: the control.
+      PEER: "peer:9000"
+      # A peer that never answers and resets instead: the failure path.
+      RESETTER: "resetter:9200"
+    depends_on:
+      relay:
+        condition: service_started
+      resetter:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-response-observation.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-unobserved-response:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    network_mode: "service:responseobservationclient"
+    pid: "service:responseobservationclient"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+    depends_on:
+      responseobservationclient:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317" # OTEL GRPC traces collector
+      - "4318" # OTEL HTTP traces collector
+    command:
+      - "--set=service.telemetry.logs.level=debug"
