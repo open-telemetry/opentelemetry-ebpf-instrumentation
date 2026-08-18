@@ -45,6 +45,8 @@ type Tracer struct {
 	fionreadOnce            sync.Once
 	fionreadBroken          bool
 	fionreadFixupEnabled    bool
+	sockhashOnce            sync.Once
+	sockhashOK              bool
 	iterMu                  sync.Mutex
 	itersOnce               sync.Once
 	seenNetns               *expirable.LRU[uint64, struct{}]
@@ -162,11 +164,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if p.kernelBreaksFIONREAD() {
 		fixupSpec, err := loadableFIONREADFixup()
 		if err != nil {
-			p.log.Error("kernel misreports FIONREAD for sockets in a sockhash and the BPF "+
-				"compensation cannot be loaded (kernel lockdown?); applications sizing reads "+
-				"via FIONREAD (nginx, Java, .NET) may stall or truncate transfers; "+
-				"set context_propagation: disabled (OTEL_EBPF_BPF_CONTEXT_PROPAGATION=disabled) "+
-				"to avoid impact", "error", err)
+			p.log.Warn("cannot load the FIONREAD compensation (kernel lockdown?)", "error", err)
 		} else {
 			bundles = append(bundles, &ebpfcommon.SpecBundle{
 				Spec:      fixupSpec,
@@ -251,6 +249,10 @@ func (p *Tracer) SocketFilters() []*ebpf.Program {
 }
 
 func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg {
+	if !p.sockhashSafe() {
+		return nil
+	}
+
 	return []ebpfcommon.SockMsg{
 		{
 			Program:  p.bpfObjects.ObiPacketExtender,
@@ -261,6 +263,10 @@ func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg {
 }
 
 func (p *Tracer) SockOps() []ebpfcommon.SockOps {
+	if !p.sockhashSafe() {
+		return nil
+	}
+
 	return []ebpfcommon.SockOps{
 		{
 			Program:  p.bpfObjects.ObiSockmapTracker,
@@ -271,6 +277,10 @@ func (p *Tracer) SockOps() []ebpfcommon.SockOps {
 
 // Iters is called from both AllowPID (discovery) and Run (pipeline) goroutines
 func (p *Tracer) Iters() []*ebpfcommon.Iter {
+	if !p.sockhashSafe() {
+		return nil
+	}
+
 	p.itersOnce.Do(func() {
 		major, minor := ebpfcommon.KernelVersion()
 
@@ -315,10 +325,6 @@ func (p *Tracer) AlreadyInstrumentedLib(uint64) bool {
 
 func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
 	p.log.Debug("tpinjector started")
-
-	if p.fionreadFixupEnabled {
-		p.verifyFIONREADFix()
-	}
 
 	for _, it := range p.Iters() {
 		if err := it.Run(p.log); err != nil {
