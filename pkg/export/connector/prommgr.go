@@ -30,8 +30,12 @@ func log() *slog.Logger {
 // sharing the same port and path, or using different ones, depending on the configuration provided by the registrars.
 type PrometheusManager struct {
 	mt sync.Mutex
-	// ports that already have a listener, so a later StartHTTP only opens the new ones
-	served map[int]struct{}
+	// mux of each port that already has a listener, so a path registered later can be
+	// added to the running mux instead of needing a second listener
+	muxes map[int]*http.ServeMux
+	// (port, path) pairs already wired into a mux. http.ServeMux panics on a duplicate
+	// pattern, so a repeated StartHTTP must skip them.
+	handled maps.Map2[int, string, struct{}]
 	// key 1: port. Key 2: path
 	registries maps.Map2[int, string, *prometheus.Registry]
 
@@ -67,25 +71,29 @@ func (pm *PrometheusManager) Register(port int, path string, collectors ...prome
 	reg.MustRegister(collectors...)
 }
 
-// StartHTTP serves metrics in background. Safe to call repeatedly: each call opens listeners for
-// registered ports that are not served yet, so a late Register still gets its port served.
+// StartHTTP serves metrics in background. Safe to call repeatedly: each call serves what is
+// registered but not served yet, opening a new port or adding a path to a running mux.
 func (pm *PrometheusManager) StartHTTP(ctx context.Context) {
 	pm.mt.Lock()
 	defer pm.mt.Unlock()
 
-	if pm.served == nil {
-		pm.served = map[int]struct{}{}
+	if pm.muxes == nil {
+		pm.muxes = map[int]*http.ServeMux{}
+	}
+	if pm.handled == nil {
+		pm.handled = maps.Map2[int, string, struct{}]{}
 	}
 
 	log := log()
-	// Creating a serve mux for each port not served yet
 	for port, paths := range pm.registries {
-		if _, ok := pm.served[port]; ok {
-			continue
+		mux, listening := pm.muxes[port]
+		if !listening {
+			mux = http.NewServeMux()
 		}
-		pm.served[port] = struct{}{}
-		mux := http.NewServeMux()
 		for path, registry := range paths {
+			if _, ok := pm.handled.Get(port, path); ok {
+				continue
+			}
 			log.With("port", port, "path", path).Info("opening prometheus scrape endpoint")
 			promHandler := promhttp.HandlerFor(registry, promhttp.HandlerOpts{
 				Registry:          registry,
@@ -93,9 +101,14 @@ func (pm *PrometheusManager) StartHTTP(ctx context.Context) {
 			})
 			promHandler = wrapDebugHandler(log, promHandler)
 			promHandler = wrapInstrumentedHandler(pm.metrics, port, path, promHandler)
+			// ServeMux takes its own write lock, so this is safe while it serves
 			mux.Handle(path, promHandler)
+			pm.handled.Put(port, path, struct{}{})
 		}
-		listenAndServe(ctx, port, mux)
+		if !listening {
+			pm.muxes[port] = mux
+			listenAndServe(ctx, port, mux)
+		}
 	}
 }
 
