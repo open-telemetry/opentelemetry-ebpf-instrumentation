@@ -69,7 +69,7 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 		scheme = "https"
 	}
 
-	return request.Span{
+	span := request.Span{
 		Type:              request.EventType(info.Type),
 		Method:            info.Method,
 		Path:              removeQuery(info.URL),
@@ -97,6 +97,44 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 		Statement:    scheme + request.SchemeHostSeparator + info.HeaderHost,
 		ProtoVersion: info.ProtoVersion,
 	}
+
+	markResponseObservation(&span, &info.BPFHTTPInfo)
+
+	return span
+}
+
+// The kernel's enum http_response_observation. Nonzero means the record was
+// force-finished at socket teardown with no response read, so it carries no status.
+const (
+	bpfResponseParsed   = 0
+	bpfResponseReceived = 1
+	bpfResponseSilent   = 2
+)
+
+// markResponseObservation copies the kernel's observation onto the span. Both
+// nonzero values mean no response was read, so Status is cleared in either
+// case.
+//
+// They differ in whether the end timestamp is usable. ResponseReceived took it
+// when instrumentation stopped watching, which can be long after the response
+// arrived, so the duration is discarded. ResponseSilent took it from the close
+// that ended the request, so the duration is preserved.
+func markResponseObservation(span *request.Span, event *BPFHTTPInfo) {
+	switch event.ResponseObservation {
+	case bpfResponseParsed:
+		return
+	case bpfResponseSilent:
+		span.ResponseObservation = request.ResponseSilent
+	// An unrecognized value withholds the duration, which asserts less than publishing
+	// one.
+	case bpfResponseReceived:
+		fallthrough
+	default:
+		span.ResponseObservation = request.ResponseReceived
+		request.SetIgnoreDurations(span)
+	}
+
+	span.Status = 0
 }
 
 func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, req *http.Request, resp *http.Response) request.Span {
@@ -162,6 +200,8 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		},
 		Statement: scheme + request.SchemeHostSeparator + headerHost,
 	}
+
+	markResponseObservation(&httpSpan, event)
 
 	return postProcessHTTPSpan(parseCtx, &httpSpan, req, resp)
 }

@@ -138,6 +138,10 @@ func init() {
 
 var OBIIP = Name("obi.ip")
 
+// OBIHTTPResponseObserved is false on a span whose response was never seen, and absent
+// otherwise.
+var OBIHTTPResponseObserved = Name("obi.http.response.observed")
+
 const (
 	Transport       = Name("transport")
 	NetworkType     = Name(semconv.NetworkTypeKey)

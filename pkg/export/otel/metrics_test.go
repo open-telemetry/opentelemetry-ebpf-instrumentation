@@ -1219,6 +1219,52 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 	}, timeout, 100*time.Millisecond)
 }
 
+// The gauge reports that the host is running. A service whose every call ended
+// without a usable duration still runs, so the only traffic being unmeasured must
+// not withhold it.
+func TestAppMetrics_TracesHostInfoUnmeasuredSpans(t *testing.T) {
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	feats := export.FeatureApplicationRED | export.FeatureApplicationHost
+	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, feats, otlp, metrics, processEvents)
+	go mr.reportMetrics(ctx)
+
+	processEvents.Send(exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{
+			Service: svc.Attrs{
+				Features: feats,
+				UID:      svc.UID{Instance: "foo"},
+			},
+		}),
+	})
+
+	unmeasured := request.Span{
+		Service:             svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}},
+		Type:                request.EventTypeHTTPClient,
+		Path:                "/foo",
+		RequestStart:        100,
+		End:                 200,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	metrics.Send([]request.Span{unmeasured})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
+			"traces.host.info metric has not been created for a service whose only calls were unmeasured")
+	}, timeout, 100*time.Millisecond)
+}
+
 func TestMetricResourceAttributes(t *testing.T) {
 	// Test different filtering scenarios
 	testCases := []struct {

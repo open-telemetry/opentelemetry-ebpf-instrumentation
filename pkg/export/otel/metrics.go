@@ -1371,6 +1371,19 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 		if !s.Service.Features.AppOrSpan() || request.IgnoreMetrics(s) {
 			continue
 		}
+		// This gauge reports that the host is running, which the span's duration
+		// says nothing about, so it is recorded whatever came of the response.
+		if s.Service.Features.AppHost() {
+			hostInfo, attrs := mr.hostInfo.ForRecord(s)
+			hostInfo.Record(mr.ctx, 1, instrument.WithAttributeSet(attrs))
+		}
+
+		// The span's duration feeds every instrument reporter.record reaches for
+		// these spans, so it is dropped whole. The service graph counts it instead;
+		// its request counter stands on its own.
+		if request.IgnoreDurations(s) {
+			continue
+		}
 		reporter, err := mr.reporters.For(&s.Service)
 		if err != nil {
 			mlog().Error("unexpected error creating OTEL resource. Ignoring metric",
@@ -1378,11 +1391,6 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 			continue
 		}
 		reporter.record(s, mr)
-
-		if s.Service.Features.AppHost() {
-			hostInfo, attrs := mr.hostInfo.ForRecord(s)
-			hostInfo.Record(mr.ctx, 1, instrument.WithAttributeSet(attrs))
-		}
 	}
 }
 

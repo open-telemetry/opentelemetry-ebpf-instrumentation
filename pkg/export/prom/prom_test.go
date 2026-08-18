@@ -1522,3 +1522,31 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 		assert.Regexp(ct, containsTracesHostInfo, exported)
 	}, timeout, 10*time.Millisecond)
 }
+
+// A span with no measured duration stays out of the RED series, whose buckets are only
+// meaningful next to a duration. otelSpanFiltered still passes it, so the service graph
+// can count the call.
+func TestREDMetricsExcludeSpansWithNoMeasuredDuration(t *testing.T) {
+	mr := metricsReporter{cfg: &PrometheusConfig{}}
+
+	svcRED := svc.Attrs{Features: export.FeatureApplicationRED}
+
+	unmeasured := request.Span{
+		Service: svcRED, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/r",
+		RequestStart: 100, End: 6_000_000_000, ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	// The control differs only in having been observed.
+	measured := request.Span{
+		Service: svcRED, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/r",
+		RequestStart: 100, End: 200, Status: 200,
+	}
+
+	assert.True(t, mr.otelMetricsObserved(&measured),
+		"an observed call is in the RED series")
+	assert.False(t, mr.otelMetricsObserved(&unmeasured),
+		"a call with no measured duration is not in the RED series")
+	assert.False(t, mr.otelSpanFiltered(&unmeasured),
+		"it is withheld from durations, not filtered out of every metric")
+}

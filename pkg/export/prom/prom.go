@@ -972,8 +972,11 @@ func (r *metricsReporter) collectMetrics(ctx context.Context) {
 	})
 }
 
+// otelMetricsObserved gates the RED series. A span with no measured duration stays out,
+// body-size histograms included: those buckets are only meaningful next to a duration.
 func (r *metricsReporter) otelMetricsObserved(span *request.Span) bool {
-	return span.Service.Features.AppRED() && !span.Service.ExportsOTelMetrics()
+	return span.Service.Features.AppRED() && !span.Service.ExportsOTelMetrics() &&
+		!request.IgnoreDurations(span)
 }
 
 func (r *metricsReporter) otelSpanMetricsObserved(span *request.Span) bool {
@@ -1218,13 +1221,17 @@ func (r *metricsReporter) observe(span *request.Span) {
 	}
 
 	if r.otelSpanMetricsObserved(span) {
-		if span.Service.Features.SpanMetrics() {
+		// The calls counter is separable from the latency histogram, but the two are
+		// read together, so feeding one alone makes the pair disagree.
+		durationMeasured := !request.IgnoreDurations(span)
+
+		if span.Service.Features.SpanMetrics() && durationMeasured {
 			lv := r.labelValuesSpans(span)
 			r.observeHistogram(r.spanMetricsLatency.WithLabelValues(lv...).Metric, duration, span)
 			r.addCounter(r.spanMetricsCallsTotal.WithLabelValues(lv...).Metric, 1, span)
 		}
 
-		if span.Service.Features.SpanSizes() {
+		if span.Service.Features.SpanSizes() && durationMeasured {
 			lv := r.labelValuesSpans(span)
 			r.addCounter(r.spanMetricsRequestSizeTotal.WithLabelValues(lv...).Metric, float64(span.RequestBodyLength()), span)
 			r.addCounter(r.spanMetricsResponseSizeTotal.WithLabelValues(lv...).Metric, float64(span.ResponseBodyLength()), span)
@@ -1234,8 +1241,12 @@ func (r *metricsReporter) observe(span *request.Span) {
 			if !span.IsSelfReferenceSpan() || r.cfg.AllowServiceGraphSelfReferences {
 				lvg := labelValuesSvcGraph(span, r.attrSvcGraph, &r.pidsTracker)
 
+				// The request counter is its own instrument, so an unmeasured span
+				// still counts on its edge. Only the latency is withheld.
 				if span.IsClientSpan() {
-					r.observeHistogram(r.serviceGraphClient.WithLabelValues(lvg...).Metric, duration, span)
+					if durationMeasured {
+						r.observeHistogram(r.serviceGraphClient.WithLabelValues(lvg...).Metric, duration, span)
+					}
 					// If we managed to resolve the remote name only, we check to see
 					// we are not instrumenting the server service, then and only then,
 					// we generate client span count for service graph total
@@ -1243,9 +1254,13 @@ func (r *metricsReporter) observe(span *request.Span) {
 						r.addCounter(r.serviceGraphTotal.WithLabelValues(lvg...).Metric, 1, span)
 					}
 				} else {
-					r.observeHistogram(r.serviceGraphServer.WithLabelValues(lvg...).Metric, duration, span)
+					if durationMeasured {
+						r.observeHistogram(r.serviceGraphServer.WithLabelValues(lvg...).Metric, duration, span)
+					}
 					r.addCounter(r.serviceGraphTotal.WithLabelValues(lvg...).Metric, 1, span)
 				}
+				// An unmeasured span has status Unset, so it never counts against
+				// the edge.
 				if request.SpanStatusCode(span) == request.StatusCodeError {
 					r.addCounter(r.serviceGraphFailed.WithLabelValues(lvg...).Metric, 1, span)
 				}
