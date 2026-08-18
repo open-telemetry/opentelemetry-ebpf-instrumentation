@@ -10,6 +10,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
+	"go.opentelemetry.io/obi/pkg/internal/netns"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/kube"
 )
@@ -123,8 +124,7 @@ func (d *DynamicAppIPs) decrementIPsLocked(ips []string) {
 	}
 }
 
-// processIPs resolves non-loopback addresses from pid's network namespace (Docker /
-// containerd / host-network / bare processes). Injectable for tests.
+// processIPs lists addresses in pid's netns. Injectable for tests.
 var processIPs = func(pid app.PID) []string {
 	ips, err := container.IPsForPID(pid)
 	if err != nil {
@@ -134,10 +134,16 @@ var processIPs = func(pid app.PID) []string {
 	return ips
 }
 
+// injectable for tests
+var isIsolatedNetNS = netns.IsIsolated
+
 // ResolveContainerIPs returns the IPs associated with a dynamically selected PID.
-// Prefer Kubernetes pod IPs when a kube store is available; otherwise (and when the
-// store has no entry for the PID) fall back to addresses visible in the process's
-// network namespace so NetO11y/StatsO11y work on VMs and plain Docker hosts.
+// Prefer Kubernetes pod IPs when a kube store is available; otherwise (and when
+// the store has no entry for the PID) fall back to addresses in an isolated
+// container network namespace (Docker/containerd bridge). Processes that share
+// the host or agent netns are not identified by interface address: those IPs
+// are shared with unselected traffic and CommonAttrs has no PID to recover
+// ownership.
 //
 // When store is non-nil the PID is registered via AddProcess; callers that invoke
 // this outside DynamicAppIPs must call store.DeleteProcess when the PID is no
@@ -151,6 +157,14 @@ func ResolveContainerIPs(store *kube.Store, pid app.PID) []string {
 		} else if meta, _ := store.PodContainerByPIDNs(info.PIDNamespace, pid); meta != nil && len(meta.Meta.Ips) > 0 {
 			return append([]string(nil), meta.Meta.Ips...)
 		}
+	}
+	isolated, err := isIsolatedNetNS(int(pid))
+	if err != nil {
+		selLog().Debug("can't determine netns isolation for PID", "pid", pid, "error", err)
+		return nil
+	}
+	if !isolated {
+		return nil
 	}
 	return processIPs(pid)
 }

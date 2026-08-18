@@ -97,3 +97,9 @@ func TestSameNetNSReportsMissingTarget(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
+
+func TestIsIsolated_selfIsNotIsolated(t *testing.T) {
+	isolated, err := IsIsolated(os.Getpid())
+	require.NoError(t, err)
+	assert.False(t, isolated)
+}

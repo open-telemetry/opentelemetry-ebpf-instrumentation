@@ -13,17 +13,27 @@ import (
 
 // injectable for testing
 var (
-	withNetNS      = netns.WithNetNS
-	interfaceAddrs = net.InterfaceAddrs
+	withNetNS       = netns.WithNetNS
+	interfaceAddrs  = net.InterfaceAddrs
+	isIsolatedNetNS = netns.IsIsolated
 )
 
-// IPsForPID returns the non-loopback IPv4/IPv6 addresses visible in pid's network
-// namespace. This covers Docker/containerd bridge networking and host-network /
-// bare-metal processes (where the process shares the agent's netns) without
-// requiring a Kubernetes metadata store.
+// IPsForPID returns the non-loopback IPv4/IPv6 addresses visible in pid's
+// network namespace when that namespace is isolated from the agent and host
+// (PID 1). This covers Docker/containerd bridge networking. Host-network and
+// bare-host processes share those namespaces; their interface addresses are
+// not process identity, so this returns no IPs.
 func IPsForPID(pid app.PID) ([]string, error) {
+	isolated, err := isIsolatedNetNS(int(pid))
+	if err != nil {
+		return nil, fmt.Errorf("checking netns isolation: %w", err)
+	}
+	if !isolated {
+		return nil, nil
+	}
+
 	var ips []string
-	err := withNetNS(int(pid), func() error {
+	err = withNetNS(int(pid), func() error {
 		addrs, err := interfaceAddrs()
 		if err != nil {
 			return fmt.Errorf("listing interface addresses: %w", err)

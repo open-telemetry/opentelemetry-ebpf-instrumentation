@@ -27,14 +27,20 @@ func TestUniqueNonLoopbackIPs(t *testing.T) {
 }
 
 func TestIPsForPID_usesNetNS(t *testing.T) {
+	origIso := isIsolatedNetNS
 	origWith := withNetNS
 	origAddrs := interfaceAddrs
 	t.Cleanup(func() {
+		isIsolatedNetNS = origIso
 		withNetNS = origWith
 		interfaceAddrs = origAddrs
 	})
 
 	var sawPID int
+	isIsolatedNetNS = func(pid int) (bool, error) {
+		assert.Equal(t, 4242, pid)
+		return true, nil
+	}
 	withNetNS = func(pid int, fn func() error) error {
 		sawPID = pid
 		return fn()
@@ -52,10 +58,47 @@ func TestIPsForPID_usesNetNS(t *testing.T) {
 	assert.Equal(t, []string{"10.88.0.5"}, ips)
 }
 
-func TestIPsForPID_propagatesNetNSError(t *testing.T) {
+func TestIPsForPID_sharedNetNSReturnsNoIPs(t *testing.T) {
+	origIso := isIsolatedNetNS
 	origWith := withNetNS
-	t.Cleanup(func() { withNetNS = origWith })
+	t.Cleanup(func() {
+		isIsolatedNetNS = origIso
+		withNetNS = origWith
+	})
 
+	listed := false
+	isIsolatedNetNS = func(int) (bool, error) { return false, nil }
+	withNetNS = func(int, func() error) error {
+		listed = true
+		return nil
+	}
+
+	ips, err := IPsForPID(app.PID(1))
+	require.NoError(t, err)
+	assert.Empty(t, ips)
+	assert.False(t, listed)
+}
+
+func TestIPsForPID_propagatesIsolationError(t *testing.T) {
+	origIso := isIsolatedNetNS
+	t.Cleanup(func() { isIsolatedNetNS = origIso })
+
+	sentinel := errors.New("stat netns")
+	isIsolatedNetNS = func(int) (bool, error) { return false, sentinel }
+
+	_, err := IPsForPID(app.PID(1))
+	assert.ErrorIs(t, err, sentinel)
+}
+
+func TestIPsForPID_propagatesNetNSError(t *testing.T) {
+	origIso := isIsolatedNetNS
+	origWith := withNetNS
+	t.Cleanup(func() {
+		isIsolatedNetNS = origIso
+		withNetNS = origWith
+	})
+
+	isIsolatedNetNS = func(int) (bool, error) { return true, nil }
 	sentinel := errors.New("setns denied")
 	withNetNS = func(int, func() error) error { return sentinel }
 
