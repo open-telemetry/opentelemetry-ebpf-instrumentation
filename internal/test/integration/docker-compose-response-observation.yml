@@ -1,11 +1,14 @@
 version: "3.8"
 
 services:
+  # Every role runs the same binary, chosen by ROLE. Each service builds the same context
+  # under its own tag: sharing one tag makes concurrent builds race for it, and a service
+  # that only references the tag tries to pull it.
   peer:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
-    image: hatest-responseobservationclient
+    image: hatest-ro-peer
     environment:
       ROLE: "peer"
       PEER_PORT: "9000"
@@ -14,7 +17,7 @@ services:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
-    image: hatest-responseobservationclient
+    image: hatest-ro-relay
     environment:
       ROLE: "relay"
       RELAY_PORT: "9100"
@@ -24,11 +27,37 @@ services:
       peer:
         condition: service_started
 
+  # A second relay, for the calls that share one connection. It is separate only so the
+  # spans of the two cases are told apart by the port they went to.
+  reuserelay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-reuserelay
+    environment:
+      ROLE: "relay"
+      RELAY_PORT: "9300"
+      PEER: "peer:9000"
+      RESEGMENT_DELAY_MS: "5"
+    depends_on:
+      peer:
+        condition: service_started
+
+  # The control for the reuse case: the same pooled traffic, responses parsed normally.
+  reusepeer:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-reusepeer
+    environment:
+      ROLE: "peer"
+      PEER_PORT: "9400"
+
   resetter:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
-    image: hatest-responseobservationclient
+    image: hatest-ro-resetter
     environment:
       ROLE: "resetter"
       RESETTER_PORT: "9200"
@@ -47,8 +76,16 @@ services:
       PEER: "peer:9000"
       # A peer that never answers and resets instead: the failure path.
       RESETTER: "resetter:9200"
+      # The same unparsed responses, over one connection that is never closed.
+      REUSE_RELAY: "reuserelay:9300"
+      REUSE_PEER: "reusepeer:9400"
+      REUSE_CALLS: "60"
     depends_on:
       relay:
+        condition: service_started
+      reuserelay:
+        condition: service_started
+      reusepeer:
         condition: service_started
       resetter:
         condition: service_started
