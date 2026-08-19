@@ -196,6 +196,20 @@ func TestDefault(t *testing.T) {
 	assert.Equal(t, p.For(NetworkFlow), p.For(NetworkFlowPackets))
 }
 
+func TestDefault_DBClientDuration(t *testing.T) {
+	p, err := NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{
+		attr.DBOperation,
+		attr.DBSystemName,
+		attr.ErrorType,
+		attr.ServerAddr,
+		attr.ServerPort,
+		attr.ServiceName,
+		attr.ServiceNamespace,
+	}, p.For(DBClientDuration))
+}
+
 func TestDefaultSensitiveQueryParamsIncludesLegacyAWSSignedURLKeys(t *testing.T) {
 	assert.Contains(t, DefaultSensitiveQueryParams, "AWSAccessKeyId")
 	assert.Contains(t, DefaultSensitiveQueryParams, "Signature")
