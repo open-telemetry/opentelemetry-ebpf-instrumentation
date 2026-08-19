@@ -20,7 +20,7 @@ services:
       - "4317:4317"
 
   obi:
-    image: ${OBI_IMAGE:-otel/ebpf-instrument:main@sha256:31c014dff9843488a2b278e9a19644a5beee7c339b36514611952015462bf953}
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:main@sha256:ac5d9b202e0abfeb6b5d26ace0fcca96498aa03eff7479847a827bbc6a7a86b6}
     privileged: true
     pid: host
     environment:
