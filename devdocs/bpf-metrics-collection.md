@@ -48,8 +48,8 @@ If both paths are active, each path owns a separate collector.
 | --- | --- | --- |
 | `obi_bpf_probe_executions_total` | *(none: see `obi.bpf.probe.latency` count)* | Probe executions |
 | `obi_bpf_probe_latency_seconds_total` | `obi.bpf.probe.latency` | Probe latency distribution in seconds |
-| `obi_bpf_map_entries_total` | `obi.bpf.map.entries_total` | Current map entry count |
-| `obi_bpf_map_max_entries_total` | `obi.bpf.map.max_entries_total` | Configured maximum map entries |
+| `obi_bpf_map_entries` | `obi.bpf.map.entries` | Current map entry count |
+| `obi_bpf_map_max_entries` | `obi.bpf.map.max_entries` | Configured maximum map entries |
 
 Probe metrics use the program ID, type, and function name as attributes or
 labels. Map metrics use the map ID, type, and name.

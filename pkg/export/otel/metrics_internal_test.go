@@ -14,6 +14,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -58,7 +59,10 @@ func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 
 func TestBpfProbeLatencyProducerDeltaTemporality(t *testing.T) {
 	bound := imetrics.BpfLatenciesBuckets[0]
-	producer := newBpfProbeLatencyProducer(metricdata.DeltaTemporality)
+	producer := newBpfProbeLatencyProducer(
+		attributes.NewInternalMetrics(attr.VendorPrefix).BpfProbeLatency,
+		metricdata.DeltaTemporality,
+	)
 
 	producer.Update("7", "kprobe", "tcp_connect", 2, 0.5, map[float64]uint64{bound: 2})
 	first := produceHistogramPoint(t, producer)

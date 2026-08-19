@@ -29,8 +29,8 @@ var internalMetricsExpected = []string{
 	"obi_internal_build_info",             // gauge, emitted once at startup
 	"obi_instrumented_processes",          // updowncounter, +1 per instrumented process
 	"obi_otel_metric_exports_total",       // counter, every metric export
-	"obi_bpf_map_entries_total",           // gauge, per eBPF map
-	"obi_bpf_map_max_entries_total",       // gauge, per eBPF map
+	"obi_bpf_map_entries",                 // gauge, per eBPF map
+	"obi_bpf_map_max_entries",             // gauge, per eBPF map
 	"obi_bpf_probe_latency_seconds_count", // histogram, needs BPF run-stats + traffic
 }
 
