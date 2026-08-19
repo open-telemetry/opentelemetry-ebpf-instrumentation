@@ -430,6 +430,24 @@ static void test_unconn_sock_rejects_a_recycled_pointer(void) {
              obi_unconn_dns_answer_expected((void *)0x1000, &resolver));
 }
 
+// The endpoint check cannot see this one: the replacement socket binds exactly
+// what the resolver had, so only retiring the entry when the socket is destroyed
+// keeps the new socket from inheriting the classification. obi_kprobe_udp_destroy_sock
+// is what calls obi_forget_unconn_dns_sock in the tracer.
+static void test_unconn_sock_rejects_a_recycled_pointer_at_the_same_endpoint(void) {
+    mock_map_reset();
+    connection_info_t resolver = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &resolver);
+
+    // the resolver socket is destroyed, and a new socket lands on the same
+    // address and rebinds the identical local endpoint inside the window
+    obi_forget_unconn_dns_sock((void *)0x1000);
+
+    check_u8("a socket recycled at the identical endpoint expects nothing",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &resolver));
+}
+
 static void test_unconn_sock_rejects_a_different_local_address(void) {
     mock_map_reset();
     connection_info_t resolver = local_endpoint(40100, 10);
@@ -505,6 +523,7 @@ int main(void) {
     test_unconn_sock_non_dns_send_retires_the_window();
     test_unconn_sock_query_refreshes_the_window();
     test_unconn_sock_rejects_a_recycled_pointer();
+    test_unconn_sock_rejects_a_recycled_pointer_at_the_same_endpoint();
     test_unconn_sock_rejects_a_different_local_address();
     test_unconn_sock_answer_expires();
     test_unconn_sock_answer_within_timeout_is_expected();

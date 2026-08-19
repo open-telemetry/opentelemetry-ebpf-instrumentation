@@ -288,6 +288,19 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
     return 0;
 }
 
+// unconn_dns_socks is keyed by the struct sock * address, which the kernel may
+// hand to a new socket once this one is gone. Retiring the entry here bounds the
+// key's meaning to the socket's lifetime, so a later socket at the same address
+// cannot inherit its DNS classification.
+SEC("kprobe/udp_destroy_sock")
+int BPF_KPROBE(obi_kprobe_udp_destroy_sock, struct sock *sk) {
+    (void)ctx;
+
+    obi_forget_unconn_dns_sock(sk);
+
+    return 0;
+}
+
 static __always_inline void cp_support_established(pid_connection_info_t *p_conn) {
     cp_support_data_t *cp_support = bpf_map_lookup_elem(&cp_support_connect_info, p_conn);
     if (cp_support) {
