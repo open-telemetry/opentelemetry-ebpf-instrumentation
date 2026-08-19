@@ -14,13 +14,9 @@ import (
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
-
-// bpfProbeLatencyMetricName is the OTLP counterpart of the Prometheus
-// bpf_probe_latency_seconds const histogram.
-var bpfProbeLatencyMetricName = attr.VendorPrefix + ".bpf.probe.latency"
 
 type bpfProbeKey struct {
 	probeID   string
@@ -66,14 +62,16 @@ func subtractBpfProbeLatency(current, previous bpfProbeLatencyState) bpfProbeLat
 // instead and emits explicit bounds and bucket counts.
 type bpfProbeLatencyProducer struct {
 	mu           sync.Mutex
+	name         attributes.Name
 	temporality  metricdata.Temporality
 	startTime    time.Time
 	probes       map[bpfProbeKey]*bpfProbeLatencyState
 	lastProduced map[bpfProbeKey]bpfProbeLatencyState
 }
 
-func newBpfProbeLatencyProducer(temporality metricdata.Temporality) *bpfProbeLatencyProducer {
+func newBpfProbeLatencyProducer(name attributes.Name, temporality metricdata.Temporality) *bpfProbeLatencyProducer {
 	return &bpfProbeLatencyProducer{
+		name:         name,
 		temporality:  temporality,
 		startTime:    timeNow(),
 		probes:       make(map[bpfProbeKey]*bpfProbeLatencyState),
@@ -156,9 +154,9 @@ func (p *bpfProbeLatencyProducer) Produce(ctx context.Context) ([]metricdata.Sco
 	return []metricdata.ScopeMetrics{{
 		Scope: instrumentation.Scope{Name: internalMetricsMeterName},
 		Metrics: []metricdata.Metrics{{
-			Name:        bpfProbeLatencyMetricName,
+			Name:        p.name.OTEL,
 			Description: "Latency distribution of the eBPF probe in seconds",
-			Unit:        "s",
+			Unit:        p.name.Unit,
 			Data: metricdata.Histogram[float64]{
 				Temporality: metricdata.CumulativeTemporality,
 				DataPoints:  dataPoints,

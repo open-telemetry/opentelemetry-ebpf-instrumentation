@@ -138,12 +138,12 @@ func TestBPFMetricsCollectsInternalMetricsForPrometheusReporter(t *testing.T) {
 			"probe_type": "kprobe",
 			"probe_name": "tcp_connect",
 		})
-		mapEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_entries_total", map[string]string{
+		mapEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_entries", map[string]string{
 			"map_id":   "3",
 			"map_name": "connections",
 			"map_type": "hash",
 		})
-		mapMaxEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_max_entries_total", map[string]string{
+		mapMaxEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_max_entries", map[string]string{
 			"map_id":   "3",
 			"map_name": "connections",
 			"map_type": "hash",
@@ -299,12 +299,12 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 			"probe_type": "kprobe",
 			"probe_name": "tcp_connect",
 		})
-		mapEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_entries_total", map[string]string{
+		mapEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_entries", map[string]string{
 			"map_id":   "3",
 			"map_name": "connections",
 			"map_type": "hash",
 		})
-		mapMaxEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_max_entries_total", map[string]string{
+		mapMaxEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_max_entries", map[string]string{
 			"map_id":   "3",
 			"map_name": "connections",
 			"map_type": "hash",
