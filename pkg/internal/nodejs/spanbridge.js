@@ -216,6 +216,48 @@
   };
   const hrNs = () => process.hrtime.bigint();
 
+  // OTel TimeInput -> epoch ns, or null when unusable. Takes app-controlled
+  // input on the span.end() hot path, so it must never throw. Values the
+  // decoder cannot represent (int64 ns) are rejected rather than shipped.
+  const MAX_EPOCH_NS = 9223372036854775807n;
+  const msToNs = (ms) => {
+    if (!Number.isFinite(ms) || ms <= 0) return null;
+    const whole = Math.trunc(ms);
+    const ns = BigInt(whole) * 1000000n + BigInt(Math.round((ms - whole) * 1e6));
+    return ns > MAX_EPOCH_NS ? null : ns;
+  };
+  const timeInputToNs = (t) => {
+    try {
+      if (t instanceof Date) {
+        return msToNs(t.getTime());
+      }
+      if (typeof t === 'number') {
+        // Matching @opentelemetry/core: a number below performance.timeOrigin
+        // is a performance.now()-style offset, not an epoch timestamp.
+        const origin = globalThis.performance && globalThis.performance.timeOrigin;
+        if (typeof origin === 'number' && Number.isFinite(t) && t < origin) {
+          return msToNs(origin + t);
+        }
+        return msToNs(t);
+      }
+      if (
+        Array.isArray(t) &&
+        t.length === 2 &&
+        typeof t[0] === 'number' &&
+        typeof t[1] === 'number' &&
+        Number.isFinite(t[0]) &&
+        Number.isFinite(t[1]) &&
+        t[0] > 0 &&
+        t[1] >= 0
+      ) {
+        const ns = BigInt(Math.trunc(t[0])) * 1000000000n + BigInt(Math.trunc(t[1]));
+        return ns > MAX_EPOCH_NS ? null : ns;
+      }
+    } catch (_) {
+    }
+    return null;
+  };
+
   class Span {
     constructor(name, kind, parentSpanContext, extParent) {
       this.name = safeStr(name);
@@ -280,10 +322,11 @@
     isRecording() {
       return !this._ended;
     }
-    end() {
+    end(endTime) {
       if (this._ended) return;
       this._ended = true;
       const durNs = hrNs() - this._startHrNs;
+      this._endWallNs = endTime === undefined ? null : timeInputToNs(endTime);
       // span.end() is idiomatically called from a finally block. It must never
       // throw into the app: with no SDK registered the alternative is a silent
       // NoopSpan, so any escape here is a regression. safeStr guards the field
@@ -326,6 +369,7 @@
         kind: this.kind,
         startNs: this._startWallNs.toString(),
         durNs: durNs.toString(),
+        endWallNs: this._endWallNs ? this._endWallNs.toString() : undefined,
         status: this.status.code,
         statusMsg: this.status.message ? truncateUtf8(safeStr(this.status.message), MAX_STATUS_MSG_LEN) : undefined,
         attrs: this._serializeAttributes(),

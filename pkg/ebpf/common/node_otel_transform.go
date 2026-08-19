@@ -10,6 +10,7 @@ import (
 	"errors"
 	"math"
 	"strconv"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -18,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 )
 
 // nodeSpanRecord is the JSON document serialized by the Node.js span bridge
@@ -33,6 +35,7 @@ type nodeSpanRecord struct {
 	Kind      int            `json:"kind"`
 	StartNs   string         `json:"startNs"`
 	DurNs     string         `json:"durNs"`
+	EndWallNs string         `json:"endWallNs"`
 	Status    int            `json:"status"`
 	StatusMsg string         `json:"statusMsg"`
 	Attrs     map[string]any `json:"attrs"`
@@ -94,6 +97,13 @@ func ReadNodeSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, erro
 		return request.Span{}, true, errors.New("invalid node span duration")
 	}
 	end := int64(event.EndKtime)
+	if rec.EndWallNs != "" {
+		if wallEnd, err := strconv.ParseInt(rec.EndWallNs, 10, 64); err == nil {
+			if monoEnd, ok := nodeExplicitEnd(wallEnd, end); ok {
+				end = monoEnd
+			}
+		}
+	}
 	start := end - durNs
 
 	var traceID trace.TraceID
@@ -124,6 +134,7 @@ func ReadNodeSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, erro
 
 	return request.Span{
 		Type:         request.EventTypeManualSpan,
+		SpanKind:     nodeKindToSpanKind(rec.Kind),
 		Method:       rec.Name,
 		Statement:    attrs,
 		Path:         rec.StatusMsg,
@@ -140,6 +151,37 @@ func ReadNodeSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, erro
 			Namespace: event.Pid.Ns,
 		},
 	}, false, nil
+}
+
+// The OTel JS SpanKind enum is zero-based (INTERNAL=0); Go's is shifted by
+// one. ValidateSpanKind falls back to Internal for out-of-range values.
+func nodeKindToSpanKind(jsKind int) trace.SpanKind {
+	return trace.ValidateSpanKind(trace.SpanKind(jsKind + 1))
+}
+
+// The pipeline assumes one monotonic time domain anchored by BPF ktime; an
+// explicit span.end(t) farther than this from the sentinel anchor is ignored
+// so a wrong app clock cannot corrupt trace timing.
+const maxNodeExplicitEndSkew = 5 * time.Minute
+
+func nodeExplicitEnd(wallEndNs, anchorMono int64) (int64, bool) {
+	if wallEndNs <= 0 {
+		return 0, false
+	}
+	wallNow := time.Now().UnixNano()
+	monoNow := int64(timing.MonoTimeNow())
+	monoEnd, ok := translateAutoSpanTimestamp(wallEndNs, wallNow, monoNow)
+	if !ok {
+		return 0, false
+	}
+	skew := monoEnd - anchorMono
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew > int64(maxNodeExplicitEndSkew) {
+		return 0, false
+	}
+	return monoEnd, true
 }
 
 // nodeStatusToCode maps an OpenTelemetry JS SpanStatusCode (UNSET=0, OK=1,

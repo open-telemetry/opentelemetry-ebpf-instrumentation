@@ -6,8 +6,10 @@ package ebpfcommon
 import (
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"math"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/stretchr/testify/assert"
@@ -15,9 +17,11 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 )
 
 func nodeSpanRecordBytes(t *testing.T, ev *NodeSpanEvent, payload string) *ringbuf.Record {
@@ -182,6 +186,97 @@ func TestReadNodeSpanEventIntoSpan_ExternalParentKeptWithoutRequestContext(t *te
 	assert.Equal(t, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", span.TraceID.String())
 	assert.Equal(t, "bbbbbbbbbbbbbbbb", span.ParentSpanID.String(),
 		"without re-anchoring the external parent is honored as-is")
+}
+
+func TestReadNodeSpanEventIntoSpan_SpanKind(t *testing.T) {
+	// JS SpanKind is zero-based (INTERNAL=0 … CONSUMER=4); Go trace.SpanKind is
+	// shifted by one. A raw copy would export every server span as internal.
+	cases := []struct {
+		jsKind int
+		want   trace.SpanKind
+	}{
+		{jsKind: 0, want: trace.SpanKindInternal},
+		{jsKind: 1, want: trace.SpanKindServer},
+		{jsKind: 2, want: trace.SpanKindClient},
+		{jsKind: 3, want: trace.SpanKindProducer},
+		{jsKind: 4, want: trace.SpanKindConsumer},
+		{jsKind: 9, want: trace.SpanKindInternal},  // unknown -> Internal
+		{jsKind: -1, want: trace.SpanKindInternal}, // invalid -> Internal
+	}
+	for _, tc := range cases {
+		ev := NodeSpanEvent{EndKtime: 1_000_000_000}
+		payload := fmt.Sprintf(`{"v":1,"name":"k","tid":"5b8efff798038103d269b633813fc60c",`+
+			`"sid":"eee19b7ec3c1b174","kind":%d,"durNs":"1000","status":0}`, tc.jsKind)
+
+		span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, span.SpanKind, "js kind %d", tc.jsKind)
+	}
+}
+
+func TestReadNodeSpanEventIntoSpan_ExplicitEndHonoredWithinSkewBound(t *testing.T) {
+	// The span ended 2s ago by the app's wall clock; the sentinel anchor is
+	// "now" in the monotonic domain. 2s is well within the skew bound, so the
+	// decoded end must move ~2s before the anchor (not stay at the anchor).
+	anchor := int64(timing.MonoTimeNow())
+	ev := NodeSpanEvent{EndKtime: uint64(anchor)}
+	wallEnd := time.Now().Add(-2 * time.Second).UnixNano()
+
+	payload := fmt.Sprintf(`{"v":1,"name":"e","tid":"5b8efff798038103d269b633813fc60c",`+
+		`"sid":"eee19b7ec3c1b174","durNs":"1000000","endWallNs":"%d","status":0}`, wallEnd)
+
+	span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+	require.NoError(t, err)
+
+	// Tolerate scheduling jitter between the two MonoTimeNow samples.
+	assert.InDelta(t, anchor-2*time.Second.Nanoseconds(), span.End, float64(500*time.Millisecond),
+		"explicit end within the bound must be honored")
+	assert.Equal(t, span.End-1_000_000, span.Start, "start must stay end - durNs")
+}
+
+func TestReadNodeSpanEventIntoSpan_ExplicitEndOutsideSkewBoundIgnored(t *testing.T) {
+	// An end 10 minutes in the past exceeds maxNodeExplicitEndSkew: the decoder
+	// must fall back to the sentinel anchor exactly.
+	anchor := int64(timing.MonoTimeNow())
+	ev := NodeSpanEvent{EndKtime: uint64(anchor)}
+	wallEnd := time.Now().Add(-10 * time.Minute).UnixNano()
+
+	payload := fmt.Sprintf(`{"v":1,"name":"e","tid":"5b8efff798038103d269b633813fc60c",`+
+		`"sid":"eee19b7ec3c1b174","durNs":"1000","endWallNs":"%d","status":0}`, wallEnd)
+
+	span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+	require.NoError(t, err)
+
+	assert.Equal(t, anchor, span.End, "out-of-bound explicit end must be ignored")
+}
+
+func TestReadNodeSpanEventIntoSpan_ExplicitEndFutureOutsideSkewBoundIgnored(t *testing.T) {
+	anchor := int64(timing.MonoTimeNow())
+	ev := NodeSpanEvent{EndKtime: uint64(anchor)}
+	wallEnd := time.Now().Add(10 * time.Minute).UnixNano()
+
+	payload := fmt.Sprintf(`{"v":1,"name":"e","tid":"5b8efff798038103d269b633813fc60c",`+
+		`"sid":"eee19b7ec3c1b174","durNs":"1000","endWallNs":"%d","status":0}`, wallEnd)
+
+	span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+	require.NoError(t, err)
+
+	assert.Equal(t, anchor, span.End, "future out-of-bound explicit end must be ignored")
+}
+
+func TestReadNodeSpanEventIntoSpan_ExplicitEndUnusableValuesIgnored(t *testing.T) {
+	for _, endWallNs := range []string{"garbage", "9999999999999999999999999999", "-5", "0"} {
+		anchor := int64(timing.MonoTimeNow())
+		ev := NodeSpanEvent{EndKtime: uint64(anchor)}
+
+		payload := fmt.Sprintf(`{"v":1,"name":"e","tid":"5b8efff798038103d269b633813fc60c",`+
+			`"sid":"eee19b7ec3c1b174","durNs":"1000","endWallNs":"%s","status":0}`, endWallNs)
+
+		span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+		require.NoError(t, err)
+
+		assert.Equal(t, anchor, span.End, "unusable endWallNs %q must fall back to the anchor", endWallNs)
+	}
 }
 
 func TestReadNodeSpanEventIntoSpan_Invalid(t *testing.T) {
