@@ -146,6 +146,37 @@ func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 	assert.InDelta(t, 0.42, records[0].FloatVal, 0.001)
 }
 
+// A process basename comes straight off the filesystem, where Linux permits invalid UTF-8. The
+// internal metrics build their datapoint attributes directly, so without sanitization such a
+// name poisons every internal-metrics export batch for as long as the series stays aggregated.
+func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
+	metricRecords := make(chan collector.MetricRecord, 16)
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:        10 * time.Millisecond,
+		MetricsConsumer: testMetricsConsumer(metricRecords),
+	}
+	ctxInfo := &global.ContextInfo{
+		NodeMeta:            meta.NodeMeta{HostID: "test-host"},
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}
+
+	reporter, err := NewInternalMetricsReporter(
+		t.Context(),
+		ctxInfo,
+		mcfg,
+		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
+	)
+	require.NoError(t, err)
+
+	reporter.InstrumentProcess("my-service\xff\xfe")
+
+	records := readMetricsByName(t, metricRecords, time.Second,
+		attr.VendorPrefix+".instrumented.processes",
+	)
+	require.Len(t, records, 1)
+	assert.Equal(t, "my-service", records[0].Attributes["process.executable.name"])
+}
+
 func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{

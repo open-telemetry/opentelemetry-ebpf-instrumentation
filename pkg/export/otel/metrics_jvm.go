@@ -150,7 +150,7 @@ func jvmRuntimeAttributeSet(
 	vals := make([]string, 0, len(fields))
 
 	for _, field := range fields {
-		kv := field.Get(snapshot)
+		kv := sanitizeKeyValue(field.Get(snapshot))
 		keyVals = append(keyVals, kv)
 		vals = append(vals, kv.Value.Emit())
 	}

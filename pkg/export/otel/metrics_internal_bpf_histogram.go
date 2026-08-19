@@ -85,7 +85,13 @@ func (p *bpfProbeLatencyProducer) Update(
 	latencySumSeconds float64,
 	latencyBuckets map[float64]uint64,
 ) {
-	key := bpfProbeKey{probeID: probeID, probeType: probeType, probeName: probeName}
+	// probe names come from eBPF program info; sanitizing on the way in keeps the
+	// aggregation key and the exported attribute consistent.
+	key := bpfProbeKey{
+		probeID:   attributes.SanitizeUTF8(probeID),
+		probeType: attributes.SanitizeUTF8(probeType),
+		probeName: attributes.SanitizeUTF8(probeName),
+	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
