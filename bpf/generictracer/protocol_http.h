@@ -207,7 +207,9 @@ static __always_inline void force_finish_http(http_info_t *info,
     }
 
     if (!high_request_volume) {
-        if (!http_info_complete(info)) {
+        // A record that already saw its response unparsed is timed from those bytes, so
+        // the teardown neither ends it nor tells us anything new about it.
+        if (!http_info_complete(info) && info->response_observation == http_response_parsed) {
             // status stays 0: nothing was parsed, so there is no status to report.
             info->resp_len = 0;
             info->end_monotime_ns = bpf_ktime_get_ns();
@@ -240,10 +242,15 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
         if (old_info && !old_info->submitted) {
             const u8 req_type = request_type_by_direction(direction, packet_type);
             if (!http_info_complete(old_info)) {
-                if (old_info->type == req_type && is_duplicate_info(old_info)) {
+                // A record whose response already arrived is finished, whatever came of
+                // the parse, so a request in the same epoch is the next call on a reused
+                // connection rather than a second sighting of this one.
+                if (old_info->type == req_type && !response_unread(old_info) &&
+                    is_duplicate_info(old_info)) {
                     return 0;
                 }
                 cleanup_incomplete_http_server_thread_trace(old_info, NULL);
+                note_displaced_by_next_request(old_info, bpf_ktime_get_ns());
             }
             // this will delete ongoing_http for this connection info if there's full stale request
             finish_http(old_info, pid_conn, NULL);
@@ -372,6 +379,9 @@ static __always_inline void process_http_request(http_info_t *info,
 static __always_inline void process_http_response(http_info_t *info, const unsigned char *buf) {
     info->resp_len = 0;
     info->end_monotime_ns = bpf_ktime_get_ns();
+    // An earlier buffer on this connection may have been marked as the response arriving
+    // unparsed. This one parsed, so the record carries a status after all.
+    info->response_observation = http_response_parsed;
 
     u16 status = 0;
 
