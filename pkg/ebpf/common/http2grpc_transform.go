@@ -763,7 +763,10 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 		return http2EventToSpan(parseContext, &pendingH2Event{event: *event, response: response})
 	}
 	if !stream.requestOK {
-		return request.Span{}, true, nil
+		stream.request = h2RequestMeta{
+			path: "*",
+			grpc: response.grpc || h2c.protocol == GRPC || event.Ssl == 0,
+		}
 	}
 
 	cached := stream.request

@@ -1076,6 +1076,22 @@ func TestMissingRequestHeaderEventPoisonsDecoder(t *testing.T) {
 	require.Equal(t, "*", span.Path)
 }
 
+func TestUnusableRequestHeaderEventFallsBackToWildcard(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	event := h2Event(makeHeadersFrame(t, []byte{0xbe}), nil, 812, 3)
+	event.HpackFlags = h2HpackRequestUnreliable
+
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	conn, ok := parseContext.h2c.Peek(event.NewConnId)
+	require.True(t, ok)
+	stream := conn.streams[event.StreamId]
+	require.True(t, stream.requestSeen)
+	require.False(t, stream.requestOK)
+
+	span := completeH2(t, parseContext, event)
+	require.Equal(t, "*", span.Path)
+}
+
 // Multiplexed streams can complete in a different order than their header
 // blocks were captured: decoding must follow capture order, or the second
 // block resolves against a table missing the first block's insertions.

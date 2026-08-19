@@ -308,6 +308,13 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		// Pick the completed trace for the structural checks below.
 		trace = tq.Data[0]
 
+		relayServerSpans := relaySpansByKind(trace, "server")
+		relayClientSpans := relaySpansByKind(trace, "client")
+		require.GreaterOrEqual(ct, len(relayServerSpans), 6,
+			"should have at least 6 gRPC server spans (one per gRPC relay hop)")
+		require.GreaterOrEqual(ct, len(relayClientSpans), 6,
+			"should have at least 6 gRPC client spans (one per gRPC relay hop)")
+
 		// per hop, at least one server span must have a parent client span from the expected service
 		grpcParentChain := []struct{ server, parent string }{
 			{"python-relay", "go-entry"},
@@ -428,6 +435,23 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 
 func isRelayOperation(operation string) bool {
 	return operation == "/relay.Relay/Relay" || operation == "*"
+}
+
+func relaySpansByKind(trace jaeger.Trace, kind string) []jaeger.Span {
+	seen := map[string]bool{}
+	var matches []jaeger.Span
+	for _, s := range trace.Spans {
+		if !isRelayOperation(s.OperationName) {
+			continue
+		}
+		tag, ok := jaeger.FindIn(s.Tags, "span.kind")
+		if !ok || tag.Value != kind || seen[s.SpanID] {
+			continue
+		}
+		seen[s.SpanID] = true
+		matches = append(matches, s)
+	}
+	return matches
 }
 
 // serverSpansByService accepts the expected RPC name or its fail-closed wildcard and
