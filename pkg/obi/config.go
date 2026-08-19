@@ -855,6 +855,15 @@ func (c *Config) resolveSpanMetricsFormats() error {
 		}
 	}
 
+	// The exporters choose the metric names from the OR of all masks, so a legacy format in
+	// one list and OTel in another would silently select legacy names for every service.
+	// Each mask is already conflict-free here, so a joined conflict is always cross-mask.
+	if c.JoinMetricsConfig().Features.InvalidSpanMetricsConfig() {
+		return ConfigError("you can only enable one format of span metrics across the" +
+			" top-level and per-service metrics features, application_span or" +
+			" application_span_otel")
+	}
+
 	// Reachable only through "all"/"*": an explicit combination is rejected above. The user
 	// did not pick the legacy format, so report the resolution without a deprecation notice.
 	if resolved {

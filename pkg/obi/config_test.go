@@ -692,6 +692,41 @@ discovery:
 		require.ErrorContains(t, cfg.Validate(), "only enable one format of span metrics")
 	})
 
+	// Each mask can be conflict-free while their OR is not: the exporters pick the metric
+	// names from the joined mask, so a top-level legacy format with a per-service OTel one
+	// would silently select legacy names for the very service that requested OTel.
+	t.Run("legacy top-level with otel per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span_otel"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	t.Run("otel top-level with legacy per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span_otel"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
 	// Per-service sections feed the exporters through JoinMetricsConfig, so a feature
 	// enabled only there must still be reported.
 	t.Run("warns for a feature enabled only per-service", func(t *testing.T) {
