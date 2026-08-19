@@ -40,6 +40,7 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 			var err error
 			results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
 				`db_operation_name="` + span.Name + `",` +
+				`server_port="6379",` +
 				`service_namespace="` + namespace + `"}`)
 			require.NoError(ct, err, "failed to query prometheus for %s", span.Name)
 			enoughPromResults(ct, results)

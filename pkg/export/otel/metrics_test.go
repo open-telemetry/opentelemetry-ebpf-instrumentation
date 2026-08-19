@@ -593,7 +593,7 @@ func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
 	}
 }
 
-func TestAppMetrics_DBCollectionName(t *testing.T) {
+func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -614,7 +614,7 @@ func TestAppMetrics_DBCollectionName(t *testing.T) {
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.DBClientDuration.Section: attributes.InclusionLists{
-					Include: []string{string(attr.DBCollectionName)},
+					Include: []string{string(attr.DBCollectionName), string(attr.ServerPort)},
 				},
 			},
 		},
@@ -630,6 +630,7 @@ func TestAppMetrics_DBCollectionName(t *testing.T) {
 		Type:         request.EventTypeSQLClient,
 		Path:         "customers",
 		Method:       "SELECT",
+		HostPort:     5432,
 		RequestStart: 100,
 		End:          200,
 	}})
@@ -637,6 +638,7 @@ func TestAppMetrics_DBCollectionName(t *testing.T) {
 	records := readMetricsByName(t, metricRecords, timeout, attributes.DBClientDuration.OTEL)
 	require.Len(t, records, 1)
 	assert.Equal(t, "customers", records[0].Attributes[string(attr.DBCollectionName)])
+	assert.Equal(t, "5432", records[0].Attributes[string(attr.ServerPort)])
 }
 
 func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
