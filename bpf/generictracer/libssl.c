@@ -337,7 +337,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_shutdown, void *s) {
 // OpenSSL's internal staging BIOs, and identifies the SSL behind a BIO level
 // write during the handshake, while SSL_write is off the stack.
 SEC("uprobe/libssl.so:SSL_set_bio")
-int BPF_UPROBE(obi_uprobe_ssl_set_bio, void *ssl, void *rbio, void *wbio) {
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_set_bio, void *ssl, void *rbio, void *wbio) {
     (void)ctx;
 
     const u64 id = bpf_get_current_pid_tgid();
@@ -346,7 +346,10 @@ int BPF_UPROBE(obi_uprobe_ssl_set_bio, void *ssl, void *rbio, void *wbio) {
         return 0;
     }
 
-    bpf_dbg_printk("=== SSL_set_bio id=%d ssl=%llx rbio=%llx wbio=%llx ===", id, ssl, rbio, wbio);
+    // Split in two: bpf_trace_printk takes at most three arguments, and clang
+    // silently switches to bpf_trace_vprintk beyond that, which needs 5.16.
+    bpf_dbg_printk("=== SSL_set_bio id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("SSL_set_bio rbio=%llx wbio=%llx", rbio, wbio);
 
     ssl_bios_track(pid_from_pid_tgid(id), ssl, rbio, wbio);
 
@@ -358,7 +361,7 @@ int BPF_UPROBE(obi_uprobe_ssl_set_bio, void *ssl, void *rbio, void *wbio) {
 // Allocators reuse BIO pointers, and a reused pointer may next serve as an
 // internal BIO that SSL_set_bio never names.
 SEC("uprobe/libssl.so:SSL_free")
-int BPF_UPROBE(obi_uprobe_ssl_free, void *ssl) {
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_free, void *ssl) {
     (void)ctx;
 
     const u64 id = bpf_get_current_pid_tgid();
@@ -383,7 +386,7 @@ int BPF_UPROBE(obi_uprobe_ssl_free, void *ssl) {
 // socket BIO and a memory BIO, whatever the application does with the buffer
 // afterwards. It is a libcrypto symbol.
 SEC("uprobe/libcrypto.so:BIO_write")
-int BPF_UPROBE(obi_uprobe_bio_write, void *bio, const void *buf, int len) {
+int BPF_UPROBE_GUARDED(obi_uprobe_bio_write, void *bio, const void *buf, int len) {
     (void)ctx;
 
     const u64 id = bpf_get_current_pid_tgid();
