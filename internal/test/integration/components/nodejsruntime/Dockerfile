@@ -7,4 +7,5 @@ COPY internal/test/integration/components/nodejsruntime/app.js .
 
 EXPOSE 3030
 
-CMD [ "node", "app.js" ]
+# --expose-gc: the app's /gc endpoint forces a major collection via global.gc
+CMD [ "node", "--expose-gc", "app.js" ]

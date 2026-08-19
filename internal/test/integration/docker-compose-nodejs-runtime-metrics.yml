@@ -38,7 +38,7 @@ services:
       OTEL_EBPF_EXECUTABLE_PATH: "node"
       OTEL_SERVICE_NAME: "nodejs-runtime"
       OTEL_EBPF_PROMETHEUS_PORT: "8999"
-      OTEL_EBPF_PROMETHEUS_TTL: "5s"
+      OTEL_EBPF_PROMETHEUS_TTL: "30s"
     depends_on:
       testserver:
         condition: service_started
