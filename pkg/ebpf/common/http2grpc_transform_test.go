@@ -1045,6 +1045,24 @@ func TestSequentialRequestsKeepResolvingMethods(t *testing.T) {
 	require.Equal(t, pathB, span.Path)
 }
 
+func TestCoalescedDataDoesNotPoisonHeaderState(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	firstFrame := enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01"))
+	dataFrame := []byte{0, 0, 1, byte(http2.FrameData), 0, 0, 0, 0, 1, 0}
+	coalesced := append(append([]byte(nil), firstFrame...), dataFrame...)
+	first := h2Event(coalesced, nil, 810, 1)
+	first.Flags = EventTypeKHTTP2RequestHeaders
+	require.NoError(t, readHTTP2HeaderEvent(parseContext, &first))
+	require.Equal(t, pathA, completeH2(t, parseContext, first).Path)
+
+	second := h2Event(enc.frame(t, requestFields(pathA, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), nil, 810, 3)
+	observeH2Headers(t, parseContext, second, EventTypeKHTTP2RequestHeaders)
+	require.Equal(t, pathA, completeH2(t, parseContext, second).Path)
+}
+
 func TestMissingRequestHeaderEventPoisonsDecoder(t *testing.T) {
 	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}

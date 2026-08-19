@@ -407,10 +407,20 @@ static __always_inline void update_prev_info(grpc_frames_ctx_t *g_ctx) {
     }
 }
 
-static __always_inline u8 h2_has_coalesced_frames(const grpc_frames_ctx_t *g_ctx,
-                                                  const frame_header_t *frame) {
+static __always_inline u8 h2_next_frame_changes_hpack(const grpc_frames_ctx_t *g_ctx,
+                                                      const frame_header_t *frame) {
     const u32 frame_size = frame->length + k_frame_header_len;
-    return frame_size < g_ctx->args.bytes_len && g_ctx->pos < g_ctx->args.bytes_len - frame_size;
+    if (frame_size >= g_ctx->args.bytes_len || g_ctx->pos >= g_ctx->args.bytes_len - frame_size) {
+        return 0;
+    }
+
+    frame_header_t next = {0};
+    const void *offset = (const unsigned char *)g_ctx->args.u_buf + g_ctx->pos + frame_size;
+    if (bpf_probe_read(&next, sizeof(next), offset) != 0) {
+        return 1;
+    }
+
+    return next.type == FrameHeaders || next.type == FramePushPromise;
 }
 
 static __always_inline int
@@ -439,10 +449,8 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
         }
 
         if (http_grpc_stream_ended(frame)) {
-            if (h2_has_coalesced_frames(g_ctx, frame)) {
-                http2_poison_hpack(&g_ctx->stream,
-                                   &g_ctx->prev_info,
-                                   h2_hpack_req_unreliable | h2_hpack_resp_unreliable);
+            if (h2_next_frame_changes_hpack(g_ctx, frame)) {
+                http2_poison_hpack(&g_ctx->stream, &g_ctx->prev_info, poison);
             }
             bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
             return 0; // normally unreachable
@@ -457,9 +465,8 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
             if (frame->length + k_frame_header_len > k_kprobes_http2_buf_size) {
                 http2_poison_hpack(&g_ctx->stream, 0, h2_hpack_req_unreliable);
             }
-            if (h2_has_coalesced_frames(g_ctx, frame)) {
-                http2_poison_hpack(
-                    &g_ctx->stream, 0, h2_hpack_req_unreliable | h2_hpack_resp_unreliable);
+            if (h2_next_frame_changes_hpack(g_ctx, frame)) {
+                http2_poison_hpack(&g_ctx->stream, 0, h2_hpack_req_unreliable);
             }
             bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame);
             return 0; // normally unreachable
