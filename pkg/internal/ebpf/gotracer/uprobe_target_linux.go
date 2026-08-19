@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package gotracer
+package gotracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ import (
 func (p *Tracer) ResolveUprobeTarget(executable *link.Executable, offset uint64) (uint64, uint64, error) {
 	if p == nil || executable == nil || p.bpfObjects.GoExecutableIdentityRequests == nil ||
 		p.bpfObjects.ObiCaptureGoExecutableIdentity == nil {
-		return 0, 0, errors.New("Go executable identity resolver is unavailable")
+		return 0, 0, errors.New("go executable identity resolver is unavailable")
 	}
 
 	runtime.LockOSThread()
