@@ -31,6 +31,15 @@ enum {
 // the ClientHello's client_random and an application record's AEAD tag.
 enum { k_tls_prefix_max = 32 };
 
+// Narrowest record that can carry per-connection entropy. A record shorter than
+// the key width supplies every byte of the key, so a record with fixed content
+// keys the same for every connection: a TLS 1.3 ChangeCipherSpec is always
+// 14 03 03 00 01 01. Two unbound connections in one process would register the
+// same key, and the second would displace the first. The smallest record worth
+// correlating is an application record, whose fragment holds at least a content
+// type byte and a 16 byte AEAD tag.
+enum { k_tls_key_min_len = k_tls_hdr_len + 16 };
+
 typedef struct tls_prefix_key {
     unsigned char bytes[k_tls_prefix_max];
     u8 len;
@@ -118,6 +127,10 @@ static __always_inline u32 tls_record_key_len(const unsigned char *hdr, u32 avai
 
     const u32 record_len = k_tls_hdr_len + fragment_len;
     u32 key_len = record_len < avail ? record_len : avail;
+
+    if (key_len < k_tls_key_min_len) {
+        return 0;
+    }
 
     if (key_len > k_tls_prefix_max) {
         key_len = k_tls_prefix_max;

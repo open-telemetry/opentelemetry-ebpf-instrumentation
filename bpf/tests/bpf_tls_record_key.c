@@ -53,6 +53,35 @@ static void test_rejects_non_tls(void) {
     check(tls_record_key_len(buf, 4) == 0, "a buffer shorter than the header is rejected");
 }
 
+// Records whose bytes are the same on every connection. Keying them would let
+// one connection's send bind another connection's SSL.
+static void test_rejects_low_entropy_records(void) {
+    unsigned char buf[64] = {0};
+
+    const unsigned char change_cipher_spec[] = {0x14, 0x03, 0x03, 0x00, 0x01, 0x01};
+
+    memcpy(buf, change_cipher_spec, sizeof(change_cipher_spec));
+    check(tls_record_plausible_start(buf, sizeof(change_cipher_spec)),
+          "a ChangeCipherSpec is a well formed record");
+    check(tls_record_key_len(buf, sizeof(change_cipher_spec)) == 0,
+          "a TLS 1.3 ChangeCipherSpec is not keyed");
+
+    // close_notify, the shortest alert.
+    put_hdr(buf, k_tls_ct_alert, 2);
+    buf[k_tls_hdr_len] = 0x01;
+    buf[k_tls_hdr_len + 1] = 0x00;
+    check(tls_record_key_len(buf, k_tls_hdr_len + 2) == 0, "a plaintext close_notify is not keyed");
+
+    // The floor sits just below the smallest application record: one content
+    // type byte and a 16 byte AEAD tag.
+    put_hdr(buf, k_tls_ct_app_data, k_tls_key_min_len - k_tls_hdr_len - 1);
+    check(tls_record_key_len(buf, 64) == 0, "a record one byte under the floor is rejected");
+
+    put_hdr(buf, k_tls_ct_app_data, k_tls_key_min_len - k_tls_hdr_len);
+    check(tls_record_key_len(buf, 64) == k_tls_key_min_len,
+          "the smallest application record is keyed");
+}
+
 // A ClientHello, whose record is far longer than the key width.
 // The cheap gate the socket send path runs before building a key. It must agree
 // with tls_record_key_len about what is not a TLS record, or plaintext sends
@@ -143,15 +172,17 @@ static void test_key_is_fully_initialised(void) {
     unsigned char buf[64];
     tls_prefix_key_t key;
 
+    const unsigned int record_len = k_tls_key_min_len;
+
     memset(buf, 0xff, sizeof(buf));
-    put_hdr(buf, k_tls_ct_app_data, 10);
+    put_hdr(buf, k_tls_ct_app_data, record_len - k_tls_hdr_len);
 
     memset(&key, 0xaa, sizeof(key));
 
-    const unsigned int key_len = tls_prefix_key_from_buf(&key, buf, 15, 15);
+    const unsigned int key_len = tls_prefix_key_from_buf(&key, buf, record_len, record_len);
 
-    check(key_len == 15, "a short record keys at its own length");
-    check(key.len == 15, "the key records its length");
+    check(key_len == record_len, "a short record keys at its own length");
+    check(key.len == record_len, "the key records its length");
 
     for (unsigned int i = key_len; i < k_tls_prefix_max; i++) {
         check(key.bytes[i] == 0, "bytes past the record are zeroed");
@@ -192,7 +223,7 @@ static void test_never_reads_past_the_copied_bytes(void) {
     // byte in the region.
     mprotect(region + page, page, PROT_NONE);
 
-    const unsigned int fragment = 10;
+    const unsigned int fragment = k_tls_key_min_len - k_tls_hdr_len;
     const unsigned int record_len = k_tls_hdr_len + fragment;
     unsigned char *record = region + page - record_len;
 
@@ -212,6 +243,7 @@ static void test_never_reads_past_the_copied_bytes(void) {
 
 int main(void) {
     test_rejects_non_tls();
+    test_rejects_low_entropy_records();
     test_plausible_start_gate();
     test_client_hello();
     test_coalesced_socket_write_matches_the_single_record();
