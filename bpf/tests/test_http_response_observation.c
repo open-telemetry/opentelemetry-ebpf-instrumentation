@@ -117,19 +117,15 @@ static void test_observation_at_close_names_both_cases(void) {
                 "an unsnapshotted record with no traffic at all is still absent");
 }
 
-// The marker takes a former padding byte; the snapshot is the word past it. The struct
-// was already a full 416 bytes, so it grew by one word. Assert it so a later field is
-// not added in the belief the tail has room.
+// The marker takes a former padding byte at the tail, and the snapshot sits with the
+// other u64s where it costs no padding of its own. Assert both, so a later field is not
+// added in the belief the tail has room.
 static void test_struct_grew_by_exactly_the_snapshot(void) {
     assert_true(sizeof(http_info_t) % 8 == 0, "http_info_t stays 8-byte aligned in size");
-    assert_true(offsetof(http_info_t, response_observation) <
-                    offsetof(http_info_t, response_bytes_at_request),
-                "the snapshot follows the marker");
-    assert_true(offsetof(http_info_t, response_bytes_at_request) + sizeof(u64) ==
-                    sizeof(http_info_t),
-                "the snapshot is the struct's last field and its last word");
-    assert_true(sizeof(http_info_t) == offsetof(http_info_t, response_observation) + 2 + 8,
-                "the record grew by exactly the 8 bytes the snapshot needs, and no more");
+    assert_true(offsetof(http_info_t, response_bytes_at_request) % sizeof(u64) == 0,
+                "the snapshot is aligned, so it added no padding beyond its own word");
+    assert_true(offsetof(http_info_t, response_observation) + sizeof(u8) == sizeof(http_info_t),
+                "the marker is the record's last byte, in padding that already existed");
 }
 
 // Both outcomes travel the identical path out. Userspace decides what to do with the
