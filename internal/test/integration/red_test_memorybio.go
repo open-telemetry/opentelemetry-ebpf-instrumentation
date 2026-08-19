@@ -111,7 +111,7 @@ func describeMemoryBIOPeers(results []promtest.Result) string {
 	return "\n" + strings.Join(lines, "\n")
 }
 
-func driveMemoryBIOLoad(t *testing.T) {
+func driveMemoryBIOLoad(_ *testing.T) {
 	var wg sync.WaitGroup
 	requests := make(chan struct{}, memoryBIORequests)
 	for range memoryBIORequests {
