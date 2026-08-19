@@ -19,6 +19,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
 )
 
 // MaxJSFileScanBytes caps opportunistic JS/TS source scans to avoid spending
@@ -1576,22 +1577,6 @@ func (e *RouteExtractor) GetHarvestedRoutes() []string {
 	return result
 }
 
-func (e *RouteExtractor) FirstArg(args []string) string {
-	return FirstArg(args)
-}
-
-// FirstArg returns the first non-flag argument from a Node.js command line,
-// skipping flags (starting with '-') and the "inspect" keyword.
-func FirstArg(args []string) string {
-	for _, a := range args {
-		if a == "" || a[0] == '-' || a == "inspect" {
-			continue
-		}
-		return a
-	}
-	return ""
-}
-
 // testing
 var (
 	rootDirForPID = ebpfcommon.RootDirectoryForPID
@@ -1612,11 +1597,11 @@ func FindNodeJSAppDir(pid app.PID) (string, error) {
 		return "", fmt.Errorf("error finding cwd: %w", err)
 	}
 
-	firstArg := FirstArg(args)
+	entryPoint := nodejstools.ParseNodeLaunch(args).EntryPoint
 
-	dir := FindScriptDirectory(rootDir, firstArg, workdir)
+	dir := FindScriptDirectory(rootDir, entryPoint, workdir)
 	if dir == "" {
-		return "", fmt.Errorf("failed to find script directory for pid %d, script %s, cwd %s", pid, firstArg, workdir)
+		return "", fmt.Errorf("failed to find script directory for pid %d, script %s, cwd %s", pid, entryPoint, workdir)
 	}
 	return dir, nil
 }
