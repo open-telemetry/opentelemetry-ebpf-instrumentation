@@ -769,6 +769,20 @@ func TestSuite_PythonRedis(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonRedisServerSide(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-redis-server.yml", path.Join(pathOutput, "test-suite-python-redis-server.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=6379`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Redis server-side metrics", func(t *testing.T) {
+		waitForRedisServerTestComponents(t, "http://localhost:8381", "/redis")
+		testREDMetricsRedisServerSide(t)
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_NodeBullMQ(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodejs-bullmq.yml", path.Join(pathOutput, "test-suite-nodejs-bullmq.log"))
 	require.NoError(t, err)
