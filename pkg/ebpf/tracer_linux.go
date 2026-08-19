@@ -35,6 +35,7 @@ func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") 
 
 type instrumenter struct {
 	key                         ExecutableKey
+	goKey                       ExecutableKey
 	references                  uint64
 	offsets                     *goexec.Offsets
 	exe                         *link.Executable
@@ -87,7 +88,7 @@ func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer, cfg *obi.
 		Type:                      tracerType,
 		Instrumentables:           map[ExecutableKey]*instrumenter{},
 		instrumentableGenerations: map[ExecutableKey]uint64{},
-		goInstrumentablesByInode:  map[uint64]*instrumenter{},
+		goInstrumentables:         map[ExecutableKey]*instrumenter{},
 		shutdownTimeout:           cfg.ShutdownTimeout,
 		metrics:                   metrics,
 		bpffsPath:                 cfg.EBPF.BPFFSPath,
@@ -348,12 +349,14 @@ func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
 }
 
 func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable) error {
-	if pt.reuseGoInstrumenter(ie) {
+	goKey := pt.goExecutableKey(exe, ie)
+	if pt.reuseGoInstrumenter(ie, goKey) {
 		return nil
 	}
 
 	i := instrumenter{
 		key:         ExecutableKey{Dev: ie.FileInfo.Dev(), Ino: ie.FileInfo.Ino()},
+		goKey:       goKey,
 		exe:         exe,
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields
 		modules:     map[uint64]struct{}{},
@@ -409,20 +412,60 @@ func (pt *ProcessTracer) commitInstrumenter(i *instrumenter, ie *Instrumentable)
 	if pt.Instrumentables == nil {
 		pt.Instrumentables = map[ExecutableKey]*instrumenter{}
 	}
-	if pt.goInstrumentablesByInode == nil {
-		pt.goInstrumentablesByInode = map[uint64]*instrumenter{}
+	if pt.goInstrumentables == nil {
+		pt.goInstrumentables = map[ExecutableKey]*instrumenter{}
 	}
 
 	pt.Instrumentables[i.key] = i
 	i.references++
 	if pt.Type == Go {
-		pt.goInstrumentablesByInode[i.key.Ino] = i
+		pt.goInstrumentables[i.goKey] = i
 	}
 	ie.ExecutableGeneration = pt.recordExecutableGeneration(i.key)
 	i.registerProcessScopedGoProbes(i.key)
 }
 
-func (pt *ProcessTracer) reuseGoInstrumenter(ie *Instrumentable) bool {
+type goExecutableIdentityResolver interface {
+	ResolveExecutableIdentity(*link.Executable, *exec.FileInfo, *goexec.Offsets) (dev uint64, ino uint64, err error)
+}
+
+func (pt *ProcessTracer) goExecutableKey(exe *link.Executable, ie *Instrumentable) ExecutableKey {
+	fallback := ExecutableKey{Ino: ie.FileInfo.Ino()}
+	if pt.Type != Go {
+		return fallback
+	}
+
+	for _, p := range pt.Programs {
+		resolver, ok := p.(goExecutableIdentityResolver)
+		if !ok {
+			continue
+		}
+
+		dev, ino, err := resolver.ResolveExecutableIdentity(exe, ie.FileInfo, ie.Offsets)
+		if err != nil {
+			if pt.log != nil {
+				pt.log.Debug("unable to resolve Go executable backing identity; sharing by inode",
+					"pid", ie.FileInfo.Pid(),
+					"inode", ie.FileInfo.Ino(),
+					"error", err)
+			}
+			return fallback
+		}
+		if pt.log != nil {
+			pt.log.Debug("resolved Go executable backing identity",
+				"pid", ie.FileInfo.Pid(),
+				"visible_dev", ie.FileInfo.Dev(),
+				"visible_inode", ie.FileInfo.Ino(),
+				"backing_dev", dev,
+				"backing_inode", ino)
+		}
+		return ExecutableKey{Dev: dev, Ino: ino}
+	}
+
+	return fallback
+}
+
+func (pt *ProcessTracer) reuseGoInstrumenter(ie *Instrumentable, goKey ExecutableKey) bool {
 	if pt.Type != Go {
 		return false
 	}
@@ -431,7 +474,7 @@ func (pt *ProcessTracer) reuseGoInstrumenter(ie *Instrumentable) bool {
 	pt.instrumentablesMu.Lock()
 	defer pt.instrumentablesMu.Unlock()
 
-	i := pt.goInstrumentablesByInode[key.Ino]
+	i := pt.goInstrumentables[goKey]
 	if i == nil {
 		return false
 	}
@@ -502,8 +545,8 @@ func (pt *ProcessTracer) removeInstrumenterReference(key ExecutableKey, i *instr
 	if i.references != 0 {
 		return
 	}
-	if pt.goInstrumentablesByInode[i.key.Ino] == i {
-		delete(pt.goInstrumentablesByInode, i.key.Ino)
+	if pt.goInstrumentables[i.goKey] == i {
+		delete(pt.goInstrumentables, i.goKey)
 	}
 	pt.unlinkInstrumenter(i)
 }

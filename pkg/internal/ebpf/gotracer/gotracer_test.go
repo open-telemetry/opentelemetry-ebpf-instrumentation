@@ -34,8 +34,8 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	disableContextPropagationForTest(t)
 
 	tracer := &Tracer{
-		log:                   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		goChannelOffsetsByIno: map[uint64]bool{},
+		log:                          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		goChannelOffsetsByExecutable: map[executableIdentity]bool{},
 	}
 
 	assertNoGoChannelLinkProbes(t, tracer.GoProbes())
@@ -222,6 +222,14 @@ func TestGoRuntimeMetricTargetABIAppendsGCGoalCache(t *testing.T) {
 	assert.Equal(t, uintptr(96), unsafe.Offsetof(target.Generation))
 }
 
+func TestGoExecutableKeyABI(t *testing.T) {
+	var key BpfGoExecutableKeyT
+
+	assert.Equal(t, uintptr(16), unsafe.Sizeof(key))
+	assert.Equal(t, uintptr(0), unsafe.Offsetof(key.Dev))
+	assert.Equal(t, uintptr(8), unsafe.Offsetof(key.Ino))
+}
+
 func TestGoRuntimeGCGoalSourceSelection(t *testing.T) {
 	tests := []struct {
 		name                  string
@@ -252,13 +260,16 @@ func TestGoRuntimeGCGoalSourceSelection(t *testing.T) {
 
 func TestGoRuntimeGCGoalProbeAttachedOnlyForPaceScavengerSource(t *testing.T) {
 	disableContextPropagationForTest(t)
+	firstIdentity := executableIdentity{Ino: 1}
 	tracer := &Tracer{
-		currentBinaryIno:         1,
-		goRuntimeMetricMaskByIno: map[uint64]uint64{1: goRuntimeMetricBaseMask | goRuntimeMetricMemoryGCGoalMask},
-		goRuntimeGCGoalSourceByIno: map[uint64]goRuntimeGCGoalSource{
-			1: goRuntimeGCGoalSourcePaceScavengerArgument,
-			2: goRuntimeGCGoalSourceHeapGoalField,
-			3: goRuntimeGCGoalSourceNone,
+		currentBinary: firstIdentity,
+		goRuntimeMetricMaskByExecutable: map[executableIdentity]uint64{
+			firstIdentity: goRuntimeMetricBaseMask | goRuntimeMetricMemoryGCGoalMask,
+		},
+		goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{
+			firstIdentity: goRuntimeGCGoalSourcePaceScavengerArgument,
+			{Ino: 2}:      goRuntimeGCGoalSourceHeapGoalField,
+			{Ino: 3}:      goRuntimeGCGoalSourceNone,
 		},
 	}
 	tracer.bpfObjects.ObiUprobeGoRuntimeGcGoal = &ebpf.Program{}
@@ -269,7 +280,7 @@ func TestGoRuntimeGCGoalProbeAttachedOnlyForPaceScavengerSource(t *testing.T) {
 	assert.Contains(t, probes, goRuntimeMetricGCMarkDoneSymbol)
 
 	for _, ino := range []uint64{2, 3} {
-		tracer.currentBinaryIno = ino
+		tracer.currentBinary = executableIdentity{Ino: ino}
 		probes = tracer.GoProbes()
 		assert.NotContains(t, probes, goRuntimeMetricGCGoalSymbol)
 		assert.Contains(t, probes, goRuntimeMetricGCMarkDoneSymbol)
@@ -300,11 +311,11 @@ func TestGoRuntimeMetricsUseHeapSnapshotProbe(t *testing.T) {
 	disableContextPropagationForTest(t)
 
 	tracer := &Tracer{
-		currentBinaryIno: 1,
-		goRuntimeMetricMaskByIno: map[uint64]uint64{
-			1: goRuntimeMetricBaseMask,
-			2: goRuntimeMetricBaseMask | goRuntimeMetricCPUTimeMask,
-			3: goRuntimeMetricBaseMask | goRuntimeMetricMemoryUsedMask,
+		currentBinary: executableIdentity{Ino: 1},
+		goRuntimeMetricMaskByExecutable: map[executableIdentity]uint64{
+			{Ino: 1}: goRuntimeMetricBaseMask,
+			{Ino: 2}: goRuntimeMetricBaseMask | goRuntimeMetricCPUTimeMask,
+			{Ino: 3}: goRuntimeMetricBaseMask | goRuntimeMetricMemoryUsedMask,
 		},
 	}
 
@@ -312,12 +323,12 @@ func TestGoRuntimeMetricsUseHeapSnapshotProbe(t *testing.T) {
 	require.Contains(t, probes, "runtime.gcMarkDone")
 	assert.NotContains(t, probes, "runtime.(*scavengeIndex).nextGen")
 
-	tracer.currentBinaryIno = 2
+	tracer.currentBinary = executableIdentity{Ino: 2}
 	probes = tracer.GoProbes()
 	require.Contains(t, probes, "runtime.gcMarkDone")
 	assert.NotContains(t, probes, "runtime.(*scavengeIndex).nextGen")
 
-	tracer.currentBinaryIno = 3
+	tracer.currentBinary = executableIdentity{Ino: 3}
 	probes = tracer.GoProbes()
 	require.Contains(t, probes, "runtime.(*scavengeIndex).nextGen")
 	assert.NotContains(t, probes, "runtime.gcMarkDone")
@@ -342,7 +353,7 @@ func TestGoRuntimeMetricsFallBackWhenHeapProbeIsMissing(t *testing.T) {
 	tracer.recordGoRuntimeMetricAvailability(fileInfo, offsets)
 	tracer.ProcessBinary(fileInfo)
 
-	mask := tracer.goRuntimeMetricMaskByIno[fileInfo.Ino()]
+	mask := tracer.goRuntimeMetricMaskByExecutable[executableIdentity{Ino: fileInfo.Ino()}]
 	assert.True(t, hasBaseGoRuntimeMetrics(mask))
 	assert.NotZero(t, mask&goRuntimeMetricMemoryLimitMask)
 	assert.NotZero(t, mask&goRuntimeMetricProcessorLimitMask)
@@ -373,7 +384,7 @@ func TestGoRuntimeMetricsUseResolvedHeapProbe(t *testing.T) {
 	tracer.recordGoRuntimeMetricAvailability(fileInfo, offsets)
 	tracer.ProcessBinary(fileInfo)
 
-	mask := tracer.goRuntimeMetricMaskByIno[fileInfo.Ino()]
+	mask := tracer.goRuntimeMetricMaskByExecutable[executableIdentity{Ino: fileInfo.Ino()}]
 	assert.NotZero(t, mask&goRuntimeMetricCPUTimeMask)
 	assert.Equal(t, goRuntimeMetricHeapSnapshotMask, mask&goRuntimeMetricHeapSnapshotMask)
 	assert.NotZero(t, mask&goRuntimeMetricGoroutineCountMask)
@@ -477,9 +488,9 @@ func TestGoRuntimeMetricMaskKeepsHistogramsWithSchedulerSymbol(t *testing.T) {
 
 func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 	tracer := &Tracer{
-		goChannelOffsetsByIno: map[uint64]bool{
-			1: true,
-			2: false,
+		goChannelOffsetsByExecutable: map[executableIdentity]bool{
+			{Ino: 1}: true,
+			{Ino: 2}: false,
 		},
 	}
 

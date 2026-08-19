@@ -42,7 +42,7 @@ func (pt *ProcessTracer) Init(_ *ebpfcommon.EBPFEventContext, _ *obi.Config) err
 		"v", pt.shutdownTimeout, "bpffsPath", pt.bpffsPath,
 		"executableGeneration", pt.nextExecutableGeneration,
 		"instrumentableGenerations", pt.instrumentableGenerations,
-		"goInstrumentablesByInode", pt.goInstrumentablesByInode)
+		"goInstrumentables", pt.goInstrumentables)
 	return nil
 }
 

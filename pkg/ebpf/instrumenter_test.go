@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -927,6 +928,7 @@ func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
 func TestGoInstrumenterSharedAcrossDevices(t *testing.T) {
 	firstKey := ExecutableKey{Dev: 5, Ino: 10}
 	secondKey := ExecutableKey{Dev: 6, Ino: 10}
+	backingKey := ExecutableKey{Dev: 7, Ino: 11}
 	firstFileInfo := exec.New(exec.Init{Dev: firstKey.Dev, Ino: firstKey.Ino})
 	secondFileInfo := exec.New(exec.Init{Dev: secondKey.Dev, Ino: secondKey.Ino})
 	closer := &countingCloser{}
@@ -936,6 +938,7 @@ func TestGoInstrumenterSharedAcrossDevices(t *testing.T) {
 	}
 	shared := &instrumenter{
 		key:       firstKey,
+		goKey:     backingKey,
 		closables: []io.Closer{closer},
 		modules:   map[uint64]struct{}{},
 	}
@@ -943,7 +946,7 @@ func TestGoInstrumenterSharedAcrossDevices(t *testing.T) {
 	secondExecutable := &Instrumentable{FileInfo: secondFileInfo}
 
 	pt.commitInstrumenter(shared, firstExecutable)
-	require.NoError(t, pt.NewExecutable(nil, secondExecutable))
+	require.True(t, pt.reuseGoInstrumenter(secondExecutable, backingKey))
 
 	assert.Same(t, shared, pt.Instrumentables[firstKey])
 	assert.Same(t, shared, pt.Instrumentables[secondKey])
@@ -959,8 +962,49 @@ func TestGoInstrumenterSharedAcrossDevices(t *testing.T) {
 	pt.UnlinkExecutable(secondFileInfo, secondExecutable.ExecutableGeneration)
 
 	assert.Empty(t, pt.Instrumentables)
-	assert.Empty(t, pt.goInstrumentablesByInode)
+	assert.Empty(t, pt.goInstrumentables)
 	assert.Equal(t, int32(1), closer.closes.Load())
+}
+
+func TestGoInstrumenterNotSharedAcrossBackingDevices(t *testing.T) {
+	firstKey := ExecutableKey{Dev: 5, Ino: 10}
+	secondKey := ExecutableKey{Dev: 6, Ino: 10}
+	firstBackingKey := ExecutableKey{Dev: 7, Ino: 11}
+	secondBackingKey := ExecutableKey{Dev: 8, Ino: 11}
+	pt := &ProcessTracer{
+		Type:            Go,
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	firstExecutable := &Instrumentable{FileInfo: exec.New(exec.Init{Dev: firstKey.Dev, Ino: firstKey.Ino})}
+	secondExecutable := &Instrumentable{FileInfo: exec.New(exec.Init{Dev: secondKey.Dev, Ino: secondKey.Ino})}
+	firstInstrumenter := &instrumenter{
+		key:     firstKey,
+		goKey:   firstBackingKey,
+		modules: map[uint64]struct{}{},
+	}
+
+	pt.commitInstrumenter(firstInstrumenter, firstExecutable)
+
+	assert.False(t, pt.reuseGoInstrumenter(secondExecutable, secondBackingKey))
+	assert.Same(t, firstInstrumenter, pt.Instrumentables[firstKey])
+	assert.NotContains(t, pt.Instrumentables, secondKey)
+	assert.Equal(t, uint64(1), firstInstrumenter.references)
+}
+
+func TestGoExecutableKeyUsesBackingIdentity(t *testing.T) {
+	resolver := &executableIdentityResolverTracer{dev: 7, ino: 11}
+	pt := &ProcessTracer{Type: Go, Programs: []Tracer{resolver}}
+	ie := &Instrumentable{FileInfo: exec.New(exec.Init{Dev: 5, Ino: 10, Pid: 123})}
+
+	assert.Equal(t, ExecutableKey{Dev: 7, Ino: 11}, pt.goExecutableKey(nil, ie))
+}
+
+func TestGoExecutableKeyFallsBackToInodeSharing(t *testing.T) {
+	resolver := &executableIdentityResolverTracer{err: errors.New("resolver unavailable")}
+	pt := &ProcessTracer{Type: Go, Programs: []Tracer{resolver}}
+	ie := &Instrumentable{FileInfo: exec.New(exec.Init{Dev: 5, Ino: 10, Pid: 123})}
+
+	assert.Equal(t, ExecutableKey{Ino: 10}, pt.goExecutableKey(nil, ie))
 }
 
 type countingUSDTIPMap struct {
@@ -1043,6 +1087,21 @@ func (r *countingReporter) InstrumentationError(_ string, errorType string) {
 
 type stubTracer struct {
 	uprobes map[string]map[string][]*ebpfcommon.ProbeDesc
+}
+
+type executableIdentityResolverTracer struct {
+	stubTracer
+	dev uint64
+	ino uint64
+	err error
+}
+
+func (s *executableIdentityResolverTracer) ResolveExecutableIdentity(
+	*link.Executable,
+	*exec.FileInfo,
+	*goexec.Offsets,
+) (uint64, uint64, error) {
+	return s.dev, s.ino, s.err
 }
 
 func (s *stubTracer) AllowPID(app.PID, uint32, *exec.FileInfo)               {}
