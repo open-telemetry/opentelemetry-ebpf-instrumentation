@@ -39,7 +39,7 @@ obi_uv_fs_access uprobe (bpf/generictracer/nodejs.c)
    │  trace context from traces_ctx_v1 (kept fresh per async context by the
    │  fdextractor.js '-ctx/' sentinels)
    ▼
-events ringbuf → EVENT_NODE_SPAN (20)
+events ringbuf → EVENT_NODE_SPAN (24)
    ▼
 ReadNodeSpanEventIntoSpan (pkg/ebpf/common/node_otel_transform.go)
    │  parses the JSON, re-anchors trace/parent IDs onto the request context
