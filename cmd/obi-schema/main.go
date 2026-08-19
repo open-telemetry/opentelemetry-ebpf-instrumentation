@@ -465,6 +465,26 @@ type jsonSchemaer interface {
 	JSONSchema() *jsonschema.Schema
 }
 
+// reflectsField reports whether the schema reflector would follow f. It mirrors
+// the eligibility rules the library applies in reflectFieldName, so that walking
+// the type graph here does not reach types the schema can never contain.
+func reflectsField(f reflect.StructField) bool {
+	for _, key := range []string{"yaml", "jsonschema"} {
+		if strings.Split(f.Tag.Get(key), ",")[0] == "-" {
+			return false
+		}
+	}
+
+	// An unexported field is only followed when it is embedded.
+	return f.Anonymous || f.PkgPath == ""
+}
+
+// isInlineField reports whether f carries the yaml inline option.
+func isInlineField(f reflect.StructField) bool {
+	options := strings.Split(f.Tag.Get("yaml"), ",")
+	return slices.Contains(options[1:], "inline")
+}
+
 // buildInlineTypeSchemas uses reflection to find inline fields that implement JSONSchema().
 // It walks the type hierarchy starting from rootType and returns a map of type name to schema function.
 // Walking also records the package of every named inline field type, which is
@@ -505,10 +525,11 @@ func (g *SchemaGenerator) buildInlineTypeSchemas(rootType reflect.Type) map[stri
 
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
-			yamlTag := field.Tag.Get("yaml")
+			if !reflectsField(field) {
+				continue
+			}
 
-			// Check if this is an inline field
-			if strings.Contains(yamlTag, "inline") {
+			if isInlineField(field) {
 				fieldType := field.Type
 				// Handle pointer types
 				for fieldType.Kind() == reflect.Pointer {

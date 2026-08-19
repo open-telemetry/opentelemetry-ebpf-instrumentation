@@ -793,6 +793,48 @@ func TestInlineTypeNameCollisionIsDetected(t *testing.T) {
 	assert.Contains(t, err.Error(), "archive/tar")
 }
 
+// propertyKeys lists the property names of a schema in order.
+func propertyKeys(schema *jsonschema.Schema) []string {
+	var keys []string
+	for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
+		keys = append(keys, pair.Key)
+	}
+	return keys
+}
+
+// hiddenInlineHeader carries an inline net/http.Header, and is only ever
+// reached through fields the reflector drops.
+type hiddenInlineHeader struct {
+	Header http.Header `yaml:",inline"`
+}
+
+// ignoredInlineRoot reaches hiddenInlineHeader only through fields excluded by
+// tag and an unexported one, while archive/tar.Header is genuinely reflected.
+type ignoredInlineRoot struct {
+	Ignored    hiddenInlineHeader `yaml:"-"`
+	SchemaSkip hiddenInlineHeader `jsonschema:"-"`
+	unexported hiddenInlineHeader //nolint:unused // Present so the walk meets an unexported field.
+	Other      tar.Header         `yaml:"other"`
+}
+
+// TestUnreachableInlineTypeNameDoesNotCollide keeps the inline walk from
+// aborting generation over a name the schema can never contain: only
+// archive/tar.Header reaches the schema here, so there is no collision.
+func TestUnreachableInlineTypeNameDoesNotCollide(t *testing.T) {
+	g := NewSchemaGenerator()
+	schema := g.newReflector().Reflect(&ignoredInlineRoot{})
+	g.buildInlineTypeSchemas(reflect.TypeFor[ignoredInlineRoot]())
+
+	// Pin the behavior reflectsField mirrors: the reflector keeps only the
+	// eligible field, so the inline type behind the dropped ones is unreachable.
+	require.Equal(t, []string{"other"}, propertyKeys(schema))
+
+	require.Contains(t, schema.Definitions, "Header")
+	assert.NotContains(t, g.reflectedTypeNames["Header"], "net/http")
+
+	require.NoError(t, g.checkTypeNameCollisions())
+}
+
 // TestConfigTypeNamesAreUnique guards the whole configuration graph: the schema
 // keys definitions by bare type name, so two config types sharing a name would
 // silently share one definition.
