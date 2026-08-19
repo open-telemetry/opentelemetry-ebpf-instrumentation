@@ -335,9 +335,10 @@ var DefaultConfig = Config{
 				Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 			},
 		},
-		MinProcessAge:         5 * time.Second,
-		DefaultOtlpGRPCPort:   4317,
-		RouteHarvesterTimeout: 10 * time.Second,
+		MinProcessAge:              5 * time.Second,
+		ProcessContextPollInterval: time.Second,
+		DefaultOtlpGRPCPort:        4317,
+		RouteHarvesterTimeout:      10 * time.Second,
 		RouteHarvestConfig: services.RouteHarvestingConfig{
 			JavaHarvestDelay: 5 * time.Second,
 		},
@@ -469,6 +470,10 @@ func (c *Config) JoinMetricsConfig() *perapp.GlobalMetricsConfig {
 		mc.Features |= d.Metrics.Features
 	}
 	return &mc
+}
+
+func (c *Config) AppRuntimeMetricsEnabled() bool {
+	return c != nil && c.JoinMetricsConfig().Features.AppRuntime()
 }
 
 type HealthCheckConfig struct {
@@ -661,6 +666,9 @@ type HostIDConfig struct {
 }
 
 type NodeJSConfig struct {
+	// Enabled turns on the Node.js injector agent, used for trace-context
+	// propagation and runtime metrics. Setting it to false disables the
+	// injection entirely, runtime metrics included.
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_NODEJS_ENABLED"`
 }
 

@@ -113,7 +113,7 @@ func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode str
 	_ = collectClientLines(t, "target stderr", stderr)
 	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
 
-	attachGoTracer(t, app.PID(cmd.Process.Pid))
+	attachGoTracer(t, app.PID(cmd.Process.Pid), config.ContextPropagationAll)
 
 	return func(t *testing.T, mode string) string {
 		t.Helper()
@@ -124,15 +124,94 @@ func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode str
 	}
 }
 
+func TestGRPCClientTraceparentRespectsPropagationMode(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildGRPCClientTarget(t)
+	tests := []struct {
+		name      string
+		mode      config.ContextPropagationMode
+		wantCount string
+	}{
+		{name: "disabled", mode: config.ContextPropagationDisabled, wantCount: "0:"},
+		{name: "tcp", mode: config.ContextPropagationTCP, wantCount: "0:"},
+		{name: "headers", mode: config.ContextPropagationHeaders, wantCount: "1:"},
+		{name: "all", mode: config.ContextPropagationAll, wantCount: "1:"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			send := startGRPCClientTarget(t, targetBin, tt.mode)
+
+			for range 4 {
+				assert.True(t, strings.HasPrefix(send(t), tt.wantCount))
+			}
+		})
+	}
+}
+
+func buildGRPCClientTarget(t *testing.T) string {
+	t.Helper()
+
+	bin := filepath.Join(t.TempDir(), "tpgrpcclient")
+	cmd := osexec.Command("go", "build", "-o", bin, "testdata/tpgrpcclient/main.go")
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "go build tpgrpcclient:\n%s", string(out))
+	return bin
+}
+
+func startGRPCClientTarget(
+	t *testing.T,
+	bin string,
+	mode config.ContextPropagationMode,
+) func(t *testing.T) string {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := osexec.CommandContext(ctx, bin)
+	stdin, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	stderr, err := cmd.StderrPipe()
+	require.NoError(t, err)
+
+	require.NoError(t, cmd.Start())
+
+	stdoutLines := collectClientLines(t, "target stdout", stdout)
+	_ = collectClientLines(t, "target stderr", stderr)
+	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
+
+	attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
+	t.Cleanup(func() {
+		_, _ = io.WriteString(stdin, "EXIT\n")
+		cancel()
+		_ = cmd.Wait()
+	})
+
+	return func(t *testing.T) string {
+		t.Helper()
+		_, err := io.WriteString(stdin, "REQUEST\n")
+		require.NoError(t, err)
+		line := waitForClientLine(t, stdoutLines, "TP_RESULT=", 30*time.Second)
+		return strings.TrimPrefix(strings.TrimSpace(line), "TP_RESULT=")
+	}
+}
+
 // attachGoTracer wires up the real ProcessTracer with the gotracer against the
 // given PID, mirroring the production discovery/attach path.
-func attachGoTracer(t *testing.T, pid app.PID) {
+func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMode) {
 	t.Helper()
 
 	cfg := obi.DefaultConfig
 	cfg.LogLevel = obi.LogLevelDebug
 	cfg.EBPF.BpfDebug = true
-	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
+	cfg.EBPF.ContextPropagation = mode
 
 	pidsFilter := ebpfcommon.NewPIDsFilter(&cfg.Discovery, slog.With("component", "tphttp-pids"), imetrics.NoopReporter{})
 	goTracer := New(pidsFilter, &cfg, imetrics.NoopReporter{})

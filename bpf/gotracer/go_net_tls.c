@@ -23,6 +23,7 @@
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_large_buffer.h>
+#include <gotracer/maps/go_persist_conn.h>
 #include <gotracer/maps/ongoing_ssl_ops.h>
 
 #include <gotracer/types/net_args.h>
@@ -214,6 +215,8 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
         const u64 id = bpf_get_current_pid_tgid();
         args.p_conn.pid = pid_from_pid_tgid(id);
         args.byte_ptr = (u64)buf;
+
+        persist_conn_publish(&g_key, &args.p_conn.conn);
 
         if (args.skip) {
             send_http_large_buffers_if_needed(&g_key, &args.p_conn.conn, buf, len, TCP_SEND);

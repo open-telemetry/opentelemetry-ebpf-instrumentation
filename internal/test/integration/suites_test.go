@@ -89,6 +89,7 @@ func TestSuiteNestedTraces(t *testing.T) {
 
 	if !lockdown {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
+		compose.Env = append(compose.Env, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`)
 	}
 	require.NoError(t, compose.Up())
 	if !lockdown {

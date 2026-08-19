@@ -2,10 +2,10 @@ module github.com/GoogleCloudPlatform/microservices-demo/src/productcatalogservi
 
 go 1.25.8
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
-	cloud.google.com/go/alloydbconn v1.18.5
+	cloud.google.com/go/alloydbconn v1.18.6
 	cloud.google.com/go/secretmanager v1.21.0
 	github.com/golang/protobuf v1.5.4
 	github.com/jackc/pgx/v5 v5.10.0
@@ -51,7 +51,7 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/api v0.287.1 // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect

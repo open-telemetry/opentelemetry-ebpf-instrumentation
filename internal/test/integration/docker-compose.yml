@@ -35,6 +35,7 @@ services:
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-base${TESTSERVER_DOCKERFILE_SUFFIX}:/var/run/obi
     image: hatest-obi
@@ -54,6 +55,7 @@ services:
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "${OTEL_EBPF_BPF_CONTEXT_PROPAGATION:-disabled}"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_LOG_FORMAT: "json"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
@@ -68,7 +70,7 @@ services:
 
   # OpenTelemetry Collector for Metrics. For Traces, we use directly Jaeger
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.158.0@sha256:c5918f78992ee73b0d6f0e599423ac5ec52dd5d9726733114d6eca53d5a32ed5
+    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
     container_name: otel-col
     deploy:
       resources:

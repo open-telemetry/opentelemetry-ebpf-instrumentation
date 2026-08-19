@@ -232,12 +232,18 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"messaging_process_duration_seconds",
 				"gpu_cuda_kernel_launch_calls_total",
 				"gpu_cuda_graph_launch_calls_total",
+				"gpu_cuda_memory_allocations_bytes_total",
+				// the _count series of each histogram: the bare names are prefixes of
+				// the pre-rename _total names, so they would match either way
+				"gpu_cuda_kernel_grid_size_count",
+				"gpu_cuda_kernel_block_size_count",
+				"gpu_cuda_memory_copies_bytes_count",
+			},
+			unexpected: []string{
 				"gpu_cuda_kernel_grid_size_total",
 				"gpu_cuda_kernel_block_size_total",
-				"gpu_cuda_memory_allocations_bytes_total",
 				"gpu_cuda_memory_copies_bytes_total",
 			},
-			unexpected: []string{},
 		},
 		{
 			name:  "http only",

@@ -39,7 +39,7 @@ services:
   # otelcol receives OTLP/HTTP over the unix socket in the shared volume and re-exposes the
   # metrics to Prometheus. It runs as root so it can create the socket in the shared dir.
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.158.0@sha256:c5918f78992ee73b0d6f0e599423ac5ec52dd5d9726733114d6eca53d5a32ed5
+    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
     container_name: otel-col
     user: "0:0"
     command: ["--config=/etc/otelcol-config/otelcol-config-otlp-uds.yml"]

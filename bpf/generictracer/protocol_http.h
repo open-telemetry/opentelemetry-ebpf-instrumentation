@@ -29,6 +29,7 @@
 #include <generictracer/large_buf_tailcall.h>
 #include <generictracer/http_server_trace.h>
 #include <generictracer/protocol_common.h>
+#include <generictracer/tcp_trace_cleanup.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -37,8 +38,6 @@
 #include <maps/ongoing_http.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
-
-volatile const u32 high_request_volume;
 
 SCRATCH_MEM_SIZED(http_previous_trace_id, TRACE_ID_SIZE_BYTES);
 
@@ -227,6 +226,11 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                                                          u8 packet_type,
                                                          u8 direction) {
     if (packet_type == PACKET_TYPE_REQUEST) {
+        // this connection was read as an unknown protocol before it spoke HTTP:
+        // that TCP request never completes, so its trace would otherwise keep
+        // parenting everything this thread does next
+        cleanup_tcp_trace_info_if_needed(pid_conn);
+
         http_info_t *old_info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
         if (old_info && !old_info->submitted) {
             const u8 req_type = request_type_by_direction(direction, packet_type);
@@ -688,6 +692,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
             __builtin_memcpy(&p_conn.conn, &args->pid_conn.conn, sizeof(connection_info_t));
             found_tp = find_trace_for_client_request(
                 &p_conn, args->orig_dport, args->lw_thread, &tp_p->tp);
+            info->parent_status = found_tp;
         } else {
             //bpf_dbg_printk("Looking up existing trace for connection");
             //dbg_print_http_connection_info(conn);

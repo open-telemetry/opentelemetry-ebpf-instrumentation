@@ -73,7 +73,7 @@ func newTestLRU[K comparable, V any]() *simplelru.LRU[K, V] {
 }
 
 func newTraceDispatcherTestContext() (*EBPFParseContext, *config.EBPFTracer, ServiceFilter) {
-	h2c, _ := lru.New[uint64, h2Connection](testParseCacheSize)
+	h2c, _ := lru.New[uint64, *h2Connection](testParseCacheSize)
 	parseCtx := &EBPFParseContext{
 		h2c:                        h2c,
 		redisDBCache:               newTestLRU[BpfConnectionInfoT, int](),

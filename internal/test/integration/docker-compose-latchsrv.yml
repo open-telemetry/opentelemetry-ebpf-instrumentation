@@ -1,0 +1,126 @@
+version: "3.8"
+
+x-latchsrv: &latchsrv
+  image: latchsrv
+  environment: &latchenv
+    TARGETS: "http://target-a:8000/,http://target-b:8000/,http://target-c:8000/"
+  depends_on:
+    latchsrv_image_builder:
+      condition: service_completed_successfully
+    target-a:
+      condition: service_started
+    target-b:
+      condition: service_started
+    target-c:
+      condition: service_started
+    jaeger:
+      condition: service_started
+
+services:
+  latchsrv:
+    <<: *latchsrv
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/latchsrv/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *latchenv
+      PORT: "8080"
+      RESPONSE_MODE: "cl"
+
+  latchsrv-chunked:
+    <<: *latchsrv
+    ports:
+      - "8081:8081"
+    environment:
+      <<: *latchenv
+      PORT: "8081"
+      RESPONSE_MODE: "chunked"
+
+  latchsrv-multiwrite:
+    <<: *latchsrv
+    ports:
+      - "8082:8082"
+    environment:
+      <<: *latchenv
+      PORT: "8082"
+      RESPONSE_MODE: "multiwrite"
+
+  latchsrv-nobody:
+    <<: *latchsrv
+    ports:
+      - "8083:8083"
+    environment:
+      <<: *latchenv
+      PORT: "8083"
+      RESPONSE_MODE: "nobody"
+
+  latchsrv-bigheaders:
+    <<: *latchsrv
+    ports:
+      - "8084:8084"
+    environment:
+      <<: *latchenv
+      PORT: "8084"
+      RESPONSE_MODE: "bigheaders"
+
+  latchsrv-inflight:
+    <<: *latchsrv
+    ports:
+      - "8085:8085"
+    environment:
+      <<: *latchenv
+      PORT: "8085"
+      RESPONSE_MODE: "inflight"
+
+  target-a: &target
+    image: latchsrv
+    command: ["python", "-m", "http.server", "8000"]
+    depends_on:
+      latchsrv_image_builder:
+        condition: service_completed_successfully
+  target-b: *target
+  target-c: *target
+
+  # builds the shared image once so the targets can reuse it
+  latchsrv_image_builder:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/latchsrv/Dockerfile
+    image: latchsrv
+    command: ["python", "-c", "print('image ready')"]
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-latchsrv.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+    depends_on:
+      latchsrv:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    command:
+      - "--set=service.telemetry.logs.level=debug"

@@ -118,6 +118,12 @@ start() {
     if ! mountpoint -q /sys/fs/bpf 2>/dev/null; then
         mount -t bpf bpffs /sys/fs/bpf || ewarn "bpffs mount failed"
     fi
+    # tracefs at /sys/kernel/tracing: the obi container bind-mounts it to attach
+    # the FIONREAD compensation tracepoints. Alpine OpenRC doesn't auto-mount it.
+    mkdir -p /sys/kernel/tracing
+    if ! mountpoint -q /sys/kernel/tracing 2>/dev/null; then
+        mount -t tracefs tracefs /sys/kernel/tracing || ewarn "tracefs mount failed"
+    fi
     eend 0
 }
 EOF

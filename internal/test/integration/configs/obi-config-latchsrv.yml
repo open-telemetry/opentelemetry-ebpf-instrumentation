@@ -1,0 +1,22 @@
+routes:
+  unmatched: path
+attributes:
+  select:
+    "*":
+      include: ["*"]
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  services:
+    - name: latchsrv
+      open_ports: 8080
+    - name: latchsrv-chunked
+      open_ports: 8081
+    - name: latchsrv-multiwrite
+      open_ports: 8082
+    - name: latchsrv-nobody
+      open_ports: 8083
+    - name: latchsrv-bigheaders
+      open_ports: 8084
+    - name: latchsrv-inflight
+      open_ports: 8085

@@ -30,6 +30,21 @@
 #include <maps/server_traces.h>
 #include <maps/tp_info_mem.h>
 
+static __always_inline enum parent_status parent_kind(const tp_info_pid_t *server_tp) {
+    if (server_tp->req_type == EVENT_TCP_REQUEST) {
+        return k_parent_status_conditional;
+    }
+
+    // under high request volume the server span is submitted at the first
+    // response send, so the end timestamp a child would be settled against is
+    // not the request's real end: the link cannot be judged and must stand
+    if (server_tp->response_sent && !high_request_volume) {
+        return k_parent_status_conditional;
+    }
+
+    return k_parent_status_live;
+}
+
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
     java_vt_translate_tid(&t_key->p_key);
@@ -357,10 +372,10 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         __builtin_memcpy(tp->trace_id, server_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, server_tp->tp.span_id, sizeof(tp->parent_id));
-        return 1;
+        return parent_kind(server_tp);
     }
 
-    return 0;
+    return k_parent_status_none;
 }
 
 static __always_inline u8 find_trace_for_client_request(const pid_connection_info_t *p_conn,
@@ -397,7 +412,7 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
         }
 
         *tp = server_tp->tp;
-        return 1;
+        return parent_kind(server_tp);
     }
 
     return 0;

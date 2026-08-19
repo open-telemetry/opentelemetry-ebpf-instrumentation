@@ -124,8 +124,19 @@ func newGraphBuilder(
 		nameResolverToAttrFilter,
 		attrFilteredSpans),
 		swarm.WithID("AttributesFilter"))
-	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicPIDSelector, attrFilteredSpans, exportableSpans),
+	instrumentationFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, "instrumentationFilteredSpans")
+	swi.Add(InstrumentationFilterSpanGate(
+		config.Filters.ApplicationByInstrumentation,
+		selectorCfg.ExtraGroupAttributesCfg,
+		spanPtrPromGetters(config),
+		attrFilteredSpans,
+		instrumentationFilteredSpans,
+	), swarm.WithID("InstrumentationFilterSpanGate"))
+	gatedSpans := msg2.QueueFromConfig[[]request.Span](config, "gatedSpans")
+	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicPIDSelector, instrumentationFilteredSpans, gatedSpans),
 		swarm.WithID("DynamicSignalSpanGate"))
+	swi.Add(SettleConditionalParents(config.EBPF.MaxTransactionTime, gatedSpans, exportableSpans),
+		swarm.WithID("SettleConditionalParents"))
 
 	swi.Add(otel.TracesReceiver(
 		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,

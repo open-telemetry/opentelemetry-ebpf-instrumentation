@@ -22,6 +22,7 @@
 
 #include <generictracer/failed_connect.h>
 #include <generictracer/protocol_common.h>
+#include <generictracer/tcp_trace_cleanup.h>
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
@@ -77,6 +78,7 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
     if (req->direction == TCP_SEND) { // Client
         const u8 found = find_trace_for_client_request(pid_conn, orig_dport, lw_thread, &req->tp);
         bpf_dbg_printk("Looking up client trace info, found=%d", found);
+        req->parent_status = found;
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
         } else {
@@ -106,28 +108,6 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
                            pid_conn->pid,
                            ssl,
                            orig_dport);
-    }
-}
-
-static __always_inline void cleanup_trace_info(tcp_req_t *tcp, pid_connection_info_t *pid_conn) {
-    if (tcp->direction == TCP_RECV) {
-        trace_key_t t_key = {0};
-        task_tid(&t_key.p_key);
-        if (tcp->task_tid) {
-            t_key.p_key.tid = tcp->task_tid;
-        }
-        t_key.extra_id = tcp->extra_id;
-
-        delete_server_trace(pid_conn, &t_key);
-    } else {
-        delete_client_trace_info(pid_conn);
-    }
-}
-
-static __always_inline void cleanup_tcp_trace_info_if_needed(pid_connection_info_t *pid_conn) {
-    tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
-    if (existing) {
-        cleanup_trace_info(existing, pid_conn);
     }
 }
 

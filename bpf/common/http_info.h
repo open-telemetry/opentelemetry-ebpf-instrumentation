@@ -34,6 +34,7 @@ typedef struct http_info {
     u8 has_large_buffers;
     u8 direction;
     u8 submitted;
+    enum parent_status parent_status;
     enum event_source_type event_source;
-    u8 _pad[2];
+    u8 _pad[1];
 } http_info_t;

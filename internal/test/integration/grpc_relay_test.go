@@ -6,6 +6,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 	"testing"
@@ -82,14 +83,82 @@ func TestSuite_GRPCRelay(t *testing.T) {
 	t.Run("gRPC relay chain context propagation", testGRPCRelayChainContextPropagation)
 	t.Run("gRPC multiplexed context propagation", testGRPCMultiplexedContextPropagation)
 	t.Run("gRPC persistent dyn-table context propagation", testGRPCPersistentDynTable)
+	t.Run("gRPC huffman traceparent adopted", testGRPCHuffmanTraceparentAdopted)
+	t.Run("gRPC huffman traceparent adopted - go sender", testGRPCHuffmanTraceparentAdoptedGoSender)
 	t.Run("gRPC app traceparent not duplicated", func(t *testing.T) {
 		testGRPCAppTraceparentNotDuplicated(t, compose)
 	})
 }
 
+// bpf_loop landed in 5.17, and the huffman decode is gated on it
+func kernelSupportsBPFLoop(t *testing.T) bool {
+	t.Helper()
+
+	release, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	require.NoError(t, err)
+
+	var major, minor int
+	if _, err := fmt.Sscanf(string(release), "%d.%d", &major, &minor); err != nil {
+		return false
+	}
+
+	return major > 5 || (major == 5 && minor >= 17)
+}
+
+// The sender compresses the traceparent value, so nothing on the wire is the plain 55 bytes.
+// Without the decode, the receiver's server span starts a trace of its own.
+func assertHuffmanTraceparentAdopted(t *testing.T, driverURL, receiver string) {
+	if !kernelSupportsBPFLoop(t) {
+		t.Skip("huffman traceparent decoding needs bpf_loop, 5.17+")
+	}
+
+	now := uint64(time.Now().UnixNano())
+	appTraceID := fmt.Sprintf("%016x%016x", now, now+1)
+	appSpanID := fmt.Sprintf("%016x", now+2)
+	traceparent := fmt.Sprintf("00-%s-%s-01", appTraceID, appSpanID)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// resent each attempt: same traceparent, same trace, so late-instrumented hops get another chance
+		resp, err := http.Get(driverURL + "/self-prop?tp=" + traceparent + "&n=3")
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		r, err := http.Get(jaegerQueryURL + "/" + appTraceID)
+		require.NoError(ct, err)
+		defer r.Body.Close()
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
+		require.NotEmpty(ct, tq.Data, "no trace under the app's own trace id: the huffman "+
+			"traceparent was not read, so OBI started a new trace")
+
+		// must be the receiver's own SERVER span: its client spans reach this trace by
+		// other means, so mere service presence would pass without any decode
+		spans := serverSpansByService(tq.Data[0], receiver)
+		require.NotEmpty(ct, spans, "%s has no server span on the app's trace", receiver)
+
+		var parents []string
+		for i := range spans {
+			_, _, parentID := spanMeta(tq.Data[0], &spans[i])
+			parents = append(parents, parentID)
+		}
+		require.Contains(ct, parents, appSpanID,
+			"%s ingress did not adopt the app's span, got %v", receiver, parents)
+	}, 90*time.Second, 3*time.Second)
+}
+
+func testGRPCHuffmanTraceparentAdopted(t *testing.T) {
+	assertHuffmanTraceparentAdopted(t, "http://localhost:8092", "java-relay")
+}
+
+func testGRPCHuffmanTraceparentAdoptedGoSender(t *testing.T) {
+	assertHuffmanTraceparentAdopted(t, "http://localhost:8081", "nodejs-relay")
+}
+
 // App sends its own traceparent: OBI must not append a second, receivers discard multi-value.
-// Repeated on one channel, nghttp2 puts the whole field in its dynamic table and sends it as a
-// single index byte from the second call on, so nothing is left on the wire to detect.
+// Repeated on one channel, the client encoder puts the whole field in its dynamic table and
+// sends it as a single index byte from the second call on, so nothing is left on the wire to detect.
 func testGRPCAppTraceparentNotDuplicated(t *testing.T, compose *docker.Compose) {
 	now := uint64(time.Now().UnixNano())
 	appTraceID := fmt.Sprintf("%016x%016x", now, now+1)

@@ -35,6 +35,7 @@ services:
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-http2:/var/run/obi
     image: hatest-obi
@@ -56,7 +57,7 @@ services:
   # OpenTelemetry Collector — fans OBI's OTLP push out to jaeger (production
   # path used by the test's trace assertions) and to weaver (semconv tap).
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.158.0@sha256:c5918f78992ee73b0d6f0e599423ac5ec52dd5d9726733114d6eca53d5a32ed5
+    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
     container_name: otel-col
     deploy:
       resources:
