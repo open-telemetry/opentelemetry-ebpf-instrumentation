@@ -294,7 +294,7 @@ func TestSuite_Java(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -304,9 +304,9 @@ func TestSuite_Java_PID(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-pid.yml", path.Join(pathOutput, "test-suite-java-pid.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar, `OTEL_SERVICE_NAME=greeting`)
+	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -316,9 +316,9 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar, `OTEL_SERVICE_NAME=greeting`)
+	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 
 	runWeaverValidation(t)
 
@@ -332,7 +332,7 @@ func TestSuite_Java_Host_Network(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
