@@ -103,28 +103,31 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 	return span
 }
 
-// The kernel's enum http_response_observation. Nonzero means the record was
-// force-finished at socket teardown with no response read, so it carries no status.
+// The kernel's enum http_response_observation. Nonzero means no probe read the
+// response, so the record carries no status.
 const (
 	bpfResponseParsed   = 0
 	bpfResponseReceived = 1
 	bpfResponseSilent   = 2
+	bpfResponseUnread   = 3
 )
 
-// markResponseObservation copies the kernel's observation onto the span. Both
-// nonzero values mean no response was read, so Status is cleared in either
-// case.
+// markResponseObservation copies the kernel's observation onto the span. Every
+// nonzero value means no response was read, so Status is cleared in each case.
 //
-// They differ in whether the end timestamp is usable. ResponseReceived took it
-// when instrumentation stopped watching, which can be long after the response
-// arrived, so the duration is discarded. ResponseSilent took it from the close
-// that ended the request, so the duration is preserved.
+// They differ in whether the end timestamp is usable. ResponseReceived took it when
+// instrumentation stopped watching, which can be long after the response arrived, so
+// the duration is discarded. ResponseSilent took it from the close that ended the
+// request and ResponseUnread from the response's own bytes, so both durations are
+// preserved.
 func markResponseObservation(span *request.Span, event *BPFHTTPInfo) {
 	switch event.ResponseObservation {
 	case bpfResponseParsed:
 		return
 	case bpfResponseSilent:
 		span.ResponseObservation = request.ResponseSilent
+	case bpfResponseUnread:
+		span.ResponseObservation = request.ResponseUnread
 	// An unrecognized value withholds the duration, which asserts less than publishing
 	// one.
 	case bpfResponseReceived:

@@ -1383,6 +1383,9 @@ const (
 	// ResponseSilent means nothing came back and the local process closed the socket.
 	// The close ended the request, so the duration is a measurement.
 	ResponseSilent
+	// ResponseUnread means the response arrived and no probe could parse it. The end
+	// timestamp came from the response's own bytes, so the duration is a measurement.
+	ResponseUnread
 )
 
 // Span contains the information being submitted by the following nodes in the graph.

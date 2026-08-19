@@ -87,9 +87,29 @@ func TestHTTPInfoEventToSpan_AbsentResponseIsMeasuredButNotJudged(t *testing.T) 
 	assert.False(t, request.IgnoreMetrics(&span))
 }
 
+// The response arrived and no probe could parse it. The end time came from those bytes,
+// so the duration is a measurement even though the status is missing. This is the case a
+// reused connection produces: the request is finished by its response, not by a close.
+func TestHTTPInfoEventToSpan_UnreadResponseKeepsItsDuration(t *testing.T) {
+	event := clientRequestEvent()
+	event.ResponseObservation = bpfResponseUnread
+
+	span, ignore, err := HTTPInfoEventToSpan(nil, event)
+	require.NoError(t, err)
+	require.False(t, ignore, "the span is emitted, not dropped")
+
+	assert.Equal(t, request.ResponseUnread, span.ResponseObservation)
+	assert.Equal(t, 0, span.Status, "no status is invented for a response nobody parsed")
+	assert.Equal(t, request.StatusCodeUnset, request.SpanStatusCode(&span))
+	assert.False(t, request.IgnoreDurations(&span),
+		"the response's own bytes ended the request, so the duration is a measurement")
+	assert.False(t, request.IgnoreMetrics(&span))
+	assert.False(t, request.IgnoreTraces(&span))
+}
+
 // No span on this path names an error type.
 func TestErrorType_NoUnobservedCaseNamesAFailure(t *testing.T) {
-	for _, observation := range []uint8{bpfResponseReceived, bpfResponseSilent} {
+	for _, observation := range []uint8{bpfResponseReceived, bpfResponseSilent, bpfResponseUnread} {
 		event := clientRequestEvent()
 		event.ResponseObservation = observation
 
