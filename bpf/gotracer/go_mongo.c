@@ -18,6 +18,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/common.h>
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
@@ -82,59 +83,59 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
 }
 
 SEC("uprobe/op_coll_insert")
-int obi_uprobe_mongo_op_insert(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_insert, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, insert, insert_size);
 }
 
 SEC("uprobe/op_coll_delete")
-int obi_uprobe_mongo_op_delete(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_delete, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, delete, delete_size);
 }
 
 SEC("uprobe/op_coll_find")
-int obi_uprobe_mongo_op_find(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_find, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, find, find_size);
 }
 
 SEC("uprobe/op_coll_drop")
-int obi_uprobe_mongo_op_drop(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_drop, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, drop, drop_size);
 }
 
 SEC("uprobe/op_coll_findAndModify")
-int obi_uprobe_mongo_op_findAndModify(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_findAndModify, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, findAndModify, findAndModify_size);
 }
 
 SEC("uprobe/op_coll_updateOrReplace")
-int obi_uprobe_mongo_op_updateOrReplace(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_updateOrReplace, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, updateOrReplace, updateOrReplace_size);
 }
 
 SEC("uprobe/op_coll_aggregate")
-int obi_uprobe_mongo_op_aggregate(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_aggregate, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, aggregate, aggregate_size);
 }
 
 SEC("uprobe/op_coll_countDocuments")
-int obi_uprobe_mongo_op_countDocuments(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_countDocuments, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, countDocuments, countDocuments_size);
 }
 
 SEC("uprobe/op_coll_estimatedDocumentCount")
-int obi_uprobe_mongo_op_estimatedDocumentCount(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_estimatedDocumentCount, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, estimatedDocumentCount, estimatedDocumentCount_size);
 }
 
 SEC("uprobe/op_coll_distinct")
-int obi_uprobe_mongo_op_distinct(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_distinct, struct pt_regs *, ctx) {
     return obi_uprobe_mongo_coll_op(ctx, distinct, distinct_size);
 }
 
 // go.mongodb.org/mongo-driver/x/mongo/driver.Operation.Execute
 // func (op Operation) Execute(ctx context.Context) error
 SEC("uprobe/op_execute")
-int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/op_execute ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -193,7 +194,7 @@ int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/op_execute")
-int obi_uprobe_mongo_op_execute_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_mongo_op_execute_ret, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/op_execute ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);

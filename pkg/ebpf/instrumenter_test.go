@@ -210,7 +210,7 @@ func TestGatherGoOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
 	reporter := &countingReporter{}
 	i := &instrumenter{
 		offsets: &goexec.Offsets{
-			Funcs: map[string]goexec.FuncOffsets{},
+			Funcs: map[string][]goexec.FuncOffsets{},
 		},
 		metrics:     reporter,
 		processName: "testproc",
@@ -232,11 +232,12 @@ func TestGatherGoOffsetsAppliesResolvedOffsetsAndClearsSkip(t *testing.T) {
 	reporter := &countingReporter{}
 	i := &instrumenter{
 		offsets: &goexec.Offsets{
-			Funcs: map[string]goexec.FuncOffsets{
-				"net/http.serverHandler.ServeHTTP": {
+			Funcs: map[string][]goexec.FuncOffsets{
+				"net/http.serverHandler.ServeHTTP": {{
+					Symbol:  "net/http.serverHandler.ServeHTTP",
 					Start:   0x1234,
 					Returns: []uint64{0x1250, 0x1260},
-				},
+				}},
 			},
 		},
 		metrics:     reporter,
@@ -254,6 +255,45 @@ func TestGatherGoOffsetsAppliesResolvedOffsetsAndClearsSkip(t *testing.T) {
 	assert.Equal(t, uint64(0x1234), desc.StartOffset)
 	assert.Equal(t, []uint64{0x1250, 0x1260}, desc.ReturnOffsets)
 	assert.Empty(t, reporter.errors, "no InstrumentationError should be emitted when the symbol resolves")
+}
+
+func TestGatherGoOffsetsExpandsEveryResolvedCopy(t *testing.T) {
+	const symbol = "example.com/library.Function"
+	original := &ebpfcommon.ProbeDesc{Skip: true}
+	probes := probeDescMap{symbol: {original}}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		symbol: {
+			{Symbol: symbol, Start: 0x10, Returns: []uint64{0x11}},
+			{Symbol: "one/vendor/" + symbol, Start: 0x20, Returns: []uint64{0x21}},
+		},
+	}}}
+
+	i.gatherGoOffsets(probes)
+
+	require.Len(t, probes[symbol], 2)
+	assert.Equal(t, uint64(0x10), probes[symbol][0].StartOffset)
+	assert.Equal(t, []uint64{0x11}, probes[symbol][0].ReturnOffsets)
+	assert.Equal(t, uint64(0x20), probes[symbol][1].StartOffset)
+	assert.Equal(t, []uint64{0x21}, probes[symbol][1].ReturnOffsets)
+	assert.True(t, original.Skip)
+	assert.Zero(t, original.StartOffset)
+}
+
+func TestGatherGoOffsetsKeepsCompatibleCopy(t *testing.T) {
+	const symbol = "example.com/library.Function"
+	probes := probeDescMap{symbol: {{End: &ebpf.Program{}}}}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		symbol: {
+			{Symbol: symbol, Start: 0x10},
+			{Symbol: "one/vendor/" + symbol, Start: 0x20, Returns: []uint64{0x21}},
+		},
+	}}}
+
+	i.gatherGoOffsets(probes)
+
+	require.Len(t, probes[symbol], 1)
+	assert.Equal(t, uint64(0x20), probes[symbol][0].StartOffset)
+	assert.Equal(t, []uint64{0x21}, probes[symbol][0].ReturnOffsets)
 }
 
 func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
@@ -446,7 +486,7 @@ func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
 	assert.Equal(t, int32(1), partialCloser.closes.Load())
 }
 
-func TestGatherGoProbeGroupOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
+func TestGatherGoProbeGroupOffsetsSkipsIncompleteCopy(t *testing.T) {
 	group := ebpfcommon.GoProbeGroup{
 		Name: "activation",
 		Probes: []ebpfcommon.GoProbe{
@@ -456,19 +496,75 @@ func TestGatherGoProbeGroupOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
 		},
 	}
 	i := &instrumenter{
-		offsets: &goexec.Offsets{Funcs: map[string]goexec.FuncOffsets{
-			"start":   {Start: 0x10},
-			"newSpan": {Start: 0x30},
+		offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+			"start":   {{Symbol: "start", Start: 0x10}},
+			"newSpan": {{Symbol: "newSpan", Start: 0x30}},
 		}},
 	}
 
-	i.gatherGoProbeGroupOffsets(group)
+	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
+}
 
-	assert.False(t, group.Probes[0].Probe.Skip)
-	assert.Equal(t, uint64(0x10), group.Probes[0].Probe.StartOffset)
-	assert.True(t, group.Probes[1].Probe.Skip)
-	assert.False(t, group.Probes[2].Probe.Skip)
-	assert.Equal(t, uint64(0x30), group.Probes[2].Probe.StartOffset)
+func TestGoProbeGroupCompatibilityIsAppliedPerCopy(t *testing.T) {
+	const symbol = "example.com/library.Function"
+	group := ebpfcommon.GoProbeGroup{
+		Name: "compatible-copy",
+		Probes: []ebpfcommon.GoProbe{{
+			Symbol: symbol,
+			Probe:  &ebpfcommon.ProbeDesc{End: &ebpf.Program{}},
+		}},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		symbol: {
+			{Symbol: symbol, Start: 0x10},
+			{Symbol: "one/vendor/" + symbol, Start: 0x20, Returns: []uint64{0x21}},
+		},
+	}}}
+
+	resolved := i.gatherGoProbeGroupOffsets(group)
+	require.Len(t, resolved, 2)
+	assert.Empty(t, instrumentOptionalGoProbeGroup(resolved[0], func(string, *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+		return []io.Closer{&countingCloser{}}, nil
+	}))
+
+	var attached []uint64
+	closers := instrumentOptionalGoProbeGroup(resolved[1], func(_ string, probe *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+		attached = append(attached, probe.StartOffset)
+		return []io.Closer{&countingCloser{}}, nil
+	})
+	require.Len(t, closers, 1)
+	assert.Equal(t, []uint64{0x20}, attached)
+}
+
+func TestGatherGoProbeGroupOffsetsDoesNotMixCopies(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "separate-copies",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "library.Start", Probe: &ebpfcommon.ProbeDesc{}},
+			{Symbol: "library.End", Probe: &ebpfcommon.ProbeDesc{}},
+		},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		"library.Start": {{Symbol: "library.Start", Start: 0x10}},
+		"library.End":   {{Symbol: "one/vendor/library.End", Start: 0x20}},
+	}}}
+
+	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
+}
+
+func TestGoFunctionCopyID(t *testing.T) {
+	const symbol = "example.com/library.Function"
+
+	copyID, ok := goFunctionCopyID(symbol, symbol)
+	require.True(t, ok)
+	assert.Empty(t, copyID)
+
+	copyID, ok = goFunctionCopyID(symbol, "one/vendor/"+symbol)
+	require.True(t, ok)
+	assert.Equal(t, "one/vendor/", copyID)
+
+	_, ok = goFunctionCopyID(symbol, "unrelated."+symbol)
+	assert.False(t, ok)
 }
 
 func TestMatchVersionedUprobeLibrary(t *testing.T) {
@@ -974,4 +1070,64 @@ func (s *stubTracer) Required() bool                                         { r
 func (s *stubTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
 func (s *stubTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
 func (s *stubTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
+}
+
+func TestDedupModuleProbes(t *testing.T) {
+	// Distinct programs act as identities; dedup compares pointer equality.
+	pA := &ebpf.Program{}
+	pB := &ebpf.Program{}
+	pC := &ebpf.Program{}
+
+	descA := &ebpfcommon.ProbeDesc{Start: pA}
+	descB := &ebpfcommon.ProbeDesc{Start: pB}
+	descC := &ebpfcommon.ProbeDesc{Start: pC}
+
+	t.Run("no existing modules keeps everything", func(t *testing.T) {
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA}}
+		got := dedupModuleProbes(nil, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descA}, got["uv_fs_access"])
+	})
+
+	t.Run("same symbol and program is dropped", func(t *testing.T) {
+		// "node" and "libuv.so" both resolve to the executable and carry the
+		// same probe on the same symbol: the second must be filtered out.
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA}}
+		got := dedupModuleProbes(existing, pMap)
+		assert.Empty(t, got)
+	})
+
+	t.Run("same symbol but different program is kept", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descB}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descB}, got["uv_fs_access"])
+	})
+
+	t.Run("different symbol is kept", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"SSL_read": {descA}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descA}, got["SSL_read"])
+	})
+
+	t.Run("partial overlap keeps only the new descriptors", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		// descA is a duplicate, descC is new for the same symbol.
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA, descC}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descC}, got["uv_fs_access"])
+	})
 }

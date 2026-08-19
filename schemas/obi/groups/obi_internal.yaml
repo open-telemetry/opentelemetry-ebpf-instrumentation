@@ -324,9 +324,9 @@ groups:
       - ref: bpf.probe.type
       - ref: bpf.probe.name
 
-  - id: metric.obi.bpf.map.entries_total
+  - id: metric.obi.bpf.map.entries
     type: metric
-    metric_name: obi.bpf.map.entries_total
+    metric_name: obi.bpf.map.entries
     instrument: gauge
     unit: ""
     stability: development
@@ -336,9 +336,9 @@ groups:
       - ref: bpf.map.type
       - ref: bpf.map.name
 
-  - id: metric.obi.bpf.map.max_entries_total
+  - id: metric.obi.bpf.map.max_entries
     type: metric
-    metric_name: obi.bpf.map.max_entries_total
+    metric_name: obi.bpf.map.max_entries
     instrument: gauge
     unit: ""
     stability: development
@@ -349,17 +349,17 @@ groups:
       - ref: bpf.map.name
 
   # --- Network packet accounting (netolly) -------------------------------
-  - id: metric.obi.bpf.network.packets.total
+  - id: metric.obi.bpf.network.packets
     type: metric
-    metric_name: obi.bpf.network.packets.total
+    metric_name: obi.bpf.network.packets
     instrument: counter
     unit: "{packet}"
     stability: development
     brief: How many network packets have been internally accounted.
 
-  - id: metric.obi.bpf.network.ignored.packets.total
+  - id: metric.obi.bpf.network.ignored.packets
     type: metric
-    metric_name: obi.bpf.network.ignored.packets.total
+    metric_name: obi.bpf.network.ignored.packets
     instrument: counter
     unit: "{packet}"
     stability: development

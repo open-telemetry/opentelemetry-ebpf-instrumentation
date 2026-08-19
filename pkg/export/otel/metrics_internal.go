@@ -19,6 +19,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -68,21 +69,26 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
+	internalNames := attributes.NewInternalMetrics(attr.VendorPrefix)
+
 	res := newResourceInternal(&ctxInfo.NodeMeta)
-	bpfProbeLatency := newBpfProbeLatencyProducer(exporter.Temporality(metric.InstrumentKindHistogram))
+	bpfProbeLatency := newBpfProbeLatencyProducer(
+		internalNames.BpfProbeLatency,
+		exporter.Temporality(metric.InstrumentKindHistogram),
+	)
 	provider := newInternalMeterProvider(res, &exporter, metrics.Interval, bpfProbeLatency)
 	meter := provider.Meter(internalMetricsMeterName)
 	tracerFlushes, err := meter.Float64Histogram(
-		attr.VendorPrefix+".ebpf.tracer.flushes",
+		internalNames.TracerFlushes.OTEL,
 		instrument.WithDescription("Length of the groups of traces flushed from the eBPF tracer to the next pipeline stage"),
-		instrument.WithUnit("1"),
+		instrument.WithUnit(internalNames.TracerFlushes.Unit),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	otelMetricExports, err := meter.Float64Counter(
-		attr.VendorPrefix+".otel.metric.exports",
+		internalNames.OTELMetricExports.OTEL,
 		instrument.WithDescription("Length of the metric batches submitted to the remote OTEL collector"),
 	)
 	if err != nil {
@@ -90,7 +96,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	otelMetricExportErrs, err := meter.Float64Counter(
-		attr.VendorPrefix+".otel.metric.export.errors",
+		internalNames.OTELMetricExportErrors.OTEL,
 		instrument.WithDescription("Error count on each failed OTEL metric export"),
 	)
 	if err != nil {
@@ -98,7 +104,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	otelTraceExports, err := meter.Float64Counter(
-		attr.VendorPrefix+".otel.trace.exports",
+		internalNames.OTELTraceExports.OTEL,
 		instrument.WithDescription("Length of the trace batches submitted to the remote OTEL collector"),
 	)
 	if err != nil {
@@ -106,7 +112,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	otelTraceExportErrs, err := meter.Float64Counter(
-		attr.VendorPrefix+".otel.trace.export.errors",
+		internalNames.OTELTraceExportErrors.OTEL,
 		instrument.WithDescription("Error count on each failed OTEL trace export"),
 	)
 	if err != nil {
@@ -114,7 +120,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	instrumentedProcesses, err := meter.Int64UpDownCounter(
-		attr.VendorPrefix+".instrumented.processes",
+		internalNames.InstrumentedProcesses.OTEL,
 		instrument.WithDescription("Total number of instrumented processes by process name"),
 	)
 	if err != nil {
@@ -122,7 +128,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	instrumentationErrors, err := meter.Int64Counter(
-		attr.VendorPrefix+".instrumentation.errors",
+		internalNames.InstrumentationErrors.OTEL,
 		instrument.WithDescription("Total number of instrumentation errors by process name and error type"),
 	)
 	if err != nil {
@@ -133,7 +139,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	var avoidedServicesLimiter *avoidedsvc.Limiter
 	if !internalMetrics.AvoidedServices.Disabled {
 		avoidedServices, err = meter.Int64Gauge(
-			attr.VendorPrefix+".avoided.services",
+			internalNames.AvoidedServices.OTEL,
 			instrument.WithDescription("Services avoided due to existing OpenTelemetry instrumentation"),
 		)
 		if err != nil {
@@ -143,7 +149,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	buildInfo, err := meter.Int64Gauge(
-		attr.VendorPrefix+".internal.build.info",
+		internalNames.BuildInfo.OTEL,
 		instrument.WithDescription("A metric with a constant '1' value labeled by version, revision, branch, goversion, goos and goarch during build."),
 	)
 	if err != nil {
@@ -151,14 +157,14 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	bpfMapEntries, err := meter.Int64Gauge(
-		attr.VendorPrefix+".bpf.map.entries_total",
+		internalNames.BpfMapEntries.OTEL,
 		instrument.WithDescription("Number of entries in the eBPF map"),
 	)
 	if err != nil {
 		return nil, err
 	}
 	bpfMapMaxEntries, err := meter.Int64Gauge(
-		attr.VendorPrefix+".bpf.map.max_entries_total",
+		internalNames.BpfMapMaxEntries.OTEL,
 		instrument.WithDescription("Max number of entries in the eBPF map"),
 	)
 	if err != nil {
@@ -166,9 +172,9 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	informerLag, err := meter.Float64Histogram(
-		attr.VendorPrefix+".kube.cache.forward.lag",
+		internalNames.KubeCacheForwardLag.OTEL,
 		instrument.WithDescription("How long, in seconds, it takes since a Kubernetes event happens until it is forwarded to the subscribers"),
-		instrument.WithUnit("s"),
+		instrument.WithUnit(internalNames.KubeCacheForwardLag.Unit),
 		instrument.WithExplicitBucketBoundaries(
 			imetrics.InformerLagBuckets...,
 		),
@@ -178,27 +184,27 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	bpfIgnoredPacketCount, err := meter.Int64Counter(
-		attr.VendorPrefix+".bpf.network.ignored.packets.total",
+		internalNames.BpfNetworkIgnoredPackets.OTEL,
 		instrument.WithDescription("How many network packets have been internally ignored due to collisions in the internal eBPF cache"),
-		instrument.WithUnit("{packet}"),
+		instrument.WithUnit(internalNames.BpfNetworkIgnoredPackets.Unit),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	bpfPacketCount, err := meter.Int64Counter(
-		attr.VendorPrefix+".bpf.network.packets.total",
+		internalNames.BpfNetworkPackets.OTEL,
 		instrument.WithDescription("How many network packets have been internally accounted"),
-		instrument.WithUnit("{packet}"),
+		instrument.WithUnit(internalNames.BpfNetworkPackets.Unit),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	queueCapacityRatio, err := meter.Float64Gauge(
-		attr.VendorPrefix+".queue.capacity.ratio",
+		internalNames.QueueCapacityRatio.OTEL,
 		instrument.WithDescription("Ratio [0-1] between the unread messages of an internal Go channel and its total capacity"),
-		instrument.WithUnit("1"))
+		instrument.WithUnit(internalNames.QueueCapacityRatio.Unit))
 	if err != nil {
 		return nil, err
 	}
@@ -240,8 +246,21 @@ func newInternalMeterProvider(
 	)
 }
 
+// sanitizedAttributes is the attribute boundary for the internal metrics, which build their
+// datapoint attributes directly rather than through Expirer.recordAttributes. Values such as
+// a process basename or an error string can carry invalid UTF-8, which protobuf rejects for
+// the whole export request, so every one of them passes through here.
+func sanitizedAttributes(kvs ...attribute.KeyValue) instrument.MeasurementOption {
+	sanitized := make([]attribute.KeyValue, len(kvs))
+	for i, kv := range kvs {
+		sanitized[i] = sanitizeKeyValue(kv)
+	}
+
+	return instrument.WithAttributes(sanitized...)
+}
+
 func (p *InternalMetricsReporter) Start(ctx context.Context) {
-	p.buildInfo.Record(ctx, 1, instrument.WithAttributes(attribute.String("obi.goarch", runtime.GOARCH), attribute.String("obi.goos", runtime.GOOS), attribute.String("obi.goversion", runtime.Version()), attribute.String("obi.version", buildinfo.Version), attribute.String("obi.revision", buildinfo.Revision)))
+	p.buildInfo.Record(ctx, 1, sanitizedAttributes(attribute.String("obi.goarch", runtime.GOARCH), attribute.String("obi.goos", runtime.GOOS), attribute.String("obi.goversion", runtime.Version()), attribute.String("obi.version", buildinfo.Version), attribute.String("obi.revision", buildinfo.Revision)))
 }
 
 func (p *InternalMetricsReporter) TracerFlush(length int) {
@@ -253,7 +272,7 @@ func (p *InternalMetricsReporter) OTELMetricExport(length int) {
 }
 
 func (p *InternalMetricsReporter) OTELMetricExportError(err error) {
-	p.otelMetricExportErrs.Add(p.ctx, 1, instrument.WithAttributes(attribute.String("obi.error", err.Error())))
+	p.otelMetricExportErrs.Add(p.ctx, 1, sanitizedAttributes(attribute.String("obi.error", err.Error())))
 }
 
 func (p *InternalMetricsReporter) OTELTraceExport(length int) {
@@ -261,22 +280,22 @@ func (p *InternalMetricsReporter) OTELTraceExport(length int) {
 }
 
 func (p *InternalMetricsReporter) OTELTraceExportError(err error) {
-	p.otelTraceExportErrs.Add(p.ctx, 1, instrument.WithAttributes(attribute.String("obi.error", err.Error())))
+	p.otelTraceExportErrs.Add(p.ctx, 1, sanitizedAttributes(attribute.String("obi.error", err.Error())))
 }
 
 func (p *InternalMetricsReporter) PrometheusRequest(_, _ string) {
 }
 
 func (p *InternalMetricsReporter) InstrumentProcess(processName string) {
-	p.instrumentedProcesses.Add(p.ctx, 1, instrument.WithAttributes(attribute.String("process.executable.name", processName)))
+	p.instrumentedProcesses.Add(p.ctx, 1, sanitizedAttributes(attribute.String("process.executable.name", processName)))
 }
 
 func (p *InternalMetricsReporter) UninstrumentProcess(processName string) {
-	p.instrumentedProcesses.Add(p.ctx, -1, instrument.WithAttributes(attribute.String("process.executable.name", processName)))
+	p.instrumentedProcesses.Add(p.ctx, -1, sanitizedAttributes(attribute.String("process.executable.name", processName)))
 }
 
 func (p *InternalMetricsReporter) InstrumentationError(processName, errorType string) {
-	p.instrumentationErrors.Add(p.ctx, 1, instrument.WithAttributes(
+	p.instrumentationErrors.Add(p.ctx, 1, sanitizedAttributes(
 		attribute.String("process.executable.name", processName),
 		attribute.String("error.type", errorType),
 	))
@@ -320,7 +339,7 @@ func (p *InternalMetricsReporter) recordAvoidedService(serviceName, serviceNames
 		}
 	}
 
-	p.avoidedServices.Record(p.ctx, 1, instrument.WithAttributes(attrs...))
+	p.avoidedServices.Record(p.ctx, 1, sanitizedAttributes(attrs...))
 }
 
 func (p *InternalMetricsReporter) AvoidInstrumentationMetrics(serviceName, serviceNamespace, serviceInstanceID string) {
@@ -341,7 +360,7 @@ func (p *InternalMetricsReporter) BpfMapEntries(mapID, mapName, mapType string, 
 		attribute.String("bpf.map.type", mapType),
 		attribute.String("bpf.map.name", mapName),
 	}
-	p.bpfMapEntries.Record(p.ctx, int64(entriesTotal), instrument.WithAttributes(attrs...))
+	p.bpfMapEntries.Record(p.ctx, int64(entriesTotal), sanitizedAttributes(attrs...))
 }
 
 func (p *InternalMetricsReporter) BpfMapMaxEntries(mapID, mapName, mapType string, maxEntries int) {
@@ -350,7 +369,7 @@ func (p *InternalMetricsReporter) BpfMapMaxEntries(mapID, mapName, mapType strin
 		attribute.String("bpf.map.type", mapType),
 		attribute.String("bpf.map.name", mapName),
 	}
-	p.bpfMapMaxEntries.Record(p.ctx, int64(maxEntries), instrument.WithAttributes(attrs...))
+	p.bpfMapMaxEntries.Record(p.ctx, int64(maxEntries), sanitizedAttributes(attrs...))
 }
 
 func (p *InternalMetricsReporter) BpfInternalMetricsScrapeInterval() time.Duration {
@@ -368,5 +387,5 @@ func (p *InternalMetricsReporter) BPFPacketStats(count, ignored uint64) {
 }
 
 func (p *InternalMetricsReporter) QueueBufferUtilization(subscriber string, ratio float64) {
-	p.queueCapacityRatio.Record(p.ctx, ratio, instrument.WithAttributes(attribute.String("subscriber", subscriber)))
+	p.queueCapacityRatio.Record(p.ctx, ratio, sanitizedAttributes(attribute.String("subscriber", subscriber)))
 }

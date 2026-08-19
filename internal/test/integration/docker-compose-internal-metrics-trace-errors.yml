@@ -44,7 +44,7 @@ services:
         condition: service_started
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config-internal-metrics.yml
@@ -59,7 +59,7 @@ services:
   # by the test) and to weaver. The traces endpoint OBI targets (:9999) is
   # intentionally closed, so every trace export fails.
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.158.0@sha256:c5918f78992ee73b0d6f0e599423ac5ec52dd5d9726733114d6eca53d5a32ed5
+    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
     container_name: otel-col
     deploy:
       resources:

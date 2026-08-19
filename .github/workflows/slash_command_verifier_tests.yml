@@ -1,0 +1,106 @@
+name: "Slash: /verifier-tests"
+
+# Listens for /verifier-tests on PR comments. Validates commenter has write
+# access, verifies actual write permission, resolves PR head SHA, then dispatches
+# BPF verifier. Posts a reply with the run URL.
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: slash-verifier-tests-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch BPF verifier run
+    if: >-
+      github.event.issue.pull_request != null &&
+      startsWith(github.event.comment.body, '/verifier-tests') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write          # dispatch the verifier workflow
+      # PR-comment reactions + reply posts go through /issues/comments/...
+      # but GitHub scopes them under pull-requests when the event originates
+      # from a PR. issues:write alone returns HTTP 403; both are needed.
+      issues: write
+      pull-requests: write    # PR-comment reactions + reply
+    steps:
+      - name: Check commenter permission
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          PERMISSION=$(gh api "repos/${OWNER}/${REPO}/collaborators/${COMMENTER}/permission" --jq .permission 2>/dev/null || true)
+          if [ -z "${PERMISSION}" ]; then
+            echo "could not verify ${COMMENTER}'s repository permission; /verifier-tests requires write permission" >&2
+            exit 1
+          fi
+
+          case "${PERMISSION}" in
+            admin|maintain|write)
+              ;;
+            *)
+              echo "${COMMENTER} has ${PERMISSION:-no} permission, but /verifier-tests requires write permission" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: React with eyes (acknowledge command)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api -X POST "repos/${OWNER}/${REPO}/issues/comments/${COMMENT_ID}/reactions" \
+            -f content=eyes >/dev/null
+
+      - name: Resolve PR head SHA
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          SHA=$(gh api "repos/${OWNER}/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)
+          if [ -z "$SHA" ]; then
+            echo "could not resolve PR head SHA" >&2
+            exit 1
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch BPF verifier
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          REF: ${{ steps.pr.outputs.sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh workflow run bpf_verifier.yml \
+            --repo "${OWNER}/${REPO}" \
+            --ref main \
+            -f ref="${REF}" \
+            -f pr_number="${PR_NUMBER}"
+
+      - name: Comment back with run URL
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REF: ${{ steps.pr.outputs.sha }}
+        run: |
+          URL="https://github.com/${OWNER}/${REPO}/actions/workflows/bpf_verifier.yml?query=event%3Aworkflow_dispatch"
+          BODY="Dispatched **BPF verifier** for \`${REF}\` (PR #${PR_NUMBER}). Watch progress: ${URL}"
+          gh api -X POST "repos/${OWNER}/${REPO}/issues/${PR_NUMBER}/comments" \
+            -f body="${BODY}" >/dev/null

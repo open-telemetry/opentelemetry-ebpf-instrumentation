@@ -121,12 +121,30 @@
     // trace context for this request into traces_ctx_v1.
     // fs.accessSync is safe inside async_hooks callbacks: synchronous fs operations
     // do not create AsyncWrap objects and therefore do not re-trigger this hook.
+    //
+    // When a callback fires OUTSIDE any request (e.g. a background timer, or a
+    // callback that ran after its request finished), the kernel map would otherwise
+    // still hold the last request's context — so a manual span ending in that
+    // callback (bpf/generictracer/nodejs.c: obi_ctx__get) would be mis-parented
+    // into that stale trace. We therefore emit an explicit clear when leaving
+    // request scope. To avoid a synchronous syscall on every non-request callback
+    // (there can be very many), we only clear on the request -> no-request
+    // transition, tracked by `ctxActive`; a subsequent request callback re-sets it.
+    let ctxActive = false;
     orig.ctxHook = createHook({
       before() {
         const store = als.getStore();
         if (store && store.incomingFd != null && store.incomingFd >= 0) {
+          ctxActive = true;
           try {
             fs.accessSync(`/dev/null/obi-ctx/${pad4(store.incomingFd)}`);
+          } catch (_) {}
+        } else if (ctxActive) {
+          ctxActive = false;
+          try {
+            // Explicit "no request context" signal: obi_uv_fs_access deletes the
+            // traces_ctx_v1 entry so later spans are not parented into a stale trace.
+            fs.accessSync('/dev/null/obi-noreqctx');
           } catch (_) {}
         }
       },

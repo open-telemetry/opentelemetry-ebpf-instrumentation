@@ -17,6 +17,7 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/scratch_mem.h>
 
@@ -50,7 +51,7 @@ static __always_inline void setup_request(void *goroutine_addr) {
 // github.com/redis/go-redis/v9.(*baseClient)._process
 // func (c *baseClient) _process(ctx context.Context, cmd Cmder, attempt int) (bool, error) {
 SEC("uprobe/redis_process")
-int obi_uprobe_redis_process(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_redis_process, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/redis_process ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -68,7 +69,7 @@ int obi_uprobe_redis_process(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/redis_process")
-int obi_uprobe_redis_process_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_redis_process_ret, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/redis_process ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -98,7 +99,7 @@ int obi_uprobe_redis_process_ret(struct pt_regs *ctx) {
 //	ctx context.Context, timeout time.Duration, fn func(wr *proto.Writer) error,
 // ) error
 SEC("uprobe/redis_with_writer")
-int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_redis_with_writer, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/redis_with_writer ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *cn_ptr = GO_PARAM1(ctx);
@@ -143,7 +144,7 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/redis_with_writer")
-int obi_uprobe_redis_with_writer_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_redis_with_writer_ret, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/redis_with_writer ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     off_table_t *ot = get_offsets_table();

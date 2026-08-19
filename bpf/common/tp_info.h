@@ -22,6 +22,21 @@ typedef struct tp_info {
     u8 _pad[7];
 } tp_info_t;
 
+// how a client span got its parent, decided where the parent is adopted
+enum parent_status : u8 {
+    // no parent was found
+    k_parent_status_none = 0,
+    // the parent request was still being served when this span started
+    k_parent_status_live = 1,
+    // the parent request may already have ended when this span started: once a
+    // response is under way only its content says where it ends, so userspace
+    // settles the link against the parent span's real end timestamp
+    k_parent_status_conditional = 2,
+};
+
+_Static_assert(k_parent_status_conditional == 2,
+               "value mirrored in pkg/ebpf/common (parentStatusConditional)");
+
 typedef struct tp_info_pid {
     tp_info_t tp;
     u32 pid;

@@ -335,9 +335,10 @@ var DefaultConfig = Config{
 				Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 			},
 		},
-		MinProcessAge:         5 * time.Second,
-		DefaultOtlpGRPCPort:   4317,
-		RouteHarvesterTimeout: 10 * time.Second,
+		MinProcessAge:              5 * time.Second,
+		ProcessContextPollInterval: time.Second,
+		DefaultOtlpGRPCPort:        4317,
+		RouteHarvesterTimeout:      10 * time.Second,
 		RouteHarvestConfig: services.RouteHarvestingConfig{
 			JavaHarvestDelay: 5 * time.Second,
 		},
@@ -669,6 +670,10 @@ type NodeJSConfig struct {
 	// propagation and runtime metrics. Setting it to false disables the
 	// injection entirely, runtime metrics included.
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_NODEJS_ENABLED"`
+	// ManualSpans injects the span bridge (spanbridge.js) into Node.js
+	// processes, capturing spans the application creates through the
+	// OpenTelemetry API when no OpenTelemetry SDK is registered.
+	ManualSpans bool `yaml:"manual_spans" env:"OTEL_EBPF_NODEJS_MANUAL_SPANS"`
 }
 
 type JavaConfig struct {

@@ -96,7 +96,7 @@ typedef struct http2_grpc_request {
     u8 flags; // Must be first
     u8 ssl;
     u8 type;
-    u8 _pad0[1];
+    enum parent_status parent_status;
     connection_info_t conn_info;
     u64 start_monotime_ns;
     u64 end_monotime_ns;

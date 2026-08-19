@@ -481,6 +481,45 @@ func TestRuntimeToV2FallsBackOnUnsupportedLogFormats(t *testing.T) {
 	require.Equal(t, schema.ConfigFormatUnset, value(t, ext.Daemon, "logging", "config_format"))
 }
 
+func TestRuntimeToV2ApplicationFiltersByInstrumentation(t *testing.T) {
+	t.Parallel()
+
+	statusCode := 500
+	cfg := defaultRuntimeConfig()
+	cfg.Filters.Application = nil
+	cfg.Filters.ApplicationByInstrumentation = filter.InstrumentationAttributeFamilyConfig{
+		instrumentations.InstrumentationHTTP: {
+			Traces: filter.AttributeFamilyConfig{
+				"http.status_code": {Equals: &statusCode},
+			},
+		},
+		instrumentations.InstrumentationSQL: {
+			Metrics: filter.AttributeFamilyConfig{
+				"service.name": {Match: "checkout-*"},
+			},
+		},
+	}
+
+	_, ext := RuntimeToV2(&cfg)
+
+	require.Equal(t, schema.SignalFilters{
+		Traces: schema.AttributeFilters{
+			"http.status_code": {Equals: &statusCode},
+		},
+		Metrics: schema.AttributeFilters{},
+	}, ext.Capture.Instrumentation.HTTP.Filters)
+	require.Equal(t, schema.SignalFilters{
+		Traces: schema.AttributeFilters{},
+		Metrics: schema.AttributeFilters{
+			"service.name": {Match: "checkout-*"},
+		},
+	}, ext.Capture.Instrumentation.SQL.Filters)
+	require.Equal(t, schema.SignalFilters{
+		Traces:  schema.AttributeFilters{},
+		Metrics: schema.AttributeFilters{},
+	}, ext.Capture.Instrumentation.GRPC.Filters)
+}
+
 func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	t.Parallel()
 

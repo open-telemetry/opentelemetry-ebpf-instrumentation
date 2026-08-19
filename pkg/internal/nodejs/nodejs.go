@@ -146,6 +146,9 @@ func (i *NodeInjector) isNodeInspector(conn net.Conn) bool {
 //go:embed fdextractor.js
 var _extractorCode string
 
+//go:embed spanbridge.js
+var _spanBridgeCode string
+
 // Substituted at injection time so each injection installs only the
 // machinery its configuration asks for (see the OBI_RT_ENABLED and
 // OBI_TRACES_ENABLED comments in fdextractor.js).
@@ -158,7 +161,10 @@ const (
 
 // agentCode returns the extractor script with the RT gate substituted from
 // the same predicate that sets the nodejs_runtime_metrics_enabled BPF
-// constant, so the agent and the eBPF side cannot disagree.
+// constant, so the agent and the eBPF side cannot disagree. When manual
+// spans are enabled the span bridge is appended as a second script: both are
+// self-contained IIFEs, joined with an explicit ';' so the bridge's leading
+// '(' is not parsed as a call of the extractor IIFE's return value.
 func (i *NodeInjector) agentCode() string {
 	code := _extractorCode
 	if i.cfg.AppRuntimeMetricsEnabled() {
@@ -166,6 +172,9 @@ func (i *NodeInjector) agentCode() string {
 	}
 	if i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled() {
 		code = strings.Replace(code, tracesEnabledPlaceholder, tracesEnabledOn, 1)
+	}
+	if i.cfg.NodeJS.ManualSpans {
+		code += ";\n" + _spanBridgeCode
 	}
 	return code
 }
