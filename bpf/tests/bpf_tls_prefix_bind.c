@@ -594,6 +594,76 @@ static void test_application_data_record_also_correlates(void) {
     }
 }
 
+// Two connections handshaking at once, neither bound yet. A TLS 1.3
+// ChangeCipherSpec is the same six bytes on every connection, so keying it would
+// have both register one key, the second displacing the first, and the first
+// connection's socket send would then bind the second's SSL.
+static void test_concurrent_unbound_connections_do_not_cross_bind(void) {
+    reset();
+
+    static void *const k_ssl_b = (void *)0x5501;
+    static void *const k_rbio_b = (void *)0x6601;
+    static void *const k_wbio_b = (void *)0x7701;
+
+    const unsigned char change_cipher_spec[] = {0x14, 0x03, 0x03, 0x00, 0x01, 0x01};
+    const unsigned int len = sizeof(change_cipher_spec);
+
+    ssl_bios_track(k_pid, k_ssl, k_rbio, k_wbio);
+    ssl_bios_track(k_pid, k_ssl_b, k_rbio_b, k_wbio_b);
+
+    tls_prefix_register_egress(k_wbio, change_cipher_spec, (int)len);
+    tls_prefix_register_egress(k_wbio_b, change_cipher_spec, (int)len);
+
+    check(map_count(&tls_prefix_to_ssl) == 0,
+          "neither connection registers a key for a ChangeCipherSpec");
+
+    // The first connection's flush. Pre-fix this bound k_ssl_b, the SSL that
+    // overwrote the shared key.
+    pid_connection_info_t conn = upstream_conn();
+
+    check(tls_prefix_try_bind(k_id, change_cipher_spec, len, len, &conn, 8443) == 0,
+          "a ChangeCipherSpec send correlates nothing");
+    check(map_get(&ssl_to_conn, &k_ssl_b) == NULL,
+          "the other connection's SSL is not bound to this connection's peer");
+    check(map_get(&ssl_to_conn, &k_ssl) == NULL, "no SSL is bound from a ChangeCipherSpec");
+
+    // Each connection still binds on its own application data, which carries
+    // ciphertext unique to it.
+    unsigned char app_a[32];
+    unsigned char app_b[32];
+    const unsigned int fragment = 26;
+    const unsigned int record_len = k_tls_hdr_len + fragment;
+
+    for (unsigned int i = 0; i < record_len; i++) {
+        app_a[i] = (unsigned char)(0x40 + i * 7u);
+        app_b[i] = (unsigned char)(0x90 + i * 11u);
+    }
+    for (unsigned int i = 0; i < 2; i++) {
+        unsigned char *r = i == 0 ? app_a : app_b;
+        r[0] = k_tls_ct_app_data;
+        r[1] = 0x03;
+        r[2] = 0x03;
+        r[3] = (unsigned char)(fragment >> 8);
+        r[4] = (unsigned char)(fragment & 0xff);
+    }
+
+    tls_prefix_register_egress(k_wbio, app_a, (int)record_len);
+    tls_prefix_register_egress(k_wbio_b, app_b, (int)record_len);
+
+    check(map_count(&tls_prefix_to_ssl) == 2, "both connections register distinct keys");
+
+    check(tls_prefix_try_bind(k_id, app_b, record_len, record_len, &conn, 9443) == 1,
+          "the second connection's record binds a connection");
+
+    ssl_pid_connection_info_t *bound_b = map_get(&ssl_to_conn, &k_ssl_b);
+
+    check(bound_b != NULL, "the second connection's SSL is bound by its own ciphertext");
+    if (bound_b) {
+        check_u16(9443, bound_b->orig_dport, "and to the peer that carried it");
+    }
+    check(map_get(&ssl_to_conn, &k_ssl) == NULL, "the first connection's SSL is untouched");
+}
+
 // ...but only while bio_to_ssl knows the BIO. A connection whose SSL_set_bio
 // happened before the uprobes were attached has no such entry, and nothing
 // downstream can recover it.
@@ -626,6 +696,7 @@ int main(void) {
     test_recycled_pointer_without_teardown_inherits_the_old_peer();
     test_freed_ssl_lets_a_recycled_pointer_recorrelate();
     test_application_data_record_also_correlates();
+    test_concurrent_unbound_connections_do_not_cross_bind();
     test_unknown_bio_never_correlates();
 
     if (failures) {
