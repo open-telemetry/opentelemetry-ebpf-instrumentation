@@ -172,10 +172,11 @@ func (fi *FileInfo) SetHostName(h string) {
 	fi.service.HostName = h
 }
 
-func (fi *FileInfo) SetServiceName(name string) {
+func (fi *FileInfo) SetAutoServiceName(name string) {
 	fi.mu.Lock()
 	defer fi.mu.Unlock()
 	fi.service.UID.Name = name
+	fi.service.SetAutoName()
 }
 
 func (fi *FileInfo) SetUID(uid svc.UID) {

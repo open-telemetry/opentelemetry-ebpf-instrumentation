@@ -122,7 +122,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	}
 
 	if resolveName && name != "" {
-		fileInfo.SetServiceName(name)
+		fileInfo.SetAutoServiceName(name)
 	}
 
 	if resolveVersion && manifest.Version != "" {
