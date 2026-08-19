@@ -4,6 +4,7 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
@@ -167,7 +168,7 @@ static __always_inline void tls_prefix_register_egress(void *bio, const void *bu
         return;
     }
 
-    __builtin_memset(scratch->record, 0, sizeof(scratch->record));
+    bpf_memset(scratch->record, 0, sizeof(scratch->record));
 
     if (bpf_probe_read_user(scratch->record, key_len, buf) != 0) {
         return;

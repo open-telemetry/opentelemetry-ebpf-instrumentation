@@ -4,6 +4,7 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 
 // TLS record layer framing, RFC 8446 section 5.1 (and RFC 5246 section 6.2.1,
@@ -147,7 +148,7 @@ static __always_inline u32 tls_prefix_key_from_buf(tls_prefix_key_t *key,
                                                    const unsigned char *src,
                                                    u32 copied,
                                                    u32 avail) {
-    __builtin_memset(key, 0, sizeof(*key));
+    bpf_memset(key, 0, sizeof(*key));
 
     if (copied < k_tls_hdr_len) {
         return 0;
