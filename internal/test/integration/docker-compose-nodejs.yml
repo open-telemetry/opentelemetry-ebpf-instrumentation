@@ -47,6 +47,7 @@ services:
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
       OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS: "true"
+      OTEL_EBPF_NODEJS_MANUAL_SPANS: "true"
     depends_on:
       testserver:
         condition: service_started

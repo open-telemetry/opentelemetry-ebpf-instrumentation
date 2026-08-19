@@ -1,0 +1,14 @@
+{
+  "name": "obi-spanbridge-test",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Behavioral tests for pkg/internal/nodejs/spanbridge.js (run with: node --test)",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-trace-node": "^2.0.0"
+  }
+}

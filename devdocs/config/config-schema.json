@@ -2234,6 +2234,12 @@
           "description": "Turns on the Node.js injector agent, used for trace-context propagation and runtime metrics. Setting it to false disables the injection entirely, runtime metrics included.",
           "default": true,
           "x-env-var": "OTEL_EBPF_NODEJS_ENABLED"
+        },
+        "manual_spans": {
+          "type": "boolean",
+          "description": "Injects the span bridge (spanbridge.js) into Node.js processes, capturing spans the application creates through the OpenTelemetry API when no OpenTelemetry SDK is registered.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_NODEJS_MANUAL_SPANS"
         }
       },
       "type": "object"

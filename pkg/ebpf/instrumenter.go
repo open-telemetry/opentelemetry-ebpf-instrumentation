@@ -418,13 +418,60 @@ func (i *instrumenter) uprobeModules(p Tracer, pid app.PID, maps []*procfs.ProcM
 
 		mod, ok := modules[instrumentedIno]
 		if ok {
-			mod.probes = append(mod.probes, pMap)
+			if filtered := dedupModuleProbes(mod.probes, pMap); len(filtered) > 0 {
+				mod.probes = append(mod.probes, filtered)
+			}
 		} else {
 			modules[instrumentedIno] = &uprobeModule{lib: lib, instrPath: instrPath, probes: []map[string][]*ebpfcommon.ProbeDesc{pMap}}
 		}
 	}
 
 	return modules
+}
+
+// dedupModuleProbes filters out probe descriptors that would attach the same
+// eBPF programs to the same symbol as an already-collected probe map for the
+// module. This happens when several library entries (e.g. "node" and
+// "libuv.so") resolve to the same file — typically through the
+// instrument-the-executable fallback — and would otherwise attach the same
+// program twice at the same offset, duplicating every event it emits.
+func dedupModuleProbes(
+	existing []map[string][]*ebpfcommon.ProbeDesc,
+	pMap map[string][]*ebpfcommon.ProbeDesc,
+) map[string][]*ebpfcommon.ProbeDesc {
+	type probeKey struct {
+		symbol     string
+		start, end *ebpf.Program
+	}
+
+	seen := map[probeKey]struct{}{}
+
+	for _, m := range existing {
+		for sym, descs := range m {
+			for _, d := range descs {
+				seen[probeKey{sym, d.Start, d.End}] = struct{}{}
+			}
+		}
+	}
+
+	filtered := make(map[string][]*ebpfcommon.ProbeDesc, len(pMap))
+
+	for sym, descs := range pMap {
+		kept := make([]*ebpfcommon.ProbeDesc, 0, len(descs))
+
+		for _, d := range descs {
+			if _, dup := seen[probeKey{sym, d.Start, d.End}]; dup {
+				continue
+			}
+			kept = append(kept, d)
+		}
+
+		if len(kept) > 0 {
+			filtered[sym] = kept
+		}
+	}
+
+	return filtered
 }
 
 // matchVersionedUprobeLibrary reports whether a (possibly annotated) library name should be
