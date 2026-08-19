@@ -1,0 +1,54 @@
+version: "3.8"
+
+services:
+  tls-target:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/pythonserver/Dockerfile_tls
+    image: hatest-pythonserver-tls
+
+  wrapped-tls-client:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/httppinger/Dockerfile
+    image: hatest-httppinger
+    environment:
+      TARGET_URL: "https://tls-target:8380/greeting"
+      WRAP_TLS_CONN: "true"
+    depends_on:
+      tls-target:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-wrapped-conn.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - ../../../testoutput:/coverage
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+    depends_on:
+      wrapped-tls-client:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    command:
+      - "--set=service.telemetry.logs.level=debug"

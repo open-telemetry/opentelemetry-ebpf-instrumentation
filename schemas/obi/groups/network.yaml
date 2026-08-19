@@ -104,6 +104,30 @@ groups:
         brief: CIDR block matched against the destination IP.
         examples: ["10.0.0.0/8"]
 
+      # GeoIP decoration of the flow endpoints, attached by the geoip pipeline
+      # stage when GeoIP is enabled. Stored as strings (netolly Metadata is
+      # string-valued). OBI/netolly convention, no upstream equivalent.
+      - id: src.asn
+        type: string
+        stability: development
+        brief: Autonomous System Number of the source endpoint, from GeoIP lookup.
+        examples: ["AS15169"]
+      - id: dst.asn
+        type: string
+        stability: development
+        brief: Autonomous System Number of the destination endpoint, from GeoIP lookup.
+        examples: ["AS15169"]
+      - id: src.country
+        type: string
+        stability: development
+        brief: ISO country code of the source endpoint, from GeoIP lookup.
+        examples: ["US"]
+      - id: dst.country
+        type: string
+        stability: development
+        brief: ISO country code of the destination endpoint, from GeoIP lookup.
+        examples: ["US"]
+
       # Kubernetes decoration of the source / destination flow endpoints,
       # attached by netolly (pkg/internal/netolly/transform/k8s) when
       # Kubernetes metadata is available and the corresponding keys are
@@ -224,6 +248,10 @@ groups:
       - ref: k8s.dst.type
       - ref: k8s.dst.node.ip
       - ref: k8s.dst.node.name
+      - ref: src.asn
+      - ref: dst.asn
+      - ref: src.country
+      - ref: dst.country
 
   - id: metric.obi_network_flow_packets
     type: metric
@@ -269,6 +297,10 @@ groups:
       - ref: k8s.dst.type
       - ref: k8s.dst.node.ip
       - ref: k8s.dst.node.name
+      - ref: src.asn
+      - ref: dst.asn
+      - ref: src.country
+      - ref: dst.country
 
   - id: metric.obi_network_inter_zone_bytes
     type: metric
@@ -287,6 +319,10 @@ groups:
       - ref: dst.zone
       - ref: src.name
       - ref: dst.name
+      - ref: src.asn
+      - ref: dst.asn
+      - ref: src.country
+      - ref: dst.country
 
   # Overrides `network.type`: extends the upstream `ipv4`/`ipv6` enum with
   # `arp`, which OBI reports for ARP frames — OBI observes raw L2 frames, a

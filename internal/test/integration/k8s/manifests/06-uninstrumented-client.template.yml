@@ -7,7 +7,7 @@ metadata:
   labels:
     component: pinger
   annotations:
-    resource.opentelemetry.io/deployment.environment.name: 'to-be-ignored-in-favor-of-env-var'
+    resource.opentelemetry.io/deployment.environment.name: 'development'
 spec:
   shareProcessNamespace: true
   serviceAccountName: obi

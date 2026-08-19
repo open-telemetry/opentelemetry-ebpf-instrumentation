@@ -24,8 +24,10 @@
 #include <common/connection_info.h>
 #include <common/globals.h>
 #include <common/http_types.h>
+#include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 #include <common/strings.h>
 #include <common/tracing.h>
 #include <common/trace_helpers.h>
@@ -35,6 +37,7 @@
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
+#include <gotracer/maps/go_persist_conn.h>
 #include <gotracer/maps/nethttp.h>
 
 #include <gotracer/types/nethttp.h>
@@ -56,13 +59,16 @@ static __always_inline unsigned char *temp_header_mem() {
     return bpf_map_lookup_elem(&temp_header_mem_store, &zero);
 }
 
+SCRATCH_MEM_TYPED(serve_http_inv, server_http_func_invocation_t)
+SCRATCH_MEM_TYPED(round_trip_client_data, http_client_data_t)
+
 /* HTTP Server */
 
 // This instrumentation attaches uprobe to the following function:
 // func (mux *ServeMux) ServeHTTP(w ResponseWriter, r *Request)
 // or other functions sharing the same signature (e.g http.Handler.ServeHTTP)
 SEC("uprobe/ServeHTTP")
-int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
@@ -81,20 +87,16 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
         decoded_tp = &header_inv->tp;
     }
 
-    server_http_func_invocation_t invocation = {
-        .start_monotime_ns = bpf_ktime_get_ns(),
-        .tp = {0},
-        .status = 0,
-        .content_length = 0,
-        .response_length = 0,
-    };
+    server_http_func_invocation_t *invocation = serve_http_inv_mem();
+    if (!invocation) {
+        goto done;
+    }
 
-    invocation.method[0] = 0;
-    invocation.path[0] = 0;
-    invocation.pattern[0] = 0;
+    bpf_memset(invocation, 0, sizeof(*invocation));
+    invocation->start_monotime_ns = bpf_ktime_get_ns();
 
     if (req) {
-        server_trace_parent(goroutine_addr, &invocation.tp, decoded_tp);
+        server_trace_parent(goroutine_addr, &invocation->tp, decoded_tp);
         // TODO: if context propagation is supported, overwrite the header value in the map with the
         // new span context and the same thread id.
 
@@ -102,8 +104,8 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
         if (!read_go_str("method",
                          req,
                          go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
-                         invocation.method,
-                         sizeof(invocation.method))) {
+                         invocation->method,
+                         sizeof(invocation->method))) {
             bpf_dbg_printk("can't read http Request.Method");
             goto done;
         }
@@ -118,17 +120,26 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
             !read_go_str("path",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _path_ptr_pos}),
-                         invocation.path,
-                         sizeof(invocation.path))) {
+                         invocation->path,
+                         sizeof(invocation->path))) {
             bpf_dbg_printk("can't read http Request.URL.Path");
             goto done;
         }
 
-        bpf_dbg_printk("path=%s", invocation.path);
+        // best-effort: the query string is optional, so a failed read must not
+        // drop the event; the buffer stays zeroed and the span has no query
+        read_go_str("raw_query",
+                    url_ptr,
+                    go_offset_of(ot, (go_offset){.v = _raw_query_ptr_pos}),
+                    invocation->raw_query,
+                    sizeof(invocation->raw_query));
+
+        bpf_dbg_printk("path=%s", invocation->path);
+        bpf_dbg_printk("raw_query=%s", invocation->raw_query);
 
         res = bpf_probe_read(
-            &invocation.content_length,
-            sizeof(invocation.content_length),
+            &invocation->content_length,
+            sizeof(invocation->content_length),
             (void *)(req + go_offset_of(ot, (go_offset){.v = _content_length_ptr_pos})));
         if (res) {
             bpf_dbg_printk("can't read http Request.ContentLength");
@@ -139,18 +150,18 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     }
 
     // Write event
-    if (bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &invocation, BPF_ANY)) {
+    if (bpf_map_update_elem(&ongoing_http_server_requests, &g_key, invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update map element");
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
+    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation->tp);
 
 done:
     return 0;
 }
 
 SEC("uprobe/findHandler")
-int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_findHandlerRet, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/findHandler ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -175,7 +186,7 @@ int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/muxSetMatch")
-int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_muxSetMatch, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/muxSetMatch ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -203,7 +214,7 @@ int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/ginGetValue")
-int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ginGetValueRet, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ginGetValue ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -254,7 +265,7 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/readRequest")
-int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_readRequestStart, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/readRequest ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -310,7 +321,7 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/readRequest")
-int obi_uprobe_readRequestReturns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_readRequestReturns, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/readRequest ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -340,7 +351,7 @@ int obi_uprobe_readRequestReturns(struct pt_regs *ctx) {
 
 // Handles finding the connection information for http2 servers in grpc
 SEC("uprobe/http2Server_processHeaders")
-int obi_uprobe_http2Server_processHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2Server_processHeaders, struct pt_regs *, ctx) {
     void *sc_ptr = GO_PARAM1(ctx);
     void *frame = GO_PARAM2(ctx);
     bpf_dbg_printk("=== uprobe/http2Server_processHeaders sc_ptr=%lx ===", sc_ptr);
@@ -373,10 +384,14 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
             update_traceparent(inv, traceparent_start);
         }
     } else {
-        server_http_func_invocation_t minimal_inv = {0};
-        update_traceparent(&minimal_inv, traceparent_start);
-        bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
-        obi_ctx__set(bpf_get_current_pid_tgid(), &minimal_inv.tp);
+        server_http_func_invocation_t *minimal_inv = serve_http_inv_mem();
+        if (!minimal_inv) {
+            return;
+        }
+        bpf_memset(minimal_inv, 0, sizeof(*minimal_inv));
+        update_traceparent(minimal_inv, traceparent_start);
+        bpf_map_update_elem(&ongoing_http_server_requests, g_key, minimal_inv, BPF_ANY);
+        obi_ctx__set(bpf_get_current_pid_tgid(), &minimal_inv->tp);
     }
 }
 
@@ -390,7 +405,7 @@ static __always_inline unsigned char *match_header(
 }
 
 SEC("uprobe/readMimeHeader")
-int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_readMimeHeader, struct pt_regs *, ctx) {
     if (!g_bpf_loop_enabled) {
         return 0;
     }
@@ -474,7 +489,7 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/readContinuedLineSlice")
-int obi_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_readContinuedLineSliceReturns, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/readContinuedLineSlice ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -586,6 +601,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->content_length = invocation->content_length;
     __builtin_memcpy(trace->method, invocation->method, sizeof(trace->method));
     __builtin_memcpy(trace->path, invocation->path, sizeof(trace->path));
+    __builtin_memcpy(trace->raw_query, invocation->raw_query, sizeof(trace->raw_query));
     __builtin_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
     trace->status = (u16)invocation->status;
     trace->response_length = invocation->response_length;
@@ -610,7 +626,7 @@ done:
 }
 
 SEC("uprobe/ServeHTTP_ret")
-int obi_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ServeHTTPReturns, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP_ret ===");
     return serve_http_returns(ctx);
 }
@@ -630,20 +646,25 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
 
     client_trace_parent(goroutine_addr, &invocation.tp);
 
-    http_client_data_t trace = {0};
+    http_client_data_t *trace = round_trip_client_data_mem();
+    if (!trace) {
+        return;
+    }
+
+    bpf_memset(trace, 0, sizeof(*trace));
 
     // Get method from Request.Method
     if (!read_go_str("method",
                      req,
                      go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
-                     trace.method,
-                     sizeof(trace.method))) {
+                     trace->method,
+                     sizeof(trace->method))) {
         bpf_dbg_printk("can't read http Request.Method");
         return;
     }
 
-    bpf_probe_read(&trace.content_length,
-                   sizeof(trace.content_length),
+    bpf_probe_read(&trace->content_length,
+                   sizeof(trace->content_length),
                    (void *)(req + go_offset_of(ot, (go_offset){.v = _content_length_ptr_pos})));
 
     // Get path from Request.URL
@@ -656,17 +677,25 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
         if (!read_go_str("path",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _path_ptr_pos}),
-                         trace.path,
-                         sizeof(trace.path))) {
+                         trace->path,
+                         sizeof(trace->path))) {
             bpf_dbg_printk("can't read http Request.URL.Path");
             return;
         }
 
+        // best-effort: the query string is optional, so a failed read must not
+        // drop the event; the buffer stays zeroed and the span has no query
+        read_go_str("raw_query",
+                    url_ptr,
+                    go_offset_of(ot, (go_offset){.v = _raw_query_ptr_pos}),
+                    trace->raw_query,
+                    sizeof(trace->raw_query));
+
         if (!read_go_str("host",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _host_ptr_pos}),
-                         trace.host,
-                         sizeof(trace.host))) {
+                         trace->host,
+                         sizeof(trace->host))) {
             bpf_dbg_printk("can't read http Request.URL.Host");
             return;
         }
@@ -674,23 +703,24 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
         if (!read_go_str("scheme",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _scheme_ptr_pos}),
-                         trace.scheme,
-                         sizeof(trace.scheme))) {
+                         trace->scheme,
+                         sizeof(trace->scheme))) {
             bpf_dbg_printk("can't read http Request.URL.Scheme");
             return;
         }
     }
 
-    bpf_dbg_printk("path=%s", trace.path);
-    bpf_dbg_printk("host=%s", trace.host);
-    bpf_dbg_printk("scheme=%s", trace.scheme);
+    bpf_dbg_printk("path=%s", trace->path);
+    bpf_dbg_printk("raw_query=%s", trace->raw_query);
+    bpf_dbg_printk("host=%s", trace->host);
+    bpf_dbg_printk("scheme=%s", trace->scheme);
 
     // Write event
     if (bpf_map_update_elem(&go_ongoing_http_client_requests, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update http client map element");
     }
 
-    bpf_map_update_elem(&ongoing_http_client_requests_data, &g_key, &trace, BPF_ANY);
+    bpf_map_update_elem(&ongoing_http_client_requests_data, &g_key, trace, BPF_ANY);
 
     if (g_bpf_header_propagation) {
         void *headers_ptr = 0;
@@ -707,14 +737,14 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/roundTrip")
-int obi_uprobe_roundTrip(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_roundTrip, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/roundTrip ===");
     roundTripStartHelper(ctx);
     return 0;
 }
 
 SEC("uprobe/roundTrip_return")
-int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/roundTrip_return ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -754,6 +784,7 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     // Copy the values read on request start
     __builtin_memcpy(trace->method, data->method, sizeof(trace->method));
     __builtin_memcpy(trace->path, data->path, sizeof(trace->path));
+    __builtin_memcpy(trace->raw_query, data->raw_query, sizeof(trace->raw_query));
     __builtin_memcpy(trace->host, data->host, sizeof(trace->host));
     __builtin_memcpy(trace->scheme, data->scheme, sizeof(trace->scheme));
     trace->content_length = data->content_length;
@@ -773,7 +804,14 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
         bpf_map_delete_elem(&go_ongoing_http, &e_key);
     } else {
-        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
+        // persistConn.conn was unreadable, so take the connection the write side read
+        // from the netFD instead of reporting this call without a peer.
+        connection_info_t *published = persist_conn_lookup(&g_key);
+        if (published) {
+            bpf_memcpy(&trace->conn, published, sizeof(connection_info_t));
+        } else {
+            bpf_memset(&trace->conn, 0, sizeof(connection_info_t));
+        }
     }
 
     trace->tp = invocation->tp;
@@ -810,6 +848,7 @@ done:
     bpf_map_delete_elem(&go_ongoing_http_client_requests, &g_key);
     bpf_map_delete_elem(&ongoing_http_client_requests_data, &g_key);
     bpf_map_delete_elem(&ongoing_client_connections, &g_key);
+    bpf_map_delete_elem(&go_persist_conn_request, &g_key);
     return 0;
 }
 
@@ -837,7 +876,7 @@ struct {
 } ongoing_write_subsets SEC(".maps");
 
 SEC("uprobe/header_writeSubset")
-int obi_uprobe_writeSubset(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writeSubset, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
     go_addr_key_t gw_key = {};
@@ -961,7 +1000,7 @@ client_request_has_traceparent(void *buf_ptr,
 static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
                                                   unsigned char *(*tp_loop_fn)(unsigned char *,
                                                                                const u16)) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
 
@@ -1074,18 +1113,18 @@ done:
 // out of the program loaded on pre-5.17 kernels, which would otherwise reject it
 // with "number of funcs in func_info doesn't match number of subprogs".
 SEC("uprobe/header_writeSubset_returns")
-int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writeSubset_returns, struct pt_regs *, ctx) {
     return on_writeSubset_returns(ctx, bpf_strstr_tp_loop);
 }
 
 SEC("uprobe/header_writeSubset_returns_legacy")
-int obi_uprobe_writeSubset_returns_legacy(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writeSubset_returns_legacy, struct pt_regs *, ctx) {
     return on_writeSubset_returns(ctx, bpf_strstr_tp_loop__legacy);
 }
 
 // HTTP 2.0 server support
 SEC("uprobe/http2ResponseWriterStateWriteHeader")
-int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2ResponseWriterStateWriteHeader, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2ResponseWriterStateWriteHeader ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -1125,7 +1164,7 @@ int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
 
 // HTTP 2.0 server support
 SEC("uprobe/http2serverConn_runHandler")
-int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2serverConn_runHandler ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -1162,12 +1201,15 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
         bpf_dbg_printk("looked up tp: %llx", tp);
 
         if (tp) {
-            server_http_func_invocation_t inv = {0};
-            __builtin_memcpy(&inv.tp, tp, sizeof(tp_info_t));
-            bpf_dbg_printk("Found traceparent in HTTP2 headers");
-            bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &inv, BPF_ANY);
-            obi_ctx__set(bpf_get_current_pid_tgid(), &inv.tp);
-            bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
+            server_http_func_invocation_t *inv = serve_http_inv_mem();
+            if (inv) {
+                bpf_memset(inv, 0, sizeof(*inv));
+                __builtin_memcpy(&inv->tp, tp, sizeof(tp_info_t));
+                bpf_dbg_printk("Found traceparent in HTTP2 headers");
+                bpf_map_update_elem(&ongoing_http_server_requests, &g_key, inv, BPF_ANY);
+                obi_ctx__set(bpf_get_current_pid_tgid(), &inv->tp);
+                bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
+            }
         }
     }
 
@@ -1245,7 +1287,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
 }
 
 SEC("uprobe/http2RoundTrip")
-int obi_uprobe_http2RoundTrip(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2RoundTrip, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2RoundTrip ===");
     // we use the usual start helper, just like for normal http calls, but we later save
     // more context, like the streamID
@@ -1257,7 +1299,7 @@ int obi_uprobe_http2RoundTrip(struct pt_regs *ctx) {
 // This runs on separate go routine called from the round tripper, but we need it
 // to establish the correct connection information and stream_id
 SEC("uprobe/http2WriteHeaders")
-int obi_uprobe_http2WriteHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2WriteHeaders, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *cc_ptr = GO_PARAM1(ctx);
     const u64 stream_id = (u64)GO_PARAM2(ctx);
@@ -1273,7 +1315,7 @@ int obi_uprobe_http2WriteHeaders(struct pt_regs *ctx) {
 // to establish the correct connection information and stream_id. The Go vendored
 // version has its own offsets.
 SEC("uprobe/http2WriteHeadersVendored")
-int obi_uprobe_http2WriteHeaders_vendored(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2WriteHeaders_vendored, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *cc_ptr = GO_PARAM1(ctx);
     const u64 stream_id = (u64)GO_PARAM2(ctx);
@@ -1364,7 +1406,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
 }
 
 SEC("uprobe/golang_http2FramerWriteHeaders")
-int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_golang_http2FramerWriteHeaders, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -1383,7 +1425,7 @@ int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/net_http2FramerWriteHeaders")
-int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_net_http2FramerWriteHeaders, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -1399,8 +1441,8 @@ int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/http2FramerWriteHeaders_returns")
-int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
-    if (!g_bpf_header_propagation) {
+int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
 
@@ -1520,7 +1562,7 @@ done:
 }
 
 SEC("uprobe/connServe")
-int obi_uprobe_connServe(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_connServe, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/connServe goroutine_addr=%lx ===", goroutine_addr);
 
@@ -1534,7 +1576,7 @@ int obi_uprobe_connServe(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/jsonrpcReadRequestHeader")
-int obi_uprobe_jsonrpcReadRequestHeader(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_jsonrpcReadRequestHeader, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/jsonrpcReadRequestHeader ===");
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -1555,7 +1597,7 @@ int obi_uprobe_jsonrpcReadRequestHeader(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/jsonrpcReadRequestHeaderRet")
-int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_jsonrpcReadRequestHeaderReturns, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/jsonrpcReadRequestHeaderRet ===");
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -1600,7 +1642,7 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/connServeRet")
-int obi_uprobe_connServeRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_connServeRet, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/connServeRet ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
@@ -1612,8 +1654,30 @@ int obi_uprobe_connServeRet(struct pt_regs *ctx) {
     return 0;
 }
 
+// net/http writes the request through this io.Writer on persistConn.writeLoop.
+// Its receiver is the persistConn, which the netFD write that follows on this same
+// goroutine cannot see.
+SEC("uprobe/persistConnWriterWrite")
+int GUARDED_PROG(obi_uprobe_persistConnWriterWrite, struct pt_regs *, ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    const u64 pc = (u64)GO_PARAM1(ctx);
+
+    bpf_dbg_printk(
+        "=== uprobe/persistConnWriter.Write goroutine=%lx, pc=%llx ===", goroutine_addr, pc);
+
+    if (!pc) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    store_persist_conn_writer(&g_key, pc);
+
+    return 0;
+}
+
 SEC("uprobe/persistConnRoundTrip")
-int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/persistConnRoundTrip ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     off_table_t *ot = get_offsets_table();
@@ -1630,6 +1694,10 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
     }
 
     void *pc_ptr = GO_PARAM1(ctx);
+
+    // the write side resolves this persistConn's connection from its netFD
+    store_persist_conn_request(&g_key, (u64)pc_ptr);
+
     if (pc_ptr) {
         void *conn_conn_ptr = pc_ptr + k_go_iface_data_offset +
                               go_offset_of(ot, (go_offset){.v = _pc_conn_pos}); // embedded struct
@@ -1652,9 +1720,14 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
             bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
             if (conn_ptr) {
                 connection_info_t conn = {0};
-                get_conn_info(
-                    conn_ptr,
-                    &conn); // initialized to 0, no need to check the result if we succeeded
+                if (!get_conn_info(conn_ptr, &conn)) {
+                    // an app wrapping net.Conn leaves this unreadable; storing the zero
+                    // connection would claim it as the Go-handled one and set it as this
+                    // request's peer, neither of which is true
+                    bpf_dbg_printk("can't read client connection, leaving it unassociated");
+                    return 0;
+                }
+
                 const u64 pid_tid = bpf_get_current_pid_tgid();
                 const u32 pid = pid_from_pid_tgid(pid_tid);
                 tp_info_pid_t tp_p = {

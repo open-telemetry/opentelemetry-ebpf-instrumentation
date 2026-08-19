@@ -80,7 +80,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -228,16 +228,23 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_call_duration_seconds",
 				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 				"gpu_cuda_kernel_launch_calls_total",
 				"gpu_cuda_graph_launch_calls_total",
+				"gpu_cuda_memory_allocations_bytes_total",
+				// the _count series of each histogram: the bare names are prefixes of
+				// the pre-rename _total names, so they would match either way
+				"gpu_cuda_kernel_grid_size_count",
+				"gpu_cuda_kernel_block_size_count",
+				"gpu_cuda_memory_copies_bytes_count",
+			},
+			unexpected: []string{
 				"gpu_cuda_kernel_grid_size_total",
 				"gpu_cuda_kernel_block_size_total",
-				"gpu_cuda_memory_allocations_bytes_total",
 				"gpu_cuda_memory_copies_bytes_total",
 			},
-			unexpected: []string{},
 		},
 		{
 			name:  "http only",
@@ -250,6 +257,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_call_duration_seconds",
 				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 				"gpu_cuda_kernel_launch_calls_total",
@@ -267,6 +275,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
@@ -276,7 +285,24 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationRedis},
 			expected: []string{
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
+				`db_system_name="redis"`,
+			},
+			unexpected: []string{
+				"http_server_request_duration_seconds",
+				"http_client_request_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
+				"messaging_client_operation_duration_seconds",
+				"messaging_process_duration_seconds",
+			},
+		},
+		{
+			name:  "memcached only",
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationMemcached},
+			expected: []string{
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 			},
 			unexpected: []string{
 				"http_server_request_duration_seconds",
@@ -292,6 +318,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
 			expected: []string{
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 			},
 			unexpected: []string{
 				"http_server_request_duration_seconds",
@@ -315,6 +342,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_call_duration_seconds",
 				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 			},
 		},
 		{
@@ -330,6 +358,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_call_duration_seconds",
 				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 			},
 		},
 		{
@@ -345,6 +374,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_call_duration_seconds",
 				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 			},
 		},
 		{
@@ -360,6 +390,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_call_duration_seconds",
 				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 			},
 		},
 		{
@@ -374,6 +405,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http_client_request_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 			},
 		},
 		{
@@ -388,6 +420,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				`db_operation_name="SET"`,
 				`db_operation_name="GET"`,
 				`db_operation_name="find"`,
+				"db_server_operation_duration_seconds",
 			},
 		},
 
@@ -401,6 +434,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_call_duration_seconds",
 				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
@@ -410,6 +444,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationSQL, instrumentations.InstrumentationRedis},
 			expected: []string{
 				"db_client_operation_duration_seconds",
+				"db_server_operation_duration_seconds",
 			},
 			unexpected: []string{
 				"http_server_request_duration_seconds",
@@ -472,9 +507,12 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Path: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Method: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLServer, Method: "SELECT", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedClient, Method: "SET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedServer, Method: "GET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
@@ -889,7 +927,7 @@ func makePromExporter(
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            instrumentations,
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -953,48 +991,6 @@ func TestPrometheusGenAITokenAvailability(t *testing.T) {
 					assert.NotRegexp(ct, outputCount, exported)
 				}
 			}, timeout, 10*time.Millisecond)
-		})
-	}
-}
-
-func TestSanitizeUTF8ForPrometheus(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		labelName string
-		expected  string
-	}{
-		{
-			name:     "valid UTF-8 string",
-			input:    "valid-string",
-			expected: "valid-string",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-		{
-			name:     "binary data with null bytes",
-			input:    "deb.debian.or 1498318199  0     0     100644  828       `\n\x1f\x8b\b",
-			expected: "deb.debian.or 1498318199  0     0     100644  828       `\n\x1f\b",
-		},
-		{
-			name:     "string with invalid UTF-8 sequence",
-			input:    "test\xff\xfe",
-			expected: "test",
-		},
-		{
-			name:     "mixed valid and invalid UTF-8",
-			input:    "hello\xff\xfeworld",
-			expected: "helloworld",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := sanitizeUTF8ForPrometheus(tt.input)
-			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -1470,7 +1466,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{

@@ -22,6 +22,45 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
+func TestRunIfCurrentAttachHoldsLockWhileRunningAction(t *testing.T) {
+	injector := &JavaInjector{}
+	attachID := injector.nextAttachID()
+
+	actionStarted := make(chan struct{})
+	finishAction := make(chan struct{})
+	actionDone := make(chan error, 1)
+	go func() {
+		actionDone <- injector.runIfCurrentAttach(attachID, func() error {
+			close(actionStarted)
+			<-finishAction
+			return nil
+		})
+	}()
+
+	<-actionStarted
+	lockWasAvailable := injector.mu.TryLock()
+	if lockWasAvailable {
+		injector.mu.Unlock()
+	}
+
+	nextAttachID := make(chan int64, 1)
+	go func() {
+		nextAttachID <- injector.nextAttachID()
+	}()
+
+	close(finishAction)
+	require.NoError(t, <-actionDone)
+	require.Equal(t, int64(2), <-nextAttachID)
+	require.False(t, lockWasAvailable)
+
+	actionRan := false
+	require.NoError(t, injector.runIfCurrentAttach(attachID, func() error {
+		actionRan = true
+		return nil
+	}))
+	require.False(t, actionRan)
+}
+
 func TestJavaInjector_CopyAgent(t *testing.T) {
 	oldJavaAgentBytes := embeddedJavaAgentBytes
 	embeddedJavaAgentBytes = []byte("test agent content")

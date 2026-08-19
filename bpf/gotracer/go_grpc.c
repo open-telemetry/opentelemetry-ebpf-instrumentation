@@ -21,6 +21,7 @@
 #include <common/globals.h>
 #include <common/go_grpc_client_conn.h>
 #include <common/h2_defs.h>
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
 
@@ -64,7 +65,7 @@ static __always_inline void grpc_server_conn_info(void *tr, connection_info_t *c
 }
 
 SEC("uprobe/server_handleStream")
-int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_server_handleStream, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/server_handleStream ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -145,7 +146,7 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
 
 // Handles finding the connection information for http2 servers in grpc
 SEC("uprobe/http2Server_operateHeaders")
-int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2Server_operateHeaders, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *tr = GO_PARAM1(ctx);
     void *frame = GO_PARAM2(ctx);
@@ -197,7 +198,7 @@ int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
 
 // Handles finding the connection information for grpc ServeHTTP
 SEC("uprobe/serverHandlerTransport_HandleStreams")
-int obi_uprobe_server_handler_transport_handle_streams(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_server_handler_transport_handle_streams, struct pt_regs *, ctx) {
     void *tr = GO_PARAM1(ctx);
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/serverHandlerTransport_HandleStreams ===");
@@ -227,7 +228,7 @@ int obi_uprobe_server_handler_transport_handle_streams(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/server_handleStream")
-int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_server_handleStream_return, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/server_handleStream ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -325,7 +326,7 @@ done:
 }
 
 SEC("uprobe/transport_writeStatus")
-int obi_uprobe_transport_writeStatus(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_transport_writeStatus, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/transport_writeStatus ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -400,7 +401,7 @@ static __always_inline void clientConnStart(
 }
 
 SEC("uprobe/ClientConn_Invoke")
-int obi_uprobe_ClientConn_Invoke(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ClientConn_Invoke, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_Invoke ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -418,7 +419,7 @@ int obi_uprobe_ClientConn_Invoke(struct pt_regs *ctx) {
 
 // Same as ClientConn_Invoke, registers for the method are offset by one
 SEC("uprobe/ClientConn_NewStream")
-int obi_uprobe_ClientConn_NewStream(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_NewStream ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -508,7 +509,7 @@ done:
 
 // Same as ClientConn_Invoke, registers for the method are offset by one
 SEC("uprobe/ClientConn_NewStream")
-int obi_uprobe_ClientConn_NewStream_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_NewStream ===");
 
     void *stream = GO_PARAM1(ctx);
@@ -521,7 +522,7 @@ int obi_uprobe_ClientConn_NewStream_return(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/ClientConn_Close")
-int obi_uprobe_ClientConn_Close(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_Close ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -536,7 +537,7 @@ int obi_uprobe_ClientConn_Close(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/ClientConn_Invoke")
-int obi_uprobe_ClientConn_Invoke_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_Invoke ===");
 
     void *err = GO_PARAM1(ctx);
@@ -550,7 +551,7 @@ int obi_uprobe_ClientConn_Invoke_return(struct pt_regs *ctx) {
 
 // google.golang.org/grpc.(*clientStream).RecvMsg
 SEC("uprobe/clientStream_RecvMsg")
-int obi_uprobe_clientStream_RecvMsg_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_clientStream_RecvMsg_return, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/clientStream_RecvMsg ===");
     void *err = (void *)GO_PARAM1(ctx);
     return grpc_connect_done(ctx, err);
@@ -559,7 +560,7 @@ int obi_uprobe_clientStream_RecvMsg_return(struct pt_regs *ctx) {
 // The gRPC client stream is written on another goroutine in transport loopyWriter (controlbuf.go).
 // We extract the stream ID when it's just created and make a mapping of it to our goroutine that's executing ClientConn.Invoke.
 SEC("uprobe/transport_http2Client_NewStream")
-int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/transport_http2Client_NewStream ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -669,7 +670,7 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
 // can hit the uprobe at the same time on different CPUs and both will grab the same stream_id, i.e
 // the nextID. We read what's the right stream id on exit.
 SEC("uprobe/transport_http2Client_NewStream_ret")
-int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream_Returns, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -731,7 +732,7 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
 #define MAX_W_PTR_OFFSET 65535
 
 SEC("uprobe/grpcFramerWriteHeaders")
-int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -851,8 +852,8 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     66 // 1 + 1 + 8 + 1 + 55 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(55) + generated traceparent id
 
 SEC("uprobe/grpcFramerWriteHeaders_returns")
-int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
-    if (!g_bpf_header_propagation) {
+int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders_returns, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
 
@@ -1007,7 +1008,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
 // the way out.
 
 SEC("uprobe/controlBuffer_executeAndPut")
-int obi_uprobe_grpc_controlBuffer_executeAndPut(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_grpc_controlBuffer_executeAndPut, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -1039,7 +1040,7 @@ int obi_uprobe_grpc_controlBuffer_executeAndPut(struct pt_regs *ctx) {
 // Signature: (l *loopyWriter) originateStream(str *outStream, hdr *headerFrame)
 // PARAM1=l, PARAM2=str, PARAM3=hdr. outStream.id is uint32 at offset 0.
 SEC("uprobe/loopyWriter_originateStream")
-int obi_uprobe_grpc_loopyWriter_originateStream(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_originateStream, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }

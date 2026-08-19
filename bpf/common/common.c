@@ -29,3 +29,4 @@ const mongo_go_client_req_t *unused_11 __attribute__((unused));
 const dns_req_t *unused_12 __attribute__((unused));
 const channel_link_trace_t *unused_13 __attribute__((unused));
 const go_auto_span_t *unused_14 __attribute__((unused));
+const node_span_event_t *unused_15 __attribute__((unused));

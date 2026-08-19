@@ -9,6 +9,7 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/connection_info.h>
+#include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/trace_key.h>
 #include <common/trace_parent.h>
@@ -53,7 +54,7 @@ static __always_inline u8 cmd_to_op(u8 cmd) {
 
 SEC("kprobe/sys_ioctl")
 // unsigned int fd, unsigned int cmd, void *arg
-int BPF_KPROBE(obi_kprobe_sys_ioctl) {
+int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {

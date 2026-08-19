@@ -53,6 +53,11 @@ the [internal/test/integration](./internal/test/integration) and [internal/test/
 
 Below are quick reference instructions for getting OBI up and running with binary downloads or container images. For comprehensive setup, configuration, and troubleshooting guidance, refer to the [OpenTelemetry zero-code instrumentation documentation](https://opentelemetry.io/docs/zero-code/), which is the authoritative source of truth.
 
+When upgrading an existing configuration, follow the
+[Config v1 to v2 migration guide](devdocs/config/version-2.0/migration.md).
+Use Config v2 only with a release whose notes explicitly enable it for your
+standalone or Collector deployment mode.
+
 For release artifact verification and installation details, see:
 
 - [Run OBI as a standalone process](https://opentelemetry.io/docs/zero-code/obi/setup/standalone/)
@@ -84,7 +89,7 @@ below matches the release workflow at the release tag.
 
 ```bash
 # Set your desired version (find latest at https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
-export VERSION=1.0.0
+export VERSION=0.11.0
 
 # Determine your architecture
 # For Intel/AMD 64-bit: amd64
@@ -226,7 +231,7 @@ OBI is also available as container images:
 
 ```bash
 # Set your desired version.
-export VERSION=v0.7.0
+export VERSION=v0.11.0
 export CERTIFICATE_IDENTITY="https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/${VERSION}"
 
 # (Optional) Verify the signature of the container image
@@ -254,6 +259,7 @@ issuer and certificate identity shown above.
 
 ## Examples
 
+- [Go Trace API Example](./examples/go-trace-api/README.md)
 - [OTel Collector Receiver Example](./examples/otel-collector/README.md)
 - [NGINX Multi-Route And Proxy Example](./examples/nginx/README.md)
 

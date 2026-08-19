@@ -173,6 +173,10 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		uint32(config.BPFDebugTracePipe),
 		uint32(config.BPFDebugAll),
 	}
+	tracePipeDebugFlags := []any{
+		uint32(config.BPFDebugDisabled),
+		uint32(config.BPFDebugTracePipe),
+	}
 
 	// netolly
 	netollyOpts := []constOption{
@@ -196,17 +200,33 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 	})
 
+	// nodejs_runtime_metrics_enabled only gates the decode path in nodejs.c,
+	// which shares no code with the constants above except the debug and
+	// traceparent machinery — a dedicated small matrix keeps the nodejs path
+	// verified in both states without doubling the full generictracer
+	// cross-product.
+	forEachCombination(t, "generictracer/BpfNodejs", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true, false}},
+		{"nodejs_runtime_metrics_enabled", []any{uint64(0), uint64(1)}},
+	})
+
 	// gotracer
 	forEachCombination(t, "gotracer/Bpf", gotracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", debugFlags},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"g_bpf_header_propagation", []any{true, false}},
+		{"g_bpf_probe_write_user_enabled", []any{true}},
 		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
 		{"capture_header_buffer", []any{int32(0), int32(1)}},
 		{"high_request_volume", []any{uint32(0), uint32(1)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+	})
+	loadAndVerify(t, "gotracer/Bpf/no-write-user", gotracerbpf.LoadBpf, map[string]any{
+		"g_bpf_header_propagation":       true,
+		"g_bpf_probe_write_user_enabled": false,
 	})
 
 	// tpinjector
@@ -257,7 +277,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 
 	// rdns xdp
 	forEachCombination(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", debugFlags},
+		{"g_bpf_debug", tracePipeDebugFlags},
 	})
 
 	// statsolly

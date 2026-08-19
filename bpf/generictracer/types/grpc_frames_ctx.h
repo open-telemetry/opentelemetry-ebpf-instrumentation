@@ -5,6 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 
+#include <common/h2_tp_huffman.h>
 #include <common/http_types.h>
 
 typedef struct grpc_frames_ctx {
@@ -20,5 +21,8 @@ typedef struct grpc_frames_ctx {
     call_protocol_args_t args;
     http2_conn_stream_t stream;
 
-    u8 _pad[4];
+    // set by the server scan, consumed by the huffman decode program
+    h2_tp_huff_candidate_t huff;
+    // candidate list backing huff, so a rejected candidate can be retried
+    h2_tp_huff_scan_t huff_scan;
 } grpc_frames_ctx_t;

@@ -195,7 +195,7 @@ func protocolInstrumentation(
 ) schema.ProtocolInstrumentation {
 	return schema.ProtocolInstrumentation{
 		Enabled: protocolEnabled(tracesInstrumentations, metricsInstrumentations, appMetricsEnabled, mapping),
-		Filters: signalFilters(cfg.Filters.Application),
+		Filters: applicationSignalFilters(cfg.Filters, mapping.instr),
 	}
 }
 

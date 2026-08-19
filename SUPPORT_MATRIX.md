@@ -126,6 +126,54 @@ OBI currently documents the following Go library compatibility baselines:
 | `github.com/IBM/sarama` | `>= 1.37` |
 | `go.mongodb.org/mongo-driver` | `v1: >= v1.10.1; v2: >= v2.0.1` |
 
+### Go Global Trace API And Auto SDK Activation
+
+OBI v0.11.0 can automatically activate the OpenTelemetry Go Auto SDK for spans created through the global
+`otel.Tracer` API when the application has not registered a `TracerProvider`. See the
+[runnable Go Trace API example](examples/go-trace-api/README.md).
+
+All three canonical, unreplaced modules must be present in the inspected executable:
+
+| Module | Compatibility baseline |
+|:-------|:-----------------------|
+| `go.opentelemetry.io/auto/sdk` | `>= v1.1.0` |
+| `go.opentelemetry.io/otel` | `>= v1.33.0` |
+| `go.opentelemetry.io/otel/trace` | `>= v1.33.0` |
+
+Each OBI release recognizes module versions that were available and validated when that release was built. OBI
+v0.11.0 recognizes `go.opentelemetry.io/auto/sdk` `v1.1.0`, `v1.2.0`, and `v1.2.1`, plus the exact `.0` releases of
+`go.opentelemetry.io/otel` and `go.opentelemetry.io/otel/trace` from `v1.33.0` through `v1.44.0`. A module version
+released later requires a newer OBI release that recognizes its canonical checksum.
+
+OBI checks the modules independently. A missing module or checksum, a noncanonical checksum, any replacement of one
+of these module paths, invalid build information, or a version not recognized by that OBI release prevents Auto SDK
+activation.
+
+Activation also requires all of the following:
+
+- A 64-bit Linux `amd64` (`ELF64`/`EM_X86_64`) or `arm64` (`ELF64`/`EM_AARCH64`) executable.
+- OpenTelemetry API and Auto SDK data layouts that OBI v0.11.0 recognizes.
+- Every global Trace API and Auto SDK symbol that OBI needs to be present in the executable.
+- Permission for OBI to use `bpf_probe_write_user`.
+
+If OBI cannot determine the required field offsets, find a required symbol, attach all required instrumentation,
+support the executable's ABI or architecture, or use `bpf_probe_write_user`, it does not activate the Auto SDK. When
+OBI can observe calls to the global Trace API, it may still construct a synthetic span. A synthetic span may contain
+the span name, parent relationship, status, and some primitive attributes, but it does not contain the instrumentation
+scope, events, or requested span kind. If an SDK `TracerProvider` is already registered, OBI defers to that provider
+rather than activating the Auto SDK or creating a competing synthetic span.
+
+On Linux 5.10 and later, OBI requires effective `CAP_SYS_ADMIN` and kernel lockdown mode `[none]` to use
+`bpf_probe_write_user`. On earlier supported or backported kernels, support depends on whether the kernel permits the
+helper. These permission conditions are additional to the general OBI kernel, BTF, Linux, and architecture
+requirements above.
+
+In OBI v0.11.0, each application-authored span must fit within a 16 KiB encoded payload. Spans whose payloads exceed
+this limit are not exported, and v0.11.0 does not report this condition with a metric or warning.
+
+The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this v0.11.0 Auto SDK
+allowlist.
+
 ### Statistical Metrics
 
 OBI currently documents the following statistical instrumentation support:
@@ -136,6 +184,17 @@ OBI currently documents the following statistical instrumentation support:
 | TCP Failed Connections | Node-wide statistical metric collection | Counts TCP failed connections between two endpoints | `src.port` may be `0` on the RST-receiver side; see [devdocs/metrics.md](devdocs/metrics.md) |
 | TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits | Server-side SYN-ACK retransmits are a separate event and not counted |
 | TCP IO | Node-wide statistical metric collection | Count bytes transferred at the socket layer. When enabled, the eBPF probes fire on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call, so consider enabling it standalone with `stats_tcp_io` if overhead is a concern. | On kernels older than ~6.5, traffic sent via `sendfile()` is not captured because it went through `tcp_sendpage` rather than `tcp_sendmsg`; on kernels 6.5+ the splice path was unified and `sendfile()` traffic is captured. The internal accumulation map size can be increased via the `ebpf.*` configuration knobs on nodes with many concurrent connections. |
+
+## Runtime Metrics
+
+When the `application_runtime` metrics feature is enabled, OBI collects
+language-runtime metrics for the following environments:
+
+| Runtime | Metrics | Mechanism | Requirements | Limitations | Status |
+|:--------|:--------|:----------|:-------------|:------------|:-------|
+| Go | `go.memory.*`, `go.goroutine.*`, `go.processor.limit`, `go.config.gogc` | uretprobe on the Go runtime GC path, reading runtime structures | Go binaries with ELF symbols (or version-table fallback for struct offsets) | Values refresh once per GC cycle | Experimental |
+| Java (HotSpot) | `jvm.memory.used`, `jvm.memory.committed`, `jvm.memory.limit`, `jvm.memory.used_after_last_gc` | USDT probes on the HotSpot DTrace probes in `libjvm.so` | HotSpot-based JVM with compiled-in DTrace probes | Values refresh on GC events, throttled by `jvm_runtime_metrics.sampling_interval` | Experimental |
+| Node.js | `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `nodejs.eventloop.delay.*` | in-process readings (`perf_hooks`) from the injected OBI agent, delivered over a `uv_fs_access` side channel decoded in eBPF | `application_runtime` (traces not required); `nodejs.enabled: false` disables the injection entirely; Node.js `14.10+`, delay gauges `16.14+` | Main-thread event loop only; inspector must be reachable; details in [devdocs/runtimes/nodejs.md](devdocs/runtimes/nodejs.md) | Experimental |
 
 ## Context Propagation Frameworks
 

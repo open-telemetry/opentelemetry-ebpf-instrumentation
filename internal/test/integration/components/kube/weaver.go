@@ -9,10 +9,11 @@ import (
 	"io"
 	"net/http"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"sigs.k8s.io/e2e-framework/pkg/env"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 
@@ -60,6 +61,11 @@ const (
 // which are logged at klog V(2) only and dropped from the exit code.
 type weaverRecorder struct {
 	failed bool
+}
+
+type tapDropCounts struct {
+	suiteOtelcol float64
+	weavercol    float64
 }
 
 func (r *weaverRecorder) Helper() {}
@@ -175,9 +181,6 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 		return
 	}
 
-	// Lifetime counters at end of tests, before the /stop loop restarts weaver.
-	finalDrops, finalDropsErr := k.tapDropCount(ctx)
-
 	// A weaver that came up mid-suite may still produce an empty report on
 	// the first /stop (the tap was reconnecting / the interval tick had not
 	// flushed). Stopping weaver makes its pod restart (default restartPolicy),
@@ -186,11 +189,16 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 	// times before declaring the tap pipeline broken.
 	adminURL := fmt.Sprintf("http://%s/stop", addr)
 	var report *weavercheck.Report
+	var finalDrops tapDropCounts
+	var finalDropsErr error
 	for attempt := 1; ; attempt++ {
 		select {
 		case <-time.After(weaverK8sDrainWindow):
 		case <-ctx.Done():
 		}
+		// Scrape immediately before stopping weaver so the comparison includes
+		// losses during the final drain that supplies this report.
+		finalDrops, finalDropsErr = k.tapDropCount(ctx)
 
 		var err error
 		report, err = weavercheck.FetchReport(ctx, adminURL)
@@ -216,18 +224,30 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 		}
 	}
 
-	// A first-hop drop may have carried the sole sample of a violating shape, so
-	// any such drop during the suite — or an unreadable counter — makes the
+	// A drop on either tap hop may have carried the sole sample of a violating
+	// shape, so any such drop during the suite — or an unreadable counter — makes the
 	// report untrustworthy.
-	if k.tapDropsBaselineErr != nil || finalDropsErr != nil {
+	switch {
+	case k.tapDropsBaselineErr != nil || finalDropsErr != nil:
 		t.Errorf("could not read the tap's export-failure counters (baseline: %v, teardown: %v) — "+
 			"cannot confirm weaver saw every emitted shape, so the report is untrustworthy",
 			k.tapDropsBaselineErr, finalDropsErr)
-	} else if dropped := finalDrops - k.tapDropsBaseline; dropped > 0 {
-		t.Errorf("the suite otelcol dropped %.0f export item(s) to weavercol during the suite "+
-			"(otelcol_exporter_{send,enqueue}_failed_*) — weaver may have missed a telemetry "+
-			"shape, so the report cannot be trusted; reduce OBI's emission rate or raise the "+
-			"first-hop tap queue size", dropped)
+	case finalDrops.suiteOtelcol < k.tapDropsBaseline.suiteOtelcol ||
+		finalDrops.weavercol < k.tapDropsBaseline.weavercol:
+		t.Errorf("the tap's export-failure counters decreased between baseline and teardown "+
+			"(suite otelcol %.0f -> %.0f, weavercol %.0f -> %.0f) — a collector may have "+
+			"restarted, so the report is untrustworthy", k.tapDropsBaseline.suiteOtelcol,
+			finalDrops.suiteOtelcol, k.tapDropsBaseline.weavercol, finalDrops.weavercol)
+	default:
+		suiteDrops := finalDrops.suiteOtelcol - k.tapDropsBaseline.suiteOtelcol
+		weavercolDrops := finalDrops.weavercol - k.tapDropsBaseline.weavercol
+		if suiteDrops > 0 || weavercolDrops > 0 {
+			t.Errorf("the weaver tap dropped export item(s) during the suite "+
+				"(suite otelcol: %.0f, weavercol: %.0f; "+
+				"otelcol_exporter_{send,enqueue}_failed_*) — weaver may have missed a telemetry "+
+				"shape, so the report cannot be trusted; reduce OBI's emission rate or raise "+
+				"the tap queue sizes", suiteDrops, weavercolDrops)
+		}
 	}
 
 	if k.weaverRequireSpans && report.Statistics.TotalEntitiesByType["span"] == 0 {
@@ -239,20 +259,29 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 	weavercheck.Validate(t, report)
 }
 
-// tapDropCount reads the suite otelcol's export failures to weavercol, the
-// first tap hop. Only this hop is a trust signal: weavercol ingests instantly
-// so the first-hop queue never fills, making any failure here a shape that
-// never reached the aggregator. The weavercol -> weaver hop drops by design
-// under weaver back-pressure (otelcol-config-k8s-weavercol.yml), shedding only
-// already-aggregated points weaver has already seen.
-func (k *Kind) tapDropCount(ctx context.Context) (float64, error) {
-	return exporterFailedCount(ctx, OtelcolWeaverMetricsHostPort)
+// tapDropCount reads export failures from both tap hops. A failure from the
+// suite otelcol means the shape never reached the aggregator; a failure from
+// weavercol means the aggregated copy may never have reached weaver.
+func (k *Kind) tapDropCount(ctx context.Context) (tapDropCounts, error) {
+	suiteOtelcol, err := exporterFailedCount(ctx, OtelcolWeaverMetricsHostPort)
+	if err != nil {
+		return tapDropCounts{}, fmt.Errorf("scraping suite otelcol exporter counters: %w", err)
+	}
+	weavercol, err := exporterFailedCount(ctx, WeaverColMetricsHostPort)
+	if err != nil {
+		return tapDropCounts{}, fmt.Errorf("scraping weavercol exporter counters: %w", err)
+	}
+	return tapDropCounts{suiteOtelcol: suiteOtelcol, weavercol: weavercol}, nil
 }
 
 // exporterFailedCount sums otelcol_exporter_{send,enqueue}_failed_* from a
 // collector's telemetry endpoint on the given host port.
 func exporterFailedCount(ctx context.Context, hostPort int) (float64, error) {
 	url := fmt.Sprintf("http://127.0.0.1:%d/metrics", hostPort)
+	return exporterFailedCountURL(ctx, url)
+}
+
+func exporterFailedCountURL(ctx context.Context, url string) (float64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return 0, err
@@ -262,29 +291,30 @@ func exporterFailedCount(ctx context.Context, hostPort int) (float64, error) {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("GET %s returned %s", url, resp.Status)
+	}
+	return parseExporterFailedCount(resp.Body)
+}
+
+func parseExporterFailedCount(reader io.Reader) (float64, error) {
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	metrics, err := parser.TextToMetricFamilies(reader)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parsing exporter counters: %w", err)
 	}
 	var total float64
-	for _, line := range strings.Split(string(body), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
+	for name, family := range metrics {
+		if !strings.HasPrefix(name, "otelcol_exporter_send_failed_") &&
+			!strings.HasPrefix(name, "otelcol_exporter_enqueue_failed_") {
 			continue
 		}
-		if !strings.HasPrefix(line, "otelcol_exporter_send_failed_") &&
-			!strings.HasPrefix(line, "otelcol_exporter_enqueue_failed_") {
-			continue
+		for _, metric := range family.Metric {
+			if metric.Counter == nil {
+				return 0, fmt.Errorf("exporter failure metric %s is not a counter", name)
+			}
+			total += metric.Counter.GetValue()
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		v, err := strconv.ParseFloat(fields[len(fields)-1], 64)
-		if err != nil {
-			continue
-		}
-		total += v
 	}
 	return total, nil
 }

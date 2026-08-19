@@ -1,0 +1,40 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+#pragma once
+
+#include <bpfcore/vmlinux.h>
+
+// Event loop metrics reported by the injected nodejs agent (fdextractor.js)
+// through the uv_fs_access side channel. Field semantics:
+//   - elu_* are cumulative nanoseconds since loop start
+//     (performance.eventLoopUtilization()).
+//   - delay_* are per-sampling-interval nanoseconds from
+//     monitorEventLoopDelay(); the JS agent resets the histogram after each
+//     read. delay_count == 0 means no delay samples were recorded (loop
+//     blocked for the whole interval, or a pre-16.14 runtime without
+//     Histogram.count); the delay fields are then zero.
+//
+// Mirrored in Go by nodejsEventLoopRawEvent (pkg/ebpf/common/nodejs.go);
+// keep the layouts in sync.
+struct nodejs_eventloop_event {
+    u8 type;
+    u8 _pad[7];
+    u64 timestamp;
+    u32 global_pid;
+    u32 global_tid;
+    u32 ns_pid;
+    u32 ns_tid;
+    u32 pid_ns_id;
+    u32 _pad2;
+    u64 elu_idle_ns;
+    u64 elu_active_ns;
+    u64 delay_min_ns;
+    u64 delay_max_ns;
+    u64 delay_mean_ns;
+    u64 delay_stddev_ns;
+    u64 delay_p50_ns;
+    u64 delay_p90_ns;
+    u64 delay_p99_ns;
+    u64 delay_count;
+};

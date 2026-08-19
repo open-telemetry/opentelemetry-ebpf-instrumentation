@@ -30,6 +30,7 @@ services:
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - /sys/fs/cgroup:/sys/fs/cgroup
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-java-vthreads:/var/run/obi

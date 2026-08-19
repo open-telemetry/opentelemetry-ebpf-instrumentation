@@ -29,6 +29,7 @@ enum : u32 {
     k_tcp_max_len = 256,
     k_tcp_res_len = 128,
     k_path_max_len = 100,
+    k_query_max_len = 100,
     k_pattern_max_len = 96,
     k_method_max_len = 7, // Longest method: OPTIONS
     k_remote_addr_max_len =
@@ -85,8 +86,10 @@ typedef struct http_request_trace {
     s64 content_length;
     s64 response_length;
     unsigned char path[k_path_max_len];
+    unsigned char raw_query[k_query_max_len];
     unsigned char pattern[k_pattern_max_len];
     unsigned char host[k_host_max_len];
+    u8 _pad1[4];
     tp_info_t tp;
     connection_info_t conn;
     pid_info pid;
@@ -149,7 +152,8 @@ typedef struct tcp_req {
     u8 has_large_buffers;
     enum protocol_type protocol_type;
     bool is_server;
-    u8 _pad1[2];
+    enum parent_status parent_status;
+    u8 _pad1[1];
     connection_info_t conn_info;
     u32 len;
     u64 start_monotime_ns;
@@ -257,6 +261,26 @@ typedef struct otel_span {
     u8 _epad[6];
 } otel_span_t;
 
+// Manual span emitted by the Node.js span bridge (spanbridge.js): the span
+// itself travels as a JSON document smuggled through a sentinel uv_fs_access
+// path (see bpf/generictracer/nodejs.c); BPF only adds timing, pid and the
+// current request trace context so user space can parent the span under
+// OBI's automatic server span.
+#define NODE_SPAN_PAYLOAD_MAX_LEN (2048)
+
+typedef struct node_span_event {
+    u8 type; // Must be first, EVENT_NODE_SPAN
+    u8 has_parent_ctx;
+    u8 _pad[2];
+    u32 payload_len; // bytes of payload actually written (excluding NUL)
+    u64 end_ktime;   // bpf_ktime_get_ns() when the sentinel fired (~span end)
+    unsigned char parent_trace_id[TRACE_ID_SIZE_BYTES];
+    unsigned char parent_span_id[SPAN_ID_SIZE_BYTES];
+    pid_info pid;
+    unsigned char payload[NODE_SPAN_PAYLOAD_MAX_LEN]; // JSON, see spanbridge.js
+    u8 _epad[4];
+} node_span_event_t;
+
 typedef struct channel_link_trace {
     u8 type; // Must be first
     u8 _pad[7];
@@ -289,7 +313,8 @@ typedef struct mongo_go_client_req {
 typedef struct dns_req {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 dns_q;
-    u8 _pad1[2];
+    enum parent_status parent_status;
+    u8 _pad1[1];
     u32 len;
     connection_info_t conn;
     u16 id;

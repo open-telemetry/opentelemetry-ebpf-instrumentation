@@ -35,7 +35,7 @@ func TestSpanNameLimiter(t *testing.T) {
 		Limit:      maxCardinalityBeforeAggregation,
 		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
 		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
-		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+		MetricsCfg: &perapp.GlobalMetricsConfig{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -110,6 +110,47 @@ func TestSpanNameLimiter(t *testing.T) {
 	})
 }
 
+func TestSpanNameLimiterDoesNotCountIgnoredMetrics(t *testing.T) {
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
+	outCh := output.Subscribe()
+	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
+		Limit:      2,
+		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+		MetricsCfg: &perapp.GlobalMetricsConfig{Features: export.FeatureSpanLegacy},
+	}, input, output)(t.Context())
+	require.NoError(t, err)
+
+	go runSpanNameLimiter(t.Context())
+
+	service := svc.Attrs{UID: svc.UID{Namespace: "ns", Name: "svc"}}
+	ignoredOne := request.Span{Service: service, Type: request.EventTypeHTTP, Method: "GET", Route: "/ignored-1"}
+	ignoredTwo := request.Span{Service: service, Type: request.EventTypeHTTP, Method: "GET", Route: "/ignored-2"}
+	request.SetIgnoreMetrics(&ignoredOne)
+	request.SetIgnoreMetrics(&ignoredTwo)
+
+	input.Send([]request.Span{
+		ignoredOne,
+		ignoredTwo,
+		{Service: service, Type: request.EventTypeSQLClient, Method: "SELECT", Path: "orders"},
+	})
+	spans := testutil.ReadChannel(t, outCh, testTimeout)
+	require.Len(t, spans, 3)
+	assert.Equal(t, "GET /ignored-1", spans[0].TraceName())
+	assert.Equal(t, "GET /ignored-2", spans[1].TraceName())
+	assert.Equal(t, "SELECT orders", spans[2].TraceName())
+
+	input.Send([]request.Span{
+		{Service: service, Type: request.EventTypeSQLClient, Method: "SELECT", Path: "customers"},
+		{Service: service, Type: request.EventTypeSQLClient, Method: "SELECT", Path: "products"},
+	})
+	spans = testutil.ReadChannel(t, outCh, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "SELECT customers", spans[0].TraceName())
+	assert.Equal(t, "AGGREGATED", spans[1].TraceName())
+}
+
 func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	synctest.Test(t, func(t *testing.T) {
@@ -121,7 +162,7 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 			Limit:      maxCardinalityBeforeAggregation,
 			OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
 			Prom:       &prom.PrometheusConfig{TTL: time.Minute},
-			MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+			MetricsCfg: &perapp.GlobalMetricsConfig{Features: export.FeatureSpanLegacy},
 		}, input, output)(t.Context())
 		require.NoError(t, err)
 
@@ -185,7 +226,7 @@ func TestSpanNameLimiter_ZeroValueServiceKey(t *testing.T) {
 		Limit:      3,
 		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
 		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
-		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+		MetricsCfg: &perapp.GlobalMetricsConfig{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -227,7 +268,7 @@ func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
 		Limit:      3,
 		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
 		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
-		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+		MetricsCfg: &perapp.GlobalMetricsConfig{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 

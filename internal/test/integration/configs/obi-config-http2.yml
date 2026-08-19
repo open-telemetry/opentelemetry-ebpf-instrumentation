@@ -1,5 +1,7 @@
 routes:
   unmatched: path
+ebpf:
+  context_propagation: headers
 prometheus_export:
   port: 8999
   features:

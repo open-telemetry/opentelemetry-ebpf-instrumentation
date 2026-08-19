@@ -46,7 +46,7 @@ func TestFilter(t *testing.T) {
 				Port: promPort,
 				TTL:  time.Hour,
 			},
-			Metrics: perapp.MetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo},
+			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo},
 			Attributes: obi.Attributes{Select: attributes.Selection{
 				attributes.StatTCPRtt.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
@@ -112,8 +112,8 @@ func TestFilter(t *testing.T) {
 		for _, m := range allMetrics {
 			switch m.Name {
 			case "obi_stat_tcp_rtt_seconds_count",
-				"obi_stat_tcp_failed_connections",
-				"obi_stat_tcp_retransmits",
+				"obi_stat_tcp_failed_connections_total",
+				"obi_stat_tcp_retransmits_total",
 				"obi_stat_tcp_io_bytes_total",
 				"promhttp_metric_handler_errors_total":
 				// Reset values to 0 if you don't care about the specific count,
@@ -128,9 +128,9 @@ func TestFilter(t *testing.T) {
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "444", "src_port": "333"}},
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "456", "src_port": "123"}},
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "8080", "src_port": "3333"}},
-			{Name: "obi_stat_tcp_failed_connections", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "666", "src_port": "555", "reason": "refused"}},
-			{Name: "obi_stat_tcp_failed_connections", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777", "reason": "timed-out"}},
-			{Name: "obi_stat_tcp_retransmits", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777"}},
+			{Name: "obi_stat_tcp_failed_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "666", "src_port": "555", "reason": "refused"}},
+			{Name: "obi_stat_tcp_failed_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777", "reason": "timed-out"}},
+			{Name: "obi_stat_tcp_retransmits_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777"}},
 			{Name: "obi_stat_tcp_io_bytes_total", Value: 1500, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "transmit"}},
 			{Name: "obi_stat_tcp_io_bytes_total", Value: 2000, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "receive"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "encoding"}},

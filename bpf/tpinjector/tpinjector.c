@@ -55,9 +55,11 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //
 //   obi_packet_extender (sk_msg entry)
 //   │
-//   ├── tp_pid present?               ─┐  Central dispatch: Go net/http,
+//   ├── tp_pid && !is_h2_socket?      ─┐  Central dispatch: Go net/http,
 //   │     └── handle_existing_tp_pid   │  SSL. Pulls+fills internally after
-//   │                                  │  passing valid check, then injects
+//   │                                  │  passing valid check, then injects.
+//   │                                  │  H2 sockets skip this — they carry
+//   │                                  │  per-stream traceparents in HPACK
 //   │                                  │
 //   ├── is_go_grpc_client_conn?        │  Go gRPC: pull+fill, then detect_h2
 //   │     └── pull+fill, detect_h2     │  injects only streams whose stored
@@ -74,11 +76,14 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │                                 │     write_msg_traceparent
 //   │                                 │
 //   └── fall through ─────────────────┴─▶ wrap_http2_traceparent
-//                                           │ preface at pos 0, or (for conns
-//                                           │ whose preface predates attach)
-//                                           │ strict mid-stream frame sniff
-//                                           │ confirms; known-SSL conns are
-//                                           │ never sniffed
+//                                           │ preface at pos 0 → detect_h2;
+//                                           │ known-SSL conns are never
+//                                           │ sniffed; otherwise (a conn whose
+//                                           │ preface predates attach):
+//                                           ▼
+//                                        sniff_h2
+//                                           │ strict mid-stream frame sniff;
+//                                           │ confirms H2, marks the socket
 //                                           ▼
 //                                        detect_h2 ◀──────────────┐
 //                                           │                     │
@@ -88,8 +93,14 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //                                           │ then HEADERS+        │ h2_scan_pos
 //                                           │ END_HEADERS          │
 //                                           ▼                     │
-//                                        find_existing_h2_tp ─────┤
-//                                           │ adopt or            │
+//                                        find_existing_h2_tp ◀─┐  │
+//                                           │ candidate found  │  │
+//                                           ▼                  │  │
+//                                        validate_h2_tp ───────┘  │
+//                                           │ malformed: rescan   │
+//                                           │ (h2_tp_retries);    │
+//                                           │ adoptable: adopt;   │
+//                                           │ none left:          │
 //                                           ▼                     │
 //                                        create_h2_tp ────────────┤
 //                                           │                     │
@@ -1801,6 +1812,15 @@ static __always_inline bool h2_write_frame_len(struct sk_msg_md *msg, u32 frame_
     return true;
 }
 
+// Undoes a push whose bytes were never filled: leftover bytes are a COMPRESSION_ERROR and a
+// restored length alone leaves a bogus frame header behind, both connection-level (RFC 7540 4.3)
+static __always_inline void
+h2_undo_tp_push(struct sk_msg_md *msg, u32 frame_offset, u32 inject_offset, u32 payload_len) {
+    if (bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0) {
+        h2_write_frame_len(msg, frame_offset, payload_len);
+    }
+}
+
 // k_tail_write_h2_traceparent — push k_h2_tp_hpack_size bytes of HPACK at
 // the end of the HEADERS payload. Small targeted pulls keep writes at fixed
 // offsets so the verifier is happy
@@ -1830,24 +1850,26 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
     // linearize before push, as the HTTP/1 path does
     bpf_msg_pull_data(msg, 0, msg->size, 0);
 
-    // length before push: a failed push is revertible, unfilled inserted bytes are not.
-    // Frame length disagreeing with the HPACK block is a connection-level error.
+    // length before push: a failed push then changes nothing on the wire
     if (!h2_write_frame_len(msg, frame_offset, payload_len + k_h2_tp_hpack_size)) {
         return SK_PASS;
     }
     if (bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
-        // push leaves the message untouched when it fails, so this pull cannot fail either
+        // a failed push leaves the message untouched, so restoring the length cannot fail
         h2_write_frame_len(msg, frame_offset, payload_len);
         return SK_PASS;
     }
 
+    // past the push the inserted bytes exist but hold no field, so every exit has to undo
     if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
+        h2_undo_tp_push(msg, frame_offset, inject_offset, payload_len);
         return SK_PASS;
     }
 
     unsigned char *data = msg->data;
     const unsigned char *end = msg->data_end;
     if (!data || (void *)data + k_h2_tp_hpack_size > (void *)end) {
+        h2_undo_tp_push(msg, frame_offset, inject_offset, payload_len);
         return SK_PASS;
     }
 

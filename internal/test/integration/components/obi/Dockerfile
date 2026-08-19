@@ -9,14 +9,17 @@ ENV GOARCH=$TARGETARCH
 
 WORKDIR /src
 
+# Download modules before copying sources, so source changes reuse the cached
+# module layer instead of re-downloading everything
+COPY go.mod go.sum ./
+RUN go mod download
+
 # Copy the go manifests and source
 COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY internal/config/ internal/config/
 COPY pkg/ pkg/
-COPY go.mod go.mod
-COPY go.sum go.sum
 COPY Makefile Makefile
 
 # Build
