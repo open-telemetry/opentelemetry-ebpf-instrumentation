@@ -9,6 +9,7 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/event_defs.h>
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/scratch_mem.h>
 #include <common/strings.h>
@@ -180,7 +181,7 @@ static __always_inline int handle_fd_correlation(char *buf, const u64 pid_tgid) 
 }
 
 SEC("uprobe/node:uv_fs_access")
-int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
+int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path) {
     (void)ctx;
     (void)loop;
     (void)req;

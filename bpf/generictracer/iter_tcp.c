@@ -5,12 +5,13 @@
 #include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/preempt_guard.h>
 #include <common/sock_port_ns.h>
 
 #include <generictracer/maps/listening_ports.h>
 
 SEC("iter/tcp")
-int obi_iter_tcp(struct bpf_iter__tcp *ctx) {
+int GUARDED_PROG(obi_iter_tcp, struct bpf_iter__tcp *, ctx) {
     struct sock_common *skc = ctx->sk_common;
     if (!skc) {
         return 0;

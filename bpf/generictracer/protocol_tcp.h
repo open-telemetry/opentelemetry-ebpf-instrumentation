@@ -11,6 +11,7 @@
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/lw_thread.h>
+#include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
@@ -406,7 +407,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
 // k_tail_protocol_tcp
 SEC("kprobe/tcp")
-int obi_protocol_tcp(void *ctx) {
+int GUARDED_PROG(obi_protocol_tcp, void *, ctx) {
     (void)ctx;
 
     // it assumes that the actual protocol_args have been previously set
