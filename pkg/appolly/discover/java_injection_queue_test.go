@@ -15,11 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
 )
 
 func javaTarget(pid app.PID) javaagent.InjectionTarget {
-	return javaagent.InjectionTarget{Pid: pid}
+	return javaagent.InjectionTarget{Type: svc.InstrumentableJava, Pid: pid}
 }
 
 // Attaching to a HotSpot JVM switches the euid/egid of the whole OBI process,
@@ -213,6 +214,57 @@ func TestJavaInjectionQueue_ShutdownCancelsInFlightAndSkipsPending(t *testing.T)
 
 	require.Len(t, cancelled, 1)
 	assert.Equal(t, int32(1), started.Load(), "queued targets must not be injected during shutdown")
+}
+
+// The queue is bounded and only JVMs are ever injected. If processes of other
+// languages took slots, discovery churn during a stuck attach would evict a JVM
+// discovered later, losing its Java TLS telemetry for the life of the process.
+func TestJavaInjectionQueue_OnlyJVMsAreAdmitted(t *testing.T) {
+	injecting := make(chan struct{})
+	release := make(chan struct{})
+	injected := make(chan app.PID, javaInjectionQueueLen+2)
+	var firstInjection sync.Once
+
+	queue := newJavaInjectionQueue(slog.Default(), func(ctx context.Context, target javaagent.InjectionTarget) error {
+		injected <- target.Pid
+		firstInjection.Do(func() {
+			close(injecting)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		})
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	queue.start(ctx)
+
+	// Hold the worker, then flood the queue with processes the injector would
+	// ignore, well past its capacity.
+	queue.enqueue(javaTarget(1))
+	<-injecting
+	require.Equal(t, app.PID(1), <-injected)
+
+	for pid := app.PID(2); pid <= javaInjectionQueueLen+2; pid++ {
+		queue.enqueue(javaagent.InjectionTarget{Type: svc.InstrumentableGeneric, Pid: pid})
+	}
+
+	const lateJVM = app.PID(javaInjectionQueueLen + 3)
+	queue.enqueue(javaTarget(lateJVM))
+	close(release)
+
+	select {
+	case pid := <-injected:
+		assert.Equal(t, lateJVM, pid, "a JVM discovered after non-Java processes must still be injected")
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for the second injection")
+	}
+
+	cancel()
+	queue.wait()
+	assert.Empty(t, injected, "only JVMs may be injected")
 }
 
 func TestJavaInjectionQueue_EnqueueAfterShutdownIsDropped(t *testing.T) {

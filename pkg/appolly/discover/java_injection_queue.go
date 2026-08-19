@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
 )
 
@@ -70,7 +71,15 @@ func (q *javaInjectionQueue) start(ctx context.Context) {
 
 // enqueue never blocks. A stuck attach holds the worker for up to the Java
 // attach timeout, and process discovery must keep running meanwhile.
+//
+// Only JVMs are admitted: the queue is bounded, and letting processes the
+// injector would ignore consume slots would let unrelated discovery churn
+// evict a real JVM while an attach is stuck.
 func (q *javaInjectionQueue) enqueue(target javaagent.InjectionTarget) {
+	if target.Type != svc.InstrumentableJava {
+		return
+	}
+
 	select {
 	case q.targets <- target:
 	case <-q.done:
