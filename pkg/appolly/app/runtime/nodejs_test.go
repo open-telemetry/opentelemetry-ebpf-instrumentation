@@ -37,3 +37,48 @@ func TestParseNodejsEventLoopEvent(t *testing.T) {
 	assert.Equal(t, values, event.NodejsEventLoopValues)
 	require.WithinDuration(t, timing.KernelTime(ktime), event.Time, 100*time.Millisecond)
 }
+
+// The GC type strings are the semconv v8js.gc.type values; the numeric
+// codes are the OBI wire codes assigned in fdextractor.js — deliberately
+// not the version-dependent Node constants.
+func TestNodejsGCTypeSemconvValues(t *testing.T) {
+	assert.Equal(t, "minor", NodejsGCTypeMinor.String())
+	assert.Equal(t, "major", NodejsGCTypeMajor.String())
+	assert.Equal(t, "incremental", NodejsGCTypeIncremental.String())
+	assert.Equal(t, "weakcb", NodejsGCTypeWeakCB.String())
+	assert.Equal(t, "unknown", NodejsGCTypeUnknown.String())
+	assert.Equal(t, "unknown", NodejsGCType(200).String())
+}
+
+func TestParseNodejsGCEvent(t *testing.T) {
+	const ktime = 2 * 3600 * 1_000_000_000
+
+	event := ParseNodejsGCEvent(ktime, 55, 99, 2, 350_000_000)
+
+	assert.Equal(t, app.PID(55), event.PID)
+	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, NodejsGCTypeMajor, event.GCType)
+	assert.Equal(t, uint64(350_000_000), event.DurationNs)
+	require.WithinDuration(t, timing.KernelTime(ktime), event.Time, 100*time.Millisecond)
+
+	// unknown wire codes decode to Unknown; the dispatch layer drops them
+	assert.Equal(t, NodejsGCTypeUnknown, ParseNodejsGCEvent(ktime, 55, 99, 9, 1).GCType)
+}
+
+func TestParseNodejsHeapSpaceEvent(t *testing.T) {
+	const ktime = 2 * 3600 * 1_000_000_000
+
+	values := NodejsHeapSpaceValues{
+		SpaceSize:          200 << 20,
+		SpaceUsedSize:      150 << 20,
+		SpaceAvailableSize: 30 << 20,
+		PhysicalSpaceSize:  200 << 20,
+	}
+	event := ParseNodejsHeapSpaceEvent(ktime, 55, 99, "old_space", values)
+
+	assert.Equal(t, app.PID(55), event.PID)
+	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, "old_space", event.SpaceName)
+	assert.Equal(t, values, event.NodejsHeapSpaceValues)
+	require.WithinDuration(t, timing.KernelTime(ktime), event.Time, 100*time.Millisecond)
+}
