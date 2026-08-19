@@ -682,11 +682,12 @@ func TestManualSpanProbesDoNotRequireWriteUserSupport(t *testing.T) {
 func TestGoAutoSDKActivationProbeGroupIgnoresPropagationMode(t *testing.T) {
 	setContextPropagationSupportForTest(t, true)
 
+	identity := executableIdentity{Ino: 1}
 	tracer := &Tracer{
-		cfg:                      &config.EBPFTracer{ContextPropagation: config.ContextPropagationDisabled},
-		log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
-		currentBinaryIno:         1,
-		goAutoSDKActivationByIno: map[uint64]bool{1: true},
+		cfg:                             &config.EBPFTracer{ContextPropagation: config.ContextPropagationDisabled},
+		log:                             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		currentBinary:                   identity,
+		goAutoSDKActivationByExecutable: map[executableIdentity]bool{identity: true},
 	}
 
 	assert.Len(t, tracer.GoProbeGroups(), 1)

@@ -978,8 +978,8 @@ func TestDifferentUprobeTargetsDoNotShareInstrumenters(t *testing.T) {
 func TestResolveUprobeTarget(t *testing.T) {
 	resolver := &stubUprobeTargetResolver{dev: 7, ino: 11}
 	pt := &ProcessTracer{Type: Go, Programs: []Tracer{resolver}}
-	offsets := &goexec.Offsets{Funcs: map[string]goexec.FuncOffsets{
-		goUprobeTargetProbeSymbol: {Start: 123},
+	offsets := &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		goUprobeTargetProbeSymbol: {{Start: 123}},
 	}}
 
 	key, ok := pt.resolveUprobeTarget(nil, offsets)
@@ -992,8 +992,8 @@ func TestResolveUprobeTarget(t *testing.T) {
 func TestResolveUprobeTargetFallsBackToSeparateAttachment(t *testing.T) {
 	resolver := &stubUprobeTargetResolver{err: errors.New("resolver unavailable")}
 	pt := &ProcessTracer{Type: Go, Programs: []Tracer{resolver}}
-	offsets := &goexec.Offsets{Funcs: map[string]goexec.FuncOffsets{
-		goUprobeTargetProbeSymbol: {Start: 123},
+	offsets := &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		goUprobeTargetProbeSymbol: {{Start: 123}},
 	}}
 
 	_, ok := pt.resolveUprobeTarget(nil, offsets)

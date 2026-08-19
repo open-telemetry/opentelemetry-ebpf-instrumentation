@@ -428,8 +428,8 @@ func (pt *ProcessTracer) resolveUprobeTarget(exe *link.Executable, offsets *goex
 		return ExecutableKey{}, false
 	}
 
-	probe, ok := offsets.Funcs[goUprobeTargetProbeSymbol]
-	if !ok {
+	probes, ok := offsets.Funcs[goUprobeTargetProbeSymbol]
+	if !ok || len(probes) == 0 {
 		return ExecutableKey{}, false
 	}
 
@@ -439,7 +439,7 @@ func (pt *ProcessTracer) resolveUprobeTarget(exe *link.Executable, offsets *goex
 			continue
 		}
 
-		dev, ino, err := resolver.ResolveUprobeTarget(exe, probe.Start)
+		dev, ino, err := resolver.ResolveUprobeTarget(exe, probes[0].Start)
 		if err != nil {
 			ptlog().Debug("resolving kernel uprobe target failed", "error", err)
 			return ExecutableKey{}, false
