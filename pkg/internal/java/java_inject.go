@@ -160,9 +160,17 @@ func verifyTargetIdentity(target InjectionTarget) error {
 	return nil
 }
 
-func (i *JavaInjector) NewExecutable(target InjectionTarget) error {
+// NewExecutable injects the Java agent into target. The attach deadline is
+// derived from ctx, so canceling ctx abandons an in-flight attach instead of
+// waiting out the configured timeout.
+func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget) error {
 	if target.Type != svc.InstrumentableJava {
 		return nil
+	}
+
+	// Nothing should signal a JVM once the caller has given up.
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Injection is queued by PID and can start long after discovery, so the
@@ -173,7 +181,7 @@ func (i *JavaInjector) NewExecutable(target InjectionTarget) error {
 
 	attachID := i.nextAttachID()
 
-	ctx, cancel := context.WithTimeout(context.Background(), i.cfg.Java.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, i.cfg.Java.Timeout)
 	defer cancel()
 
 	// Channel to receive the result
@@ -262,8 +270,12 @@ func (i *JavaInjector) NewExecutable(target InjectionTarget) error {
 	case result := <-resultChan:
 		return result.err
 	case <-ctx.Done():
-		i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", target.Pid)
-		return &JavaInjectError{Message: "java attach timed out"}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", target.Pid)
+			return &JavaInjectError{Message: "java attach timed out"}
+		}
+		i.log.Debug("java attach abandoned", "pid", target.Pid, "error", ctx.Err())
+		return &JavaInjectError{Message: "java attach canceled"}
 	}
 }
 

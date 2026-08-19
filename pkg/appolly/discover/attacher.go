@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/cilium/ebpf/link"
@@ -127,14 +126,14 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	in := ta.InputInstrumentables.Subscribe(msg.SubscriberName("traceAttacher"))
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
-		// TODO: cancel an in-flight injection on shutdown (ctx cancellation) or
-		// when a concurrent EventDeleted arrives for the same PID, rather than
-		// only waiting for its internal timeout to elapse. That requires
-		// threading a context.Context through JavaInjector.NewExecutable
-		// (which currently derives its own context.Background()-rooted
-		// timeout), plus a per-PID cancel-func registry.
-		var javaInjections sync.WaitGroup
-		defer javaInjections.Wait()
+
+		var javaInjections *javaInjectionQueue
+		if ta.javaInjector != nil {
+			javaInjections = newJavaInjectionQueue(ta.log, ta.javaInjector.NewExecutable)
+			javaInjections.start(ctx)
+			defer javaInjections.wait()
+		}
+
 		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
 			for _, instr := range instrumentables {
 				ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
@@ -149,19 +148,13 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 						ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
 					}
 
-					// Injection blocks for up to the Java attach timeout, so it runs
-					// after the PID is allowed through the eBPF filter, and off the
-					// discovery loop. The target is copied out here so the goroutine
-					// does not share instr.Obj with the consumers it was just sent to.
-					if ta.javaInjector != nil {
-						target := javaagent.InjectionTargetFrom(&instr.Obj)
-						javaInjections.Add(1)
-						go func() {
-							defer javaInjections.Done()
-							if err := ta.javaInjector.NewExecutable(target); err != nil {
-								ta.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work", "pid", target.Pid, "error", err)
-							}
-						}()
+					// Injection blocks for up to the Java attach timeout, so it is
+					// queued after the PID is allowed through the eBPF filter, and
+					// runs off the discovery loop. The target is copied out here so
+					// the injection does not share instr.Obj with the consumers it
+					// was just sent to.
+					if javaInjections != nil {
+						javaInjections.enqueue(javaagent.InjectionTargetFrom(&instr.Obj))
 					}
 
 					if instr.Obj.FileInfo.ELF() != nil {

@@ -135,7 +135,7 @@ func TestJavaInjector_NewExecutableLeavesReusedPIDAlone(t *testing.T) {
 
 	// The captured start time belongs to the process that has since exited, so
 	// it never matches the one now holding this PID.
-	err = injector.NewExecutable(InjectionTarget{
+	err = injector.NewExecutable(t.Context(), InjectionTarget{
 		Type:      svc.InstrumentableJava,
 		Pid:       pid,
 		StartTime: startTime + 1,
@@ -178,7 +178,7 @@ func TestJavaInjector_NewExecutableRefusesUnidentifiedTarget(t *testing.T) {
 		log: slog.With("component", "javaagent.Injector"),
 	}
 
-	err := injector.NewExecutable(target)
+	err := injector.NewExecutable(t.Context(), target)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "was not captured")
