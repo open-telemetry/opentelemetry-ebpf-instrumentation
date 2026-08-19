@@ -86,7 +86,7 @@ func testREDMetricsAerospikeOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8390",
 			Subpath:   "aerospike",
-			Comm:      "java",
+			Comm:      "javaaerospike",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				// PUT sends the key (sendKey), so db.query.text carries the primary key.
