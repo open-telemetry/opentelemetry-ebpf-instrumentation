@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -380,7 +381,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	require.Equal(t, http.Enrichment.Rules, gotHTTP.Enrichment.Rules)
 }
 
-func TestV2ToRuntimeHTTPApplicationFiltersRoundTrip(t *testing.T) {
+func TestV2ToRuntimeApplicationFiltersMigratesLegacyRuntimeConfig(t *testing.T) {
 	t.Parallel()
 
 	statusCode := 500
@@ -401,17 +402,24 @@ func TestV2ToRuntimeHTTPApplicationFiltersRoundTrip(t *testing.T) {
 	got, err := V2ToRuntime(ext)
 	require.NoError(t, err)
 
-	require.Equal(t, cfg.Filters.Application, got.Filters.Application)
+	require.Empty(t, got.Filters.Application)
+	require.Len(t, got.Filters.ApplicationByInstrumentation, len(protocolMappings))
+	for _, mapping := range protocolMappings {
+		require.Equal(t, filter.SignalAttributeFamilyConfig{
+			Traces:  cfg.Filters.Application,
+			Metrics: cfg.Filters.Application,
+		}, got.Filters.ApplicationByInstrumentation[mapping.instr])
+	}
 }
 
-func TestV2ToRuntimeHTTPApplicationFiltersRejectsOneSignal(t *testing.T) {
+func TestV2ToRuntimeApplicationFiltersAcceptOneSignal(t *testing.T) {
 	t.Parallel()
 
 	filters := schema.AttributeFilters{
 		"service.name": {Match: "checkout-*"},
 	}
 
-	_, err := V2ToRuntime(&schema.Extension{
+	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Instrumentation: schema.Instrumentation{
@@ -423,19 +431,22 @@ func TestV2ToRuntimeHTTPApplicationFiltersRejectsOneSignal(t *testing.T) {
 			},
 		},
 	})
-	require.ErrorContains(
-		t,
-		err,
-		"capture.instrumentation.http.filters.metrics cannot differ from "+
-			"capture.instrumentation.http.filters.traces",
-	)
+	require.NoError(t, err)
+	require.Empty(t, got.Filters.Application)
+	require.Equal(t, filter.InstrumentationAttributeFamilyConfig{
+		instrumentations.InstrumentationHTTP: {
+			Traces: filter.AttributeFamilyConfig{
+				"service.name": {Match: "checkout-*"},
+			},
+		},
+	}, got.Filters.ApplicationByInstrumentation)
 }
 
-func TestV2ToRuntimeHTTPApplicationFiltersRejectsConflictingSignals(t *testing.T) {
+func TestV2ToRuntimeApplicationFiltersAcceptDifferentSignals(t *testing.T) {
 	t.Parallel()
 
 	statusCode := 500
-	_, err := V2ToRuntime(&schema.Extension{
+	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Instrumentation: schema.Instrumentation{
@@ -453,13 +464,21 @@ func TestV2ToRuntimeHTTPApplicationFiltersRejectsConflictingSignals(t *testing.T
 		},
 	})
 
-	require.ErrorContains(t, err, "capture.instrumentation.http.filters")
+	require.NoError(t, err)
+	require.Equal(t, filter.SignalAttributeFamilyConfig{
+		Traces: filter.AttributeFamilyConfig{
+			"service.name": {Match: "checkout-*"},
+		},
+		Metrics: filter.AttributeFamilyConfig{
+			"http.status_code": {Equals: &statusCode},
+		},
+	}, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationHTTP])
 }
 
-func TestV2ToRuntimeApplicationFiltersRejectsProtocolScope(t *testing.T) {
+func TestV2ToRuntimeApplicationFiltersAcceptProtocolScope(t *testing.T) {
 	t.Parallel()
 
-	_, err := V2ToRuntime(&schema.Extension{
+	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Instrumentation: schema.Instrumentation{
@@ -473,32 +492,55 @@ func TestV2ToRuntimeApplicationFiltersRejectsProtocolScope(t *testing.T) {
 			},
 		},
 	})
-	require.ErrorContains(t, err, "capture.instrumentation.grpc.filters.traces")
+	require.NoError(t, err)
+	require.Equal(t, filter.InstrumentationAttributeFamilyConfig{
+		instrumentations.InstrumentationGRPC: {
+			Traces: filter.AttributeFamilyConfig{
+				"service.name": {Match: "checkout-*"},
+			},
+		},
+	}, got.Filters.ApplicationByInstrumentation)
 }
 
-func TestV2ToRuntimeRejectsDivergentProtocolFilters(t *testing.T) {
+func TestV2ToRuntimeApplicationFiltersAcceptDifferentProtocols(t *testing.T) {
 	t.Parallel()
 
 	statusCode := 500
-	cfg := defaultRuntimeConfig()
-	cfg.Filters.Application = filter.AttributeFamilyConfig{
-		"http.status_code": {Equals: &statusCode},
-	}
-	_, ext := RuntimeToV2(&cfg)
-	ext.Capture.Instrumentation.GRPC.Filters.Traces = schema.AttributeFilters{
-		"service.name": {Match: "checkout-*"},
-	}
-
-	_, err := V2ToRuntime(ext)
-	require.ErrorContains(
-		t,
-		err,
-		"capture.instrumentation.grpc.filters.traces cannot differ from "+
-			"capture.instrumentation.http.filters.traces",
-	)
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				HTTP: schema.HTTPInstrumentation{
+					Filters: schema.SignalFilters{
+						Traces: schema.AttributeFilters{
+							"http.status_code": {Equals: &statusCode},
+						},
+					},
+				},
+				GRPC: schema.ProtocolInstrumentation{
+					Filters: schema.SignalFilters{
+						Traces: schema.AttributeFilters{
+							"service.name": {Match: "checkout-*"},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, filter.SignalAttributeFamilyConfig{
+		Traces: filter.AttributeFamilyConfig{
+			"http.status_code": {Equals: &statusCode},
+		},
+	}, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationHTTP])
+	require.Equal(t, filter.SignalAttributeFamilyConfig{
+		Traces: filter.AttributeFamilyConfig{
+			"service.name": {Match: "checkout-*"},
+		},
+	}, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationGRPC])
 }
 
-func TestV2ToRuntimeRejectsDivergentAerospikeFilters(t *testing.T) {
+func TestV2ToRuntimeApplicationFiltersAcceptAerospikeSignals(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -528,22 +570,28 @@ func TestV2ToRuntimeRejectsDivergentAerospikeFilters(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			statusCode := 500
-			cfg := defaultRuntimeConfig()
-			cfg.Filters.Application = filter.AttributeFamilyConfig{
-				"http.status_code": {Equals: &statusCode},
-			}
-			_, ext := RuntimeToV2(&cfg)
-			require.NotNil(t, ext.Capture.Instrumentation.Aerospike)
-			test.mutate(ext.Capture.Instrumentation.Aerospike)
+			aerospike := &schema.AerospikeInstrumentation{}
+			test.mutate(aerospike)
+			got, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Instrumentation: schema.Instrumentation{Aerospike: aerospike},
+				},
+			})
+			require.NoError(t, err)
 
-			_, err := V2ToRuntime(ext)
-			require.ErrorContains(
-				t,
-				err,
-				"capture.instrumentation.aerospike.filters."+test.signal+" cannot differ from "+
-					"capture.instrumentation.http.filters.traces because the runtime uses one application filter",
-			)
+			gotFilters := got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationAerospike]
+			if test.signal == "traces" {
+				require.Equal(t, filter.AttributeFamilyConfig{
+					"service.name": {Match: "checkout-*"},
+				}, gotFilters.Traces)
+				require.Empty(t, gotFilters.Metrics)
+			} else {
+				require.Equal(t, filter.AttributeFamilyConfig{
+					"service.name": {Match: "checkout-*"},
+				}, gotFilters.Metrics)
+				require.Empty(t, gotFilters.Traces)
+			}
 		})
 	}
 }

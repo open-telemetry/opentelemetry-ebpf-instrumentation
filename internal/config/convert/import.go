@@ -545,19 +545,6 @@ func validateV2RulePatterns(rules []schema.Rule) error {
 }
 
 func validateV2SignalFilters(src *schema.Extension) error {
-	canonicalPath := "capture.instrumentation.http.filters.traces"
-	canonical := src.Capture.Instrumentation.HTTP.Filters.Traces
-	for _, mapping := range protocolMappings {
-		path := fmt.Sprintf("capture.instrumentation.%s.filters", mapping.name)
-		filters := protocolFilters(src.Capture.Instrumentation, mapping.name)
-		if err := validateSharedAttributeFilters(path+".traces", canonicalPath, "application", filters.Traces, canonical); err != nil {
-			return err
-		}
-		if err := validateSharedAttributeFilters(path+".metrics", canonicalPath, "application", filters.Metrics, canonical); err != nil {
-			return err
-		}
-	}
-
 	if err := validateSharedSignalFilters(
 		"capture.network.capture.filters",
 		"network",
@@ -1178,6 +1165,8 @@ func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentat
 		return
 	}
 
+	applyV2InstrumentationFilters(cfg, instrumentation)
+
 	complete = complete || completeInstrumentation(instrumentation)
 	if !complete {
 		applyPartialV2Instrumentation(cfg, instrumentation)
@@ -1276,7 +1265,6 @@ func applyFullV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrumenta
 	cfg.EBPF.GoHTTPClientBufferTimeout = http.GoHTTPClientBufferTimeout.TimeDuration()
 	cfg.EBPF.BufferSizes.HTTP = http.BufferSize
 
-	applyV2HTTPFilters(cfg, http.Filters, true)
 	applyFullV2HTTPRoutes(cfg, http.Routes)
 	applyFullV2HTTPPayloadExtraction(cfg, http.PayloadExtraction)
 }
@@ -1294,16 +1282,25 @@ func applyPartialV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrume
 	if http.BufferSize != 0 {
 		cfg.EBPF.BufferSizes.HTTP = http.BufferSize
 	}
-	applyV2HTTPFilters(cfg, http.Filters, false)
 	applyPartialV2HTTPRoutes(cfg, http.Routes)
 	applyPartialV2HTTPPayloadExtraction(cfg, http.PayloadExtraction)
 }
 
-func applyV2HTTPFilters(cfg *obi.Config, filters schema.SignalFilters, complete bool) {
-	if zeroValue(filters) && !complete {
-		return
+func applyV2InstrumentationFilters(cfg *obi.Config, instrumentation schema.Instrumentation) {
+	for _, mapping := range protocolMappings {
+		filters := protocolFilters(instrumentation, mapping.name)
+		runtimeFilters := filter.SignalAttributeFamilyConfig{
+			Traces:  attributeFilterMap(filters.Traces),
+			Metrics: attributeFilterMap(filters.Metrics),
+		}
+		if len(runtimeFilters.Traces) == 0 && len(runtimeFilters.Metrics) == 0 {
+			continue
+		}
+		if cfg.Filters.ApplicationByInstrumentation == nil {
+			cfg.Filters.ApplicationByInstrumentation = filter.InstrumentationAttributeFamilyConfig{}
+		}
+		cfg.Filters.ApplicationByInstrumentation[mapping.instr] = runtimeFilters
 	}
-	cfg.Filters.Application = attributeFilterMap(filters.Traces)
 }
 
 func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
