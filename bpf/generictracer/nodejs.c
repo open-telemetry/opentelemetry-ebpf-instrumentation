@@ -51,7 +51,73 @@ enum {
     k_rt_payload_read_len = k_rt_field_count * k_rt_field_hex_len + 1,
 };
 
+enum {
+    k_v8_kind_offset = 17,    // 'g' or 'h' after "/dev/null/obi-v8/"
+    k_v8_payload_offset = 18, // record payload starts here
+    // g payload: 1 kind char + 16 hex duration chars (+ NUL when read)
+    k_v8_gc_payload_len = 1 + k_rt_field_hex_len,
+    k_v8_heap_num_fields = 4,
+    k_v8_heap_numbers_len = k_v8_heap_num_fields * k_rt_field_hex_len,
+    // h payload upper bound: numbers + name + NUL
+    k_v8_heap_payload_read_len = k_v8_heap_numbers_len + k_nodejs_heap_space_name_max + 1,
+};
+
 SCRATCH_MEM_SIZED(nodejs_rt_payload, k_rt_payload_read_len)
+SCRATCH_MEM_SIZED(nodejs_v8_payload, k_v8_heap_payload_read_len)
+
+static __always_inline int nodejs_parse_hex_u64(const unsigned char *buf, u64 *out) {
+    u64 v = 0;
+    for (u8 i = 0; i < k_rt_field_hex_len; ++i) {
+        const unsigned char c = buf[i];
+        u8 digit;
+        if (c >= '0' && c <= '9') {
+            digit = c - '0';
+        } else if (c >= 'a' && c <= 'f') {
+            digit = c - 'a' + 10;
+        } else {
+            return -1;
+        }
+        v = (v << 4) | digit;
+    }
+    *out = v;
+    return 0;
+}
+
+// The v8 record parsers are pure over (payload, len) — len is what
+// bpf_probe_read_user_str returned, including the terminating NUL — and are
+// unit-tested in bpf/tests/bpf_nodejs_v8.c; keep both copies in sync.
+
+static __always_inline int
+nodejs_v8_parse_gc(const unsigned char *payload, u64 len, u8 *kind, u64 *duration_ns) {
+    // len counts the NUL: the payload must be exactly kind + duration
+    if (len != k_v8_gc_payload_len + 1) {
+        return -1;
+    }
+    const unsigned char c = payload[0];
+    if (c >= '0' && c <= '9') {
+        *kind = c - '0';
+    } else if (c >= 'a' && c <= 'f') {
+        *kind = c - 'a' + 10;
+    } else {
+        return -1;
+    }
+    return nodejs_parse_hex_u64(payload + 1, duration_ns);
+}
+
+static __always_inline int
+nodejs_v8_parse_heap(const unsigned char *payload, u64 len, u64 *vals, u8 *name_len) {
+    // len counts the NUL: at least one name byte, at most the name cap
+    if (len < k_v8_heap_numbers_len + 1 + 1 || len > k_v8_heap_payload_read_len) {
+        return -1;
+    }
+    for (u8 f = 0; f < k_v8_heap_num_fields; ++f) {
+        if (nodejs_parse_hex_u64(payload + (u32)f * k_rt_field_hex_len, &vals[f]) != 0) {
+            return -1;
+        }
+    }
+    *name_len = (u8)(len - 1 - k_v8_heap_numbers_len);
+    return 0;
+}
 
 static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
     u32 fd = 0;
@@ -167,20 +233,9 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
 
     u64 vals[k_rt_field_count];
     for (u8 f = 0; f < k_rt_field_count; ++f) {
-        u64 v = 0;
-        for (u8 i = 0; i < k_rt_field_hex_len; ++i) {
-            const unsigned char c = payload[f * k_rt_field_hex_len + i];
-            u8 digit;
-            if (c >= '0' && c <= '9') {
-                digit = c - '0';
-            } else if (c >= 'a' && c <= 'f') {
-                digit = c - 'a' + 10;
-            } else {
-                return 0;
-            }
-            v = (v << 4) | digit;
+        if (nodejs_parse_hex_u64(payload + (u32)f * k_rt_field_hex_len, &vals[f]) != 0) {
+            return 0;
         }
-        vals[f] = v;
     }
 
     struct nodejs_eventloop_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
@@ -221,6 +276,115 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
                    e->elu_active_ns);
 
     bpf_ringbuf_submit(e, get_flags());
+    return 0;
+}
+
+static __always_inline void nodejs_fill_event_pids(const u64 pid_tgid,
+                                                   u32 *global_pid,
+                                                   u32 *global_tid,
+                                                   u32 *ns_pid_out,
+                                                   u32 *ns_tid,
+                                                   u32 *pid_ns_id_out) {
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    int ns_pid = 0;
+    int ns_ppid = 0;
+    u32 pid_ns_id = 0;
+    ns_pid_ppid(task, &ns_pid, &ns_ppid, &pid_ns_id);
+
+    *global_pid = pid_from_pid_tgid(pid_tgid);
+    *global_tid = tid_from_pid_tgid(pid_tgid);
+    *ns_pid_out = (u32)ns_pid;
+    *ns_tid = get_task_tid();
+    *pid_ns_id_out = pid_ns_id;
+}
+
+// Decodes the v8js records emitted by fdextractor.js under /dev/null/obi-v8/
+// (record layouts in types/nodejs.h; parsers unit-tested in
+// bpf/tests/bpf_nodejs_v8.c). The payload is variable-length (the heap record
+// carries the space name), so it is read with bpf_probe_read_user_str — a
+// fixed-size read past the path's NUL could fault at a page boundary and drop
+// valid events.
+static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgid) {
+    if (!nodejs_runtime_metrics_enabled) {
+        return 0;
+    }
+
+    unsigned char kind_char = 0;
+    if (bpf_probe_read_user(&kind_char, sizeof(kind_char), path + k_v8_kind_offset) != 0) {
+        return 0;
+    }
+
+    unsigned char *payload = nodejs_v8_payload_mem();
+    if (!payload) {
+        return 0;
+    }
+    const long len =
+        bpf_probe_read_user_str(payload, k_v8_heap_payload_read_len, path + k_v8_payload_offset);
+    if (len <= 0) {
+        return 0;
+    }
+
+    if (kind_char == 'g') {
+        u8 kind = 0;
+        u64 duration_ns = 0;
+        if (nodejs_v8_parse_gc(payload, (u64)len, &kind, &duration_ns) != 0) {
+            return 0;
+        }
+
+        struct nodejs_gc_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        if (!e) {
+            return 0;
+        }
+        bpf_memset(e, 0, sizeof(*e));
+        e->type = EVENT_NODEJS_GC;
+        e->timestamp = bpf_ktime_get_ns();
+        nodejs_fill_event_pids(
+            pid_tgid, &e->global_pid, &e->global_tid, &e->ns_pid, &e->ns_tid, &e->pid_ns_id);
+        e->kind = kind;
+        e->duration_ns = duration_ns;
+
+        bpf_dbg_printk(
+            "nodejs_v8_gc: pid_tgid=%llx kind=%u duration=%llu", pid_tgid, e->kind, e->duration_ns);
+        bpf_ringbuf_submit(e, get_flags());
+        return 0;
+    }
+
+    if (kind_char == 'h') {
+        u64 vals[k_v8_heap_num_fields];
+        u8 name_len = 0;
+        if (nodejs_v8_parse_heap(payload, (u64)len, vals, &name_len) != 0) {
+            return 0;
+        }
+
+        struct nodejs_heap_space_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        if (!e) {
+            return 0;
+        }
+        bpf_memset(e, 0, sizeof(*e));
+        e->type = EVENT_NODEJS_HEAP_SPACE;
+        e->timestamp = bpf_ktime_get_ns();
+        nodejs_fill_event_pids(
+            pid_tgid, &e->global_pid, &e->global_tid, &e->ns_pid, &e->ns_tid, &e->pid_ns_id);
+        e->name_len = name_len;
+        e->space_size = vals[0];
+        e->space_used_size = vals[1];
+        e->space_available_size = vals[2];
+        e->physical_space_size = vals[3];
+        for (u8 i = 0; i < k_nodejs_heap_space_name_max; ++i) {
+            if (i >= name_len) {
+                break;
+            }
+            e->space_name[i] = payload[k_v8_heap_numbers_len + i];
+        }
+
+        bpf_dbg_printk("nodejs_v8_heap: pid_tgid=%llx used=%llu name_len=%u",
+                       pid_tgid,
+                       e->space_used_size,
+                       e->name_len);
+        bpf_ringbuf_submit(e, get_flags());
+        return 0;
+    }
+
     return 0;
 }
 
@@ -269,6 +433,9 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     // 5. runtime metrics (1s sampling interval in the agent):
     //    /dev/null/obi-rt/<10 x 16 hex chars> — eventloop metrics payload
     //
+    // 6. v8js metrics (gc cycles and heap-space samples):
+    //    /dev/null/obi-v8/<'g'|'h'><payload> — record layouts in types/nodejs.h
+    //
     // All paths share the prefix "/dev/null/obi" (13 chars). The characters at
     // positions 13-14 distinguish the formats:
     //   '/'       -> format 1 (fd pair)
@@ -276,6 +443,7 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     //   '-', 's'  -> format 3 (manual span, "-span/" follows)
     //   '-', 'n'  -> format 4 (no request context, "-noreqctx")
     //   '-', 'r'  -> format 5 (runtime metrics, "-rt/" follows)
+    //   '-', 'v'  -> format 6 (v8js metrics, "-v8/" follows)
     static const char prefix[] = "/dev/null/obi";
     static const u8 prefix_size = sizeof(prefix) - 1;
 
@@ -318,6 +486,11 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
         // pointer because the payload extends past the 23-byte prefix buffer.
         if (buf[k_variant_offset] == 'r') {
             return handle_runtime_metrics(path, pid_tgid);
+        }
+        // v8js metrics: /dev/null/obi-v8/<'g'|'h'><payload> — same re-read
+        // from the original user pointer as the runtime metrics.
+        if (buf[k_variant_offset] == 'v') {
+            return handle_v8_metrics(path, pid_tgid);
         }
         // Async context switch: /dev/null/obi-ctx/XXXX
         // Fires from the async_hooks 'before' callback in fdextractor.js to
