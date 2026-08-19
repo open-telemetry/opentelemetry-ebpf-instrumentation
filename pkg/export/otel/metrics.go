@@ -97,6 +97,7 @@ type MetricsReporter struct {
 	attrGRPCServer             []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGRPCClient             []attributes.Field[*request.Span, attribute.KeyValue]
 	attrDBClient               []attributes.Field[*request.Span, attribute.KeyValue]
+	attrDBServer               []attributes.Field[*request.Span, attribute.KeyValue]
 	attrMessagingPublish       []attributes.Field[*request.Span, attribute.KeyValue]
 	attrMessagingProcess       []attributes.Field[*request.Span, attribute.KeyValue]
 	attrHTTPRequestSize        []attributes.Field[*request.Span, attribute.KeyValue]
@@ -138,6 +139,7 @@ type Metrics struct {
 	grpcDuration           *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	grpcClientDuration     *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	dbClientDuration       *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	dbServerDuration       *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	msgPublishDuration     *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	msgProcessDuration     *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	httpRequestSize        *Expirer[*request.Span, instrument.Float64Histogram, float64]
@@ -270,6 +272,8 @@ func newMetricsReporter(
 	if is.DBEnabled() {
 		mr.attrDBClient = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.DBClientDuration))
+		mr.attrDBServer = attributes.OpenTelemetryGetters(
+			mr.attrGetters, mr.attributes.For(attributes.DBServerDuration))
 	}
 
 	if is.MQEnabled() {
@@ -380,6 +384,7 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 	if mr.is.DBEnabled() {
 		opts = append(opts,
 			metric.WithView(mr.otelHistogramConfig(attributes.DBClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.DBServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 		)
 	}
 
@@ -505,6 +510,13 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 		}
 		m.dbClientDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 			m.ctx, dbClientDuration, mr.attrDBClient, timeNow, mr.cfg.TTL)
+
+		dbServerDuration, err := meter.Float64Histogram(attributes.DBServerDuration.OTEL, instrument.WithUnit(attributes.DBServerDuration.Unit))
+		if err != nil {
+			return fmt.Errorf("creating db server duration histogram metric: %w", err)
+		}
+		m.dbServerDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+			m.ctx, dbServerDuration, mr.attrDBServer, timeNow, mr.cfg.TTL)
 	}
 
 	if mr.is.MQEnabled() {
@@ -978,15 +990,25 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				httpClientResponseSize, attrs := r.httpClientResponseSize.ForRecord(span)
 				httpClientResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
 			}
-		case request.EventTypeRedisServer, request.EventTypeRedisClient:
+		case request.EventTypeRedisClient:
 			if mr.is.RedisEnabled() {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeRedisServer:
+			if mr.is.RedisEnabled() {
+				dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
+				dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeSQLClient:
 			if mr.is.SQLEnabled() {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSQLServer:
+			if mr.is.SQLEnabled() {
+				dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
+				dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeMongoClient:
 			if mr.is.MongoEnabled() {
@@ -998,10 +1020,15 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
-		case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
+		case request.EventTypeMemcachedClient:
 			if mr.is.MemcachedEnabled() {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeMemcachedServer:
+			if mr.is.MemcachedEnabled() {
+				dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
+				dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeAerospikeClient:
 			if mr.is.AerospikeEnabled() {
@@ -1361,6 +1388,7 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.grpcDuration)
 	cleanupMetrics(r.ctx, r.grpcClientDuration)
 	cleanupMetrics(r.ctx, r.dbClientDuration)
+	cleanupMetrics(r.ctx, r.dbServerDuration)
 	cleanupMetrics(r.ctx, r.msgPublishDuration)
 	cleanupMetrics(r.ctx, r.msgProcessDuration)
 	cleanupMetrics(r.ctx, r.httpRequestSize)

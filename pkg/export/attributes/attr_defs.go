@@ -396,6 +396,15 @@ func getDefinitions(
 				attr.DBCollectionName: false,
 			},
 		},
+		DBServerDuration.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
+			Attributes: map[attr.Name]Default{
+				attr.DBOperation:      true,
+				attr.DBSystemName:     true,
+				attr.ErrorType:        true,
+				attr.DBCollectionName: false,
+			},
+		},
 		MessagingPublishDuration.Section: {
 			SubGroups: []*AttrReportGroup{&messagingAttributes},
 		},
