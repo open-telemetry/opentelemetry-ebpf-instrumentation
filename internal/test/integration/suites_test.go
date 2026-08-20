@@ -149,6 +149,7 @@ func TestSuite_DNSUnconnectedResolver(t *testing.T) {
 	t.Run("DNS RED metrics over an unconnected resolver socket", testDNSUnconnectedResolver)
 	t.Run("every DNS lookup is counted", testDNSEveryLookupCounted)
 	t.Run("non-DNS UDP is not reported as DNS", testDNSNoFalsePositive)
+	t.Run("unrelated traffic does not lose an outstanding lookup", testDNSInterleavedTraffic)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

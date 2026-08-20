@@ -100,19 +100,164 @@ def exchange_non_dns(probe):
         print(f"decoy exchange failed error={err}", flush=True)
 
 
+# Interleaving: a resolver socket that carries unrelated traffic while a query
+# is still outstanding. The query goes out, something unrelated happens on the
+# same socket, and only then does the nameless answer arrive. Both sequences
+# have to leave the lookup reportable.
+#
+# The answers come from the delayed responder rather than from the compose
+# resolver, because the interleaved step and the answer would otherwise race:
+# whichever datagram lands first is the one the next receive returns, and the
+# receive-side sequence needs the unrelated datagram to be the one it reads. The
+# responder holds its answer back long enough that the ordering is not a matter
+# of timing.
+#
+# The responder runs in its own container, so its own DNS traffic is outside the
+# instrumented PID namespace and does not appear in the telemetry under test.
+RESPONDER_HOST = "dnsresponder"
+RESPONDER_PORT = 5353
+
+# Long enough that the interleaved step is ordered ahead of the answer by
+# construction: the unrelated datagram travels over loopback and lands in
+# microseconds, so nothing about the ordering rests on timing.
+RESPONDER_DELAY_SECONDS = 0.5
+
+# Answered by the delayed responder, so neither name has to exist in the compose
+# network. A lookup reported under one of these names, with no error, means the
+# answer was paired with its query across the interleaved step.
+INTERLEAVED_SEND_NAME = "interleaved-send.test"
+INTERLEAVED_RECV_NAME = "interleaved-recv.test"
+
+# Discards whatever it is sent, so the send-side sequence gets an unrelated send
+# on the socket without also putting a datagram in its receive queue
+BLACKHOLE_PORT = 8126
+
+
+def encode_labels(name):
+    return (
+        b"".join(bytes([len(label)]) + label.encode() for label in name.split("."))
+        + b"\x00"
+    )
+
+
+def dns_query(name, txid):
+    header = struct.pack("!HHHHHH", txid, 0x0100, 1, 0, 0, 0)  # rd=1, qdcount=1
+    return header + encode_labels(name) + struct.pack("!HH", 1, 1)  # type A, class IN
+
+
+def dns_answer_for(query):
+    """A NOERROR response echoing the question, with one A record."""
+    header = query[:2] + struct.pack("!HHHHH", 0x8180, 1, 1, 0, 0)
+    question = query[12:]
+    # name as a pointer back to the question, then type A, class IN, ttl, rdlength
+    answer = b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 60, 4) + bytes([127, 0, 0, 1])
+    return header + question + answer
+
+
+def run_responder():
+    """Answers every query after a delay, so callers can order what follows."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("", RESPONDER_PORT))
+    print(f"dnsresponder listening: port={RESPONDER_PORT}", flush=True)
+
+    while True:
+        query, peer = sock.recvfrom(512)
+        if len(query) < 12:
+            continue
+        time.sleep(RESPONDER_DELAY_SECONDS)
+        sock.sendto(dns_answer_for(query), peer)
+
+
+def start_blackhole_sink():
+    sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sink.bind((NON_DNS_HOST, BLACKHOLE_PORT))
+
+    def serve():
+        while True:
+            sink.recvfrom(512)
+
+    threading.Thread(target=serve, daemon=True).start()
+
+
+def interleave_non_dns_send(sock):
+    """An unrelated send, which says nothing about the query already in flight."""
+    sock.sendto(dns_shaped_response(), (NON_DNS_HOST, BLACKHOLE_PORT))
+
+
+def interleave_non_dns_receive(sock):
+    """An unrelated receive that names its non-DNS peer explicitly."""
+    sock.sendto(dns_shaped_response(), (NON_DNS_HOST, NON_DNS_PORT))
+
+    _, peer = sock.recvfrom(512)
+    if peer[1] != NON_DNS_PORT:
+        # the delayed answer overtook the echo, so this iteration did not
+        # exercise the interleaving; say so rather than reporting a lookup that
+        # proves nothing
+        raise OSError(f"expected the echo reply first, got a datagram from {peer}")
+
+
+def interleaved_lookup(name, txid, interleave, responder_ip):
+    """One lookup with an unrelated step between the query and its answer.
+
+    The answer is taken with recv() rather than recvfrom(), so the kernel fills
+    in no address and the answer carries no peer. Classifying it therefore rests
+    entirely on the window the query opened, which the interleaved step must not
+    have closed.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("", 0))  # bound but never connected, so its tuple has no peer
+    sock.settimeout(RECV_TIMEOUT_SECONDS)
+
+    try:
+        sock.sendto(dns_query(name, txid), (responder_ip, RESPONDER_PORT))
+        interleave(sock)
+        sock.recv(512)
+        print(f"interleaved lookup answered name={name}", flush=True)
+    except OSError as err:
+        print(f"interleaved lookup failed name={name} error={err}", flush=True)
+    finally:
+        sock.close()
+
+
 def main():
+    if os.getenv("DNS_RESPONDER"):
+        return run_responder()
+
     print(f"dnsclient running: pid={os.getpid()} host={HOST}", flush=True)
 
     start_echo_sink()
+    start_blackhole_sink()
+
+    # resolved once, so the responder's own name does not add a lookup per
+    # iteration; it still shows up once, at startup
+    responder_ip = socket.gethostbyname(RESPONDER_HOST)
+    print(f"responder resolved: {RESPONDER_HOST}={responder_ip}", flush=True)
 
     # never connected, so its tuple has no peer, exactly like musl's resolver socket
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     probe.bind((NON_DNS_HOST, 0))
     probe.settimeout(RECV_TIMEOUT_SECONDS)
 
+    # Every lookup needs its own transaction id. Lookups are paired with their
+    # answers on (pid, transaction id), so two outstanding queries sharing an id
+    # collide: the second displaces the first, and the displaced one is reported
+    # as an unanswered lookup even though its answer did arrive.
+    txid = 0
+
+    def next_txid():
+        nonlocal txid
+        txid = (txid + 1) & 0xFFFF
+        return txid
+
     while True:
         resolve_and_ping()
         exchange_non_dns(probe)
+        interleaved_lookup(
+            INTERLEAVED_SEND_NAME, next_txid(), interleave_non_dns_send, responder_ip
+        )
+        interleaved_lookup(
+            INTERLEAVED_RECV_NAME, next_txid(), interleave_non_dns_receive, responder_ip
+        )
         time.sleep(INTERVAL_SECONDS)
 
 

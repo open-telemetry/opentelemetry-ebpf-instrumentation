@@ -7,6 +7,19 @@ services:
     image: valkey/valkey:8-alpine@sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec
     container_name: valkey
 
+  # Answers the workload's hand-built queries after a delay, so that an
+  # interleaved step on the resolver socket is ordered ahead of the answer
+  # rather than racing it. Runs outside the instrumented PID namespace, so its
+  # own DNS traffic does not appear in the telemetry under test.
+  dnsresponder:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/dnsclient/Dockerfile
+    image: hatest-dnsclient
+    container_name: dnsresponder
+    environment:
+      DNS_RESPONDER: "1"
+
   testserver:
     build:
       context: ../../..
@@ -18,6 +31,8 @@ services:
       otelcol:
         condition: service_started
       valkey:
+        condition: service_started
+      dnsresponder:
         condition: service_started
 
   obi:

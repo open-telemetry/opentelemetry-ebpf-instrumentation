@@ -21,6 +21,19 @@ const unconnectedDNSName = "valkey."
 // traffic was classified as DNS.
 const falsePositiveDNSName = "falsepositive.test."
 
+// Names the workload looks up with an unrelated step between the query and its
+// nameless answer: an unrelated send on the resolver socket for the first, an
+// unrelated receive that names its non-DNS peer for the second. Neither step
+// says anything about the query already in flight, so both lookups must still
+// pair.
+const (
+	interleavedSendDNSName = "interleaved-send.test."
+	interleavedRecvDNSName = "interleaved-recv.test."
+)
+
+// The workload resolves the delayed responder's own name once, at startup
+const responderDNSName = "dnsresponder."
+
 // The Redis traffic that follows each lookup. Instrumenting it confirms the
 // workload is being watched, so a missing DNS metric means the lookup was not
 // captured rather than that the process was never instrumented.
@@ -81,6 +94,42 @@ func testDNSMetricsCountEveryLookup(t *testing.T, namespace string) {
 	}, testTimeout, time.Second)
 }
 
+// Counts only lookups that were answered. An unanswered query is reported too,
+// with error_type "Refused", once the pipeline gives up waiting for its answer.
+// That is exactly what a lost answer looks like, so the interleaving assertions
+// have to exclude it or they pass whether or not the answer was classified.
+func answeredLookupCount(ct *assert.CollectT, pq promtest.Client, name, namespace string) int {
+	results, err := pq.Query(`dns_lookup_duration_seconds_count{` +
+		`dns_question_name="` + name + `",` +
+		`error_type="",` +
+		`service_namespace="` + namespace + `"}`)
+	require.NoError(ct, err)
+	enoughPromResults(ct, results)
+	return totalPromCount(ct, results)
+}
+
+// A query goes out on an unconnected socket, an unrelated datagram is sent on
+// that same socket, and only then does the nameless answer arrive. Retiring the
+// socket's window on that intervening send loses the answer.
+func testDNSInterleavedSendKeepsTheLookup(t *testing.T, namespace string) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.LessOrEqual(ct, 1, answeredLookupCount(ct, pq, interleavedSendDNSName, namespace))
+	}, testTimeout, 100*time.Millisecond)
+}
+
+// The same sequence with an unrelated receive in the middle, one that names its
+// non-DNS peer. It is classified and discarded on its own merits, and must not
+// take the outstanding query with it.
+func testDNSInterleavedReceiveKeepsTheLookup(t *testing.T, namespace string) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.LessOrEqual(ct, 1, answeredLookupCount(ct, pq, interleavedRecvDNSName, namespace))
+	}, testTimeout, 100*time.Millisecond)
+}
+
 // The workload pairs every lookup with a decoy UDP exchange on an unconnected
 // socket: a DNS-shaped payload, a receive that names no peer, and a non-DNS peer
 // port. Classifying an answer by the socket it arrived on has to stop short of
@@ -104,8 +153,16 @@ func testDNSNoFalsePositiveFromNonDNSUDP(t *testing.T, namespace string) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results, "no DNS lookups at all, so this proves nothing")
 
+	// everything the workload legitimately looks up
+	expected := []string{
+		unconnectedDNSName,
+		interleavedSendDNSName,
+		interleavedRecvDNSName,
+		responderDNSName,
+	}
+
 	for _, result := range results {
-		assert.Equal(t, unconnectedDNSName, result.Metric["dns_question_name"],
+		assert.Contains(t, expected, result.Metric["dns_question_name"],
 			"non-DNS UDP on an unconnected socket was reported as a DNS lookup; "+
 				"the decoy payload carries the name %q", falsePositiveDNSName)
 	}
@@ -118,6 +175,11 @@ func testDNSUnconnectedResolver(t *testing.T) {
 
 func testDNSNoFalsePositive(t *testing.T) {
 	testDNSNoFalsePositiveFromNonDNSUDP(t, "integration-test")
+}
+
+func testDNSInterleavedTraffic(t *testing.T) {
+	testDNSInterleavedSendKeepsTheLookup(t, "integration-test")
+	testDNSInterleavedReceiveKeepsTheLookup(t, "integration-test")
 }
 
 func testDNSEveryLookupCounted(t *testing.T) {
