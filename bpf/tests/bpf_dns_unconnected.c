@@ -510,6 +510,100 @@ static void test_unconn_sock_unparsed_receive_does_not_spend_the_window(void) {
              obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
+// A staged query is one that parsed as DNS on the way into udp_sendmsg. Until
+// the return probe says it left the host, it opens no window.
+
+enum : u64 { k_test_pid_tid = 0x2a2a };
+
+static void test_unconn_staged_query_opens_no_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+
+    check_u8("a staged query alone expects no answer",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+static void test_unconn_committed_query_opens_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("a committed query expects an answer",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The case the return probe exists for: sendto() returned an error, so the
+// resolver asked nothing and is owed nothing.
+static void test_unconn_failed_send_opens_no_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+    obi_discard_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("a failed DNS send expects no answer",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The commit consumes the staged query, so a later send whose return probe
+// fires without staging anything cannot reopen the window
+static void test_unconn_commit_does_not_repeat(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+    obi_forget_unconn_dns_sock((void *)0x1000);
+
+    // the socket was destroyed and its window retired; a second return probe
+    // for the same thread has nothing left to commit
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("a second commit reopens nothing",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The window is timed from the commit, not from the entry probe, so a send that
+// blocks in the kernel does not spend part of its own answer window
+static void test_unconn_window_is_timed_from_the_commit(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+
+    // the send blocks for longer than the whole answer window before returning
+    test_now_ns = k_unconn_dns_answer_timeout_ns * 2;
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("the window starts when the datagram went out",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The staged record carries the socket, so a commit reaching the map applies to
+// the socket that sent the query rather than to whatever sent last
+static void test_unconn_commit_applies_to_the_staged_socket(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("the staged socket got the window",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+    check_u8(
+        "an unrelated socket did not", 0, obi_unconn_dns_answer_expected((void *)0x2000, &conn));
+}
+
 static void test_unconn_sock_does_not_match_other_sockets(void) {
     mock_map_reset();
     connection_info_t conn = local_endpoint(40100, 10);
@@ -699,6 +793,13 @@ int main(void) {
     test_unconn_sock_answer_is_expected_after_a_query();
     test_unconn_sock_expects_every_parallel_answer();
     test_unconn_sock_unparsed_receive_does_not_spend_the_window();
+    test_unconn_staged_query_opens_no_window();
+    test_unconn_committed_query_opens_the_window();
+    test_unconn_failed_send_opens_no_window();
+    test_unconn_commit_does_not_repeat();
+    test_unconn_window_is_timed_from_the_commit();
+    test_unconn_commit_applies_to_the_staged_socket();
+
     test_unconn_sock_does_not_match_other_sockets();
     test_unconn_sock_non_dns_send_preserves_the_window();
     test_unconn_sock_non_dns_receive_preserves_the_window();

@@ -34,3 +34,22 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } unconn_dns_socks SEC(".maps");
+
+// A DNS query parsed on the way into udp_sendmsg, held until the return probe
+// says whether it left the host, and keyed by pid_tid because that is what
+// joins the entry probe to its return. A send that fails must not open an
+// answer window: nothing was asked, so nothing is owed an answer.
+typedef struct unconn_dns_pending {
+    u64 sk;
+    u8 s_addr[IP_V6_ADDR_LEN];
+    u16 s_port;
+    u8 _pad[6];
+} unconn_dns_pending_t;
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u64); // pid_tid
+    __type(value, unconn_dns_pending_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} unconn_dns_pending SEC(".maps");

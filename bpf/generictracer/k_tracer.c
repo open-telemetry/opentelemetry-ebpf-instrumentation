@@ -252,6 +252,10 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
 
     store_sock_pid(sk);
 
+    // any query staged by an earlier send on this thread has lost its return
+    // probe, so it must not be committed by this send's return
+    obi_discard_unconn_dns_query(id);
+
     send_args_t s_args = {.size = len};
 
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
@@ -273,11 +277,36 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
                 if (len && handle_dns_buf(buf, len, &s_args.p_conn, orig_dport) &&
                     orig_dport == 0) {
                     // the answer to this query will carry no peer, so the only
-                    // thing left to recognise it by is the socket it arrives on
-                    obi_note_unconn_dns_query(sk, &local_conn);
+                    // thing left to recognise it by is the socket it arrives on.
+                    // Held until the return probe confirms the send.
+                    obi_stage_unconn_dns_query(id, sk, &local_conn);
                 }
             }
         }
+    }
+
+    return 0;
+}
+
+// Opens the answer window only for a query that actually left the host. A
+// resolver whose send fails asked nothing, so a later nameless datagram on that
+// socket must not be reported as its answer.
+SEC("kretprobe/udp_sendmsg")
+int BPF_KRETPROBE_GUARDED(obi_kretprobe_udp_sendmsg, int ret) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    // a partial send still carries the query; only an error means it never went
+    if (ret > 0) {
+        obi_commit_unconn_dns_query(id);
+    } else {
+        bpf_dbg_printk("=== kretprobe/udp_sendmsg id=%llx failed ret=%d ===", id, ret);
+        obi_discard_unconn_dns_query(id);
     }
 
     return 0;

@@ -247,10 +247,7 @@ static __always_inline void obi_forget_unconn_dns_sock(void *sk) {
     bpf_map_delete_elem(&unconn_dns_socks, &k);
 }
 
-// Records that sk just sent a DNS query, opening the window in which a nameless
-// answer on this socket may be classified as DNS. Call this only once the sent
-// payload has been parsed as a DNS message, so that a send which never carried
-// DNS — or never left the host — does not open the window.
+// Opens the window in which a nameless answer on sk may be classified as DNS.
 //
 // conn must be the unsorted tuple, so that s_addr/s_port name the local endpoint.
 // The whole record is rewritten unconditionally: one map store, no
@@ -265,6 +262,43 @@ static __always_inline void obi_note_unconn_dns_query(void *sk, const connection
     __builtin_memcpy(fresh.s_addr, conn->s_addr, sizeof(fresh.s_addr));
 
     bpf_map_update_elem(&unconn_dns_socks, &k, &fresh, BPF_ANY);
+}
+
+// Holds a parsed DNS query until udp_sendmsg returns. The payload has been
+// recognised as DNS by this point, but the send may still fail, and a query
+// that never left the host is owed no answer.
+//
+// conn must be the unsorted tuple.
+static __always_inline void
+obi_stage_unconn_dns_query(u64 pid_tid, void *sk, const connection_info_t *conn) {
+    unconn_dns_pending_t pending = {
+        .sk = (u64)sk,
+        .s_port = conn->s_port,
+    };
+    __builtin_memcpy(pending.s_addr, conn->s_addr, sizeof(pending.s_addr));
+
+    bpf_map_update_elem(&unconn_dns_pending, &pid_tid, &pending, BPF_ANY);
+}
+
+static __always_inline void obi_discard_unconn_dns_query(u64 pid_tid) {
+    bpf_map_delete_elem(&unconn_dns_pending, &pid_tid);
+}
+
+// Opens the answer window for a query that was staged and has now been sent.
+// The window is timed from here rather than from the entry probe, so it starts
+// when the datagram actually went out.
+static __always_inline void obi_commit_unconn_dns_query(u64 pid_tid) {
+    const unconn_dns_pending_t *pending = bpf_map_lookup_elem(&unconn_dns_pending, &pid_tid);
+
+    if (!pending) {
+        return;
+    }
+
+    connection_info_t local_conn = {.s_port = pending->s_port};
+    __builtin_memcpy(local_conn.s_addr, pending->s_addr, sizeof(local_conn.s_addr));
+
+    obi_note_unconn_dns_query((void *)pending->sk, &local_conn);
+    obi_discard_unconn_dns_query(pid_tid);
 }
 
 // Reports whether a nameless answer on sk may be attributed to DNS: the socket
