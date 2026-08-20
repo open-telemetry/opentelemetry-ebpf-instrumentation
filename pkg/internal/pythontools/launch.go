@@ -1,0 +1,595 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package pythontools // import "go.opentelemetry.io/obi/pkg/internal/pythontools"
+
+import (
+	"path/filepath"
+	"strings"
+	"unicode"
+)
+
+type targetKind uint8
+
+const (
+	targetNone targetKind = iota
+	targetFile
+	targetModule
+)
+
+type pythonLaunch struct {
+	target       string
+	targetKind   targetKind
+	searchPaths  []string
+	fallbackName string
+	fastAPIAuto  bool
+}
+
+var genericModuleNames = map[string]struct{}{
+	"api":         {},
+	"app":         {},
+	"application": {},
+	"asgi":        {},
+	"celery":      {},
+	"cli":         {},
+	"conf":        {},
+	"config":      {},
+	"entrypoint":  {},
+	"index":       {},
+	"main":        {},
+	"manage":      {},
+	"models":      {},
+	"project":     {},
+	"routes":      {},
+	"run":         {},
+	"runserver":   {},
+	"server":      {},
+	"service":     {},
+	"settings":    {},
+	"src":         {},
+	"start":       {},
+	"tasks":       {},
+	"urls":        {},
+	"views":       {},
+	"web":         {},
+	"worker":      {},
+	"wsgi":        {},
+}
+
+var nonApplicationModules = map[string]struct{}{
+	"ensurepip":   {},
+	"http.server": {},
+	"idlelib":     {},
+	"pip":         {},
+	"pydoc":       {},
+	"pytest":      {},
+	"unittest":    {},
+	"venv":        {},
+}
+
+func parsePythonLaunch(executable string, args []string, env map[string]string) pythonLaunch {
+	command := commandName(executable)
+	if isPythonInterpreter(command) {
+		return parseInterpreterLaunch(args, env)
+	}
+	if isLauncher(command) {
+		return parseLauncher(command, args, env)
+	}
+	return pythonLaunch{}
+}
+
+func parseInterpreterLaunch(args []string, env map[string]string) pythonLaunch {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--":
+			if i+1 < len(args) {
+				return launchForScript(args[i+1], args[i+2:], env)
+			}
+			return pythonLaunch{}
+		case arg == "-c" || strings.HasPrefix(arg, "-c"):
+			return pythonLaunch{}
+		case arg == "-m":
+			if i+1 >= len(args) {
+				return pythonLaunch{}
+			}
+			return launchForModule(args[i+1], args[i+2:], env)
+		case strings.HasPrefix(arg, "-m") && len(arg) > 2:
+			return launchForModule(arg[2:], args[i+1:], env)
+		case arg == "-W" || arg == "-X" || arg == "--check-hash-based-pycs":
+			i++
+			continue
+		case strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			return launchForScript(arg, args[i+1:], env)
+		}
+	}
+	return pythonLaunch{}
+}
+
+func launchForModule(module string, args []string, env map[string]string) pythonLaunch {
+	command := commandName(module)
+	if isLauncher(command) {
+		return parseLauncher(command, args, env)
+	}
+	if _, excluded := nonApplicationModules[module]; excluded {
+		return pythonLaunch{}
+	}
+	return pythonLaunch{target: module, targetKind: targetModule}
+}
+
+func launchForScript(script string, args []string, env map[string]string) pythonLaunch {
+	command := commandName(script)
+	if isLauncher(command) {
+		return parseLauncher(command, args, env)
+	}
+	if command == "manage" {
+		launch := parseDjango(args, env)
+		if launch.target == "" {
+			launch.target = script
+			launch.targetKind = targetFile
+		}
+		return launch
+	}
+	if script == "-" {
+		return pythonLaunch{}
+	}
+	return pythonLaunch{target: script, targetKind: targetFile}
+}
+
+func parseLauncher(command string, args []string, env map[string]string) pythonLaunch {
+	switch command {
+	case "gunicorn":
+		return parseGunicorn(args, env)
+	case "uvicorn":
+		return parseUvicorn(args, env)
+	case "hypercorn":
+		return parseApplicationServer(args, hypercornOptions)
+	case "daphne":
+		return parseApplicationServer(args, daphneOptions)
+	case "uwsgi":
+		return parseUWSGI(args)
+	case "waitress", "waitress-serve", "waitress_serve":
+		return parseApplicationServer(args, waitressOptions)
+	case "flask":
+		return parseFlask(args, env)
+	case "fastapi":
+		return parseFastAPI(args)
+	case "django", "django-admin", "django_admin":
+		return parseDjango(args, env)
+	case "celery":
+		return parseCelery(args)
+	default:
+		return pythonLaunch{}
+	}
+}
+
+func parseGunicorn(args []string, env map[string]string) pythonLaunch {
+	var settings gunicornSettings
+	if fields, ok := splitShellFields(env["GUNICORN_CMD_ARGS"]); ok {
+		applyGunicornSettings(fields, &settings)
+	}
+	applyGunicornSettings(args, &settings)
+
+	launch := pythonLaunch{fallbackName: cleanValue(settings.name)}
+	if settings.chdir != "" {
+		launch.searchPaths = append(launch.searchPaths, settings.chdir)
+	}
+	launch.searchPaths = append(launch.searchPaths, splitList(settings.pythonPath)...)
+	for _, arg := range positionals(args, gunicornOptions) {
+		if isApplicationReference(arg) {
+			launch.target = arg
+			launch.targetKind = targetModule
+			break
+		}
+	}
+	return launch
+}
+
+type gunicornSettings struct {
+	chdir      string
+	pythonPath string
+	name       string
+}
+
+func applyGunicornSettings(args []string, settings *gunicornSettings) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--chdir" && i+1 < len(args):
+			i++
+			settings.chdir = args[i]
+		case strings.HasPrefix(arg, "--chdir="):
+			settings.chdir = strings.TrimPrefix(arg, "--chdir=")
+		case arg == "--pythonpath" && i+1 < len(args):
+			i++
+			settings.pythonPath = args[i]
+		case strings.HasPrefix(arg, "--pythonpath="):
+			settings.pythonPath = strings.TrimPrefix(arg, "--pythonpath=")
+		case (arg == "-n" || arg == "--name") && i+1 < len(args):
+			i++
+			settings.name = args[i]
+		case strings.HasPrefix(arg, "--name="):
+			settings.name = strings.TrimPrefix(arg, "--name=")
+		case strings.HasPrefix(arg, "-n") && len(arg) > 2:
+			settings.name = arg[2:]
+		}
+	}
+}
+
+func parseUvicorn(args []string, env map[string]string) pythonLaunch {
+	appDir := env["UVICORN_APP_DIR"]
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--app-dir" && i+1 < len(args):
+			i++
+			appDir = args[i]
+		case strings.HasPrefix(args[i], "--app-dir="):
+			appDir = strings.TrimPrefix(args[i], "--app-dir=")
+		}
+	}
+
+	launch := pythonLaunch{}
+	if appDir != "" {
+		launch.searchPaths = append(launch.searchPaths, appDir)
+	}
+	for _, arg := range positionals(args, uvicornOptions) {
+		if isApplicationReference(arg) {
+			launch.target = arg
+			launch.targetKind = targetModule
+			return launch
+		}
+	}
+	if target := cleanValue(env["UVICORN_APP"]); target != "" {
+		launch.target = target
+		launch.targetKind = targetModule
+	}
+	return launch
+}
+
+func parseApplicationServer(args []string, options map[string]struct{}) pythonLaunch {
+	for _, arg := range positionals(args, options) {
+		if isApplicationReference(arg) {
+			return pythonLaunch{target: arg, targetKind: targetModule}
+		}
+	}
+	return pythonLaunch{}
+}
+
+func parseUWSGI(args []string) pythonLaunch {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case (arg == "-w" || arg == "--module") && i+1 < len(args):
+			return pythonLaunch{target: args[i+1], targetKind: targetModule}
+		case strings.HasPrefix(arg, "--module="):
+			return pythonLaunch{target: strings.TrimPrefix(arg, "--module="), targetKind: targetModule}
+		case arg == "--wsgi-file" && i+1 < len(args):
+			return pythonLaunch{target: args[i+1], targetKind: targetFile}
+		case strings.HasPrefix(arg, "--wsgi-file="):
+			return pythonLaunch{target: strings.TrimPrefix(arg, "--wsgi-file="), targetKind: targetFile}
+		}
+	}
+	return pythonLaunch{}
+}
+
+func parseFlask(args []string, env map[string]string) pythonLaunch {
+	target := env["FLASK_APP"]
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--app" && i+1 < len(args):
+			i++
+			target = args[i]
+		case strings.HasPrefix(args[i], "--app="):
+			target = strings.TrimPrefix(args[i], "--app=")
+		}
+	}
+	return pythonLaunch{target: target, targetKind: classifyTarget(target)}
+}
+
+func parseFastAPI(args []string) pythonLaunch {
+	for i, arg := range args {
+		if arg != "run" && arg != "dev" {
+			continue
+		}
+		positionals := positionals(args[i+1:], fastAPIOptions)
+		if len(positionals) == 0 {
+			return pythonLaunch{fastAPIAuto: true}
+		}
+		return pythonLaunch{target: positionals[0], targetKind: classifyTarget(positionals[0])}
+	}
+	return pythonLaunch{}
+}
+
+func parseDjango(args []string, env map[string]string) pythonLaunch {
+	target := env["DJANGO_SETTINGS_MODULE"]
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--settings" && i+1 < len(args):
+			i++
+			target = args[i]
+		case strings.HasPrefix(args[i], "--settings="):
+			target = strings.TrimPrefix(args[i], "--settings=")
+		}
+	}
+	return pythonLaunch{target: target, targetKind: classifyTarget(target)}
+}
+
+func parseCelery(args []string) pythonLaunch {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case (arg == "-A" || arg == "--app") && i+1 < len(args):
+			return pythonLaunch{target: args[i+1], targetKind: targetModule}
+		case strings.HasPrefix(arg, "--app="):
+			return pythonLaunch{target: strings.TrimPrefix(arg, "--app="), targetKind: targetModule}
+		case strings.HasPrefix(arg, "-A") && len(arg) > 2:
+			return pythonLaunch{target: arg[2:], targetKind: targetModule}
+		}
+	}
+	return pythonLaunch{}
+}
+
+func classifyTarget(target string) targetKind {
+	target = targetReference(target)
+	if target == "" {
+		return targetNone
+	}
+	if filepath.IsAbs(target) || strings.ContainsAny(target, `/\`) || strings.HasSuffix(strings.ToLower(target), ".py") {
+		return targetFile
+	}
+	return targetModule
+}
+
+func targetName(target string) string {
+	target = targetReference(target)
+	if target == "" {
+		return ""
+	}
+	target = strings.ReplaceAll(target, `\`, "/")
+	if strings.Contains(target, "/") {
+		target = strings.TrimSuffix(filepath.Base(target), filepath.Ext(target))
+	} else if strings.HasSuffix(strings.ToLower(target), ".py") {
+		target = strings.TrimSuffix(target, filepath.Ext(target))
+	}
+	parts := strings.Split(target, ".")
+	for i, part := range parts {
+		if strings.EqualFold(part, "settings") && i > 0 {
+			return specificModuleName(parts[i-1])
+		}
+	}
+	for i := len(parts) - 1; i >= 0; i-- {
+		if name := specificModuleName(parts[i]); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func specificModuleName(value string) string {
+	value = cleanValue(value)
+	if value == "" || value == "." || value == ".." || value == "-" || value == "__init__" || value == "__main__" {
+		return ""
+	}
+	if _, generic := genericModuleNames[strings.ToLower(value)]; generic {
+		return ""
+	}
+	return value
+}
+
+func targetReference(target string) string {
+	target = strings.TrimSpace(target)
+	if before, _, ok := strings.Cut(target, ":"); ok {
+		target = before
+	}
+	return strings.TrimSpace(target)
+}
+
+func cleanValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsFunc(value, unicode.IsControl) {
+		return ""
+	}
+	return value
+}
+
+func commandName(path string) string {
+	name := strings.ToLower(filepath.Base(path))
+	return strings.TrimSuffix(name, filepath.Ext(name))
+}
+
+func isPythonInterpreter(command string) bool {
+	return strings.HasPrefix(command, "python") || strings.HasPrefix(command, "pypy")
+}
+
+func isLauncher(command string) bool {
+	switch command {
+	case "gunicorn", "uvicorn", "hypercorn", "daphne", "uwsgi", "waitress", "waitress-serve", "waitress_serve",
+		"flask", "fastapi", "django", "django-admin", "django_admin", "celery":
+		return true
+	default:
+		return false
+	}
+}
+
+func isApplicationReference(value string) bool {
+	module, object, ok := strings.Cut(value, ":")
+	if !ok || !validModule(module) {
+		return false
+	}
+	if before, _, found := strings.Cut(object, "("); found {
+		object = before
+	}
+	return validModule(object)
+}
+
+func validModule(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, part := range strings.Split(value, ".") {
+		if !validIdentifier(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func validIdentifier(value string) bool {
+	for i, r := range value {
+		if i == 0 {
+			if r != '_' && !unicode.IsLetter(r) {
+				return false
+			}
+		} else if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return value != ""
+}
+
+func positionals(args []string, optionsWithValues map[string]struct{}) []string {
+	var values []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return append(values, args[i+1:]...)
+		}
+		if strings.HasPrefix(arg, "--") {
+			name, _, attached := strings.Cut(arg, "=")
+			if !attached {
+				if _, consumes := optionsWithValues[name]; consumes && i+1 < len(args) {
+					i++
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			if _, consumes := optionsWithValues[arg]; consumes && i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		values = append(values, arg)
+	}
+	return values
+}
+
+func splitShellFields(value string) ([]string, bool) {
+	var fields []string
+	var field strings.Builder
+	var quote rune
+	escaped := false
+	started := false
+	flush := func() {
+		if started {
+			fields = append(fields, field.String())
+			field.Reset()
+			started = false
+		}
+	}
+
+	for _, r := range value {
+		if escaped {
+			field.WriteRune(r)
+			escaped = false
+			started = true
+			continue
+		}
+		if r == '\\' && quote != '\'' {
+			escaped = true
+			started = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				field.WriteRune(r)
+			}
+			started = true
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			started = true
+			continue
+		}
+		if unicode.IsSpace(r) {
+			flush()
+			continue
+		}
+		field.WriteRune(r)
+		started = true
+	}
+	if quote != 0 || escaped {
+		return nil, false
+	}
+	flush()
+	return fields, true
+}
+
+func splitList(value string) []string {
+	var values []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			values = append(values, item)
+		}
+	}
+	return values
+}
+
+var gunicornOptions = optionSet(
+	"-b", "--bind", "-w", "--workers", "-k", "--worker-class", "--threads", "--worker-connections",
+	"--max-requests", "--max-requests-jitter", "-t", "--timeout", "--graceful-timeout", "--keep-alive",
+	"--limit-request-line", "--limit-request-fields", "--limit-request-field_size", "--reload-engine",
+	"--reload-extra-file", "-c", "--config", "--access-logfile", "--access-logformat", "--error-logfile",
+	"--log-level", "--logger-class", "--log-config", "--log-config-json", "--capture-output", "--logger-class",
+	"-n", "--name", "-p", "--pid", "-u", "--user", "-g", "--group", "-m", "--umask", "-e", "--env",
+	"--chdir", "--pythonpath", "--paste", "--proxy-protocol", "--proxy-allow-from", "--keyfile", "--certfile",
+	"--ssl-version", "--cert-reqs", "--ca-certs", "--suppress-ragged-eofs", "--do-handshake-on-connect",
+	"--ciphers", "--forwarded-allow-ips", "--forwarder-headers", "--header-map", "--permit-obsolete-folding",
+)
+
+var uvicornOptions = optionSet(
+	"--host", "--port", "--uds", "--fd", "--reload-dir", "--reload-delay", "--reload-include", "--reload-exclude",
+	"--workers", "--env-file", "--timeout-worker-healthcheck", "--log-config", "--log-level", "--loop", "--http",
+	"--ws", "--ws-max-size", "--ws-max-queue", "--ws-ping-interval", "--ws-ping-timeout", "--ws-per-message-deflate",
+	"--lifespan", "--h11-max-incomplete-event-size", "--interface", "--root-path", "--forwarded-allow-ips", "--header",
+	"--ssl-keyfile", "--ssl-keyfile-password", "--ssl-certfile", "--ssl-version", "--ssl-cert-reqs", "--ssl-ca-certs",
+	"--ssl-ciphers", "--app-dir",
+)
+
+var hypercornOptions = optionSet(
+	"-b", "--bind", "--ca-certs", "--certfile", "--cipher", "-c", "--config", "--debug", "--error-logfile",
+	"--graceful-timeout", "--keyfile", "--keep-alive", "--log-config", "--log-level", "-p", "--pid", "--quic-bind",
+	"--read-timeout", "--root-path", "--server-name", "--statsd-host", "--umask", "-u", "--user", "-w", "--workers",
+	"-k", "--worker-class",
+)
+
+var daphneOptions = optionSet(
+	"-p", "--port", "-b", "--bind", "--websocket_timeout", "--websocket_connect_timeout", "-u", "--unix-socket",
+	"--fd", "-e", "--endpoint", "--http-timeout", "--access-log", "--ping-interval", "--ping-timeout",
+	"--application-close-timeout", "--root-path", "--proxy-forwarded-address-header", "--proxy-forwarded-port-header",
+)
+
+var waitressOptions = optionSet(
+	"--url-scheme", "--url-prefix", "--ident", "--url-prefix", "--listen", "--threads", "--channel-timeout",
+	"--cleanup-interval", "--connection-limit", "--asyncore-use-poll", "--unix-socket", "--unix-socket-perms",
+	"--url-prefix", "--backlog", "--recv-bytes", "--send-bytes", "--outbuf-overflow", "--outbuf-high-watermark",
+	"--inbuf-overflow", "--adj", "--max-request-header-size", "--max-request-body-size", "--expose-tracebacks",
+)
+
+var fastAPIOptions = optionSet(
+	"--host", "--port", "--uds", "--fd", "--app", "--entrypoint", "--root-path", "--proxy-headers",
+	"--forwarded-allow-ips", "--workers", "--reload-delay", "--reload-dir", "--reload-include", "--reload-exclude",
+)
+
+func optionSet(values ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
+}
