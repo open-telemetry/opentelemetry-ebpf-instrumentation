@@ -27,7 +27,8 @@ func (e Enabled) ShouldReport(snapshot RuntimeMetricSnapshot) bool {
 	if snapshot.Go != nil || snapshot.Histogram != nil {
 		return e.Runtime && snapshot.Service.SDKLanguage == svc.InstrumentableGolang
 	}
-	if snapshot.JVM != nil || snapshot.Nodejs != nil {
+	if snapshot.JVM != nil || snapshot.Nodejs != nil ||
+		snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil {
 		return e.Runtime &&
 			snapshot.Service.ExportModes.CanExportMetrics() &&
 			snapshot.Service.Features.AppRuntime()

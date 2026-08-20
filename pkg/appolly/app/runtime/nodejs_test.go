@@ -65,6 +65,19 @@ func TestParseNodejsGCEvent(t *testing.T) {
 	assert.Equal(t, NodejsGCTypeUnknown, ParseNodejsGCEvent(ktime, 55, 99, 9, 1).GCType)
 }
 
+// Only the well-known members of the semconv v8js.heap.space.name enum are
+// exported. V8 reports more spaces (read_only_space, shared_space,
+// trusted_space, ...) depending on the engine version; those are dropped
+// before export (see semconvHeapSpaces for the rationale).
+func TestIsSemconvHeapSpace(t *testing.T) {
+	for _, name := range []string{"new_space", "old_space", "code_space", "map_space", "large_object_space"} {
+		assert.True(t, IsSemconvHeapSpace(name), name)
+	}
+	for _, name := range []string{"read_only_space", "shared_space", "new_large_object_space", ""} {
+		assert.False(t, IsSemconvHeapSpace(name), name)
+	}
+}
+
 func TestParseNodejsHeapSpaceEvent(t *testing.T) {
 	const ktime = 2 * 3600 * 1_000_000_000
 

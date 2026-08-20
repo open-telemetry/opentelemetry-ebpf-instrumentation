@@ -121,6 +121,28 @@ type NodejsHeapSpaceValues struct {
 	PhysicalSpaceSize  uint64
 }
 
+// semconvHeapSpaces are the well-known members of the semconv
+// v8js.heap.space.name enum. The enum is open (custom values are allowed by
+// the spec), but V8 reports engine-version-dependent extra spaces
+// (read_only_space, shared_space, trusted_space, ...); exporting only the
+// well-known set keeps the series bounded across engine versions and the
+// repo's weaver validation — which grades undocumented enum values as
+// violations — at zero.
+var semconvHeapSpaces = map[string]struct{}{
+	"new_space":          {},
+	"old_space":          {},
+	"code_space":         {},
+	"map_space":          {},
+	"large_object_space": {},
+}
+
+// IsSemconvHeapSpace reports whether name is a documented member of the
+// semconv v8js.heap.space.name enum.
+func IsSemconvHeapSpace(name string) bool {
+	_, ok := semconvHeapSpaces[name]
+	return ok
+}
+
 type NodejsHeapSpaceEvent struct {
 	PID            app.PID
 	PIDNamespaceID uint32

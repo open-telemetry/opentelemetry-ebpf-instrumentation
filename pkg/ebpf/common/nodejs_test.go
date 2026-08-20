@@ -236,6 +236,89 @@ func TestParseNodejsHeapSpaceRecordRejectsBadNameLength(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestHandleRuntimeMetricsRecordSendsDecoratedV8Events(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
+	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}
+	sender := &fakeRuntimeMetricsSender{}
+	eventCtx := &EBPFEventContext{RuntimeMetrics: sender}
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsGCRawSample(2, 350_000_000),
+	}, filter, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	require.Len(t, sender.nodejsGCEvents, 1)
+	assert.Equal(t, "node-svc", sender.nodejsGCEvents[0].Service.UID.Name)
+	assert.Equal(t, nodejsruntime.NodejsGCTypeMajor, sender.nodejsGCEvents[0].GCType)
+
+	handled, err = HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsHeapSpaceRawSample("old_space", testNodejsHeapSpaceValues()),
+	}, filter, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	require.Len(t, sender.nodejsHeapSpaceEvents, 1)
+	assert.Equal(t, "node-svc", sender.nodejsHeapSpaceEvents[0].Service.UID.Name)
+	assert.Equal(t, "old_space", sender.nodejsHeapSpaceEvents[0].SpaceName)
+}
+
+// an unknown GC wire code decodes to Unknown and must be dropped at dispatch,
+// not exported as a bogus v8js.gc.type value
+func TestHandleRuntimeMetricsRecordDropsUnknownGCKind(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
+	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}
+	sender := &fakeRuntimeMetricsSender{}
+	eventCtx := &EBPFEventContext{RuntimeMetrics: sender}
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsGCRawSample(9, 1000),
+	}, filter, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Empty(t, sender.nodejsGCEvents)
+}
+
+// heap spaces outside the well-known semconv v8js.heap.space.name members
+// (e.g. read_only_space on modern V8s) must be dropped at dispatch, never
+// exported
+func TestHandleRuntimeMetricsRecordDropsNonSemconvHeapSpace(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
+	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}
+	sender := &fakeRuntimeMetricsSender{}
+	eventCtx := &EBPFEventContext{RuntimeMetrics: sender}
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsHeapSpaceRawSample("read_only_space", testNodejsHeapSpaceValues()),
+	}, filter, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Empty(t, sender.nodejsHeapSpaceEvents)
+}
+
+func TestHandleRuntimeMetricsRecordDropsUnmatchedV8Events(t *testing.T) {
+	sender := &fakeRuntimeMetricsSender{}
+	eventCtx := &EBPFEventContext{RuntimeMetrics: sender}
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsGCRawSample(2, 1000),
+	}, fakeRuntimeServiceFilter{}, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Empty(t, sender.nodejsGCEvents)
+
+	handled, err = HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsHeapSpaceRawSample("old_space", testNodejsHeapSpaceValues()),
+	}, fakeRuntimeServiceFilter{}, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Empty(t, sender.nodejsHeapSpaceEvents)
+}
+
 func TestDecorateNodejsV8Events(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
 	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
