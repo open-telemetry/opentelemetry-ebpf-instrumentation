@@ -124,6 +124,7 @@ func TestHandleWithoutTraceContextPreservesPlainText(t *testing.T) {
 
 	event := LogEvent{logLine: "request failed\n"}
 	copy(event.orig.FilePath[:], path)
+	event.dest = event.ttyPath()
 
 	tr.handle(event)
 

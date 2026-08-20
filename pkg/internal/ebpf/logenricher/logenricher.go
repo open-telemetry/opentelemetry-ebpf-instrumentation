@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"unsafe"
@@ -40,6 +41,7 @@ import (
 type LogEvent struct {
 	orig    BpfLogEventT
 	logLine string
+	dest    string
 }
 
 type Tracer struct {
@@ -51,8 +53,10 @@ type Tracer struct {
 	fdCache     *expirable.LRU[string, *os.File]
 	asyncWriter *shardedqueue.ShardedQueue[LogEvent]
 	formatter   logFormatter
-	pids        map[uint64][]uint64       // pid:[]nsPids
-	pidServices map[uint32]*exec.FileInfo // host pid -> file info, for run-time OTel-export check in handle()
+	pids        map[uint64][]uint64         // pid:[]nsPids
+	pidServices map[uint32]*exec.FileInfo   // host pid -> file info, for run-time OTel-export check in handle()
+	logPipes    map[uint64]map[uint32][]int // log pipe inode -> host pid -> fds (1 and/or 2)
+	pidPipes    map[uint32][]uint64         // host pid -> registered log pipe inodes
 	pidsMU      sync.Mutex
 }
 
@@ -73,12 +77,14 @@ func New(cfg *obi.Config) *Tracer {
 		formatter:   newLogFormatter(cfg.EBPF.LogEnricher),
 		pids:        make(map[uint64][]uint64),
 		pidServices: make(map[uint32]*exec.FileInfo),
+		logPipes:    make(map[uint64]map[uint32][]int),
+		pidPipes:    make(map[uint32][]uint64),
 	}
 
 	asyncWriter := shardedqueue.NewShardedQueue[LogEvent](
 		cfg.EBPF.LogEnricher.AsyncWriterWorkers,
 		cfg.EBPF.LogEnricher.AsyncWriterChannelLen,
-		func(e LogEvent) string { return e.filePath() },
+		func(e LogEvent) string { return e.dest },
 		func(_ int, ch <-chan LogEvent) {
 			for e := range ch {
 				tr.handle(e)
@@ -270,6 +276,8 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		p.log.Error(err.Error())
 	}
 
+	p.registerLogPipes(uint32(pid))
+
 	nsPids, err := procs.FindNamespacedPids(pid)
 	if err != nil {
 		p.log.Error("allow pid: error finding namespaced pids", "error", err)
@@ -289,11 +297,118 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 }
 
+// callers must hold pidsMU
+func (p *Tracer) registerLogPipes(pid uint32) {
+	for _, fd := range []int{1, 2} {
+		path := procFdPath(pid, fd)
+
+		var st unix.Stat_t
+		if err := unix.Stat(path, &st); err != nil {
+			p.log.Debug("cannot stat process fd", "path", path, "error", err)
+			continue
+		}
+		if st.Mode&unix.S_IFMT != unix.S_IFIFO {
+			continue
+		}
+
+		owners := p.logPipes[st.Ino]
+		if owners == nil {
+			owners = make(map[uint32][]int)
+			p.logPipes[st.Ino] = owners
+
+			if p.bpfObjects.LogPipes == nil {
+				p.log.Error("BPF objects not loaded, cannot register log pipe", "ino", st.Ino)
+			} else if err := p.bpfObjects.LogPipes.Put(st.Ino, uint8(1)); err != nil {
+				p.log.Error("error registering log pipe in bpf map", "ino", st.Ino, "error", err)
+			}
+		}
+
+		owners[pid] = append(owners[pid], fd)
+		p.pidPipes[pid] = append(p.pidPipes[pid], st.Ino)
+	}
+}
+
+// callers must hold pidsMU
+func (p *Tracer) unregisterLogPipes(pid uint32) {
+	for _, ino := range p.pidPipes[pid] {
+		owners := p.logPipes[ino]
+
+		if fds, ok := owners[pid]; ok {
+			delete(owners, pid)
+			// a held write end would rob readers of EOF once the owner exits
+			for _, fd := range fds {
+				p.fdCache.Remove(procFdPath(pid, fd))
+			}
+		}
+
+		if len(owners) > 0 {
+			continue
+		}
+
+		delete(p.logPipes, ino)
+
+		if p.bpfObjects.LogPipes == nil {
+			continue
+		}
+		if err := p.bpfObjects.LogPipes.Delete(ino); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			p.log.Error("error removing log pipe from bpf map", "ino", ino, "error", err)
+		}
+	}
+
+	delete(p.pidPipes, pid)
+}
+
+// deterministic order: the chosen path is the shard key, keeping lines ordered
+func (p *Tracer) pipeDestCandidates(ino uint64) []string {
+	p.pidsMU.Lock()
+	defer p.pidsMU.Unlock()
+
+	owners := p.logPipes[ino]
+
+	pids := make([]uint32, 0, len(owners))
+	for pid := range owners {
+		pids = append(pids, pid)
+	}
+	slices.Sort(pids)
+
+	var paths []string
+	for _, pid := range pids {
+		for _, fd := range owners[pid] {
+			paths = append(paths, procFdPath(pid, fd))
+		}
+	}
+
+	return paths
+}
+
+func (p *Tracer) pipeRegistered(ino uint64) bool {
+	p.pidsMU.Lock()
+	defer p.pidsMU.Unlock()
+
+	_, ok := p.logPipes[ino]
+	return ok
+}
+
+// reject the stdout fallback when it points at an unregistered pipe (app IPC)
+func (p *Tracer) fallbackDestSafe(path string) bool {
+	var st unix.Stat_t
+	if err := unix.Stat(path, &st); err != nil {
+		return false
+	}
+
+	if st.Mode&unix.S_IFMT != unix.S_IFIFO {
+		return true
+	}
+
+	return p.pipeRegistered(st.Ino)
+}
+
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsMU.Lock()
 	defer p.pidsMU.Unlock()
 
 	delete(p.pidServices, uint32(pid))
+	p.unregisterLogPipes(uint32(pid))
 
 	pk := p.pidKey(ns, uint32(pid))
 	if err := p.removePID(pk); err != nil {
@@ -357,23 +472,62 @@ func (p *Tracer) handleLogEvent(record *ringbuf.Record) (request.Span, bool, err
 	// Open the destination now, while the writing process is still alive: the
 	// open file description keeps the log pipe writable even if the process is
 	// gone by the time the async writer gets to this line.
-	if _, err := p.openLogDestination(e.filePath()); err != nil {
-		p.logOpenError(e.filePath(), err)
-		return request.Span{}, true, nil
+	if event.Fd != 0 {
+		// address the pipe through a live owner, the writer may already be gone
+		for _, candidate := range p.pipeDestCandidates(event.Ino) {
+			if _, err := p.openLogDestination(candidate, event.Ino); err == nil {
+				e.dest = candidate
+				break
+			}
+		}
+		if e.dest == "" {
+			p.log.Debug("no live destination for log pipe, dropping line", "ino", event.Ino)
+			return request.Span{}, true, nil
+		}
+	} else {
+		e.dest = e.ttyPath()
+		if unix.ByteSliceToString(event.FilePath[:]) == "" && !p.fallbackDestSafe(e.dest) {
+			p.log.Debug("unsafe tty fallback destination, dropping line", "path", e.dest)
+			return request.Span{}, true, nil
+		}
+		if _, err := p.openLogDestination(e.dest, 0); err != nil {
+			p.logOpenError(e.dest, err)
+			return request.Span{}, true, nil
+		}
 	}
 
 	err = p.asyncWriter.Enqueue(p.ctx, e)
 	return request.Span{}, true, err
 }
 
-func (p *Tracer) openLogDestination(path string) (*os.File, error) {
+var errStaleDestination = errors.New("destination no longer points at the captured pipe")
+
+func fileIno(f *os.File) uint64 {
+	var st unix.Stat_t
+	if err := unix.Fstat(int(f.Fd()), &st); err != nil {
+		return 0
+	}
+
+	return st.Ino
+}
+
+// a non-zero ino pins the destination: /proc fd paths re-point when the owner
+// redirects its stdio, and writing there would leak lines into the wrong file
+func (p *Tracer) openLogDestination(path string, ino uint64) (*os.File, error) {
 	if f, ok := p.fdCache.Get(path); ok {
-		return f, nil
+		if ino == 0 || fileIno(f) == ino {
+			return f, nil
+		}
+		p.fdCache.Remove(path)
 	}
 
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return nil, err
+	}
+	if ino != 0 && fileIno(f) != ino {
+		f.Close()
+		return nil, errStaleDestination
 	}
 	p.fdCache.Add(path, f)
 
@@ -391,23 +545,15 @@ func (p *Tracer) logOpenError(path string, err error) {
 	p.log.Error("failed to open log file for writing", "path", path, "error", err)
 }
 
-func (e LogEvent) filePath() string {
-	var fp string
+func procFdPath(pid uint32, fd int) string {
+	return filepath.Join("/proc", strconv.FormatUint(uint64(pid), 10), "fd", strconv.Itoa(fd))
+}
 
-	procFdPath := func(fd int) string {
-		return filepath.Join("/proc", strconv.FormatUint(uint64(e.orig.Tgid), 10), "fd", strconv.Itoa(fd))
-	}
-
-	if e.orig.Fd != 0 {
-		// This is a pipe write, use the target process pipe fd
-		fp = procFdPath(int(e.orig.Fd))
-	} else {
-		// TTY write
-		fp = unix.ByteSliceToString(e.orig.FilePath[:])
-		if fp == "" {
-			// Fallback to process stdout in the case path resolver failed
-			fp = procFdPath(1)
-		}
+func (e LogEvent) ttyPath() string {
+	fp := unix.ByteSliceToString(e.orig.FilePath[:])
+	if fp == "" {
+		// Fallback to process stdout in the case path resolver failed
+		fp = procFdPath(e.orig.Tgid, 1)
 	}
 
 	return fp
@@ -415,9 +561,9 @@ func (e LogEvent) filePath() string {
 
 func (p *Tracer) handle(e LogEvent) {
 	// normally warmed at capture time; reopened only if the cache evicted it
-	f, err := p.openLogDestination(e.filePath())
+	f, err := p.openLogDestination(e.dest, e.orig.Ino)
 	if err != nil {
-		p.logOpenError(e.filePath(), err)
+		p.logOpenError(e.dest, err)
 		return
 	}
 

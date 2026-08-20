@@ -33,9 +33,11 @@ enum {
 static const char k_newline = '\n';
 
 typedef struct log_event {
+    u64 ino;
     u32 tgid;
     u32 len;
     u32 fd;
+    u32 _pad;
     obi_ctx_info_t ctx;
     u8 file_path[k_pts_file_path_len_max];
     u8 log[];
