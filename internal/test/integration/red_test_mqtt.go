@@ -113,7 +113,7 @@ func testREDMetricsPythonMQTTSubscribe(t *testing.T) {
 		{
 			Route:   "http://localhost:8381",
 			Subpath: "mqtt/subscribe",
-			Comm:    "python3.14",
+			Comm:    "pythonmqtt",
 			Spans: []TestCaseSpan{
 				{
 					Name: "process test/topic",
