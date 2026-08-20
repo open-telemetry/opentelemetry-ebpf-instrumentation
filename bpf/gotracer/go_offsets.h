@@ -6,7 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_core_read.h>
-
+#include <common/pin_internal.h>
 #include <gotracer/go_constants.h>
 
 // To be injected from the user space during the eBPF program load & initialization
@@ -180,17 +180,39 @@ typedef struct off_table {
     u64 table[_last_go_offset];
 } off_table_t;
 
+typedef struct go_executable_key {
+    u64 dev;
+    u64 ino;
+} go_executable_key_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64);           // key: inode
+    __type(key, go_executable_key_t);
     __type(value, off_table_t); // the offset table
     __uint(max_entries, MAX_GO_PROGRAMS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } go_offsets_map SEC(".maps");
+
+static __always_inline bool go_executable_key(struct inode *inode, go_executable_key_t *key) {
+    if (!inode) {
+        return false;
+    }
+
+    key->dev = (u64)BPF_CORE_READ(inode, i_sb, s_dev);
+    key->ino = (u64)BPF_CORE_READ(inode, i_ino);
+    return key->ino != 0;
+}
 
 static __always_inline off_table_t *get_offsets_table() {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    const u64 ino = (u64)BPF_CORE_READ(task, mm, exe_file, f_inode, i_ino);
-    return (off_table_t *)bpf_map_lookup_elem(&go_offsets_map, &ino);
+
+    struct inode *inode = BPF_CORE_READ(task, mm, exe_file, f_inode);
+    go_executable_key_t key = {};
+    if (!go_executable_key(inode, &key)) {
+        return NULL;
+    }
+
+    return (off_table_t *)bpf_map_lookup_elem(&go_offsets_map, &key);
 }
 
 static __always_inline u64 go_offset_of(off_table_t *ot, go_offset off) {
