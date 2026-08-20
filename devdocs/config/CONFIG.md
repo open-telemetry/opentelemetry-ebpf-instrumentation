@@ -189,6 +189,7 @@ Per-protocol maximum bytes to capture per request per direction, sent to userspa
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
+| `ebpf.buffer_sizes.aerospike` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE` | `0` |  |  |  |
 | `ebpf.buffer_sizes.http` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP` | `0` |  |  |  |
 | `ebpf.buffer_sizes.kafka` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA` | `0` |  |  |  |
 | `ebpf.buffer_sizes.mssql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL` | `0` |  |  |  |

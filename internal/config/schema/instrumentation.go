@@ -33,7 +33,11 @@ type ProtocolInstrumentation struct {
 
 // AerospikeInstrumentation applies the documented signal defaults when the
 // optional Aerospike section is present but incomplete.
-type AerospikeInstrumentation ProtocolInstrumentation
+type AerospikeInstrumentation struct {
+	Enabled    ProtocolEnablement `yaml:"enabled"`
+	Filters    SignalFilters      `yaml:"filters"`
+	BufferSize uint32             `yaml:"buffer_size"`
+}
 
 // UnmarshalYAML defaults omitted Aerospike signal fields to enabled.
 func (a *AerospikeInstrumentation) UnmarshalYAML(value *yaml.Node) error {

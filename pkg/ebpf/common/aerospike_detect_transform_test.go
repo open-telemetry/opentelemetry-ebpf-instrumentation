@@ -117,6 +117,68 @@ func TestAerospikeStatusError(t *testing.T) {
 	assert.Equal(t, 0, status)
 }
 
+// aerospikeErrorBody returns a 22-byte as_msg header with the given result_code
+// at body offset 5.
+func aerospikeErrorBody(resultCode byte) []byte {
+	body := make([]byte, 22)
+	body[0] = 22 // header_sz
+	body[5] = resultCode
+	return body
+}
+
+// TestAerospikeStatusSplitResponse feeds aerospikeStatus the buffer shape the
+// kernel reassembly produces for split-read clients (Java): the 8-byte proto
+// header and the as_msg body arrive as separate chunks of one LargeBuffer. The
+// result_code at wire offset 13 must be read across the chunk boundary.
+func TestAerospikeStatusSplitResponse(t *testing.T) {
+	lb := largebuf.NewLargeBuffer()
+	lb.AppendChunk([]byte{2, 3, 0, 0, 0, 0, 0, 22}) // recv #1: proto header only
+	lb.AppendChunk(aerospikeErrorBody(5))           // recv #2: body, KEY_EXISTS_ERROR
+
+	status, dbErr := aerospikeStatus(lb)
+	assert.Equal(t, 1, status)
+	assert.Equal(t, "KEY_EXISTS_ERROR", dbErr.ErrorCode)
+
+	// Same split shape with a success body.
+	lb = largebuf.NewLargeBuffer()
+	lb.AppendChunk([]byte{2, 3, 0, 0, 0, 0, 0, 22})
+	lb.AppendChunk(aerospikeErrorBody(0))
+
+	status, dbErr = aerospikeStatus(lb)
+	assert.Equal(t, 0, status)
+	assert.Empty(t, dbErr.ErrorCode)
+}
+
+// TestAerospikeStatusBodyOnlyBuffer covers the degradation path: if the
+// reassembled large buffer was lost, the span's inline response buffer holds
+// only the last recv chunk — the as_msg body without the proto header. The
+// status parser must reject it (byte 0 is header_sz 22, not proto version 2)
+// and report success rather than reading garbage as a result code.
+func TestAerospikeStatusBodyOnlyBuffer(t *testing.T) {
+	status, dbErr := aerospikeStatus(largebuf.NewLargeBufferFrom(aerospikeErrorBody(5)))
+	assert.Equal(t, 0, status)
+	assert.Empty(t, dbErr.ErrorCode)
+}
+
+// TestDispatchAerospikeReassembledError is the userspace half of the split-read
+// fix end to end: a kernel-classified event whose response buffer was
+// reassembled from a header chunk and a body chunk yields an error span.
+func TestDispatchAerospikeReassembledError(t *testing.T) {
+	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
+	resp := largebuf.NewLargeBuffer()
+	resp.AppendChunk([]byte{2, 3, 0, 0, 0, 0, 0, 22})
+	resp.AppendChunk(aerospikeErrorBody(5))
+
+	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike}
+	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	require.NoError(t, err)
+	require.True(t, matched)
+	assert.False(t, ignore)
+	assert.Equal(t, "PUT", span.Method)
+	assert.Equal(t, 1, span.Status)
+	assert.Equal(t, "KEY_EXISTS_ERROR", span.DBError.ErrorCode)
+}
+
 func fixtureHex(t *testing.T, name string) string {
 	t.Helper()
 	for _, tc := range aerospikeRequestFixtures {
