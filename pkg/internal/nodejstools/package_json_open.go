@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build unix
+//go:build linux
 
 package nodejstools // import "go.opentelemetry.io/obi/pkg/internal/nodejstools"
 
