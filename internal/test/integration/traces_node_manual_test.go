@@ -123,6 +123,26 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
 	)
 	assert.Empty(t, sd, sd.String())
+
+	// The outgoing HTTP call made INSIDE "checkout" must produce an OBI
+	// automatic (eBPF) client span that nests as a CHILD of "checkout" — not as
+	// a sibling under the server span. This is the -mspan/ override feature:
+	// while the manual span is active, OBI parents its automatic client spans
+	// (and downstream traceparent propagation) under the manual span. Everything
+	// stays in the one automatic trace with the correct server root.
+	var clientChildren []jaeger.Span
+	for _, c := range trace.ChildrenOf(checkout.SpanID) {
+		if tag, ok := jaeger.FindIn(c.Tags, "span.kind"); ok && tag.Value == "client" {
+			clientChildren = append(clientChildren, c)
+		}
+	}
+	require.Len(t, clientChildren, 1,
+		"the outgoing call inside checkout must nest as a client child of the manual span")
+	client := clientChildren[0]
+	assert.Equal(t, traceID, client.TraceID, "client span must join the automatic trace")
+	if m, ok := jaeger.FindIn(client.Tags, "http.request.method"); ok {
+		assert.Equal(t, "GET", m.Value, "the nested client span is the outgoing GET")
+	}
 }
 
 // testHTTPTracesNodeManualBackgroundSpan covers the stale-context clear: the

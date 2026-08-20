@@ -24,6 +24,7 @@
 #include <maps/java_tasks.h>
 #include <maps/java_vt_threads.h>
 #include <maps/nginx_upstream.h>
+#include <maps/node_manual_ctx_shadow.h>
 #include <maps/nodejs_fd_map.h>
 #include <maps/puma_tasks.h>
 #include <maps/python_thread_state.h>
@@ -350,6 +351,32 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     return 0;
 }
 
+// Node.js manual-span nesting: when a bridge manual span is active, its shadow
+// entry exists and traces_ctx_v1 holds the manual span's id under the request's
+// (server) trace id. In that case reparent the resolved client span under the
+// manual span instead of the server span, so outgoing calls made inside a
+// manual span nest correctly. Gated on node_manual_ctx_shadow, which is written
+// only by the Node.js span bridge, so other languages are unaffected. When the
+// override trace differs from the resolved parent trace (e.g. a manual span
+// outside any request) the client span is left under the server parent.
+static __always_inline u8 nodejs_manual_reparent_client(u64 pid_tgid, tp_info_t *tp) {
+    const obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
+    if (!shadow) {
+        return 0;
+    }
+    const obi_ctx_info_t *live = bpf_map_lookup_elem(&traces_ctx_v1, &pid_tgid);
+    if (!live) {
+        return 0;
+    }
+    for (u8 i = 0; i < TRACE_ID_SIZE_BYTES; ++i) {
+        if (live->trace_id[i] != tp->trace_id[i]) {
+            return 0;
+        }
+    }
+    __builtin_memcpy(tp->parent_id, live->span_id, SPAN_ID_SIZE_BYTES);
+    return 1;
+}
+
 static __always_inline u8
 find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
                                          u16 orig_dport,
@@ -372,6 +399,14 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         __builtin_memcpy(tp->trace_id, server_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, server_tp->tp.span_id, sizeof(tp->parent_id));
+        // A manual-span parent may legitimately never be exported (payload
+        // over budget, SDK handoff mid-span, span outliving the transaction
+        // window); a conditional parent would then be rerooted out of the
+        // trace. Ship immediately instead: worst case is a dangling parent id
+        // inside the correct trace.
+        if (nodejs_manual_reparent_client(pid_tgid, tp)) {
+            return k_parent_status_live;
+        }
         return parent_kind(server_tp);
     }
 
@@ -412,6 +447,14 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
         }
 
         *tp = server_tp->tp;
+        // A manual-span parent may legitimately never be exported (payload
+        // over budget, SDK handoff mid-span, span outliving the transaction
+        // window); a conditional parent would then be rerooted out of the
+        // trace. Ship immediately instead: worst case is a dangling parent id
+        // inside the correct trace.
+        if (nodejs_manual_reparent_client(pid_tgid, tp)) {
+            return k_parent_status_live;
+        }
         return parent_kind(server_tp);
     }
 

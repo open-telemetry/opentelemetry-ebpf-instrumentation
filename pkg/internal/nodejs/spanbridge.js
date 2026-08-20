@@ -33,6 +33,9 @@
   // Same Symbol.for key the api uses internally (createContextKey).
   const SPAN_KEY = Symbol.for('OpenTelemetry Context Key SPAN');
   const SENTINEL_PREFIX = '/dev/null/obi-span/';
+  // Manual-span context override / pop sentinel; payload format documented at
+  // the decoder (bpf/generictracer/nodejs.c handle_manual_ctx).
+  const MSPAN_PREFIX = '/dev/null/obi-mspan/';
   // Field size budgets. Attribute key/value budgets must match the fixed
   // BPF/Go otel_attribute_t buffers on the reader side (key[32], value[128]),
   // minus one byte for the NUL terminator the decoder relies on — otherwise
@@ -45,12 +48,23 @@
   const MAX_STATUS_MSG_LEN = 128;
 
   const g = globalThis;
-  if (g.__obiSpanBridgeLoaded) return;
+  if (g.__obiSpanBridgeLoaded) {
+    // async_hooks fire in enable order. A re-injected fdextractor re-enables
+    // its '-ctx' hook (moving it last), which would then overwrite this
+    // bridge's per-callback override; move our hook back after it.
+    try {
+      const loaded = g.__obiSpanBridge;
+      if (loaded && typeof loaded.rehook === 'function') loaded.rehook();
+    } catch (_) {
+      // never let re-injection throw into the app
+    }
+    return;
+  }
   g.__obiSpanBridgeLoaded = true;
 
   const fs = require('fs');
   const crypto = require('crypto');
-  const { AsyncLocalStorage } = require('async_hooks');
+  const { AsyncLocalStorage, createHook } = require('async_hooks');
 
   // Diagnostics are OFF by default: this code runs inside the customer's
   // process, so it must never write to their stdout/stderr in normal
@@ -160,6 +174,29 @@
     }
   };
 
+  // Both gate on the same handoff condition as emit(): once the app's SDK owns
+  // telemetry — via a wrapped setter (yielded) or a registration through an
+  // unwrapped copy (detectRegistryHandoff) — the bridge must stop mutating the
+  // kernel context map, or stale overrides would point eBPF client spans at
+  // bridge span ids that are no longer exported.
+  const emitOverride = (span) => {
+    if (yielded || detectRegistryHandoff()) return;
+    const sc = span._spanContext;
+    try {
+      fs.accessSync(MSPAN_PREFIX + sc.traceId + sc.spanId);
+    } catch (_) {
+      // expected: the path does not exist; the uprobe already read it
+    }
+  };
+  const emitPop = () => {
+    if (yielded) return;
+    try {
+      fs.accessSync(MSPAN_PREFIX + '-');
+    } catch (_) {
+      // expected: see emitOverride
+    }
+  };
+
   // --- minimal context implementation --------------------------------------
 
   class Context {
@@ -184,12 +221,39 @@
   const ROOT_CONTEXT = new Context();
   const als = new AsyncLocalStorage();
 
+  // Only bridge-owned spans drive the -mspan/ override; spans from another
+  // provider are ignored.
+  const activeBridgeSpan = (ctx) => {
+    if (!ctx || typeof ctx.getValue !== 'function') return undefined;
+    const s = ctx.getValue(SPAN_KEY);
+    return s instanceof Span ? s : undefined;
+  };
+
   const contextManager = {
     active() {
       return als.getStore() ?? ROOT_CONTEXT;
     },
     with(context, fn, thisArg, ...args) {
-      return als.run(context ?? ROOT_CONTEXT, () => fn.call(thisArg, ...args));
+      const ctx = context ?? ROOT_CONTEXT;
+      const outer = als.getStore() ?? ROOT_CONTEXT;
+      // Only touch the -mspan/ sentinel when this scope actually establishes a
+      // manual-span override (zero cost when no manual span is involved).
+      const innerSpan = activeBridgeSpan(ctx);
+      return als.run(ctx, () => {
+        if (innerSpan) emitOverride(innerSpan);
+        try {
+          return fn.call(thisArg, ...args);
+        } finally {
+          // Synchronous exit: restore the outer active manual span, or pop if
+          // there is none. The async-continuation case (a callback that runs
+          // after this returns) is re-applied by the before-hook below.
+          if (innerSpan) {
+            const outerSpan = activeBridgeSpan(outer);
+            if (outerSpan) emitOverride(outerSpan);
+            else emitPop();
+          }
+        }
+      });
     },
     bind(context, target) {
       if (typeof target === 'function') {
@@ -435,6 +499,33 @@
     },
   };
 
+  // --- keep the active manual span reflected across async callbacks ---------
+
+  // fdextractor.js resets traces_ctx_v1 to the request's SERVER context before
+  // every JS callback (its '-ctx/' / '-noreqctx' sentinels, which also clear the
+  // BPF override shadow). This hook runs right after — spanbridge.js is
+  // evaluated second, so per callback its 'before' fires after fdextractor's —
+  // and re-applies the innermost active manual span's override if one is active
+  // in the current async context. Nothing is emitted when no manual span is
+  // active (zero cost outside manual spans). fs.accessSync is safe here:
+  // synchronous fs ops create no AsyncWrap and cannot re-enter async_hooks.
+  let mspanHook;
+  try {
+    mspanHook = createHook({
+      before() {
+        try {
+          const span = activeBridgeSpan(als.getStore());
+          if (span) emitOverride(span);
+        } catch (_) {
+          // never let the hook throw into the app
+        }
+      },
+    });
+    mspanHook.enable();
+  } catch (err) {
+    debug('failed to install manual-span context hook', err);
+  }
+
   // --- register into the shared api global registry -------------------------
 
   // Wrap a global setter on an api namespace so that, if the application ever
@@ -527,6 +618,13 @@
     debug('failed to install module-load hook', err);
   }
 
-  g.__obiSpanBridge = { version: 1 };
+  g.__obiSpanBridge = {
+    version: 1,
+    rehook() {
+      if (!mspanHook) return;
+      mspanHook.disable();
+      mspanHook.enable();
+    },
+  };
   debug('span bridge activated (pid ' + process.pid + ')');
 })();

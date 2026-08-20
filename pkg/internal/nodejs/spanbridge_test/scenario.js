@@ -13,10 +13,19 @@ const path = require('path');
 const scenario = process.argv[2];
 
 const bridgeCaptured = [];
+// Manual-span context override/pop sentinels (-mspan/), captured as a sequence
+// of raw payloads: a 48-hex <traceId><spanId> for an override, or '-' for a pop.
+const mspanCaptured = [];
 const origAccess = fs.accessSync;
 fs.accessSync = (p, ...rest) => {
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-span/')) {
     bridgeCaptured.push(JSON.parse(p.slice('/dev/null/obi-span/'.length)).name);
+    const err = new Error('ENOTDIR');
+    err.code = 'ENOTDIR';
+    throw err;
+  }
+  if (typeof p === 'string' && p.startsWith('/dev/null/obi-mspan/')) {
+    mspanCaptured.push(p.slice('/dev/null/obi-mspan/'.length));
     const err = new Error('ENOTDIR');
     err.code = 'ENOTDIR';
     throw err;
@@ -115,6 +124,32 @@ async function run() {
       trace.getTracer('app').startSpan('after-new').end(); // -> app (new tracer)
       tracer.startSpan('after-preacquired').end(); // -> app (pre-acquired tracer)
       break;
+    }
+    case 'mspan-nesting': {
+      // Active manual spans must publish the -mspan/ context override on enter
+      // and restore the enclosing span (or pop to none) on exit, so OBI's eBPF
+      // client spans nest under the innermost active manual span. Assert the
+      // exact override/pop sequence around a nested startActiveSpan pair.
+      const tracer = trace.getTracer('app');
+      injectBridge();
+      const label = new Map();
+      tracer.startActiveSpan('outer', (outer) => {
+        label.set(outer.spanContext().spanId, 'outer');
+        tracer.startActiveSpan('inner', (inner) => {
+          label.set(inner.spanContext().spanId, 'inner');
+          inner.end();
+        });
+        outer.end();
+      });
+      const seq = mspanCaptured.map((pl) => {
+        if (pl === '-') return 'pop';
+        const spanId = pl.slice(32); // 48-hex payload = 32-hex traceId + 16-hex spanId
+        return label.get(spanId) || 'override:' + spanId;
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      fs.accessSync = origAccess;
+      process.stdout.write(JSON.stringify({ mspan: seq, bridge: bridgeCaptured }));
+      return;
     }
     default:
       throw new Error('unknown scenario: ' + scenario);
