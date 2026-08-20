@@ -279,6 +279,24 @@ func getDefinitions(
 		nil,
 	)
 
+	v8jsGCAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.V8JSGCType: true,
+		},
+		nil,
+	)
+
+	v8jsHeapSpaceAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.V8JSHeapSpaceName: true,
+		},
+		nil,
+	)
+
 	httpRoutes := NewAttrReportGroup(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
@@ -533,6 +551,26 @@ func getDefinitions(
 		},
 		NodejsEventLoopTime.Section: {
 			SubGroups:  []*AttrReportGroup{&nodejsEventLoopTimeAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSGCDuration.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsGCAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSMemoryHeapLimit.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSMemoryHeapUsed.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSMemoryHeapSpaceAvailableSize.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSMemoryHeapSpacePhysicalSize.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {

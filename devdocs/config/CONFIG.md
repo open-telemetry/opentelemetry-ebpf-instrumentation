@@ -651,6 +651,7 @@ Buckets defines the histograms bucket boundaries, and allows users to redefine t
 | `request_size_histogram` | `number`[] |  |  |
 | `response_size_histogram` | `number`[] |  |  |
 | `stat_tcp_rtt_histogram` | `number`[] |  |  |
+| `v8js_gc_duration_histogram` | `number`[] |  |  |
 
 ### ExtraGroupAttributesMap
 
