@@ -317,7 +317,7 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_udp_sendmsg, int ret) {
 // key's meaning to the socket's lifetime, so a later socket at the same address
 // cannot inherit its DNS classification.
 SEC("kprobe/udp_destroy_sock")
-int BPF_KPROBE(obi_kprobe_udp_destroy_sock, struct sock *sk) {
+int BPF_KPROBE_GUARDED(obi_kprobe_udp_destroy_sock, struct sock *sk) {
     (void)ctx;
 
     obi_forget_unconn_dns_sock(sk);
