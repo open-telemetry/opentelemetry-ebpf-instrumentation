@@ -206,7 +206,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// verified in both states without doubling the full generictracer
 	// cross-product.
 	forEachCombination(t, "generictracer/BpfNodejs", generictracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", debugFlags},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"nodejs_runtime_metrics_enabled", []any{uint64(0), uint64(1)}},
 	})
