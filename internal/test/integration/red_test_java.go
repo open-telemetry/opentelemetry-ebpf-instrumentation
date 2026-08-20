@@ -64,9 +64,9 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsJavaHTTP(t *testing.T) {
+func testREDMetricsJavaHTTP(t *testing.T, serviceName string) {
 	t.Run("http://localhost:8086", func(t *testing.T) {
 		waitForJavaTestComponents(t, "http://localhost:8086")
-		testREDMetricsForJavaHTTPLibrary(t, []string{"http://localhost:8086"}, "greeting")
+		testREDMetricsForJavaHTTPLibrary(t, []string{"http://localhost:8086"}, serviceName)
 	})
 }
