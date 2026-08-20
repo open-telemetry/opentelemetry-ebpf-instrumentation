@@ -305,6 +305,152 @@ static void test_classify_reports_no_for_connected_non_dns_peer(void) {
         "a connected non-DNS peer is a positive no", k_dns_msg_no, classify_dns_msg(&conn, NULL));
 }
 
+// dns_header_is_plausible
+//
+// The socket-identity tier admits payloads whose only evidence is the socket
+// they arrived on, and qr is a single bit, so this is the only thing standing
+// between arbitrary bytes on a resolver socket and a reported lookup.
+
+enum : u16 {
+    k_flags_query = 0x0100,    // qr=0, opcode=0, rd=1
+    k_flags_response = 0x8180, // qr=1, opcode=0, rd=1, ra=1, rcode=0
+};
+
+// counts as they sit in a real header, in network byte order
+static struct dnshdr dns_header(u16 flags, u16 qd, u16 an, u16 ns, u16 ar) {
+    struct dnshdr hdr = {
+        .id = bpf_htons(0x4242),
+        .flags = bpf_htons(flags),
+        .qdcount = bpf_htons(qd),
+        .ancount = bpf_htons(an),
+        .nscount = bpf_htons(ns),
+        .arcount = bpf_htons(ar),
+    };
+    return hdr;
+}
+
+// a datagram whose sections comfortably fit whatever the counts claim
+static u32 roomy_size(void) {
+    return sizeof(struct dnshdr) + 512;
+}
+
+static void test_header_accepts_a_real_query(void) {
+    struct dnshdr hdr = dns_header(k_flags_query, 1, 0, 0, 0);
+
+    check_u8("an ordinary query is plausible",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size()));
+}
+
+static void test_header_accepts_a_real_response(void) {
+    struct dnshdr hdr = dns_header(k_flags_response, 1, 1, 0, 0);
+
+    check_u8("an ordinary response is plausible",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size()));
+}
+
+// NXDOMAIN and SERVFAIL are lookups worth reporting, so rcode is not a filter
+static void test_header_accepts_an_nxdomain_response(void) {
+    const u16 flags = k_flags_response | 3;
+    struct dnshdr hdr = dns_header(flags, 1, 0, 1, 0);
+
+    check_u8(
+        "an NXDOMAIN response is plausible", 1, dns_header_is_plausible(&hdr, flags, roomy_size()));
+}
+
+// A DNSSEC-aware resolver sets AD and CD on ordinary traffic. RFC 1035 called
+// these part of Z, so treating Z as three bits would drop this answer.
+static void test_header_accepts_dnssec_ad_and_cd(void) {
+    const u16 flags = k_flags_response | (1 << 5) | (1 << 4);
+    struct dnshdr hdr = dns_header(flags, 1, 1, 0, 0);
+
+    check_u8("AD and CD do not make a response implausible",
+             1,
+             dns_header_is_plausible(&hdr, flags, roomy_size()));
+}
+
+// mDNS responses may omit the question section
+static void test_header_accepts_a_response_without_a_question(void) {
+    struct dnshdr hdr = dns_header(k_flags_response, 0, 1, 0, 0);
+
+    check_u8("a response with answers but no question is plausible",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size()));
+}
+
+static void test_header_rejects_a_non_query_opcode(void) {
+    const u16 flags = k_flags_query | (5 << 11); // UPDATE
+    struct dnshdr hdr = dns_header(flags, 1, 0, 0, 0);
+
+    check_u8("a non-standard opcode is not a lookup",
+             0,
+             dns_header_is_plausible(&hdr, flags, roomy_size()));
+}
+
+static void test_header_rejects_a_set_reserved_bit(void) {
+    const u16 flags = k_flags_response | (1 << 6);
+    struct dnshdr hdr = dns_header(flags, 1, 1, 0, 0);
+
+    check_u8(
+        "the reserved bit must be zero", 0, dns_header_is_plausible(&hdr, flags, roomy_size()));
+}
+
+static void test_header_rejects_a_query_that_asks_nothing(void) {
+    struct dnshdr hdr = dns_header(k_flags_query, 0, 0, 0, 0);
+
+    check_u8("a query with no question is implausible",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size()));
+}
+
+static void test_header_rejects_a_query_carrying_answers(void) {
+    struct dnshdr hdr = dns_header(k_flags_query, 1, 1, 0, 0);
+
+    check_u8("a query does not answer itself",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size()));
+}
+
+static void test_header_rejects_an_empty_response(void) {
+    struct dnshdr hdr = dns_header(k_flags_response, 0, 0, 0, 0);
+
+    check_u8("a response with no sections carries no lookup",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size()));
+}
+
+// The check that does most of the work against arbitrary bytes: random counts
+// describe far more records than the datagram could hold.
+static void test_header_rejects_counts_that_cannot_fit(void) {
+    struct dnshdr hdr = dns_header(k_flags_response, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF);
+
+    check_u8("counts larger than the datagram are implausible",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_response, sizeof(struct dnshdr) + 32));
+}
+
+static void test_header_accepts_counts_that_exactly_fit(void) {
+    // two questions and one answer, and not a byte to spare
+    const u32 size = sizeof(struct dnshdr) + (2 * k_dns_min_question_bytes) + k_dns_min_rr_bytes;
+    struct dnshdr hdr = dns_header(k_flags_response, 2, 1, 0, 0);
+
+    check_u8("sections that exactly fit are plausible",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_response, size));
+}
+
+// A truncated response describes records it never sent, so its counts cannot be
+// held against the bytes on hand
+static void test_header_accepts_a_truncated_response(void) {
+    const u16 flags = k_flags_response | (1 << 9); // TC
+    struct dnshdr hdr = dns_header(flags, 1, 0xFFFF, 0, 0);
+
+    check_u8("a truncated response is not judged on its counts",
+             1,
+             dns_header_is_plausible(&hdr, flags, sizeof(struct dnshdr) + 16));
+}
+
 // unconn_dns_socks
 
 // the local endpoint of an unconnected resolver socket, as parse_sock_info
@@ -534,6 +680,20 @@ int main(void) {
     test_classify_reports_unknown_without_msg_name();
     test_classify_reports_no_for_explicit_non_dns_peer();
     test_classify_reports_no_for_connected_non_dns_peer();
+
+    test_header_accepts_a_real_query();
+    test_header_accepts_a_real_response();
+    test_header_accepts_an_nxdomain_response();
+    test_header_accepts_dnssec_ad_and_cd();
+    test_header_accepts_a_response_without_a_question();
+    test_header_rejects_a_non_query_opcode();
+    test_header_rejects_a_set_reserved_bit();
+    test_header_rejects_a_query_that_asks_nothing();
+    test_header_rejects_a_query_carrying_answers();
+    test_header_rejects_an_empty_response();
+    test_header_rejects_counts_that_cannot_fit();
+    test_header_accepts_counts_that_exactly_fit();
+    test_header_accepts_a_truncated_response();
 
     test_unconn_sock_has_no_expected_answer_by_default();
     test_unconn_sock_answer_is_expected_after_a_query();

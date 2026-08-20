@@ -84,8 +84,19 @@ static __always_inline u8 dns_ra(u16 f) {
     return (f >> 7) & 0x1;
 }
 
+// RFC 1035 reserved three bits here, but RFC 2535 reassigned the lower two to
+// AD and CD, which DNSSEC-aware resolvers set on ordinary traffic. Only bit 6
+// is still required to be zero, so only bit 6 may be used to reject a message.
 static __always_inline u8 dns_z(u16 f) {
-    return (f >> 4) & 0x7;
+    return (f >> 6) & 0x1;
+}
+
+static __always_inline u8 dns_ad(u16 f) {
+    return (f >> 5) & 0x1;
+}
+
+static __always_inline u8 dns_cd(u16 f) {
+    return (f >> 4) & 0x1;
 }
 
 static __always_inline u8 dns_rcode(u16 f) {
@@ -122,6 +133,62 @@ static __always_inline u16 obi_msg_name_port(struct msghdr *msg) {
         return 0; // IPv6 DNS transport not handled by this fallback
     }
     return bpf_ntohs(sa.sin_port);
+}
+
+// Smallest encodings of a question and of a resource record: the root name
+// (a single zero length octet), then the fixed fields of each.
+enum : u32 {
+    k_dns_min_question_bytes = 1 + 2 + 2,   // name, qtype, qclass
+    k_dns_min_rr_bytes = 1 + 2 + 2 + 4 + 2, // name, type, class, ttl, rdlength
+};
+
+// Whether a datagram is structurally a DNS message. qr alone is one bit, so it
+// says nothing: every payload of at least sizeof(struct dnshdr) has a valid qr,
+// and the socket-identity tier hands this function payloads whose only other
+// evidence is the socket they arrived on. These checks are what separates a DNS
+// message from arbitrary bytes.
+//
+// Deliberately not checked: rcode, because NXDOMAIN and SERVFAIL are lookups
+// worth reporting, and the AD and CD bits, which ordinary DNSSEC-aware
+// resolvers set.
+static __always_inline u8 dns_header_is_plausible(const struct dnshdr *hdr,
+                                                  const u16 flags,
+                                                  const u32 size) {
+    if (dns_opcode(flags) != 0) {
+        return 0; // a lookup is a standard query; IQUERY, STATUS, NOTIFY and UPDATE are not
+    }
+
+    if (dns_z(flags) != 0) {
+        return 0; // still reserved, so a set bit means this is not a DNS header
+    }
+
+    const u16 qdcount = bpf_ntohs(hdr->qdcount);
+    const u16 ancount = bpf_ntohs(hdr->ancount);
+    const u16 nscount = bpf_ntohs(hdr->nscount);
+    const u16 arcount = bpf_ntohs(hdr->arcount);
+
+    if (dns_qr(flags) == k_dns_qr_query) {
+        // a query asks at least one question and answers none of them
+        if (qdcount == 0 || ancount != 0) {
+            return 0;
+        }
+    } else if (qdcount + ancount + nscount + arcount == 0) {
+        // an empty response carries no lookup; an mDNS response may omit the
+        // question, so the sections are counted together rather than separately
+        return 0;
+    }
+
+    // A truncated message describes records that were never sent, so its counts
+    // cannot be held against the bytes on hand.
+    if (dns_tc(flags)) {
+        return 1;
+    }
+
+    const u32 payload = size - sizeof(struct dnshdr);
+    const u32 needed = ((u32)qdcount * k_dns_min_question_bytes) +
+                       (((u32)ancount + nscount + arcount) * k_dns_min_rr_bytes);
+
+    return needed <= payload;
 }
 
 // k_dns_msg_no is a positive answer, not an absence of evidence: the peer is
@@ -362,7 +429,7 @@ static __always_inline u8 handle_dns_buf(const unsigned char *buf,
 
     bpf_d_printk("QR type: %d [%s]", qr, __FUNCTION__);
 
-    if (qr == k_dns_qr_query || qr == k_dns_qr_resp) {
+    if (dns_header_is_plausible(&hdr, flags, size)) {
         conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &p_conn->conn);
         if (!conn_pid) {
             bpf_d_printk("can't find connection info for dns call [%s]", __FUNCTION__);
