@@ -202,7 +202,7 @@ int GUARDED_PROG(obi_uretprobe_context_run, struct pt_regs *, ctx) {
 // A context object is being freed; its address can be recycled immediately,
 // so any binding for it is dead.
 SEC("uprobe/libpython3.:context_tp_dealloc")
-int obi_uprobe_context_dealloc(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_context_dealloc, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
     if (!valid_pid(id)) {
         return 0;
