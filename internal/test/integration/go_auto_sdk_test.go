@@ -160,7 +160,7 @@ func waitForGoAutoSDKInstrumentation(t *testing.T) {
 
 		for _, metric := range instrumented.Metric {
 			for _, label := range metric.Label {
-				if label.GetName() == "process_name" &&
+				if label.GetName() == "process_executable_name" &&
 					label.GetValue() == goAutoSDKProcess &&
 					metric.GetGauge().GetValue() == 1 {
 					return

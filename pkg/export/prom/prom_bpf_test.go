@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/export"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
@@ -129,24 +130,24 @@ func TestBPFMetricsCollectsInternalMetricsForPrometheusReporter(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		probeExecutionsMetric := gatheredMetric(t, registry, "obi_bpf_probe_executions_total", map[string]string{
-			"probe_id":   "7",
-			"probe_type": "kprobe",
-			"probe_name": "tcp_connect",
+			"bpf_probe_id":   "7",
+			"bpf_probe_type": "kprobe",
+			"bpf_probe_name": "tcp_connect",
 		})
 		probeLatencySumMetric := gatheredMetric(t, registry, "obi_bpf_probe_latency_seconds_total", map[string]string{
-			"probe_id":   "7",
-			"probe_type": "kprobe",
-			"probe_name": "tcp_connect",
+			"bpf_probe_id":   "7",
+			"bpf_probe_type": "kprobe",
+			"bpf_probe_name": "tcp_connect",
 		})
 		mapEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_entries", map[string]string{
-			"map_id":   "3",
-			"map_name": "connections",
-			"map_type": "hash",
+			"bpf_map_id":   "3",
+			"bpf_map_name": "connections",
+			"bpf_map_type": "hash",
 		})
 		mapMaxEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_max_entries", map[string]string{
-			"map_id":   "3",
-			"map_name": "connections",
-			"map_type": "hash",
+			"bpf_map_id":   "3",
+			"bpf_map_name": "connections",
+			"bpf_map_type": "hash",
 		})
 
 		if probeExecutionsMetric == nil || probeLatencySumMetric == nil || mapEntriesMetric == nil || mapMaxEntriesMetric == nil {
@@ -191,13 +192,19 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 			probeLatencyDesc: prometheus.NewDesc(
 				prometheus.BuildFQName("bpf", "probe", "latency_seconds"),
 				"Latency of the probe in seconds",
-				[]string{"probe_id", "probe_type", "probe_name"},
+				[]string{attr.BpfProbeID.Prom(), attr.BpfProbeType.Prom(), attr.BpfProbeName.Prom()},
 				nil,
 			),
 			mapSizeDesc: prometheus.NewDesc(
-				prometheus.BuildFQName("bpf", "map", "entries_total"),
+				prometheus.BuildFQName("bpf", "map", "entries"),
 				"Number of entries in the map",
-				[]string{"map_id", "map_name", "map_type", "max_entries"},
+				[]string{attr.BpfMapID.Prom(), attr.BpfMapName.Prom(), attr.BpfMapType.Prom()},
+				nil,
+			),
+			mapMaxSizeDesc: prometheus.NewDesc(
+				prometheus.BuildFQName("bpf", "map", "max_entries"),
+				"Maximum number of entries the map can hold",
+				[]string{attr.BpfMapID.Prom(), attr.BpfMapName.Prom(), attr.BpfMapType.Prom()},
 				nil,
 			),
 			probeMetrics: func() []ProbeMetrics {
@@ -272,7 +279,7 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 	defer cancel()
 	runFn(ctx)
 
-	promMetricsCh := make(chan prometheus.Metric, 4)
+	promMetricsCh := make(chan prometheus.Metric, 16)
 	promCollector.Collect(promMetricsCh)
 	close(promMetricsCh)
 
@@ -290,24 +297,24 @@ func TestBPFMetricsCollectsInternalMetricsWhenPrometheusEndpointEnabled(t *testi
 
 	require.Eventually(t, func() bool {
 		probeExecutionsMetric := gatheredMetric(t, registry, "obi_bpf_probe_executions_total", map[string]string{
-			"probe_id":   "7",
-			"probe_type": "kprobe",
-			"probe_name": "tcp_connect",
+			"bpf_probe_id":   "7",
+			"bpf_probe_type": "kprobe",
+			"bpf_probe_name": "tcp_connect",
 		})
 		probeLatencySumMetric := gatheredMetric(t, registry, "obi_bpf_probe_latency_seconds_total", map[string]string{
-			"probe_id":   "7",
-			"probe_type": "kprobe",
-			"probe_name": "tcp_connect",
+			"bpf_probe_id":   "7",
+			"bpf_probe_type": "kprobe",
+			"bpf_probe_name": "tcp_connect",
 		})
 		mapEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_entries", map[string]string{
-			"map_id":   "3",
-			"map_name": "connections",
-			"map_type": "hash",
+			"bpf_map_id":   "3",
+			"bpf_map_name": "connections",
+			"bpf_map_type": "hash",
 		})
 		mapMaxEntriesMetric := gatheredMetric(t, registry, "obi_bpf_map_max_entries", map[string]string{
-			"map_id":   "3",
-			"map_name": "connections",
-			"map_type": "hash",
+			"bpf_map_id":   "3",
+			"bpf_map_name": "connections",
+			"bpf_map_type": "hash",
 		})
 
 		if probeExecutionsMetric == nil || probeLatencySumMetric == nil || mapEntriesMetric == nil || mapMaxEntriesMetric == nil {
@@ -446,4 +453,77 @@ func metricLabelsMatch(metric *dto.Metric, labels map[string]string) bool {
 	}
 
 	return true
+}
+
+// A pedantic registry rejects a collector that emits a descriptor it never described, so this
+// covers both the exposed metric names and Describe agreeing with Collect.
+func TestBPFCollectorRegistersMapMetrics(t *testing.T) {
+	collector := newCollector(
+		&global.ContextInfo{Metrics: imetrics.NoopReporter{}},
+		&PrometheusConfig{},
+		&perapp.GlobalMetricsConfig{},
+		false,
+	)
+	t.Cleanup(collector.close)
+
+	collector.probeMetrics = func() []ProbeMetrics {
+		return []ProbeMetrics{{
+			probeType: "kprobe",
+			probeName: "tcp_connect",
+			probeID:   "7",
+			latency:   0.25,
+			count:     1,
+			program:   &BPFProgram{},
+		}}
+	}
+	collector.mapMetrics = func() []BpfMapMetrics {
+		return []BpfMapMetrics{{
+			mapType:    "hash",
+			mapName:    "connections",
+			mapID:      "3",
+			maxEntries: 16,
+			entries:    4,
+		}}
+	}
+
+	registry := prometheus.NewPedanticRegistry()
+	require.NoError(t, registry.Register(collector))
+
+	families, err := registry.Gather()
+	require.NoError(t, err)
+
+	gauges := map[string]*dto.Metric{}
+	exposed := map[string]struct{}{}
+	for _, family := range families {
+		exposed[family.GetName()] = struct{}{}
+		for _, metric := range family.GetMetric() {
+			if metric.GetGauge() != nil {
+				gauges[family.GetName()] = metric
+			}
+		}
+	}
+
+	for _, name := range []string{"bpf_probe_latency_seconds", "bpf_map_entries", "bpf_map_max_entries"} {
+		assert.Contains(t, exposed, name)
+	}
+
+	mapLabels := map[string]string{
+		"bpf_map_id":   "3",
+		"bpf_map_name": "connections",
+		"bpf_map_type": "hash",
+	}
+	for name, want := range map[string]float64{
+		"bpf_map_entries":     4,
+		"bpf_map_max_entries": 16,
+	} {
+		metric, ok := gauges[name]
+		require.True(t, ok, "%s must be exposed as a gauge, not a counter", name)
+		assert.InDelta(t, want, metric.GetGauge().GetValue(), 0.001)
+
+		labels := map[string]string{}
+		for _, label := range metric.GetLabel() {
+			labels[label.GetName()] = label.GetValue()
+		}
+		assert.Equal(t, mapLabels, labels, "%s labels", name)
+	}
 }

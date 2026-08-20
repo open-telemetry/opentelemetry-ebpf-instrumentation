@@ -3,18 +3,23 @@
 
 package avoidedsvc // import "go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 
-import "sync"
+import (
+	"sync"
+
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+)
 
 const (
 	// DefaultLimit follows the OpenTelemetry metric cardinality limit default.
 	DefaultLimit = 2000
 	// OverflowAttribute is the OpenTelemetry metric overflow attribute.
-	OverflowAttribute = "otel.metric.overflow"
-	// PrometheusOverflowLabel is the Prometheus-safe form of OverflowAttribute.
-	PrometheusOverflowLabel = "otel_metric_overflow"
+	OverflowAttribute       = "otel.metric.overflow"
 	prometheusOverflowTrue  = "true"
 	prometheusOverflowFalse = "false"
 )
+
+// PrometheusOverflowLabel is the Prometheus form of OverflowAttribute, derived from it.
+var PrometheusOverflowLabel = attr.Name(OverflowAttribute).Prom()
 
 // Labels contains the bounded label values for one avoided-services metric point.
 type Labels struct {

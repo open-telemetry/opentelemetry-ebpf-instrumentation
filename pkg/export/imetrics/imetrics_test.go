@@ -4,12 +4,15 @@
 package imetrics
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
@@ -116,6 +119,60 @@ func TestPrometheusReporterAvoidedServicesDisabled(t *testing.T) {
 	for _, mf := range mfs {
 		assert.NotEqual(t, attr.VendorPrefix+"_avoided_services", mf.GetName())
 	}
+}
+
+// The export-error label is semconv error.type carrying a low-cardinality class, not the error
+// message, which would mint a series per distinct failure. Pinned by literal so the derivation
+// cannot silently rename an exported label.
+func TestPrometheusReporterExportErrorType(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	reporter := NewPrometheusReporter(&InternalMetricsConfig{}, nil, registry)
+
+	reporter.OTELMetricExportError(status.Error(codes.DeadlineExceeded, "ctx deadline: 10.1.2.3:4317"))
+	reporter.OTELTraceExportError(errors.New("plain failure"))
+
+	families, err := registry.Gather()
+	require.NoError(t, err)
+
+	found := map[string]string{}
+	for _, family := range families {
+		for _, metric := range family.GetMetric() {
+			if label, ok := metricLabels(metric)["error_type"]; ok {
+				found[family.GetName()] = label
+			}
+		}
+	}
+
+	assert.Equal(t, map[string]string{
+		"obi_otel_metric_export_errors_total": "DeadlineExceeded",
+		"obi_otel_trace_export_errors_total":  "*errors.errorString",
+	}, found)
+}
+
+// process_executable_name replaced process_name on both metrics carrying it.
+func TestPrometheusReporterProcessLabel(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	reporter := NewPrometheusReporter(&InternalMetricsConfig{}, nil, registry)
+
+	reporter.InstrumentProcess("my-service")
+	reporter.InstrumentationError("my-service", "attaching_uprobe")
+
+	families, err := registry.Gather()
+	require.NoError(t, err)
+
+	labeled := map[string]string{}
+	for _, family := range families {
+		for _, metric := range family.GetMetric() {
+			if name, ok := metricLabels(metric)["process_executable_name"]; ok {
+				labeled[family.GetName()] = name
+			}
+		}
+	}
+
+	assert.Equal(t, map[string]string{
+		"obi_instrumented_processes":       "my-service",
+		"obi_instrumentation_errors_total": "my-service",
+	}, labeled)
 }
 
 func gatherAvoidedServices(t *testing.T, registry *prometheus.Registry) []*dto.Metric {
