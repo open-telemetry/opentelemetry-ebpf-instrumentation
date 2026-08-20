@@ -19,6 +19,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/pin_internal.h>
+#include <common/preempt_guard.h>
 
 #include <gotracer/go_offsets.h>
 
@@ -31,7 +32,7 @@ struct {
 } go_executable_identity_requests SEC(".maps");
 
 SEC("kprobe/uprobe_register")
-int obi_capture_go_executable_identity(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_capture_go_executable_identity, struct pt_regs *, ctx) {
     const u32 tid = (u32)bpf_get_current_pid_tgid();
     go_executable_key_t *identity = bpf_map_lookup_elem(&go_executable_identity_requests, &tid);
     if (!identity) {
