@@ -156,7 +156,9 @@ static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_k
     return NULL;
 }
 
-static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid) {
+static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key,
+                                                       u64 pid_tgid,
+                                                       u8 *stale_context_task) {
     const python_thread_state_t *thread_state =
         (const python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &pid_tgid);
 
@@ -176,9 +178,9 @@ static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key,
     }
 
     // asyncio.to_thread can switch work onto a thread that inherited a context
-    // but has not run task_step, so the context's owner task (cached when the
-    // context was entered) is the only usable link.
-    const u64 task_id = thread_state->current_context_task;
+    // but has not run task_step, so the current context is the only usable link.
+    const u64 task_id = resolve_python_task_from_context(
+        pid_tgid, thread_state->current_context, stale_context_task);
     if (task_id) {
         bpf_dbg_printk("resolve_python_current_task: context fallback tid=%d ctx=%llx task=%llx",
                        t_key->p_key.tid,
@@ -189,9 +191,9 @@ static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key,
     return 0;
 }
 
-static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t *t_key,
-                                                               u64 pid_tgid) {
-    const u64 task_id = resolve_python_current_task(t_key, pid_tgid);
+static __always_inline tp_info_pid_t *
+find_python_parent_trace(const trace_key_t *t_key, u64 pid_tgid, u8 *stale_context_task) {
+    const u64 task_id = resolve_python_current_task(t_key, pid_tgid, stale_context_task);
     if (!task_id) {
         bpf_dbg_printk("find_python_parent_trace: no current task pid=%d tid=%d",
                        t_key->p_key.pid,
@@ -312,9 +314,14 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
         }
     }
 
-    tp_info_pid_t *python_parent = find_python_parent_trace(t_key, pid_tgid);
+    u8 stale_python_context_task = 0;
+    tp_info_pid_t *python_parent =
+        find_python_parent_trace(t_key, pid_tgid, &stale_python_context_task);
     if (python_parent) {
         return python_parent;
+    }
+    if (stale_python_context_task) {
+        return NULL;
     }
 
     tp_info_pid_t *nginx_parent = find_nginx_parent_trace(p_conn, orig_dport);

@@ -26,18 +26,6 @@
 // Python task/context pointers use 0 to mean "no active state" in thread-local tracking.
 enum { k_python_state_none = 0 };
 
-// ctx_vars offset in struct _pycontextobject: PyObject_HEAD + ctx_prev.
-// Layout is identical across CPython 3.9-3.14 standard 64-bit builds.
-// See https://github.com/python/cpython/blob/3.14/Include/internal/pycore_context.h#L21-L27
-enum { k_python_context_vars_offset = 16 + 8 };
-
-static __always_inline u64 read_python_context_vars(u64 context) {
-    u64 vars = 0;
-    bpf_probe_read_user(
-        &vars, sizeof(vars), (const void *)(context + k_python_context_vars_offset));
-    return vars;
-}
-
 static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid, u64 task_id) {
     if (!task_id) {
         obi_ctx__del(pid_tgid);
@@ -168,14 +156,7 @@ int GUARDED_PROG(obi_uprobe_context_run, struct pt_regs *, ctx) {
     // asyncio.to_thread worker has no current_task; look up which task copied this context.
     // The ctx_vars check rejects stale bindings left by a freed context whose
     // address was recycled, for builds where context_tp_dealloc is not attached.
-    const python_addr_key_t context_key = python_addr_key(id, context);
-    const python_context_task_t *context_task =
-        (const python_context_task_t *)bpf_map_lookup_elem(&python_context_task, &context_key);
-    u64 task_id = resolve_python_context_task(id, context_task);
-    if (task_id && context_task && context_task->vars != read_python_context_vars(context)) {
-        task_id = k_python_state_none;
-    }
-    thread_state->current_context_task = task_id;
+    const u64 task_id = resolve_python_task_from_context(id, context, NULL);
     if (task_id) {
         refresh_obi_ctx_for_task(id, task_id);
     } else if (thread_state->current_task == k_python_state_none) {
@@ -203,7 +184,6 @@ int GUARDED_PROG(obi_uretprobe_context_run, struct pt_regs *, ctx) {
     }
 
     thread_state->current_context = k_python_state_none;
-    thread_state->current_context_task = k_python_state_none;
     // Only worker threads have no current_task here; on the event-loop thread
     // task_step_ret owns obi_ctx cleanup so we leave it alone
     if (thread_state->current_task == k_python_state_none) {
@@ -297,10 +277,12 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
 
     thread_state->inflight_task = child_task;
     u64 parent_task = thread_state->current_task;
+    u8 stale_context_task = 0;
     // Tasks created from plain loop callbacks have no current task; the
     // entered context's owner is the logical parent.
     if (parent_task == k_python_state_none) {
-        parent_task = thread_state->current_context_task;
+        parent_task = resolve_python_task_from_context(
+            id, thread_state->current_context, &stale_context_task);
     }
     const python_addr_key_t child_task_key = python_addr_key(id, child_task);
     const python_task_state_t *existing_state =
@@ -325,7 +307,7 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     // request by the time the child task is initialized.
     if (parent_state && parent_state->conn.port) {
         task_state.conn = parent_state->conn;
-    } else {
+    } else if (!stale_context_task) {
         const ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         if (info) {
             connection_info_part_t conn_part = {};

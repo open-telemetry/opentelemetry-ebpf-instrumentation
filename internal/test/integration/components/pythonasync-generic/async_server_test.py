@@ -10,11 +10,13 @@ import sys
 
 import httpx
 import requests
+from cancelled_to_thread import CancelledToThreadReuse
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8085")
 PORT = int(os.environ.get("PORT", "8392"))
 
 http_client = None
+cancelled_to_thread_reuse = CancelledToThreadReuse(BACKEND_URL)
 
 
 def _response(status: int, body: dict, keep_alive: bool) -> bytes:
@@ -86,6 +88,8 @@ ROUTES = {
     "concurrent": handle_concurrent,
     "nested": handle_nested,
     "to-thread": handle_to_thread,
+    "cancelled-to-thread-start": cancelled_to_thread_reuse.start,
+    "cancelled-to-thread-reuse": cancelled_to_thread_reuse.reuse,
 }
 
 

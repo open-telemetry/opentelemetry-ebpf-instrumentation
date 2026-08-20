@@ -6,6 +6,7 @@ WORKDIR /app
 COPY internal/test/integration/components/pythonasync-uvloop/requirements-3.14.txt .
 RUN pip install --require-hashes -r requirements-3.14.txt
 
+COPY internal/test/integration/components/pythonasync-common/cancelled_to_thread.py .
 COPY internal/test/integration/components/pythonasync-uvloop .
 
 CMD ["python", "async_context_test.py"]

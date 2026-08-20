@@ -1673,6 +1673,21 @@ func testPythonAsyncToThread(t *testing.T) {
 	testPythonAsyncEndpoint(t, "/to-thread/", 2)
 }
 
+func testPythonAsyncCancelledToThread(t *testing.T) {
+	waitForTestComponentsSub(t, "http://localhost:8391", "/health")
+
+	const slug = "9090"
+	ti.DoHTTPGet(t, "http://localhost:8391/cancelled-to-thread-start/"+slug, 200)
+	ti.DoHTTPGet(t, "http://localhost:8391/cancelled-to-thread-reuse/"+slug, 200)
+
+	reusePath := "/cancelled-to-thread-reuse/" + slug
+	workerPath := "/cancelled-thread/" + slug + "/1"
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		verifyPythonCancelledToThreadIsolation(
+			ct, "pythonasync-uvloop", reusePath, workerPath)
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testPythonAsyncNested(t *testing.T) {
 	testPythonAsyncEndpoint(t, "/nested/", 2)
 }
@@ -1787,6 +1802,67 @@ func testPythonAsyncGenericSequential(t *testing.T) {
 
 func testPythonAsyncGenericToThread(t *testing.T) {
 	testPythonAsyncGenericEndpoint(t, "/to-thread/", "/thr", 2)
+}
+
+func verifyPythonCancelledToThreadIsolation(
+	ct *assert.CollectT, service, reusePath, workerPath string,
+) {
+	resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&operation=GET%20" + reusePath)
+	require.NoError(ct, err)
+	if resp == nil {
+		return
+	}
+	defer resp.Body.Close()
+	require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+	var tq jaeger.TracesQuery
+	require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+	reuseTraces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: reusePath})
+	require.NotEmpty(ct, reuseTraces)
+
+	var reuseTrace *jaeger.Trace
+	for i := range reuseTraces {
+		if len(reuseTraces[i].FindByOperationName("GET "+reusePath, "server")) > 0 {
+			reuseTrace = &reuseTraces[i]
+			break
+		}
+	}
+	require.NotNil(ct, reuseTrace)
+	require.Empty(ct, reuseTrace.FindByOperationName("GET "+workerPath, "client"))
+
+	resp, err = http.Get(jaegerQueryURL + "?service=" + service + "&operation=GET%20" + workerPath)
+	require.NoError(ct, err)
+	if resp == nil {
+		return
+	}
+	defer resp.Body.Close()
+	require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+	tq = jaeger.TracesQuery{}
+	require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+	workerTraces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: workerPath})
+	require.Len(ct, workerTraces, 1)
+	require.Len(ct, workerTraces[0].FindByOperationName("GET "+workerPath, "client"), 1)
+}
+
+func testPythonAsyncGenericCancelledToThread(t *testing.T) {
+	waitForTestComponentsSub(t, "http://localhost:8392", "/health")
+
+	const slug = "9090"
+	ti.DoHTTPGet(t, "http://localhost:8392/cancelled-to-thread-start/"+slug, 200)
+	ti.DoHTTPGet(t, "http://localhost:8392/cancelled-to-thread-reuse/"+slug, 200)
+
+	// The cancelled worker must not join the request that reused its task address.
+	reuseEndpoint := "/cancelled-to-thread-reuse/"
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		verifyPythonAsyncGenericTrace(ct, reuseEndpoint, slug, "", 0)
+	}, testTimeout, 100*time.Millisecond)
+
+	workerPath := "/cancelled-thread/" + slug + "/1"
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		verifyPythonCancelledToThreadIsolation(
+			ct, "pythonasync-generic", reuseEndpoint+slug, workerPath)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testPythonAsyncGenericNested(t *testing.T) {
