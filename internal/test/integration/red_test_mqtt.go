@@ -56,7 +56,7 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 }
 
 func testREDMetricsPythonMQTT(t *testing.T) {
-	testREDMetricsMQTTPublish(t, "python3.14", true)
+	testREDMetricsMQTTPublish(t, "pythonmqtt", true)
 }
 
 func testREDMetricsGoMQTT(t *testing.T) {

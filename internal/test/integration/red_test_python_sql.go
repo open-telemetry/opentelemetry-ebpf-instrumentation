@@ -319,7 +319,7 @@ func testPythonPostgres(t *testing.T) {
 }
 
 func testPythonPostgresAfterHeaders(t *testing.T, testCaseURL string) {
-	comm := "python3.14"
+	comm := "main_sync"
 	table := "accounting.contacts"
 	db := "postgresql"
 
@@ -459,7 +459,7 @@ func testREDMetricsPythonSQLSSL(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponentsSub(t, testCaseURL, "/query")
-			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
+			testREDMetricsForPythonSQLSSL(t, testCaseURL, "main_ssl", "integration-test")
 		})
 	}
 }
