@@ -368,7 +368,11 @@ func newReporter(
 	var attrDBServerDuration []attributes.Field[*request.Span, string]
 
 	if is.DBEnabled() {
-		attrDBClientDuration = attributes.PrometheusGetters(attributeGetters,
+		// server.port on db.client metrics is reported conditionally per the
+		// DB semconv, unless the user explicitly includes it
+		explicitPort := attrsProvider.ExplicitlyIncluded(attributes.DBClientDuration, attr.ServerPort)
+		attrDBClientDuration = attributes.PrometheusGetters(
+			request.SpanPromGettersForDBClient(unresolved, explicitPort),
 			attrsProvider.For(attributes.DBClientDuration))
 		attrDBServerDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.DBServerDuration))

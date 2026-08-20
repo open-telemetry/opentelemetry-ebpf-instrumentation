@@ -628,6 +628,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	metrics.Send([]request.Span{{
 		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}},
 		Type:         request.EventTypeSQLClient,
+		SubType:      int(request.DBPostgres),
 		Path:         "customers",
 		Method:       "SELECT",
 		HostPort:     5432,
@@ -638,7 +639,74 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	records := readMetricsByName(t, metricRecords, timeout, attributes.DBClientDuration.OTEL)
 	require.Len(t, records, 1)
 	assert.Equal(t, "customers", records[0].Attributes[string(attr.DBCollectionName)])
+	// the DBMS default port is still reported because the user explicitly
+	// included server.port in the selection
 	assert.Equal(t, "5432", records[0].Attributes[string(attr.ServerPort)])
+}
+
+func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 10)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	postgresSpan := func(operation string, port int, host string) request.Span {
+		return request.Span{
+			Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}},
+			Type:         request.EventTypeSQLClient,
+			SubType:      int(request.DBPostgres),
+			Method:       operation,
+			Host:         host,
+			HostPort:     port,
+			RequestStart: 100,
+			End:          200,
+		}
+	}
+	metrics.Send([]request.Span{
+		postgresSpan("NONDEFAULT", 5433, "dbhost"),
+		postgresSpan("DEFAULTPORT", 5432, "dbhost"),
+		postgresSpan("NOADDRESS", 5433, ""),
+		postgresSpan("UNKNOWNPORT", 0, "dbhost"),
+	})
+
+	records := map[string]collector.MetricRecord{}
+	deadline := time.After(timeout)
+	for len(records) < 4 {
+		select {
+		case item := <-metricRecords:
+			if item.Name != attributes.DBClientDuration.OTEL {
+				continue
+			}
+			records[item.Attributes[string(attr.DBOperation)]] = item
+		case <-deadline:
+			t.Fatalf("timeout waiting for db.client datapoints, got %v", records)
+		}
+	}
+
+	assert.Equal(t, "5433", records["NONDEFAULT"].Attributes[string(attr.ServerPort)])
+	assert.NotContains(t, records["DEFAULTPORT"].Attributes, string(attr.ServerPort))
+	assert.NotContains(t, records["NOADDRESS"].Attributes, string(attr.ServerPort))
+	assert.NotContains(t, records["UNKNOWNPORT"].Attributes, string(attr.ServerPort))
 }
 
 func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
