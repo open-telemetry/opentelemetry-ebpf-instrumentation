@@ -374,24 +374,44 @@ static void test_unconn_sock_does_not_match_other_sockets(void) {
              obi_unconn_dns_answer_expected((void *)0x2000, &conn));
 }
 
-// The socket is reused for unrelated traffic while a DNS answer could still
-// arrive. The non-DNS send retires the window, so a later nameless datagram is
-// not reported as DNS.
-static void test_unconn_sock_non_dns_send_retires_the_window(void) {
+// A resolver socket carries unrelated traffic while a query is still
+// outstanding: DNS query -> non-DNS send -> nameless DNS answer. The
+// intervening send says nothing about the query already in flight, so the
+// window has to survive it or the answer is lost.
+static void test_unconn_sock_non_dns_send_preserves_the_window(void) {
     mock_map_reset();
     connection_info_t conn = local_endpoint(40100, 10);
     obi_note_unconn_dns_query((void *)0x1000, &conn);
 
-    // classify_dns_msg returned k_dns_msg_no for the next datagram on this socket
+    // classify_dns_msg returns k_dns_msg_no for the intervening send, and the
+    // send path acts on that by declining to report it, nothing more
     struct sockaddr_in statsd = inet_addr_port(AF_INET, 8125);
     struct msghdr non_dns = msg_with_addr(&statsd, sizeof(statsd));
     check_u8("the intervening send is a positive non-DNS",
              k_dns_msg_no,
              classify_dns_msg(&conn, &non_dns));
-    obi_forget_unconn_dns_sock((void *)0x1000);
 
-    check_u8("a nameless datagram after a non-DNS send is not expected as DNS",
-             0,
+    check_u8("the answer is still expected after an unrelated send",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The symmetric loss on the receive path: DNS query -> non-DNS receive that
+// names its peer -> nameless DNS answer. The named receive is classified and
+// discarded on its own merits, and must not take the outstanding query with it.
+static void test_unconn_sock_non_dns_receive_preserves_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    struct sockaddr_in statsd = inet_addr_port(AF_INET, 8125);
+    struct msghdr non_dns = msg_with_addr(&statsd, sizeof(statsd));
+    check_u8("the intervening receive is a positive non-DNS",
+             k_dns_msg_no,
+             classify_dns_msg(&conn, &non_dns));
+
+    check_u8("the answer is still expected after an unrelated receive",
+             1,
              obi_unconn_dns_answer_expected((void *)0x1000, &conn));
 }
 
@@ -520,7 +540,8 @@ int main(void) {
     test_unconn_sock_expects_every_parallel_answer();
     test_unconn_sock_unparsed_receive_does_not_spend_the_window();
     test_unconn_sock_does_not_match_other_sockets();
-    test_unconn_sock_non_dns_send_retires_the_window();
+    test_unconn_sock_non_dns_send_preserves_the_window();
+    test_unconn_sock_non_dns_receive_preserves_the_window();
     test_unconn_sock_query_refreshes_the_window();
     test_unconn_sock_rejects_a_recycled_pointer();
     test_unconn_sock_rejects_a_recycled_pointer_at_the_same_endpoint();

@@ -257,15 +257,10 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        const enum dns_msg_class dns = classify_dns_msg(&s_args.p_conn.conn, msg);
-
-        // this socket is being used for something else, so it must not stay
-        // classified by an earlier DNS query
-        if (dns == k_dns_msg_no) {
-            obi_forget_unconn_dns_sock(sk);
-        }
-
-        if (dns == k_dns_msg_yes) {
+        // an unrelated send does not retire the window: a query already sent on
+        // this socket is still owed an answer, and the window is bounded by
+        // k_unconn_dns_answer_timeout_ns and the socket's lifetime
+        if (is_dns_msg(&s_args.p_conn.conn, msg)) {
             const connection_info_t local_conn = s_args.p_conn.conn;
 
             sort_connection_info(&s_args.p_conn.conn);
@@ -990,11 +985,9 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sock_recvmsg, int copied_len) {
             const enum dns_msg_class dns_class =
                 classify_dns_msg(&info.conn, (struct msghdr *)args->msg_ptr);
 
-            // an explicit non-DNS peer retires the socket's classification
-            if (dns_class == k_dns_msg_no) {
-                obi_forget_unconn_dns_sock(sock_ptr);
-            }
-
+            // an explicit non-DNS peer is not reported, and it does not retire
+            // the window either: a query already sent on this socket is still
+            // owed its own nameless answer
             u8 dns = dns_class == k_dns_msg_yes;
 
             // msg_name did not classify it, but the answer arrived on a socket
