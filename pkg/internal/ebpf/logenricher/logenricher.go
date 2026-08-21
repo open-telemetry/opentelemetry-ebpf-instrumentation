@@ -505,18 +505,19 @@ func (p *Tracer) pipeRegistered(key pipeKey) bool {
 
 // identity to pin the tty fallback destination with; rejects an unregistered
 // pipe (app IPC)
-func (p *Tracer) fallbackDest(path string) (pipeKey, bool) {
+func (p *Tracer) fallbackDest(path string) (pipeKey, bool, bool) {
 	var st unix.Stat_t
 	if err := unix.Stat(path, &st); err != nil {
-		return pipeKey{}, false
+		return pipeKey{}, false, false
 	}
 
 	key := pipeKey{Ino: st.Ino, Dev: kernelDev(st.Dev)}
-	if st.Mode&unix.S_IFMT == unix.S_IFIFO && !p.pipeRegistered(key) {
-		return pipeKey{}, false
+	isPipe := st.Mode&unix.S_IFMT == unix.S_IFIFO
+	if isPipe && !p.pipeRegistered(key) {
+		return pipeKey{}, false, false
 	}
 
-	return key, true
+	return key, isPipe, true
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
@@ -612,7 +613,7 @@ func (p *Tracer) handleLogEvent(record *ringbuf.Record) (request.Span, bool, err
 		key := pipeKey{Ino: event.Ino, Dev: uint64(event.Dev)}
 		// address the pipe through a live owner, the writer may already be gone
 		for _, candidate := range p.pipeDestCandidates(key) {
-			if d, err := p.openLogDestination(candidate, key); err == nil {
+			if d, err := p.openPipeDestination(candidate, key); err == nil {
 				e.dest = candidate
 				e.out = d
 				break
@@ -624,15 +625,23 @@ func (p *Tracer) handleLogEvent(record *ringbuf.Record) (request.Span, bool, err
 		}
 	} else {
 		e.dest = e.ttyPath()
-		var pin pipeKey
+		var (
+			pin      pipeKey
+			pipeDest bool
+		)
 		if unix.ByteSliceToString(event.FilePath[:]) == "" {
 			var ok bool
-			if pin, ok = p.fallbackDest(e.dest); !ok {
+			if pin, pipeDest, ok = p.fallbackDest(e.dest); !ok {
 				p.log.Debug("unsafe tty fallback destination, dropping line", "path", e.dest)
 				return request.Span{}, true, nil
 			}
 		}
-		d, err := p.openLogDestination(e.dest, pin)
+		var d *destFile
+		if pipeDest {
+			d, err = p.openPipeDestination(e.dest, pin)
+		} else {
+			d, err = p.openLogDestination(e.dest, pin)
+		}
 		if err != nil {
 			p.logOpenError(e.dest, err)
 			return request.Span{}, true, nil
@@ -685,11 +694,42 @@ func openDestFile(path string) (*os.File, error) {
 	return f, nil
 }
 
+// callers must hold pipesMU
+func (p *Tracer) pipeDestinationRegisteredLocked(path string, key pipeKey) bool {
+	owners := p.logPipes[key]
+	for pid, fds := range owners {
+		for _, fd := range fds {
+			if procFdPath(pid, fd) == path {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (p *Tracer) cacheDestination(path string, d *destFile) {
+	d.refs.Add(1)
+	// Add on a lingering expired entry replaces it without the evict
+	// callback, which would leak its cache reference; Remove fires it
+	p.fdCache.Remove(path)
+	p.fdCache.Add(path, d)
+}
+
+func (p *Tracer) cachePipeDestination(path string, key pipeKey, d *destFile) {
+	p.pipesMU.RLock()
+	defer p.pipesMU.RUnlock()
+
+	if p.pipeDestinationRegisteredLocked(path, key) {
+		p.cacheDestination(path, d)
+	}
+}
+
 // a non-zero pin fixes the destination identity: /proc fd paths re-point when
 // the owner redirects its stdio, and writing there would leak lines into the
 // wrong file. The returned reference is owned by the caller and must be
 // released once the write completes
-func (p *Tracer) openLogDestination(path string, pin pipeKey) (*destFile, error) {
+func (p *Tracer) openDestination(path string, pin pipeKey, pipeDest bool) (*destFile, error) {
 	if d, ok := p.fdCache.Get(path); ok {
 		if (pin == (pipeKey{}) || fileKey(d.f) == pin) && d.tryAcquire() {
 			return d, nil
@@ -707,13 +747,25 @@ func (p *Tracer) openLogDestination(path string, pin pipeKey) (*destFile, error)
 	}
 
 	d := &destFile{f: f}
-	d.refs.Store(2) // one reference for the cache, one for the caller
-	// Add on a lingering expired entry replaces it without the evict
-	// callback, which would leak its cache reference; Remove fires it
-	p.fdCache.Remove(path)
-	p.fdCache.Add(path, d)
+	d.refs.Store(1) // caller reference
+	if pipeDest {
+		// Serialize publication with pipe retirement. If the owner retired while
+		// the destination was opening, the event reference still delivers the
+		// captured line without resurrecting a stale cache writer.
+		p.cachePipeDestination(path, pin, d)
+	} else {
+		p.cacheDestination(path, d)
+	}
 
 	return d, nil
+}
+
+func (p *Tracer) openLogDestination(path string, pin pipeKey) (*destFile, error) {
+	return p.openDestination(path, pin, false)
+}
+
+func (p *Tracer) openPipeDestination(path string, pin pipeKey) (*destFile, error) {
+	return p.openDestination(path, pin, true)
 }
 
 // a gone, re-pointed, or reader-less destination means its process died or
