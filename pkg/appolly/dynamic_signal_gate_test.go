@@ -237,12 +237,15 @@ func TestDynamicSignalRuntimeMetricsGate(t *testing.T) {
 		{Service: svc.Attrs{ProcPID: 10, DynamicSelectorPID: 1}, PID: 10},
 		{Service: svc.Attrs{ProcPID: 20, DynamicSelectorPID: 2}, PID: 20},
 		{Service: svc.Attrs{ProcPID: 30}, PID: 30},
+		{Service: svc.Attrs{ProcPID: 40}, PID: 40, Removed: true},
 	})
 
 	got := testutil.ReadChannel(t, outCh, gateTestTimeout)
-	require.Len(t, got, 1)
+	require.Len(t, got, 2)
 	assert.Equal(t, app.PID(10), got[0].PID)
 	assert.Equal(t, app.PID(1), runtimeMetricSignalPID(got[0]))
+	assert.Equal(t, app.PID(40), got[1].PID)
+	assert.True(t, got[1].Removed)
 }
 
 func TestDynamicSignalRuntimeMetricsGate_BypassWhenSelectorNil(t *testing.T) {

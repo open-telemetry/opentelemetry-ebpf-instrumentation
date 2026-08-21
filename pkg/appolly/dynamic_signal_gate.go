@@ -98,7 +98,8 @@ func filterRuntimeMetricSnapshots(
 ) []runtimemetrics.RuntimeMetricSnapshot {
 	writeIdx := 0
 	for readIdx := range snapshots {
-		if selector.IncludesPID(runtimeMetricSignalPID(snapshots[readIdx])) {
+		// Tombstones bypass PID selection so exporters can remove previously exported series.
+		if snapshots[readIdx].Removed || selector.IncludesPID(runtimeMetricSignalPID(snapshots[readIdx])) {
 			snapshots[writeIdx] = snapshots[readIdx]
 			writeIdx++
 		}

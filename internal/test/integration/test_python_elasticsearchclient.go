@@ -53,13 +53,17 @@ func testElasticsearchSearch(t *testing.T, dbSystemName, queryParam string) {
 func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, index string) {
 	params := neturl.Values{}
 	params.Add("service", comm)
+	params.Add("tags", fmt.Sprintf(
+		`{"db.operation.name":"%s","db.system.name":"%s"}`,
+		op,
+		dbSystemName,
+	))
 	var operationName string
 	if index != "" {
 		operationName = op + " " + index
 		params.Add("operation", operationName)
 	} else {
 		operationName = op
-		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\"}", op))
 	}
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 

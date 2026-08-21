@@ -448,15 +448,15 @@ func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 	}
 
 	// allowing the tracer to forward traces from the discovered PID and its children processes
-	tracer.AllowPID(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
+	tracer.AllowPIDLifecycle(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo, ie.FileInfo)
 	for _, pid := range ie.ChildPids {
-		tracer.AllowPID(pid, ie.FileInfo.Ns(), ie.FileInfo)
+		tracer.AllowPIDLifecycle(pid, ie.FileInfo.Ns(), instrumentableFileInfo(ie, pid), ie.FileInfo)
 	}
 
 	for _, ct := range ta.commonTracers {
-		ct.AllowPID(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
+		allowPIDLifecycle(ct, ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo, ie.FileInfo)
 		for _, pid := range ie.ChildPids {
-			ct.AllowPID(pid, ie.FileInfo.Ns(), ie.FileInfo)
+			allowPIDLifecycle(ct, pid, ie.FileInfo.Ns(), instrumentableFileInfo(ie, pid), ie.FileInfo)
 		}
 	}
 
@@ -483,6 +483,46 @@ func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 		}
 		ta.SpanSignalsShortcut.Send(spans)
 	}
+}
+
+func instrumentableFileInfo(instrumentable *ebpf.Instrumentable, pid app.PID) *exec.FileInfo {
+	if instrumentable.FileInfo != nil && instrumentable.FileInfo.Pid() == pid {
+		return instrumentable.FileInfo
+	}
+	for _, fileInfo := range instrumentable.ChildFileInfos {
+		if fileInfo != nil && fileInfo.Pid() == pid {
+			return fileInfo
+		}
+	}
+	return instrumentable.FileInfo
+}
+
+func allowPIDLifecycle(
+	tracer ebpf.Tracer,
+	pid app.PID,
+	ns uint32,
+	lifecycle *exec.FileInfo,
+	serviceSource *exec.FileInfo,
+) {
+	if lifecycleTracer, ok := tracer.(ebpf.LifecyclePIDsAccounter); ok {
+		lifecycleTracer.AllowPIDLifecycle(pid, ns, lifecycle, serviceSource)
+		return
+	}
+	tracer.AllowPID(pid, ns, serviceSource)
+}
+
+func blockPIDLifecycle(
+	tracer ebpf.Tracer,
+	pid app.PID,
+	ns uint32,
+	lifecycle *exec.FileInfo,
+	serviceSource *exec.FileInfo,
+) {
+	if lifecycleTracer, ok := tracer.(ebpf.LifecyclePIDsAccounter); ok {
+		lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle, serviceSource)
+		return
+	}
+	tracer.BlockPID(pid, ns)
 }
 
 func (ta *traceAttacher) registerDynamicFileInfo(ie *ebpf.Instrumentable) {
@@ -529,9 +569,15 @@ func (ta *traceAttacher) notifyProcessDeletion(ie *ebpf.Instrumentable) {
 		// to avoid that a new process reusing this PID could send traces
 		// unless explicitly allowed
 		ta.Metrics.UninstrumentProcess(ie.FileInfo.ExecutableName())
-		tracer.BlockPID(ie.FileInfo.Pid(), ie.FileInfo.Ns())
+		tracer.BlockPIDLifecycle(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo, ie.FileInfo)
+		for _, pid := range ie.ChildPids {
+			tracer.BlockPIDLifecycle(pid, ie.FileInfo.Ns(), instrumentableFileInfo(ie, pid), ie.FileInfo)
+		}
 		for _, ct := range ta.commonTracers {
-			ct.BlockPID(ie.FileInfo.Pid(), ie.FileInfo.Ns())
+			blockPIDLifecycle(ct, ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo, ie.FileInfo)
+			for _, pid := range ie.ChildPids {
+				blockPIDLifecycle(ct, pid, ie.FileInfo.Ns(), instrumentableFileInfo(ie, pid), ie.FileInfo)
+			}
 		}
 
 		// if there are no more trace instances for a program, we need to notify that

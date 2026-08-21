@@ -23,6 +23,7 @@ func TestRuntimeMetricEventTypeABI(t *testing.T) {
 	assert.Equal(t, byte(17), byte(EventTypeGoRuntimeMetric))
 	assert.Equal(t, byte(19), byte(EventTypeJVMMemoryPoolGC))
 	assert.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
+	assert.Equal(t, byte(29), byte(EventTypePythonRuntimeMetric))
 }
 
 func TestIsGoRuntimeMetricRecordRecognizesGoRuntimeEvents(t *testing.T) {
@@ -74,6 +75,7 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		EventTypeGoRuntimeMetric,
 		EventTypeGoRuntimeHistogram,
 		EventTypeJVMMemoryPoolGC,
+		EventTypePythonRuntimeMetric,
 	} {
 		runtimeMetrics := &fakeRuntimeMetricsSender{}
 		ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
@@ -91,9 +93,12 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		require.NoError(t, err)
 		assert.True(t, handled)
 
-		if eventType == EventTypeGoRuntimeMetric || eventType == EventTypeGoRuntimeHistogram {
+		switch eventType {
+		case EventTypeGoRuntimeMetric, EventTypeGoRuntimeHistogram:
 			assert.Equal(t, 1, runtimeMetrics.goRecords)
-		} else {
+		case EventTypePythonRuntimeMetric:
+			assert.Equal(t, 1, runtimeMetrics.pythonRecords)
+		default:
 			assert.Zero(t, runtimeMetrics.goRecords)
 		}
 		assert.Empty(t, runtimeMetrics.events)
@@ -146,6 +151,7 @@ type fakeRuntimeMetricsSender struct {
 	nodejsGCEvents        []appruntime.NodejsGCEvent
 	nodejsHeapSpaceEvents []appruntime.NodejsHeapSpaceEvent
 	goRecords             int
+	pythonRecords         int
 	goFilter              ServiceFilter
 }
 
@@ -164,6 +170,11 @@ func (s *fakeRuntimeMetricsSender) SendNodejsHeapSpaceMetrics(_ context.Context,
 func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, filter ServiceFilter) error {
 	s.goRecords++
 	s.goFilter = filter
+	return nil
+}
+
+func (s *fakeRuntimeMetricsSender) SendPythonRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, _ ServiceFilter) error {
+	s.pythonRecords++
 	return nil
 }
 

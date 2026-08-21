@@ -286,6 +286,7 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 
 	// select the parent (or grandparent) of the executable, if any
 	var child []app.PID
+	var childFileInfos []*exec.FileInfo
 	parent, ok := t.currentPids[execElf.Ppid()]
 	for ok && execElf.Ppid() != execElf.Pid() &&
 		// we will ignore parent processes that are not the same executable. For example,
@@ -294,6 +295,7 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		execElf.CmdExePath() == parent.CmdExePath() {
 		log.Debug("replacing executable by its parent", "ppid", execElf.Ppid())
 		child = append(child, execElf.Pid())
+		childFileInfos = append(childFileInfos, execElf)
 		execElf = parent
 		parent, ok = t.currentPids[parent.Ppid()]
 	}
@@ -321,6 +323,7 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		Offsets:              nil,
 		FileInfo:             execElf,
 		ChildPids:            child,
+		ChildFileInfos:       childFileInfos,
 		InstrumentationError: err,
 		LogEnricherEnabled:   execElf.LogEnricherEnabled(),
 	}

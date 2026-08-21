@@ -29,7 +29,8 @@ type Instrumentable struct {
 
 	// in some runtimes, like python gunicorn, we need to allow
 	// tracing both the parent pid and all of its children pid
-	ChildPids []app.PID
+	ChildPids      []app.PID
+	ChildFileInfos []*exec.FileInfo
 
 	FileInfo *exec.FileInfo
 	Offsets  *goexec.Offsets
@@ -52,6 +53,13 @@ type PIDsAccounter interface {
 	// with the provided PID. After receiving them via ringbuffer, it should
 	// discard them.
 	BlockPID(app.PID, uint32)
+}
+
+// LifecyclePIDsAccounter receives the exact process identity when a tracer owns
+// state that must survive PID reuse safely.
+type LifecyclePIDsAccounter interface {
+	AllowPIDLifecycle(app.PID, uint32, *exec.FileInfo, *exec.FileInfo)
+	BlockPIDLifecycle(app.PID, uint32, *exec.FileInfo, *exec.FileInfo)
 }
 
 type CommonTracer interface {
@@ -172,8 +180,42 @@ func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 }
 
+func (pt *ProcessTracer) AllowPIDLifecycle(
+	pid app.PID,
+	ns uint32,
+	lifecycle *exec.FileInfo,
+	serviceSource *exec.FileInfo,
+) {
+	logEnricherEnabled := serviceSource.LogEnricherEnabled()
+	for i := range pt.Programs {
+		if _, ok := pt.Programs[i].(*logenricher.Tracer); ok && !logEnricherEnabled {
+			continue
+		}
+		if lifecycleTracer, ok := pt.Programs[i].(LifecyclePIDsAccounter); ok {
+			lifecycleTracer.AllowPIDLifecycle(pid, ns, lifecycle, serviceSource)
+		} else {
+			pt.Programs[i].AllowPID(pid, ns, serviceSource)
+		}
+	}
+}
+
 func (pt *ProcessTracer) BlockPID(pid app.PID, ns uint32) {
 	for i := range pt.Programs {
 		pt.Programs[i].BlockPID(pid, ns)
+	}
+}
+
+func (pt *ProcessTracer) BlockPIDLifecycle(
+	pid app.PID,
+	ns uint32,
+	lifecycle *exec.FileInfo,
+	serviceSource *exec.FileInfo,
+) {
+	for i := range pt.Programs {
+		if lifecycleTracer, ok := pt.Programs[i].(LifecyclePIDsAccounter); ok {
+			lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle, serviceSource)
+		} else {
+			pt.Programs[i].BlockPID(pid, ns)
+		}
 	}
 }

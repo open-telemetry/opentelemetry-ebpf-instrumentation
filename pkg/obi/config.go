@@ -754,7 +754,6 @@ func (c *Config) validate(context validationContext) error {
 	if c.JVMRuntimeMetrics.SamplingInterval <= 0 {
 		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0")
 	}
-
 	if err := c.Discovery.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}

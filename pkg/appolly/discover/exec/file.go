@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -35,12 +36,14 @@ type Init struct {
 	Dev            uint64
 	Ino            uint64
 	Ns             uint32
+	StartTime      uint64
 }
 
 type FileInfo struct {
 	mu             sync.RWMutex
 	service        svc.Attrs
 	runtimeGen     map[app.PID]uint64
+	pythonFinal    map[app.PID]appruntime.PythonRuntimeMetricFinal
 	cmdExePath     string
 	proExeLinkPath string
 	elfFile        *elf.File
@@ -50,12 +53,14 @@ type FileInfo struct {
 	dev            uint64
 	ino            uint64
 	ns             uint32
+	startTime      uint64
 }
 
 func New(init Init) *FileInfo {
 	return &FileInfo{
 		service:        init.Service,
 		runtimeGen:     map[app.PID]uint64{},
+		pythonFinal:    map[app.PID]appruntime.PythonRuntimeMetricFinal{},
 		cmdExePath:     init.CmdExePath,
 		proExeLinkPath: init.ProExeLinkPath,
 		elfFile:        init.ELF,
@@ -65,7 +70,31 @@ func New(init Init) *FileInfo {
 		dev:            init.Dev,
 		ino:            init.Ino,
 		ns:             init.Ns,
+		startTime:      init.StartTime,
 	}
+}
+
+// SetPythonRuntimeMetricFinal stages one PID's termination data on the service FileInfo.
+// The process event drains it before exporters remove the PID baseline.
+func (fi *FileInfo) SetPythonRuntimeMetricFinal(value appruntime.PythonRuntimeMetricFinal) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	if fi.pythonFinal == nil {
+		fi.pythonFinal = map[app.PID]appruntime.PythonRuntimeMetricFinal{}
+	}
+	fi.pythonFinal[value.PID] = value
+}
+
+// TakePythonRuntimeMetricFinals drains all staged Python termination data.
+func (fi *FileInfo) TakePythonRuntimeMetricFinals() []appruntime.PythonRuntimeMetricFinal {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	values := make([]appruntime.PythonRuntimeMetricFinal, 0, len(fi.pythonFinal))
+	for _, value := range fi.pythonFinal {
+		values = append(values, value)
+	}
+	clear(fi.pythonFinal)
+	return values
 }
 
 func (fi *FileInfo) RuntimeMetricGeneration(pid app.PID) uint64 {
@@ -94,6 +123,7 @@ func (fi *FileInfo) StartTime() uint64      { return fi.startTime }
 func (fi *FileInfo) Dev() uint64            { return fi.dev }
 func (fi *FileInfo) Ino() uint64            { return fi.ino }
 func (fi *FileInfo) Ns() uint32             { return fi.ns }
+func (fi *FileInfo) StartTime() uint64      { return fi.startTime }
 func (fi *FileInfo) CmdExePath() string     { return fi.cmdExePath }
 func (fi *FileInfo) ProExeLinkPath() string { return fi.proExeLinkPath }
 func (fi *FileInfo) ELF() *elf.File         { return fi.elfFile }
