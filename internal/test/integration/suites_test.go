@@ -1228,6 +1228,19 @@ func TestSuite_LogEnricherPythonAsync(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_LogEnricherShellSubstitution(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-shellsubst.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=substsh`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher shell command substitution", func(t *testing.T) {
+		testLogEnricherShellSubstitution(t)
+	})
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_LogEnricherMultiSegWritev(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-multiseg-writev.log"))
 	require.NoError(t, err)

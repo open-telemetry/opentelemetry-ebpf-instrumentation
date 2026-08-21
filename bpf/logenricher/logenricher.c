@@ -18,6 +18,7 @@
 
 #include <logenricher/maps/log_enricher_pids.h>
 #include <logenricher/maps/log_events.h>
+#include <logenricher/maps/log_pipes.h>
 #include <logenricher/maps/pid_fd.h>
 #include <logenricher/maps/zeros.h>
 
@@ -105,8 +106,11 @@ static __always_inline u32 consume_iovec(log_event_t *e,
     return tot;
 }
 
-static __always_inline int
-__write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct task_struct *task) {
+static __always_inline int __write(struct kiocb *iocb,
+                                   struct iov_iter *from,
+                                   const int fd,
+                                   const log_pipe_key_t *pipe,
+                                   const struct task_struct *task) {
     iovec_iter_ctx ictx;
     get_iovec_ctx(&ictx, (struct iov_iter___dummy *)from);
 
@@ -126,6 +130,8 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
     e->tgid = pid_tgid >> 32;
     e->ctx = obi_ctx ? *obi_ctx : (obi_ctx_info_t){0};
     e->fd = fd;
+    e->ino = pipe ? pipe->ino : 0;
+    e->dev = pipe ? (u32)pipe->dev : 0;
 
     u32 tot = 0;
 
@@ -199,7 +205,7 @@ int BPF_KPROBE(obi_kprobe_tty_write, struct kiocb *iocb, struct iov_iter *from) 
         return 0;
     }
 
-    return __write(iocb, from, 0, task);
+    return __write(iocb, from, 0, NULL, task);
 }
 
 SEC("kprobe/pipe_write")
@@ -211,12 +217,22 @@ int BPF_KPROBE(obi_kprobe_pipe_write, struct kiocb *iocb, struct iov_iter *from)
         return 0;
     }
 
+    // only touch registered stdout/stderr pipes, anything else is app data
+    const struct inode *f_inode = BPF_CORE_READ(iocb, ki_filp, f_inode);
+    const log_pipe_key_t key = {
+        .ino = BPF_CORE_READ(f_inode, i_ino),
+        .dev = BPF_CORE_READ(f_inode, i_sb, s_dev),
+    };
+    if (!bpf_map_lookup_elem(&log_pipes, &key)) {
+        return 0;
+    }
+
     int *fdp = bpf_map_lookup_elem(&pid_fd, &(u64){bpf_get_current_pid_tgid()});
     if (!fdp) {
         return 0;
     }
 
-    return __write(iocb, from, *fdp, task);
+    return __write(iocb, from, *fdp, &key, task);
 }
 
 static __always_inline int __record_fd(unsigned int fd) {
