@@ -13,7 +13,8 @@ description: |
     output, in both naming schemes: the OTel-canonical
     `traces.span.metrics.*` names (emitted when the `application_span_otel`
     metrics feature is enabled) and the legacy Grafana-style
-    `traces_spanmetrics_*` names (OBI's default `application_span` feature)
+    `traces_spanmetrics_*` names, which stay declared and marked deprecated
+    for as long as the deprecated `application_span` feature still emits them
   - Service-graph metrics matching the OTel collector-contrib
     `servicegraphconnector` output (emitted when the
     `application_service_graph` metrics feature is enabled)
