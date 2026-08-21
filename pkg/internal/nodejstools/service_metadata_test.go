@@ -162,6 +162,18 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.True(t, service.AutoName())
 	})
 
+	t.Run("unknown option does not supply an entrypoint fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "worker.js"), nil)
+		writeNodeFile(t, filepath.Join(root, "app", "server.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"--future-option", "worker.js", "server.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("file URL entrypoint supplies the fallback name", func(t *testing.T) {
 		root := t.TempDir()
 		writeNodeFile(t, filepath.Join(root, "opt", "orders", "main.js"), nil)
