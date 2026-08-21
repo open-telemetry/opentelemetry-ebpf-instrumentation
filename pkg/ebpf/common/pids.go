@@ -5,7 +5,12 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -28,6 +33,7 @@ const (
 // current process namespace from the /proc filesystem. It is required to
 // choose to filter traces using whether the User-space or Host-space PIDs
 var readNamespacePIDs = procs.FindNamespacedPids
+var childFileInfoFromProc = fileInfoFromProc
 
 type PIDInfo struct {
 	fileInfo       *exec.FileInfo
@@ -41,6 +47,10 @@ type ServiceFilter interface {
 	ValidPID(app.PID, uint32, PIDType) bool
 	Filter(inputSpans []request.Span) []request.Span
 	CurrentPIDs(PIDType) map[uint32]map[app.PID]svc.Attrs
+}
+
+type parentAwareServiceFilter interface {
+	AllowPIDFromParent(pid app.PID, hostPID app.PID, parentPID app.PID, ns uint32, pidType PIDType, processName string) bool
 }
 
 // PIDsFilter keeps a thread-safe copy of the PIDs whose traces are allowed to
@@ -91,6 +101,127 @@ func (pf *PIDsFilter) ValidPID(userPID app.PID, ns uint32, pidType PIDType) bool
 	}
 
 	return false
+}
+
+func (pf *PIDsFilter) AllowPIDFromParent(pid app.PID, hostPID app.PID, parentPID app.PID, ns uint32, pidType PIDType, processName string) bool {
+	if pid == 0 || parentPID == 0 {
+		return false
+	}
+
+	pf.mux.Lock()
+	defer pf.mux.Unlock()
+
+	nsPIDs, nsExists := pf.current[ns]
+	if !nsExists {
+		return false
+	}
+
+	parentInfo, parentExists := nsPIDs[parentPID]
+	if !parentExists || parentInfo.pidTypes&pidType == 0 || parentInfo.fileInfo == nil {
+		return false
+	}
+
+	childFileInfo := parentInfo.fileInfo
+	if resolved, err := childFileInfoFromProc(pid, hostPID, parentPID, ns, parentInfo.fileInfo); err == nil {
+		childFileInfo = resolved
+	} else {
+		if processName != "" {
+			childFileInfo = fileInfoFromProcessName(pid, parentPID, ns, parentInfo.fileInfo, processName)
+		} else {
+			pf.log.Debug("couldn't resolve child process identity; inheriting parent service identity",
+				"function", "PIDsFilter.AllowPIDFromParent", "pid", pid, "hostPID", hostPID, "parentPID", parentPID, "error", err)
+		}
+	}
+
+	childInfo := nsPIDs[pid]
+	childInfo.fileInfo = childFileInfo
+	childInfo.pidTypes |= pidType
+	childInfo.otherKnownPids = appendPIDIfMissing(childInfo.otherKnownPids, pid)
+	nsPIDs[pid] = childInfo
+
+	parentInfo.otherKnownPids = appendPIDIfMissing(parentInfo.otherKnownPids, pid)
+	nsPIDs[parentPID] = parentInfo
+
+	return true
+}
+
+func validKProbePID(filter ServiceFilter, pid app.PID, hostPID app.PID, parentPID app.PID, ns uint32, processName string) bool {
+	if filter.ValidPID(pid, ns, PIDTypeKProbes) {
+		return true
+	}
+
+	parentAware, ok := filter.(parentAwareServiceFilter)
+	if !ok {
+		return false
+	}
+
+	return parentAware.AllowPIDFromParent(pid, hostPID, parentPID, ns, PIDTypeKProbes, processName)
+}
+
+func fileInfoFromProc(pid app.PID, hostPID app.PID, parentPID app.PID, ns uint32, parent *exec.FileInfo) (*exec.FileInfo, error) {
+	if hostPID == 0 {
+		return nil, os.ErrNotExist
+	}
+
+	proExeLinkPath := filepath.Join("/proc", strconv.FormatUint(uint64(hostPID), 10), "exe")
+	exePath, err := os.Readlink(proExeLinkPath)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := os.Stat(proExeLinkPath)
+	if err != nil {
+		return nil, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil, syscall.EINVAL
+	}
+
+	service := parent.ServiceAttrs()
+	service.UID.Name = filepath.Base(exePath)
+	service.SDKLanguage = svc.InstrumentableGeneric
+	service.ProcPID = hostPID
+
+	return exec.New(exec.Init{
+		Service:        service,
+		CmdExePath:     exePath,
+		ProExeLinkPath: proExeLinkPath,
+		Pid:            pid,
+		Ppid:           parentPID,
+		Dev:            uint64(stat.Dev),
+		Ino:            stat.Ino,
+		Ns:             ns,
+	}), nil
+}
+
+func fileInfoFromProcessName(pid app.PID, parentPID app.PID, ns uint32, parent *exec.FileInfo, processName string) *exec.FileInfo {
+	service := parent.ServiceAttrs()
+	service.UID.Name = processName
+	service.SDKLanguage = svc.InstrumentableGeneric
+	service.ProcPID = pid
+
+	return exec.New(exec.Init{
+		Service: service,
+		Pid:     pid,
+		Ppid:    parentPID,
+		Ns:      ns,
+	})
+}
+
+func processNameFromComm(comm []byte) string {
+	end := 0
+	for end < len(comm) && comm[end] != 0 {
+		end++
+	}
+	name := strings.TrimSpace(string(comm[:end]))
+	if name == "" {
+		return ""
+	}
+	if first, _, ok := strings.Cut(name, " "); ok {
+		return first
+	}
+	return name
 }
 
 func (pf *PIDsFilter) CurrentPIDs(t PIDType) map[uint32]map[app.PID]svc.Attrs {
@@ -182,6 +313,16 @@ func (pf *PIDsFilter) addPID(pid app.PID, nsid uint32, fi *exec.FileInfo, t PIDT
 		pidInfo.otherKnownPids = allPids
 		ns[p] = pidInfo
 	}
+}
+
+func appendPIDIfMissing(pids []app.PID, pid app.PID) []app.PID {
+	for _, currentPID := range pids {
+		if currentPID == pid {
+			return pids
+		}
+	}
+
+	return append(pids, pid)
 }
 
 func (pf *PIDsFilter) removePID(pid app.PID, nsid uint32) {

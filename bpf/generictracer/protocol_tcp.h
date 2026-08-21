@@ -231,6 +231,7 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
         const u64 extra_id = extra_runtime_id();
         init_failed_connect_tcp_req(
             req, pid_conn, orig_dport, connect_ts, event_ts, event_ts, extra_id, &pid);
+        bpf_get_current_comm(&req->comm, sizeof(req->comm));
 
         bpf_dbg_printk("TCP connect failed event");
 
@@ -330,6 +331,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->task_tid = req_task.tid;
             req->protocol_type = protocol_type;
             task_pid(&req->pid);
+            bpf_get_current_comm(&req->comm, sizeof(req->comm));
             bpf_probe_read(req->buf, bytes_len, u_buf);
 
             req->tp.ts = bpf_ktime_get_ns();

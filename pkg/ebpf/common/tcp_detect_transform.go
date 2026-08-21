@@ -42,7 +42,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return request.Span{}, true, err
 	}
 
-	if event.EventSource == GenericEventSourceTypeKProbes && !filter.ValidPID(app.PID(event.Pid.UserPid), event.Pid.Ns, PIDTypeKProbes) {
+	if event.EventSource == GenericEventSourceTypeKProbes && !validKProbePID(filter, app.PID(event.Pid.UserPid), app.PID(event.Pid.HostPid), app.PID(event.Pid.UserPpid), event.Pid.Ns, processNameFromComm(event.Comm[:])) {
 		return request.Span{}, true, nil
 	}
 

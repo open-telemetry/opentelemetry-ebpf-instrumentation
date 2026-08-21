@@ -37,12 +37,19 @@ static __always_inline void task_pid(pid_info *pid) {
 
     // set host-side PID
     pid->host_pid = (u32)BPF_CORE_READ(task, tgid);
+    pid->host_ppid = (u32)BPF_CORE_READ(task, real_parent, tgid);
 
     // set user-side PID
     unsigned int level = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, level);
     struct pid *ns_pid = (struct pid *)BPF_CORE_READ(task, group_leader, thread_pid);
     bpf_probe_read_kernel(&upid, sizeof(upid), &ns_pid->numbers[level]);
     pid->user_pid = (u32)upid.nr;
+
+    // set user-side parent PID
+    unsigned int p_level = BPF_CORE_READ(task, real_parent, nsproxy, pid_ns_for_children, level);
+    struct pid *ns_ppid = (struct pid *)BPF_CORE_READ(task, real_parent, group_leader, thread_pid);
+    bpf_probe_read_kernel(&upid, sizeof(upid), &ns_ppid->numbers[p_level]);
+    pid->user_ppid = (u32)upid.nr;
 
     // set PIDs namespace
     pid->ns = (u32)BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);

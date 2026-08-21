@@ -4,6 +4,7 @@
 package ebpfcommon
 
 import (
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -19,6 +20,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
+
+var errNoProcForTest = errors.New("process exited")
 
 var spanSet = []request.Span{
 	{Pid: request.PidInfo{UserPID: 33, HostPID: 123, Namespace: 33}},
@@ -392,6 +395,95 @@ func TestFilter_PreservesMultiplePIDTypes(t *testing.T) {
 	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes))
 	assert.False(t, pf.ValidPID(1123, 33, PIDTypeGo))
 	assert.False(t, pf.ValidPID(1123, 33, PIDTypeKProbes))
+}
+
+func TestFilter_KProbeChildInheritsDiscoveredParent(t *testing.T) {
+	origReadNamespacePIDs := readNamespacePIDs
+	origChildFileInfoFromProc := childFileInfoFromProc
+	t.Cleanup(func() {
+		readNamespacePIDs = origReadNamespacePIDs
+		childFileInfoFromProc = origChildFileInfoFromProc
+	})
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		return []app.PID{pid}, nil
+	}
+	childFileInfoFromProc = func(pid app.PID, hostPID app.PID, parentPID app.PID, ns uint32, parent *exec.FileInfo) (*exec.FileInfo, error) {
+		service := parent.ServiceAttrs()
+		service.UID.Name = "mongosh"
+		service.SDKLanguage = svc.InstrumentableGeneric
+		service.ProcPID = hostPID
+		return exec.New(exec.Init{
+			Service: service,
+			Pid:     pid,
+			Ppid:    parentPID,
+			Ns:      ns,
+		}), nil
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(1, 33, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "python3.14"}}}), PIDTypeKProbes)
+
+	assert.False(t, pf.ValidPID(42, 33, PIDTypeKProbes))
+	assert.True(t, validKProbePID(pf, 42, 1042, 1, 33, "mongosh"))
+	assert.True(t, pf.ValidPID(42, 33, PIDTypeKProbes))
+
+	filtered := resetTraceContext(pf.Filter([]request.Span{
+		{Pid: request.PidInfo{UserPID: 42, HostPID: 1042, Namespace: 33}},
+	}))
+	assert.Equal(t, []request.Span{
+		{
+			Pid:     request.PidInfo{UserPID: 42, HostPID: 1042, Namespace: 33},
+			Service: svc.Attrs{UID: svc.UID{Name: "mongosh"}, SDKLanguage: svc.InstrumentableGeneric, ProcPID: 1042},
+		},
+	}, filtered)
+}
+
+func TestFilter_KProbeChildDoesNotInheritWrongPIDType(t *testing.T) {
+	origReadNamespacePIDs := readNamespacePIDs
+	t.Cleanup(func() {
+		readNamespacePIDs = origReadNamespacePIDs
+	})
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		return []app.PID{pid}, nil
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(1, 33, exec.New(exec.Init{}), PIDTypeGo)
+
+	assert.False(t, validKProbePID(pf, 42, 1042, 1, 33, "mongosh"))
+	assert.False(t, pf.ValidPID(42, 33, PIDTypeKProbes))
+}
+
+func TestFilter_KProbeChildFallsBackToProcessComm(t *testing.T) {
+	origReadNamespacePIDs := readNamespacePIDs
+	origChildFileInfoFromProc := childFileInfoFromProc
+	t.Cleanup(func() {
+		readNamespacePIDs = origReadNamespacePIDs
+		childFileInfoFromProc = origChildFileInfoFromProc
+	})
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		return []app.PID{pid}, nil
+	}
+	childFileInfoFromProc = func(app.PID, app.PID, app.PID, uint32, *exec.FileInfo) (*exec.FileInfo, error) {
+		return nil, errNoProcForTest
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(1, 33, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "python3.14"}}}), PIDTypeKProbes)
+
+	assert.True(t, validKProbePID(pf, 42, 1042, 1, 33, "mongosh"))
+
+	filtered := resetTraceContext(pf.Filter([]request.Span{
+		{Pid: request.PidInfo{UserPID: 42, HostPID: 1042, Namespace: 33}},
+	}))
+	assert.Equal(t, []request.Span{
+		{
+			Pid:     request.PidInfo{UserPID: 42, HostPID: 1042, Namespace: 33},
+			Service: svc.Attrs{UID: svc.UID{Name: "mongosh"}, SDKLanguage: svc.InstrumentableGeneric, ProcPID: 42},
+		},
+	}, filtered)
+}
+
+func TestProcessNameFromComm(t *testing.T) {
+	assert.Equal(t, "mongosh", processNameFromComm([]byte{'m', 'o', 'n', 'g', 'o', 's', 'h', ' ', 'm', 'o', 'n', 'g', 'o', 'd', 'b', 0}))
+	assert.Empty(t, processNameFromComm([]byte{0, 0}))
 }
 
 func resetTraceContext(spans []request.Span) []request.Span {

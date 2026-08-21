@@ -795,7 +795,7 @@ func ReadHTTP2HeaderEvent(parseContext *EBPFParseContext, record *ringbuf.Record
 	if err != nil {
 		return err
 	}
-	if !filter.ValidPID(app.PID(event.Pid.UserPid), event.Pid.Ns, PIDTypeKProbes) {
+	if !validKProbePID(filter, app.PID(event.Pid.UserPid), app.PID(event.Pid.HostPid), app.PID(event.Pid.UserPpid), event.Pid.Ns, "") {
 		return nil
 	}
 	return readHTTP2HeaderEvent(parseContext, event)
@@ -807,7 +807,7 @@ func ReadHTTP2InfoIntoSpan(parseContext *EBPFParseContext, record *ringbuf.Recor
 		return request.Span{}, true, err
 	}
 
-	if !filter.ValidPID(app.PID(event.Pid.UserPid), event.Pid.Ns, PIDTypeKProbes) {
+	if !validKProbePID(filter, app.PID(event.Pid.UserPid), app.PID(event.Pid.HostPid), app.PID(event.Pid.UserPpid), event.Pid.Ns, "") {
 		return request.Span{}, true, nil
 	}
 

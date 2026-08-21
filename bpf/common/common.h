@@ -172,6 +172,7 @@ typedef struct tcp_req {
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
     pid_info pid;
+    unsigned char comm[16];
     tp_info_t tp;
 } tcp_req_t;
 
