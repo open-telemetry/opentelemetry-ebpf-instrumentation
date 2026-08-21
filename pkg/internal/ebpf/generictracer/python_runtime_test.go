@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -73,10 +74,11 @@ func TestPythonRuntimeProbeAttachmentOptions(t *testing.T) {
 
 func TestPythonRuntimeAllowIsIdempotent(t *testing.T) {
 	controller, resolver, targets, _ := pythonRuntimeTestController()
-	lifecycle := pythonRuntimeTestFile(123, 100)
+	pid := app.PID(os.Getpid())
+	lifecycle := pythonRuntimeTestFile(pid, 100)
 
-	controller.allow(123, 42, lifecycle, lifecycle)
-	controller.allow(123, 42, lifecycle, lifecycle)
+	controller.allow(pid, 42, lifecycle, lifecycle)
+	controller.allow(pid, 42, lifecycle, lifecycle)
 	require.Eventually(t, func() bool { return resolver.calls.Load() == 1 && targets.hasEntries() }, time.Second, time.Millisecond)
 	controller.close()
 }
