@@ -317,10 +317,19 @@ func adjustedUSDTAddress(baseAddr, noteBase, addr uint64) (uint64, error) {
 	if baseAddr == 0 || noteBase == 0 {
 		return addr, nil
 	}
-	if addr < noteBase || baseAddr > math.MaxUint64-(addr-noteBase) {
+	if baseAddr >= noteBase {
+		delta := baseAddr - noteBase
+		if addr > math.MaxUint64-delta {
+			return 0, errors.New("USDT address overflow")
+		}
+		return addr + delta, nil
+	}
+
+	delta := noteBase - baseAddr
+	if addr < delta {
 		return 0, errors.New("USDT address overflow")
 	}
-	return baseAddr + addr - noteBase, nil
+	return addr - delta, nil
 }
 
 func elfFileOffset(elfFile *elf.File, addr uint64, requireExecutable bool) (uint64, error) {

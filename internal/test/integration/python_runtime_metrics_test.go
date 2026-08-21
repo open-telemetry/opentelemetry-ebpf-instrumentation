@@ -313,14 +313,13 @@ func assertPythonRuntimeMetricsEventuallyMatch(t *testing.T, pq pythonRuntimePro
 func waitForPythonRuntimeMetricsStable(t *testing.T, pq pythonRuntimePrometheus) pythonGCStats {
 	var previous pythonGCStats
 	var stableSince time.Time
-	require.Eventually(t, func() bool {
-		current := readPythonRuntimeMetricStats(t, pq)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		current := readPythonRuntimeMetricStats(ct, pq)
 		if current != previous {
 			previous = current
 			stableSince = time.Now()
-			return false
 		}
-		return time.Since(stableSince) >= time.Second
+		assert.GreaterOrEqual(ct, time.Since(stableSince), time.Second)
 	}, testTimeout, 250*time.Millisecond)
 	return previous
 }
