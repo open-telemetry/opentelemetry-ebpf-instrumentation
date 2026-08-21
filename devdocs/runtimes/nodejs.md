@@ -64,9 +64,9 @@ The injected agent reports in-process readings over an eBPF side channel:
    encodes the ten values as fixed-width hex into a synthetic path:
    `fs.accessSync("/dev/null/obi-rt/<10 × 16 hex chars>")`. On the same tick
    it walks `v8.getHeapSpaceStatistics()` and emits one
-   `/dev/null/obi-v8/h…` record per heap space (four fixed-width values,
+   `/dev/null/obi-v8/h...` record per heap space (four fixed-width values,
    the engine-defined space name last). GC cycles are pushed as they are
-   observed: a `PerformanceObserver` emits one `/dev/null/obi-v8/g…` record
+   observed: a `PerformanceObserver` emits one `/dev/null/obi-v8/g...` record
    per collection (kind and duration).
 3. The generic tracer's `uv_fs_access` uprobe decodes the payloads
    (rejecting any malformed record — exact-length, hex and name-length

@@ -218,7 +218,9 @@
       };
       orig.gcObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-          const kind = gcKindHex[entry.detail && entry.detail.kind];
+          // detail.kind since Node 16; before that the kind sits directly on
+          // the entry (deprecated accessor, the only form on 14.10-15.x)
+          const kind = gcKindHex[entry.detail ? entry.detail.kind : entry.kind];
           if (!kind) {
             continue;
           }

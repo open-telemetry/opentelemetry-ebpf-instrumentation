@@ -134,6 +134,12 @@ func TestV8GCEmissionFieldOrder(t *testing.T) {
 
 	require.Contains(t, block, "1e6",
 		"gc duration must be converted from perf_hooks milliseconds to nanoseconds")
+
+	// detail.kind exists since Node 16; the deprecated entry.kind accessor is
+	// the only form on 14.10-15.x — dropping the fallback would silently kill
+	// GC metrics on those runtimes
+	require.Contains(t, src, "entry.detail ? entry.detail.kind : entry.kind",
+		"gc kind must fall back to the pre-16 entry.kind accessor")
 }
 
 // TestV8MachineryFollowsRuntimeGate pins that the v8 collection lives and
