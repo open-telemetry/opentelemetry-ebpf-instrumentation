@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
@@ -48,7 +49,7 @@ func newLogPipesMap(t *testing.T, maxEntries uint32) *ebpf.Map {
 	m, err := ebpf.NewMap(&ebpf.MapSpec{
 		Name:       "log_pipes_test",
 		Type:       ebpf.Hash,
-		KeySize:    16,
+		KeySize:    uint32(unsafe.Sizeof(pipeKey{})),
 		ValueSize:  1,
 		MaxEntries: maxEntries,
 	})

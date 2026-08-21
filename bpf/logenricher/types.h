@@ -46,11 +46,14 @@ typedef struct log_event {
 const log_event_t *log_event__unused __attribute__((unused));
 
 // bare inode numbers collide across filesystems (pipefs vs on-disk FIFOs,
-// and get_next_ino() wraps at 32 bits), so pipes are keyed by (ino, dev)
+// and get_next_ino() wraps at 32 bits), so pipes are keyed by (ino, dev).
+// dev holds a 32-bit kernel dev_t; u64 keeps the key free of implicit padding
 typedef struct log_pipe_key {
     u64 ino;
     u64 dev;
 } log_pipe_key_t;
+
+const log_pipe_key_t *log_pipe_key__unused __attribute__((unused));
 
 enum tty_driver_type___new {
     TTY_DRIVER_TYPE_SYSTEM,

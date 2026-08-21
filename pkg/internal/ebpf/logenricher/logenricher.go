@@ -37,7 +37,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type log_event_t -target amd64,arm64 Bpf ../../../../bpf/logenricher/logenricher.c -- -I../../../../bpf -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type log_event_t -type log_pipe_key_t -target amd64,arm64 Bpf ../../../../bpf/logenricher/logenricher.c -- -I../../../../bpf -I../../../../bpf
 
 type LogEvent struct {
 	orig    BpfLogEventT
@@ -48,10 +48,7 @@ type LogEvent struct {
 
 // pipe identity as the BPF map sees it: inode number plus the kernel dev_t of
 // its superblock, since bare inode numbers collide across filesystems
-type pipeKey struct {
-	Ino uint64
-	Dev uint64
-}
+type pipeKey = BpfLogPipeKeyT
 
 type Tracer struct {
 	ctx         context.Context
@@ -295,7 +292,12 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 
 	nsPids, err := procs.FindNamespacedPids(pid)
 	if err != nil {
-		p.log.Error("allow pid: error finding namespaced pids", "error", err)
+		// short-lived processes routinely exit before discovery allows them
+		if errors.Is(err, os.ErrNotExist) {
+			p.log.Debug("allow pid: process gone before namespaced pid lookup", "pid", pid, "error", err)
+		} else {
+			p.log.Error("allow pid: error finding namespaced pids", "error", err)
+		}
 		return
 	}
 
