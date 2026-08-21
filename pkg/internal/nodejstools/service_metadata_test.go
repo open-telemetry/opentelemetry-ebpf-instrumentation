@@ -149,6 +149,32 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.True(t, service.AutoName())
 	})
 
+	t.Run("application arguments are not treated as the entrypoint", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "opt", "orders", "server.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"/opt/orders/server", "--config", "worker.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		service := fileInfo.ServiceAttrs()
+		assert.Equal(t, "server", service.UID.Name)
+		assert.True(t, service.AutoName())
+	})
+
+	t.Run("file URL entrypoint supplies the fallback name", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "opt", "orders", "main.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"--entry-url", "file:///opt/orders/main.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		service := fileInfo.ServiceAttrs()
+		assert.Equal(t, "main", service.UID.Name)
+		assert.True(t, service.AutoName())
+	})
+
 	t.Run("entrypoint inside node_modules is not used as a fallback", func(t *testing.T) {
 		root := t.TempDir()
 		writeNodeFile(t, filepath.Join(root, "app", "node_modules", "tool", "cli.js"), nil)
