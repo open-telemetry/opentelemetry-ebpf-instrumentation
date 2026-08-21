@@ -262,9 +262,13 @@ func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 	assert.Equal(t, CompleteRoutes, result.Kind)
 }
 
-func TestHarvestDenoRoutes_UsesJavaScriptExtractor(t *testing.T) {
+func TestHarvestDenoRoutes_UsesDenoExtractor(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, time.Second)
-	harvester.nodeExtractRoutes = successfulNodeExtractRoutes
+	harvester.nodeExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+		t.Fatal("Deno route harvesting should not use the Node.js launch parser")
+		return nil, nil
+	}
+	harvester.denoExtractRoutes = successfulNodeExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableDeno)
 
@@ -282,7 +286,7 @@ func TestHarvestDenoRoutes_DisabledWithNodejs(t *testing.T) {
 		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguageNodejs},
 		time.Second,
 	)
-	harvester.nodeExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+	harvester.denoExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
 		t.Fatal("Deno route harvesting should be disabled with Node.js route harvesting")
 		return nil, nil
 	}

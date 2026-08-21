@@ -3,11 +3,11 @@
 
 //go:build !linux
 
-package nodejstools // import "go.opentelemetry.io/obi/pkg/internal/nodejstools"
+package langtools // import "go.opentelemetry.io/obi/pkg/internal/langtools"
 
 import "os"
 
-func openPackageJSON(path string) (*os.File, bool) {
+func OpenServiceMetadataFile(path string, _ int64) (*os.File, bool) {
 	_, err := os.Lstat(path)
 	return nil, !os.IsNotExist(err)
 }

@@ -19,6 +19,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/internal/denotools"
 	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
 )
 
@@ -1587,6 +1588,18 @@ var (
 // FindNodeJSAppDir locates the root directory of a Node.js application by
 // reading its command line and working directory from /proc.
 func FindNodeJSAppDir(pid app.PID) (string, error) {
+	return findJSAppDir(pid, func(args []string) string {
+		return nodejstools.ParseNodeLaunch(args).EntryPoint
+	})
+}
+
+func FindDenoAppDir(pid app.PID) (string, error) {
+	return findJSAppDir(pid, func(args []string) string {
+		return denotools.ParseDenoLaunch(args).EntryPoint
+	})
+}
+
+func findJSAppDir(pid app.PID, parseEntryPoint func([]string) string) (string, error) {
 	rootDir := rootDirForPID(pid)
 	_, args, err := cmdlineForPID(pid)
 	if err != nil {
@@ -1597,7 +1610,7 @@ func FindNodeJSAppDir(pid app.PID) (string, error) {
 		return "", fmt.Errorf("error finding cwd: %w", err)
 	}
 
-	entryPoint := nodejstools.ParseNodeLaunch(args).EntryPoint
+	entryPoint := parseEntryPoint(args)
 
 	dir := FindScriptDirectory(rootDir, entryPoint, workdir)
 	if dir == "" {
@@ -1673,7 +1686,18 @@ func ExtractNodejsRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	return extractJSRoutes(dir)
+}
 
+func ExtractDenoRoutes(pid app.PID) (*RouteHarvesterResult, error) {
+	dir, err := FindDenoAppDir(pid)
+	if err != nil {
+		return nil, err
+	}
+	return extractJSRoutes(dir)
+}
+
+func extractJSRoutes(dir string) (*RouteHarvesterResult, error) {
 	jsExtractor := NewRouteExtractor()
 
 	if err := jsExtractor.extractNextJSRoutesFromManifest(dir); err != nil {
@@ -1682,7 +1706,7 @@ func ExtractNodejsRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 			"error", err)
 	}
 
-	err = jsExtractor.ScanDirectory(dir)
+	err := jsExtractor.ScanDirectory(dir)
 	if err != nil {
 		return nil, fmt.Errorf("error scanning directory, error %w", err)
 	}

@@ -1673,6 +1673,35 @@ app.get('/api/health', (req, res) => {
 	}
 }
 
+func TestFindDenoAppDir(t *testing.T) {
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+	origIsDir := isDirFunc
+	t.Cleanup(func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+		isDirFunc = origIsDir
+	})
+
+	tempDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
+
+	rootDirForPID = func(app.PID) string { return tempDir }
+	cmdlineForPID = func(app.PID) (string, []string, error) {
+		return "deno", []string{"run", "-A", "/app/server.ts"}, nil
+	}
+	cwdForPID = func(app.PID) (string, error) { return "/workdir", nil }
+	isDirFunc = isDir
+
+	dir, err := FindDenoAppDir(12345)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tempDir, "app")+string(filepath.Separator), dir)
+}
+
 func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 	// Save original functions
 	origRootDir := rootDirForPID

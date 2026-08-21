@@ -31,6 +31,7 @@ type RouteHarvester struct {
 	// testing related
 	javaExtractRoutes func(ctx context.Context, fileInfo *exec.FileInfo) (*RouteHarvesterResult, error)
 	nodeExtractRoutes func(pid app.PID) (*RouteHarvesterResult, error)
+	denoExtractRoutes func(pid app.PID) (*RouteHarvesterResult, error)
 }
 
 type RouteHarvesterResultKind uint8
@@ -77,6 +78,7 @@ func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []services.
 
 	h.javaExtractRoutes = h.java.ExtractRoutes
 	h.nodeExtractRoutes = ExtractNodejsRoutes
+	h.denoExtractRoutes = ExtractDenoRoutes
 
 	return h
 }
@@ -120,18 +122,27 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			} else {
 				resultChan <- result{r: nil}
 			}
-		case svc.InstrumentableNodejs, svc.InstrumentableDeno:
+		case svc.InstrumentableNodejs:
 			if _, ok := h.disabled[runtime]; !ok {
 				r, err := h.nodeExtractRoutes(fileInfo.Pid())
 				if err != nil {
 					resultChan <- result{err: err}
 					return
 				}
-				runtimeName := runtime.String()
-				if runtime == svc.InstrumentableDeno {
-					runtimeName = "deno"
+				h.log.Debug("found application routes", "runtime", runtime.String(), "routes", r.Routes)
+
+				resultChan <- result{r: r}
+			} else {
+				resultChan <- result{r: nil}
+			}
+		case svc.InstrumentableDeno:
+			if _, ok := h.disabled[runtime]; !ok {
+				r, err := h.denoExtractRoutes(fileInfo.Pid())
+				if err != nil {
+					resultChan <- result{err: err}
+					return
 				}
-				h.log.Debug("found application routes", "runtime", runtimeName, "routes", r.Routes)
+				h.log.Debug("found application routes", "runtime", "deno", "routes", r.Routes)
 
 				resultChan <- result{r: r}
 			} else {

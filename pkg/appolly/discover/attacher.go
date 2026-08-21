@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/denotools"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools"
@@ -167,6 +168,11 @@ func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
 		err := nodejstools.ResolveServiceMetadata(ie.FileInfo)
 		if err != nil {
 			ta.log.Debug("unable to resolve Node.js service metadata", "pid", ie.FileInfo.Pid(), "error", err)
+		}
+	case svc.InstrumentableDeno:
+		err := denotools.ResolveServiceMetadata(ie.FileInfo)
+		if err != nil {
+			ta.log.Debug("unable to resolve Deno service metadata", "pid", ie.FileInfo.Pid(), "error", err)
 		}
 	}
 }
