@@ -30,8 +30,8 @@ func newPipeTestTracer(t *testing.T) *Tracer {
 	tr.trackedPids = map[uint32]struct{}{}
 	tr.logPipes = map[pipeKey]map[uint32][]int{}
 	tr.pidPipes = map[uint32]map[int]pipeKey{}
-	tr.fdCache = expirable.NewLRU[string, *os.File](128, func(_ string, f *os.File) {
-		_ = f.Close()
+	tr.fdCache = expirable.NewLRU[string, *destFile](128, func(_ string, d *destFile) {
+		d.release()
 	}, time.Minute)
 	t.Cleanup(tr.fdCache.Purge)
 
@@ -301,10 +301,12 @@ func TestReconcileReleasesCachedHandle(t *testing.T) {
 
 	trackAndRegister(tr, pid)
 
-	// warm the cache like event capture does, then drop our own write end so
-	// the cached handle is the only writer left besides the child
-	_, err = tr.openLogDestination(procFdPath(pid, 1), oldKey)
+	// warm the cache like event capture does and complete the write, then
+	// drop our own write end so the cached handle is the only writer left
+	// besides the child
+	warmed, err := tr.openLogDestination(procFdPath(pid, 1), oldKey)
 	require.NoError(t, err)
+	warmed.release()
 	require.NoError(t, oldW.Close())
 
 	fifoOpened := make(chan *os.File, 1)
@@ -350,8 +352,9 @@ func TestReconcileKeepsUnchangedRegistration(t *testing.T) {
 	trackAndRegister(tr, pid)
 
 	key := fdKey(t, outW)
-	f, err := tr.openLogDestination(procFdPath(pid, 1), key)
+	d, err := tr.openLogDestination(procFdPath(pid, 1), key)
 	require.NoError(t, err)
+	defer d.release()
 
 	tr.reconcileLogPipes()
 	tr.reconcileLogPipes()
@@ -359,7 +362,7 @@ func TestReconcileKeepsUnchangedRegistration(t *testing.T) {
 	assert.True(t, bpfHasKey(t, tr, key), "unchanged pipe must stay registered")
 	cached, ok := tr.fdCache.Get(procFdPath(pid, 1))
 	require.True(t, ok, "unchanged pipe must keep its cached handle")
-	assert.Same(t, f, cached)
+	assert.Same(t, d, cached)
 }
 
 func TestReconcileRetiresExitedPidSharedPipe(t *testing.T) {
@@ -408,8 +411,9 @@ func TestFallbackPinRejectsRepointedFd(t *testing.T) {
 	require.True(t, ok, "regular file fallback must be accepted")
 	require.Equal(t, fdKey(t, fileA), pin)
 
-	_, err = tr.openLogDestination(path, pin)
+	warmed, err := tr.openLogDestination(path, pin)
 	require.NoError(t, err)
+	warmed.release()
 
 	_, err = stdin.Write([]byte("\n"))
 	require.NoError(t, err)
@@ -491,60 +495,60 @@ func TestOpenDestinationReaderlessFifoFailsFast(t *testing.T) {
 	require.NoError(t, err)
 	defer reader.Close()
 
-	f, err := tr.openLogDestination(fifo, pipeKey{})
+	d, err := tr.openLogDestination(fifo, pipeKey{})
 	require.NoError(t, err)
+	defer d.release()
 
-	flags, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+	flags, err := unix.FcntlInt(d.f.Fd(), unix.F_GETFL, 0)
 	require.NoError(t, err)
 	assert.Zero(t, flags&unix.O_NONBLOCK, "write path must be blocking for backpressure")
 }
 
-// a line warmed through one owner must still land when that owner retires
-// while the line is queued and another registered owner remains
-func TestQueuedLineSurvivesWarmedOwnerExit(t *testing.T) {
+// a queued line owns its destination reference: even when its sole owner
+// exits and is fully retired before the async writer runs, the line must
+// land, and the pipe's reader must see EOF right after the write completes
+func TestQueuedLineSurvivesSoleOwnerExit(t *testing.T) {
 	tr := newPipeTestTracer(t)
 
 	outR, outW, err := os.Pipe()
 	require.NoError(t, err)
 	defer outR.Close()
-	defer outW.Close()
 
-	cmdA := startChild(t, outW, outW, "sleep", "30")
-	cmdB := startChild(t, outW, outW, "sleep", "30")
-	pidA := uint32(cmdA.Process.Pid)
-	pidB := uint32(cmdB.Process.Pid)
+	cmd := startChild(t, outW, outW, "sleep", "30")
+	pid := uint32(cmd.Process.Pid)
 
-	trackAndRegister(tr, pidA)
-	trackAndRegister(tr, pidB)
+	trackAndRegister(tr, pid)
 	key := fdKey(t, outW)
 
-	// capture-time warm open through owner A, like handleLogEvent does
-	e := LogEvent{dest: procFdPath(pidA, 1), pin: key, logLine: "queued line\n"}
+	// capture-time warm open through the sole owner, like handleLogEvent does
+	e := LogEvent{dest: procFdPath(pid, 1), logLine: "queued line\n"}
 	e.orig.Fd = 1
-	_, err = tr.openLogDestination(e.dest, e.pin)
+	e.out, err = tr.openLogDestination(e.dest, key)
 	require.NoError(t, err)
 
-	// owner A exits and is retired before the async writer gets to the line:
-	// its cached handle is closed and its /proc path is gone
-	require.NoError(t, cmdA.Process.Kill())
-	_, err = cmdA.Process.Wait()
+	// the sole owner exits and BlockPID retires it before the async writer
+	// gets to the line: its registration, cached handle, and /proc path are
+	// all gone; only the event's reference keeps the pipe writable
+	require.NoError(t, cmd.Process.Kill())
+	_, err = cmd.Process.Wait()
 	require.NoError(t, err)
-	untrack(tr, pidA)
+	untrack(tr, pid)
+	require.NoError(t, outW.Close())
+	assert.Empty(t, tr.pipeDestCandidates(key), "no candidates must remain")
 
 	done := make(chan []byte, 1)
 	go func() {
-		buf := make([]byte, 64)
-		n, _ := outR.Read(buf)
-		done <- buf[:n]
+		got, _ := io.ReadAll(outR)
+		done <- got
 	}()
 
 	tr.handle(e)
 
 	select {
 	case got := <-done:
-		assert.Equal(t, "queued line\n", string(got), "line must be delivered through the surviving owner")
+		assert.Equal(t, "queued line\n", string(got), "final line must land and be followed by EOF")
 	case <-time.After(5 * time.Second):
-		t.Fatal("queued line was dropped after the warmed owner exited")
+		t.Fatal("line dropped or EOF withheld after sole-owner teardown")
 	}
 }
 

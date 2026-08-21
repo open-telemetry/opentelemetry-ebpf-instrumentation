@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -43,7 +44,35 @@ type LogEvent struct {
 	orig    BpfLogEventT
 	logLine string
 	dest    string
-	pin     pipeKey // destination identity the write must land on; zero when unpinned
+	out     *destFile // reference owned by this event until its write completes
+}
+
+// destFile is a refcounted open log destination: the fd cache holds one
+// reference and every in-flight event holds another, so retiring a pipe or
+// evicting the cache entry cannot close a descriptor a queued write still
+// needs
+type destFile struct {
+	f    *os.File
+	refs atomic.Int64
+}
+
+// tryAcquire takes a reference unless the descriptor already closed
+func (d *destFile) tryAcquire() bool {
+	for {
+		n := d.refs.Load()
+		if n <= 0 {
+			return false
+		}
+		if d.refs.CompareAndSwap(n, n+1) {
+			return true
+		}
+	}
+}
+
+func (d *destFile) release() {
+	if d.refs.Add(-1) == 0 {
+		d.f.Close()
+	}
 }
 
 // pipe identity as the BPF map sees it: inode number plus the kernel dev_t of
@@ -56,7 +85,7 @@ type Tracer struct {
 	bpfObjects  BpfObjects
 	closers     []io.Closer
 	log         *slog.Logger
-	fdCache     *expirable.LRU[string, *os.File]
+	fdCache     *expirable.LRU[string, *destFile]
 	asyncWriter *shardedqueue.ShardedQueue[LogEvent]
 	formatter   logFormatter
 	pids        map[uint64][]uint64       // pid:[]nsPids
@@ -79,8 +108,8 @@ func New(cfg *obi.Config) *Tracer {
 	tr := &Tracer{
 		log: logger,
 		cfg: cfg,
-		fdCache: expirable.NewLRU[string, *os.File](cfg.EBPF.LogEnricher.CacheSize, func(_ string, f *os.File) {
-			f.Close()
+		fdCache: expirable.NewLRU[string, *destFile](cfg.EBPF.LogEnricher.CacheSize, func(_ string, d *destFile) {
+			d.release()
 		}, cfg.EBPF.LogEnricher.CacheTTL),
 		formatter:   newLogFormatter(cfg.EBPF.LogEnricher),
 		pids:        make(map[uint64][]uint64),
@@ -576,40 +605,46 @@ func (p *Tracer) handleLogEvent(record *ringbuf.Record) (request.Span, bool, err
 	}
 
 	// Open the destination now, while the writing process is still alive: the
-	// open file description keeps the log pipe writable even if the process is
-	// gone by the time the async writer gets to this line.
+	// event's reference keeps the descriptor open even if the process exits
+	// and its registration is retired before the async writer gets to this
+	// line.
 	if event.Fd != 0 {
 		key := pipeKey{Ino: event.Ino, Dev: uint64(event.Dev)}
 		// address the pipe through a live owner, the writer may already be gone
 		for _, candidate := range p.pipeDestCandidates(key) {
-			if _, err := p.openLogDestination(candidate, key); err == nil {
+			if d, err := p.openLogDestination(candidate, key); err == nil {
 				e.dest = candidate
-				e.pin = key
+				e.out = d
 				break
 			}
 		}
-		if e.dest == "" {
+		if e.out == nil {
 			p.log.Debug("no live destination for log pipe, dropping line", "ino", event.Ino, "dev", event.Dev)
 			return request.Span{}, true, nil
 		}
 	} else {
 		e.dest = e.ttyPath()
+		var pin pipeKey
 		if unix.ByteSliceToString(event.FilePath[:]) == "" {
-			pin, ok := p.fallbackDest(e.dest)
-			if !ok {
+			var ok bool
+			if pin, ok = p.fallbackDest(e.dest); !ok {
 				p.log.Debug("unsafe tty fallback destination, dropping line", "path", e.dest)
 				return request.Span{}, true, nil
 			}
-			e.pin = pin
 		}
-		if _, err := p.openLogDestination(e.dest, e.pin); err != nil {
+		d, err := p.openLogDestination(e.dest, pin)
+		if err != nil {
 			p.logOpenError(e.dest, err)
 			return request.Span{}, true, nil
 		}
+		e.out = d
 	}
 
-	err = p.asyncWriter.Enqueue(p.ctx, e)
-	return request.Span{}, true, err
+	if err := p.asyncWriter.Enqueue(p.ctx, e); err != nil {
+		e.out.release()
+		return request.Span{}, true, err
+	}
+	return request.Span{}, true, nil
 }
 
 var errStaleDestination = errors.New("destination no longer points at the captured pipe")
@@ -652,11 +687,12 @@ func openDestFile(path string) (*os.File, error) {
 
 // a non-zero pin fixes the destination identity: /proc fd paths re-point when
 // the owner redirects its stdio, and writing there would leak lines into the
-// wrong file
-func (p *Tracer) openLogDestination(path string, pin pipeKey) (*os.File, error) {
-	if f, ok := p.fdCache.Get(path); ok {
-		if pin == (pipeKey{}) || fileKey(f) == pin {
-			return f, nil
+// wrong file. The returned reference is owned by the caller and must be
+// released once the write completes
+func (p *Tracer) openLogDestination(path string, pin pipeKey) (*destFile, error) {
+	if d, ok := p.fdCache.Get(path); ok {
+		if (pin == (pipeKey{}) || fileKey(d.f) == pin) && d.tryAcquire() {
+			return d, nil
 		}
 		p.fdCache.Remove(path)
 	}
@@ -669,9 +705,15 @@ func (p *Tracer) openLogDestination(path string, pin pipeKey) (*os.File, error) 
 		f.Close()
 		return nil, errStaleDestination
 	}
-	p.fdCache.Add(path, f)
 
-	return f, nil
+	d := &destFile{f: f}
+	d.refs.Store(2) // one reference for the cache, one for the caller
+	// Add on a lingering expired entry replaces it without the evict
+	// callback, which would leak its cache reference; Remove fires it
+	p.fdCache.Remove(path)
+	p.fdCache.Add(path, d)
+
+	return d, nil
 }
 
 // a gone, re-pointed, or reader-less destination means its process died or
@@ -710,37 +752,11 @@ func (e LogEvent) shardKey() string {
 	return e.dest
 }
 
-// the owner warmed at capture time may exit or redirect while the line sits
-// in the queue; re-resolve the pipe through any remaining live owner before
-// giving the line up
-func (p *Tracer) reopenLogDestination(e LogEvent) (*os.File, error) {
-	f, err := p.openLogDestination(e.dest, e.pin)
-	if err == nil {
-		return f, nil
-	}
-	if e.pin == (pipeKey{}) {
-		return nil, err
-	}
-
-	for _, candidate := range p.pipeDestCandidates(e.pin) {
-		if candidate == e.dest {
-			continue
-		}
-		if f, cErr := p.openLogDestination(candidate, e.pin); cErr == nil {
-			return f, nil
-		}
-	}
-
-	return nil, err
-}
-
 func (p *Tracer) handle(e LogEvent) {
-	// normally warmed at capture time; reopened only if the cache evicted it
-	f, err := p.reopenLogDestination(e)
-	if err != nil {
-		p.logOpenError(e.dest, err)
-		return
-	}
+	// the event owns a reference taken at capture time, so the destination is
+	// alive here even if its owner exited or the cache evicted it meanwhile
+	defer e.out.release()
+	f := e.out.f
 
 	var (
 		zeroTraceID [16]uint8
