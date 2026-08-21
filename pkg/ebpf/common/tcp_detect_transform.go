@@ -619,10 +619,15 @@ func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *largebu
 	resp = largebuf.NewLargeBufferFrom(event.Rbuf[:l])
 
 	if event.HasLargeBuffers == 1 {
-		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, !event.IsServer), event.ConnInfo, event.ProtocolType); ok {
+		isClient := !event.IsServer
+		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo, event.ProtocolType); ok {
+			req = b
+		} else if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, !isClient), event.ConnInfo, event.ProtocolType); ok {
 			req = b
 		}
-		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, !event.IsServer), event.ConnInfo, event.ProtocolType); ok {
+		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo, event.ProtocolType); ok {
+			resp = b
+		} else if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, !isClient), event.ConnInfo, event.ProtocolType); ok {
 			resp = b
 		}
 	}

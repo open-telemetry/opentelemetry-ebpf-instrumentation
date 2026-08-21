@@ -29,6 +29,453 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
+func TestReadTCPRequestIntoSpan_MongoShellFindUsesLargeBuffers(t *testing.T) {
+	defer requests.Purge()
+
+	cfg := config.EBPFTracer{
+		MongoRequestsCacheSize: 16,
+		ProtocolDebug:          false,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	traceID := [16]uint8{95, 133, 126, 235, 9, 61, 211, 78, 63, 27, 202, 54, 186, 104, 47, 109}
+	connInfo := getConnInfo()
+
+	requestWire := buildMongoShellFindWire(t)
+	responseWire := buildMongoShellFindResponse(t, 23)
+
+	reqHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeRequest,
+		Action:     largeBufferActionInit,
+		Direction:  directionSend,
+		Len:        uint32(len(requestWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	reqHdr.Tp.TraceId = traceID
+	reqHdr.ConnInfo = connInfo
+	_, _, err := appendTCPLargeBuffer(ctx, toRingbufRecord(t, reqHdr, string(requestWire)))
+	require.NoError(t, err)
+
+	respHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeResponse,
+		Action:     largeBufferActionInit,
+		Direction:  directionRecv,
+		Len:        uint32(len(responseWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	respHdr.Tp.TraceId = traceID
+	respHdr.ConnInfo = connInfo
+	_, _, err = appendTCPLargeBuffer(ctx, toRingbufRecord(t, respHdr, string(responseWire)))
+	require.NoError(t, err)
+
+	var event TCPRequestInfo
+	event.Direction = directionSend
+	event.IsServer = false
+	event.HasLargeBuffers = 1
+	event.ProtocolType = ProtocolTypeUnknown
+	event.ConnInfo = connInfo
+	event.Tp.TraceId = traceID
+	event.Len = 0
+	event.RespLen = 0
+	event.StartMonotimeNs = StartTime
+	event.EndMonotimeNs = EndTime
+
+	recordBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&recordBuf, binary.LittleEndian, event))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: recordBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Equal(t, request.EventTypeMongoClient, span.Type)
+	require.Equal(t, "find", span.Method)
+	require.Equal(t, "obi_shell_test", span.Path)
+	require.Equal(t, "obi_mongosh_test", span.DBNamespace)
+}
+
+func TestReadTCPRequestIntoSpan_MongoShellFindIsParsedOnReceiveSide(t *testing.T) {
+	defer requests.Purge()
+
+	cfg := config.EBPFTracer{
+		MongoRequestsCacheSize: 16,
+		ProtocolDebug:          false,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	traceID := [16]uint8{95, 133, 126, 235, 9, 61, 211, 78, 63, 27, 202, 54, 186, 104, 47, 109}
+	connInfo := getConnInfo()
+
+	requestWire := buildMongoShellFindWire(t)
+	responseWire := buildMongoShellFindResponse(t, 23)
+
+	reqHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeRequest,
+		Action:     largeBufferActionInit,
+		Direction:  directionSend,
+		Len:        uint32(len(requestWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	reqHdr.Tp.TraceId = traceID
+	reqHdr.ConnInfo = connInfo
+	_, _, err := appendTCPLargeBuffer(ctx, toRingbufRecord(t, reqHdr, string(requestWire)))
+	require.NoError(t, err)
+
+	respHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeResponse,
+		Action:     largeBufferActionInit,
+		Direction:  directionRecv,
+		Len:        uint32(len(responseWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	respHdr.Tp.TraceId = traceID
+	respHdr.ConnInfo = connInfo
+	_, _, err = appendTCPLargeBuffer(ctx, toRingbufRecord(t, respHdr, string(responseWire)))
+	require.NoError(t, err)
+
+	var event TCPRequestInfo
+	event.Direction = directionRecv
+	event.IsServer = false
+	event.HasLargeBuffers = 1
+	event.ProtocolType = ProtocolTypeUnknown
+	event.ConnInfo = connInfo
+	event.Tp.TraceId = traceID
+	event.Len = 0
+	event.RespLen = 0
+	event.StartMonotimeNs = StartTime
+	event.EndMonotimeNs = EndTime
+
+	recordBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&recordBuf, binary.LittleEndian, event))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: recordBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Equal(t, request.EventTypeMongoClient, span.Type)
+	require.Equal(t, "find", span.Method)
+	require.Equal(t, "obi_shell_test", span.Path)
+	require.Equal(t, "obi_mongosh_test", span.DBNamespace)
+}
+
+func TestReadTCPRequestIntoSpan_MongoShellFindCanFinalizeOnResponseOnly(t *testing.T) {
+	defer requests.Purge()
+
+	cfg := config.EBPFTracer{
+		MongoRequestsCacheSize: 16,
+		ProtocolDebug:          false,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	traceID := [16]uint8{95, 133, 126, 235, 9, 61, 211, 78, 63, 27, 202, 54, 186, 104, 47, 109}
+	connInfo := getConnInfo()
+
+	requestWire := buildMongoShellFindWire(t)
+	responseWire := buildMongoShellFindResponse(t, 23)
+
+	reqHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeRequest,
+		Action:     largeBufferActionInit,
+		Direction:  directionSend,
+		Len:        uint32(len(requestWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	reqHdr.Tp.TraceId = traceID
+	reqHdr.ConnInfo = connInfo
+	_, _, err := appendTCPLargeBuffer(ctx, toRingbufRecord(t, reqHdr, string(requestWire)))
+	require.NoError(t, err)
+
+	var requestEvent TCPRequestInfo
+	requestEvent.Direction = directionSend
+	requestEvent.IsServer = false
+	requestEvent.HasLargeBuffers = 1
+	requestEvent.ProtocolType = ProtocolTypeUnknown
+	requestEvent.ConnInfo = connInfo
+	requestEvent.Tp.TraceId = traceID
+	requestEvent.StartMonotimeNs = StartTime
+	requestEvent.EndMonotimeNs = EndTime
+
+	requestBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&requestBuf, binary.LittleEndian, requestEvent))
+	_, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: requestBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.True(t, ignore)
+
+	respHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeResponse,
+		Action:     largeBufferActionInit,
+		Direction:  directionRecv,
+		Len:        uint32(len(responseWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	respHdr.Tp.TraceId = traceID
+	respHdr.ConnInfo = connInfo
+	_, _, err = appendTCPLargeBuffer(ctx, toRingbufRecord(t, respHdr, string(responseWire)))
+	require.NoError(t, err)
+
+	var responseEvent TCPRequestInfo
+	responseEvent.Direction = directionRecv
+	responseEvent.IsServer = false
+	responseEvent.HasLargeBuffers = 1
+	responseEvent.ProtocolType = ProtocolTypeUnknown
+	responseEvent.ConnInfo = connInfo
+	responseEvent.Tp.TraceId = traceID
+	responseEvent.StartMonotimeNs = StartTime
+	responseEvent.EndMonotimeNs = EndTime
+
+	responseBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&responseBuf, binary.LittleEndian, responseEvent))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: responseBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Equal(t, request.EventTypeMongoClient, span.Type)
+	require.Equal(t, "find", span.Method)
+	require.Equal(t, "obi_shell_test", span.Path)
+	require.Equal(t, "obi_mongosh_test", span.DBNamespace)
+}
+
+func TestReadTCPRequestIntoSpan_MongoShellFindResponseTraceCarriesRequestBytes(t *testing.T) {
+	defer requests.Purge()
+
+	cfg := config.EBPFTracer{
+		MongoRequestsCacheSize: 16,
+		ProtocolDebug:          false,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	traceID := [16]uint8{95, 133, 126, 235, 9, 61, 211, 78, 63, 27, 202, 54, 186, 104, 47, 109}
+	connInfo := getConnInfo()
+
+	requestWire := buildMongoShellFindWire(t)
+	responseWire := buildMongoShellFindResponse(t, 23)
+
+	reqHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeRequest,
+		Action:     largeBufferActionInit,
+		Direction:  directionSend,
+		Len:        uint32(len(requestWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	reqHdr.Tp.TraceId = traceID
+	reqHdr.ConnInfo = connInfo
+	_, _, err := appendTCPLargeBuffer(ctx, toRingbufRecord(t, reqHdr, string(requestWire)))
+	require.NoError(t, err)
+
+	var requestEvent TCPRequestInfo
+	requestEvent.Direction = directionSend
+	requestEvent.IsServer = false
+	requestEvent.HasLargeBuffers = 1
+	requestEvent.ProtocolType = ProtocolTypeUnknown
+	requestEvent.ConnInfo = connInfo
+	requestEvent.Tp.TraceId = traceID
+	requestEvent.Len = uint32(len(requestWire))
+	requestEvent.StartMonotimeNs = StartTime
+	requestEvent.EndMonotimeNs = EndTime
+
+	requestBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&requestBuf, binary.LittleEndian, requestEvent))
+	_, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: requestBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.True(t, ignore)
+
+	respHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeResponse,
+		Action:     largeBufferActionInit,
+		Direction:  directionRecv,
+		Len:        uint32(len(responseWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	respHdr.Tp.TraceId = traceID
+	respHdr.ConnInfo = connInfo
+	_, _, err = appendTCPLargeBuffer(ctx, toRingbufRecord(t, respHdr, string(responseWire)))
+	require.NoError(t, err)
+
+	// The response-side TCP trace still carries the original request bytes in Buf
+	// plus the response bytes in Rbuf. We should finalize from the response instead
+	// of re-parsing the request and dropping the event.
+	var responseEvent TCPRequestInfo
+	responseEvent.Direction = directionSend
+	responseEvent.IsServer = false
+	responseEvent.HasLargeBuffers = 1
+	responseEvent.ProtocolType = ProtocolTypeUnknown
+	responseEvent.ConnInfo = connInfo
+	responseEvent.Tp.TraceId = traceID
+	responseEvent.Len = uint32(len(requestWire))
+	responseEvent.RespLen = uint32(len(responseWire))
+	responseEvent.StartMonotimeNs = StartTime
+	responseEvent.EndMonotimeNs = EndTime
+
+	responseBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&responseBuf, binary.LittleEndian, responseEvent))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: responseBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Equal(t, request.EventTypeMongoClient, span.Type)
+	require.Equal(t, "find", span.Method)
+	require.Equal(t, "obi_shell_test", span.Path)
+	require.Equal(t, "obi_mongosh_test", span.DBNamespace)
+}
+
+func TestReadTCPRequestIntoSpan_MongoShellFindUsesLargeBufferFallbackWhenIsServerIsWrong(t *testing.T) {
+	defer requests.Purge()
+
+	cfg := config.EBPFTracer{
+		MongoRequestsCacheSize: 16,
+		ProtocolDebug:          false,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	traceID := [16]uint8{95, 133, 126, 235, 9, 61, 211, 78, 63, 27, 202, 54, 186, 104, 47, 109}
+	connInfo := getConnInfo()
+
+	requestWire := buildMongoShellFindWire(t)
+	responseWire := buildMongoShellFindResponse(t, 23)
+
+	reqHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeRequest,
+		Action:     largeBufferActionInit,
+		Direction:  directionSend,
+		Len:        uint32(len(requestWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	reqHdr.Tp.TraceId = traceID
+	reqHdr.ConnInfo = connInfo
+	_, _, err := appendTCPLargeBuffer(ctx, toRingbufRecord(t, reqHdr, string(requestWire)))
+	require.NoError(t, err)
+
+	var requestEvent TCPRequestInfo
+	requestEvent.Direction = directionSend
+	requestEvent.IsServer = true
+	requestEvent.HasLargeBuffers = 1
+	requestEvent.ProtocolType = ProtocolTypeUnknown
+	requestEvent.ConnInfo = connInfo
+	requestEvent.Tp.TraceId = traceID
+	requestEvent.Len = 256
+	requestEvent.StartMonotimeNs = StartTime
+	requestEvent.EndMonotimeNs = EndTime
+
+	requestBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&requestBuf, binary.LittleEndian, requestEvent))
+	_, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: requestBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.True(t, ignore)
+
+	respHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeResponse,
+		Action:     largeBufferActionInit,
+		Direction:  directionRecv,
+		Len:        uint32(len(responseWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	respHdr.Tp.TraceId = traceID
+	respHdr.ConnInfo = connInfo
+	_, _, err = appendTCPLargeBuffer(ctx, toRingbufRecord(t, respHdr, string(responseWire)))
+	require.NoError(t, err)
+
+	var responseEvent TCPRequestInfo
+	responseEvent.Direction = directionSend
+	responseEvent.IsServer = true
+	responseEvent.HasLargeBuffers = 1
+	responseEvent.ProtocolType = ProtocolTypeUnknown
+	responseEvent.ConnInfo = connInfo
+	responseEvent.Tp.TraceId = traceID
+	responseEvent.Len = 256
+	responseEvent.RespLen = uint32(len(responseWire))
+	responseEvent.StartMonotimeNs = StartTime
+	responseEvent.EndMonotimeNs = EndTime
+
+	responseBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&responseBuf, binary.LittleEndian, responseEvent))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: responseBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Equal(t, request.EventTypeMongoClient, span.Type)
+	require.Equal(t, "find", span.Method)
+	require.Equal(t, "obi_shell_test", span.Path)
+	require.Equal(t, "obi_mongosh_test", span.DBNamespace)
+}
+
+func TestReadTCPRequestIntoSpan_MongoShellFindParsesSwappedRequestResponseBuffers(t *testing.T) {
+	defer requests.Purge()
+
+	cfg := config.EBPFTracer{
+		MongoRequestsCacheSize: 16,
+		ProtocolDebug:          false,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	traceID := [16]uint8{95, 133, 126, 235, 9, 61, 211, 78, 63, 27, 202, 54, 186, 104, 47, 109}
+	connInfo := getConnInfo()
+
+	requestWire := buildMongoShellFindWire(t)
+	responseWire := buildMongoShellFindResponse(t, 23)
+
+	respHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeRequest,
+		Action:     largeBufferActionInit,
+		Direction:  directionSend,
+		Len:        uint32(len(responseWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	respHdr.Tp.TraceId = traceID
+	respHdr.ConnInfo = connInfo
+	_, _, err := appendTCPLargeBuffer(ctx, toRingbufRecord(t, respHdr, string(responseWire)))
+	require.NoError(t, err)
+
+	reqHdr := TCPLargeBufferHeader{
+		Type:       EventTypeTCPLargeBuffer,
+		PacketType: packetTypeResponse,
+		Action:     largeBufferActionInit,
+		Direction:  directionRecv,
+		Len:        uint32(len(requestWire)),
+		Kind:       uint8(KindLayerWire),
+	}
+	reqHdr.Tp.TraceId = traceID
+	reqHdr.ConnInfo = connInfo
+	_, _, err = appendTCPLargeBuffer(ctx, toRingbufRecord(t, reqHdr, string(requestWire)))
+	require.NoError(t, err)
+
+	var event TCPRequestInfo
+	event.Direction = directionSend
+	event.IsServer = false
+	event.HasLargeBuffers = 1
+	event.ProtocolType = ProtocolTypeUnknown
+	event.ConnInfo = connInfo
+	event.Tp.TraceId = traceID
+	event.Len = uint32(len(responseWire))
+	event.RespLen = 256
+	event.StartMonotimeNs = StartTime
+	event.EndMonotimeNs = EndTime
+
+	recordBuf := bytes.Buffer{}
+	require.NoError(t, binary.Write(&recordBuf, binary.LittleEndian, event))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: recordBuf.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Equal(t, request.EventTypeMongoClient, span.Type)
+	require.Equal(t, "find", span.Method)
+	require.Equal(t, "obi_shell_test", span.Path)
+	require.Equal(t, "obi_mongosh_test", span.DBNamespace)
+}
+
 func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")
 	r := makeTCPReq(sql, 343534)

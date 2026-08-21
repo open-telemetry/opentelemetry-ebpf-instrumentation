@@ -412,18 +412,40 @@ func validateFlagBits(flagBits int32) error {
 }
 
 func mongoInfoFromEvent(event *TCPRequestInfo, requestBuffer *largebuf.LargeBuffer, responseBuffer *largebuf.LargeBuffer, mongoRequestCache PendingMongoDBRequests) *mongoSpanInfo {
-	if event.Direction == 0 {
-		return nil
+	if mongoInfo := mongoInfoFromEventBuffers(event, requestBuffer, responseBuffer, mongoRequestCache); mongoInfo != nil {
+		return mongoInfo
 	}
-	reqRaw := requestBuffer.UnsafeView()
-	respRaw := responseBuffer.UnsafeView()
+	return mongoInfoFromEventBuffers(event, responseBuffer, requestBuffer, mongoRequestCache)
+}
+
+func mongoInfoFromEventBuffers(event *TCPRequestInfo, requestBuffer *largebuf.LargeBuffer, responseBuffer *largebuf.LargeBuffer, mongoRequestCache PendingMongoDBRequests) *mongoSpanInfo {
 	var mongoRequest *MongoRequestValue
 	var moreToCome bool
-	_, _, err := ProcessMongoEvent(reqRaw, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
-	if err != nil {
+	respRaw := responseBuffer.UnsafeView()
+	if len(respRaw) > 0 {
+		if hdr, err := parseMongoHeader(respRaw); err == nil {
+			if _, ok := mongoRequestCache.Peek(makeRequestKey(true, hdr, event.ConnInfo)); ok {
+				mongoRequest, moreToCome, err = ProcessMongoEvent(respRaw, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
+				if err != nil || mongoRequest == nil || moreToCome {
+					return nil
+				}
+				if mongoInfo, err := getMongoInfo(mongoRequest); err == nil {
+					return mongoInfo
+				}
+				return nil
+			}
+		}
+	}
+	if reqRaw := requestBuffer.UnsafeView(); len(reqRaw) > 0 {
+		_, _, err := ProcessMongoEvent(reqRaw, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
+		if err != nil {
+			return nil
+		}
+	}
+	if len(respRaw) == 0 {
 		return nil
 	}
-	mongoRequest, moreToCome, err = ProcessMongoEvent(respRaw, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
+	mongoRequest, moreToCome, err := ProcessMongoEvent(respRaw, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
 	if err != nil || mongoRequest == nil || moreToCome {
 		return nil
 	}
