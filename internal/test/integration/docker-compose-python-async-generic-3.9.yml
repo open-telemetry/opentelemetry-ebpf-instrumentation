@@ -76,7 +76,9 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
+    command:
+      - "--config=/etc/otelcol-config/otelcol-config-weaver.yml"
+      - "--config=/etc/otelcol-config/otelcol-config-python-async-generic-weaver.yml"
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
