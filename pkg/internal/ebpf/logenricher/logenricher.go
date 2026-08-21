@@ -43,6 +43,14 @@ type LogEvent struct {
 	orig    BpfLogEventT
 	logLine string
 	dest    string
+	pin     pipeKey // destination identity the write must land on; zero when unpinned
+}
+
+// pipe identity as the BPF map sees it: inode number plus the kernel dev_t of
+// its superblock, since bare inode numbers collide across filesystems
+type pipeKey struct {
+	Ino uint64
+	Dev uint64
 }
 
 type Tracer struct {
@@ -54,12 +62,13 @@ type Tracer struct {
 	fdCache     *expirable.LRU[string, *os.File]
 	asyncWriter *shardedqueue.ShardedQueue[LogEvent]
 	formatter   logFormatter
-	pids        map[uint64][]uint64         // pid:[]nsPids
-	pidServices map[uint32]*exec.FileInfo   // host pid -> file info, for run-time OTel-export check in handle()
-	trackedPids map[uint32]struct{}         // host pids currently allowed
-	logPipes    map[uint64]map[uint32][]int // log pipe inode -> host pid -> fds (1 and/or 2)
-	pidPipes    map[uint32]map[int]uint64   // host pid -> fd -> registered log pipe inode
+	pids        map[uint64][]uint64       // pid:[]nsPids
+	pidServices map[uint32]*exec.FileInfo // host pid -> file info, for run-time OTel-export check in handle()
 	pidsMU      sync.Mutex
+	trackedPids map[uint32]struct{}          // host pids currently allowed
+	logPipes    map[pipeKey]map[uint32][]int // log pipe -> host pid -> fds (1 and/or 2)
+	pidPipes    map[uint32]map[int]pipeKey   // host pid -> fd -> registered log pipe
+	pipesMU     sync.RWMutex                 // guards trackedPids, logPipes, pidPipes; hot-path readers vs reconcile
 }
 
 func New(cfg *obi.Config) *Tracer {
@@ -80,14 +89,14 @@ func New(cfg *obi.Config) *Tracer {
 		pids:        make(map[uint64][]uint64),
 		pidServices: make(map[uint32]*exec.FileInfo),
 		trackedPids: make(map[uint32]struct{}),
-		logPipes:    make(map[uint64]map[uint32][]int),
-		pidPipes:    make(map[uint32]map[int]uint64),
+		logPipes:    make(map[pipeKey]map[uint32][]int),
+		pidPipes:    make(map[uint32]map[int]pipeKey),
 	}
 
 	asyncWriter := shardedqueue.NewShardedQueue[LogEvent](
 		cfg.EBPF.LogEnricher.AsyncWriterWorkers,
 		cfg.EBPF.LogEnricher.AsyncWriterChannelLen,
-		func(e LogEvent) string { return e.dest },
+		func(e LogEvent) string { return e.shardKey() },
 		func(_ int, ch <-chan LogEvent) {
 			for e := range ch {
 				tr.handle(e)
@@ -267,6 +276,11 @@ func (p *Tracer) removePID(key uint64) error {
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	p.pipesMU.Lock()
+	p.trackedPids[uint32(pid)] = struct{}{}
+	p.pipesMU.Unlock()
+	p.registerLogPipes(uint32(pid))
+
 	p.pidsMU.Lock()
 	defer p.pidsMU.Unlock()
 
@@ -278,9 +292,6 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	if err := p.addPID(pk); err != nil {
 		p.log.Error(err.Error())
 	}
-
-	p.trackedPids[uint32(pid)] = struct{}{}
-	p.registerLogPipes(uint32(pid))
 
 	nsPids, err := procs.FindNamespacedPids(pid)
 	if err != nil {
@@ -301,67 +312,89 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 }
 
-// pipe inode behind /proc/<pid>/fd/<fd>, 0 when gone or not a pipe
-func statPipeIno(pid uint32, fd int) uint64 {
-	var st unix.Stat_t
-	if err := unix.Stat(procFdPath(pid, fd), &st); err != nil {
-		return 0
-	}
-	if st.Mode&unix.S_IFMT != unix.S_IFIFO {
-		return 0
-	}
-
-	return st.Ino
+// userspace stat encodes dev_t differently from the kernel s_dev the BPF
+// program reads; undo the stat encoding so both sides agree on the key
+func kernelDev(dev uint64) uint64 {
+	return uint64(unix.Major(dev))<<20 | uint64(unix.Minor(dev))
 }
 
-// registerLogPipes records the current pipe inodes behind stdout/stderr,
-// retiring registrations the process redirected away from. Callers must
-// hold pidsMU
+// pipe identity behind /proc/<pid>/fd/<fd>, zero when gone or not a pipe
+func statPipeKey(pid uint32, fd int) pipeKey {
+	var st unix.Stat_t
+	if err := unix.Stat(procFdPath(pid, fd), &st); err != nil {
+		return pipeKey{}
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFIFO {
+		return pipeKey{}
+	}
+
+	return pipeKey{Ino: st.Ino, Dev: kernelDev(st.Dev)}
+}
+
+// registerLogPipes records the pipes currently behind stdout/stderr, retiring
+// registrations the process redirected away from. The stats run unlocked so
+// slow /proc access never stalls the event hot path
 func (p *Tracer) registerLogPipes(pid uint32) {
-	for _, fd := range []int{1, 2} {
-		ino := statPipeIno(pid, fd)
+	var desired [2]pipeKey
+	for i, fd := range []int{1, 2} {
+		desired[i] = statPipeKey(pid, fd)
+	}
+
+	p.pipesMU.Lock()
+	defer p.pipesMU.Unlock()
+
+	// the pid may have been blocked while stating; registering would leak
+	if _, ok := p.trackedPids[pid]; !ok {
+		return
+	}
+
+	for i, fd := range []int{1, 2} {
+		key := desired[i]
 		current := p.pidPipes[pid][fd]
-		if current == ino {
+		if current == key {
 			continue
 		}
 
-		if current != 0 {
+		if current != (pipeKey{}) {
 			p.removePipeFD(pid, fd, current)
 		}
-		if ino != 0 {
-			p.addPipeFD(pid, fd, ino)
+		if key != (pipeKey{}) {
+			p.addPipeFD(pid, fd, key)
 		}
 	}
 }
 
-// callers must hold pidsMU
-func (p *Tracer) addPipeFD(pid uint32, fd int, ino uint64) {
-	owners := p.logPipes[ino]
+// callers must hold pipesMU. On BPF update failure nothing is recorded, so
+// the next reconcile retries instead of leaving the pipe silently unenriched
+func (p *Tracer) addPipeFD(pid uint32, fd int, key pipeKey) {
+	owners := p.logPipes[key]
 	if owners == nil {
-		owners = make(map[uint32][]int)
-		p.logPipes[ino] = owners
-
 		if p.bpfObjects.LogPipes == nil {
-			p.log.Error("BPF objects not loaded, cannot register log pipe", "ino", ino)
-		} else if err := p.bpfObjects.LogPipes.Put(ino, uint8(1)); err != nil {
-			p.log.Error("error registering log pipe in bpf map", "ino", ino, "error", err)
+			p.log.Error("BPF objects not loaded, cannot register log pipe", "ino", key.Ino, "dev", key.Dev)
+			return
 		}
+		if err := p.bpfObjects.LogPipes.Put(key, uint8(1)); err != nil {
+			p.log.Error("error registering log pipe in bpf map", "ino", key.Ino, "dev", key.Dev, "error", err)
+			return
+		}
+		owners = make(map[uint32][]int)
+		p.logPipes[key] = owners
 	}
 	owners[pid] = append(owners[pid], fd)
 
 	if p.pidPipes[pid] == nil {
-		p.pidPipes[pid] = make(map[int]uint64)
+		p.pidPipes[pid] = make(map[int]pipeKey)
 	}
-	p.pidPipes[pid][fd] = ino
+	p.pidPipes[pid][fd] = key
 }
 
-// callers must hold pidsMU
-func (p *Tracer) removePipeFD(pid uint32, fd int, ino uint64) {
+// callers must hold pipesMU
+func (p *Tracer) removePipeFD(pid uint32, fd int, key pipeKey) {
 	delete(p.pidPipes[pid], fd)
 	// a held write end would rob readers of EOF once the fd is gone
 	p.fdCache.Remove(procFdPath(pid, fd))
 
-	owners := p.logPipes[ino]
+	owners := p.logPipes[key]
 	if fds, ok := owners[pid]; ok {
 		fds = slices.DeleteFunc(fds, func(f int) bool { return f == fd })
 		if len(fds) > 0 {
@@ -374,42 +407,46 @@ func (p *Tracer) removePipeFD(pid uint32, fd int, ino uint64) {
 		return
 	}
 
-	delete(p.logPipes, ino)
+	delete(p.logPipes, key)
 
 	if p.bpfObjects.LogPipes == nil {
 		return
 	}
-	if err := p.bpfObjects.LogPipes.Delete(ino); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-		p.log.Error("error removing log pipe from bpf map", "ino", ino, "error", err)
+	if err := p.bpfObjects.LogPipes.Delete(key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		p.log.Error("error removing log pipe from bpf map", "ino", key.Ino, "dev", key.Dev, "error", err)
 	}
 }
 
-// callers must hold pidsMU
+// callers must hold pipesMU
 func (p *Tracer) unregisterLogPipes(pid uint32) {
-	for fd, ino := range p.pidPipes[pid] {
-		p.removePipeFD(pid, fd, ino)
+	for fd, key := range p.pidPipes[pid] {
+		p.removePipeFD(pid, fd, key)
 	}
 
 	delete(p.pidPipes, pid)
 }
 
 // processes may redirect their stdio after discovery; re-stat and diff so new
-// pipes get enriched and stale registrations and fd handles are retired
+// pipes get enriched, stale registrations and fd handles are retired, and
+// failed BPF registrations are retried
 func (p *Tracer) reconcileLogPipes() {
-	p.pidsMU.Lock()
-	defer p.pidsMU.Unlock()
-
+	p.pipesMU.RLock()
+	pids := make([]uint32, 0, len(p.trackedPids))
 	for pid := range p.trackedPids {
+		pids = append(pids, pid)
+	}
+	p.pipesMU.RUnlock()
+
+	for _, pid := range pids {
 		p.registerLogPipes(pid)
 	}
 }
 
-// deterministic order: the chosen path is the shard key, keeping lines ordered
-func (p *Tracer) pipeDestCandidates(ino uint64) []string {
-	p.pidsMU.Lock()
-	defer p.pidsMU.Unlock()
+func (p *Tracer) pipeDestCandidates(key pipeKey) []string {
+	p.pipesMU.RLock()
+	defer p.pipesMU.RUnlock()
 
-	owners := p.logPipes[ino]
+	owners := p.logPipes[key]
 
 	pids := make([]uint32, 0, len(owners))
 	for pid := range owners {
@@ -427,35 +464,40 @@ func (p *Tracer) pipeDestCandidates(ino uint64) []string {
 	return paths
 }
 
-func (p *Tracer) pipeRegistered(ino uint64) bool {
-	p.pidsMU.Lock()
-	defer p.pidsMU.Unlock()
+func (p *Tracer) pipeRegistered(key pipeKey) bool {
+	p.pipesMU.RLock()
+	defer p.pipesMU.RUnlock()
 
-	_, ok := p.logPipes[ino]
+	_, ok := p.logPipes[key]
 	return ok
 }
 
-// reject the stdout fallback when it points at an unregistered pipe (app IPC)
-func (p *Tracer) fallbackDestSafe(path string) bool {
+// identity to pin the tty fallback destination with; rejects an unregistered
+// pipe (app IPC)
+func (p *Tracer) fallbackDest(path string) (pipeKey, bool) {
 	var st unix.Stat_t
 	if err := unix.Stat(path, &st); err != nil {
-		return false
+		return pipeKey{}, false
 	}
 
-	if st.Mode&unix.S_IFMT != unix.S_IFIFO {
-		return true
+	key := pipeKey{Ino: st.Ino, Dev: kernelDev(st.Dev)}
+	if st.Mode&unix.S_IFMT == unix.S_IFIFO && !p.pipeRegistered(key) {
+		return pipeKey{}, false
 	}
 
-	return p.pipeRegistered(st.Ino)
+	return key, true
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
+	p.pipesMU.Lock()
+	delete(p.trackedPids, uint32(pid))
+	p.unregisterLogPipes(uint32(pid))
+	p.pipesMU.Unlock()
+
 	p.pidsMU.Lock()
 	defer p.pidsMU.Unlock()
 
 	delete(p.pidServices, uint32(pid))
-	delete(p.trackedPids, uint32(pid))
-	p.unregisterLogPipes(uint32(pid))
 
 	pk := p.pidKey(ns, uint32(pid))
 	if err := p.removePID(pk); err != nil {
@@ -535,24 +577,30 @@ func (p *Tracer) handleLogEvent(record *ringbuf.Record) (request.Span, bool, err
 	// open file description keeps the log pipe writable even if the process is
 	// gone by the time the async writer gets to this line.
 	if event.Fd != 0 {
+		key := pipeKey{Ino: event.Ino, Dev: uint64(event.Dev)}
 		// address the pipe through a live owner, the writer may already be gone
-		for _, candidate := range p.pipeDestCandidates(event.Ino) {
-			if _, err := p.openLogDestination(candidate, event.Ino); err == nil {
+		for _, candidate := range p.pipeDestCandidates(key) {
+			if _, err := p.openLogDestination(candidate, key); err == nil {
 				e.dest = candidate
+				e.pin = key
 				break
 			}
 		}
 		if e.dest == "" {
-			p.log.Debug("no live destination for log pipe, dropping line", "ino", event.Ino)
+			p.log.Debug("no live destination for log pipe, dropping line", "ino", event.Ino, "dev", event.Dev)
 			return request.Span{}, true, nil
 		}
 	} else {
 		e.dest = e.ttyPath()
-		if unix.ByteSliceToString(event.FilePath[:]) == "" && !p.fallbackDestSafe(e.dest) {
-			p.log.Debug("unsafe tty fallback destination, dropping line", "path", e.dest)
-			return request.Span{}, true, nil
+		if unix.ByteSliceToString(event.FilePath[:]) == "" {
+			pin, ok := p.fallbackDest(e.dest)
+			if !ok {
+				p.log.Debug("unsafe tty fallback destination, dropping line", "path", e.dest)
+				return request.Span{}, true, nil
+			}
+			e.pin = pin
 		}
-		if _, err := p.openLogDestination(e.dest, 0); err != nil {
+		if _, err := p.openLogDestination(e.dest, e.pin); err != nil {
 			p.logOpenError(e.dest, err)
 			return request.Span{}, true, nil
 		}
@@ -564,30 +612,52 @@ func (p *Tracer) handleLogEvent(record *ringbuf.Record) (request.Span, bool, err
 
 var errStaleDestination = errors.New("destination no longer points at the captured pipe")
 
-func fileIno(f *os.File) uint64 {
+func fileKey(f *os.File) pipeKey {
 	var st unix.Stat_t
 	if err := unix.Fstat(int(f.Fd()), &st); err != nil {
-		return 0
+		return pipeKey{}
 	}
 
-	return st.Ino
+	return pipeKey{Ino: st.Ino, Dev: kernelDev(st.Dev)}
 }
 
-// a non-zero ino pins the destination: /proc fd paths re-point when the owner
-// redirects its stdio, and writing there would leak lines into the wrong file
-func (p *Tracer) openLogDestination(path string, ino uint64) (*os.File, error) {
+// O_NONBLOCK so a reader-less pipe fails the open with ENXIO instead of
+// blocking the event handler forever; writes revert to blocking so a full
+// pipe backpressures its shard instead of dropping lines
+func openDestFile(path string) (*os.File, error) {
+	fd, err := unix.Open(path, unix.O_WRONLY|unix.O_APPEND|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+	if err == nil {
+		_, err = unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags&^unix.O_NONBLOCK)
+	}
+	if err != nil {
+		unix.Close(fd)
+		return nil, &os.PathError{Op: "fcntl", Path: path, Err: err}
+	}
+
+	return os.NewFile(uintptr(fd), path), nil
+}
+
+// a non-zero pin fixes the destination identity: /proc fd paths re-point when
+// the owner redirects its stdio, and writing there would leak lines into the
+// wrong file
+func (p *Tracer) openLogDestination(path string, pin pipeKey) (*os.File, error) {
 	if f, ok := p.fdCache.Get(path); ok {
-		if ino == 0 || fileIno(f) == ino {
+		if pin == (pipeKey{}) || fileKey(f) == pin {
 			return f, nil
 		}
 		p.fdCache.Remove(path)
 	}
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	f, err := openDestFile(path)
 	if err != nil {
 		return nil, err
 	}
-	if ino != 0 && fileIno(f) != ino {
+	if pin != (pipeKey{}) && fileKey(f) != pin {
 		f.Close()
 		return nil, errStaleDestination
 	}
@@ -596,10 +666,11 @@ func (p *Tracer) openLogDestination(path string, ino uint64) (*os.File, error) {
 	return f, nil
 }
 
-// a gone or re-pointed destination means its process died or redirected
-// between writing the line and us getting to it: expected, drop quietly
+// a gone, re-pointed, or reader-less destination means its process died or
+// redirected between writing the line and us getting to it: expected, drop
+// quietly
 func (p *Tracer) logOpenError(path string, err error) {
-	if errors.Is(err, os.ErrNotExist) || errors.Is(err, errStaleDestination) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, errStaleDestination) || errors.Is(err, unix.ENXIO) {
 		p.log.Debug("log destination is gone, dropping line", "path", path, "error", err)
 		return
 	}
@@ -621,9 +692,19 @@ func (e LogEvent) ttyPath() string {
 	return fp
 }
 
+// pipe lines shard by pipe identity so a changing candidate path cannot move
+// a pipe's lines across shards and reorder them; tty lines shard by path
+func (e LogEvent) shardKey() string {
+	if e.orig.Fd != 0 {
+		return "pipe:" + strconv.FormatUint(uint64(e.orig.Dev), 10) + ":" + strconv.FormatUint(e.orig.Ino, 10)
+	}
+
+	return e.dest
+}
+
 func (p *Tracer) handle(e LogEvent) {
 	// normally warmed at capture time; reopened only if the cache evicted it
-	f, err := p.openLogDestination(e.dest, e.orig.Ino)
+	f, err := p.openLogDestination(e.dest, e.pin)
 	if err != nil {
 		p.logOpenError(e.dest, err)
 		return
