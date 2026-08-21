@@ -87,10 +87,10 @@ func testREDMetricsPythonKafkaOnly(t *testing.T) {
 			Comm:    "python3.14",
 			Spans: []TestCaseSpan{
 				{
-					Name: "publish my-topic",
+					Name: "send my-topic",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
-						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.operation.type", "send"),
 						attribute.String("messaging.destination.name", "my-topic"),
 						attribute.String("messaging.client.id", "kafka-python-producer-1"),
 						attribute.String("messaging.destination.partition.id", "0"),
@@ -134,10 +134,10 @@ func testJavaKafka(t *testing.T, port int, comm string) {
 			Comm:    comm,
 			Spans: []TestCaseSpan{
 				{
-					Name: "publish my-topic",
+					Name: "send my-topic",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
-						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.operation.type", "send"),
 						attribute.String("messaging.destination.name", "my-topic"),
 						attribute.String("messaging.client.id", "producer-1"),
 						attribute.String("messaging.destination.partition.id", "0"),
@@ -186,10 +186,10 @@ func testJavaKafkaLargeBuffer(t *testing.T) {
 			Comm:    "javakafka-lb",
 			Spans: []TestCaseSpan{
 				{
-					Name: "publish theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree",
+					Name: "send theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
-						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.operation.type", "send"),
 						attribute.String("messaging.destination.name", "theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree"),
 						attribute.String("messaging.client.id", "producer-1"),
 						attribute.String("messaging.destination.partition.id", "0"),
@@ -240,10 +240,10 @@ func testNodeRdkafka(t *testing.T) {
 			Comm:    "node",
 			Spans: []TestCaseSpan{
 				{
-					Name: "publish obi-node-rdkafka-topic",
+					Name: "send obi-node-rdkafka-topic",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
-						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.operation.type", "send"),
 						attribute.String("messaging.destination.name", "obi-node-rdkafka-topic"),
 					},
 				},
@@ -279,7 +279,7 @@ func testNodeRdkafka(t *testing.T) {
 // regardless of the broker's topic ordering.
 //
 // Note the asymmetry: the Apache Java producer sends a separate single-topic
-// Produce per topic, so the `publish <topic>` assertions pass even without the
+// Produce per topic, so the `send <topic>` assertions pass even without the
 // multi-topic changes. The real coverage is the `process <topic>` assertions:
 // the Java consumer issues one multi-topic Fetch (all subscribed topics by UUID),
 // so all three `process` spans appearing is what proves the metadata
@@ -300,10 +300,10 @@ func testJavaKafkaMultiTopic(t *testing.T) {
 	for _, topic := range topics {
 		spans = append(spans,
 			TestCaseSpan{
-				Name: "publish " + topic,
+				Name: "send " + topic,
 				Attributes: []attribute.KeyValue{
 					attribute.String("span.kind", "producer"),
-					attribute.String("messaging.operation.type", "publish"),
+					attribute.String("messaging.operation.type", "send"),
 					attribute.String("messaging.destination.name", topic),
 				},
 			},
