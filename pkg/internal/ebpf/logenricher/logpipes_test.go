@@ -304,7 +304,7 @@ func TestReconcileReleasesCachedHandle(t *testing.T) {
 	// warm the cache like event capture does and complete the write, then
 	// drop our own write end so the cached handle is the only writer left
 	// besides the child
-	warmed, err := tr.openLogDestination(procFdPath(pid, 1), oldKey)
+	warmed, err := tr.openPipeDestination(procFdPath(pid, 1), oldKey)
 	require.NoError(t, err)
 	warmed.release()
 	require.NoError(t, oldW.Close())
@@ -352,7 +352,7 @@ func TestReconcileKeepsUnchangedRegistration(t *testing.T) {
 	trackAndRegister(tr, pid)
 
 	key := fdKey(t, outW)
-	d, err := tr.openLogDestination(procFdPath(pid, 1), key)
+	d, err := tr.openPipeDestination(procFdPath(pid, 1), key)
 	require.NoError(t, err)
 	defer d.release()
 
@@ -407,8 +407,9 @@ func TestFallbackPinRejectsRepointedFd(t *testing.T) {
 	pid := uint32(cmd.Process.Pid)
 	path := procFdPath(pid, 1)
 
-	pin, ok := tr.fallbackDest(path)
+	pin, pipeDest, ok := tr.fallbackDest(path)
 	require.True(t, ok, "regular file fallback must be accepted")
+	assert.False(t, pipeDest)
 	require.Equal(t, fdKey(t, fileA), pin)
 
 	warmed, err := tr.openLogDestination(path, pin)
@@ -438,13 +439,14 @@ func TestFallbackDestPipeRegistration(t *testing.T) {
 	pid := uint32(cmd.Process.Pid)
 	path := procFdPath(pid, 1)
 
-	_, ok := tr.fallbackDest(path)
+	_, _, ok := tr.fallbackDest(path)
 	assert.False(t, ok, "unregistered pipe fallback must be rejected")
 
 	trackAndRegister(tr, pid)
 
-	pin, ok := tr.fallbackDest(path)
+	pin, pipeDest, ok := tr.fallbackDest(path)
 	assert.True(t, ok, "registered pipe fallback must be accepted")
+	assert.True(t, pipeDest)
 	assert.Equal(t, fdKey(t, outW), pin)
 }
 
@@ -523,7 +525,7 @@ func TestQueuedLineSurvivesSoleOwnerExit(t *testing.T) {
 	// capture-time warm open through the sole owner, like handleLogEvent does
 	e := LogEvent{dest: procFdPath(pid, 1), logLine: "queued line\n"}
 	e.orig.Fd = 1
-	e.out, err = tr.openLogDestination(e.dest, key)
+	e.out, err = tr.openPipeDestination(e.dest, key)
 	require.NoError(t, err)
 
 	// the sole owner exits and BlockPID retires it before the async writer
@@ -549,6 +551,53 @@ func TestQueuedLineSurvivesSoleOwnerExit(t *testing.T) {
 		assert.Equal(t, "queued line\n", string(got), "final line must land and be followed by EOF")
 	case <-time.After(5 * time.Second):
 		t.Fatal("line dropped or EOF withheld after sole-owner teardown")
+	}
+}
+
+func TestRetiredPipeDestinationIsNotCached(t *testing.T) {
+	tr := newTestTracer(t, false)
+	tr.logPipes = map[pipeKey]map[uint32][]int{}
+	tr.fdCache = expirable.NewLRU[string, *destFile](1, func(_ string, d *destFile) {
+		d.release()
+	}, time.Minute)
+	t.Cleanup(tr.fdCache.Purge)
+
+	outR, outW, err := os.Pipe()
+	require.NoError(t, err)
+	defer outR.Close()
+
+	pid := uint32(os.Getpid())
+	fd := int(outW.Fd())
+	path := procFdPath(pid, fd)
+	key := fdKey(t, outW)
+	tr.logPipes[key] = map[uint32][]int{pid: {fd}}
+
+	f, err := openDestFile(path)
+	require.NoError(t, err)
+	d := &destFile{f: f}
+	d.refs.Store(1) // event reference
+
+	tr.pipesMU.Lock()
+	delete(tr.logPipes, key)
+	tr.pipesMU.Unlock()
+	require.NoError(t, outW.Close())
+
+	// Simulate publication finishing after teardown removed the cache path.
+	tr.cachePipeDestination(path, key, d)
+	_, cached := tr.fdCache.Get(path)
+	assert.False(t, cached, "retired destination must not regain a cache reference")
+	d.release()
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.ReadAll(outR)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reader did not see EOF: retired destination was cached after teardown")
 	}
 }
 
