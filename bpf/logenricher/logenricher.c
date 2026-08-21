@@ -65,6 +65,8 @@ static __always_inline void suppress_ubuf(void *ubuf, const char *fill, u32 len)
         return;
     }
 
+    bpf_clamp_umax(len, k_log_event_max_log_len);
+    bpf_clamp_umin(len, 1);
     bpf_probe_write_user(ubuf, fill, len);
     bpf_probe_write_user((char *)ubuf + len - 1, &k_newline, 1);
 }
@@ -120,6 +122,7 @@ suppress_iovec(const struct iovec *iov, unsigned long nr_segs, const char *fill)
             continue;
         }
         bpf_clamp_umax(to_copy, k_iov_seg_max_len);
+        bpf_clamp_umin(to_copy, 1);
         bpf_clamp_umax(tot, k_log_event_max_log_len);
         if (tot + to_copy > k_log_event_max_log_len) {
             break;
