@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <generictracer/maps/python_runtime_metrics.h>
 #include <logger/bpf_dbg.h>
@@ -48,7 +49,7 @@ python_runtime_read_inline(u64 gc_address,
 }
 
 SEC("uprobe/python_gc_done")
-int obi_uprobe_python_gc_done(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_python_gc_done, struct pt_regs *, ctx) {
     (void)ctx;
 
     pid_info key = {};
