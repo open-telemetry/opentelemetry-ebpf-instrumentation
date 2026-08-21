@@ -499,6 +499,55 @@ func TestOpenDestinationReaderlessFifoFailsFast(t *testing.T) {
 	assert.Zero(t, flags&unix.O_NONBLOCK, "write path must be blocking for backpressure")
 }
 
+// a line warmed through one owner must still land when that owner retires
+// while the line is queued and another registered owner remains
+func TestQueuedLineSurvivesWarmedOwnerExit(t *testing.T) {
+	tr := newPipeTestTracer(t)
+
+	outR, outW, err := os.Pipe()
+	require.NoError(t, err)
+	defer outR.Close()
+	defer outW.Close()
+
+	cmdA := startChild(t, outW, outW, "sleep", "30")
+	cmdB := startChild(t, outW, outW, "sleep", "30")
+	pidA := uint32(cmdA.Process.Pid)
+	pidB := uint32(cmdB.Process.Pid)
+
+	trackAndRegister(tr, pidA)
+	trackAndRegister(tr, pidB)
+	key := fdKey(t, outW)
+
+	// capture-time warm open through owner A, like handleLogEvent does
+	e := LogEvent{dest: procFdPath(pidA, 1), pin: key, logLine: "queued line\n"}
+	e.orig.Fd = 1
+	_, err = tr.openLogDestination(e.dest, e.pin)
+	require.NoError(t, err)
+
+	// owner A exits and is retired before the async writer gets to the line:
+	// its cached handle is closed and its /proc path is gone
+	require.NoError(t, cmdA.Process.Kill())
+	_, err = cmdA.Process.Wait()
+	require.NoError(t, err)
+	untrack(tr, pidA)
+
+	done := make(chan []byte, 1)
+	go func() {
+		buf := make([]byte, 64)
+		n, _ := outR.Read(buf)
+		done <- buf[:n]
+	}()
+
+	tr.handle(e)
+
+	select {
+	case got := <-done:
+		assert.Equal(t, "queued line\n", string(got), "line must be delivered through the surviving owner")
+	case <-time.After(5 * time.Second):
+		t.Fatal("queued line was dropped after the warmed owner exited")
+	}
+}
+
 // exercised under -race: registration, reconcile, and the event hot path
 // must be safe to run concurrently
 func TestConcurrentPipeAccess(t *testing.T) {

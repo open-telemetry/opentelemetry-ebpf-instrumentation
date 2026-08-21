@@ -641,7 +641,13 @@ func openDestFile(path string) (*os.File, error) {
 		return nil, &os.PathError{Op: "fcntl", Path: path, Err: err}
 	}
 
-	return os.NewFile(uintptr(fd), path), nil
+	f := os.NewFile(uintptr(fd), path)
+	if f == nil {
+		unix.Close(fd)
+		return nil, &os.PathError{Op: "open", Path: path, Err: unix.EBADF}
+	}
+
+	return f, nil
 }
 
 // a non-zero pin fixes the destination identity: /proc fd paths re-point when
@@ -704,9 +710,33 @@ func (e LogEvent) shardKey() string {
 	return e.dest
 }
 
+// the owner warmed at capture time may exit or redirect while the line sits
+// in the queue; re-resolve the pipe through any remaining live owner before
+// giving the line up
+func (p *Tracer) reopenLogDestination(e LogEvent) (*os.File, error) {
+	f, err := p.openLogDestination(e.dest, e.pin)
+	if err == nil {
+		return f, nil
+	}
+	if e.pin == (pipeKey{}) {
+		return nil, err
+	}
+
+	for _, candidate := range p.pipeDestCandidates(e.pin) {
+		if candidate == e.dest {
+			continue
+		}
+		if f, cErr := p.openLogDestination(candidate, e.pin); cErr == nil {
+			return f, nil
+		}
+	}
+
+	return nil, err
+}
+
 func (p *Tracer) handle(e LogEvent) {
 	// normally warmed at capture time; reopened only if the cache evicted it
-	f, err := p.openLogDestination(e.dest, e.pin)
+	f, err := p.reopenLogDestination(e)
 	if err != nil {
 		p.logOpenError(e.dest, err)
 		return
