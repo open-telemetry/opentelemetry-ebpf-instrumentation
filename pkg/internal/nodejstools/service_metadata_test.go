@@ -139,7 +139,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 	t.Run("entrypoint basename is the final Node.js fallback", func(t *testing.T) {
 		root := t.TempDir()
 		writeNodeFile(t, filepath.Join(root, "app", "client.js"), nil)
-		fileInfo := mockNodeProcess(t, root, []string{"client.js"}, nil)
+		fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
 
 		err := ResolveServiceMetadata(fileInfo)
 
