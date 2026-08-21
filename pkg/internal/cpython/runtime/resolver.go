@@ -11,12 +11,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
-var (
-	errRuntimeNotFound          = errors.New("CPython runtime not found")
-	errRuntimeObjectUnavailable = errors.New("CPython runtime object unavailable")
-	errUnsupportedLayout        = errors.New("unsupported CPython runtime layout")
-	errProcessReplaced          = errors.New("CPython process replaced")
-)
+var errUnsupportedLayout = errors.New("unsupported CPython runtime layout")
 
 // Resolver resolves supported CPython process images into BPF attachment plans.
 type Resolver struct {

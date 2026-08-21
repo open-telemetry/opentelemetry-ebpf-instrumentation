@@ -17,7 +17,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
-	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
+	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -76,6 +76,64 @@ func TestRuntimeMetricsReporterEvictsServiceAfterLastPIDTerminates(t *testing.T)
 	assert.NotSame(t, first, second)
 	assert.Equal(t, []*RuntimeMetrics{first}, evicted)
 	assert.Equal(t, 2, constructed)
+}
+
+func TestRuntimeMetricsReporterRetainsFinalPythonMetricsAfterTermination(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
+
+	exportModes := services.NewExportModes()
+	exportModes.AllowMetrics()
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders"},
+		SDKLanguage: svc.InstrumentablePython,
+		Features:    export.FeatureApplicationRuntime,
+		ExportModes: exportModes,
+	}
+	metrics := &RuntimeMetrics{ctx: t.Context(), service: &service, provider: provider}
+	require.NoError(t, setupPythonRuntimeMeters(&metrics.pythonMetrics, provider.Meter(reporterName)))
+	evicted := []*RuntimeMetrics{}
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10,
+		time.Minute,
+		time.Now,
+		func(_ svc.UID, metrics *RuntimeMetrics) { evicted = append(evicted, metrics) },
+		func(*svc.Attrs) (*RuntimeMetrics, error) { return metrics, nil },
+	)
+	require.NoError(t, err)
+
+	reporter := RuntimeMetricsReporter{
+		ctx:            t.Context(),
+		reporters:      reporters,
+		pidTracker:     NewPidServiceTracker(),
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
+	}
+	file := exec.New(exec.Init{Pid: 101, Service: service})
+	file.SetRuntimeMetricGeneration(101, 1)
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventCreated, File: file})
+	first, err := reporter.reporters.For(&service)
+	require.NoError(t, err)
+
+	reporter.onProcessEvent(&exec.ProcessEvent{
+		Type: exec.ProcessEventTerminated,
+		File: file,
+		FinalPythonRuntimeMetrics: []appruntime.PythonRuntimeMetricFinal{{
+			PID:        101,
+			Generation: 1,
+			HasValue:   true,
+			Generations: [3]appruntime.PythonGCGenerationMetrics{{
+				Collections: 12,
+			}},
+		}},
+	})
+
+	current, exists := reporter.reporters.Lookup(service.UID)
+	require.True(t, exists)
+	assert.Same(t, first, current)
+	assert.Empty(t, evicted)
+	assertPythonRuntimePoint(t, reader, attributes.CPythonGCCollections.OTEL, 0, 12)
 }
 
 func TestRuntimeMetricsReporterTracksInheritedChildPIDHistograms(t *testing.T) {
@@ -350,7 +408,7 @@ func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 			Features:    export.FeatureApplicationRuntime,
 			ExportModes: exportMetrics,
 		},
-		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{Kind: jvmruntime.JVMMetricMemoryUsed},
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{Kind: appruntime.JVMMetricMemoryUsed},
 	}))
 
 	assert.False(t, (&RuntimeMetricsReporter{runtimeEnabled: runtimemetrics.Enabled{Runtime: false}}).shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{

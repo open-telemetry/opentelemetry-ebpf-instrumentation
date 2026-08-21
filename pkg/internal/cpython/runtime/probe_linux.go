@@ -17,7 +17,7 @@ func findPythonGCDoneUSDT(file *elf.File) (*GCCompletionProbe, error) {
 	// CPython documents this marker at https://docs.python.org/3/howto/instrumentation.html#available-static-markers.
 	targets, err := obiebpf.FindUSDTProbeTargets(file, "python", "gc__done")
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid python:gc__done USDT probe: %v", errUnsupportedLayout, err)
+		return nil, fmt.Errorf("%w: invalid python:gc__done USDT probe: %w", errUnsupportedLayout, err)
 	}
 	switch len(targets) {
 	case 0:

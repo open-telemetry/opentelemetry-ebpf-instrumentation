@@ -28,7 +28,12 @@ import (
 
 const maxRuntimeObjectCandidates = 4
 
-var legacyVersionPattern = regexp.MustCompile(`3\.(9|10)\.(\d{1,3})`)
+var (
+	errRuntimeNotFound          = errors.New("CPython runtime not found")
+	errRuntimeObjectUnavailable = errors.New("CPython runtime object unavailable")
+	errProcessReplaced          = errors.New("CPython process replaced")
+	legacyVersionPattern        = regexp.MustCompile(`3\.(9|10)\.(\d{1,3})`)
+)
 
 // Resolve locates CPython and returns a validated metric target.
 func (r *Resolver) Resolve(ctx context.Context, pid app.PID, expectedStartTime uint64) (*MetricTarget, error) {
