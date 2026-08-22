@@ -938,6 +938,44 @@ func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
 	require.NoError(t, cfg.ValidateStatic())
 }
 
+func TestConfigValidatePrometheusPaths(t *testing.T) {
+	testCases := map[string]struct {
+		yamlConfig string
+		field      string
+	}{
+		"application metrics": {
+			yamlConfig: `open_port: 8080
+trace_printer: text
+prometheus_export:
+  port: 9090
+  path: metrics
+`,
+			field: "Config.Prometheus.Path",
+		},
+		"internal metrics": {
+			yamlConfig: `open_port: 8080
+trace_printer: text
+internal_metrics:
+  prometheus:
+    port: 9090
+    path: internal/metrics
+`,
+			field: "Config.InternalMetrics.Prometheus.Path",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := LoadConfig(strings.NewReader(tc.yamlConfig))
+			require.NoError(t, err)
+
+			err = cfg.ValidateStatic()
+			require.ErrorContains(t, err, tc.field)
+			require.ErrorContains(t, err, "'startswith'")
+		})
+	}
+}
+
 func TestConfigValidateRoutes(t *testing.T) {
 	userConfig := bytes.NewBufferString(`executable_path: foo
 trace_printer: text

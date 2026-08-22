@@ -104,7 +104,7 @@ var DefaultNativeHistogramConfig = NativeHistogramConfig{
 type PrometheusConfig struct {
 	// 0 means disabled
 	Port int    `yaml:"port" env:"OTEL_EBPF_PROMETHEUS_PORT" validate:"gte=0,lte=65535"`
-	Path string `yaml:"path" env:"OTEL_EBPF_PROMETHEUS_PATH"`
+	Path string `yaml:"path" env:"OTEL_EBPF_PROMETHEUS_PATH" validate:"startswith=/"`
 
 	DisableBuildInfo bool `yaml:"disable_build_info" env:"OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"`
 
