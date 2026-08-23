@@ -377,4 +377,3 @@ groups:
     brief: >
       How long, in seconds, it takes from a Kubernetes event happening until
       it is forwarded to the subscribers.
-
