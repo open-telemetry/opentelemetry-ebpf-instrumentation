@@ -179,6 +179,13 @@ func (fi *FileInfo) SetAutoServiceName(name string) {
 	fi.service.SetAutoName()
 }
 
+func (fi *FileInfo) SetAutoServiceNamespace(namespace string) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	fi.service.UID.Namespace = namespace
+	fi.service.SetAutoNamespace()
+}
+
 func (fi *FileInfo) SetUID(uid svc.UID) {
 	fi.mu.Lock()
 	defer fi.mu.Unlock()

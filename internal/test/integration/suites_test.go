@@ -1012,7 +1012,7 @@ func TestSuiteNodeClient(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
-		testNodeClientWithMethodAndStatusCode(t, "GET", 301, 80, "0000000000000000")
+		testNodeClientWithMethodAndStatusCode(t, "GET", 301, 80, "0000000000000000", "client")
 	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -1025,7 +1025,7 @@ func TestSuiteNodeClientTLS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client_tls`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
-		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001")
+		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001", "client_tls")
 	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())

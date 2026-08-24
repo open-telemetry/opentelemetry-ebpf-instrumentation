@@ -237,7 +237,7 @@ func testNodeRdkafka(t *testing.T) {
 		{
 			Route:   "http://localhost:8381",
 			Subpath: "health",
-			Comm:    "node",
+			Comm:    "noderdkafka",
 			Spans: []TestCaseSpan{
 				{
 					Name: "send obi-node-rdkafka-topic",

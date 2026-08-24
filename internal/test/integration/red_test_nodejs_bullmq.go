@@ -86,7 +86,7 @@ func testREDMetricsNodeBullMQ(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range spans {
-			resp, err := http.Get(jaegerQueryURL + "?service=node&operation=" + span.Name)
+			resp, err := http.Get(jaegerQueryURL + "?service=nodebullmq&operation=" + span.Name)
 			require.NoError(ct, err, "failed to query jaeger for %s", span.Name)
 			if resp == nil {
 				return
@@ -106,7 +106,7 @@ func testREDMetricsNodeBullMQ(t *testing.T) {
 	// the worker sets a ~3.8KB value per job; the payload tail can only reach
 	// db.query.text through the TCP large-buffer path (inline capture is 256B)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=node&operation=set")
+		resp, err := http.Get(jaegerQueryURL + "?service=nodebullmq&operation=set")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
