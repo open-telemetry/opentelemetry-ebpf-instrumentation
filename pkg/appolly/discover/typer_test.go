@@ -68,6 +68,9 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 	for _, symbol := range gotracer.GoAutoSDKActivationProbeSymbols() {
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}
+	for _, symbol := range gotracer.GoH2OwnershipProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
 }
 
 func TestContextWithValueDoesNotQualifyGoProxy(t *testing.T) {

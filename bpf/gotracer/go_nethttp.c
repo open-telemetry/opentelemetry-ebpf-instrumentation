@@ -47,6 +47,7 @@
 
 #include <maps/go_ongoing_http.h>
 #include <maps/go_ongoing_http_client_requests.h>
+#include <maps/go_h2_owned_streams.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/tp_char_buf_mem.h>
 
@@ -743,6 +744,14 @@ int GUARDED_PROG(obi_uprobe_roundTrip, struct pt_regs *, ctx) {
     return 0;
 }
 
+static __always_inline void cleanup_http2_owned_stream(const go_addr_key_t *g_key) {
+    http2_owned_stream_ref_t *ref = bpf_map_lookup_elem(&http2_owned_stream_by_request, g_key);
+    if (ref) {
+        bpf_map_delete_elem(&go_h2_owned_streams, &ref->stream);
+        bpf_map_delete_elem(&http2_owned_stream_by_request, g_key);
+    }
+}
+
 SEC("uprobe/roundTrip_return")
 int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/roundTrip_return ===");
@@ -845,6 +854,7 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    cleanup_http2_owned_stream(&g_key);
     bpf_map_delete_elem(&go_ongoing_http_client_requests, &g_key);
     bpf_map_delete_elem(&ongoing_http_client_requests_data, &g_key);
     bpf_map_delete_elem(&ongoing_client_connections, &g_key);
@@ -1221,8 +1231,14 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                                                     u32 stream_id,
                                                     go_offset_const off_cc_tconn_pos,
                                                     go_offset_const off_cc_framer_pos) {
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+    go_addr_key_t writer_key = {};
+    go_addr_key_from_id(&writer_key, goroutine_addr);
+    const u8 *observation = bpf_map_lookup_elem(&http2_header_observations, &writer_key);
+    const bool app_owned = observation && *observation;
+
+    go_addr_key_t g_key = writer_key;
+    http2_owned_stream_ref_t owned_ref = {};
+    bool owned_ref_published = false;
 
     void *parent_go = (void *)find_parent_goroutine_in_chain(&g_key);
 
@@ -1251,10 +1267,28 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
             bpf_dbg_printk("tconn_conn=%llx", tconn_conn);
 
             connection_info_t conn = {0};
-            const u8 ok = get_conn_info(tconn_conn, &conn);
+            u8 ok = get_conn_info(tconn_conn, &conn);
+            if (!ok) {
+                ok = get_conn_info(tconn, &conn);
+            }
 
             if (ok) {
                 bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
+
+                if (app_owned && stream_id) {
+                    owned_ref.stream.p_conn.conn = conn;
+                    owned_ref.stream.p_conn.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+                    owned_ref.stream.stream_id = stream_id;
+                    set_go_h2_owned_stream_process_identity(&owned_ref.stream);
+
+                    const u64 now = bpf_ktime_get_ns();
+                    if (bpf_map_update_elem(
+                            &go_h2_owned_streams, &owned_ref.stream, &now, BPF_ANY) == 0) {
+                        owned_ref_published = true;
+                        bpf_map_update_elem(
+                            &http2_owned_stream_by_request, &g_key, &owned_ref, BPF_ANY);
+                    }
+                }
 
                 bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
                 connection_info_t sorted_conn = conn;
@@ -1281,9 +1315,70 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                 s_key.conn_ptr = (u64)framer;
 
                 bpf_map_update_elem(&http2_req_map, &s_key, &goroutine_addr, BPF_ANY);
+                if (owned_ref_published) {
+                    bpf_map_update_elem(&http2_owned_stream_by_framer, &s_key, &owned_ref, BPF_ANY);
+                }
             }
         }
     }
+}
+
+static __always_inline bool is_traceparent_field_name(const unsigned char *name) {
+    static const unsigned char expected[] = "traceparent";
+
+#pragma unroll
+    for (u8 i = 0; i < W3C_KEY_LENGTH; i++) {
+        if (lowercase(name[i]) != expected[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+SEC("uprobe/http2ClientStreamEncodeAndWriteHeaders")
+int GUARDED_PROG(obi_uprobe_http2ClientStreamEncodeAndWriteHeaders, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    const u8 not_owned = 0;
+    bpf_map_update_elem(&http2_header_observations, &g_key, &not_owned, BPF_ANY);
+    return 0;
+}
+
+SEC("uprobe/http2ClientStreamEncodeAndWriteHeaders_returns")
+int GUARDED_PROG(obi_uprobe_http2ClientStreamEncodeAndWriteHeaders_returns, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    bpf_map_delete_elem(&http2_header_observations, &g_key);
+    return 0;
+}
+
+SEC("uprobe/http2ClientConnWriteHeader")
+int GUARDED_PROG(obi_uprobe_http2ClientConnWriteHeader, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation || (u64)GO_PARAM3(ctx) != W3C_KEY_LENGTH) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    u8 *observation = bpf_map_lookup_elem(&http2_header_observations, &g_key);
+    if (!observation) {
+        return 0;
+    }
+
+    unsigned char name[W3C_KEY_LENGTH];
+    if (bpf_probe_read_user(name, sizeof(name), (void *)GO_PARAM2(ctx)) == 0 &&
+        is_traceparent_field_name(name)) {
+        *observation = 1;
+    }
+    return 0;
 }
 
 SEC("uprobe/http2RoundTrip")
@@ -1354,6 +1449,16 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
         .stream_id = stream_id,
     };
     s_key.conn_ptr = (u64)framer;
+
+    http2_owned_stream_ref_t *owned_ref =
+        bpf_map_lookup_elem(&http2_owned_stream_by_framer, &s_key);
+    const bool app_owned =
+        owned_ref && fresh_go_h2_owned_stream(&owned_ref->stream, bpf_ktime_get_ns());
+    bpf_map_delete_elem(&http2_owned_stream_by_framer, &s_key);
+    if (app_owned) {
+        bpf_map_delete_elem(&http2_req_map, &s_key);
+        return;
+    }
 
     void **go_ptr = bpf_map_lookup_elem(&http2_req_map, &s_key);
 

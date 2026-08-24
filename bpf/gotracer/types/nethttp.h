@@ -6,6 +6,7 @@
 #include <bpfcore/vmlinux.h>
 
 #include <common/common.h>
+#include <common/go_h2_owned_stream.h>
 #include <common/tp_info.h>
 
 #define HTTP2_ENCODED_HEADER_LEN                                                                   \
@@ -47,3 +48,7 @@ typedef struct framer_func_invocation {
     tp_info_t tp;
     s64 initial_n;
 } framer_func_invocation_t;
+
+typedef struct http2_owned_stream_ref {
+    go_h2_owned_stream_key_t stream;
+} http2_owned_stream_ref_t;
