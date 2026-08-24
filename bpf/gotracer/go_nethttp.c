@@ -1390,6 +1390,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
                         .tp = info->tp,
                         .framer_ptr = (u64)framer,
                         .initial_n = n,
+                        .stream_id = (u32)stream_id,
                     };
                     go_addr_key_t f_key = {};
                     go_addr_key_from_id(&f_key, goroutine_addr);
@@ -1437,6 +1438,212 @@ int GUARDED_PROG(obi_uprobe_net_http2FramerWriteHeaders, struct pt_regs *, ctx) 
     bpf_dbg_printk("=== uprobe/net_http2FramerWriteHeaders ===");
     on_http2FramerWriteHeaders(ctx, ot, stream_id);
 
+    return 0;
+}
+
+static __always_inline void
+make_http2_traceparent_field(unsigned char field[HTTP2_ENCODED_HEADER_LEN], const tp_info_t *tp) {
+    field[0] = 0;
+    field[1] = sizeof(tp_encoded) | 0x80;
+    __builtin_memcpy(field + 2, tp_encoded, sizeof(tp_encoded));
+    field[2 + sizeof(tp_encoded)] = TP_MAX_VAL_LENGTH;
+    make_tp_string(field + 3 + sizeof(tp_encoded), tp);
+}
+
+static __always_inline u32
+http2_frame_stream_id(const unsigned char header[k_h2_frame_header_len]) {
+    return ((u32)(header[5] & 0x7f) << 24) | ((u32)header[6] << 16) | ((u32)header[7] << 8) |
+           header[8];
+}
+
+static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
+                                                        go_offset_const pad_offset) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    if (!f_info || f_info->reserved_padding) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 stack_offset = go_offset_of(ot, (go_offset){.v = pad_offset});
+    if (stack_offset == (u64)-1 || stack_offset < 34 || stack_offset >= 512) {
+        return 0;
+    }
+
+    unsigned char *pad_ptr = (unsigned char *)PT_REGS_SP(ctx) + stack_offset;
+    u32 stream_id = 0;
+    u8 original_pad = 0;
+    u64 fragment_len = 0;
+    long err = bpf_probe_read_user(&stream_id, sizeof(stream_id), pad_ptr - 34);
+    err |= bpf_probe_read_user(&original_pad, sizeof(original_pad), pad_ptr);
+    err |= bpf_probe_read_user(&fragment_len, sizeof(fragment_len), pad_ptr - 18);
+    const u64 max_fragment =
+        k_h2_default_max_frame_size - HTTP2_ENCODED_HEADER_LEN - k_h2_priority_prefix_len - 1;
+    if (err || !stream_id || stream_id != f_info->stream_id || original_pad ||
+        fragment_len > max_fragment) {
+        return 0;
+    }
+
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    if (framer_w_pos == (u64)-1) {
+        return 0;
+    }
+    const u64 wbuf_pos = framer_w_pos + 2 * k_go_iface_data_offset;
+    void *buf = 0;
+    s64 n = 0;
+    err = bpf_probe_read_user(&buf, sizeof(buf), (void *)(f_info->framer_ptr + wbuf_pos));
+    err |= bpf_probe_read_user(
+        &n, sizeof(n), (void *)(f_info->framer_ptr + wbuf_pos + k_go_slice_len_offset));
+    if (err || !buf || n != k_h2_frame_header_len) {
+        return 0;
+    }
+
+    unsigned char header[k_h2_frame_header_len] = {};
+    if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != k_h2_frame_headers ||
+        http2_frame_stream_id(header) != stream_id || !(header[4] & k_h2_flag_end_headers) ||
+        (header[4] & k_h2_flag_padded)) {
+        return 0;
+    }
+
+    const u8 padding = HTTP2_ENCODED_HEADER_LEN;
+    u8 pad_readback = 0;
+    err = bpf_probe_write_user(pad_ptr, &padding, sizeof(padding));
+    err |= bpf_probe_read_user(&pad_readback, sizeof(pad_readback), pad_ptr);
+    if (err || pad_readback != padding) {
+        return 0;
+    }
+
+    unsigned char *flags_ptr = (unsigned char *)buf + 4;
+    const u8 padded_flags = header[4] | k_h2_flag_padded;
+    u8 flags_readback = header[4];
+    err = bpf_probe_write_user(flags_ptr, &padded_flags, sizeof(padded_flags));
+    err |= bpf_probe_read_user(&flags_readback, sizeof(flags_readback), flags_ptr);
+    if (!err && flags_readback == padded_flags) {
+        f_info->reserved_padding = true;
+        return 0;
+    }
+
+    const u8 no_padding = 0;
+    bpf_probe_write_user(pad_ptr, &no_padding, sizeof(no_padding));
+    bpf_probe_write_user(flags_ptr, &header[4], sizeof(header[4]));
+    return 0;
+}
+
+SEC("uprobe/http2FramerReservePadding")
+int GUARDED_PROG(obi_uprobe_http2FramerReservePadding, struct pt_regs *, ctx) {
+    return reserve_http2_framer_padding(ctx, _framer_pad_length_stack_pos);
+}
+
+SEC("uprobe/http2FramerReservePaddingVendored")
+int GUARDED_PROG(obi_uprobe_http2FramerReservePadding_vendored, struct pt_regs *, ctx) {
+    return reserve_http2_framer_padding(ctx, _framer_pad_length_stack_vendored_pos);
+}
+
+static __always_inline bool
+commit_http2_reserved_padding(void *buf, s64 n, const framer_func_invocation_t *f_info) {
+    if (n < k_h2_frame_header_len + 1 + HTTP2_ENCODED_HEADER_LEN ||
+        (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len) {
+        return false;
+    }
+    bpf_clamp_umax(n, k_h2_default_max_frame_size + k_h2_frame_header_len);
+
+    unsigned char header[k_h2_frame_header_len] = {};
+    if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != k_h2_frame_headers ||
+        http2_frame_stream_id(header) != f_info->stream_id ||
+        !(header[4] & k_h2_flag_end_headers) || !(header[4] & k_h2_flag_padded)) {
+        return false;
+    }
+
+    unsigned char *pad_length_ptr = (unsigned char *)buf + k_h2_frame_header_len;
+    u8 pad_length = 0;
+    if (bpf_probe_read_user(&pad_length, sizeof(pad_length), pad_length_ptr) != 0 ||
+        pad_length != HTTP2_ENCODED_HEADER_LEN) {
+        return false;
+    }
+
+    unsigned char field[HTTP2_ENCODED_HEADER_LEN] = {};
+    make_http2_traceparent_field(field, &f_info->tp);
+    if (bpf_probe_write_user(
+            (unsigned char *)buf + (u64)n - HTTP2_ENCODED_HEADER_LEN, field, sizeof(field)) != 0) {
+        return false;
+    }
+
+    const u8 consumed_padding = 0;
+    return bpf_probe_write_user(pad_length_ptr, &consumed_padding, sizeof(consumed_padding)) == 0;
+}
+
+static __always_inline bool append_http2_traceparent_to_framer(
+    void *framer, u64 wbuf_pos, void *buf, s64 n, s64 cap, const framer_func_invocation_t *f_info) {
+    if (n < k_h2_frame_header_len || cap < n ||
+        (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len ||
+        (u64)cap - (u64)n < HTTP2_ENCODED_HEADER_LEN) {
+        return false;
+    }
+    bpf_clamp_umax(n, k_h2_default_max_frame_size + k_h2_frame_header_len);
+
+    unsigned char header[k_h2_frame_header_len] = {};
+    if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != k_h2_frame_headers ||
+        http2_frame_stream_id(header) != f_info->stream_id ||
+        !(header[4] & k_h2_flag_end_headers) || (header[4] & k_h2_flag_padded)) {
+        return false;
+    }
+
+    unsigned char field[HTTP2_ENCODED_HEADER_LEN] = {};
+    make_http2_traceparent_field(field, &f_info->tp);
+    if (bpf_probe_write_user((unsigned char *)buf + (u64)n, field, sizeof(field)) != 0) {
+        return false;
+    }
+
+    const s64 new_n = n + HTTP2_ENCODED_HEADER_LEN;
+    return bpf_probe_write_user((unsigned char *)framer + wbuf_pos + k_go_slice_len_offset,
+                                &new_n,
+                                sizeof(new_n)) == 0;
+}
+
+SEC("uprobe/http2FramerEndWrite")
+int GUARDED_PROG(obi_uprobe_http2FramerEndWrite, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    void *framer = GO_PARAM1(ctx);
+    if (!f_info || !framer || f_info->framer_ptr != (u64)framer) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    if (framer_w_pos == (u64)-1) {
+        return 0;
+    }
+    const u64 wbuf_pos = framer_w_pos + 2 * k_go_iface_data_offset;
+    void *buf = 0;
+    s64 n = 0;
+    s64 cap = 0;
+    long err = bpf_probe_read_user(&buf, sizeof(buf), (unsigned char *)framer + wbuf_pos);
+    err |= bpf_probe_read_user(
+        &n, sizeof(n), (unsigned char *)framer + wbuf_pos + k_go_slice_len_offset);
+    err |= bpf_probe_read_user(
+        &cap, sizeof(cap), (unsigned char *)framer + wbuf_pos + 2 * sizeof(void *));
+    if (err || !buf) {
+        return 0;
+    }
+
+    const bool committed =
+        f_info->reserved_padding
+            ? commit_http2_reserved_padding(buf, n, f_info)
+            : append_http2_traceparent_to_framer(framer, wbuf_pos, buf, n, cap, f_info);
+    if (committed) {
+        bpf_map_delete_elem(&framer_invocation_map, &g_key);
+    }
     return 0;
 }
 

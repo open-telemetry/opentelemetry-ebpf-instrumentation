@@ -148,6 +148,10 @@ type ProbeDesc struct {
 	// Optional list of the offsets of every RET instruction in the symbol
 	ReturnOffsets []uint64
 
+	// UsePadStart attaches Start after WriteHeaders has spilled PadLength to
+	// its stack slot and before the value is first consumed.
+	UsePadStart bool
+
 	// SymbolMatcher controls how the map key for this probe is matched against
 	// executable symbols. The zero value preserves exact symbol matching.
 	SymbolMatcher SymbolMatcher

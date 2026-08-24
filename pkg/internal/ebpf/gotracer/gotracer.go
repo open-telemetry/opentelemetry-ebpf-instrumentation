@@ -534,6 +534,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	offTable := BpfOffTableT{}
 	initMissingGoChannelOffsets(&offTable)
 	initMissingGoAutoSDKSpanContextOffsets(&offTable)
+	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
+	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
 		goexec.ConnFdPos,
@@ -639,6 +641,18 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			offTable.Table[field] = val
 		}
 	}
+	setFramerPaddingOffset(
+		&offTable,
+		offsets,
+		"golang.org/x/net/http2.(*Framer).WriteHeaders",
+		goexec.FramerPadLengthStackPos,
+	)
+	setFramerPaddingOffset(
+		&offTable,
+		offsets,
+		"net/http.(*http2Framer).WriteHeaders",
+		goexec.FramerPadLengthStackVendoredPos,
+	)
 	setGoAutoSDKSpanContextOffsets(&offTable, offsets)
 	for _, field := range goRuntimeMetricOffsetFields {
 		if val, ok := offsets.Field[field].(uint64); ok {
@@ -690,6 +704,23 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		p.registerRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns(), fileInfo)
 	} else {
 		p.deleteRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns())
+	}
+}
+
+func setFramerPaddingOffset(
+	offTable *BpfOffTableT,
+	offsets *goexec.Offsets,
+	symbol string,
+	field goexec.GoOffset,
+) {
+	if offTable == nil || offsets == nil {
+		return
+	}
+	for _, fn := range offsets.Funcs[symbol] {
+		if fn.Symbol == symbol && fn.PadStart != 0 && fn.PadOffset != 0 {
+			offTable.Table[field] = fn.PadOffset
+			return
+		}
 	}
 }
 
@@ -1571,6 +1602,13 @@ var goAutoSDKActivationPrerequisiteSymbols = []string{
 	"go.opentelemetry.io/auto/sdk.(*span).End",
 }
 
+var goHTTP2FlushProbeSymbols = []string{
+	"golang.org/x/net/http2.(*Framer).WriteHeaders",
+	"golang.org/x/net/http2.(*Framer).endWrite",
+	"net/http.(*http2Framer).WriteHeaders",
+	"net/http.(*http2Framer).endWrite",
+}
+
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
 func GoChannelLinkProbeSymbols() []string {
 	return append([]string(nil), goChannelLinkProbeSymbols...)
@@ -1584,6 +1622,11 @@ func GoRuntimeMetricProbeSymbols() []string {
 // GoAutoSDKActivationProbeSymbols returns the symbols in activation-safe attachment order.
 func GoAutoSDKActivationProbeSymbols() []string {
 	return append([]string(nil), goAutoSDKActivationProbeSymbols...)
+}
+
+// GoHTTP2FlushProbeSymbols returns the symbols needed by the atomic pre-flush probe groups.
+func GoHTTP2FlushProbeSymbols() []string {
+	return append([]string(nil), goHTTP2FlushProbeSymbols...)
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -2038,41 +2081,85 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 }
 
 func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
-	if !p.goAutoSDKActivationProbesEnabled() {
-		return nil
+	var groups []ebpfcommon.GoProbeGroup
+	if p.headerPropagationEnabled() {
+		groups = append(groups,
+			ebpfcommon.GoProbeGroup{
+				Name:          "go_http2_xnet_preflush",
+				Prerequisites: []string{goHTTP2FlushProbeSymbols[0]},
+				Probes: []ebpfcommon.GoProbe{
+					{
+						Symbol: goHTTP2FlushProbeSymbols[0],
+						Probe: &ebpfcommon.ProbeDesc{
+							Start:       p.bpfObjects.ObiUprobeHttp2FramerReservePadding,
+							UsePadStart: true,
+						},
+					},
+					{
+						Symbol: goHTTP2FlushProbeSymbols[1],
+						Probe: &ebpfcommon.ProbeDesc{
+							Start: p.bpfObjects.ObiUprobeHttp2FramerEndWrite,
+						},
+					},
+				},
+			},
+			ebpfcommon.GoProbeGroup{
+				Name:          "go_http2_stdlib_preflush",
+				Prerequisites: []string{goHTTP2FlushProbeSymbols[2]},
+				Probes: []ebpfcommon.GoProbe{
+					{
+						Symbol: goHTTP2FlushProbeSymbols[2],
+						Probe: &ebpfcommon.ProbeDesc{
+							Start:       p.bpfObjects.ObiUprobeHttp2FramerReservePaddingVendored,
+							UsePadStart: true,
+						},
+					},
+					{
+						Symbol: goHTTP2FlushProbeSymbols[3],
+						Probe: &ebpfcommon.ProbeDesc{
+							Start: p.bpfObjects.ObiUprobeHttp2FramerEndWrite,
+						},
+					},
+				},
+			},
+		)
 	}
 
-	return []ebpfcommon.GoProbeGroup{{
-		Name:          "go_auto_sdk_activation",
-		Prerequisites: append([]string(nil), goAutoSDKActivationPrerequisiteSymbols...),
-		Probes: []ebpfcommon.GoProbe{
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[0],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkTracerStart,
+	if p.goAutoSDKActivationProbesEnabled() {
+		groups = append(groups, ebpfcommon.GoProbeGroup{
+			Name:          "go_auto_sdk_activation",
+			Prerequisites: append([]string(nil), goAutoSDKActivationPrerequisiteSymbols...),
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[0],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkTracerStart,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[1],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkContextWithValue,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[2],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[3],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeTracerNewSpan,
+					},
+					ProcessScoped: true,
 				},
 			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[1],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkContextWithValue,
-				},
-			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[2],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
-				},
-			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[3],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeTracerNewSpan,
-				},
-				ProcessScoped: true,
-			},
-		},
-	}}
+		})
+	}
+
+	return groups
 }
 
 func (p *Tracer) goAutoSDKActivationProbesEnabled() bool {

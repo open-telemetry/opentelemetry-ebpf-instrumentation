@@ -232,6 +232,8 @@ const (
 	RuntimeSchedSTWTotalTimeGCPos
 	RuntimeTimeHistogramUnderflowPos
 	RuntimeTimeHistogramOverflowPos
+	FramerPadLengthStackPos
+	FramerPadLengthStackVendoredPos
 )
 
 //go:embed offsets.json

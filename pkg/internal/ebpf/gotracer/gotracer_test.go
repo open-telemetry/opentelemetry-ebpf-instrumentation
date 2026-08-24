@@ -65,6 +65,25 @@ func TestGoOffsetsMapKey(t *testing.T) {
 	}
 }
 
+func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
+	const symbol = "golang.org/x/net/http2.(*Framer).WriteHeaders"
+	offTable := BpfOffTableT{}
+	offsets := &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		symbol: {
+			{Symbol: "fork/vendor/" + symbol, PadStart: 0x20, PadOffset: 0x70},
+			{Symbol: symbol, PadStart: 0x30, PadOffset: 0x80},
+		},
+	}}
+
+	setFramerPaddingOffset(&offTable, offsets, symbol, goexec.FramerPadLengthStackPos)
+	assert.Equal(t, uint64(0x80), offTable.Table[goexec.FramerPadLengthStackPos])
+
+	offsets.Funcs[symbol] = offsets.Funcs[symbol][:1]
+	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
+	setFramerPaddingOffset(&offTable, offsets, symbol, goexec.FramerPadLengthStackPos)
+	assert.Equal(t, missingGoOffset, offTable.Table[goexec.FramerPadLengthStackPos])
+}
+
 func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	disableContextPropagationForTest(t)
 
@@ -665,6 +684,27 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHTTP2PreflushProbeGroupsRespectPropagation(t *testing.T) {
+	setContextPropagationSupportForTest(t, true)
+
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{ContextPropagation: config.ContextPropagationHeaders},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	groups := tracer.GoProbeGroups()
+	require.Len(t, groups, 2)
+	assert.Equal(t, "go_http2_xnet_preflush", groups[0].Name)
+	assert.Equal(t, "go_http2_stdlib_preflush", groups[1].Name)
+	for _, group := range groups {
+		require.Len(t, group.Probes, 2)
+		assert.True(t, group.Probes[0].Probe.UsePadStart)
+		assert.False(t, group.Probes[1].Probe.UsePadStart)
+	}
+
+	tracer.cfg.ContextPropagation = config.ContextPropagationDisabled
+	assert.Empty(t, tracer.GoProbeGroups())
 }
 
 func TestManualSpanProbesDoNotRequireWriteUserSupport(t *testing.T) {

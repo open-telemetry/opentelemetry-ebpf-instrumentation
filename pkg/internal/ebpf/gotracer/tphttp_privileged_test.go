@@ -73,6 +73,47 @@ func TestHTTP1ClientTraceparentNotDuplicated(t *testing.T) {
 		"OBI must not append a second traceparent when the client already wrote one")
 }
 
+func TestHTTP2ClientTraceparentBeforeImmediateFlush(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildHTTP2ClientTarget(t)
+	modes := []string{
+		"PLAINTEXT_BUFFERED",
+		"PLAINTEXT_IMMEDIATE",
+		"TLS_BUFFERED",
+		"TLS_IMMEDIATE",
+	}
+
+	t.Run("enabled", func(t *testing.T) {
+		send := startHTTPClientTargetWithMode(t, targetBin, config.ContextPropagationHeaders, "TP_RESULT=")
+		for _, mode := range modes {
+			t.Run(strings.ToLower(mode), func(t *testing.T) {
+				require.EventuallyWithT(t, func(c *assert.CollectT) {
+					assert.Regexp(c,
+						`^1:00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$`,
+						send(t, mode),
+						"OBI must inject exactly one valid traceparent before the writer consumes the frame")
+				}, 20*time.Second, 200*time.Millisecond)
+			})
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		send := startHTTPClientTargetWithMode(t, targetBin, config.ContextPropagationDisabled, "TP_RESULT=")
+		for _, mode := range modes {
+			t.Run(strings.ToLower(mode), func(t *testing.T) {
+				assert.Equal(t, "0:", send(t, mode),
+					"disabled header propagation must not inject a traceparent")
+			})
+		}
+	})
+}
+
 // buildHTTPClientTarget compiles the self-contained helper binary. Its single
 // source file carries a `//go:build ignore` tag, so it is named explicitly to
 // bypass the constraint.
@@ -86,11 +127,30 @@ func buildHTTPClientTarget(t *testing.T) string {
 	return bin
 }
 
+func buildHTTP2ClientTarget(t *testing.T) string {
+	t.Helper()
+
+	bin := filepath.Join(t.TempDir(), "tphttp2client")
+	cmd := osexec.Command("go", "build", "-o", bin, "testdata/tphttp2client/main.go")
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "go build tphttp2client:\n%s", string(out))
+	return bin
+}
+
 // startHTTPClientTarget starts the target, attaches the gotracer, and returns a
 // send function that issues one request in the given mode ("WITH_TP"/"NO_TP")
 // and returns the number of Traceparent headers the receiver reported. The
 // target loops over stdin, so send can be called repeatedly (e.g. for polling).
 func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode string) string {
+	return startHTTPClientTargetWithMode(t, bin, config.ContextPropagationAll, "TP_COUNT=")
+}
+
+func startHTTPClientTargetWithMode(
+	t *testing.T,
+	bin string,
+	mode config.ContextPropagationMode,
+	resultPrefix string,
+) func(t *testing.T, mode string) string {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -113,14 +173,14 @@ func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode str
 	_ = collectClientLines(t, "target stderr", stderr)
 	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
 
-	attachGoTracer(t, app.PID(cmd.Process.Pid), config.ContextPropagationAll)
+	attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
 
 	return func(t *testing.T, mode string) string {
 		t.Helper()
 		_, err := io.WriteString(stdin, mode+"\n")
 		require.NoError(t, err)
-		line := waitForClientLine(t, stdoutLines, "TP_COUNT=", 30*time.Second)
-		return strings.TrimPrefix(strings.TrimSpace(line), "TP_COUNT=")
+		line := waitForClientLine(t, stdoutLines, resultPrefix, 30*time.Second)
+		return strings.TrimPrefix(strings.TrimSpace(line), resultPrefix)
 	}
 }
 
@@ -277,6 +337,9 @@ func goFunctionNames(cfg *obi.Config) []string {
 		add(sym)
 	}
 	for _, sym := range GoAutoSDKActivationProbeSymbols() {
+		add(sym)
+	}
+	for _, sym := range GoHTTP2FlushProbeSymbols() {
 		add(sym)
 	}
 	return funcs

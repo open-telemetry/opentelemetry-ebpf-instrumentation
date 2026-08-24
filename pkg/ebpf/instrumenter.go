@@ -1238,22 +1238,32 @@ func (i *instrumenter) gatherGoOffsets(goProbes map[string][]*ebpfcommon.ProbeDe
 					continue
 				}
 				probeCopy := *probe
-				probeCopy.Skip = false
-				probeCopy.StartOffset = offs.Start
-				probeCopy.ReturnOffsets = append([]uint64(nil), offs.Returns...)
+				if !applyGoProbeOffset(&probeCopy, offs) {
+					continue
+				}
 				resolved = append(resolved, &probeCopy)
 				resolvedForProbe++
 			}
 			if resolvedForProbe == 0 {
 				probeCopy := *probe
-				probeCopy.Skip = false
-				probeCopy.StartOffset = offsets[0].Start
-				probeCopy.ReturnOffsets = append([]uint64(nil), offsets[0].Returns...)
-				resolved = append(resolved, &probeCopy)
+				if applyGoProbeOffset(&probeCopy, offsets[0]) {
+					resolved = append(resolved, &probeCopy)
+				}
 			}
 		}
 		goProbes[symbolName] = resolved
 	}
+}
+
+func applyGoProbeOffset(probe *ebpfcommon.ProbeDesc, offs goexec.FuncOffsets) bool {
+	probe.Skip = false
+	probe.StartOffset = offs.Start
+	if probe.UsePadStart {
+		probe.StartOffset = offs.PadStart
+		probe.Skip = probe.StartOffset == 0 || offs.PadOffset == 0
+	}
+	probe.ReturnOffsets = append([]uint64(nil), offs.Returns...)
+	return !probe.Skip
 }
 
 func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) []ebpfcommon.GoProbeGroup {
@@ -1262,6 +1272,10 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 	for _, candidate := range group.Probes {
 		byCopy := map[string][]goexec.FuncOffsets{}
 		for _, offs := range i.offsets.Funcs[candidate.Symbol] {
+			if candidate.Probe != nil && candidate.Probe.UsePadStart &&
+				offs.Symbol != candidate.Symbol {
+				continue
+			}
 			copyID, ok := goFunctionCopyID(candidate.Symbol, offs.Symbol)
 			if !ok {
 				continue
@@ -1293,9 +1307,10 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 			}
 			for _, offs := range offsets {
 				probeCopy := *candidate.Probe
-				probeCopy.Skip = false
-				probeCopy.StartOffset = offs.Start
-				probeCopy.ReturnOffsets = append([]uint64(nil), offs.Returns...)
+				if !applyGoProbeOffset(&probeCopy, offs) {
+					complete = false
+					break
+				}
 				resolved.Probes = append(resolved.Probes, ebpfcommon.GoProbe{
 					Symbol:        candidate.Symbol,
 					Probe:         &probeCopy,

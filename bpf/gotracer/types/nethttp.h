@@ -46,4 +46,7 @@ typedef struct framer_func_invocation {
     u64 framer_ptr;
     tp_info_t tp;
     s64 initial_n;
+    u32 stream_id;
+    bool reserved_padding;
+    u8 _pad[3];
 } framer_func_invocation_t;
