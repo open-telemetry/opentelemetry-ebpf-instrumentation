@@ -390,6 +390,7 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.ServerAddr:       true,
+				attr.ServerPort:       true,
 				attr.DBOperation:      true,
 				attr.DBSystemName:     true,
 				attr.ErrorType:        true,

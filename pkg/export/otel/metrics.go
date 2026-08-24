@@ -270,8 +270,12 @@ func newMetricsReporter(
 	}
 
 	if is.DBEnabled() {
+		// server.port on db.client metrics is reported conditionally per the
+		// DB semconv, unless the user explicitly includes it
+		explicitPort := mr.attributes.ExplicitlyIncluded(attributes.DBClientDuration, attr.ServerPort)
 		mr.attrDBClient = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.DBClientDuration))
+			request.SpanOTELGettersForDBClient(unresolved, explicitPort),
+			mr.attributes.For(attributes.DBClientDuration))
 		mr.attrDBServer = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.DBServerDuration))
 	}
