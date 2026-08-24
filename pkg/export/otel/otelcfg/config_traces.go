@@ -30,6 +30,12 @@ type TracesConfig struct {
 	Protocol       Protocol `yaml:"protocol" env:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	TracesProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"`
 
+	CommonCompression string `yaml:"-" env:"OTEL_EXPORTER_OTLP_COMPRESSION"`
+	// TracesCompression is the compression applied to exported OTLP payloads. Accepted
+	// values are gzip, zlib, deflate, snappy, x-snappy-framed, zstd, lz4 and none. Left
+	// unset, the OTLP exporter's own default of gzip applies.
+	TracesCompression string `yaml:"compression" env:"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"`
+
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
 	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_TRACES_INSTRUMENTATIONS" envSeparator:"," jsonschema:"uniqueItems=true"`
 
@@ -126,6 +132,14 @@ func (m *TracesConfig) GetProtocol() Protocol {
 		return m.Protocol
 	}
 	return m.guessProtocol()
+}
+
+// GetCompression returns "" when neither key is set, meaning the exporter default stands.
+func (m *TracesConfig) GetCompression() string {
+	if m.TracesCompression != "" {
+		return m.TracesCompression
+	}
+	return m.CommonCompression
 }
 
 func (m *TracesConfig) OTLPTracesEndpoint() (string, bool) {
