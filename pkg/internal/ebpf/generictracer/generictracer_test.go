@@ -357,7 +357,9 @@ type fakeServiceFilter struct {
 func (f fakeServiceFilter) AllowPID(app.PID, uint32, *exec.FileInfo, ebpfcommon.PIDType) {}
 func (f fakeServiceFilter) BlockPID(app.PID, uint32)                                     {}
 func (f fakeServiceFilter) ValidPID(app.PID, uint32, ebpfcommon.PIDType) bool            { return false }
-func (f fakeServiceFilter) Filter(inputSpans []request.Span) []request.Span              { return inputSpans }
+
+func (f fakeServiceFilter) Filter(inputSpans []request.Span) []request.Span { return inputSpans }
+
 func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
 	if f.currentPIDsCalls != nil {
 		(*f.currentPIDsCalls)++
