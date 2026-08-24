@@ -141,6 +141,18 @@ Large payloads are streamed to userspace across multiple ring-buffer events and 
 
 Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,mssql}`.
 
+## Avoiding Uprobe Collisions With Other eBPF Tools
+
+When another eBPF observability tool (for example Datadog system-probe or Grafana Beyla) already attaches uprobes to
+the same TLS symbols on a process, OBI can skip attaching its own copy for that process to avoid doubling the
+BPF-program chain on hot paths.
+
+This is exposed as a Go API hook, not a YAML key or environment variable:
+`EBPFTracer.ShouldSkipTracerForPID(pid int32, tracerName string) bool`, set by code that embeds OBI as a library.
+Returning `true` omits the named uprobe group for that PID only; all other tracers, and the same tracer group on
+other PIDs, are unaffected. The only tracer group currently recognized is `"libssl"`, which covers the `libssl.so`,
+`libcrypto.so`, and `.NET OpenSsl` uprobes.
+
 ## GPU Instrumentation
 
 Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel launches and memory copies. This

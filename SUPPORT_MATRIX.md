@@ -174,6 +174,15 @@ this limit are not exported, and v0.11.0 does not report this condition with a m
 The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this v0.11.0 Auto SDK
 allowlist.
 
+### Uprobe Collision Avoidance
+
+OBI currently documents the following embedding hook for skipping a tracer group on a per-PID basis, used when
+another eBPF observability tool already attaches uprobes to the same symbols:
+
+| Hook | Scope | Limitations | Status |
+|:-----|:------|:------------|:-------|
+| `EBPFTracer.ShouldSkipTracerForPID` | Go embedding API only; no YAML key or environment variable | Only the `"libssl"` tracer group (`libssl.so`, `libcrypto.so`, `.NET OpenSsl`) is currently gated | Experimental |
+
 ### Statistical Metrics
 
 OBI currently documents the following statistical instrumentation support:
