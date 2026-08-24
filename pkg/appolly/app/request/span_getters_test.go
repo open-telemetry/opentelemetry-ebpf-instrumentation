@@ -117,8 +117,13 @@ func TestSpanOTELGetters_DBCollectionName(t *testing.T) {
 			expected: "orders",
 		},
 		{
-			name:     "Aerospike collection",
+			name:     "Aerospike client collection",
 			span:     &Span{Type: EventTypeAerospikeClient, Path: "sessions"},
+			expected: "sessions",
+		},
+		{
+			name:     "Aerospike server collection",
+			span:     &Span{Type: EventTypeAerospikeServer, Path: "sessions"},
 			expected: "sessions",
 		},
 		{
