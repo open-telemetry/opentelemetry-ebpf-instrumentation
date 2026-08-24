@@ -395,13 +395,10 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeInetCskListenStop,
 		},
-	}
-
-	if p.cfg.Java.Enabled {
-		kp["sys_ioctl"] = ebpfcommon.ProbeDesc{
+		"sys_ioctl": {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeSysIoctl,
-		}
+		},
 	}
 
 	if p.cfg.EBPF.ContextPropagation.IsEnabled() {
