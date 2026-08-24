@@ -858,6 +858,8 @@ func (c *Config) spanMetricsFeatureMasks() []*export.Features {
 // span-metrics service back on the legacy names.
 func (c *Config) resolveSpanMetricsFormats() error {
 	resolved := false
+	legacyEnabled := false
+	otelEnabled := false
 	for _, features := range c.spanMetricsFeatureMasks() {
 		if features.InvalidSpanMetricsConfig() {
 			return ConfigError("you can only enable one format of span metrics," +
@@ -866,12 +868,18 @@ func (c *Config) resolveSpanMetricsFormats() error {
 		if features.ResolveSpanMetricsConflict() {
 			resolved = true
 		}
+		if features.LegacySpanMetrics() {
+			legacyEnabled = true
+		} else if features.SpanMetrics() {
+			otelEnabled = true
+		}
 	}
 
 	// The exporters choose the metric names from the OR of all masks, so a legacy format in
 	// one list and OTel in another would silently select legacy names for every service.
-	// Each mask is already conflict-free here, so a joined conflict is always cross-mask.
-	if c.JoinMetricsConfig().Features.InvalidSpanMetricsConfig() {
+	// Track each format separately because joining an "all" mask with an explicit legacy
+	// mask reconstructs FeatureAll and makes InvalidSpanMetricsConfig exempt the conflict.
+	if legacyEnabled && otelEnabled {
 		return ConfigError("you can only enable one format of span metrics across the" +
 			" top-level and per-service metrics features, application_span or" +
 			" application_span_otel")
