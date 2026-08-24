@@ -362,6 +362,15 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sys_connect, int res) {
 
         setup_cp_support_conn_info(&info.p_conn, true);
 
+        // connect() returning 0 means the handshake completed, so the socket
+        // cannot be a failed connect from here on, whether or not it ever
+        // carries data. The non-blocking path returns -EINPROGRESS and
+        // completes in softirq, where no probe of ours observes it, so for
+        // those the socket's own state at close time remains the only answer.
+        if (res == 0) {
+            cp_support_established(&info.p_conn);
+        }
+
         tracked_connection_t t_conn = {
             .time = bpf_ktime_get_ns(),
             .direction = TCP_SEND,

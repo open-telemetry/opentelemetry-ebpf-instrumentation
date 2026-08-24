@@ -1,0 +1,13 @@
+trace_printer: text
+log_level: debug
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  # The workload is a Go binary, and the code under test is in the generic
+  # tracer, which is where every non-Go workload lands.
+  skip_go_specific_tracers: true
+  services:
+    - name: failedconnectclient
+      exe_path: failedconnectclient
