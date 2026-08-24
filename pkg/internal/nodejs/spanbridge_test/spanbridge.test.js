@@ -124,6 +124,29 @@ test('multibyte strings truncate on a valid UTF-8 byte boundary', () => {
   assert.ok(r.nameOK, 'name must be whole characters (42 x €), no split sequence');
 });
 
+test('versioned pre-acquired tracer keeps name/version/options through the handoff', () => {
+  const r = runScript('scenario_versioned_tracer.js');
+  assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-registration span');
+  assert.deepStrictEqual(
+    r.app.map((s) => s.name),
+    ['after'],
+    'the app SDK captures the post-registration span'
+  );
+  assert.deepStrictEqual(
+    r.app[0].scope,
+    { name: 'app', version: '1.2.3', schemaUrl: 'https://example.com/1.2.3' },
+    'the app-exported span keeps the declared scope identity'
+  );
+  const fwd = r.forwarded.find((f) => f.name === 'app');
+  assert.ok(fwd, 'the bridge forwards getTracer to the app provider');
+  assert.strictEqual(fwd.version, '1.2.3', 'original version is forwarded');
+  assert.deepStrictEqual(
+    fwd.options,
+    { schemaUrl: 'https://example.com/1.2.3' },
+    'original options (schemaUrl) are forwarded'
+  );
+});
+
 test('SDK registers after injection: bridge yields and the app SDK takes over', () => {
   const r = runScenario('late-sdk');
   assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-handover span');
