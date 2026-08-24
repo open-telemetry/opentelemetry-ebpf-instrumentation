@@ -306,6 +306,75 @@ static void test_classify_reports_no_for_connected_non_dns_peer(void) {
         "a connected non-DNS peer is a positive no", k_dns_msg_no, classify_dns_msg(&conn, NULL));
 }
 
+// is_mdns_exchange
+//
+// Multicast DNS runs 5353 to 5353, and only that relaxes what a query may
+// carry. Holding 5353 at one end proves nothing: the port is unprivileged, and
+// a site that widens ip_local_port_range down to 1024 lets the kernel hand it
+// to an arbitrary client as an ephemeral source port.
+
+static void test_mdns_exchange_accepts_both_ends_on_the_mdns_port(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 5353};
+
+    check_u8("5353 at both ends is multicast DNS", 1, is_mdns_exchange(&conn, NULL));
+}
+
+// a compliant querier's sendto(), where the socket carries no peer
+static void test_mdns_exchange_accepts_an_unconnected_peer_on_the_mdns_port(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 5353);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("an unconnected socket whose msg_name names 5353 is multicast DNS",
+             1,
+             is_mdns_exchange(&conn, &msg));
+}
+
+// the case the tightening exists for: 5353 held locally, peer somewhere else
+static void test_mdns_exchange_rejects_a_local_port_with_an_unrelated_peer(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 9999);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("holding 5353 locally while talking to another port is not multicast DNS",
+             0,
+             is_mdns_exchange(&conn, &msg));
+}
+
+static void test_mdns_exchange_rejects_a_connected_non_mdns_peer(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 9999};
+
+    check_u8(
+        "a tuple naming a non-mDNS peer is not multicast DNS", 0, is_mdns_exchange(&conn, NULL));
+}
+
+// RFC 6762 §5.1: a one-shot querier must not send from 5353, and is explicitly
+// not a compliant querier, so it does not emit the forms the relaxation admits
+static void test_mdns_exchange_rejects_a_one_shot_querier(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 5353);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("an ephemeral source port querying 5353 is not multicast DNS",
+             0,
+             is_mdns_exchange(&conn, &msg));
+}
+
+// a receive that gave the kernel no address buffer, so the peer is unknowable
+static void test_mdns_exchange_rejects_an_unnamed_peer(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 0};
+
+    check_u8("an unnamed peer leaves the exchange unproven, so it is not multicast DNS",
+             0,
+             is_mdns_exchange(&conn, NULL));
+}
+
+static void test_mdns_exchange_rejects_ordinary_unicast_dns(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 53};
+
+    check_u8("a unicast resolver exchange is not multicast DNS", 0, is_mdns_exchange(&conn, NULL));
+}
+
 // dns_header_is_plausible
 //
 // The socket-identity tier admits payloads whose only evidence is the socket
@@ -854,6 +923,14 @@ int main(void) {
     test_classify_reports_unknown_without_msg_name();
     test_classify_reports_no_for_explicit_non_dns_peer();
     test_classify_reports_no_for_connected_non_dns_peer();
+
+    test_mdns_exchange_accepts_both_ends_on_the_mdns_port();
+    test_mdns_exchange_accepts_an_unconnected_peer_on_the_mdns_port();
+    test_mdns_exchange_rejects_a_local_port_with_an_unrelated_peer();
+    test_mdns_exchange_rejects_a_connected_non_mdns_peer();
+    test_mdns_exchange_rejects_a_one_shot_querier();
+    test_mdns_exchange_rejects_an_unnamed_peer();
+    test_mdns_exchange_rejects_ordinary_unicast_dns();
 
     test_header_accepts_a_real_query();
     test_header_accepts_a_real_response();

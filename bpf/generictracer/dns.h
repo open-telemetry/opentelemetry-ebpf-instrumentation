@@ -117,15 +117,6 @@ static __always_inline u8 is_dns(const connection_info_t *conn) {
     return is_dns_port(conn->s_port) || is_dns_port(conn->d_port);
 }
 
-// A compliant multicast DNS querier sends from source port 5353 (RFC 6762
-// §5.2), and a responder is bound to it, so either endpoint naming that port
-// identifies the message as multicast DNS. A one-shot querier uses an ephemeral
-// source port and is explicitly not a compliant querier (§5.1), so it does not
-// emit the forms this distinction exists to admit.
-static __always_inline u8 is_mdns(const connection_info_t *conn) {
-    return is_mdns_port(conn->s_port) || is_mdns_port(conn->d_port);
-}
-
 // Recovers the peer port from a kernel-resident msghdr->msg_name. An unconnected
 // UDP socket has no peer in its 4-tuple (skc_dport==0), so the destination
 // (sendmsg) or source (recvmsg) port lives only in msg_name.
@@ -148,6 +139,33 @@ static __always_inline u16 obi_msg_name_port(struct msghdr *msg) {
         return 0; // IPv6 DNS transport not handled by this fallback
     }
     return bpf_ntohs(sa.sin_port);
+}
+
+// Whether the exchange is multicast DNS, which runs 5353 to 5353: a compliant
+// querier sends from source port 5353 (RFC 6762 §5.2) to 224.0.0.251:5353, and
+// a responder is bound to the same port. A one-shot querier uses an ephemeral
+// source port and is explicitly not a compliant querier (§5.1), so it does not
+// emit the forms this distinction exists to admit.
+//
+// Both ends are required because holding 5353 locally proves nothing: the port
+// is unprivileged, so any process may bind it, and a site that widens
+// ip_local_port_range down to 1024 lets the kernel hand it to an arbitrary
+// client as an ephemeral source port.
+static __always_inline u8 is_mdns_exchange(const connection_info_t *conn, struct msghdr *msg) {
+    if (is_mdns_port(conn->s_port) && is_mdns_port(conn->d_port)) {
+        return 1;
+    }
+
+    if (!is_mdns_port(conn->s_port) && !is_mdns_port(conn->d_port)) {
+        return 0;
+    }
+
+    if (conn->d_port != 0) {
+        return 0; // the tuple names the peer, and it is not the mDNS port
+    }
+
+    // an unconnected socket, so the peer lives only in msg_name
+    return is_mdns_port(obi_msg_name_port(msg));
 }
 
 // Smallest encodings of a question and of a resource record: the root name
@@ -468,7 +486,8 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
 static __always_inline u8 handle_dns_buf(const unsigned char *buf,
                                          const int size,
                                          pid_connection_info_t *p_conn,
-                                         u16 orig_dport) {
+                                         u16 orig_dport,
+                                         struct msghdr *msg) {
 
     if (size < sizeof(struct dnshdr)) {
         bpf_d_printk("dns packet too small [%s]", __FUNCTION__);
@@ -487,7 +506,7 @@ static __always_inline u8 handle_dns_buf(const unsigned char *buf,
 
     bpf_d_printk("QR type: %d [%s]", qr, __FUNCTION__);
 
-    if (dns_header_is_plausible(&hdr, flags, size, is_mdns(&p_conn->conn))) {
+    if (dns_header_is_plausible(&hdr, flags, size, is_mdns_exchange(&p_conn->conn, msg))) {
         conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &p_conn->conn);
         if (!conn_pid) {
             bpf_d_printk("can't find connection info for dns call [%s]", __FUNCTION__);

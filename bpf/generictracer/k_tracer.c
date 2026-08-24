@@ -274,7 +274,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
             unsigned char *buf = iovec_memory();
             if (buf) {
                 len = read_msghdr_buf(msg, buf, len);
-                if (len && handle_dns_buf(buf, len, &s_args.p_conn, orig_dport) &&
+                if (len && handle_dns_buf(buf, len, &s_args.p_conn, orig_dport, msg) &&
                     orig_dport == 0) {
                     // the answer to this query will carry no peer, so the only
                     // thing left to recognise it by is the socket it arrives on.
@@ -1048,7 +1048,8 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sock_recvmsg, int copied_len) {
                     } else {
                         bpf_d_printk(
                             "Got potential dns buffer with len: %d [%s]", copied_len, __FUNCTION__);
-                        handle_dns_buf(buf, copied_len, &info, orig_dport);
+                        handle_dns_buf(
+                            buf, copied_len, &info, orig_dport, (struct msghdr *)args->msg_ptr);
                     }
                 }
             }

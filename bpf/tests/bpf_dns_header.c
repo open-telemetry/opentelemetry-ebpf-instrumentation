@@ -160,7 +160,7 @@ static dns_req_t *run_handle_dns_buf(u16 id, u16 flags) {
     p_conn.conn.d_port = 53;
 
     test_record_submitted = false;
-    handle_dns_buf(buf, len, &p_conn, 53);
+    handle_dns_buf(buf, len, &p_conn, 53, NULL);
 
     return test_record_submitted ? (dns_req_t *)test_record : NULL;
 }
