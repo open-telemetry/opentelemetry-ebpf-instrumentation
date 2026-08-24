@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
 
 const (
@@ -100,7 +101,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 
 		roots = classpathRoots(root, cwd, launch)
 		if launch.Jar != "" {
-			mainJarPath, _ = ResolveProcessPath(root, cwd, launch.Jar)
+			mainJarPath, _ = langtools.ResolveProcessPath(root, cwd, launch.Jar)
 		}
 		if resolveName && name == "" {
 			name = springNameFromClasspath(roots, env)
@@ -160,7 +161,7 @@ func springNameFromSystemProperties(args []string, env map[string]string) string
 
 func springNameFromCurrentDirectory(root, cwd string, env map[string]string) string {
 	for _, name := range springResourceNames[:3] {
-		path, ok := ResolveProcessPath(root, cwd, name)
+		path, ok := langtools.ResolveProcessPath(root, cwd, name)
 		if !ok {
 			continue
 		}
