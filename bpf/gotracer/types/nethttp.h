@@ -8,9 +8,6 @@
 #include <common/common.h>
 #include <common/tp_info.h>
 
-#define HTTP2_ENCODED_HEADER_LEN                                                                   \
-    66 // 1 + 1 + 8 + 1 + 55 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(55) + generated traceparent id
-
 #define MAX_W_PTR_N 1024
 
 static const char traceparent[] = "traceparent: ";
@@ -46,4 +43,7 @@ typedef struct framer_func_invocation {
     u64 framer_ptr;
     tp_info_t tp;
     s64 initial_n;
+    u32 stream_id;
+    u16 s_port;
+    u16 d_port;
 } framer_func_invocation_t;

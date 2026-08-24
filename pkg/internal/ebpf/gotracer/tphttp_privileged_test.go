@@ -146,12 +146,121 @@ func TestGRPCClientTraceparentRespectsPropagationMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			send := startGRPCClientTarget(t, targetBin, tt.mode)
+			send := startGRPCClientTarget(t, targetBin, tt.mode, false)
 
 			for range 4 {
 				assert.True(t, strings.HasPrefix(send(t), tt.wantCount))
 			}
 		})
+	}
+}
+
+func TestGRPCClientTraceparentWriteFailureContinuity(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildGRPCClientTarget(t)
+	// This harness attaches only gotracer, so a rolled-back direct write sends no traceparent.
+	for _, tt := range []struct {
+		name      string
+		tls       bool
+		wantCount string
+	}{
+		{name: "plaintext", wantCount: "0:"},
+		{name: "tls", tls: true, wantCount: "0:"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			goH2WriteFailStepForTest = goH2WriterLengthWriteStep
+			t.Cleanup(func() { goH2WriteFailStepForTest = 0 })
+
+			send := startGRPCClientTarget(t, targetBin, config.ContextPropagationHeaders, tt.tls)
+			for range 4 {
+				assert.True(t, strings.HasPrefix(send(t), tt.wantCount))
+			}
+		})
+	}
+}
+
+const goH2WriterLengthWriteStep = 3
+
+func TestHTTP2ClientTraceparentWriteFailureContinuity(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildHTTP2ClientTarget(t)
+	// This harness attaches only gotracer, so a rolled-back direct write sends no traceparent.
+	for _, tt := range []struct {
+		name      string
+		tls       bool
+		wantCount string
+	}{
+		{name: "plaintext", wantCount: "0:"},
+		{name: "tls", tls: true, wantCount: "0:"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			goH2WriteFailStepForTest = goH2WriterLengthWriteStep
+			t.Cleanup(func() { goH2WriteFailStepForTest = 0 })
+
+			send := startHTTP2ClientTarget(t, targetBin, tt.tls)
+			for range 4 {
+				assert.True(t, strings.HasPrefix(send(t), tt.wantCount))
+			}
+		})
+	}
+}
+
+func buildHTTP2ClientTarget(t *testing.T) string {
+	t.Helper()
+
+	bin := filepath.Join(t.TempDir(), "tphttp2client")
+	cmd := osexec.Command("go", "build", "-o", bin, "testdata/tphttp2client/main.go")
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "go build tphttp2client:\n%s", string(out))
+	return bin
+}
+
+func startHTTP2ClientTarget(t *testing.T, bin string, useTLS bool) func(t *testing.T) string {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	args := []string{}
+	if useTLS {
+		args = append(args, "-tls")
+	}
+	cmd := osexec.CommandContext(ctx, bin, args...)
+	stdin, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	stderr, err := cmd.StderrPipe()
+	require.NoError(t, err)
+
+	require.NoError(t, cmd.Start())
+	stdoutLines := collectClientLines(t, "target stdout", stdout)
+	_ = collectClientLines(t, "target stderr", stderr)
+	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
+
+	attachGoTracer(t, app.PID(cmd.Process.Pid), config.ContextPropagationHeaders)
+	t.Cleanup(func() {
+		_, _ = io.WriteString(stdin, "EXIT\n")
+		cancel()
+		_ = cmd.Wait()
+	})
+
+	return func(t *testing.T) string {
+		t.Helper()
+		_, err := io.WriteString(stdin, "REQUEST\n")
+		require.NoError(t, err)
+		line := waitForClientLine(t, stdoutLines, "TP_RESULT=", 30*time.Second)
+		return strings.TrimPrefix(strings.TrimSpace(line), "TP_RESULT=")
 	}
 }
 
@@ -169,11 +278,20 @@ func startGRPCClientTarget(
 	t *testing.T,
 	bin string,
 	mode config.ContextPropagationMode,
+	useTLS bool,
 ) func(t *testing.T) string {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := osexec.CommandContext(ctx, bin)
+	args := []string{}
+	if useTLS {
+		cert, err := filepath.Abs("../../../../internal/test/cmd/grpc/x509/server_test_cert.pem")
+		require.NoError(t, err)
+		key, err := filepath.Abs("../../../../internal/test/cmd/grpc/x509/server_test_key.pem")
+		require.NoError(t, err)
+		args = append(args, "-tls", "-cert", cert, "-key", key)
+	}
+	cmd := osexec.CommandContext(ctx, bin, args...)
 	stdin, err := cmd.StdinPipe()
 	require.NoError(t, err)
 	stdout, err := cmd.StdoutPipe()

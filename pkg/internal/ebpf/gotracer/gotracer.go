@@ -59,6 +59,8 @@ type executableIdentity = BpfGoExecutableKeyT
 // Linux's internal dev_t reserves its lower 20 bits for the minor number.
 const linuxMinorDeviceBits = 20
 
+var goH2WriteFailStepForTest uint8
+
 func kernelDeviceNumber(dev uint64) uint64 {
 	return uint64(unix.Major(dev))<<linuxMinorDeviceBits | uint64(unix.Minor(dev))
 }
@@ -457,6 +459,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_bpf_debug":                    p.cfg.BpfDebug,
 		"g_bpf_header_propagation":       p.cfg.ContextPropagation.HasHeaders(),
 		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
+		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
 		"wakeup_data_bytes":              uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
 		"disable_black_box_cp":           blackBoxCP,
 		"attr_type_invalid":              uint64(attribute.INVALID),
