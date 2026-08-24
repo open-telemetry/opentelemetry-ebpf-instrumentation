@@ -69,7 +69,7 @@ jobs:
           make unit-test-matrix-json >> "$GITHUB_OUTPUT"
 
   test:
-    name: "Unit tests #${{ matrix.shard.id }} (Go ${{ matrix.platform.go }}, ${{ matrix.platform.arch }})"
+    name: "Unit tests #${{ matrix.shard.id }} (${{ matrix.platform.arch }})"
     needs: [matrix, generate-bpf]
     permissions:
       checks: write
@@ -82,13 +82,8 @@ jobs:
         platform:
           - runner: ubuntu-latest
             arch: amd64
-            go: "1.26.7"
-          - runner: ubuntu-latest
-            arch: amd64
-            go: "1.27.0"
           - runner: ubuntu-24.04-arm
             arch: arm64
-            go: "1.27.0"
         shard: ${{ fromJson(needs.matrix.outputs.matrix).include }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -99,16 +94,16 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
-          go-version: ${{ matrix.platform.go }}
+          go-version: "1.27.0"
           cache: true
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
-          key: go-build-pr-race-${{ matrix.platform.go }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
           restore-keys: |
-            go-build-pr-race-${{ matrix.platform.go }}-${{ runner.os }}-${{ runner.arch }}-
+            go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Download generated BPF files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -128,7 +123,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: unit-reports-go${{ matrix.platform.go }}-${{ matrix.shard.id }}-${{ matrix.platform.arch }}-${{ github.run_number }}
+          name: unit-reports-${{ matrix.shard.id }}-${{ matrix.platform.arch }}-${{ github.run_number }}
           path: testoutput/unit-test-shard-*.log
           retention-days: 5
 
@@ -139,4 +134,4 @@ jobs:
         with:
           files: ./testoutput/cover.txt
           flags: unittests
-          name: unit-coverage-go${{ matrix.platform.go }}-${{ matrix.shard.id }}-${{ matrix.platform.arch }}-${{ github.run_number }}
+          name: unit-coverage-${{ matrix.shard.id }}-${{ matrix.platform.arch }}-${{ github.run_number }}
