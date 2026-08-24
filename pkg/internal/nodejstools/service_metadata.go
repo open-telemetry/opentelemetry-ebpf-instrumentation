@@ -24,6 +24,8 @@ const (
 	serviceVersion            = attr.Name("service.version")
 )
 
+var nodeScriptExtensions = [...]string{".js", ".mjs", ".cjs", ".ts"}
+
 var (
 	rootDirForPID = ebpfcommon.RootDirectoryForPID
 	cmdlineForPID = ebpfcommon.CMDLineForPID
@@ -54,8 +56,9 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		return err
 	}
 
+	root := rootDirForPID(pid)
 	launch := ParseNodeLaunch(args)
-	metadata := findPackageMetadata(rootDirForPID(pid), cwd, launch.EntryPoint, service.EnvVars)
+	metadata := findPackageMetadata(root, cwd, launch.EntryPoint, service.EnvVars)
 	if resolveName {
 		name, namespace, ok := parsePackageName(metadata.Name)
 		if ok {
@@ -63,7 +66,8 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 			if namespace != "" && service.UID.Namespace == "" {
 				fileInfo.SetAutoServiceNamespace(namespace)
 			}
-		} else if name := serviceNameFromEntryPoint(cwd, launch.EntryPoint); name != "" {
+		} else if name := serviceNameFromEntryPoint(cwd, launch.EntryPoint); name != "" &&
+			nodeScriptExists(root, cwd, launch.EntryPoint) {
 			fileInfo.SetAutoServiceName(name)
 		}
 	}
@@ -190,6 +194,33 @@ func serviceNameFromEntryPoint(cwd, entryPoint string) string {
 		return ""
 	}
 	return name
+}
+
+func nodeScriptExists(root, cwd, entryPoint string) bool {
+	if extension := filepath.Ext(entryPoint); extension != "" {
+		for _, supported := range nodeScriptExtensions {
+			if extension == supported {
+				return regularProcessFile(root, cwd, entryPoint)
+			}
+		}
+		return false
+	}
+
+	for _, extension := range nodeScriptExtensions {
+		if regularProcessFile(root, cwd, entryPoint+extension) {
+			return true
+		}
+	}
+	return false
+}
+
+func regularProcessFile(root, cwd, path string) bool {
+	resolved, ok := langtools.ResolveProcessPath(root, cwd, path)
+	if !ok {
+		return false
+	}
+	info, err := os.Stat(resolved)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func pathHasNodeModules(cwd, path string) bool {

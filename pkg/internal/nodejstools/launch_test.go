@@ -23,6 +23,9 @@ func TestParseNodeLaunch(t *testing.T) {
 		{name: "CommonJS entrypoint", args: []string{"app.cjs"}, entryPoint: "app.cjs"},
 		{name: "absolute entrypoint", args: []string{"/app/dist/main.js"}, entryPoint: "/app/dist/main.js"},
 		{name: "boolean option", args: []string{"--inspect", "app.js"}, entryPoint: "app.js"},
+		// this is going to find a wrong entrypoint 4096, but ResolveServiceMetadata will discard it if there's
+		// no local file 4096.js/.mjs/.cjs/.ts.
+		{name: "max old space size", args: []string{"--max-old-space-size", "4096", "app.js"}, entryPoint: "4096"},
 		{name: "require", args: []string{"--require", "./otel.js", "app.js"}, entryPoint: "app.js"},
 		{name: "short require", args: []string{"-r", "./otel.js", "app.js"}, entryPoint: "app.js"},
 		{name: "import", args: []string{"--import", "./otel.mjs", "app.js"}, entryPoint: "app.js"},

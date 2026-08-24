@@ -137,16 +137,110 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("entrypoint basename is the final Node.js fallback", func(t *testing.T) {
+		for _, extension := range []string{".js", ".mjs", ".cjs", ".ts"} {
+			t.Run(extension, func(t *testing.T) {
+				for _, entryPoint := range []string{"client", "client" + extension} {
+					t.Run(entryPoint, func(t *testing.T) {
+						root := t.TempDir()
+						writeNodeFile(t, filepath.Join(root, "app", "client"+extension), nil)
+						fileInfo := mockNodeProcess(t, root, []string{entryPoint}, nil)
+
+						err := ResolveServiceMetadata(fileInfo)
+
+						require.NoError(t, err)
+						service := fileInfo.ServiceAttrs()
+						assert.Equal(t, "client", service.UID.Name)
+						assert.True(t, service.AutoName())
+					})
+				}
+			})
+		}
+	})
+
+	t.Run("nonexistent extensionless entrypoint is not used as a fallback", func(t *testing.T) {
 		root := t.TempDir()
-		writeNodeFile(t, filepath.Join(root, "app", "client.js"), nil)
+		writeNodeFile(t, filepath.Join(root, "app", "app.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"--max-old-space-size", "4096", "app.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+
+		fileInfo.ApplyServiceDefaults(svc.InstrumentableNodejs)
+		assert.Equal(t, "node", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("missing explicit script is not used as a fallback", func(t *testing.T) {
+		root := t.TempDir()
+		fileInfo := mockNodeProcess(t, root, []string{"missing.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("extensionless file is not used as a fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "client"), nil)
 		fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
 
 		err := ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
-		service := fileInfo.ServiceAttrs()
-		assert.Equal(t, "client", service.UID.Name)
-		assert.True(t, service.AutoName())
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("unsupported script extension is not used as a fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "client.jsx"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"client.jsx"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("script path must be a regular file", func(t *testing.T) {
+		root := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "client.js"), 0o755))
+		fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("script path cannot escape the process root", func(t *testing.T) {
+		outside := t.TempDir()
+		writeNodeFile(t, filepath.Join(outside, "client.js"), nil)
+		root := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "app"), 0o755))
+		require.NoError(t, os.Symlink(
+			filepath.Join(outside, "client.js"),
+			filepath.Join(root, "app", "client.js"),
+		))
+		fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("package name takes precedence over an invalid entrypoint fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "app.js"), nil)
+		writeNodeFile(t, filepath.Join(root, "app", "package.json"), []byte(`{"name":"orders"}`))
+		fileInfo := mockNodeProcess(t, root, []string{"--max-old-space-size", "4096", "app.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("application arguments are not treated as the entrypoint", func(t *testing.T) {
@@ -326,7 +420,8 @@ func mockNodeProcessWithErrors(
 	})
 
 	return exec.New(exec.Init{
-		Pid: app.PID(1234),
+		Pid:        app.PID(1234),
+		CmdExePath: "/usr/bin/node",
 		Service: svc.Attrs{
 			EnvVars:  env,
 			Metadata: map[attr.Name]string{},
