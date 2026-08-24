@@ -446,6 +446,39 @@
       "enabled": false
     },
     {
+      // OBI's own image publishes a mostly-disposable tag namespace: every merge
+      // pushes a short-SHA tag and moves `main`, a nightly job pushes `nightly`
+      // and `nightly-<date>`, and only 13 of its 319 tags are releases. Renovate
+      // must follow releases and nothing else, so updates are off by default
+      // here and re-enabled below for release refs only. A denylist does not
+      // work: chasing `main` produced one digest PR per commit, and `nightly`
+      // would do the same daily.
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "otel/ebpf-instrument",
+        "ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument"
+      ],
+      "enabled": false
+    },
+    {
+      // Re-enable refs already on a release tag, and keep their target on one
+      // too: matchCurrentValue gates which refs are tracked, allowedVersions
+      // gates what they may move to, so no ref can slide onto a nightly or
+      // short-SHA tag. Every OBI release to date matches this shape. The
+      // examples/ Compose files all document the same release, so they move
+      // together in one PR — a partial bump leaves them on different versions.
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "otel/ebpf-instrument",
+        "ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument"
+      ],
+      "matchCurrentValue": "/^v\\d+\\.\\d+\\.\\d+$/",
+      "allowedVersions": "/^v\\d+\\.\\d+\\.\\d+$/",
+      "groupName": "OBI example images",
+      "enabled": true,
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
       // Pin every otel/weaver reference to one version in a single PR. The refs
       // live across four managers: dependencies.Dockerfile (dockerfile — the
       // image `make lint-schema` reads), the OATS/integration compose fragments

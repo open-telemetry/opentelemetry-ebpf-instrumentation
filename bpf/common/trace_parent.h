@@ -30,6 +30,21 @@
 #include <maps/server_traces.h>
 #include <maps/tp_info_mem.h>
 
+static __always_inline enum parent_status parent_kind(const tp_info_pid_t *server_tp) {
+    if (server_tp->req_type == EVENT_TCP_REQUEST) {
+        return k_parent_status_conditional;
+    }
+
+    // under high request volume the server span is submitted at the first
+    // response send, so the end timestamp a child would be settled against is
+    // not the request's real end: the link cannot be judged and must stand
+    if (server_tp->response_sent && !high_request_volume) {
+        return k_parent_status_conditional;
+    }
+
+    return k_parent_status_live;
+}
+
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
     java_vt_translate_tid(&t_key->p_key);
@@ -348,19 +363,21 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
         bpf_dbg_printk("Found existing server tp for client call");
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
-            bpf_dbg_printk("Parent and child are too far apart, marking server trace as invalid");
+            bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
             bpf_dbg_printk(
                 "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
-            server_tp->valid = 0;
+            if (parent_trace_is_stale(&server_tp->tp, tp)) {
+                server_tp->valid = 0;
+            }
             return 0;
         }
 
         __builtin_memcpy(tp->trace_id, server_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, server_tp->tp.span_id, sizeof(tp->parent_id));
-        return 1;
+        return parent_kind(server_tp);
     }
 
-    return 0;
+    return k_parent_status_none;
 }
 
 static __always_inline u8 find_trace_for_client_request(const pid_connection_info_t *p_conn,
@@ -389,15 +406,17 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
         bpf_dbg_printk("Found existing server tp for client call");
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
-            bpf_dbg_printk("Parent and child are too far apart, marking server trace as invalid");
+            bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
             bpf_dbg_printk(
                 "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
-            server_tp->valid = 0;
+            if (parent_trace_is_stale(&server_tp->tp, tp)) {
+                server_tp->valid = 0;
+            }
             return 0;
         }
 
         *tp = server_tp->tp;
-        return 1;
+        return parent_kind(server_tp);
     }
 
     return 0;

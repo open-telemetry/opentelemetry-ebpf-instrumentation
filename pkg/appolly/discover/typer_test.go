@@ -85,11 +85,11 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 }
 
 func TestContextWithValueDoesNotQualifyGoProxy(t *testing.T) {
-	assert.True(t, isGoProxy(&goexec.Offsets{Funcs: map[string]goexec.FuncOffsets{
+	assert.True(t, isGoProxy(&goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
 		"runtime.chansend1": {},
 		"context.WithValue": {},
 	}}))
-	assert.False(t, isGoProxy(&goexec.Offsets{Funcs: map[string]goexec.FuncOffsets{
+	assert.False(t, isGoProxy(&goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
 		"runtime.chansend1":                {},
 		"context.WithValue":                {},
 		"net/http.serverHandler.ServeHTTP": {},

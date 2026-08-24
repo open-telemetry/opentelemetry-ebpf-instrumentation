@@ -30,6 +30,7 @@ func TestPrometheusNames(t *testing.T) {
 		{RPCServerDuration, "rpc_server_call_duration_seconds"},
 		{RPCClientDuration, "rpc_client_call_duration_seconds"},
 		{DBClientDuration, "db_client_operation_duration_seconds"},
+		{DBServerDuration, "db_server_operation_duration_seconds"},
 		{MessagingPublishDuration, "messaging_client_operation_duration_seconds"},
 		{MessagingProcessDuration, "messaging_process_duration_seconds"},
 		{GPUCudaKernelLaunchCalls, "gpu_cuda_kernel_launch_calls_total"},

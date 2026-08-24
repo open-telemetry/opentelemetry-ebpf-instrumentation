@@ -271,14 +271,19 @@ func (p *Tracer) constants() map[string]any {
 	m["kafka_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Kafka
 	m["postgres_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Postgres
 	m["mssql_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.MSSQL
+	m["aerospike_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Aerospike
 
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
 	m["jvm_sampling_interval_ns"] = uint64(0)
-	if p.jvmRuntimeMetricsEnabled() {
+	if p.cfg.AppRuntimeMetricsEnabled() {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
+	}
+	m["nodejs_runtime_metrics_enabled"] = uint64(0)
+	if p.cfg.AppRuntimeMetricsEnabled() {
+		m["nodejs_runtime_metrics_enabled"] = uint64(1)
 	}
 
 	return m
@@ -439,6 +444,25 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Required: false,
 				Start:    p.bpfObjects.ObiUprobeSslShutdown,
 			}},
+			"SSL_set_bio": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslSetBio,
+			}},
+			"SSL_free": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslFree,
+			}},
+		},
+		// BIO_write is a libcrypto symbol. A process that links libssl and
+		// libcrypto separately, as CPython does, resolves it from its own
+		// object, so it gets its own key here. Statically linked runtimes such
+		// as node resolve both keys to the executable and are grouped into a
+		// single attachment by inode.
+		"libcrypto.so": {
+			"BIO_write": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeBioWrite,
+			}},
 		},
 		"libSystem.Security.Cryptography.Native.OpenSsl.so": {
 			"CryptoNative_SslRead": {{
@@ -534,7 +558,7 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 }
 
 func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
-	if !p.jvmRuntimeMetricsEnabled() {
+	if !p.cfg.AppRuntimeMetricsEnabled() {
 		return nil
 	}
 	return map[string][]*ebpfcommon.USDTProbeDesc{
@@ -691,11 +715,11 @@ func (p *Tracer) Run(
 	p.log.Info("Launching p.Tracer")
 
 	cfg := &p.cfg.EBPF
-	if p.jvmRuntimeMetricsEnabled() {
+	if p.cfg.AppRuntimeMetricsEnabled() {
 		if p.runtimeMetricsSender() == nil {
-			p.log.Warn("JVM runtime metrics enabled without runtime metrics queue")
+			p.log.Warn("runtime metrics enabled without runtime metrics queue")
 		} else {
-			p.log.Debug("reading JVM runtime metrics from shared ring buffer")
+			p.log.Debug("reading runtime metrics from shared ring buffer")
 		}
 	}
 
@@ -710,10 +734,6 @@ func (p *Tracer) Run(
 		p.log,
 		p.metrics,
 	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
-}
-
-func (p *Tracer) jvmRuntimeMetricsEnabled() bool {
-	return p.cfg != nil && p.cfg.JoinMetricsConfig().Features.AppRuntime()
 }
 
 func (p *Tracer) processSharedRingbufRecord(

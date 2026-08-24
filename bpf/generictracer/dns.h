@@ -118,6 +118,7 @@ static __always_inline void populate_dns_record(dns_req_t *req,
 
     const u8 found = find_trace_for_client_request_with_t_key(
         p_conn, orig_dport, &t_key, conn_pid->id, k_lw_thread_none, &req->tp);
+    req->parent_status = found;
 
     bpf_dbg_printk("looking up client trace info, found: %d", found);
     if (found) {

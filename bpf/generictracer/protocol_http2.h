@@ -9,6 +9,7 @@
 #include <common/globals.h>
 #include <common/h2_defs.h>
 #include <common/iov_iter.h>
+#include <common/preempt_guard.h>
 #include <common/scratch_mem.h>
 #include <common/http_buf_size.h>
 #include <common/ringbuf.h>
@@ -24,7 +25,6 @@
 #include <generictracer/types/http2_conn_info_data.h>
 
 #include <generictracer/maps/grpc_frames_ctx_mem.h>
-#include <generictracer/maps/http2_seq_claims.h>
 #include <generictracer/maps/http2_info_mem.h>
 
 #include <generictracer/maps/ongoing_http2_grpc.h>
@@ -36,8 +36,9 @@
 enum {
     http2_conn_flag_ssl = WITH_SSL,
     http2_conn_flag_new = 0x2,
-    // numbering ran out: sentinel every later event on this connection
-    http2_conn_flag_seq_poisoned = 0x4,
+    h2_hpack_req_unreliable = 0x1,
+    h2_hpack_resp_unreliable = 0x2,
+    h2_hpack_new_connection = 0x4,
 };
 
 // decoder scratch buffers, kept off the BPF stack
@@ -54,10 +55,6 @@ static __always_inline u8 http2_flag_ssl(u8 flags) {
 
 static __always_inline u8 http2_flag_new(u8 flags) {
     return flags & http2_conn_flag_new;
-}
-
-static __always_inline u8 http2_flag_seq_poisoned(u8 flags) {
-    return flags & http2_conn_flag_seq_poisoned;
 }
 
 static __always_inline http2_grpc_request_t *empty_http2_info() {
@@ -83,7 +80,8 @@ static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
 }
 
 // Use the trace the Go uprobe wrote to outgoing_trace_map (replaces what find_trace_for_client_request returned).
-static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
+// Returns 1 when the injected context replaced the inferred one.
+static __always_inline u8 adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
     egress_key_t sorted_e = {
         .d_port = s_key->pid_conn.conn.d_port,
         .s_port = s_key->pid_conn.conn.s_port,
@@ -96,7 +94,11 @@ static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_
         bpf_memcpy(tp->trace_id, injected->tp.trace_id, TRACE_ID_SIZE_BYTES);
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
         bpf_memcpy(tp->parent_id, injected->tp.parent_id, SPAN_ID_SIZE_BYTES);
+
+        return 1;
     }
+
+    return 0;
 }
 
 // HPACK payload length + start offset within h2g_info->data
@@ -113,34 +115,77 @@ static __always_inline u32 h2_hpack_window(const http2_grpc_request_t *h2g_info,
     return raw_len > skip ? raw_len - skip : 0;
 }
 
-// Numbers each emitted exchange so user space can spot a lost one by its gap.
-// A run of failed claims poisons the connection: from then on every event
-// carries the sentinel, so a later dropped event still can't look contiguous.
-static __always_inline void http2_alloc_seq(http2_conn_info_data_t *h2g,
-                                            http2_grpc_request_t *h2g_info) {
-    h2g_info->seq = k_h2_seq_unreliable;
-    if (!h2g || http2_flag_seq_poisoned(h2g->flags)) {
-        return;
-    }
-
-    // BPF_NOEXIST is the only atomic claim kprobes have on every kernel; a
-    // taken slot means a racing claimer, so step the hint past it and retry
-    const u8 claimed = 1;
-    for (u8 i = 0; i < k_seq_claim_attempts; i++) {
-        const u32 base = h2g->req_seq;
-        const u32 candidate = base + 1;
-        http2_seq_claim_t claim = {.conn_id = h2g->id, .seq = candidate};
-        if (bpf_map_update_elem(&http2_seq_claims, &claim, &claimed, BPF_NOEXIST) == 0) {
-            h2g_info->seq = candidate;
-            h2g->req_seq = candidate;
-            return;
+static __always_inline void
+http2_poison_hpack(http2_conn_stream_t *stream, http2_grpc_request_t *info, u8 flags) {
+    http2_conn_info_data_t *conn =
+        bpf_map_lookup_elem(&ongoing_http2_connections, &stream->pid_conn);
+    http2_grpc_request_t *stored = bpf_map_lookup_elem(&ongoing_http2_grpc, stream);
+    if (flags & h2_hpack_req_unreliable) {
+        if (conn) {
+            conn->req_hpack_poisoned = 1;
         }
-        if (h2g->req_seq == base) {
-            h2g->req_seq = candidate;
+        if (info) {
+            info->hpack_flags |= h2_hpack_req_unreliable;
+        }
+        if (stored) {
+            stored->hpack_flags |= h2_hpack_req_unreliable;
         }
     }
+    if (flags & h2_hpack_resp_unreliable) {
+        if (conn) {
+            conn->resp_hpack_poisoned = 1;
+        }
+        if (info) {
+            info->hpack_flags |= h2_hpack_resp_unreliable;
+        }
+        if (stored) {
+            stored->hpack_flags |= h2_hpack_resp_unreliable;
+        }
+    }
+}
 
-    h2g->flags |= http2_conn_flag_seq_poisoned;
+static __always_inline u8 http2_emit_hpack_event(grpc_frames_ctx_t *g_ctx,
+                                                 const frame_header_t *frame,
+                                                 u8 event_type) {
+    http2_grpc_request_t *event = bpf_ringbuf_reserve(&events, sizeof(http2_grpc_request_t), 0);
+    if (!event) {
+        return 0;
+    }
+
+    bpf_memset(event, 0, __builtin_offsetof(http2_grpc_request_t, data));
+    bpf_memset(&event->data, 0, sizeof(*event) - __builtin_offsetof(http2_grpc_request_t, data));
+    event->flags = event_type;
+    event->ssl = g_ctx->args.ssl;
+    event->type = request_type_by_direction(
+        g_ctx->args.direction,
+        event_type == EVENT_K_HTTP2_REQUEST_HEADERS ? PACKET_TYPE_REQUEST : PACKET_TYPE_RESPONSE);
+    task_pid(&event->pid);
+    event->stream_id = frame->stream_id;
+    event->len = g_ctx->args.bytes_len - g_ctx->pos;
+    event->hpack_flags = 0;
+
+    http2_conn_info_data_t *conn =
+        bpf_map_lookup_elem(&ongoing_http2_connections, &g_ctx->stream.pid_conn);
+    event->new_conn_id = conn ? conn->id : 0;
+    if (conn) {
+        event->hpack_flags = (conn->req_hpack_poisoned * h2_hpack_req_unreliable) |
+                             (conn->resp_hpack_poisoned * h2_hpack_resp_unreliable);
+        if (http2_flag_new(conn->flags)) {
+            event->hpack_flags |= h2_hpack_new_connection;
+            conn->flags &= ~http2_conn_flag_new;
+        }
+    } else {
+        event->hpack_flags |= h2_hpack_req_unreliable | h2_hpack_resp_unreliable;
+    }
+
+    const void *buf = (const unsigned char *)g_ctx->args.u_buf + g_ctx->pos;
+    if (event_type == EVENT_K_HTTP2_REQUEST_HEADERS) {
+        bpf_probe_read(event->data, sizeof(event->data), buf);
+    } else {
+        bpf_probe_read(event->ret_data, sizeof(event->ret_data), buf);
+    }
+    bpf_ringbuf_submit(event, get_flags());
+    return 1;
 }
 
 // SERVER finalize: shared post-branch tail of http2_grpc_start. h2g_info /
@@ -187,8 +232,9 @@ static __always_inline void http2_grpc_start(void *ctx,
     http2_grpc_request_t *existing = bpf_map_lookup_elem(&ongoing_http2_grpc, s_key);
     if (existing) {
         bpf_dbg_printk("already found existing grpcstart, ignoring this exchange");
-        if (existing->type == EVENT_HTTP_CLIENT) {
-            adopt_injected_trace(s_key, &existing->tp);
+        if (existing->type == EVENT_HTTP_CLIENT && adopt_injected_trace(s_key, &existing->tp)) {
+            // the uprobe's context comes from the running request itself
+            existing->parent_status = k_parent_status_live;
         }
         return;
     }
@@ -216,10 +262,17 @@ static __always_inline void http2_grpc_start(void *ctx,
     }
 
     h2g_info->new_conn_id = 0;
-    h2g_info->seq = 0;
+    h2g_info->stream_id = s_key->stream_id;
+    h2g_info->hpack_flags = 0;
     http2_conn_info_data_t *h2g = bpf_map_lookup_elem(&ongoing_http2_connections, &s_key->pid_conn);
-    if (h2g && http2_flag_new(h2g->flags)) {
+    if (h2g) {
         h2g_info->new_conn_id = h2g->id;
+    }
+    if (h2g) {
+        h2g_info->hpack_flags = (h2g->req_hpack_poisoned * h2_hpack_req_unreliable) |
+                                (h2g->resp_hpack_poisoned * h2_hpack_resp_unreliable);
+    } else {
+        h2g_info->hpack_flags = h2_hpack_req_unreliable | h2_hpack_resp_unreliable;
     }
 
     const u8 is_client = (meta->type == EVENT_HTTP_CLIENT);
@@ -247,7 +300,8 @@ static __always_inline void http2_grpc_start(void *ctx,
 
     if (!is_client) {
         // Server finalize tail-called to stay under verifier insn limit on 5.15
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server);
+        preempt_guarded_tail_call(
+            ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server);
         return;
     }
 
@@ -262,7 +316,11 @@ static __always_inline void http2_grpc_start(void *ctx,
     }
     u8 found_tp =
         find_trace_for_client_request(&s_key->pid_conn, orig_dport, k_lw_thread_none, &tp_p->tp);
-    adopt_injected_trace(s_key, &tp_p->tp);
+    h2g_info->parent_status = found_tp;
+    if (adopt_injected_trace(s_key, &tp_p->tp)) {
+        // the uprobe's context comes from the running request itself
+        h2g_info->parent_status = k_parent_status_live;
+    }
     if (valid_trace(tp_p->tp.trace_id)) {
         found_tp = 1;
     }
@@ -296,11 +354,16 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
         bpf_dbg_printk("stream_id = %d", stream->stream_id);
         //dbg_print_http_connection_info(&stream->pid_conn.conn); // commented out since GitHub CI doesn't like this call
 
-        http2_conn_info_data_t *h2g =
+        http2_conn_info_data_t *conn =
             bpf_map_lookup_elem(&ongoing_http2_connections, &stream->pid_conn);
-        http2_alloc_seq(h2g, prev_info);
+        if (conn) {
+            prev_info->hpack_flags = (conn->req_hpack_poisoned * h2_hpack_req_unreliable) |
+                                     (conn->resp_hpack_poisoned * h2_hpack_resp_unreliable);
+        } else {
+            prev_info->hpack_flags |= h2_hpack_req_unreliable | h2_hpack_resp_unreliable;
+        }
 
-        http2_grpc_request_t *trace = bpf_ringbuf_reserve(&events, sizeof(http2_grpc_request_t), 0);
+        http2_grpc_request_t *trace = bpf_ringbuf_reserve(&events, sizeof(*trace), 0);
         if (trace) {
             bpf_probe_read(prev_info->ret_data, k_kprobes_http2_ret_buf_size, u_buf);
             __builtin_memcpy(trace, prev_info, sizeof(http2_grpc_request_t));
@@ -346,17 +409,30 @@ static __always_inline frame_header_t next_frame(const grpc_frames_ctx_t *g_ctx)
 }
 
 static __always_inline void update_prev_info(grpc_frames_ctx_t *g_ctx) {
-    if (g_ctx->has_prev_info) {
-        return;
-    }
-
     const http2_grpc_request_t *prev_info =
         bpf_map_lookup_elem(&ongoing_http2_grpc, &g_ctx->stream);
 
+    g_ctx->has_prev_info = 0;
     if (prev_info) {
         g_ctx->prev_info = *prev_info;
         g_ctx->has_prev_info = 1;
     }
+}
+
+static __always_inline u8 h2_next_frame_changes_hpack(const grpc_frames_ctx_t *g_ctx,
+                                                      const frame_header_t *frame) {
+    const u32 frame_size = frame->length + k_frame_header_len;
+    if (frame_size >= g_ctx->args.bytes_len || g_ctx->pos >= g_ctx->args.bytes_len - frame_size) {
+        return 0;
+    }
+
+    frame_header_t next = {0};
+    const void *offset = (const unsigned char *)g_ctx->args.u_buf + g_ctx->pos + frame_size;
+    if (bpf_probe_read(&next, sizeof(next), offset) != 0) {
+        return 1;
+    }
+
+    return next.type == FrameHeaders || next.type == FramePushPromise;
 }
 
 static __always_inline int
@@ -370,15 +446,43 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
         g_ctx->saved_stream_id = g_ctx->stream.stream_id;
         g_ctx->saved_buf_pos = g_ctx->pos;
 
+        const u8 response_type =
+            request_type_by_direction(g_ctx->args.direction, PACKET_TYPE_RESPONSE);
+        const u8 response = response_type == g_ctx->prev_info.type;
+        const u8 event_type =
+            response ? EVENT_K_HTTP2_RESPONSE_HEADERS : EVENT_K_HTTP2_REQUEST_HEADERS;
+        const u8 poison = response ? h2_hpack_resp_unreliable : h2_hpack_req_unreliable;
+        if (!http2_emit_hpack_event(g_ctx, frame, event_type)) {
+            http2_poison_hpack(&g_ctx->stream, &g_ctx->prev_info, poison);
+        }
+        const u32 capture_size = response ? k_kprobes_http2_ret_buf_size : k_kprobes_http2_buf_size;
+        if (frame->length + k_frame_header_len > capture_size) {
+            http2_poison_hpack(&g_ctx->stream, &g_ctx->prev_info, poison);
+        }
+
         if (http_grpc_stream_ended(frame)) {
-            bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
+            if (h2_next_frame_changes_hpack(g_ctx, frame)) {
+                http2_poison_hpack(&g_ctx->stream, &g_ctx->prev_info, poison);
+            }
+            preempt_guarded_tail_call(
+                ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
             return 0; // normally unreachable
         }
     } else {
         // Not starting new grpc request, found end frame in a start, likely
         // just terminating prev connection
         if (!(is_flags_only_frame(frame) && http_grpc_stream_ended(frame))) {
-            bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame);
+            if (!http2_emit_hpack_event(g_ctx, frame, EVENT_K_HTTP2_REQUEST_HEADERS)) {
+                http2_poison_hpack(&g_ctx->stream, 0, h2_hpack_req_unreliable);
+            }
+            if (frame->length + k_frame_header_len > k_kprobes_http2_buf_size) {
+                http2_poison_hpack(&g_ctx->stream, 0, h2_hpack_req_unreliable);
+            }
+            if (h2_next_frame_changes_hpack(g_ctx, frame)) {
+                http2_poison_hpack(&g_ctx->stream, 0, h2_hpack_req_unreliable);
+            }
+            preempt_guarded_tail_call(
+                ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame);
             return 0; // normally unreachable
         }
     }
@@ -401,13 +505,13 @@ static __always_inline void handle_data_frame(void *ctx, grpc_frames_ctx_t *g_ct
         g_ctx->stream.pid_conn = g_ctx->args.pid_conn;
         g_ctx->stream.stream_id = g_ctx->saved_stream_id;
 
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
     }
 }
 
 // k_tail_protocol_http2_grpc_handle_start_frame
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame, void *, ctx) {
     (void)ctx;
 
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
@@ -429,7 +533,7 @@ int obi_protocol_http2_grpc_handle_start_frame(void *ctx) {
 // SERVER tail call: HPACK parse first (per-stream, no trace_map race), per-conn
 // fallback if missed. Skips optional PADDED/PRIORITY prefix + trailing pad
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -448,7 +552,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     g_ctx->huff.next = k_h2_huff_then_finalize;
 
     if (parse_hpack_traceparent(h2g_info->data + hpack_off, hpack_len, &tp_p->tp, &g_ctx->huff)) {
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
         return 0;
     }
@@ -457,24 +561,25 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     if (g_bpf_loop_enabled) {
         // name matched, value compressed: decoding needs its own program
         if (g_ctx->huff.len) {
-            bpf_tail_call(
+            preempt_guarded_tail_call(
                 ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
             return 0;
         }
 
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
         return 0;
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
+    preempt_guarded_tail_call(
+        ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
     return 0;
 }
 
 // SERVER huffscan: an indexed name leaves nothing to fingerprint, so locate the compressed
 // value alone; ranked above the connection heuristic, unlike the weak fingerprint in finalize
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_huffscan(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffscan, void *, ctx) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -496,21 +601,22 @@ int obi_protocol_http2_grpc_handle_start_frame_server_huffscan(void *ctx) {
     if (find_hpack_traceparent_huffman(h2g_info->data, hpack_off, hpack_len, &g_ctx->huff_scan)) {
         g_ctx->huff.at = g_ctx->huff_scan.at[0];
         g_ctx->huff.len = g_ctx->huff_scan.len[0];
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
         return 0;
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
+    preempt_guarded_tail_call(
+        ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
     return 0;
 }
 
 // SERVER huffman: decodes the value the scan located, in its own tail-call program
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_huffman(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffman, void *, ctx) {
     // needs bpf_loop; without it the block keeps its existing fallback
     if (!g_bpf_loop_enabled) {
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
         return 0;
     }
@@ -540,14 +646,14 @@ int obi_protocol_http2_grpc_handle_start_frame_server_huffman(void *ctx) {
         h2g_info->data + hpack_off, hpack_len, &g_ctx->huff, w, out, &tp_p->tp);
 
     if (g_ctx->huff.next == k_h2_huff_then_commit) {
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_commit);
         return 0;
     }
 
     // rejected candidate: name-matched falls back to the scan, scan advances
     if (!g_ctx->huff_scan.done) {
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
         return 0;
     }
@@ -560,7 +666,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server_huffman(void *ctx) {
         g_ctx->huff.len = g_ctx->huff_scan.len[next_idx];
         g_ctx->huff.next = k_h2_huff_then_finalize;
         g_ctx->huff_scan.idx = next_idx;
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
         return 0;
     }
@@ -569,17 +675,18 @@ int obi_protocol_http2_grpc_handle_start_frame_server_huffman(void *ctx) {
     // falls through to finalize when the tail call budget runs out
     if (g_ctx->huff_scan.count == k_h2_tp_huff_max_candidates) {
         g_ctx->huff_scan.resume = g_ctx->huff_scan.at[k_h2_tp_huff_max_candidates - 1];
-        bpf_tail_call(
+        preempt_guarded_tail_call(
             ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
+    preempt_guarded_tail_call(
+        ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
     return 0;
 }
 
 // SERVER finalize: dyn-table traceparent scan, then tail-calls commit
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_finalize, void *, ctx) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -604,7 +711,8 @@ int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
         (void)find_hpack_traceparent_value(h2g_info->data + hpack_off, hpack_len, &tp_p->tp);
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_commit);
+    preempt_guarded_tail_call(
+        ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_commit);
     return 0;
 }
 
@@ -612,7 +720,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
 // set_trace_info_for_connection, server_or_client_trace, server_traces,
 // ongoing_http2_grpc.
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_commit(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_commit, void *, ctx) {
     (void)ctx;
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
@@ -636,7 +744,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server_commit(void *ctx) {
 
 // k_tail_protocol_http2_grpc_handle_end_frame
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_end_frame(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_end_frame, void *, ctx) {
     (void)ctx;
 
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
@@ -678,7 +786,7 @@ int obi_protocol_http2_grpc_handle_end_frame(void *ctx) {
 // information to evaluate whether the parsed data is potentially a GRPC
 // frame, and if so, we ship it to userspace for further processing.
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_frames(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_frames, void *, ctx) {
     const u8 k_max_loop_iterations = 4; // the maximum number of the for loop iterations
     const u8 k_loop_count = 3;          // the number of times we will retry the loop
     const u8 k_iterations = k_max_loop_iterations * k_loop_count;
@@ -700,6 +808,14 @@ int obi_protocol_http2_grpc_frames(void *ctx) {
 
         const frame_header_t frame = next_frame(g_ctx);
 
+        if (frame.type == FramePushPromise) {
+            g_ctx->stream.stream_id = frame.stream_id;
+            update_prev_info(g_ctx);
+            http2_poison_hpack(&g_ctx->stream,
+                               g_ctx->has_prev_info ? &g_ctx->prev_info : 0,
+                               h2_hpack_resp_unreliable);
+        }
+
         // if handle_headers_frame returns 0, it means bpf_tail_call has
         // failed and something is very wrong, so we just bail...
         if (is_headers_frame(&frame) && !handle_headers_frame(ctx, g_ctx, &frame)) {
@@ -717,16 +833,16 @@ int obi_protocol_http2_grpc_frames(void *ctx) {
             break;
         }
 
-        if (frame.length + k_frame_header_len >= g_ctx->args.bytes_len) {
+        const u32 frame_size = frame.length + k_frame_header_len;
+        const u32 remaining = g_ctx->args.bytes_len - g_ctx->pos;
+        if (frame_size >= remaining) {
             g_ctx->terminate_search = 1;
             //bpf_dbg_printk("Frame length bigger than bytes len");
             break;
         }
 
-        if (g_ctx->pos < (g_ctx->args.bytes_len - (frame.length + k_frame_header_len))) {
-            g_ctx->pos += (frame.length + k_frame_header_len);
-            //bpf_dbg_printk("New buf read g_ctx.pos = %d", g_ctx->pos);
-        }
+        g_ctx->pos += frame_size;
+        //bpf_dbg_printk("New buf read g_ctx.pos = %d", g_ctx->pos);
     }
 
     // this is a weird recursion - we can't loop many times above because the
@@ -735,8 +851,17 @@ int obi_protocol_http2_grpc_frames(void *ctx) {
     // want to abuse bpf_tail_call as things can get slow (and limited), so we
     // use this mirror-cracking hybrid approach
     if (!g_ctx->terminate_search && g_ctx->iterations < k_iterations) {
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
-        return 0; // unreachable, but bail safely if bpf_tail_call fails
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
+        http2_poison_hpack(&g_ctx->stream,
+                           g_ctx->has_prev_info ? &g_ctx->prev_info : 0,
+                           h2_hpack_req_unreliable | h2_hpack_resp_unreliable);
+        return 0;
+    }
+
+    if (!g_ctx->terminate_search && g_ctx->pos < g_ctx->args.bytes_len) {
+        http2_poison_hpack(&g_ctx->stream,
+                           g_ctx->has_prev_info ? &g_ctx->prev_info : 0,
+                           h2_hpack_req_unreliable | h2_hpack_resp_unreliable);
     }
 
     // We only loop N times looking for the stream termination. If the data
@@ -749,7 +874,7 @@ int obi_protocol_http2_grpc_frames(void *ctx) {
 
 // k_tail_protocol_http2
 SEC("kprobe/http2")
-int obi_protocol_http2(void *ctx) {
+int GUARDED_PROG(obi_protocol_http2, void *, ctx) {
     call_protocol_args_t *args = protocol_args();
 
     if (!args) {
@@ -770,7 +895,7 @@ int obi_protocol_http2(void *ctx) {
     g_ctx->args = *args;
     g_ctx->stream.pid_conn = args->pid_conn;
 
-    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
+    preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
 
     return 0;
 }

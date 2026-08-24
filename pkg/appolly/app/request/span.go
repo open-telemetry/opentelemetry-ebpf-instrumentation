@@ -203,9 +203,18 @@ func (t EventType) MarshalText() ([]byte, error) {
 }
 
 const (
+	MessagingSend    = "send"
+	MessagingReceive = "receive"
 	MessagingPublish = "publish"
 	MessagingProcess = "process"
 )
+
+func MessagingOperationTypeOf(operationName string) string {
+	if operationName == MessagingPublish {
+		return MessagingSend
+	}
+	return operationName
+}
 
 type converter struct {
 	clock     func() time.Time
@@ -1302,28 +1311,32 @@ type SpanLink struct {
 // and SpanPromGetters in pkg/appolly/app/request/span_getters_providers.go and
 // getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
-	Type              EventType      `json:"type"`
-	SpanKind          trace.SpanKind `json:"-"`
-	Flags             uint8          `json:"-"`
-	Method            string         `json:"-"`
-	Path              string         `json:"-"`
-	FullPath          string         `json:"-"`
-	Route             string         `json:"-"`
-	Peer              string         `json:"peer"`
-	PeerPort          int            `json:"peerPort,string"`
-	Host              string         `json:"host"`
-	HostPort          int            `json:"hostPort,string"`
-	Status            int            `json:"-"`
-	ResponseLength    int64          `json:"-"`
-	ContentLength     int64          `json:"-"`
-	DBBatchSize       int            `json:"-"`
-	RequestStart      int64          `json:"-"`
-	Start             int64          `json:"-"`
-	End               int64          `json:"-"`
-	Service           svc.Attrs      `json:"-"`
-	TraceID           trace.TraceID  `json:"traceID"`
-	SpanID            trace.SpanID   `json:"spanID"`
-	ParentSpanID      trace.SpanID   `json:"parentSpanID"`
+	Type           EventType      `json:"type"`
+	SpanKind       trace.SpanKind `json:"-"`
+	Flags          uint8          `json:"-"`
+	Method         string         `json:"-"`
+	Path           string         `json:"-"`
+	FullPath       string         `json:"-"`
+	Route          string         `json:"-"`
+	Peer           string         `json:"peer"`
+	PeerPort       int            `json:"peerPort,string"`
+	Host           string         `json:"host"`
+	HostPort       int            `json:"hostPort,string"`
+	Status         int            `json:"-"`
+	ResponseLength int64          `json:"-"`
+	ContentLength  int64          `json:"-"`
+	DBBatchSize    int            `json:"-"`
+	RequestStart   int64          `json:"-"`
+	Start          int64          `json:"-"`
+	End            int64          `json:"-"`
+	Service        svc.Attrs      `json:"-"`
+	TraceID        trace.TraceID  `json:"traceID"`
+	SpanID         trace.SpanID   `json:"spanID"`
+	ParentSpanID   trace.SpanID   `json:"parentSpanID"`
+	// ParentConditional marks a parent that may already have finished when this
+	// span started: BPF cannot tell at that moment, so the pipeline settles the
+	// link against the parent span's real end timestamp before export.
+	ParentConditional bool           `json:"-"`
 	TraceFlags        uint8          `json:"traceFlags,string"`
 	Links             []SpanLink     `json:"links,omitempty"`
 	Pid               PidInfo        `json:"-"`
@@ -1891,8 +1904,8 @@ func (s *Span) ServiceGraphKind() string {
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
-		switch s.Method {
-		case MessagingPublish:
+		switch MessagingOperationTypeOf(s.Method) {
+		case MessagingSend:
 			return "SPAN_KIND_PRODUCER"
 		case MessagingProcess:
 			return "SPAN_KIND_CONSUMER"

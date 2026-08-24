@@ -11,6 +11,7 @@
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/lw_thread.h>
+#include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
@@ -21,7 +22,9 @@
 #include <maps/tp_info_mem.h>
 
 #include <generictracer/failed_connect.h>
+#include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_common.h>
+#include <generictracer/tcp_trace_cleanup.h>
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
@@ -77,6 +80,7 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
     if (req->direction == TCP_SEND) { // Client
         const u8 found = find_trace_for_client_request(pid_conn, orig_dport, lw_thread, &req->tp);
         bpf_dbg_printk("Looking up client trace info, found=%d", found);
+        req->parent_status = found;
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
         } else {
@@ -106,28 +110,6 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
                            pid_conn->pid,
                            ssl,
                            orig_dport);
-    }
-}
-
-static __always_inline void cleanup_trace_info(tcp_req_t *tcp, pid_connection_info_t *pid_conn) {
-    if (tcp->direction == TCP_RECV) {
-        trace_key_t t_key = {0};
-        task_tid(&t_key.p_key);
-        if (tcp->task_tid) {
-            t_key.p_key.tid = tcp->task_tid;
-        }
-        t_key.extra_id = tcp->extra_id;
-
-        delete_server_trace(pid_conn, &t_key);
-    } else {
-        delete_client_trace_info(pid_conn);
-    }
-}
-
-static __always_inline void cleanup_tcp_trace_info_if_needed(pid_connection_info_t *pid_conn) {
-    tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
-    if (existing) {
-        cleanup_trace_info(existing, pid_conn);
     }
 }
 
@@ -225,10 +207,8 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;
     case k_protocol_type_aerospike:
-        // No protocol-specific large buffers yet: keep the generic wire-layer
-        // capture so classification doesn't reduce what userspace sees.
-        unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
-        break;
+        return aerospike_send_large_buffer(
+            req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
     case k_protocol_type_nats:
     case k_protocol_type_amqp:
     case k_protocol_type_unknown:
@@ -250,7 +230,7 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
         const u64 event_ts = bpf_ktime_get_ns();
         const u64 extra_id = extra_runtime_id();
         init_failed_connect_tcp_req(
-            req, pid_conn, orig_dport, connect_ts, event_ts, event_ts, extra_id, &pid);
+            req, pid_conn, orig_dport, connect_ts, event_ts, extra_id, &pid);
 
         bpf_dbg_printk("TCP connect failed event");
 
@@ -426,7 +406,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
 // k_tail_protocol_tcp
 SEC("kprobe/tcp")
-int obi_protocol_tcp(void *ctx) {
+int GUARDED_PROG(obi_protocol_tcp, void *, ctx) {
     (void)ctx;
 
     // it assumes that the actual protocol_args have been previously set

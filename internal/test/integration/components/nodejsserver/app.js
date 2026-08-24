@@ -1,10 +1,72 @@
 var express = require("express");
 const http = require("http");
 const https = require("https");
+const { trace, SpanStatusCode } = require("@opentelemetry/api");
 var app = express();
 const port = 3030;
 
 app.use(express.json({ limit: "50mb" }));
+
+// Uses ONLY @opentelemetry/api, with no SDK registered: these spans are
+// no-op/non-recording unless OBI's Node.js span bridge is injected
+// (OTEL_EBPF_NODEJS_MANUAL_SPANS=true). The tracer is acquired at module
+// load, before OBI injects the bridge, so it exercises the late-attach path.
+const tracer = trace.getTracer("nodejs-manual-test", "1.0.0");
+
+// Span names here are deliberately distinct from OBI's own automatic
+// sub-span names ("in queue", "processing") that it adds to every HTTP
+// server span, so the assertions can tell them apart.
+app.get("/manual", (req, res, next) => {
+  // Root manual span. OBI re-anchors it onto the in-flight request context,
+  // i.e. it becomes a child of OBI's automatic "processing" sub-span.
+  tracer.startActiveSpan("checkout", (checkout) => {
+    checkout.setAttribute("cart.items", 3);
+
+    // Plain (non-active) child of checkout.
+    const validate = tracer.startSpan("validate-cart");
+    validate.setAttribute("valid", true);
+    validate.end();
+
+    // Nested active span, so its own children nest under it.
+    tracer.startActiveSpan("charge-card", (charge) => {
+      charge.setAttribute("amount.cents", 4999);
+      charge.setStatus({ code: SpanStatusCode.ERROR, message: "card declined" });
+
+      const ledger = tracer.startSpan("ledger-write");
+      ledger.setAttribute("account", "acct-1");
+      ledger.updateName("ledger-commit");
+      ledger.end();
+
+      charge.end();
+    });
+
+    checkout.end();
+    res.sendStatus(200);
+  });
+});
+
+// Background manual spans, deliberately created OUTSIDE any request context:
+// the interval callback runs with no request in its async context. If one
+// fires while a request is still in flight, the kernel-side context map must
+// have been cleared (fdextractor's no-request signal) so the span is NOT
+// re-anchored into that request's trace. unref() keeps the timer from holding
+// the process open.
+setInterval(() => {
+  tracer.startSpan("bg-tick").end();
+}, 100).unref();
+
+// A slow handler that stays in flight long enough for several bg-tick spans
+// to fire in between its callbacks. The timer created INSIDE the handler runs
+// within the request's async context, so slow-op must still re-anchor onto
+// the request trace even after bg-tick callbacks cleared the kernel context.
+app.get("/manual-slow", (req, res) => {
+  setTimeout(() => {
+    tracer.startActiveSpan("slow-op", (s) => {
+      s.end();
+      res.sendStatus(200);
+    });
+  }, 300);
+});
 
 app.get("/greeting", (req, res, next) => {
   res.json("Hello!");

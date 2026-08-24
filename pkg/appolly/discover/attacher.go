@@ -22,7 +22,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
+	"go.opentelemetry.io/obi/pkg/internal/jvmtools"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
+	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -130,6 +132,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 					"exec", instr.Obj.FileInfo.CmdExePath(), "pid", instr.Obj.FileInfo.Pid())
 				switch instr.Type {
 				case EventCreated:
+					ta.resolveServiceMetadata(&instr.Obj)
 					ta.nodeInjector.NewExecutable(&instr.Obj)
 					if ta.javaInjector != nil {
 						if err := ta.javaInjector.NewExecutable(&instr.Obj); err != nil {
@@ -151,6 +154,21 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 			}
 		})
 	}, nil
+}
+
+func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
+	switch ie.Type {
+	case svc.InstrumentableJava:
+		err := jvmtools.ResolveServiceMetadata(ie.FileInfo)
+		if err != nil {
+			ta.log.Debug("unable to resolve Java service metadata", "pid", ie.FileInfo.Pid(), "error", err)
+		}
+	case svc.InstrumentableNodejs:
+		err := nodejstools.ResolveServiceMetadata(ie.FileInfo)
+		if err != nil {
+			ta.log.Debug("unable to resolve Node.js service metadata", "pid", ie.FileInfo.Pid(), "error", err)
+		}
+	}
 }
 
 //nolint:cyclop

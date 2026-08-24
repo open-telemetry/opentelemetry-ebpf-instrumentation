@@ -308,10 +308,8 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		// Pick the completed trace for the structural checks below.
 		trace = tq.Data[0]
 
-		// all checks inside the loop so partial Jaeger indexing retries
-		relayServerSpans := trace.FindByOperationName("/relay.Relay/Relay", "server")
-		relayClientSpans := trace.FindByOperationName("/relay.Relay/Relay", "client")
-
+		relayServerSpans := relaySpansByKind(trace, "server")
+		relayClientSpans := relaySpansByKind(trace, "client")
 		require.GreaterOrEqual(ct, len(relayServerSpans), 6,
 			"should have at least 6 gRPC server spans (one per gRPC relay hop)")
 		require.GreaterOrEqual(ct, len(relayClientSpans), 6,
@@ -328,7 +326,10 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 			{"go-terminal", "dotnet-relay"},
 		}
 		for _, hop := range grpcParentChain {
-			serverSpans := trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", hop.server, "server")
+			// A tracer can attach after a persistent connection has populated its
+			// HPACK table. Those spans safely use a wildcard operation, but their
+			// service, kind, trace, and parent relationships remain authoritative.
+			serverSpans := serverSpansByService(trace, hop.server)
 			require.NotEmpty(ct, serverSpans, "expected gRPC server span for %s", hop.server)
 			found := false
 			for _, ss := range serverSpans {
@@ -337,7 +338,9 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 					continue
 				}
 				proc, procOK := trace.Processes[parent.ProcessID]
-				if procOK && proc.ServiceName == hop.parent {
+				kind, kindOK := jaeger.FindIn(parent.Tags, "span.kind")
+				if procOK && proc.ServiceName == hop.parent && kindOK && kind.Value == "client" &&
+					isRelayOperation(parent.OperationName) {
 					found = true
 					break
 				}
@@ -347,8 +350,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		}
 
 		// Verify the HTTP bridge: go-grpc-to-http gRPC server → HTTP client.
-		grpcToHTTPServerSpans := trace.FindByOperationNameServiceAndKind(
-			"/relay.Relay/Relay", "go-grpc-to-http", "server")
+		grpcToHTTPServerSpans := serverSpansByService(trace, "go-grpc-to-http")
 		require.NotEmpty(ct, grpcToHTTPServerSpans)
 		foundBridge := false
 		for _, ss := range grpcToHTTPServerSpans {
@@ -363,7 +365,8 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 
 		// Verify the reverse: go-http-to-grpc HTTP server → gRPC client.
 		httpToGRPCClientSpans := trace.FindByOperationNameServiceAndKind(
-			"/relay.Relay/Relay", "go-http-to-grpc", "client")
+			"/relay.Relay/Relay", "go-http-to-grpc", "client",
+		)
 		require.NotEmpty(ct, httpToGRPCClientSpans)
 		foundReverse := false
 		for _, cs := range httpToGRPCClientSpans {
@@ -377,8 +380,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 			"go-http-to-grpc should have an intra-process HTTP server → gRPC client link")
 
 		// double-span check: go-terminal's chain to root must hold exactly 1 go-entry client span
-		terminalSpansCheck := trace.FindByOperationNameServiceAndKind(
-			"/relay.Relay/Relay", "go-terminal", "server")
+		terminalSpansCheck := serverSpansByService(trace, "go-terminal")
 		require.NotEmpty(ct, terminalSpansCheck,
 			"need go-terminal server span for double-span check")
 		chainCur := terminalSpansCheck[0]
@@ -425,18 +427,43 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 	t.Logf("trace %s: %d spans across %d services",
 		trace.TraceID, len(trace.Spans), len(traceServices(trace)))
 
-	terminalSpans := trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", "go-terminal", "server")
+	terminalSpans := serverSpansByService(trace, "go-terminal")
 	if len(terminalSpans) > 0 {
 		logChain(t, trace, terminalSpans[0], "complete chain")
 	}
 }
 
-// serverSpansByService dedupes by span_id — OBI can emit a generic op="*" twin with the same id
+func isRelayOperation(operation string) bool {
+	return operation == "/relay.Relay/Relay" || operation == "*"
+}
+
+func relaySpansByKind(trace jaeger.Trace, kind string) []jaeger.Span {
+	seen := map[string]bool{}
+	var matches []jaeger.Span
+	for _, s := range trace.Spans {
+		if !isRelayOperation(s.OperationName) {
+			continue
+		}
+		tag, ok := jaeger.FindIn(s.Tags, "span.kind")
+		if !ok || tag.Value != kind || seen[s.SpanID] {
+			continue
+		}
+		seen[s.SpanID] = true
+		matches = append(matches, s)
+	}
+	return matches
+}
+
+// serverSpansByService accepts the expected RPC name or its fail-closed wildcard and
+// dedupes by span_id because OBI can emit both forms for the same span.
 func serverSpansByService(trace jaeger.Trace, service string) []jaeger.Span {
 	seen := map[string]bool{}
 	var matches []jaeger.Span
 	for _, s := range trace.Spans {
 		if proc, ok := trace.Processes[s.ProcessID]; !ok || proc.ServiceName != service {
+			continue
+		}
+		if !isRelayOperation(s.OperationName) {
 			continue
 		}
 		tag, ok := jaeger.FindIn(s.Tags, "span.kind")

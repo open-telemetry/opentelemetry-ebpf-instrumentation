@@ -24,6 +24,7 @@
 #include <common/connection_info.h>
 #include <common/globals.h>
 #include <common/http_types.h>
+#include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/scratch_mem.h>
@@ -67,7 +68,7 @@ SCRATCH_MEM_TYPED(round_trip_client_data, http_client_data_t)
 // func (mux *ServeMux) ServeHTTP(w ResponseWriter, r *Request)
 // or other functions sharing the same signature (e.g http.Handler.ServeHTTP)
 SEC("uprobe/ServeHTTP")
-int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
@@ -160,7 +161,7 @@ done:
 }
 
 SEC("uprobe/findHandler")
-int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_findHandlerRet, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/findHandler ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -185,7 +186,7 @@ int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/muxSetMatch")
-int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_muxSetMatch, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/muxSetMatch ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -213,7 +214,7 @@ int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/ginGetValue")
-int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ginGetValueRet, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ginGetValue ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -264,7 +265,7 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/readRequest")
-int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_readRequestStart, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/readRequest ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -320,7 +321,7 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/readRequest")
-int obi_uprobe_readRequestReturns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_readRequestReturns, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/readRequest ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -350,7 +351,7 @@ int obi_uprobe_readRequestReturns(struct pt_regs *ctx) {
 
 // Handles finding the connection information for http2 servers in grpc
 SEC("uprobe/http2Server_processHeaders")
-int obi_uprobe_http2Server_processHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2Server_processHeaders, struct pt_regs *, ctx) {
     void *sc_ptr = GO_PARAM1(ctx);
     void *frame = GO_PARAM2(ctx);
     bpf_dbg_printk("=== uprobe/http2Server_processHeaders sc_ptr=%lx ===", sc_ptr);
@@ -404,7 +405,7 @@ static __always_inline unsigned char *match_header(
 }
 
 SEC("uprobe/readMimeHeader")
-int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_readMimeHeader, struct pt_regs *, ctx) {
     if (!g_bpf_loop_enabled) {
         return 0;
     }
@@ -488,7 +489,7 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/readContinuedLineSlice")
-int obi_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_readContinuedLineSliceReturns, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/readContinuedLineSlice ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -625,7 +626,7 @@ done:
 }
 
 SEC("uprobe/ServeHTTP_ret")
-int obi_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_ServeHTTPReturns, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP_ret ===");
     return serve_http_returns(ctx);
 }
@@ -736,14 +737,14 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/roundTrip")
-int obi_uprobe_roundTrip(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_roundTrip, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/roundTrip ===");
     roundTripStartHelper(ctx);
     return 0;
 }
 
 SEC("uprobe/roundTrip_return")
-int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/roundTrip_return ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -875,7 +876,7 @@ struct {
 } ongoing_write_subsets SEC(".maps");
 
 SEC("uprobe/header_writeSubset")
-int obi_uprobe_writeSubset(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writeSubset, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
     go_addr_key_t gw_key = {};
@@ -1112,18 +1113,18 @@ done:
 // out of the program loaded on pre-5.17 kernels, which would otherwise reject it
 // with "number of funcs in func_info doesn't match number of subprogs".
 SEC("uprobe/header_writeSubset_returns")
-int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writeSubset_returns, struct pt_regs *, ctx) {
     return on_writeSubset_returns(ctx, bpf_strstr_tp_loop);
 }
 
 SEC("uprobe/header_writeSubset_returns_legacy")
-int obi_uprobe_writeSubset_returns_legacy(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writeSubset_returns_legacy, struct pt_regs *, ctx) {
     return on_writeSubset_returns(ctx, bpf_strstr_tp_loop__legacy);
 }
 
 // HTTP 2.0 server support
 SEC("uprobe/http2ResponseWriterStateWriteHeader")
-int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2ResponseWriterStateWriteHeader, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2ResponseWriterStateWriteHeader ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -1163,7 +1164,7 @@ int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
 
 // HTTP 2.0 server support
 SEC("uprobe/http2serverConn_runHandler")
-int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2serverConn_runHandler ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -1286,7 +1287,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
 }
 
 SEC("uprobe/http2RoundTrip")
-int obi_uprobe_http2RoundTrip(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2RoundTrip, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/http2RoundTrip ===");
     // we use the usual start helper, just like for normal http calls, but we later save
     // more context, like the streamID
@@ -1298,7 +1299,7 @@ int obi_uprobe_http2RoundTrip(struct pt_regs *ctx) {
 // This runs on separate go routine called from the round tripper, but we need it
 // to establish the correct connection information and stream_id
 SEC("uprobe/http2WriteHeaders")
-int obi_uprobe_http2WriteHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2WriteHeaders, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *cc_ptr = GO_PARAM1(ctx);
     const u64 stream_id = (u64)GO_PARAM2(ctx);
@@ -1314,7 +1315,7 @@ int obi_uprobe_http2WriteHeaders(struct pt_regs *ctx) {
 // to establish the correct connection information and stream_id. The Go vendored
 // version has its own offsets.
 SEC("uprobe/http2WriteHeadersVendored")
-int obi_uprobe_http2WriteHeaders_vendored(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2WriteHeaders_vendored, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *cc_ptr = GO_PARAM1(ctx);
     const u64 stream_id = (u64)GO_PARAM2(ctx);
@@ -1405,7 +1406,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
 }
 
 SEC("uprobe/golang_http2FramerWriteHeaders")
-int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_golang_http2FramerWriteHeaders, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -1424,7 +1425,7 @@ int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/net_http2FramerWriteHeaders")
-int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_net_http2FramerWriteHeaders, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -1440,7 +1441,7 @@ int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/http2FramerWriteHeaders_returns")
-int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
@@ -1561,7 +1562,7 @@ done:
 }
 
 SEC("uprobe/connServe")
-int obi_uprobe_connServe(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_connServe, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/connServe goroutine_addr=%lx ===", goroutine_addr);
 
@@ -1575,7 +1576,7 @@ int obi_uprobe_connServe(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/jsonrpcReadRequestHeader")
-int obi_uprobe_jsonrpcReadRequestHeader(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_jsonrpcReadRequestHeader, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/jsonrpcReadRequestHeader ===");
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -1596,7 +1597,7 @@ int obi_uprobe_jsonrpcReadRequestHeader(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/jsonrpcReadRequestHeaderRet")
-int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_jsonrpcReadRequestHeaderReturns, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/jsonrpcReadRequestHeaderRet ===");
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -1641,7 +1642,7 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/connServeRet")
-int obi_uprobe_connServeRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_connServeRet, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/connServeRet ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
@@ -1657,7 +1658,7 @@ int obi_uprobe_connServeRet(struct pt_regs *ctx) {
 // Its receiver is the persistConn, which the netFD write that follows on this same
 // goroutine cannot see.
 SEC("uprobe/persistConnWriterWrite")
-int obi_uprobe_persistConnWriterWrite(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_persistConnWriterWrite, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     const u64 pc = (u64)GO_PARAM1(ctx);
 
@@ -1676,7 +1677,7 @@ int obi_uprobe_persistConnWriterWrite(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/persistConnRoundTrip")
-int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/persistConnRoundTrip ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     off_table_t *ot = get_offsets_table();

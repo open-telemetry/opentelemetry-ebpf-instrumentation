@@ -746,6 +746,7 @@ func migrationAlias(path string) bool {
 	}
 	for _, prefix := range []string{
 		"executable_path",
+		"filter.application",
 		"open_port",
 		"target_pids",
 		"network.enable",

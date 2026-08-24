@@ -14,6 +14,7 @@
 #include <maps/python_thread_state.h>
 
 #include <common/connection_info.h>
+#include <common/preempt_guard.h>
 #include <common/python_task.h>
 
 #include <generictracer/maps/pid_tid_to_conn.h>
@@ -81,7 +82,7 @@ static __always_inline int update_current_task(u64 id, u64 task) {
 }
 
 SEC("uprobe/_asyncio.so:task_step_legacy")
-int obi_uprobe_task_step_legacy(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_task_step_legacy, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -93,7 +94,7 @@ int obi_uprobe_task_step_legacy(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/_asyncio.so:task_step")
-int obi_uprobe_task_step(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_task_step, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -105,7 +106,7 @@ int obi_uprobe_task_step(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/_asyncio.so:task_step_ret")
-int obi_uprobe_task_step_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_task_step_ret, struct pt_regs *, ctx) {
     (void)ctx;
     const u64 id = bpf_get_current_pid_tgid();
 
@@ -131,7 +132,7 @@ int obi_uprobe_task_step_ret(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/libpython3.:context_run")
-int obi_uprobe_context_run(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_context_run, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
     if (!valid_pid(id)) {
         return 0;
@@ -166,7 +167,7 @@ int obi_uprobe_context_run(struct pt_regs *ctx) {
 }
 
 SEC("uretprobe/libpython3.:context_run")
-int obi_uretprobe_context_run(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uretprobe_context_run, struct pt_regs *, ctx) {
     (void)ctx;
     const u64 id = bpf_get_current_pid_tgid();
     if (!valid_pid(id)) {
@@ -199,7 +200,7 @@ int obi_uretprobe_context_run(struct pt_regs *ctx) {
 //   1. Inside _asyncio_Task___init___impl when context=Py_None (task creation)
 //   2. In asyncio.to_thread via contextvars.copy_context() (thread dispatch)
 SEC("uprobe/libpython3.:PyContext_CopyCurrent")
-int obi_uprobe_copy_context(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_copy_context, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -234,7 +235,7 @@ int obi_uprobe_copy_context(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/_asyncio.so:_asyncio_Task___init__")
-int obi_uprobe_task_init(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -292,7 +293,7 @@ int obi_uprobe_task_init(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/_asyncio.so:_asyncio_Task___init___ret")
-int obi_uprobe_task_init_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_task_init_ret, struct pt_regs *, ctx) {
     (void)ctx;
     const u64 id = bpf_get_current_pid_tgid();
 

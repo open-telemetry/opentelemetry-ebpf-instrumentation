@@ -45,6 +45,21 @@ func TestEnabledShouldReportGoRuntimeHistograms(t *testing.T) {
 	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 }
 
+func TestEnabledShouldReportNodejsRuntimeMetrics(t *testing.T) {
+	snapshot := RuntimeMetricSnapshot{
+		Service: svc.Attrs{
+			Features: export.FeatureApplicationRuntime,
+		},
+		Nodejs: &NodejsRuntimeMetricSnapshot{},
+	}
+
+	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
+
+	snapshot.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+}
+
 func TestEnabledShouldReportJVMRuntimeMetrics(t *testing.T) {
 	snapshot := RuntimeMetricSnapshot{
 		Service: svc.Attrs{

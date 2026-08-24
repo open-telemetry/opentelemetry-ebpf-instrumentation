@@ -25,6 +25,7 @@
 #include <common/go_addr_key.h>
 #include <common/http_types.h>
 #include <common/lw_thread.h>
+#include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/tp_info.h>
 #include <common/trace_helpers.h>
@@ -53,7 +54,7 @@
 #include <shared/obi_ctx.h>
 
 SEC("uprobe/netFdRead")
-int obi_uprobe_netFdRead(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_netFdRead, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk(
         "=== uprobe/netFdRead goroutine_addr=%lx, fd=%llx === ", goroutine_addr, GO_PARAM1(ctx));
@@ -85,13 +86,13 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
         return 0;
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_continue_netfd_read);
+    preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_netfd_read);
     return 0;
 }
 
 // k_tail_continue_netfd_read
 SEC("uprobe/netFdRead_cont")
-int obi_continue_netfd_read(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_continue_netfd_read, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/netFdRead_cont goroutine_addr=%lx ===", goroutine_addr);
 
@@ -136,7 +137,7 @@ int obi_continue_netfd_read(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/netFdReadRet")
-int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_netFdReadRet, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/proc netFD read returns goroutine %lx === ", goroutine_addr);
 
@@ -148,13 +149,12 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
     net_args_t *net_ptr = bpf_map_lookup_elem(&ongoing_fd_reads, &g_key);
 
     if (!net_ptr || !net_ptr->byte_ptr || net_ptr->skip) {
-        if (http_large_buffer_skip(len)) {
-            return 0;
-        } else if (net_ptr && net_ptr->byte_ptr) {
+        if (!http_large_buffer_skip(len) && net_ptr && net_ptr->byte_ptr) {
             send_http_large_buffers_if_needed(
                 &g_key, &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
         }
 
+        bpf_map_delete_elem(&ongoing_fd_reads, &g_key);
         return 0;
     }
 
@@ -190,7 +190,7 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/netFdWrite")
-int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_netFdWrite, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -254,7 +254,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/netFdClose")
-int obi_uprobe_netFdClose(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_netFdClose, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/proc netFD close goroutine %lx === ", GOROUTINE_PTR(ctx));
 
     void *fd_ptr = GO_PARAM1(ctx);

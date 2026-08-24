@@ -246,6 +246,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.BufferSizes.MSSQL = 103
 	cfg.EBPF.BufferSizes.Kafka = 104
 	cfg.EBPF.BufferSizes.TCP = 105
+	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
@@ -382,6 +383,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 202, value(t, ext.Capture.Instrumentation, "sql", "mssql", "prepared_statements_cache_size"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "db_cache", "enabled"))
 	require.Equal(t, 204, value(t, ext.Capture.Instrumentation, "kafka", "topic_uuid_cache_size"))
+	require.Equal(t, uint32(106), value(t, ext.Capture.Instrumentation, "aerospike", "buffer_size"))
 	require.Equal(t, config.CudaModeOn, value(t, ext.Capture.Instrumentation, "gpu", "enabled_mode"))
 
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "go", "enabled"))
@@ -479,6 +481,45 @@ func TestRuntimeToV2FallsBackOnUnsupportedLogFormats(t *testing.T) {
 
 	require.Equal(t, schema.LogFormatText, value(t, ext.Daemon, "logging", "format"))
 	require.Equal(t, schema.ConfigFormatUnset, value(t, ext.Daemon, "logging", "config_format"))
+}
+
+func TestRuntimeToV2ApplicationFiltersByInstrumentation(t *testing.T) {
+	t.Parallel()
+
+	statusCode := 500
+	cfg := defaultRuntimeConfig()
+	cfg.Filters.Application = nil
+	cfg.Filters.ApplicationByInstrumentation = filter.InstrumentationAttributeFamilyConfig{
+		instrumentations.InstrumentationHTTP: {
+			Traces: filter.AttributeFamilyConfig{
+				"http.status_code": {Equals: &statusCode},
+			},
+		},
+		instrumentations.InstrumentationSQL: {
+			Metrics: filter.AttributeFamilyConfig{
+				"service.name": {Match: "checkout-*"},
+			},
+		},
+	}
+
+	_, ext := RuntimeToV2(&cfg)
+
+	require.Equal(t, schema.SignalFilters{
+		Traces: schema.AttributeFilters{
+			"http.status_code": {Equals: &statusCode},
+		},
+		Metrics: schema.AttributeFilters{},
+	}, ext.Capture.Instrumentation.HTTP.Filters)
+	require.Equal(t, schema.SignalFilters{
+		Traces: schema.AttributeFilters{},
+		Metrics: schema.AttributeFilters{
+			"service.name": {Match: "checkout-*"},
+		},
+	}, ext.Capture.Instrumentation.SQL.Filters)
+	require.Equal(t, schema.SignalFilters{
+		Traces:  schema.AttributeFilters{},
+		Metrics: schema.AttributeFilters{},
+	}, ext.Capture.Instrumentation.GRPC.Filters)
 }
 
 func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {

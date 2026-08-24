@@ -7,8 +7,10 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/algorithm.h>
+#include <common/preempt_guard.h>
 
 #include <generictracer/ssl_defs.h>
+#include <generictracer/tls_prefix.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -25,7 +27,7 @@ static __always_inline int ssl_size_to_int(size_t size) {
 // SSL_read_ex sets an argument pointer with the number of bytes read, while SSL_read returns
 // the number of bytes read.
 SEC("uprobe/libssl.so:SSL_read")
-int BPF_UPROBE(obi_uprobe_ssl_read, void *ssl, const void *buf, int num) {
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_read, void *ssl, const void *buf, int num) {
     (void)ctx;
     (void)num;
 
@@ -57,7 +59,7 @@ int BPF_UPROBE(obi_uprobe_ssl_read, void *ssl, const void *buf, int num) {
 }
 
 SEC("uretprobe/libssl.so:SSL_read")
-int BPF_URETPROBE(obi_uretprobe_ssl_read, int ret) {
+int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_read, int ret) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -76,11 +78,11 @@ int BPF_URETPROBE(obi_uretprobe_ssl_read, int ret) {
 }
 
 SEC("uprobe/libssl.so:SSL_read_ex")
-int BPF_UPROBE(obi_uprobe_ssl_read_ex,
-               void *ssl,
-               const void *buf,
-               int num,
-               size_t *readbytes) { //NOLINT(readability-non-const-parameter)
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_read_ex,
+                       void *ssl,
+                       const void *buf,
+                       int num,
+                       size_t *readbytes) { //NOLINT(readability-non-const-parameter)
     (void)ctx;
     (void)num;
 
@@ -113,7 +115,7 @@ int BPF_UPROBE(obi_uprobe_ssl_read_ex,
 }
 
 SEC("uretprobe/libssl.so:SSL_read_ex")
-int BPF_URETPROBE(obi_uretprobe_ssl_read_ex, int ret) {
+int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_read_ex, int ret) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -149,7 +151,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_read_ex, int ret) {
 // SSL_write_ex sets an argument pointer with the number of bytes written, while SSL_write returns
 // the number of bytes written.
 SEC("uprobe/libssl.so:SSL_write")
-int BPF_UPROBE(obi_uprobe_ssl_write, void *ssl, const void *buf, int num) {
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_write, void *ssl, const void *buf, int num) {
     (void)ctx;
     (void)num;
 
@@ -172,7 +174,7 @@ int BPF_UPROBE(obi_uprobe_ssl_write, void *ssl, const void *buf, int num) {
 }
 
 SEC("uretprobe/libssl.so:SSL_write")
-int BPF_URETPROBE(obi_uretprobe_ssl_write, int ret) {
+int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_write, int ret) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -195,11 +197,11 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write, int ret) {
 }
 
 SEC("uprobe/libssl.so:SSL_write_ex")
-int BPF_UPROBE(obi_uprobe_ssl_write_ex,
-               void *ssl,
-               const void *buf,
-               size_t num,
-               size_t *written) { //NOLINT(readability-non-const-parameter)
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_write_ex,
+                       void *ssl,
+                       const void *buf,
+                       size_t num,
+                       size_t *written) { //NOLINT(readability-non-const-parameter)
     (void)ctx;
     (void)num;
 
@@ -223,12 +225,12 @@ int BPF_UPROBE(obi_uprobe_ssl_write_ex,
 }
 
 SEC("uprobe/libssl.so:SSL_write_ex2")
-int BPF_UPROBE(obi_uprobe_ssl_write_ex2,
-               void *ssl,
-               const void *buf,
-               size_t num,
-               u64 flags,
-               size_t *written) { //NOLINT(readability-non-const-parameter)
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_write_ex2,
+                       void *ssl,
+                       const void *buf,
+                       size_t num,
+                       u64 flags,
+                       size_t *written) { //NOLINT(readability-non-const-parameter)
     (void)ctx;
     (void)num;
     (void)flags;
@@ -253,7 +255,7 @@ int BPF_UPROBE(obi_uprobe_ssl_write_ex2,
 }
 
 SEC("uretprobe/libssl.so:SSL_write_ex")
-int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
+int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_write_ex, int ret) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -282,7 +284,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
 }
 
 SEC("uretprobe/libssl.so:SSL_write_ex2")
-int BPF_URETPROBE(obi_uretprobe_ssl_write_ex2, int ret) {
+int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_write_ex2, int ret) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -311,7 +313,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write_ex2, int ret) {
 }
 
 SEC("uprobe/libssl.so:SSL_shutdown")
-int BPF_UPROBE(obi_uprobe_ssl_shutdown, void *s) {
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_shutdown, void *s) {
     (void)ctx;
 
     const u64 id = bpf_get_current_pid_tgid();
@@ -322,16 +324,78 @@ int BPF_UPROBE(obi_uprobe_ssl_shutdown, void *s) {
 
     bpf_dbg_printk("=== SSL_shutdown id=%d ssl=%llx ===", id, s);
 
-    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &s);
-    if (s_conn) {
-        finish_possible_delayed_tls_http_request(&s_conn->p_conn);
-        bpf_map_delete_elem(&active_ssl_connections, &s_conn->p_conn);
+    ssl_release_connection_state(id, s);
+    ssl_release_thread_state(id);
+
+    return 0;
+}
+
+// Records which BIOs this SSL reads from and writes to.
+//
+// CPython (_ssl.c) and Node (crypto_tls.cc) both call this when building the
+// connection. It names the connection's own BIOs, separating them from
+// OpenSSL's internal staging BIOs, and identifies the SSL behind a BIO level
+// write during the handshake, while SSL_write is off the stack.
+SEC("uprobe/libssl.so:SSL_set_bio")
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_set_bio, void *ssl, void *rbio, void *wbio) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
     }
 
-    bpf_map_delete_elem(&ssl_to_conn, &s);
-    bpf_map_delete_elem(&ssl_to_pid_tid, &s);
+    // Split in two: bpf_trace_printk takes at most three arguments, and clang
+    // silently switches to bpf_trace_vprintk beyond that, which needs 5.16.
+    bpf_dbg_printk("=== SSL_set_bio id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("SSL_set_bio rbio=%llx wbio=%llx", rbio, wbio);
 
-    bpf_map_delete_elem(&pid_tid_to_conn, &id);
+    ssl_bios_track(pid_from_pid_tgid(id), ssl, rbio, wbio);
+
+    return 0;
+}
+
+// Drops the BIO associations of an SSL that is going away.
+//
+// Allocators reuse BIO pointers, and a reused pointer may next serve as an
+// internal BIO that SSL_set_bio never names.
+SEC("uprobe/libssl.so:SSL_free")
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_free, void *ssl) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== SSL_free id=%d ssl=%llx ===", id, ssl);
+
+    // Node can free an SSL without shutting it down first, so this is the
+    // reliable release point. Only SSL-keyed state goes here: this thread may
+    // still be serving other connections through pid_tid_to_conn.
+    ssl_release_connection_state(id, ssl);
+
+    return 0;
+}
+
+// The seam where ciphertext becomes observable for every TLS stack.
+//
+// OpenSSL writes a finished record out through the BIO the same way for a
+// socket BIO and a memory BIO, whatever the application does with the buffer
+// afterwards. It is a libcrypto symbol.
+SEC("uprobe/libcrypto.so:BIO_write")
+int BPF_UPROBE_GUARDED(obi_uprobe_bio_write, void *bio, const void *buf, int len) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    tls_prefix_register_egress(bio, buf, len);
 
     return 0;
 }

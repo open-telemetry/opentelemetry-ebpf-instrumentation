@@ -1,0 +1,4 @@
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://localhost:4318

@@ -96,17 +96,16 @@ typedef struct http2_grpc_request {
     u8 flags; // Must be first
     u8 ssl;
     u8 type;
-    u8 _pad0[1];
+    enum parent_status parent_status;
     connection_info_t conn_info;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     unsigned char data[k_kprobes_http2_buf_size];
     unsigned char ret_data[k_kprobes_http2_ret_buf_size];
     int len;
-    // per-connection ordinal; a gap tells user space an event was lost.
-    // 0 = unnumbered, k_h2_seq_unreliable = numbering unavailable
-    u32 seq;
-    u32 _pad1;
+    u32 stream_id;
+    u8 hpack_flags;
+    u8 _pad1[3];
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
     pid_info pid;

@@ -38,8 +38,11 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	for _, span := range testCase.Spans {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
+			// server_port is present despite being the redis default port because
+			// the suite config explicitly includes all attributes (include: ["*"])
 			results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
 				`db_operation_name="` + span.Name + `",` +
+				`server_port="6379",` +
 				`service_namespace="` + namespace + `"}`)
 			require.NoError(ct, err, "failed to query prometheus for %s", span.Name)
 			enoughPromResults(ct, results)

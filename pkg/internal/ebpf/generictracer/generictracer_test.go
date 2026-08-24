@@ -318,6 +318,14 @@ func TestRawJVMEventLayoutsUseGeneratedBPFStructs(t *testing.T) {
 	assert.Equal(t, 200, int(unsafe.Sizeof(BpfJvmMemPoolGcEvent{})))
 }
 
+// Ties the clang-compiled layout of struct nodejs_eventloop_event (via the
+// bpf2go-generated type) to the size the hand-written mirror in
+// pkg/ebpf/common assumes; TestNodejsEventLoopRawABI pins the same number on
+// the Go side.
+func TestRawNodejsEventLayoutUsesGeneratedBPFStruct(t *testing.T) {
+	assert.Equal(t, 120, int(unsafe.Sizeof(BpfNodejsEventloopEvent{})))
+}
+
 func rawMemoryPoolPayload(t *testing.T, raw BpfJvmMemPoolGcEvent) []byte {
 	t.Helper()
 

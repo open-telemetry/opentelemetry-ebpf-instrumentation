@@ -13,6 +13,7 @@
 #include <logger/bpf_dbg.h>
 
 volatile const u64 max_transaction_time;
+volatile const u32 high_request_volume;
 
 // Traceparent format: Traceparent: ver (2 chars) - trace_id (32 chars) - span_id (16 chars) - flags (2 chars)
 static __always_inline unsigned char *extract_trace_id(unsigned char *tp_start) {
@@ -46,6 +47,16 @@ static __always_inline u8 should_be_in_same_transaction(const tp_info_t *parent_
     const u64 diff = child_tp->ts - parent_tp->ts;
 
     return diff < max_transaction_time;
+}
+
+// Tells apart the two reasons should_be_in_same_transaction() rejects a
+// candidate parent. A parent left behind by a transaction that ended long ago
+// is stale and the caller retires it. A parent that started after the child
+// did is simply not this child's parent: it belongs to a transaction still in
+// flight, and retiring it would drop the trace of the requests it is serving.
+static __always_inline u8 parent_trace_is_stale(const tp_info_t *parent_tp,
+                                                const tp_info_t *child_tp) {
+    return child_tp->ts >= parent_tp->ts;
 }
 
 static __always_inline void init_new_trace(tp_info_t *tp) {

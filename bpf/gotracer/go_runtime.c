@@ -18,6 +18,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/common.h>
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
 
@@ -605,7 +606,7 @@ struct {
 } newproc1 SEC(".maps");
 
 SEC("uprobe/go_runtime_metrics")
-int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_go_runtime_metrics, struct pt_regs *, ctx) {
     (void)ctx;
 
     pid_info key = {};
@@ -674,7 +675,7 @@ int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/go_runtime_gc_goal")
-int obi_uprobe_go_runtime_gc_goal(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_go_runtime_gc_goal, struct pt_regs *, ctx) {
     pid_info key = {};
     task_pid(&key);
 
@@ -689,7 +690,7 @@ int obi_uprobe_go_runtime_gc_goal(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/runtime_newproc1")
-int obi_uprobe_runtime_newproc1(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_newproc1, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/runtime_newproc1 ===");
     void *creator_goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);
@@ -707,7 +708,7 @@ int obi_uprobe_runtime_newproc1(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/runtime_newproc1_return")
-int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_newproc1_return, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/runtime_newproc1_return ===");
     void *creator_goroutine_addr = GOROUTINE_PTR(ctx);
     const u64 pid_tid = bpf_get_current_pid_tgid();
@@ -1178,32 +1179,32 @@ done:
 }
 
 SEC("uprobe/runtime_chansend1")
-int obi_uprobe_runtime_chansend1(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_chansend1, struct pt_regs *, ctx) {
     return channel_send_start(ctx);
 }
 
 SEC("uprobe/runtime_chansend1_return")
-int obi_uprobe_runtime_chansend1_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_chansend1_return, struct pt_regs *, ctx) {
     return channel_send_return(ctx);
 }
 
 SEC("uprobe/runtime_chanrecv1")
-int obi_uprobe_runtime_chanrecv1(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_chanrecv1, struct pt_regs *, ctx) {
     return channel_recv_start(ctx);
 }
 
 SEC("uprobe/runtime_chanrecv1_return")
-int obi_uprobe_runtime_chanrecv1_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_chanrecv1_return, struct pt_regs *, ctx) {
     return channel_recv_return(ctx);
 }
 
 SEC("uprobe/runtime_chanrecv2")
-int obi_uprobe_runtime_chanrecv2(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_chanrecv2, struct pt_regs *, ctx) {
     return channel_recv_start(ctx);
 }
 
 SEC("uprobe/runtime_chanrecv2_return")
-int obi_uprobe_runtime_chanrecv2_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_chanrecv2_return, struct pt_regs *, ctx) {
     return channel_recv_return(ctx);
 }
 
@@ -1265,7 +1266,7 @@ enum offsets : u8 {
 };
 
 SEC("uprobe/runtime.mstart1")
-int obi_uprobe_runtime_mstart1(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_mstart1, struct pt_regs *, ctx) {
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     void *g = (void *)GOROUTINE_PTR(ctx);
@@ -1281,7 +1282,7 @@ int obi_uprobe_runtime_mstart1(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/runtime.mexit")
-int obi_uprobe_runtime_mexit(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_mexit, struct pt_regs *, ctx) {
     void *g = (void *)GOROUTINE_PTR(ctx);
     void *m = NULL;
 
@@ -1296,7 +1297,7 @@ int obi_uprobe_runtime_mexit(struct pt_regs *ctx) {
 
 // gp *g, oldval, newval uint32
 SEC("uprobe/runtime.casgstatus")
-int obi_uprobe_runtime_casgstatus(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     void *g = (void *)GO_PARAM1(ctx);

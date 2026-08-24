@@ -412,41 +412,18 @@ func CodeToStatusCode(code string) ptrace.StatusCode {
 
 func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span) bool {
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeHTTPClient:
-		return is.HTTPEnabled()
-	case request.EventTypeGRPC, request.EventTypeGRPCClient:
-		return is.GRPCEnabled()
-	case request.EventTypeSQLClient, request.EventTypeSQLServer:
-		return is.SQLEnabled()
-	case request.EventTypeRedisClient, request.EventTypeRedisServer:
-		return is.RedisEnabled()
-	case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
-		return is.KafkaEnabled()
-	case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
-		return is.MQTTEnabled()
-	case request.EventTypeNATSClient, request.EventTypeNATSServer:
-		return is.NATSEnabled()
-	case request.EventTypeAMQPClient:
-		return is.AMQPEnabled()
-	case request.EventTypeSunRPCClient, request.EventTypeSunRPCServer:
-		return is.SunRPCEnabled()
-	case request.EventTypeMongoClient:
-		return is.MongoEnabled()
-	case request.EventTypeManualSpan:
+	case request.EventTypeManualSpan, request.EventTypeFailedConnect:
 		return true
-	case request.EventTypeFailedConnect:
-		return true
-	case request.EventTypeDNS:
-		return is.DNSEnabled()
-	case request.EventTypeCouchbaseClient:
-		return is.CouchbaseEnabled()
-	case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
-		return is.MemcachedEnabled()
-	case request.EventTypeAerospikeClient:
-		return is.AerospikeEnabled()
+	case request.EventTypeGPUCudaKernelLaunch,
+		request.EventTypeGPUCudaGraphLaunch,
+		request.EventTypeGPUCudaMalloc,
+		request.EventTypeGPUCudaMemcpy:
+		// GPU events currently feed metrics only.
+		return false
 	}
 
-	return false
+	instrumentation, ok := span.Type.Instrumentation()
+	return ok && is.Enabled(instrumentation)
 }
 
 var (
@@ -555,6 +532,16 @@ func appendGenAITokenCount(attrs []attribute.KeyValue, key attribute.Key, count 
 		return append(attrs, key.Int(tokens))
 	}
 	return attrs
+}
+
+func messagingOperationAttrs(method string) []attribute.KeyValue {
+	if method == "" {
+		return nil
+	}
+	return []attribute.KeyValue{
+		request.MessagingOperationName(method),
+		request.MessagingOperationType(request.MessagingOperationTypeOf(method)),
+	}
 }
 
 //nolint:cyclop
@@ -1421,11 +1408,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
 		}
-		// messaging.operation.type is a semconv enum: omit it instead of
-		// emitting an empty (invalid) variant when the operation is unknown.
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeKafkaClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1445,9 +1428,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeMQTTClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1461,9 +1442,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingClientID(span.Statement),
 			semconv.MessagingMessageEnvelopeSize(int(span.ContentLength)),
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeNATSClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1474,9 +1453,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 			messagingSystemAMQP,
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
 	case request.EventTypeSunRPCServer, request.EventTypeSunRPCClient:
@@ -1703,8 +1680,8 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient, request.EventTypeMQTTClient, request.EventTypeNATSClient, request.EventTypeAMQPClient:
-		switch span.Method {
-		case request.MessagingPublish:
+		switch request.MessagingOperationTypeOf(span.Method) {
+		case request.MessagingSend:
 			return trace2.SpanKindProducer
 		case request.MessagingProcess:
 			return trace2.SpanKindConsumer

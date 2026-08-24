@@ -532,6 +532,18 @@
           ],
           "x-env-var": "OTEL_EBPF_DISCOVERY_POLL_INTERVAL"
         },
+        "process_context_poll_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Controls how often OBI re-reads the OTEL_CTX mapping of each discovered process.  Polling handles both SDKs that publish the mapping after startup and context updates published later. 0 disables polling; only the initial enrichment on process creation runs.",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_PROCESS_CONTEXT_POLL_INTERVAL"
+        },
         "route_harvester_advanced": {
           "$ref": "#/$defs/RouteHarvestingConfig"
         },
@@ -563,6 +575,11 @@
     },
     "EBPFBufferSizes": {
       "properties": {
+        "aerospike": {
+          "type": "integer",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE"
+        },
         "http": {
           "type": "integer",
           "default": 0,
@@ -909,26 +926,37 @@
     },
     "Features": {
       "items": {
-        "type": "string",
-        "enum": [
-          "*",
-          "all",
-          "application",
-          "application_host",
-          "application_runtime",
-          "application_service_graph",
-          "application_span",
-          "application_span_otel",
-          "application_span_sizes",
-          "ebpf",
-          "network",
-          "network_flow_packets",
-          "network_inter_zone",
-          "stats",
-          "stats_tcp_failed_connections",
-          "stats_tcp_io",
-          "stats_tcp_retransmits",
-          "stats_tcp_rtt"
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "*",
+              "all",
+              "application",
+              "application_host",
+              "application_runtime",
+              "application_service_graph",
+              "application_span_otel",
+              "ebpf",
+              "network",
+              "network_flow_packets",
+              "network_inter_zone",
+              "stats",
+              "stats_tcp_failed_connections",
+              "stats_tcp_io",
+              "stats_tcp_retransmits",
+              "stats_tcp_rtt"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "application_span",
+              "application_span_sizes"
+            ],
+            "description": "Deprecated feature names, kept for backwards compatibility: application_span (use application_span_otel), application_span_sizes (no direct replacement).",
+            "deprecated": true
+          }
         ]
       },
       "type": "array",
@@ -2219,8 +2247,15 @@
       "properties": {
         "enabled": {
           "type": "boolean",
+          "description": "Turns on the Node.js injector agent, used for trace-context propagation and runtime metrics. Setting it to false disables the injection entirely, runtime metrics included.",
           "default": true,
           "x-env-var": "OTEL_EBPF_NODEJS_ENABLED"
+        },
+        "manual_spans": {
+          "type": "boolean",
+          "description": "Injects the span bridge (spanbridge.js) into Node.js processes, capturing spans the application creates through the OpenTelemetry API when no OpenTelemetry SDK is registered.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_NODEJS_MANUAL_SPANS"
         }
       },
       "type": "object"

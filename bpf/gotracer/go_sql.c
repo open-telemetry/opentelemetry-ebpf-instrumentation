@@ -21,6 +21,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
@@ -370,7 +371,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
 }
 
 SEC("uprobe/queryDC")
-int obi_uprobe_queryDC(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_queryDC, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/queryDC ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -384,7 +385,7 @@ int obi_uprobe_queryDC(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/pgx_Query")
-int obi_uprobe_pgx_Query(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_pgx_Query, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/pgx_Query ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_add=%lx", goroutine_addr);
@@ -398,7 +399,7 @@ int obi_uprobe_pgx_Query(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/pgx_Exec")
-int obi_uprobe_pgx_Exec(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_pgx_Exec, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/pgx_Exec ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -412,7 +413,7 @@ int obi_uprobe_pgx_Exec(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/execDC")
-int obi_uprobe_execDC(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_execDC, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/execDC ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -426,7 +427,7 @@ int obi_uprobe_execDC(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/queryDC")
-int obi_uprobe_queryReturn(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_queryReturn, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/queryDC ret ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -437,7 +438,7 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/pgx_Query_return")
-int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_pgx_Query_return, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/pgx_Query_return ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -448,7 +449,7 @@ int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/pq_network_return")
-int obi_uprobe_pq_network_return(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_pq_network_return, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/pq_network_return ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);

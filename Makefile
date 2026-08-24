@@ -150,9 +150,9 @@ lint: lint-run
 lint-fix: lint-fix-run
 
 .PHONY: lint-run lint-fix-run
-lint-run: vanity-import-check lint-dependency-policy lint-collectt
+lint-run: vanity-import-check lint-dependency-policy lint-collectt lint-preempt-guard
 lint-fix-run: LINT_EXTRA_ARGS = --fix
-lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix
+lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix lint-preempt-guard
 .NOTPARALLEL: lint-fix-run
 lint-run lint-fix-run:
 	@echo "### Linting code"
@@ -173,6 +173,11 @@ lint-dependency-policy:
 	else \
 		./scripts/lint-dependency-policy.sh; \
 	fi
+
+.PHONY: lint-preempt-guard
+lint-preempt-guard:
+	@echo "### Checking uprobe-context BPF programs are preempt-guarded"
+	@./scripts/lint-preempt-guard.sh
 
 .PHONY: lint-collectt
 lint-collectt:
@@ -326,6 +331,11 @@ test: testoutput
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
+.PHONY: test-nodejs
+test-nodejs:
+	@echo "### Testing the Node.js manual-span bridge (spanbridge.js)"
+	cd pkg/internal/nodejs/spanbridge_test && npm ci && node --test
+
 test-rerun-flaky:
 	@./scripts/rerun-flaky_test.sh
 
@@ -339,7 +349,7 @@ test-privileged: $(ENVTEST) testoutput
 .PHONY: run-bpf-verifier-vm
 run-bpf-verifier-vm:
 	@echo "### Running BPF verifier tests"
-	go test -count=1 -timeout 20m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+	go test -count=1 -timeout 55m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated: testoutput

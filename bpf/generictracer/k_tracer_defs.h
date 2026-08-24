@@ -9,6 +9,7 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/lw_thread.h>
+#include <common/preempt_guard.h>
 #include <common/protocol_http_helpers.h>
 
 #include <generictracer/k_tracer_tailcall.h>
@@ -90,7 +91,7 @@ static __always_inline void handle_buf_with_connection(void *ctx,
         return;
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
+    preempt_guarded_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
 }
 
 static __always_inline void handle_light_weight_thread_buf(void *ctx,
@@ -108,7 +109,7 @@ static __always_inline void handle_light_weight_thread_buf(void *ctx,
         return;
     }
 
-    bpf_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
+    preempt_guarded_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
 }
 
 #define BUF_COPY_BLOCK_SIZE 16

@@ -170,7 +170,12 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		EnabledMode: cfg.EBPF.InstrumentCuda,
 	}
 
-	aerospikeInstrumentation := schema.AerospikeInstrumentation(protocols[protocolAerospike])
+	aerospike := protocols[protocolAerospike]
+	aerospikeInstrumentation := schema.AerospikeInstrumentation{
+		Enabled:    aerospike.Enabled,
+		Filters:    aerospike.Filters,
+		BufferSize: cfg.EBPF.BufferSizes.Aerospike,
+	}
 
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
@@ -195,7 +200,7 @@ func protocolInstrumentation(
 ) schema.ProtocolInstrumentation {
 	return schema.ProtocolInstrumentation{
 		Enabled: protocolEnabled(tracesInstrumentations, metricsInstrumentations, appMetricsEnabled, mapping),
-		Filters: signalFilters(cfg.Filters.Application),
+		Filters: applicationSignalFilters(cfg.Filters, mapping.instr),
 	}
 }
 

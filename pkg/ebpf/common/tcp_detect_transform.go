@@ -60,14 +60,17 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	}
 
 	if span, ignore, matched, err := dispatchKernelAssignedProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
+		span.ParentConditional = event.ParentStatus == parentStatusConditional
 		return span, ignore, err
 	}
 
 	if span, ignore, matched, err := detectGenericProtocol(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
+		span.ParentConditional = event.ParentStatus == parentStatusConditional
 		return span, ignore, err
 	}
 
 	if span, ignore, matched, err := detectHeuristicProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
+		span.ParentConditional = event.ParentStatus == parentStatusConditional
 		return span, ignore, err
 	}
 

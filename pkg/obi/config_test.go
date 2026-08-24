@@ -190,12 +190,13 @@ discovery:
 				MaxSize: 1000,
 			},
 			BufferSizes: config.EBPFBufferSizes{
-				HTTP:     0,
-				MySQL:    0,
-				Postgres: 0,
-				Kafka:    0,
-				MSSQL:    0,
-				TCP:      0,
+				HTTP:      0,
+				MySQL:     0,
+				Postgres:  0,
+				Kafka:     0,
+				MSSQL:     0,
+				TCP:       0,
+				Aerospike: 0,
 			},
 			MySQLPreparedStatementsCacheSize:    1024,
 			PostgresPreparedStatementsCacheSize: 1024,
@@ -367,6 +368,7 @@ discovery:
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
 			MinProcessAge:                   5 * time.Second,
+			ProcessContextPollInterval:      time.Second,
 			DefaultExcludeServices: services.RegexDefinitionCriteria{
 				services.RegexSelector{
 					Path: services.NewRegexp("(?:^|/)(obi$|otelcol[^/]*$)"),
@@ -597,6 +599,190 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
+func TestConfigValidate_DeprecatedMetricsFeatureWarning(t *testing.T) {
+	captureWarnings := func(t *testing.T, validate func(t *testing.T)) string {
+		t.Helper()
+		var logs bytes.Buffer
+		restore := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		t.Cleanup(func() { slog.SetDefault(restore) })
+
+		validate(t)
+		return logs.String()
+	}
+
+	validateWithFeatures := func(t *testing.T, features string) string {
+		t.Helper()
+		return captureWarnings(t, func(t *testing.T) {
+			require.NoError(t, loadConfig(t, envMap{
+				"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234",
+				"OTEL_EBPF_EXECUTABLE_PATH":           "foo",
+				"OTEL_EBPF_METRICS_FEATURES":          features,
+			}).Validate())
+		})
+	}
+
+	t.Run("warns for application_span", func(t *testing.T) {
+		logs := validateWithFeatures(t, "application,application_span")
+		assert.Contains(t, logs, "feature=application_span")
+		assert.Contains(t, logs, "use=application_span_otel")
+	})
+
+	// application_span_sizes has no OTel-named equivalent, so it is reported without a
+	// replacement rather than pointing at a feature that does not exist.
+	t.Run("warns for application_span_sizes without a replacement", func(t *testing.T) {
+		logs := validateWithFeatures(t, "application,application_span_sizes")
+		assert.Contains(t, logs, "feature=application_span_sizes")
+		assert.NotContains(t, logs, "use=")
+	})
+
+	t.Run("silent for application_span_otel", func(t *testing.T) {
+		assert.NotContains(t, validateWithFeatures(t, "application,application_span_otel"), "deprecated")
+	})
+
+	// "all" enables both span-metric formats; the conflict is resolved in favor of OTel,
+	// so application_span must not be reported as deprecated anywhere in the output --
+	// including inside the conflict-resolution message, which only "all"/"*" ever sees.
+	// application_span_sizes is not resolved away and keeps emitting, so it is reported.
+	t.Run("all reports only the features that remain enabled", func(t *testing.T) {
+		logs := validateWithFeatures(t, "all")
+		assert.NotContains(t, logs, "feature=application_span ")
+		assert.NotContains(t, logs, "application_span is deprecated")
+		assert.Contains(t, logs, "application_span_otel is selected automatically")
+		assert.Contains(t, logs, "feature=application_span_sizes")
+	})
+
+	// A per-service "all" is joined into the mask that selects the exported metric names,
+	// so it must be resolved to OTel just like the top-level list. Otherwise one service
+	// saying "all" silently puts every span-metrics service back on the legacy names.
+	t.Run("per-service all resolves to otel", func(t *testing.T) {
+		var cfg *Config
+		logs := captureWarnings(t, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+			loaded, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span_otel"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["all"]
+`))
+			require.NoError(t, err)
+			require.NoError(t, loaded.Validate())
+			cfg = loaded
+		})
+
+		assert.False(t, cfg.JoinMetricsConfig().Features.LegacySpanMetrics(),
+			"per-service all must not select the legacy span metric names")
+		assert.NotContains(t, logs, "feature=application_span ")
+		assert.Contains(t, logs, "application_span_otel is selected automatically")
+	})
+
+	t.Run("explicit legacy and otel per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span", "application_span_otel"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(), "only enable one format of span metrics")
+	})
+
+	// Each mask can be conflict-free while their OR is not: the exporters pick the metric
+	// names from the joined mask, so a top-level legacy format with a per-service OTel one
+	// would silently select legacy names for the very service that requested OTel.
+	t.Run("legacy top-level with otel per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span_otel"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	t.Run("otel top-level with legacy per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span_otel"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	t.Run("all top-level with legacy per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["all"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	t.Run("legacy top-level with all per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["*"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	// Per-service sections feed the exporters through JoinMetricsConfig, so a feature
+	// enabled only there must still be reported.
+	t.Run("warns for a feature enabled only per-service", func(t *testing.T) {
+		logs := captureWarnings(t, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+			cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span"]
+`))
+			require.NoError(t, err)
+			require.NoError(t, cfg.Validate())
+		})
+		assert.Contains(t, logs, "feature=application_span")
+		assert.Contains(t, logs, "use=application_span_otel")
+	})
+}
+
 func TestConfigValidate_error(t *testing.T) {
 	testCases := []envMap{
 		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "INSTRUMENT_FUNC_NAME": "bar"},
@@ -782,6 +968,44 @@ func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "host is incompatible")
 	require.NoError(t, cfg.ValidateStatic())
+}
+
+func TestConfigValidatePrometheusPaths(t *testing.T) {
+	testCases := map[string]struct {
+		yamlConfig string
+		field      string
+	}{
+		"application metrics": {
+			yamlConfig: `open_port: 8080
+trace_printer: text
+prometheus_export:
+  port: 9090
+  path: metrics
+`,
+			field: "Config.Prometheus.Path",
+		},
+		"internal metrics": {
+			yamlConfig: `open_port: 8080
+trace_printer: text
+internal_metrics:
+  prometheus:
+    port: 9090
+    path: internal/metrics
+`,
+			field: "Config.InternalMetrics.Prometheus.Path",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := LoadConfig(strings.NewReader(tc.yamlConfig))
+			require.NoError(t, err)
+
+			err = cfg.ValidateStatic()
+			require.ErrorContains(t, err, tc.field)
+			require.ErrorContains(t, err, "'startswith'")
+		})
+	}
 }
 
 func TestConfigValidateRoutes(t *testing.T) {
