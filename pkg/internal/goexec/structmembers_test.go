@@ -157,7 +157,7 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(grpcElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(0x148),
+		GrpcServerStreamStPtr:  uint64(0x168),
 		GrpcStreamMethodPtrPos: uint64(0x10),
 		GrpcStatusSPos:         uint64(0),
 		ConnFdPos:              uint64(0),
@@ -230,7 +230,8 @@ func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsets(smallGRPCElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(0x148),
+		GrpcServerStreamStPtr:  uint64(0x168),
+		GrpcStreamStPtrPos:     uint64(0x168),
 		GrpcStreamMethodPtrPos: uint64(0x10),
 		GrpcStatusSPos:         uint64(0),
 		GrpcStatusCodePtrPos:   uint64(40),
@@ -312,6 +313,19 @@ func TestPrefetchedGoAutoSDKSpanContextOffsets(t *testing.T) {
 		)
 		require.True(t, found, "missing Auto SDK %s spanContext offset", sdkVersion)
 		assert.Equal(t, uint64(80), offset)
+	}
+}
+
+func TestPrefetchedGrpcStreamOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, structName := range []string{
+		"google.golang.org/grpc/internal/transport.ServerStream",
+		"google.golang.org/grpc/internal/transport.Stream",
+	} {
+		assertPrefetchedOffset(t, track, structName, "st", "1.83.0", 0x148)
+		assertPrefetchedOffset(t, track, structName, "st", "1.83.1", 0x168)
 	}
 }
 
