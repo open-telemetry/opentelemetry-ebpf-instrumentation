@@ -1,0 +1,217 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+#pragma once
+
+#include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_builtins.h>
+#include <bpfcore/bpf_helpers.h>
+
+#include <common/h2_defs.h>
+
+typedef enum h2_socket_transaction_outcome {
+    k_h2_socket_transaction_no_mutation,
+    k_h2_socket_transaction_committed,
+    k_h2_socket_transaction_rollback_verified,
+    k_h2_socket_transaction_rollback_uncertain,
+} h2_socket_transaction_outcome_t;
+
+typedef enum h2_socket_transaction_boundary {
+    k_h2_socket_boundary_none,
+    k_h2_socket_boundary_preflight_pull,
+    k_h2_socket_boundary_push,
+    k_h2_socket_boundary_write_pull,
+    k_h2_socket_boundary_hpack_write,
+    k_h2_socket_boundary_hpack_readback,
+    k_h2_socket_boundary_frame_pull,
+    k_h2_socket_boundary_frame_write,
+    k_h2_socket_boundary_frame_readback,
+    k_h2_socket_boundary_rollback_pop,
+    k_h2_socket_boundary_rollback_pull,
+    k_h2_socket_boundary_rollback_write,
+    k_h2_socket_boundary_rollback_readback,
+    k_h2_socket_boundary_preflight_apply,
+} h2_socket_transaction_boundary_t;
+
+#ifndef H2_SOCKET_TRANSACTION_FAULT
+#define H2_SOCKET_TRANSACTION_FAULT(boundary) false
+#endif
+
+static __always_inline bool h2_frame_len_bytes_are(const unsigned char *data, u32 expected) {
+    return data[0] == ((expected >> 16) & 0xff) && data[1] == ((expected >> 8) & 0xff) &&
+           data[2] == (expected & 0xff);
+}
+
+static __always_inline void h2_store_frame_len(unsigned char *data, u32 len) {
+    data[0] = (len >> 16) & 0xff;
+    data[1] = (len >> 8) & 0xff;
+    data[2] = len & 0xff;
+}
+
+static __always_inline bool h2_restore_socket_message(struct sk_msg_md *msg,
+                                                      u32 original_size,
+                                                      u32 frame_offset,
+                                                      u32 payload_len,
+                                                      u32 inject_offset) {
+    bool popped = false;
+    if (!H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_pop)) {
+        popped = bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0;
+    }
+    if (!popped) {
+        popped = bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0;
+    }
+    if (!popped) {
+        return false;
+    }
+    if (msg->size != original_size) {
+        return false;
+    }
+
+    bool pulled = false;
+    if (!H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_pull)) {
+        pulled = bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) == 0;
+    }
+    if (!pulled) {
+        pulled = bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) == 0;
+    }
+    if (!pulled) {
+        return false;
+    }
+
+    unsigned char *data = msg->data;
+    if (!data || (void *)data + 3 > msg->data_end) {
+        return false;
+    }
+
+    bool wrote = false;
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_write)) {
+        data[0] ^= 1;
+    } else {
+        h2_store_frame_len(data, payload_len);
+        wrote = h2_frame_len_bytes_are(data, payload_len);
+    }
+    if (!wrote) {
+        h2_store_frame_len(data, payload_len);
+    }
+
+    bool restored = false;
+    if (!H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_readback)) {
+        restored = h2_frame_len_bytes_are(data, payload_len);
+    }
+    if (!restored) {
+        restored = h2_frame_len_bytes_are(data, payload_len);
+    }
+    return restored;
+}
+
+static __always_inline bool h2_scope_uncertain_drop(struct sk_msg_md *msg) {
+    return bpf_msg_apply_bytes(msg, msg->size) == 0;
+}
+
+// Inserts one complete HPACK field. Successful frame-length readback is the socket-message commit
+// point: every fallible socket helper runs before it, and rollback leaves the original length
+// untouched unless a tested write fault partially changed it.
+static __always_inline h2_socket_transaction_outcome_t
+h2_write_socket_transaction(struct sk_msg_md *msg,
+                            u32 frame_offset,
+                            u32 payload_len,
+                            u32 inject_offset,
+                            const unsigned char *expected) {
+    const u32 original_size = msg->size;
+    if (!expected || payload_len > k_h2_default_max_frame_size - k_h2_tp_hpack_size ||
+        frame_offset > original_size || original_size - frame_offset < k_h2_frame_header_len ||
+        payload_len > original_size - frame_offset - k_h2_frame_header_len ||
+        inject_offset < frame_offset + k_h2_frame_header_len ||
+        inject_offset > frame_offset + k_h2_frame_header_len + payload_len ||
+        original_size > (u32)-1 - k_h2_tp_hpack_size) {
+        return k_h2_socket_transaction_no_mutation;
+    }
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_preflight_apply) ||
+        bpf_msg_apply_bytes(msg, original_size) != 0) {
+        return k_h2_socket_transaction_no_mutation;
+    }
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_preflight_pull) ||
+        bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
+        return k_h2_socket_transaction_no_mutation;
+    }
+    const unsigned char *frame = msg->data;
+    if (!frame || (void *)frame + 3 > msg->data_end ||
+        !h2_frame_len_bytes_are(frame, payload_len)) {
+        return k_h2_socket_transaction_no_mutation;
+    }
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_push) ||
+        bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
+        return k_h2_socket_transaction_no_mutation;
+    }
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_write_pull) ||
+        bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
+        return h2_restore_socket_message(
+                   msg, original_size, frame_offset, payload_len, inject_offset)
+                   ? k_h2_socket_transaction_rollback_verified
+                   : k_h2_socket_transaction_rollback_uncertain;
+    }
+
+    unsigned char *data = msg->data;
+    if (!data || (void *)data + k_h2_tp_hpack_size > msg->data_end) {
+        return h2_restore_socket_message(
+                   msg, original_size, frame_offset, payload_len, inject_offset)
+                   ? k_h2_socket_transaction_rollback_verified
+                   : k_h2_socket_transaction_rollback_uncertain;
+    }
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_hpack_write)) {
+        data[0] = expected[0];
+        return h2_restore_socket_message(
+                   msg, original_size, frame_offset, payload_len, inject_offset)
+                   ? k_h2_socket_transaction_rollback_verified
+                   : k_h2_socket_transaction_rollback_uncertain;
+    }
+    __builtin_memcpy(data, expected, k_h2_tp_hpack_size);
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_hpack_readback) ||
+        bpf_memcmp(data, expected, k_h2_tp_hpack_size) != 0) {
+        return h2_restore_socket_message(
+                   msg, original_size, frame_offset, payload_len, inject_offset)
+                   ? k_h2_socket_transaction_rollback_verified
+                   : k_h2_socket_transaction_rollback_uncertain;
+    }
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_frame_pull) ||
+        bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
+        return h2_restore_socket_message(
+                   msg, original_size, frame_offset, payload_len, inject_offset)
+                   ? k_h2_socket_transaction_rollback_verified
+                   : k_h2_socket_transaction_rollback_uncertain;
+    }
+
+    data = msg->data;
+    if (!data || (void *)data + 3 > msg->data_end) {
+        return h2_restore_socket_message(
+                   msg, original_size, frame_offset, payload_len, inject_offset)
+                   ? k_h2_socket_transaction_rollback_verified
+                   : k_h2_socket_transaction_rollback_uncertain;
+    }
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_frame_write)) {
+        data[0] ^= 1;
+        return h2_restore_socket_message(
+                   msg, original_size, frame_offset, payload_len, inject_offset)
+                   ? k_h2_socket_transaction_rollback_verified
+                   : k_h2_socket_transaction_rollback_uncertain;
+    }
+    h2_store_frame_len(data, payload_len + k_h2_tp_hpack_size);
+
+    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_frame_readback) ||
+        !h2_frame_len_bytes_are(data, payload_len + k_h2_tp_hpack_size)) {
+        return h2_restore_socket_message(
+                   msg, original_size, frame_offset, payload_len, inject_offset)
+                   ? k_h2_socket_transaction_rollback_verified
+                   : k_h2_socket_transaction_rollback_uncertain;
+    }
+
+    return k_h2_socket_transaction_committed;
+}

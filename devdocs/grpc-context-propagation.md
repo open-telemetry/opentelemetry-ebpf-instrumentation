@@ -30,6 +30,29 @@ Before injecting, `h2_inject_verdict` (`tpinjector/inject_policy.h`) decides eli
 
 Injection requires *proving* the block carries no traceparent, not merely failing to find one: a second field makes receivers discard both. `k_h2_skip_unscanned` covers a block longer than `k_h2_max_hpack_scan` and a scan that ran out of retries.
 
+#### Socket mutation transaction
+
+`write_h2_tp` treats one HEADERS-frame splice as a transaction. It first builds the complete HPACK field in per-CPU scratch memory and validates the original message size, insertion offset, frame-length field, maximum frame size, and linearization. None of those checks changes the message.
+
+The mutation sequence and failure outcomes are:
+
+| Boundary | Message state on failure | Outcome |
+|----------|--------------------------|---------|
+| Preflight verdict scope, length-field pull, and read | Original | Pass unchanged |
+| `bpf_msg_push_data` | Original when the helper rejects the push | Pass unchanged |
+| Post-push HPACK pull or bounds check | Resized, original frame length | Pop and verify rollback |
+| HPACK store or immediate readback | Resized, original frame length | Pop and verify rollback |
+| Frame-length pull or bounds check | Resized with verified HPACK, original frame length | Pop and verify rollback |
+| Frame-length store or immediate readback | Resized; length may be partially written | Pop, restore length, and verify rollback |
+| First rollback pop, pull, restore, or readback | Restoration is not yet verified | Retry and verify rollback |
+| Repeated rollback failure | Restoration is uncertain | Drop the scoped message; never pass uncertain bytes |
+
+Before mutation, `bpf_msg_apply_bytes` scopes the eventual verdict to the current message size. An uncertain rollback scopes the drop again using the post-mutation size. This prevents either an inserted remainder or a cached denied verdict from affecting later sends, so a subsequent request can still use the same peer connection.
+
+The socket-message commit point is the successful readback of the new three-byte frame length after the inserted HPACK bytes have already been read back. No fallible socket helper or message-memory write runs after that point. The checked `outgoing_trace_map` update that publishes `written=1` follows as bookkeeping and cannot change the committed wire bytes. A rollback is successful only when `bpf_msg_pop_data` succeeds, `msg->size` equals the original size, and the restored frame length reads back exactly. Helper success alone is not treated as proof of restoration.
+
+`bpf_msg_pop_data` is an upstream Linux 5.0 helper, but OBI selects by capability rather than the reported release. At load time, the cilium/ebpf feature probe asks the running kernel verifier whether `BPF_PROG_TYPE_SK_MSG` may call both `bpf_msg_apply_bytes` and `bpf_msg_pop_data`. This detects both Linux 5.8+ support and RHEL-family 4.18 backports. A transient loopback `SK_MSG` probe then exercises every failure boundary and verifies exact restoration plus a successful follow-up injection on the same plaintext connection. If either helper probe or the semantic probe fails, the loader replaces `write_h2_tp` with a verifier-safe program that only resumes frame scanning and never calls push, pull, pop, or writes message memory.
+
 The scan recognizes the encodings that put identifying bytes on the wire: a literal name in any of the three literal prefixes, plain or huffman, and a dyn-table name reference whose value is plain (`0x37` + `00-` + dash positions). On egress a compressed value still counts only as *present*, not adoptable; ingress decodes it.
 
 Some encodings leave nothing at all: a dyn-table name reference with a compressed value, or — when a sender repeats the *same* traceparent, as a service fanning one incoming context out to several downstream calls — a single index byte standing for the whole field. Measured on grpc-js: request 1 is a 74-byte block holding `40 88 <huffman traceparent> a5 <huffman value>`, requests 2-4 are 25 bytes with no trace of it.

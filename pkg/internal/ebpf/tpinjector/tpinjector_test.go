@@ -121,3 +121,21 @@ func TestTracer_Constants(t *testing.T) {
 		})
 	}
 }
+
+func TestDisableH2SocketMutation(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	fallback := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	require.NotNil(t, fallback)
+
+	disableH2SocketMutation(spec)
+
+	assert.Same(t, fallback, spec.Programs["obi_packet_extender_write_h2_tp"])
+	assert.Equal(t, "obi_packet_extender_write_h2_tp", fallback.Name)
+
+	disabledFallback := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	require.NotNil(t, disabledFallback)
+	assert.Equal(t, "obi_packet_extender_write_h2_tp_no_rollback", disabledFallback.Name)
+	assert.Len(t, disabledFallback.Instructions, 2)
+}
