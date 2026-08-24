@@ -53,6 +53,10 @@ type Tracer struct {
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
+	// attachPID is the host PID of the process currently being instrumented.
+	// It is set by ProcessBinary before UProbes() is called, so the skip
+	// callback in cfg.EBPF.ShouldSkipTracerForPID receives the right PID.
+	attachPID int32
 }
 
 func tlog() *slog.Logger {
@@ -291,7 +295,13 @@ func (p *Tracer) constants() map[string]any {
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
-func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
+// ProcessBinary records the host PID of the binary about to be instrumented
+// so that UProbes() can forward it to ShouldSkipTracerForPID.
+func (p *Tracer) ProcessBinary(info *exec.FileInfo) {
+	if info != nil {
+		p.attachPID = int32(info.Pid())
+	}
+}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
@@ -385,10 +395,13 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeInetCskListenStop,
 		},
-		"sys_ioctl": {
+	}
+
+	if p.cfg.Java.Enabled {
+		kp["sys_ioctl"] = ebpfcommon.ProbeDesc{
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeSysIoctl,
-		},
+		}
 	}
 
 	if p.cfg.EBPF.ContextPropagation.IsEnabled() {
@@ -414,72 +427,6 @@ func (p *Tracer) Tracepoints() map[string]ebpfcommon.ProbeDesc {
 
 func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 	m := map[string]map[string][]*ebpfcommon.ProbeDesc{
-		"libssl.so": {
-			"SSL_read": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslRead,
-				End:      p.bpfObjects.ObiUretprobeSslRead,
-			}},
-			"SSL_write": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslWrite,
-				End:      p.bpfObjects.ObiUretprobeSslWrite,
-			}},
-			"SSL_read_ex": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslReadEx,
-				End:      p.bpfObjects.ObiUretprobeSslReadEx,
-			}},
-			"SSL_write_ex2": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslWriteEx2,
-				End:      p.bpfObjects.ObiUretprobeSslWriteEx2,
-			}},
-			"SSL_write_ex": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslWriteEx,
-				End:      p.bpfObjects.ObiUretprobeSslWriteEx,
-			}},
-			"SSL_shutdown": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslShutdown,
-			}},
-			"SSL_set_bio": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslSetBio,
-			}},
-			"SSL_free": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslFree,
-			}},
-		},
-		// BIO_write is a libcrypto symbol. A process that links libssl and
-		// libcrypto separately, as CPython does, resolves it from its own
-		// object, so it gets its own key here. Statically linked runtimes such
-		// as node resolve both keys to the executable and are grouped into a
-		// single attachment by inode.
-		"libcrypto.so": {
-			"BIO_write": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeBioWrite,
-			}},
-		},
-		"libSystem.Security.Cryptography.Native.OpenSsl.so": {
-			"CryptoNative_SslRead": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslRead,
-				End:      p.bpfObjects.ObiUretprobeSslRead,
-			}},
-			"CryptoNative_SslWrite": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslWrite,
-				End:      p.bpfObjects.ObiUretprobeSslWrite,
-			}},
-			"CryptoNative_SslShutdown": {{
-				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslShutdown,
-			}},
-		},
 		"nginx": {
 			"ngx_http_upstream_init": {{ // on upstream dispatch
 				Required: false,
@@ -553,6 +500,74 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				End:      p.bpfObjects.ObiUprobeTaskStepRet,
 			}},
 		},
+	}
+	if p.cfg.EBPF.ShouldSkipTracerForPID == nil || !p.cfg.EBPF.ShouldSkipTracerForPID(p.attachPID, "libssl") {
+		m["libssl.so"] = map[string][]*ebpfcommon.ProbeDesc{
+			"SSL_read": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslRead,
+				End:      p.bpfObjects.ObiUretprobeSslRead,
+			}},
+			"SSL_write": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslWrite,
+				End:      p.bpfObjects.ObiUretprobeSslWrite,
+			}},
+			"SSL_read_ex": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslReadEx,
+				End:      p.bpfObjects.ObiUretprobeSslReadEx,
+			}},
+			"SSL_write_ex2": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslWriteEx2,
+				End:      p.bpfObjects.ObiUretprobeSslWriteEx2,
+			}},
+			"SSL_write_ex": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslWriteEx,
+				End:      p.bpfObjects.ObiUretprobeSslWriteEx,
+			}},
+			"SSL_shutdown": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslShutdown,
+			}},
+			"SSL_set_bio": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslSetBio,
+			}},
+			"SSL_free": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslFree,
+			}},
+		}
+		// BIO_write is a libcrypto symbol. A process that links libssl and
+		// libcrypto separately, as CPython does, resolves it from its own
+		// object, so it gets its own key here. Statically linked runtimes such
+		// as node resolve both keys to the executable and are grouped into a
+		// single attachment by inode.
+		m["libcrypto.so"] = map[string][]*ebpfcommon.ProbeDesc{
+			"BIO_write": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeBioWrite,
+			}},
+		}
+		m["libSystem.Security.Cryptography.Native.OpenSsl.so"] = map[string][]*ebpfcommon.ProbeDesc{
+			"CryptoNative_SslRead": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslRead,
+				End:      p.bpfObjects.ObiUretprobeSslRead,
+			}},
+			"CryptoNative_SslWrite": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslWrite,
+				End:      p.bpfObjects.ObiUretprobeSslWrite,
+			}},
+			"CryptoNative_SslShutdown": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslShutdown,
+			}},
+		}
 	}
 	return m
 }

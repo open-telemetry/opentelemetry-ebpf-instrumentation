@@ -168,7 +168,7 @@ func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	reporter.InstrumentProcess("my-service\xff\xfe")
+	reporter.InstrumentProcess("my-service\xff\xfe", 1234, 0)
 
 	records := readMetricsByName(t, metricRecords, time.Second,
 		attr.VendorPrefix+".instrumented.processes",

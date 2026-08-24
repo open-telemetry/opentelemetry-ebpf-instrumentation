@@ -179,7 +179,7 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 
 		// allowing the tracer to forward traces from the new PID and its children processes
 		ta.monitorPIDs(tracer, ie)
-		ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
+		ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName(), uint32(ie.FileInfo.Pid()), int(ie.Type))
 		if tracer.Type == ebpf.Generic {
 			// We need to do this because generic tracers have shared libraries. For example,
 			// a python executable can run an SSL and non-SSL application, so it's not enough
@@ -299,7 +299,7 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 	} else {
 		ta.reusableGoTracer = tracer
 	}
-	ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
+	ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName(), uint32(ie.FileInfo.Pid()), int(ie.Type))
 	ta.log.Debug(".done")
 	return true
 }
@@ -389,7 +389,7 @@ func (ta *traceAttacher) reuseTracer(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 		tracer:     tracer,
 		generation: ie.ExecutableGeneration,
 	}
-	ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
+	ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName(), uint32(ie.FileInfo.Pid()), int(ie.Type))
 
 	return true
 }

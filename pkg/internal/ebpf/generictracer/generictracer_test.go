@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -371,4 +372,96 @@ func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PI
 		(*f.currentPIDsCalls)++
 	}
 	return f.current
+}
+
+// newTestTracer returns a minimal Tracer suitable for UProbes() unit tests.
+// bpfObjects are left zero-valued; UProbes() only reads the cfg field and the
+// attachPID field so this is safe for the coexistence-callback tests.
+func newTestTracer(cfg *obi.Config) *Tracer {
+	return &Tracer{cfg: cfg}
+}
+
+// TestUProbes_ShouldSkipTracerForPID_LibsslOmitted verifies that when
+// ShouldSkipTracerForPID returns true for "libssl", UProbes() omits both the
+// "libssl.so" and "libSystem.Security.Cryptography.Native.OpenSsl.so" entries
+// while leaving all other uprobe groups intact.
+func TestUProbes_ShouldSkipTracerForPID_LibsslOmitted(t *testing.T) {
+	tracer := newTestTracer(&obi.Config{
+		EBPF: config.EBPFTracer{
+			ShouldSkipTracerForPID: func(_ int32, tracerName string) bool {
+				return tracerName == "libssl"
+			},
+		},
+	})
+	tracer.attachPID = 1234
+
+	probes := tracer.UProbes()
+
+	assert.NotContains(t, probes, "libssl.so",
+		"libssl.so must be absent when ShouldSkipTracerForPID returns true for 'libssl'")
+	assert.NotContains(t, probes, "libSystem.Security.Cryptography.Native.OpenSsl.so",
+		"libSystem.Security.Cryptography.Native.OpenSsl.so must be absent when callback returns true")
+
+	// Other uprobe groups must not be affected.
+	assert.Contains(t, probes, "nginx",
+		"nginx uprobes must be present regardless of libssl skip decision")
+}
+
+// TestUProbes_ShouldSkipTracerForPID_NilCallback verifies that a nil callback
+// preserves all uprobe entries including libssl.
+func TestUProbes_ShouldSkipTracerForPID_NilCallback(t *testing.T) {
+	tracer := newTestTracer(&obi.Config{
+		EBPF: config.EBPFTracer{
+			ShouldSkipTracerForPID: nil,
+		},
+	})
+	tracer.attachPID = 1234
+
+	probes := tracer.UProbes()
+
+	assert.Contains(t, probes, "libssl.so",
+		"libssl.so must be present when ShouldSkipTracerForPID is nil")
+	assert.Contains(t, probes, "libSystem.Security.Cryptography.Native.OpenSsl.so",
+		"libSystem.Security.Cryptography.Native.OpenSsl.so must be present when callback is nil")
+}
+
+// TestUProbes_ShouldSkipTracerForPID_FalseDoesNotSkip verifies that a callback
+// returning false preserves all libssl entries.
+func TestUProbes_ShouldSkipTracerForPID_FalseDoesNotSkip(t *testing.T) {
+	tracer := newTestTracer(&obi.Config{
+		EBPF: config.EBPFTracer{
+			ShouldSkipTracerForPID: func(_ int32, _ string) bool {
+				return false
+			},
+		},
+	})
+	tracer.attachPID = 5678
+
+	probes := tracer.UProbes()
+
+	assert.Contains(t, probes, "libssl.so",
+		"libssl.so must be present when ShouldSkipTracerForPID returns false")
+	assert.Contains(t, probes, "libSystem.Security.Cryptography.Native.OpenSsl.so",
+		"libSystem.Security.Cryptography.Native.OpenSsl.so must be present when callback returns false")
+}
+
+// TestUProbes_ShouldSkipTracerForPID_PIDPassedThrough verifies that the PID
+// stored by ProcessBinary is forwarded to the callback unchanged.
+func TestUProbes_ShouldSkipTracerForPID_PIDPassedThrough(t *testing.T) {
+	const wantPID = int32(9999)
+	var gotPID int32
+
+	tracer := newTestTracer(&obi.Config{
+		EBPF: config.EBPFTracer{
+			ShouldSkipTracerForPID: func(pid int32, _ string) bool {
+				gotPID = pid
+				return false
+			},
+		},
+	})
+	tracer.ProcessBinary(&exec.FileInfo{Pid: app.PID(wantPID)})
+	tracer.UProbes()
+
+	assert.Equal(t, wantPID, gotPID,
+		"callback must receive exactly the PID set by ProcessBinary")
 }

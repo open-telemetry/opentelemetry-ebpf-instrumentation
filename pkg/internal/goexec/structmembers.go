@@ -12,8 +12,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
-	"github.com/hashicorp/go-version"
 )
 
 func log() *slog.Logger {
@@ -24,12 +24,12 @@ func log() *slog.Logger {
 type GoOffset uint32
 
 var (
-	grpcOneSixZero      = version.Must(version.NewVersion("1.60.0"))
-	grpcOneSixNine      = version.Must(version.NewVersion("1.69.0"))
-	grpcOneSevenSeven   = version.Must(version.NewVersion("1.77.0"))
-	http2ZeroFortyFive  = version.Must(version.NewVersion("0.45.0"))
-	mongoOneThirteenOne = version.Must(version.NewVersion("1.13.1"))
-	pqOneElevenZero     = version.Must(version.NewVersion("1.11.0"))
+	grpcOneSixZero      = semver.MustParse("1.60.0")
+	grpcOneSixNine      = semver.MustParse("1.69.0")
+	grpcOneSevenSeven   = semver.MustParse("1.77.0")
+	http2ZeroFortyFive  = semver.MustParse("0.45.0")
+	mongoOneThirteenOne = semver.MustParse("1.13.1")
+	pqOneElevenZero     = semver.MustParse("1.11.0")
 )
 
 type activationModule struct {
@@ -774,18 +774,18 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 		case "google.golang.org/grpc":
 			ver = cleanLibVersion(ver, true, lib, log)
 
-			if v, err := version.NewVersion(ver); err == nil {
-				if v.GreaterThanOrEqual(grpcOneSixZero) {
+			if v, err := semver.NewVersion(ver); err == nil {
+				if !v.LessThan(grpcOneSixZero) {
 					fieldOffsets[GrpcOneSixZero] = uint64(1)
 				} else {
 					fieldOffsets[GrpcOneSixZero] = uint64(0)
 				}
-				if v.GreaterThanOrEqual(grpcOneSixNine) {
+				if !v.LessThan(grpcOneSixNine) {
 					fieldOffsets[GrpcOneSixNine] = uint64(1)
 				} else {
 					fieldOffsets[GrpcOneSixNine] = uint64(0)
 				}
-				if v.GreaterThanOrEqual(grpcOneSevenSeven) {
+				if !v.LessThan(grpcOneSevenSeven) {
 					fieldOffsets[GrpcOneSevenSeven] = uint64(1)
 				} else {
 					fieldOffsets[GrpcOneSevenSeven] = uint64(0)
@@ -796,8 +796,8 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 		case "go.mongodb.org/mongo-driver":
 			ver = cleanLibVersion(ver, true, lib, log)
 
-			if v, err := version.NewVersion(ver); err == nil {
-				if v.GreaterThanOrEqual(mongoOneThirteenOne) {
+			if v, err := semver.NewVersion(ver); err == nil {
+				if !v.LessThan(mongoOneThirteenOne) {
 					fieldOffsets[MongoOneThirteenOne] = uint64(1)
 				} else {
 					fieldOffsets[MongoOneThirteenOne] = uint64(0)
@@ -806,8 +806,8 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 		case "golang.org/x/net":
 			ver = cleanLibVersion(ver, true, lib, log)
 
-			if v, err := version.NewVersion(ver); err == nil {
-				if v.GreaterThanOrEqual(http2ZeroFortyFive) {
+			if v, err := semver.NewVersion(ver); err == nil {
+				if !v.LessThan(http2ZeroFortyFive) {
 					fieldOffsets[HTTP2ZeroFortyFive] = uint64(1)
 				} else {
 					fieldOffsets[HTTP2ZeroFortyFive] = uint64(0)
@@ -818,8 +818,8 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 		case "github.com/lib/pq":
 			ver = cleanLibVersion(ver, true, lib, log)
 
-			if v, err := version.NewVersion(ver); err == nil {
-				if v.GreaterThanOrEqual(pqOneElevenZero) {
+			if v, err := semver.NewVersion(ver); err == nil {
+				if !v.LessThan(pqOneElevenZero) {
 					fieldOffsets[PqOneElevenZero] = uint64(1)
 				} else {
 					fieldOffsets[PqOneElevenZero] = uint64(0)
@@ -938,11 +938,11 @@ func prefetchedGoRuntimeGCGoalOffset(offs *offsets.Track, goVersion string) (uin
 		return 0, false
 	}
 
-	target, err := version.NewVersion(goVersion)
+	target, err := semver.NewVersion(goVersion)
 	if err != nil {
 		return 0, false
 	}
-	newest, err := version.NewVersion(field.Versions.Newest)
+	newest, err := semver.NewVersion(field.Versions.Newest)
 	if err != nil || target.GreaterThan(newest) {
 		return 0, false
 	}

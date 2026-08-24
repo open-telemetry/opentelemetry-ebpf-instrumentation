@@ -286,7 +286,7 @@ func (p *InternalMetricsReporter) OTELTraceExportError(err error) {
 func (p *InternalMetricsReporter) PrometheusRequest(_, _ string) {
 }
 
-func (p *InternalMetricsReporter) InstrumentProcess(processName string) {
+func (p *InternalMetricsReporter) InstrumentProcess(processName string, _ uint32, _ int) {
 	p.instrumentedProcesses.Add(p.ctx, 1, sanitizedAttributes(attribute.String("process.executable.name", processName)))
 }
 

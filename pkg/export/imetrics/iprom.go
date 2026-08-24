@@ -226,7 +226,7 @@ func (p *PrometheusReporter) PrometheusRequest(port, path string) {
 	p.prometheusRequests.WithLabelValues(port, path).Inc()
 }
 
-func (p *PrometheusReporter) InstrumentProcess(processName string) {
+func (p *PrometheusReporter) InstrumentProcess(processName string, _ uint32, _ int) {
 	p.instrumentedProcesses.WithLabelValues(processName).Inc()
 }
 

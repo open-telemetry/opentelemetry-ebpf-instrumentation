@@ -154,6 +154,22 @@ type EBPFTracer struct {
 
 	// eBPF map configurations
 	MapsConfig MapsConfig `yaml:"maps_config"`
+
+	// ShouldSkipTracerForPID, if non-nil, is consulted before attaching a
+	// specific tracer group to a process. Returning true causes the tracer's
+	// uprobe set for that named group to be omitted for this PID only — all
+	// other tracers still attach normally.
+	//
+	// When another eBPF observability
+	// tool (e.g. Datadog system-probe, Grafana Beyla) is already attaching
+	// uprobes for the same symbols, the consumer can skip our copy to avoid
+	// doubling the BPF-program chain on hot paths.
+	//
+	// The tracerName argument identifies the uprobe group; the initial set is
+	// "libssl" (covers both libssl.so and the .NET OpenSsl wrapper). Future
+	// names may include "go_http", "java_agent", etc. as other collision sets
+	// emerge from customer reports.
+	ShouldSkipTracerForPID func(pid int32, tracerName string) bool `yaml:"-"`
 }
 
 var nvidiaSMIExistsFunc = nvidiaSMIExists

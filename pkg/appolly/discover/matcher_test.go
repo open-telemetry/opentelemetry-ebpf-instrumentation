@@ -531,6 +531,50 @@ func TestDynamicMatcher_ChildInheritsDynamicSelectorPID(t *testing.T) {
 	testutil.DrainUntilClosed(filteredProcesses)
 }
 
+// TestCriteriaMatcher_ExcludeRespectsParentPIDFallback reproduces the scenario where
+// /usr/bin/rancher (a child of tini) was being instrumented despite ExcludeInstrument
+// matching its ExePath, because the parent-PID fallback in filterCreated adopted the
+// parent's match without re-checking exclusion. See ScaleOps RD-15620 / CUST-3212.
+func TestCriteriaMatcher_ExcludeRespectsParentPIDFallback(t *testing.T) {
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  instrument:
+  - open_ports: 80
+  exclude_instrument:
+  - exe_path: /usr/bin/rancher
+`), &pipeConfig))
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
+	require.NoError(t, err)
+	go matcherFunc(t.Context())
+	defer filteredProcessesQu.Close()
+
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		proc := map[app.PID]struct {
+			Exe  string
+			PPid app.PID
+		}{
+			1: {Exe: "/usr/sbin/tini", PPid: 0},   // parent — matches by port
+			2: {Exe: "/usr/bin/rancher", PPid: 1}, // child — own match fails (no port); parent in history; BUT ExePath matches exclude
+		}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
+	}
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{80}}}, // tini matches by port
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 2, openPorts: []uint32{}}},   // rancher: must NOT be adopted via tini's PID
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	// Pre-fix this would be 2 matches (tini + rancher inherited via parent-PID).
+	// After the fix the child is rejected by the exclude check before parent adoption.
+	require.Len(t, matches, 1)
+	assert.Equal(t, app.PID(1), matches[0].Obj.Process.Pid)
+	assert.Equal(t, "/usr/sbin/tini", matches[0].Obj.Process.ExePath)
+}
+
 func TestCriteriaMatcherContainersOnly(t *testing.T) {
 	pipeConfig := obi.Config{}
 	require.NoError(t, yaml.Unmarshal([]byte(`discovery:

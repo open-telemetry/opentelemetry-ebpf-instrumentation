@@ -77,8 +77,10 @@ type Reporter interface {
 	OTELTraceExportError(err error)
 	// PrometheusRequest is invoked every time the Prometheus exporter is invoked, for a given port and path
 	PrometheusRequest(port, path string)
-	// InstrumentProcess is invoked every time a new process is successfully instrumented
-	InstrumentProcess(processName string)
+	// InstrumentProcess is invoked every time a new process is successfully instrumented.
+	// pid is the host-namespace PID; language is the detected InstrumentableType (as int
+	// to avoid an import cycle with the svc package).
+	InstrumentProcess(processName string, pid uint32, language int)
 	// UninstrumentProcess is invoked every time a process is removed from the instrumented processes
 	UninstrumentProcess(processName string)
 	// InstrumentationError is invoked every time an instrumentation attempt fails
@@ -131,7 +133,7 @@ func (n NoopReporter) OTELMetricExportError(_ error)                            
 func (n NoopReporter) OTELTraceExport(_ int)                                                   {}
 func (n NoopReporter) OTELTraceExportError(_ error)                                            {}
 func (n NoopReporter) PrometheusRequest(_, _ string)                                           {}
-func (n NoopReporter) InstrumentProcess(_ string)                                              {}
+func (n NoopReporter) InstrumentProcess(_ string, _ uint32, _ int)                             {}
 func (n NoopReporter) UninstrumentProcess(_ string)                                            {}
 func (n NoopReporter) InstrumentationError(_, _ string)                                        {}
 func (n NoopReporter) AvoidInstrumentationMetrics(_, _, _ string)                              {}

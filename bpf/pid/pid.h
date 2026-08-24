@@ -71,17 +71,15 @@ static __always_inline u32 valid_pid(u64 id) {
         if (found_ns_pid) {
             bpf_map_update_elem(&pid_cache, &a_pid, &a_pid, BPF_ANY);
             return a_pid;
-        } else if (ns_ppid != 0) {
-            pid_data_t pp_key = {.pid = ns_ppid, .ns = pid_ns_id};
-
-            const u8 found_ns_ppid = pid_matches(&pp_key);
-
-            if (found_ns_ppid) {
-                bpf_map_update_elem(&pid_cache, &a_pid, &a_pid, BPF_ANY);
-
-                return a_pid;
-            }
         }
+        // The userspace matcher is the
+        // single source of truth for which PIDs to instrument. Falling back
+        // to the parent's match here caused excluded children of matched
+        // parents (e.g. /usr/bin/rancher under tini) to be traced anyway,
+        // even when the ExcludeInstrument check correctly rejected them.
+        // The matcher will call AllowPID for the child when it should be
+        // tracked; BPF should not second-guess that decision.
+        (void)ns_ppid;
     }
 
     return 0;
