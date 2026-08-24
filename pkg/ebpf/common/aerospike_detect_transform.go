@@ -346,13 +346,18 @@ func TCPToAerospikeToSpan(trace *TCPRequestInfo, info *aerospikeInfo, status int
 	peer := ""
 	hostname := ""
 	hostPort := 0
+
+	spanType := request.EventTypeAerospikeClient
+	if trace.IsServer {
+		spanType = request.EventTypeAerospikeServer
+	}
+
 	if trace.ConnInfo.S_port != 0 || trace.ConnInfo.D_port != 0 {
 		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&trace.ConnInfo)).reqHostInfo()
 		hostPort = int(trace.ConnInfo.D_port)
 	}
-
 	return request.Span{
-		Type:         request.EventTypeAerospikeClient,
+		Type:         spanType,
 		Method:       info.op,
 		Path:         info.set,
 		Peer:         peer,

@@ -63,6 +63,7 @@ const (
 	EventTypeSunRPCClient
 	EventTypeSunRPCServer
 	EventTypeAerospikeClient
+	EventTypeAerospikeServer
 )
 
 const (
@@ -193,6 +194,8 @@ func (t EventType) String() string {
 		return "MemcachedServer"
 	case EventTypeAerospikeClient:
 		return "AerospikeClient"
+	case EventTypeAerospikeServer:
+		return "AerospikeServer"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -1577,7 +1580,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"operation":  s.Method,
 			"table":      s.Path,
 		}
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		attrs := SpanAttributes{
 			"serverAddr":      SpanHost(s),
 			"serverPort":      strconv.Itoa(s.HostPort),
@@ -1730,7 +1733,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient:
+	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient, EventTypeAerospikeServer:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -1758,7 +1761,7 @@ func SpanDBStatusMessage(span *Span, dbError string) string {
 
 func (s *Span) IsDBSpan() bool {
 	switch s.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient:
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return true
 	case EventTypeHTTPClient:
 		if s.SubType == HTTPSubtypeSQLPP {
@@ -1899,9 +1902,9 @@ func (s *Span) ServiceGraphKind() string {
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
 		switch MessagingOperationTypeOf(s.Method) {
@@ -2192,7 +2195,7 @@ func (s *Span) TraceName() string {
 			return s.Method + " " + s.Path
 		}
 		return s.Method
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		if s.Method == "" {
 			return "AEROSPIKE"
 		}

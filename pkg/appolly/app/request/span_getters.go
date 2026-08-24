@@ -329,7 +329,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				} else if s.SubType == HTTPSubtypeSQLPP {
 					return DBCollectionName(s.Route)
 				}
-			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient:
+			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient, EventTypeAerospikeServer:
 				return DBCollectionName(s.Path)
 			}
 			return DBCollectionName("")
@@ -611,7 +611,7 @@ func dbSystemNameForSpan(span *Span) string {
 		return semconv.DBSystemNameMongoDB.Value.AsString()
 	case EventTypeCouchbaseClient:
 		return semconv.DBSystemNameCouchbase.Value.AsString()
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return "aerospike"
 	case EventTypeHTTPClient:
 		if span.SubType == HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
