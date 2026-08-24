@@ -534,6 +534,16 @@ func appendGenAITokenCount(attrs []attribute.KeyValue, key attribute.Key, count 
 	return attrs
 }
 
+func messagingOperationAttrs(method string) []attribute.KeyValue {
+	if method == "" {
+		return nil
+	}
+	return []attribute.KeyValue{
+		request.MessagingOperationName(method),
+		request.MessagingOperationType(request.MessagingOperationTypeOf(method)),
+	}
+}
+
 //nolint:cyclop
 func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
@@ -1398,11 +1408,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
 		}
-		// messaging.operation.type is a semconv enum: omit it instead of
-		// emitting an empty (invalid) variant when the operation is unknown.
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeKafkaClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1422,9 +1428,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeMQTTClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1438,9 +1442,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingClientID(span.Statement),
 			semconv.MessagingMessageEnvelopeSize(int(span.ContentLength)),
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeNATSClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1451,9 +1453,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 			messagingSystemAMQP,
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
 	case request.EventTypeSunRPCServer, request.EventTypeSunRPCClient:
@@ -1680,8 +1680,8 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient, request.EventTypeMQTTClient, request.EventTypeNATSClient, request.EventTypeAMQPClient:
-		switch span.Method {
-		case request.MessagingPublish:
+		switch request.MessagingOperationTypeOf(span.Method) {
+		case request.MessagingSend:
 			return trace2.SpanKindProducer
 		case request.MessagingProcess:
 			return trace2.SpanKindConsumer

@@ -54,6 +54,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "aerospike"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "aerospike"
+      OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE: "1024"
       OTEL_EBPF_METRICS_FEATURES: "application"
     depends_on:
       testserver:

@@ -109,6 +109,14 @@ var (
 const logEnricherGoWritevRegressionLeakMarker = "writev-leak-marker-should-never-appear"
 
 const (
+	logEnricherShellSubstImage  = "hatest-testserver-logenricher-shellsubst"
+	logEnricherShellSubstMarker = "subst i="
+)
+
+// a missing or mismatched V means the enricher corrupted the $() substitution
+var logEnricherShellSubstLineRE = regexp.MustCompile(`^subst i=(\d+) V=v(\d+)$`)
+
+const (
 	logEnricherPlainTextFirstMessage  = "plain-text first line"
 	logEnricherPlainTextSecondMessage = "plain-text second line"
 	logEnricherNDJSONFirstMessage     = "ndjson first record"
@@ -758,6 +766,74 @@ func testLogEnricherMultiSegWritev(t *testing.T) {
 			}
 		}
 	}, testTimeout, 500*time.Millisecond)
+}
+
+// $() pipe content is application data, not a log: it must arrive intact and
+// the shell must never hang waiting for EOF on a pipe the enricher held open
+func testLogEnricherShellSubstitution(t *testing.T) {
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	countSubstLines := func(logs []string) int {
+		n := 0
+		for _, line := range logs {
+			if strings.Contains(line, logEnricherShellSubstMarker) {
+				n++
+			}
+		}
+		return n
+	}
+
+	// wait until OBI instruments the substitution shell
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		obiID := testContainerID(ct, cl, "hatest-obi")
+		if !assert.NotEmpty(ct, obiID, "could not find OBI container ID") {
+			return
+		}
+		instrumented := false
+		for _, line := range containerLogs(ct, cl, obiID) {
+			if strings.Contains(line, "instrumenting process") && strings.Contains(line, "substsh") {
+				instrumented = true
+				break
+			}
+		}
+		assert.True(ct, instrumented, "OBI has not instrumented the substitution shell yet")
+	}, testTimeout, time.Second)
+
+	containerID := testContainerID(t, cl, logEnricherShellSubstImage)
+	require.NotEmpty(t, containerID, "could not find test container ID")
+
+	baseline := countSubstLines(containerLogs(t, cl, containerID))
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		logs := containerLogs(ct, cl, containerID)
+
+		// NUL ghost lines prove enrichment is active, so the test can't pass vacuously
+		ghostSeen := false
+		for _, line := range logs {
+			if strings.ContainsRune(line, 0) {
+				ghostSeen = true
+				break
+			}
+		}
+		assert.True(ct, ghostSeen, "no NUL ghost lines: log enrichment is not active on this container")
+
+		// the loop must keep producing lines
+		assert.GreaterOrEqual(ct, countSubstLines(logs), baseline+20,
+			"substitution loop is not advancing: shell likely blocked on a held $() pipe")
+
+		// no corruption: every substitution came through intact
+		for _, line := range logs {
+			if !strings.Contains(line, logEnricherShellSubstMarker) {
+				continue
+			}
+			m := logEnricherShellSubstLineRE.FindStringSubmatch(line)
+			if assert.NotNil(ct, m, "corrupted substitution line: %q", line) {
+				assert.Equal(ct, m[1], m[2], "substitution returned a stale value: %q", line)
+			}
+		}
+	}, testTimeout, time.Second)
 }
 
 // testLogEnricherShipperFilters validates the otelcol and fluent-bit filter

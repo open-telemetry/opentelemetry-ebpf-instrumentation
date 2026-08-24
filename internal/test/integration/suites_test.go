@@ -294,7 +294,7 @@ func TestSuite_Java(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -304,9 +304,9 @@ func TestSuite_Java_PID(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-pid.yml", path.Join(pathOutput, "test-suite-java-pid.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar, `OTEL_SERVICE_NAME=greeting`)
+	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -316,9 +316,9 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar, `OTEL_SERVICE_NAME=greeting`)
+	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 
 	runWeaverValidation(t)
 
@@ -332,7 +332,7 @@ func TestSuite_Java_Host_Network(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -699,7 +699,7 @@ func TestSuite_JavaKafkaTLS(t *testing.T) {
 	require.NoError(t, err)
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
-	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9094, "java") })
+	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9094, "javakafka-1.0.0") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1012,7 +1012,7 @@ func TestSuiteNodeClient(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
-		testNodeClientWithMethodAndStatusCode(t, "GET", 301, 80, "0000000000000000")
+		testNodeClientWithMethodAndStatusCode(t, "GET", 301, 80, "0000000000000000", "client")
 	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -1025,8 +1025,68 @@ func TestSuiteNodeClientTLS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client_tls`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
-		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001")
+		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001", "client_tls")
 	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// TestSuitePythonAsyncMemoryBIOTLSClient covers a client span's peer for CPython's
+// asyncio, whose TLS goes through ssl.MemoryBIO: the ciphertext is written to the
+// socket by the event loop once SSL_write has returned, so the SSL has to be
+// correlated to its connection by the ciphertext it produced.
+func TestSuitePythonAsyncMemoryBIOTLSClient(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-memorybio-tls.yml", path.Join(pathOutput, "test-suite-memorybio-tls-python.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=python`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-memorybio-tls`,
+		`MEMORYBIO_DOCKERFILE=internal/test/integration/components/memorybio/Dockerfile_python`,
+		`MEMORYBIO_IMAGE=hatest-memorybio-python`,
+		`PROM_CONFIG_SUFFIX=`)
+	require.NoError(t, compose.Up())
+	t.Run("asyncio memory-BIO TLS client peer", testMemoryBIOTLSClientPeer)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// TestSuiteNodeMemoryBIOTLSClient is the same check for Node.js, whose TLSWrap is a
+// memory BIO as well.
+func TestSuiteNodeMemoryBIOTLSClient(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-memorybio-tls.yml", path.Join(pathOutput, "test-suite-memorybio-tls-node.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=node`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-memorybio-tls`,
+		`MEMORYBIO_DOCKERFILE=internal/test/integration/components/memorybio/Dockerfile_node`,
+		`MEMORYBIO_IMAGE=hatest-memorybio-node`,
+		`PROM_CONFIG_SUFFIX=`)
+	require.NoError(t, compose.Up())
+	t.Run("Node memory-BIO TLS client peer", testMemoryBIOTLSClientPeer)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// TestSuiteNodeMemoryBIOTLSClientContextPropagation is the same check with a sock_msg
+// program attached, which is a different code path rather than a different setting:
+// the send data lives in bvec pages, so tcp_sendmsg reads nothing from the msghdr and
+// the ciphertext reaches the correlation only through the sock_msg buffer. Node stands
+// in for both runtimes here, since the paths under test are the kernel's rather than
+// the TLS stack's.
+func TestSuiteNodeMemoryBIOTLSClientContextPropagation(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-memorybio-tls.yml", path.Join(pathOutput, "test-suite-memorybio-tls-node-cp.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=node`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-memorybio-tls-cp`,
+		`MEMORYBIO_DOCKERFILE=internal/test/integration/components/memorybio/Dockerfile_node`,
+		`MEMORYBIO_IMAGE=hatest-memorybio-node`,
+		`PROM_CONFIG_SUFFIX=`)
+	require.NoError(t, compose.Up())
+	t.Run("Node memory-BIO TLS client peer under context propagation", testMemoryBIOTLSClientPeer)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1164,6 +1224,19 @@ func TestSuite_LogEnricherPythonAsync(t *testing.T) {
 	// container's lifetime.
 	t.Run("Log Enricher Python async OTel-instrumented", func(t *testing.T) {
 		testLogEnricherPythonAsyncOTelInstrumented(t)
+	})
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricherShellSubstitution(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-shellsubst.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=substsh`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher shell command substitution", func(t *testing.T) {
+		testLogEnricherShellSubstitution(t)
 	})
 	require.NoError(t, compose.Close())
 }

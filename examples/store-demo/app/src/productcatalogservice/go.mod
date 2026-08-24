@@ -2,7 +2,7 @@ module github.com/GoogleCloudPlatform/microservices-demo/src/productcatalogservi
 
 go 1.25.8
 
-toolchain go1.26.6
+toolchain go1.27.0
 
 require (
 	cloud.google.com/go/alloydbconn v1.18.6
@@ -10,8 +10,8 @@ require (
 	github.com/golang/protobuf v1.5.4
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/sirupsen/logrus v1.9.4
-	google.golang.org/grpc v1.82.1
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/grpc v1.83.1
+	google.golang.org/protobuf v1.36.12
 )
 
 require (

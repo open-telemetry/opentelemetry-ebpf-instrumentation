@@ -270,8 +270,12 @@ func newMetricsReporter(
 	}
 
 	if is.DBEnabled() {
+		// server.port on db.client metrics is reported conditionally per the
+		// DB semconv, unless the user explicitly includes it
+		explicitPort := mr.attributes.ExplicitlyIncluded(attributes.DBClientDuration, attr.ServerPort)
 		mr.attrDBClient = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.DBClientDuration))
+			request.SpanOTELGettersForDBClient(unresolved, explicitPort),
+			mr.attributes.For(attributes.DBClientDuration))
 		mr.attrDBServer = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.DBServerDuration))
 	}
@@ -1037,8 +1041,8 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			}
 		case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
 			if mr.is.KafkaEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
 					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				case request.MessagingProcess:
@@ -1048,8 +1052,8 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			}
 		case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
 			if mr.is.MQTTEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
 					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				case request.MessagingProcess:
@@ -1059,8 +1063,8 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			}
 		case request.EventTypeNATSClient, request.EventTypeNATSServer:
 			if mr.is.NATSEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
 					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				case request.MessagingProcess:
@@ -1070,8 +1074,8 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			}
 		case request.EventTypeAMQPClient:
 			if mr.is.AMQPEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
 					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				case request.MessagingProcess:

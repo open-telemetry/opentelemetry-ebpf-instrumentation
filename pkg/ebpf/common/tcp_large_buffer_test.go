@@ -30,7 +30,7 @@ func TestProtocolToLargeBufferKind(t *testing.T) {
 		{ProtocolTypeMQTT, KindLayerWire},
 		{ProtocolTypeUnknown, KindLayerWire},
 		{ProtocolTypeSunRPC, KindLayerWire},
-		{ProtocolTypeAerospike, KindLayerWire},
+		{ProtocolTypeAerospike, KindLayerApp},
 	}
 	for _, tt := range tests {
 		require.Equal(t, tt.expected, protocolToLargeBufferKind(tt.protocolType))
