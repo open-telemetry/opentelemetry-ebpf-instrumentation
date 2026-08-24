@@ -81,11 +81,16 @@ func TestTracesExportCompressionHTTP(t *testing.T) {
 }
 
 func TestTracesExportCompressionRejectsUnknownValue(t *testing.T) {
-	cfg := baseTracesConfig("http://127.0.0.1:1")
-	cfg.TracesCompression = "not-a-codec"
-	_, _, err := getTracesExporter(context.Background(), cfg, imetrics.NoopReporter{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not-a-codec")
+	for _, protocol := range []otelcfg.Protocol{otelcfg.ProtocolHTTPProtobuf, otelcfg.ProtocolGRPC} {
+		t.Run(string(protocol), func(t *testing.T) {
+			cfg := baseTracesConfig("http://127.0.0.1:1")
+			cfg.Protocol = protocol
+			cfg.TracesCompression = "not-a-codec"
+			_, _, err := getTracesExporter(context.Background(), cfg, imetrics.NoopReporter{})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "not-a-codec")
+		})
+	}
 }
 
 func TestTracesCompressionTracesKeyWinsOverCommon(t *testing.T) {
