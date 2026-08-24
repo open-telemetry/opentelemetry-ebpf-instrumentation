@@ -88,12 +88,6 @@ struct sockaddr {
     u16 sa_family;
 };
 
-struct sockaddr_in {
-    u16 sin_family;
-    u16 sin_port;
-    u32 sin_addr;
-};
-
 struct sockaddr_in6 {
     u16 sin6_family;
     u16 sin6_port;

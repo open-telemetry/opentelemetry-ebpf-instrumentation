@@ -16,13 +16,11 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
+// included ahead of the override below, so the include chain does not redefine it
+#include <bpfcore/bpf_core_read.h>
 
 // Called by the dns.h include chain, omitted by the shared stub
 #define BPF_ANY 0
-
-static inline u64 bpf_ktime_get_ns(void) {
-    return 0;
-}
 
 static inline u32 bpf_get_prandom_u32(void) {
     return 0;
@@ -39,7 +37,9 @@ static inline long bpf_skb_load_bytes(const void *skb, u32 offset, void *to, u32
 // The shared stubs no-op every read and map lookup, so live mocks are supplied
 // below and macro-shadowed over the include.
 
-// Host-resident structs, so a direct field access stands in for the CO-RE read
+// Host-resident structs, so a direct field access stands in for the CO-RE read.
+// The shared stub copies a zero value instead.
+#undef BPF_CORE_READ_INTO
 #define BPF_CORE_READ_INTO(dst, src, field) (*(dst) = (src)->field)
 
 static long test_probe_read_kernel(void *dst, u32 size, const void *src) {

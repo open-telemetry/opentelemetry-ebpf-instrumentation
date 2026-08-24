@@ -14,16 +14,15 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
+// included ahead of the override below, so the include chain does not redefine it
+#include <bpfcore/bpf_core_read.h>
 
 // Called by the dns.h include chain, omitted by the shared stub
 #define BPF_ANY 0
 
-// Mutable so the answer-timeout boundary can be pinned
-static u64 test_now_ns;
-
-static inline u64 bpf_ktime_get_ns(void) {
-    return test_now_ns;
-}
+// The shared stub's clock, which this test drives so the answer-timeout
+// boundary can be pinned
+#define test_now_ns bpf_ktime_ns_value
 
 static inline u32 bpf_get_prandom_u32(void) {
     return 0;
@@ -40,7 +39,9 @@ static inline long bpf_skb_load_bytes(const void *skb, u32 offset, void *to, u32
 // The shared stubs no-op every read and map lookup, so the classifier is given
 // live mocks below and they are macro-shadowed over the include.
 
-// Host-resident structs, so a direct field access stands in for the CO-RE read
+// Host-resident structs, so a direct field access stands in for the CO-RE read.
+// The shared stub copies a zero value instead, which would leave msg_name unread.
+#undef BPF_CORE_READ_INTO
 #define BPF_CORE_READ_INTO(dst, src, field) (*(dst) = (src)->field)
 
 // Returns an error on a NULL source rather than faulting the test process
@@ -312,9 +313,14 @@ static void test_classify_reports_no_for_connected_non_dns_peer(void) {
 // between arbitrary bytes on a resolver socket and a reported lookup.
 
 enum : u16 {
-    k_flags_query = 0x0100,    // qr=0, opcode=0, rd=1
-    k_flags_response = 0x8180, // qr=1, opcode=0, rd=1, ra=1, rcode=0
+    k_flags_query = 0x0100,      // qr=0, opcode=0, rd=1
+    k_flags_response = 0x8180,   // qr=1, opcode=0, rd=1, ra=1, rcode=0
+    k_flags_mdns_query = 0x0000, // qr=0, opcode=0; a multicast query sets no rd
+    k_flag_tc = 1 << 9,
 };
+
+// whether the message is multicast DNS, which decides how much a query may carry
+enum : u8 { k_unicast = 0, k_mdns = 1 };
 
 // counts as they sit in a real header, in network byte order
 static struct dnshdr dns_header(u16 flags, u16 qd, u16 an, u16 ns, u16 ar) {
@@ -339,7 +345,7 @@ static void test_header_accepts_a_real_query(void) {
 
     check_u8("an ordinary query is plausible",
              1,
-             dns_header_is_plausible(&hdr, k_flags_query, roomy_size()));
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size(), k_unicast));
 }
 
 static void test_header_accepts_a_real_response(void) {
@@ -347,7 +353,7 @@ static void test_header_accepts_a_real_response(void) {
 
     check_u8("an ordinary response is plausible",
              1,
-             dns_header_is_plausible(&hdr, k_flags_response, roomy_size()));
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size(), k_unicast));
 }
 
 // NXDOMAIN and SERVFAIL are lookups worth reporting, so rcode is not a filter
@@ -355,8 +361,9 @@ static void test_header_accepts_an_nxdomain_response(void) {
     const u16 flags = k_flags_response | 3;
     struct dnshdr hdr = dns_header(flags, 1, 0, 1, 0);
 
-    check_u8(
-        "an NXDOMAIN response is plausible", 1, dns_header_is_plausible(&hdr, flags, roomy_size()));
+    check_u8("an NXDOMAIN response is plausible",
+             1,
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_unicast));
 }
 
 // A DNSSEC-aware resolver sets AD and CD on ordinary traffic. RFC 1035 called
@@ -367,7 +374,7 @@ static void test_header_accepts_dnssec_ad_and_cd(void) {
 
     check_u8("AD and CD do not make a response implausible",
              1,
-             dns_header_is_plausible(&hdr, flags, roomy_size()));
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_unicast));
 }
 
 // mDNS responses may omit the question section
@@ -376,7 +383,7 @@ static void test_header_accepts_a_response_without_a_question(void) {
 
     check_u8("a response with answers but no question is plausible",
              1,
-             dns_header_is_plausible(&hdr, k_flags_response, roomy_size()));
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size(), k_unicast));
 }
 
 static void test_header_rejects_a_non_query_opcode(void) {
@@ -385,15 +392,16 @@ static void test_header_rejects_a_non_query_opcode(void) {
 
     check_u8("a non-standard opcode is not a lookup",
              0,
-             dns_header_is_plausible(&hdr, flags, roomy_size()));
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_unicast));
 }
 
 static void test_header_rejects_a_set_reserved_bit(void) {
     const u16 flags = k_flags_response | (1 << 6);
     struct dnshdr hdr = dns_header(flags, 1, 1, 0, 0);
 
-    check_u8(
-        "the reserved bit must be zero", 0, dns_header_is_plausible(&hdr, flags, roomy_size()));
+    check_u8("the reserved bit must be zero",
+             0,
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_unicast));
 }
 
 static void test_header_rejects_a_query_that_asks_nothing(void) {
@@ -401,7 +409,7 @@ static void test_header_rejects_a_query_that_asks_nothing(void) {
 
     check_u8("a query with no question is implausible",
              0,
-             dns_header_is_plausible(&hdr, k_flags_query, roomy_size()));
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size(), k_unicast));
 }
 
 static void test_header_rejects_a_query_carrying_answers(void) {
@@ -409,7 +417,7 @@ static void test_header_rejects_a_query_carrying_answers(void) {
 
     check_u8("a query does not answer itself",
              0,
-             dns_header_is_plausible(&hdr, k_flags_query, roomy_size()));
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size(), k_unicast));
 }
 
 static void test_header_rejects_an_empty_response(void) {
@@ -417,7 +425,7 @@ static void test_header_rejects_an_empty_response(void) {
 
     check_u8("a response with no sections carries no lookup",
              0,
-             dns_header_is_plausible(&hdr, k_flags_response, roomy_size()));
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size(), k_unicast));
 }
 
 // The check that does most of the work against arbitrary bytes: random counts
@@ -425,9 +433,10 @@ static void test_header_rejects_an_empty_response(void) {
 static void test_header_rejects_counts_that_cannot_fit(void) {
     struct dnshdr hdr = dns_header(k_flags_response, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF);
 
-    check_u8("counts larger than the datagram are implausible",
-             0,
-             dns_header_is_plausible(&hdr, k_flags_response, sizeof(struct dnshdr) + 32));
+    check_u8(
+        "counts larger than the datagram are implausible",
+        0,
+        dns_header_is_plausible(&hdr, k_flags_response, sizeof(struct dnshdr) + 32, k_unicast));
 }
 
 static void test_header_accepts_counts_that_exactly_fit(void) {
@@ -437,7 +446,7 @@ static void test_header_accepts_counts_that_exactly_fit(void) {
 
     check_u8("sections that exactly fit are plausible",
              1,
-             dns_header_is_plausible(&hdr, k_flags_response, size));
+             dns_header_is_plausible(&hdr, k_flags_response, size, k_unicast));
 }
 
 // A truncated response describes records it never sent, so its counts cannot be
@@ -448,7 +457,78 @@ static void test_header_accepts_a_truncated_response(void) {
 
     check_u8("a truncated response is not judged on its counts",
              1,
-             dns_header_is_plausible(&hdr, flags, sizeof(struct dnshdr) + 16));
+             dns_header_is_plausible(&hdr, flags, sizeof(struct dnshdr) + 16, k_unicast));
+}
+
+// Multicast DNS, which puts records in sections a unicast query leaves empty.
+// The port is recognized as DNS, so rejecting these forms would drop lookups
+// this code claims to report.
+
+// RFC 6762 §7.1: a querier that already knows some answers populates the Answer
+// Section with them, so that responders holding the same records stay quiet
+static void test_header_accepts_an_mdns_known_answer_query(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 1, 2, 0, 0);
+
+    check_u8("a known-answer suppression query is plausible over mDNS",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_mdns));
+
+    check_u8("the same query is implausible over unicast DNS",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_unicast));
+}
+
+// RFC 6762 §7.2: a known-answer list too large for one packet is continued in
+// further query packets, which carry no question at all. Every packet but the
+// last sets TC.
+static void test_header_accepts_an_mdns_continuation_packet(void) {
+    const u16 flags = k_flags_mdns_query | k_flag_tc;
+    struct dnshdr hdr = dns_header(flags, 0, 2, 0, 0);
+
+    check_u8("a continuation packet with more to follow is plausible over mDNS",
+             1,
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_mdns));
+}
+
+static void test_header_accepts_a_final_mdns_continuation_packet(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 0, 2, 0, 0);
+
+    check_u8("the last continuation packet, which clears TC, is plausible over mDNS",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_mdns));
+
+    check_u8("a question-less query is implausible over unicast DNS",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_unicast));
+}
+
+// RFC 6762 §8.1: a probe proposes its records in the Authority Section
+static void test_header_accepts_an_mdns_probe(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 1, 0, 1, 0);
+
+    check_u8("a probe query is plausible over mDNS",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_mdns));
+}
+
+// The relaxation is about which sections may be occupied, not about whether the
+// message has to describe anything at all
+static void test_header_rejects_an_empty_mdns_query(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 0, 0, 0, 0);
+
+    check_u8("an mDNS query describing no records is implausible",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_mdns));
+}
+
+// The size check is what stands between arbitrary bytes and a reported lookup,
+// and admitting answers into a query must not exempt a query from it
+static void test_header_rejects_an_mdns_query_that_cannot_fit(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 0, 0xFFFF, 0, 0);
+
+    check_u8("an mDNS query claiming more answers than it can hold is implausible",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, sizeof(struct dnshdr) + 32, k_mdns));
 }
 
 // unconn_dns_socks
@@ -788,6 +868,12 @@ int main(void) {
     test_header_rejects_counts_that_cannot_fit();
     test_header_accepts_counts_that_exactly_fit();
     test_header_accepts_a_truncated_response();
+    test_header_accepts_an_mdns_known_answer_query();
+    test_header_accepts_an_mdns_continuation_packet();
+    test_header_accepts_a_final_mdns_continuation_packet();
+    test_header_accepts_an_mdns_probe();
+    test_header_rejects_an_empty_mdns_query();
+    test_header_rejects_an_mdns_query_that_cannot_fit();
 
     test_unconn_sock_has_no_expected_answer_by_default();
     test_unconn_sock_answer_is_expected_after_a_query();

@@ -103,12 +103,27 @@ static __always_inline u8 dns_rcode(u16 f) {
     return f & 0xF;
 }
 
+enum : u16 { k_dns_port = 53, k_mdns_port = 5353 };
+
+static __always_inline u8 is_mdns_port(u16 port) {
+    return port == k_mdns_port;
+}
+
 static __always_inline u8 is_dns_port(u16 port) {
-    return port == 53 || port == 5353;
+    return port == k_dns_port || is_mdns_port(port);
 }
 
 static __always_inline u8 is_dns(const connection_info_t *conn) {
     return is_dns_port(conn->s_port) || is_dns_port(conn->d_port);
+}
+
+// A compliant multicast DNS querier sends from source port 5353 (RFC 6762
+// §5.2), and a responder is bound to it, so either endpoint naming that port
+// identifies the message as multicast DNS. A one-shot querier uses an ephemeral
+// source port and is explicitly not a compliant querier (§5.1), so it does not
+// emit the forms this distinction exists to admit.
+static __always_inline u8 is_mdns(const connection_info_t *conn) {
+    return is_mdns_port(conn->s_port) || is_mdns_port(conn->d_port);
 }
 
 // Recovers the peer port from a kernel-resident msghdr->msg_name. An unconnected
@@ -151,9 +166,13 @@ enum : u32 {
 // Deliberately not checked: rcode, because NXDOMAIN and SERVFAIL are lookups
 // worth reporting, and the AD and CD bits, which ordinary DNSSEC-aware
 // resolvers set.
+//
+// mdns relaxes the counts a query may carry, because multicast DNS puts records
+// in sections a unicast query leaves empty.
 static __always_inline u8 dns_header_is_plausible(const struct dnshdr *hdr,
                                                   const u16 flags,
-                                                  const u32 size) {
+                                                  const u32 size,
+                                                  const u8 mdns) {
     if (dns_opcode(flags) != 0) {
         return 0; // a lookup is a standard query; IQUERY, STATUS, NOTIFY and UPDATE are not
     }
@@ -167,14 +186,19 @@ static __always_inline u8 dns_header_is_plausible(const struct dnshdr *hdr,
     const u16 nscount = bpf_ntohs(hdr->nscount);
     const u16 arcount = bpf_ntohs(hdr->arcount);
 
-    if (dns_qr(flags) == k_dns_qr_query) {
-        // a query asks at least one question and answers none of them
-        if (qdcount == 0 || ancount != 0) {
-            return 0;
-        }
-    } else if (qdcount + ancount + nscount + arcount == 0) {
-        // an empty response carries no lookup; an mDNS response may omit the
-        // question, so the sections are counted together rather than separately
+    // A message describing no records at all carries no lookup, whichever
+    // direction it travels in. An mDNS response may omit the question, so the
+    // sections are counted together rather than separately.
+    if (qdcount + ancount + nscount + arcount == 0) {
+        return 0;
+    }
+
+    // A unicast query asks at least one question and answers none of them.
+    // Multicast DNS is exempt on both halves: a query carries the answers it
+    // already knows so that responders suppress them (RFC 6762 §7.1), and the
+    // continuation packets holding the rest of that list have no question at
+    // all (§7.2).
+    if (dns_qr(flags) == k_dns_qr_query && !mdns && (qdcount == 0 || ancount != 0)) {
         return 0;
     }
 
@@ -463,7 +487,7 @@ static __always_inline u8 handle_dns_buf(const unsigned char *buf,
 
     bpf_d_printk("QR type: %d [%s]", qr, __FUNCTION__);
 
-    if (dns_header_is_plausible(&hdr, flags, size)) {
+    if (dns_header_is_plausible(&hdr, flags, size, is_mdns(&p_conn->conn))) {
         conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &p_conn->conn);
         if (!conn_pid) {
             bpf_d_printk("can't find connection info for dns call [%s]", __FUNCTION__);
