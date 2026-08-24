@@ -401,9 +401,9 @@ func TestSpanOTELGetters_MessagingOpName(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "kafka client publish",
-			span:     &Span{Type: EventTypeKafkaClient, Method: MessagingPublish},
-			expected: "publish",
+			name:     "kafka client send",
+			span:     &Span{Type: EventTypeKafkaClient, Method: MessagingSend},
+			expected: "send",
 		},
 		{
 			name:     "kafka server process",
@@ -434,6 +434,16 @@ func TestSpanOTELGetters_MessagingOpName(t *testing.T) {
 			name:     "amqp client publish",
 			span:     &Span{Type: EventTypeAMQPClient, Method: MessagingPublish},
 			expected: "publish",
+		},
+		{
+			name: "aws sqs client uses the sqs operation name",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAWSSQS,
+				Method:  "POST",
+				AWS:     &AWS{SQS: AWSSQS{OperationName: "SendMessage"}},
+			},
+			expected: "SendMessage",
 		},
 		{
 			name:     "http span returns empty",
@@ -783,7 +793,7 @@ func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
 
 	opTypeGetter, ok := spanOTELGetters(attr.MessagingOpType)
 	require.True(t, ok, "getter should be found for MessagingOpType")
-	assert.Equal(t, MessagingPublish, opTypeGetter(span).Value.AsString())
+	assert.Equal(t, MessagingSend, opTypeGetter(span).Value.AsString())
 
 	span.Method = MessagingProcess
 	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())

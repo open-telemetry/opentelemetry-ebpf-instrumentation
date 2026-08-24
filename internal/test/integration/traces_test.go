@@ -1715,13 +1715,13 @@ func testGoGenericHTTPTraces(t *testing.T) {
 			server := res[0]
 			require.NotEmpty(ct, server.TraceID)
 
-			res = trace.FindByOperationName("publish my-topic", "producer")
+			res = trace.FindByOperationName("send my-topic", "producer")
 			require.Len(ct, res, 1)
 			client := res[0]
 			// Check parenthood
 			assert.Equal(ct, server.TraceID, client.TraceID)
 			sd := client.Diff(
-				jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "publish"},
+				jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "send"},
 				jaeger.Tag{Key: "messaging.system", Type: "string", Value: "kafka"},
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "producer"},
 			)
@@ -1833,13 +1833,13 @@ func testGoGenericHTTPSTraces(t *testing.T) {
 			server := res[0]
 			require.NotEmpty(ct, server.TraceID)
 
-			res = trace.FindByOperationName("publish my-topic", "producer")
+			res = trace.FindByOperationName("send my-topic", "producer")
 			require.Len(ct, res, 1)
 			client := res[0]
 			// Check parenthood
 			assert.Equal(ct, server.TraceID, client.TraceID)
 			sd := client.Diff(
-				jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "publish"},
+				jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "send"},
 				jaeger.Tag{Key: "messaging.system", Type: "string", Value: "kafka"},
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "producer"},
 			)

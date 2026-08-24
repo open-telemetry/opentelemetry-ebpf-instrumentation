@@ -285,7 +285,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				EventTypeMQTTClient, EventTypeMQTTServer,
 				EventTypeNATSClient, EventTypeNATSServer,
 				EventTypeAMQPClient:
-				opType = span.Method
+				opType = MessagingOperationTypeOf(span.Method)
 			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				opType = span.AWS.SQS.OperationType
