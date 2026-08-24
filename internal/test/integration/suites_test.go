@@ -821,6 +821,19 @@ func TestSuite_PythonMongo(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// mongo shares the client's network namespace, so the client sees a local
+// listener on the server port
+func TestSuite_PythonMongoSameNetNS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mongo-samenet.yml", path.Join(pathOutput, "test-suite-python-mongo-samenet.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Mongo same-netns metrics", testREDMetricsPythonMongoOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonCouchbase(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-couchbase.yml", path.Join(pathOutput, "test-suite-python-couchbase.log"))
 	require.NoError(t, err)
