@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
 	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
+	"go.opentelemetry.io/obi/pkg/internal/rubytools"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -173,6 +174,11 @@ func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
 		err := denotools.ResolveServiceMetadata(ie.FileInfo)
 		if err != nil {
 			ta.log.Debug("unable to resolve Deno service metadata", "pid", ie.FileInfo.Pid(), "error", err)
+		}
+	case svc.InstrumentableRuby:
+		err := rubytools.ResolveServiceMetadata(ie.FileInfo)
+		if err != nil {
+			ta.log.Debug("unable to resolve Ruby service metadata", "pid", ie.FileInfo.Pid(), "error", err)
 		}
 	}
 }
