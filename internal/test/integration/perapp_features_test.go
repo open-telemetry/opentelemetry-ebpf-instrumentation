@@ -39,7 +39,7 @@ func TestPerAppFeatures(t *testing.T) {
 func testPerAppFeatures(t *testing.T, exportedSource string) {
 	t.Run("all the services have span metrics", func(t *testing.T) {
 		checkSpanMetric(t, 3*time.Minute, exportedSource, "nodejsserver", 3031, "/testing-node")
-		checkSpanMetric(t, time.Minute, exportedSource, "ruby", 3041, "/testing-rails")
+		checkSpanMetric(t, time.Minute, exportedSource, "testapi", 3041, "/testing-rails")
 		checkSpanMetric(t, time.Minute, exportedSource, "pytestserver", 7773, "/testing-python")
 		checkSpanMetric(t, time.Minute, exportedSource, "testserver", 8080, "/testing-go")
 		checkSpanMetric(t, time.Minute, exportedSource, "jtestserver", 8086, "/testing-java")
@@ -47,7 +47,7 @@ func testPerAppFeatures(t *testing.T, exportedSource string) {
 	})
 	t.Run("node, rails and python have RED metrics", func(t *testing.T) {
 		hasREDMetrics(t, exportedSource, "nodejsserver", "/testing-node")
-		hasREDMetrics(t, exportedSource, "ruby", "/testing-rails")
+		hasREDMetrics(t, exportedSource, "testapi", "/testing-rails")
 		hasREDMetrics(t, exportedSource, "pytestserver", "/testing-python")
 	})
 	t.Run("rest of services don't have RED metrics", func(t *testing.T) {
