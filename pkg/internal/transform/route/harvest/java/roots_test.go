@@ -17,21 +17,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools"
+	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
 
 const envClasspath = "CLASSPATH"
-
-func parseJavaLaunch(args []string, env map[string]string) jvmtools.JavaLaunch {
-	return jvmtools.ParseJavaLaunch(args, env)
-}
-
-func resolveProcessPath(root, cwd, path string) (string, bool) {
-	return jvmtools.ResolveProcessPath(root, cwd, path)
-}
-
-func isProcRoot(path string) bool {
-	return jvmtools.IsProcRoot(path)
-}
 
 func TestParseJavaLaunch(t *testing.T) {
 	tests := []struct {
@@ -92,7 +81,7 @@ func TestParseJavaLaunch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, parseJavaLaunch(tt.args, tt.env))
+			assert.Equal(t, tt.expected, jvmtools.ParseJavaLaunch(tt.args, tt.env))
 		})
 	}
 }
@@ -197,21 +186,21 @@ func TestResolveProcessPath(t *testing.T) {
 	writeFile(t, filepath.Join(root, "app", "app.jar"))
 
 	t.Run("resolves relative paths from process cwd", func(t *testing.T) {
-		path, ok := resolveProcessPath(root, "/app", "app.jar")
+		path, ok := langtools.ResolveProcessPath(root, "/app", "app.jar")
 
 		assert.True(t, ok)
 		assert.Equal(t, filepath.Join(actualRoot, "app", "app.jar"), path)
 	})
 
 	t.Run("resolves absolute container paths under root", func(t *testing.T) {
-		path, ok := resolveProcessPath(root, "/ignored", "/app/app.jar")
+		path, ok := langtools.ResolveProcessPath(root, "/ignored", "/app/app.jar")
 
 		assert.True(t, ok)
 		assert.Equal(t, filepath.Join(actualRoot, "app", "app.jar"), path)
 	})
 
 	t.Run("rejects missing resolved paths", func(t *testing.T) {
-		path, ok := resolveProcessPath(root, "/", "../app.jar")
+		path, ok := langtools.ResolveProcessPath(root, "/", "../app.jar")
 
 		assert.False(t, ok)
 		assert.Empty(t, path)
@@ -222,7 +211,7 @@ func TestResolveProcessPath(t *testing.T) {
 		writeFile(t, outside)
 		require.NoError(t, os.Symlink(outside, filepath.Join(root, "app", "escape.jar")))
 
-		path, ok := resolveProcessPath(root, "/app", "escape.jar")
+		path, ok := langtools.ResolveProcessPath(root, "/app", "escape.jar")
 
 		assert.False(t, ok)
 		assert.Empty(t, path)
@@ -243,7 +232,7 @@ func TestIsProcRoot(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.root, func(t *testing.T) {
-			assert.Equal(t, tt.want, isProcRoot(tt.root))
+			assert.Equal(t, tt.want, langtools.IsProcRoot(tt.root))
 		})
 	}
 }
