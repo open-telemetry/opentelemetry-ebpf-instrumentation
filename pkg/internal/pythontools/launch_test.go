@@ -21,10 +21,10 @@ func TestParsePythonLaunch(t *testing.T) {
 		fallbackName string
 		fastAPIAuto  bool
 	}{
-		{name: "script", executable: "python3.14", args: []string{"/srv/orders.py"}, target: "/srv/orders.py", kind: targetFile},
-		{name: "interpreter options", executable: "python", args: []string{"-I", "-W", "ignore", "orders.py"}, target: "orders.py", kind: targetFile},
-		{name: "module", executable: "python", args: []string{"-m", "company.orders"}, target: "company.orders", kind: targetModule},
-		{name: "module attached", executable: "python", args: []string{"-mcompany.orders"}, target: "company.orders", kind: targetModule},
+		{name: "script", executable: "python3.14", args: []string{"/srv/orders.py"}, target: "/srv/orders.py", kind: targetScriptPath},
+		{name: "interpreter options", executable: "python", args: []string{"-I", "-W", "ignore", "orders.py"}, target: "orders.py", kind: targetScriptPath},
+		{name: "module", executable: "python", args: []string{"-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule},
+		{name: "module attached", executable: "python", args: []string{"-mcompany.orders"}, target: "company.orders", kind: targetRunnableModule},
 		{name: "module uvicorn", executable: "python", args: []string{"-m", "uvicorn", "orders.api:app"}, target: "orders.api:app", kind: targetModule},
 		{
 			name:       "gunicorn",
@@ -63,7 +63,7 @@ func TestParsePythonLaunch(t *testing.T) {
 		{name: "fastapi automatic", executable: "fastapi", args: []string{"run"}, fastAPIAuto: true},
 		{name: "django settings", executable: "django-admin", args: []string{"runserver", "--settings=company.orders.settings.production"}, target: "company.orders.settings.production", kind: targetModule},
 		{name: "manage settings", executable: "python", args: []string{"manage.py", "runserver", "--settings", "orders.settings"}, target: "orders.settings", kind: targetModule},
-		{name: "manage fallback", executable: "python", args: []string{"manage.py", "runserver"}, target: "manage.py", kind: targetFile},
+		{name: "manage fallback", executable: "python", args: []string{"manage.py", "runserver"}, target: "manage.py", kind: targetScriptPath},
 		{name: "celery", executable: "celery", args: []string{"-A", "company.orders.tasks", "worker"}, target: "company.orders.tasks", kind: targetModule},
 		{name: "celery module", executable: "python", args: []string{"-m", "celery", "--app=orders.celery", "worker"}, target: "orders.celery", kind: targetModule},
 		{name: "eval", executable: "python", args: []string{"-c", "serve()"}},

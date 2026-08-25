@@ -14,7 +14,9 @@ type targetKind uint8
 const (
 	targetNone targetKind = iota
 	targetFile
+	targetScriptPath
 	targetModule
+	targetRunnableModule
 	targetDottedReference
 )
 
@@ -117,7 +119,7 @@ func launchForModule(module string, args []string, env map[string]string) python
 	if _, excluded := nonApplicationModules[module]; excluded {
 		return pythonLaunch{}
 	}
-	return pythonLaunch{target: module, targetKind: targetModule}
+	return pythonLaunch{target: module, targetKind: targetRunnableModule}
 }
 
 func launchForScript(script string, args []string, env map[string]string) pythonLaunch {
@@ -129,14 +131,14 @@ func launchForScript(script string, args []string, env map[string]string) python
 		launch := parseDjango(args, env)
 		if launch.target == "" {
 			launch.target = script
-			launch.targetKind = targetFile
+			launch.targetKind = targetScriptPath
 		}
 		return launch
 	}
 	if script == "-" {
 		return pythonLaunch{}
 	}
-	return pythonLaunch{target: script, targetKind: targetFile}
+	return pythonLaunch{target: script, targetKind: targetScriptPath}
 }
 
 func parseLauncher(command string, args []string, env map[string]string) pythonLaunch {

@@ -272,6 +272,19 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("missing exact script does not borrow project metadata", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'wrong-project'\nversion = '9.9'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{"orders"}, nil, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
 	t.Run("symlink escape cannot supply project metadata", func(t *testing.T) {
 		root := t.TempDir()
 		outside := t.TempDir()
@@ -315,6 +328,162 @@ func TestResolveServiceMetadata(t *testing.T) {
 
 		require.ErrorIs(t, err, expectedErr)
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+}
+
+func TestResolveTargetPathMatchesPython(t *testing.T) {
+	t.Run("extensionless script path is accepted", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders"), "")
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		launch := parsePythonLaunch("python", []string{"orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.True(t, found)
+		assert.Equal(t, filepath.Join(root, "app", "orders"), path)
+		assert.Equal(t, "orders", target)
+	})
+
+	t.Run("script path is exact", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		launch := parsePythonLaunch("python", []string{"orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.False(t, found)
+		assert.Empty(t, path)
+		assert.Empty(t, target)
+	})
+
+	t.Run("script directory requires main", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "orders", "__init__.py"), "")
+		launch := parsePythonLaunch("python", []string{"orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.False(t, found)
+		assert.Empty(t, path)
+		assert.Empty(t, target)
+	})
+
+	t.Run("script path ignores pythonpath", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "libs", "orders"), "")
+		launch := parsePythonLaunch("python", []string{"orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, map[string]string{"PYTHONPATH": "/libs"})
+
+		assert.False(t, found)
+		assert.Empty(t, path)
+		assert.Empty(t, target)
+	})
+
+	t.Run("script directory executes main", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "orders", "__main__.py"), "")
+		launch := parsePythonLaunch("python", []string{"orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.True(t, found)
+		assert.Equal(t, filepath.Join(root, "app", "orders", "__main__.py"), path)
+		assert.Equal(t, "orders", target)
+	})
+
+	t.Run("runnable package precedes module", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "orders", "__init__.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "orders", "__main__.py"), "")
+		launch := parsePythonLaunch("python", []string{"-m", "orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.True(t, found)
+		assert.Equal(t, filepath.Join(root, "app", "orders", "__main__.py"), path)
+		assert.Equal(t, "orders", target)
+	})
+
+	t.Run("runnable module executes module file", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		launch := parsePythonLaunch("python", []string{"-m", "orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.True(t, found)
+		assert.Equal(t, filepath.Join(root, "app", "orders.py"), path)
+		assert.Equal(t, "orders", target)
+	})
+
+	t.Run("runnable package without main blocks module", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "orders", "__init__.py"), "")
+		launch := parsePythonLaunch("python", []string{"-m", "orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.False(t, found)
+		assert.Empty(t, path)
+		assert.Empty(t, target)
+	})
+
+	t.Run("runnable namespace package executes main", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders", "__main__.py"), "")
+		launch := parsePythonLaunch("python", []string{"-m", "orders"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.True(t, found)
+		assert.Equal(t, filepath.Join(root, "app", "orders", "__main__.py"), path)
+		assert.Equal(t, "orders", target)
+	})
+
+	t.Run("framework import prefers package", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders", "__init__.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "orders", "api.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "orders", "api", "__init__.py"), "")
+		launch := parsePythonLaunch("uvicorn", []string{"orders.api:app"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, nil)
+
+		assert.True(t, found)
+		assert.Equal(t, filepath.Join(root, "app", "orders", "api", "__init__.py"), path)
+		assert.Equal(t, "orders.api", target)
+	})
+
+	t.Run("parent module blocks lower import", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "company.py"), "")
+		writePythonFile(t, filepath.Join(root, "libs", "company", "orders.py"), "")
+		launch := parsePythonLaunch("uvicorn", []string{"company.orders:app"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, map[string]string{"PYTHONPATH": "/libs"})
+
+		assert.False(t, found)
+		assert.Empty(t, path)
+		assert.Empty(t, target)
+	})
+
+	t.Run("parent package blocks lower import", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "company", "__init__.py"), "")
+		writePythonFile(t, filepath.Join(root, "libs", "company", "orders.py"), "")
+		launch := parsePythonLaunch("uvicorn", []string{"company.orders:app"}, nil)
+
+		path, target, found := resolveTargetPath(root, "/app", launch, map[string]string{"PYTHONPATH": "/libs"})
+
+		assert.False(t, found)
+		assert.Empty(t, path)
+		assert.Empty(t, target)
 	})
 }
 

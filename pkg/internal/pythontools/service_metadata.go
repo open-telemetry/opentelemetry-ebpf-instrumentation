@@ -109,58 +109,170 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	return resolutionErr
 }
 
+type targetCandidate struct {
+	path   string
+	target string
+}
+
+type resolvedPythonModule struct {
+	path        string
+	searchPaths []string
+	isPackage   bool
+}
+
 func resolveTargetPath(root, cwd string, launch pythonLaunch, env map[string]string) (string, string, bool) {
+	if launch.targetKind == targetScriptPath {
+		if launch.target == "" {
+			return "", "", false
+		}
+		return resolveTargetCandidates(root, []string{cwd}, []targetCandidate{
+			{path: launch.target, target: launch.target},
+			{path: filepath.Join(launch.target, "__main__.py"), target: launch.target},
+		})
+	}
+
 	target := targetReference(launch.target)
 	if target == "" {
 		return "", "", false
 	}
 
 	roots := targetSearchRoots(cwd, launch.searchPaths, env["PYTHONPATH"])
-	type targetCandidate struct {
-		path   string
-		target string
-	}
-	var candidates []targetCandidate
-	appendModule := func(module string) {
-		modulePath := filepath.FromSlash(strings.ReplaceAll(module, ".", "/"))
-		candidates = append(candidates,
-			targetCandidate{path: modulePath + ".py", target: module},
-			targetCandidate{path: filepath.Join(modulePath, "__init__.py"), target: module},
-		)
-	}
 	switch launch.targetKind {
 	case targetFile:
-		candidates = append(candidates, targetCandidate{path: target, target: target})
+		candidates := []targetCandidate{{path: target, target: target}}
 		if filepath.Ext(target) == "" {
 			candidates = append(candidates,
 				targetCandidate{path: target + ".py", target: target},
 				targetCandidate{path: filepath.Join(target, "__init__.py"), target: target},
 			)
 		}
+		return resolveTargetCandidates(root, roots, candidates)
 	case targetModule:
-		appendModule(target)
+		return resolveImportedModule(root, roots, target)
+	case targetRunnableModule:
+		return resolveRunnableModule(root, roots, target)
 	case targetDottedReference:
-		parts := strings.Split(target, ".")
-		for i := len(parts); i > 0; i-- {
-			appendModule(strings.Join(parts[:i], "."))
-		}
+		return resolveDottedReference(root, roots, target)
 	default:
 		return "", "", false
 	}
+}
 
+func resolveTargetCandidates(root string, roots []string, candidates []targetCandidate) (string, string, bool) {
 	for _, base := range roots {
 		for _, candidate := range candidates {
-			path, ok := langtools.ResolveProcessPath(root, base, candidate.path)
-			if !ok {
-				continue
-			}
-			info, err := os.Stat(path)
-			if err == nil && info.Mode().IsRegular() {
+			if path, ok := regularProcessFile(root, base, candidate.path); ok {
 				return path, candidate.target, true
 			}
 		}
 	}
 	return "", "", false
+}
+
+func resolveImportedModule(root string, roots []string, module string) (string, string, bool) {
+	resolved, found := resolvePythonModule(root, roots, module)
+	if !found || resolved.path == "" {
+		return "", "", false
+	}
+	return resolved.path, module, true
+}
+
+func resolveRunnableModule(root string, roots []string, module string) (string, string, bool) {
+	resolved, found := resolvePythonModule(root, roots, module)
+	if !found {
+		return "", "", false
+	}
+	if !resolved.isPackage {
+		return resolved.path, module, true
+	}
+
+	main, found := resolvePythonModuleParts(root, resolved.searchPaths, []string{"__main__"})
+	if !found || main.isPackage || main.path == "" {
+		return "", "", false
+	}
+	return main.path, module, true
+}
+
+func resolveDottedReference(root string, roots []string, target string) (string, string, bool) {
+	parts := strings.Split(target, ".")
+	for i := len(parts); i > 0; i-- {
+		module := strings.Join(parts[:i], ".")
+		resolved, found := resolvePythonModule(root, roots, module)
+		if found && resolved.path != "" {
+			return resolved.path, module, true
+		}
+	}
+	return "", "", false
+}
+
+func resolvePythonModule(root string, roots []string, module string) (resolvedPythonModule, bool) {
+	return resolvePythonModuleParts(root, roots, strings.Split(module, "."))
+}
+
+func resolvePythonModuleParts(root string, roots, parts []string) (resolvedPythonModule, bool) {
+	searchPaths := roots
+	for index, part := range parts {
+		last := index == len(parts)-1
+		var namespacePaths []string
+		var packagePath string
+
+		for _, base := range searchPaths {
+			candidatePackage := filepath.Join(base, part)
+			if path, ok := regularProcessFile(root, "/", filepath.Join(candidatePackage, "__init__.py")); ok {
+				if last {
+					return resolvedPythonModule{
+						path:        path,
+						searchPaths: []string{candidatePackage},
+						isPackage:   true,
+					}, true
+				}
+				packagePath = candidatePackage
+				break
+			}
+
+			if path, ok := regularProcessFile(root, "/", filepath.Join(base, part+".py")); ok {
+				if !last {
+					return resolvedPythonModule{}, false
+				}
+				return resolvedPythonModule{path: path}, true
+			}
+
+			if processDirectory(root, candidatePackage) && !slices.Contains(namespacePaths, candidatePackage) {
+				namespacePaths = append(namespacePaths, candidatePackage)
+			}
+		}
+
+		if packagePath != "" {
+			searchPaths = []string{packagePath}
+			continue
+		}
+		if len(namespacePaths) == 0 {
+			return resolvedPythonModule{}, false
+		}
+		if last {
+			return resolvedPythonModule{searchPaths: namespacePaths, isPackage: true}, true
+		}
+		searchPaths = namespacePaths
+	}
+	return resolvedPythonModule{}, false
+}
+
+func regularProcessFile(root, base, path string) (string, bool) {
+	resolved, ok := langtools.ResolveProcessPath(root, base, path)
+	if !ok {
+		return "", false
+	}
+	info, err := os.Stat(resolved)
+	return resolved, err == nil && info.Mode().IsRegular()
+}
+
+func processDirectory(root, path string) bool {
+	resolved, ok := langtools.ResolveProcessPath(root, "/", path)
+	if !ok {
+		return false
+	}
+	info, err := os.Stat(resolved)
+	return err == nil && info.IsDir()
 }
 
 func targetSearchRoots(cwd string, launcherPaths []string, pythonPath string) []string {
