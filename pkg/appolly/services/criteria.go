@@ -270,6 +270,9 @@ func (p *IntEnum) UnmarshalText(text []byte) error {
 		e.Start, _ = strconv.Atoi(strings.TrimSpace(parts[0]))
 		if len(parts) > 1 {
 			e.End, _ = strconv.Atoi(strings.TrimSpace(parts[1]))
+			if e.End < e.Start {
+				return fmt.Errorf("invalid int enum %q: range end must not be less than start (%d-%d)", val, e.Start, e.End)
+			}
 		}
 		p.Ranges = append(p.Ranges, e)
 	}
