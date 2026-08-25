@@ -134,6 +134,26 @@ func TestSuiteGoGeneric(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// Alpine workload, so name resolution goes through musl's unconnected UDP socket
+func TestSuite_DNSUnconnectedResolver(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-dns-unconnected.yml", path.Join(pathOutput, "test-suite-dns-unconnected.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=python`,
+		`OTEL_EBPF_OPEN_PORT=`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-java`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("DNS RED metrics over an unconnected resolver socket", testDNSUnconnectedResolver)
+	t.Run("every DNS lookup is counted", testDNSEveryLookupCounted)
+	t.Run("non-DNS UDP is not reported as DNS", testDNSNoFalsePositive)
+	t.Run("unrelated traffic does not lose an outstanding lookup", testDNSInterleavedTraffic)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuiteClientPromScrape(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client-promscrape.log"))
 	require.NoError(t, err)
