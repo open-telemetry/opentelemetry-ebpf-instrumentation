@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,11 +31,11 @@ type TracesConfig struct {
 	Protocol       Protocol `yaml:"protocol" env:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	TracesProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"`
 
-	CommonCompression string `yaml:"-" env:"OTEL_EXPORTER_OTLP_COMPRESSION"`
-	// TracesCompression is the compression applied to exported OTLP payloads. Accepted
-	// values are gzip, zlib, deflate, snappy, x-snappy-framed, zstd, lz4 and none. Left
-	// unset, the OTLP exporter's own default of gzip applies.
-	TracesCompression string `yaml:"compression" env:"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"`
+	CommonCompression string `yaml:"-" env:"OTEL_EXPORTER_OTLP_COMPRESSION" validate:"omitempty,oneof=none gzip zstd zlib snappy deflate lz4 x-snappy-framed"`
+	// TracesCompression is the compression applied to exported OTLP payloads. Left unset,
+	// the OTLP exporter's own default of gzip applies. gRPC accepts a narrower set than
+	// HTTP, which Validate checks once the protocol is known.
+	TracesCompression string `yaml:"compression" env:"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION" validate:"omitempty,oneof=none gzip zstd zlib snappy deflate lz4 x-snappy-framed" jsonschema:"type=string,enum=none,enum=gzip,enum=zstd,enum=zlib,enum=snappy,enum=deflate,enum=lz4,enum=x-snappy-framed"`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
 	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_TRACES_INSTRUMENTATIONS" envSeparator:"," jsonschema:"uniqueItems=true"`
@@ -134,12 +135,27 @@ func (m *TracesConfig) GetProtocol() Protocol {
 	return m.guessProtocol()
 }
 
-// GetCompression returns "" when neither key is set, meaning the exporter default stands.
+// GetCompression returns "" to mean the exporter default stands.
 func (m *TracesConfig) GetCompression() string {
 	if m.TracesCompression != "" {
 		return m.TracesCompression
 	}
 	return m.CommonCompression
+}
+
+// configgrpc's getGRPCCompressionName maps only these.
+var grpcCompressionCodecs = []string{"", "none", "gzip", "snappy", "zstd"}
+
+// Validate narrows the oneof tag, which covers both protocols, to what gRPC can encode.
+func (m *TracesConfig) Validate() error {
+	if m.GetProtocol() != ProtocolGRPC {
+		return nil
+	}
+	if slices.Contains(grpcCompressionCodecs, m.GetCompression()) {
+		return nil
+	}
+	return fmt.Errorf("compression %q is not supported over gRPC, use one of: %s",
+		m.GetCompression(), strings.Join(grpcCompressionCodecs[1:], ", "))
 }
 
 func (m *TracesConfig) OTLPTracesEndpoint() (string, bool) {

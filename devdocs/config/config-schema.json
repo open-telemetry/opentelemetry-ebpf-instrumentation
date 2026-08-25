@@ -3011,7 +3011,17 @@
         },
         "compression": {
           "type": "string",
-          "description": "Is the compression applied to exported OTLP payloads. Accepted values are gzip, zlib, deflate, snappy, x-snappy-framed, zstd, lz4 and none. Left unset, the OTLP exporter's own default of gzip applies.",
+          "enum": [
+            "deflate",
+            "gzip",
+            "lz4",
+            "none",
+            "snappy",
+            "x-snappy-framed",
+            "zlib",
+            "zstd"
+          ],
+          "description": "Is the compression applied to exported OTLP payloads. Left unset, the OTLP exporter's own default of gzip applies. gRPC accepts a narrower set than HTTP, which Validate checks once the protocol is known.",
           "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"
         },
         "endpoint": {
