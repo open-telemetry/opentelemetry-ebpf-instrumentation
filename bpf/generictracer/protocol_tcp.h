@@ -265,9 +265,13 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
     }
     if (!existing) {
+        // must check the local port: the peer port may also have a local
+        // listener (docker-proxy), which would misclassify a client as a server
+        const u16 local_port =
+            pid_conn->conn.d_port == orig_dport ? pid_conn->conn.s_port : pid_conn->conn.d_port;
         // Determining the server information for unix sockets is only valid on request creation
-        const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
-                               is_unix_sock_server(direction, orig_dport);
+        const bool is_server =
+            is_listening(local_port, netns) || is_unix_sock_server(direction, orig_dport);
         if (direction == TCP_RECV) {
             cp_support_data_t *tk = bpf_map_lookup_elem(&cp_support_connect_info, pid_conn);
             if (tk && tk->real_client) {
