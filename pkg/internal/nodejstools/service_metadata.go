@@ -141,7 +141,7 @@ func packageSearchStart(root, cwd, entryPoint string) (string, bool) {
 }
 
 func readPackageJSON(path string) (packageMetadata, bool) {
-	file, found := openPackageJSON(path)
+	file, found := langtools.OpenPackageFile(path, maxPackageJSONBytes)
 	if file == nil {
 		return packageMetadata{}, found
 	}

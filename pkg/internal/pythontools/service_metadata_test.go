@@ -269,10 +269,10 @@ func TestProjectFileLimit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pyproject.toml")
 	require.NoError(t, os.WriteFile(path, make([]byte, maxProjectFileBytes+1), 0o644))
 
-	_, found, err := readProjectFile(path)
+	file, found, _ := readProjectFile(path)
 
 	assert.True(t, found)
-	require.Error(t, err)
+	require.Nil(t, file)
 }
 
 func mockPythonProcess(

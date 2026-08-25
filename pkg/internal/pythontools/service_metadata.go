@@ -350,9 +350,9 @@ func readSetupConfig(path string) (pyprojectData, bool, error) {
 }
 
 func readProjectFile(path string) ([]byte, bool, error) {
-	file, found, err := openProjectFile(path)
-	if err != nil || file == nil {
-		return nil, found, err
+	file, found := langtools.OpenPackageFile(path, maxProjectFileBytes)
+	if file == nil {
+		return nil, found, nil
 	}
 	defer file.Close()
 
