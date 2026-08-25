@@ -6,6 +6,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"log/slog"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -29,10 +30,20 @@ const (
 // choose to filter traces using whether the User-space or Host-space PIDs
 var readNamespacePIDs = procs.FindNamespacedPids
 
+var pidsFilterNow = time.Now
+
+// blocked pids stay valid for this long: events of an exiting process can sit
+// in the kernel ring buffers up to the reader flush interval, and dropping the
+// pid immediately silently discards its final spans
+const pidRemovalGracePeriod = 5 * time.Second
+
 type PIDInfo struct {
 	fileInfo       *exec.FileInfo
 	pidTypes       PIDType
 	otherKnownPids []app.PID
+	// zero while the process lives; set when it is blocked, the entry then
+	// expires after pidRemovalGracePeriod
+	removedAt time.Time
 }
 
 type ServiceFilter interface {
@@ -86,11 +97,15 @@ func (pf *PIDsFilter) ValidPID(userPID app.PID, ns uint32, pidType PIDType) bool
 
 	if ns, nsExists := pf.current[ns]; nsExists {
 		if info, pidExists := ns[userPID]; pidExists {
-			return info.pidTypes&pidType != 0
+			return info.pidTypes&pidType != 0 && !expired(&info)
 		}
 	}
 
 	return false
+}
+
+func expired(info *PIDInfo) bool {
+	return !info.removedAt.IsZero() && pidsFilterNow().Sub(info.removedAt) > pidRemovalGracePeriod
 }
 
 func (pf *PIDsFilter) CurrentPIDs(t PIDType) map[uint32]map[app.PID]svc.Attrs {
@@ -101,7 +116,7 @@ func (pf *PIDsFilter) CurrentPIDs(t PIDType) map[uint32]map[app.PID]svc.Attrs {
 	for k, v := range pf.current {
 		cVal := map[app.PID]svc.Attrs{}
 		for kv, vv := range v {
-			if vv.pidTypes&t != 0 {
+			if vv.pidTypes&t != 0 && vv.removedAt.IsZero() {
 				cVal[kv] = vv.fileInfo.UnsafeServiceAttrs()
 			}
 		}
@@ -140,7 +155,7 @@ func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 		// If the namespace exist, we confirm that we are tracking the user PID that OBI
 		// saw. We don't check for the host pid, because we can't be sure of the number
 		// of container layers. The Host PID is always the outer most layer.
-		if info, pidExists := ns[span.Pid.UserPID]; pidExists {
+		if info, pidExists := ns[span.Pid.UserPID]; pidExists && !expired(&info) {
 			if pf.ignoreOtel {
 				pf.checkIfExportsOTel(info.fileInfo, span, pf.defaultOtlpGRPCPort)
 			}
@@ -181,6 +196,7 @@ func (pf *PIDsFilter) addPID(pid app.PID, nsid uint32, fi *exec.FileInfo, t PIDT
 		pidInfo.fileInfo = fi
 		pidInfo.pidTypes |= t
 		pidInfo.otherKnownPids = allPids
+		pidInfo.removedAt = time.Time{}
 		ns[p] = pidInfo
 	}
 }
@@ -191,15 +207,35 @@ func (pf *PIDsFilter) removePID(pid app.PID, nsid uint32) {
 		return
 	}
 
-	if pidInfo, pidExists := ns[pid]; pidExists {
-		for _, otherPid := range pidInfo.otherKnownPids {
-			delete(ns, otherPid)
+	now := pidsFilterNow()
+	markAsRemoved := func(p app.PID) {
+		if info, ok := ns[p]; ok && info.removedAt.IsZero() {
+			info.removedAt = now
+			ns[p] = info
 		}
 	}
 
-	delete(ns, pid)
-	if len(ns) == 0 {
-		delete(pf.current, nsid)
+	if pidInfo, pidExists := ns[pid]; pidExists {
+		for _, otherPid := range pidInfo.otherKnownPids {
+			markAsRemoved(otherPid)
+		}
+	}
+	markAsRemoved(pid)
+
+	pf.pruneExpired()
+}
+
+// callers must hold the write lock
+func (pf *PIDsFilter) pruneExpired() {
+	for nsid, ns := range pf.current {
+		for pid, info := range ns {
+			if expired(&info) {
+				delete(ns, pid)
+			}
+		}
+		if len(ns) == 0 {
+			delete(pf.current, nsid)
+		}
 	}
 }
 
