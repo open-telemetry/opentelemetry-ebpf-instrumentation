@@ -13,6 +13,7 @@ Generated from [`config-schema.json`](config-schema.json).
 - [`attributes`](#attributes)
 - [`discovery`](#discovery)
 - [`ebpf`](#ebpf)
+- [`filter`](#filter)
 - [`health_check`](#health-check)
 - [`internal_metrics`](#internal-metrics)
 - [`javaagent`](#javaagent)
@@ -24,6 +25,7 @@ Generated from [`config-schema.json`](config-schema.json).
 - [`otel_metrics_export`](#otel-metrics-export)
 - [`otel_traces_export`](#otel-traces-export)
 - [`prometheus_export`](#prometheus-export)
+- [`routes`](#routes)
 - [`stats`](#stats)
 - [Type Definitions](#type-definitions)
 
@@ -33,69 +35,75 @@ Generated from [`config-schema.json`](config-schema.json).
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-|  | `glob` | `OTEL_EBPF_AUTO_TARGET_EXE` |  | `app-*`, `service-??`, `prod-*-db`, etc |  | Glob pattern to match against the attribute value |
-|  | `glob` | `OTEL_EBPF_AUTO_TARGET_LANGUAGE` |  | `app-*`, `service-??`, `prod-*-db`, etc |  | Glob pattern to match against the attribute value |
+|  | `glob` | `OTEL_EBPF_AUTO_TARGET_EXE` |  | `app-*`, `service-??`, `prod-*-db`, etc |  | Selects the executable to instrument matching a Glob against the executable path. To set this value via YAML, use discovery > instrument. It also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation |
+|  | `glob` | `OTEL_EBPF_AUTO_TARGET_LANGUAGE` |  | `app-*`, `service-??`, `prod-*-db`, etc |  | Selects the executable to instrument matching a Glob of chosen languages. To set this value via YAML, use discovery > instrument. |
 | `channel_buffer_len` | `integer` | `OTEL_EBPF_CHANNEL_BUFFER_LEN` | `50` |  |  |  |
 | `channel_send_timeout` | `duration` | `OTEL_EBPF_CHANNEL_SEND_TIMEOUT` | `1m` | `30s`, `5m`, `1ms`, etc |  |  |
 | `channel_send_timeout_panic` | `boolean` | `OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC` | `false` |  |  |  |
-| `enforce_sys_caps` | `boolean` | `OTEL_EBPF_ENFORCE_SYS_CAPS` | `false` |  |  |  |
-| `executable_path` | `regex` | `OTEL_EBPF_EXECUTABLE_PATH` |  | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc |  | Regular expression to match against the executable file path |
-| `filter` | [`AttributesConfig`](#attributesconfig) |  |  |  |  |  |
-| `log_config` | `string` | `OTEL_EBPF_LOG_CONFIG` |  | `json`, `yaml` |  |  |
+| `enforce_sys_caps` | `boolean` | `OTEL_EBPF_ENFORCE_SYS_CAPS` | `false` |  |  | Check for required system capabilities and bail if they are not present. If set to 'false', OBI will still print a list of missing capabilities, but the execution will continue |
+| `executable_path` | `regex` | `OTEL_EBPF_EXECUTABLE_PATH` |  | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Yes | Allows selecting the instrumented executable whose complete path contains the Exec value.  Use OTEL_EBPF_AUTO_TARGET_EXE |
+| `log_config` | `string` | `OTEL_EBPF_LOG_CONFIG` |  | `json`, `yaml` |  | Enables the logging of the configuration on startup. |
 | `log_format` | `string` | `OTEL_EBPF_LOG_FORMAT` | `text` | `json`, `text` |  |  |
 | `log_level` | `string` | `OTEL_EBPF_LOG_LEVEL` | `INFO` | `DEBUG`, `ERROR`, `INFO`, `WARN` |  |  |
-| `open_port` | [`IntEnum`](#intenum) | `OTEL_EBPF_OPEN_PORT` |  |  |  |  |
+| `open_port` | [`IntEnum`](#intenum) | `OTEL_EBPF_OPEN_PORT` |  |  |  | Allows selecting the instrumented executable that owns the Port value. If this value is set (and different to zero), the value of the Exec property won't take effect. It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter will instrument all the service calls in all the ports, not only the port specified here. |
 | `profile_port` | `integer` | `OTEL_EBPF_PROFILE_PORT` | `0` |  |  |  |
-| `routes` | [`RoutesConfig`](#routesconfig) |  |  |  |  |  |
-| `service_name` | `string` | `OTEL_SERVICE_NAME` |  |  |  |  |
-| `service_namespace` | `string` | `OTEL_EBPF_SERVICE_NAMESPACE` |  |  |  |  |
-| `shutdown_timeout` | `duration` | `OTEL_EBPF_SHUTDOWN_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `target_pids` | [`IntEnum`](#intenum) | `OTEL_EBPF_TARGET_PID` |  |  |  |  |
+| `service_name` | `string` | `OTEL_SERVICE_NAME` |  |  | Yes | Specifies the name of the instrumented service, taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility). Using env and envDefault is a trick to get the value either from one of either variables.  Service name should be set in the instrumentation target (env vars, kube metadata...) as this is a reminiscence of past times when we only supported one executable per instance. |
+| `service_namespace` | `string` | `OTEL_EBPF_SERVICE_NAMESPACE` |  |  | Yes | Service namespace should be set in the instrumentation target (env vars, kube metadata...) as this is a reminiscence of past times when we only supported one executable per instance. |
+| `shutdown_timeout` | `duration` | `OTEL_EBPF_SHUTDOWN_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  | Timeout for a graceful shutdown |
+| `target_pids` | [`IntEnum`](#intenum) | `OTEL_EBPF_TARGET_PID` |  |  |  | Selects processes by PID for instrumentation. When non-empty, only these PIDs are instrumented. Accepts YAML list (target_pids: [1234, 5678]), single number, or env OTEL_EBPF_TARGET_PID=1234,5678. Alternative to Exec or AutoTargetExe when PIDs are known. |
 | `trace_printer` | `string` | `OTEL_EBPF_TRACE_PRINTER` | `disabled` | `counter`, `disabled`, `json`, `json_indent`, `text` |  |  |
 
 ## `attributes`
 
+Attributes configures the decoration of some extra attributes that will be added to each span
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `attributes.extra_group_attributes` | [`ExtraGroupAttributesMap`](#extragroupattributesmap) |  |  |  |  | Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key. |
-| `attributes.metric_span_names_limit` | `integer` | `OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT` | `100` |  |  |  |
-| `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  |  |
+| `attributes.metric_span_names_limit` | `integer` | `OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT` | `100` |  |  | Works PER SERVICE and only relates to span_metrics. When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED. If the value <= 0, it is disabled. |
+| `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  | Will replace HostName and PeerName attributes when they are empty or contain unresolved IP addresses to reduce cardinality. Set this value to the empty string to disable this feature. |
 | `attributes.rename_unresolved_hosts_incoming` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING` | `incoming` |  |  |  |
 | `attributes.rename_unresolved_hosts_outgoing` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_OUTGOING` | `outgoing` |  |  |  |
-| `attributes.select` | `map[string]object` |  |  |  |  |  |
-| `attributes.sensitive_query_params` | [`SensitiveQueryParamsConfig`](#sensitivequeryparamsconfig) |  |  |  |  |  |
+| `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key "traces" selects optional attributes for exported OTLP traces. The key "resource" selects exported resource attributes. The value is the enumeration of included/excluded attribute globs |
+| `attributes.sensitive_query_params` | [`SensitiveQueryParamsConfig`](#sensitivequeryparamsconfig) |  |  |  |  | Controls which query-parameter keys are redacted in url.full and url.query. |
 
 ### `attributes.host_id`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.host_id.override` | `string` | `OTEL_EBPF_HOST_ID` |  |  |  |  |
+| `attributes.host_id.override` | `string` | `OTEL_EBPF_HOST_ID` |  |  |  | Allows overriding the reported host.id in OBI |
 
 ### `attributes.instance_id`
 
+InstanceIDConfig configures how OBI will get the Instance ID of the traces/metrics from the current hostname + the instrumented process PID
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.instance_id.dns` | `boolean` | `OTEL_EBPF_HOSTNAME_DNS_RESOLUTION` | `true` |  |  |  |
-| `attributes.instance_id.override_hostname` | `string` | `OTEL_EBPF_HOSTNAME` |  |  |  |  |
+| `attributes.instance_id.dns` | `boolean` | `OTEL_EBPF_HOSTNAME_DNS_RESOLUTION` | `true` |  |  | Controls whether OBI uses the DNS to resolve the local hostname. If false, the local hostname is used as-is. |
+| `attributes.instance_id.override_hostname` | `string` | `OTEL_EBPF_HOSTNAME` |  |  |  | Can be optionally set to avoid resolving any hostname and using this value. OBI will anyway attach the process ID to the given hostname for composing the instance ID. |
 
 ### `attributes.kubernetes`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.kubernetes.cluster_name` | `string` | `OTEL_EBPF_KUBE_CLUSTER_NAME` |  |  |  |  |
-| `attributes.kubernetes.disable_informers` | `string`[] | `OTEL_EBPF_KUBE_DISABLE_INFORMERS` |  |  |  |  |
-| `attributes.kubernetes.drop_external` | `boolean` | `OTEL_EBPF_NETWORK_DROP_EXTERNAL` | `false` |  |  |  |
+| `attributes.kubernetes.cluster_name` | `string` | `OTEL_EBPF_KUBE_CLUSTER_NAME` |  |  |  | Overrides cluster name. If empty, OBI will try to retrieve it from node labels, the OpenShift Infrastructure CR, or cloud provider metadata (EC2, GCP, Azure), and leave it empty if all fail. |
+| `attributes.kubernetes.disable_informers` | `string`[] | `OTEL_EBPF_KUBE_DISABLE_INFORMERS` |  |  |  | Allows selectively disabling some informers. Accepted value is a list that might contain node or service. Disabling any of them will cause metadata to be incomplete but will reduce the load of the Kube API. Pods informer can't be disabled. For that purpose, you should disable the whole kubernetes metadata decoration. |
+| `attributes.kubernetes.drop_external` | `boolean` | `OTEL_EBPF_NETWORK_DROP_EXTERNAL` | `false` |  |  | Will drop, in NetO11y component, any flow where the source or destination IPs are not matched to any kubernetes entity, assuming they are cluster-external |
 | `attributes.kubernetes.enable` | `string` | `OTEL_EBPF_KUBE_METADATA_ENABLE` | `autodetect` | `autodetect`, `false`, `true` |  |  |
-| `attributes.kubernetes.informers_resync_period` | `duration` | `OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD` | `30m` | `30s`, `5m`, `1ms`, etc |  |  |
-| `attributes.kubernetes.informers_sync_timeout` | `duration` | `OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `attributes.kubernetes.kubeconfig_path` | `string` | `KUBECONFIG` |  |  |  |  |
-| `attributes.kubernetes.meta_cache_address` | `string` | `OTEL_EBPF_KUBE_META_CACHE_ADDRESS` |  |  |  |  |
-| `attributes.kubernetes.meta_restrict_local_node` | `boolean` | `OTEL_EBPF_KUBE_META_RESTRICT_LOCAL_NODE` | `false` |  |  |  |
-| `attributes.kubernetes.reconnect_initial_interval` | `duration` | `OTEL_EBPF_KUBE_RECONNECT_INITIAL_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `attributes.kubernetes.resource_labels` | `map[string]string[]` |  |  |  |  |  |
-| `attributes.kubernetes.service_name_template` | `string` | `OTEL_EBPF_SERVICE_NAME_TEMPLATE` |  |  |  |  |
+| `attributes.kubernetes.informers_resync_period` | `duration` | `OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD` | `30m` | `30s`, `5m`, `1ms`, etc |  | Defaults to 30m. Higher values will reduce the load on the Kube API. |
+| `attributes.kubernetes.informers_sync_timeout` | `duration` | `OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, etc |  | Specifies the timeout for waiting for informers to sync on startup. |
+| `attributes.kubernetes.kubeconfig_path` | `string` | `KUBECONFIG` |  |  |  | Specifies the path to the kubeconfig file. If unset, it will look in the usual location. |
+| `attributes.kubernetes.meta_cache_address` | `string` | `OTEL_EBPF_KUBE_META_CACHE_ADDRESS` |  |  |  | Specifies the host:port address of the obi-k8s-cache service instance |
+| `attributes.kubernetes.meta_restrict_local_node` | `boolean` | `OTEL_EBPF_KUBE_META_RESTRICT_LOCAL_NODE` | `false` |  |  | Will download only the metadata from the Pods that are located in the same node as the OBI instance. It will also restrict the Node information to the local node. |
+| `attributes.kubernetes.reconnect_initial_interval` | `duration` | `OTEL_EBPF_KUBE_RECONNECT_INITIAL_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, etc |  | Specifies the time to wait before reconnecting to the Kubernetes API after a connection loss. |
+| `attributes.kubernetes.resource_labels` | `map[string]string[]` |  |  |  |  | Allows OBI overriding the OTEL Resource attributes from a map of user-defined labels. |
+| `attributes.kubernetes.service_name_template` | `string` | `OTEL_EBPF_SERVICE_NAME_TEMPLATE` |  |  |  | Allows to override the service.name with a custom value. Uses the go template language. |
 
 #### `attributes.kubernetes.meta_source_labels`
+
+MetaSourceLabels allow overriding some metadata from kubernetes labels, Left for backwards-compatibility.
+
+**Deprecated.**
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
@@ -104,33 +112,37 @@ Generated from [`config-schema.json`](config-schema.json).
 
 ### `attributes.metadata_retry`
 
+RetryConfig holds the retry policy for metadata fetch operations. It controls the exponential backoff used in physical node, cloud instance or local virtual machine.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.metadata_retry.max_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_MAX_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `attributes.metadata_retry.start_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_START_INTERVAL` | `500ms` | `30s`, `5m`, `1ms`, etc |  |  |
-| `attributes.metadata_retry.timeout` | `duration` | `OTEL_EBPF_METADATA_RETRY_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `attributes.metadata_retry.max_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_MAX_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, etc |  | Specifies the upper bound on the wait duration between consecutive retry attempts. |
+| `attributes.metadata_retry.start_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_START_INTERVAL` | `500ms` | `30s`, `5m`, `1ms`, etc |  | Specifies the initial wait duration between the first and second retry attempt. |
+| `attributes.metadata_retry.timeout` | `duration` | `OTEL_EBPF_METADATA_RETRY_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum total time allowed for all retry attempts before giving up. |
 
 ## `discovery`
 
+DiscoveryConfig for the discover.ProcessFinder pipeline
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `discovery.bpf_pid_filter_off` | `boolean` | `OTEL_EBPF_BPF_PID_FILTER_OFF` | `false` |  |  |  |
-| `discovery.default_exclude_instrument` | [`GlobAttributes`](#globattributes)[] |  | `[{"cmd_args":{},"containers_only":false,"exe_path":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null},{"cmd_args":{},"containers_only":false,"exe_path":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null}]` |  |  |  |
-| `discovery.default_exclude_services` | [`RegexSelector`](#regexselector)[] |  | `[{"cmd_args":{},"containers_only":false,"exe_path":{},"exe_path_regexp":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null},{"cmd_args":{},"containers_only":false,"exe_path":{},"exe_path_regexp":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null}]` |  |  |  |
-| `discovery.default_otlp_grpc_port` | `integer` | `OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT` | `4317` |  |  |  |
+| `discovery.bpf_pid_filter_off` | `boolean` | `OTEL_EBPF_BPF_PID_FILTER_OFF` | `false` |  |  | Debugging only option. Make sure the kernel side doesn't filter any PIDs, force user space filtering. |
+| `discovery.default_exclude_instrument` | [`GlobAttributes`](#globattributes)[] |  | `[{"cmd_args":{},"containers_only":false,"exe_path":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null},{"cmd_args":{},"containers_only":false,"exe_path":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null}]` |  |  | Defines the default exclusion patterns that prevent self-instrumentation of OBI as well as related observability tools. It must be set to an empty string or a different value if self-instrumentation is desired. |
+| `discovery.default_exclude_services` | [`RegexSelector`](#regexselector)[] |  | `[{"cmd_args":{},"containers_only":false,"exe_path":{},"exe_path_regexp":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null},{"cmd_args":{},"containers_only":false,"exe_path":{},"exe_path_regexp":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null}]` |  | Yes | Defines the default exclusion patterns that prevent self-instrumentation of OBI as well as related observability tools. It must be set to an empty string or a different value if self-instrumentation is desired.  Use DefaultExcludeInstrument instead |
+| `discovery.default_otlp_grpc_port` | `integer` | `OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT` | `4317` |  |  | Specifies the default OTLP gRPC port (4317) to fallback on when missing environment variables on service, for checking for grpc export requests, defaults to 4317 |
 | `discovery.disabled_route_harvesters` | `string`[] |  |  | `go`, `java`, `nodejs` |  |  |
-| `discovery.exclude_instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  |  |
-| `discovery.exclude_otel_instrumented_services` | `boolean` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` | `true` |  |  |  |
-| `discovery.exclude_otel_instrumented_services_span_metrics` | `boolean` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS` | `false` |  |  |  |
-| `discovery.exclude_services` | [`RegexSelector`](#regexselector)[] |  |  |  |  |  |
-| `discovery.excluded_linux_system_paths` | `string`[] |  | `/lib/systemd/`, `/usr/lib/systemd/`, `/usr/libexec/`, `/sbin/`, `/usr/sbin/` |  |  |  |
-| `discovery.instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  |  |
-| `discovery.min_process_age` | `duration` | `OTEL_EBPF_MIN_PROCESS_AGE` | `5s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `discovery.process_context_poll_interval` | `duration` | `OTEL_EBPF_PROCESS_CONTEXT_POLL_INTERVAL` | `1s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `discovery.exclude_instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  | Works analogously to Instrument, but the applications matching this section won't be instrumented even if they match the Instrument selection. |
+| `discovery.exclude_otel_instrumented_services` | `boolean` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` | `true` |  |  | Disables instrumentation of services which are already instrumented |
+| `discovery.exclude_otel_instrumented_services_span_metrics` | `boolean` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS` | `false` |  |  | Disables generation of span metrics of services which are already instrumented |
+| `discovery.exclude_services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Works analogously to Services, but the applications matching this section won't be instrumented even if they match the Services selection.  Use ExcludeInstrument instead |
+| `discovery.excluded_linux_system_paths` | `string`[] |  | `/lib/systemd/`, `/usr/lib/systemd/`, `/usr/libexec/`, `/sbin/`, `/usr/sbin/` |  |  | Executable path prefixes for which preliminary language detection is skipped. Processes can still be selected using non-language criteria. |
+| `discovery.instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  | Selects the services to instrument via Globs. If this section is set, both the Services and ExcludeServices section is ignored. If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be automatically added to the instrument criteria, with the lowest preference. |
+| `discovery.min_process_age` | `duration` | `OTEL_EBPF_MIN_PROCESS_AGE` | `5s` | `30s`, `5m`, `1ms`, etc |  | Min process age to be considered for discovery. |
+| `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher. |
+| `discovery.process_context_poll_interval` | `duration` | `OTEL_EBPF_PROCESS_CONTEXT_POLL_INTERVAL` | `1s` | `30s`, `5m`, `1ms`, etc |  | Controls how often OBI re-reads the OTEL_CTX mapping of each discovered process.  Polling handles both SDKs that publish the mapping after startup and context updates published later. 0 disables polling; only the initial enrichment on process creation runs. |
 | `discovery.route_harvester_timeout` | `duration` | `OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `discovery.services` | [`RegexSelector`](#regexselector)[] |  |  |  |  |  |
-| `discovery.skip_go_specific_tracers` | `boolean` | `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS` | `false` |  |  |  |
+| `discovery.services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically added to the services definition criteria, with the lowest preference.  Use Instrument instead |
+| `discovery.skip_go_specific_tracers` | `boolean` | `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS` | `false` |  |  | This can be enabled to use generic HTTP tracers only, no Go-specifics will be used: |
 
 ### `discovery.route_harvester_advanced`
 
@@ -140,37 +152,40 @@ Generated from [`config-schema.json`](config-schema.json).
 
 ## `ebpf`
 
+EBPFTracer configuration for eBPF programs
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.batch_length` | `integer` | `OTEL_EBPF_BPF_BATCH_LENGTH` | `100` |  |  |  |
-| `ebpf.batch_timeout` | `duration` | `OTEL_EBPF_BPF_BATCH_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `ebpf.bpf_debug` | `boolean` | `OTEL_EBPF_BPF_DEBUG` | `false` |  |  |  |
-| `ebpf.bpf_fs_path` | `string` | `OTEL_EBPF_BPF_FS_PATH` | `/sys/fs/bpf/` |  |  |  |
-| `ebpf.context_propagation` | `string` | `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` | `disabled` | ``, `all`, `disabled` | deprecated values: `ip` | Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' for HTTP headers, 'tcp' for TCP options (e.g. "headers,tcp"). |
+| `ebpf.batch_length` | `integer` | `OTEL_EBPF_BPF_BATCH_LENGTH` | `100` |  |  | Allows specifying how many items (traces/metrics) will be batched at the initial stage before being forwarded to the next stage Must be at least 1 |
+| `ebpf.batch_timeout` | `duration` | `OTEL_EBPF_BPF_BATCH_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  | Specifies the timeout to forward the data batch if it didn't reach the BatchLength size |
+| `ebpf.bpf_debug` | `boolean` | `OTEL_EBPF_BPF_DEBUG` | `false` |  |  | Enables logging of eBPF program events |
+| `ebpf.bpf_fs_path` | `string` | `OTEL_EBPF_BPF_FS_PATH` | `/sys/fs/bpf/` |  |  | BPF path used to pin eBPF maps |
+| `ebpf.context_propagation` | `string` | `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` | `disabled` | ``, `all`, `disabled` | deprecated values: `ip` | Enables distributed context propagation. Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all") |
 | `ebpf.couchbase_db_cache_size` | `integer` | `OTEL_EBPF_COUCHBASE_DB_CACHE_SIZE` | `1024` |  |  |  |
-| `ebpf.disable_black_box_cp` | `boolean` | `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP` | `false` |  |  |  |
-| `ebpf.dns_request_timeout` | `duration` | `OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `ebpf.force_bpf_map_reader` | `string` | `OTEL_EBPF_FORCE_BPF_MAP_READER` | `auto` | `auto`, `batch`, `legacy` |  |  |
-| `ebpf.go_http_client_buffer_timeout` | `duration` | `OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `ebpf.heuristic_sql_detect` | `boolean` | `OTEL_EBPF_HEURISTIC_SQL_DETECT` | `false` |  |  |  |
-| `ebpf.high_request_volume` | `boolean` | `OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME` | `false` |  |  |  |
-| `ebpf.http_request_timeout` | `duration` | `OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `ebpf.instrument_cuda` | `integer` | `OTEL_EBPF_INSTRUMENT_CUDA` | `auto` |  |  |  |
-| `ebpf.kafka_topic_uuid_cache_size` | `integer` | `OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE` | `1024` |  |  |  |
-| `ebpf.maps_config` | [`MapsConfig`](#mapsconfig) |  |  |  |  |  |
-| `ebpf.max_transaction_time` | `duration` | `OTEL_EBPF_BPF_MAX_TRANSACTION_TIME` | `5m` | `30s`, `5m`, `1ms`, etc |  |  |
-| `ebpf.mongo_requests_cache_size` | `integer` | `OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE` | `1024` |  |  |  |
-| `ebpf.mssql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MSSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  |  |
-| `ebpf.mysql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  |  |
-| `ebpf.override_bpfloop_enabled` | `boolean` | `OTEL_EBPF_OVERRIDE_BPF_LOOP_ENABLED` | `false` |  |  |  |
-| `ebpf.postgres_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_POSTGRES_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  |  |
-| `ebpf.protocol_debug_print` | `boolean` | `OTEL_EBPF_PROTOCOL_DEBUG_PRINT` | `false` |  |  |  |
-| `ebpf.stats_wakeup_data_bytes` | `integer` | `OTEL_EBPF_STATS_WAKEUP_DATA_BYTES` | `4096` |  |  |  |
-| `ebpf.track_request_headers` | `boolean` | `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS` | `false` |  |  |  |
-| `ebpf.traffic_control_backend` | `string` | `OTEL_EBPF_BPF_TC_BACKEND` | `auto` | `auto`, `tc`, `tcx` |  |  |
-| `ebpf.wakeup_len` | `integer` | `OTEL_EBPF_BPF_WAKEUP_LEN` | `500` |  |  |  |
+| `ebpf.disable_black_box_cp` | `boolean` | `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP` | `false` |  |  | Disables OBI black-box context propagation. Used for testing purposes only. |
+| `ebpf.dns_request_timeout` | `duration` | `OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  | DNS timeout after which we report failed event |
+| `ebpf.force_bpf_map_reader` | `string` | `OTEL_EBPF_FORCE_BPF_MAP_READER` | `auto` | `auto`, `batch`, `legacy` |  | Forces the PerCPU HashMap operation of the Network Flows reader. The system will always try "batch", which is more efficient, but legacy systems like RHEL8-based will fallback to "legacy" (the slowest, more resource-consuming iterate&delete approach). |
+| `ebpf.go_http_client_buffer_timeout` | `duration` | `OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  | Is the inactivity period after which a pending Go HTTP client event is enriched with its captured buffers and emitted. A zero value disables deferral. |
+| `ebpf.heuristic_sql_detect` | `boolean` | `OTEL_EBPF_HEURISTIC_SQL_DETECT` | `false` |  |  | Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL |
+| `ebpf.high_request_volume` | `boolean` | `OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME` | `false` |  |  | Optimizes for getting requests information immediately when request response is seen |
+| `ebpf.http_request_timeout` | `duration` | `OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, etc |  | Must be at least 0 |
+| `ebpf.instrument_cuda` | `integer` | `OTEL_EBPF_INSTRUMENT_CUDA` | `auto` |  |  | Enables GPU instrumentation for CUDA kernel launches and allocations |
+| `ebpf.kafka_topic_uuid_cache_size` | `integer` | `OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE` | `1024` |  |  | Kafka Topic UUID to Name cache size. |
+| `ebpf.max_transaction_time` | `duration` | `OTEL_EBPF_BPF_MAX_TRANSACTION_TIME` | `5m` | `30s`, `5m`, `1ms`, etc |  | Maximum time allowed for two requests to be correlated as parent -> child Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity, which can generate very large traces. We want to mark the parent trace as invalid if this happens. |
+| `ebpf.mongo_requests_cache_size` | `integer` | `OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE` | `1024` |  |  | MongoDB requests cache size. |
+| `ebpf.mssql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MSSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MSSQL prepared statements cache size. |
+| `ebpf.mysql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MySQL prepared statements cache size. |
+| `ebpf.override_bpfloop_enabled` | `boolean` | `OTEL_EBPF_OVERRIDE_BPF_LOOP_ENABLED` | `false` |  |  | Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this backported prior to version 5.17. |
+| `ebpf.postgres_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_POSTGRES_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | Postgres prepared statements cache size. |
+| `ebpf.protocol_debug_print` | `boolean` | `OTEL_EBPF_PROTOCOL_DEBUG_PRINT` | `false` |  |  | Enables debug printing of the protocol data |
+| `ebpf.stats_wakeup_data_bytes` | `integer` | `OTEL_EBPF_STATS_WAKEUP_DATA_BYTES` | `4096` |  |  | Specifies the minimum number of bytes that must be available in the stats eBPF ring buffer before waking up the userspace consumer. When 0, every submission wakes up userspace immediately. Higher values reduce wakeup overhead under high traffic at the cost of delivery latency. The value should be well below ring buffer size / flushInterval to avoid event loss. |
+| `ebpf.track_request_headers` | `boolean` | `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS` | `false` |  |  | Enables the kprobes based HTTP request tracking to start tracking the request headers to process any 'Traceparent' fields. |
+| `ebpf.traffic_control_backend` | `string` | `OTEL_EBPF_BPF_TC_BACKEND` | `auto` | `auto`, `tc`, `tcx` |  | Select the TC attachment backend: accepted values are 'tc' (netlink), and 'tcx' |
+| `ebpf.wakeup_len` | `integer` | `OTEL_EBPF_BPF_WAKEUP_LEN` | `500` |  |  | Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0 TODO: see if there is a way to force eBPF to wakeup userspace on timeout |
 
 ### `ebpf.buffer_sizes`
+
+Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events.  Default: 0 (disabled).
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
@@ -186,13 +201,32 @@ Generated from [`config-schema.json`](config-schema.json).
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.log_enricher.async_writer_channel_len` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_ASYNC_WRITER_CHANNEL_LEN` | `500` |  |  |  |
-| `ebpf.log_enricher.async_writer_workers` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_ASYNC_WRITER_WORKERS` | `8` |  |  |  |
-| `ebpf.log_enricher.cache_size` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_SIZE` | `128` |  |  |  |
-| `ebpf.log_enricher.cache_ttl` | `duration` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL` | `30m` | `30s`, `5m`, `1ms`, etc |  |  |
-| `ebpf.log_enricher.field_names` | [`LogEnricherFieldNames`](#logenricherfieldnames) |  |  |  |  |  |
-| `ebpf.log_enricher.plain_text` | [`LogEnricherPlainTextConfig`](#logenricherplaintextconfig) |  |  |  |  |  |
-| `ebpf.log_enricher.services` | [`LogEnricherServiceConfig`](#logenricherserviceconfig)[] |  |  |  |  |  |
+| `ebpf.log_enricher.async_writer_channel_len` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_ASYNC_WRITER_CHANNEL_LEN` | `500` |  |  | Defines the capacity of every shard's channel for the async log writer Default: 500 |
+| `ebpf.log_enricher.async_writer_workers` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_ASYNC_WRITER_WORKERS` | `8` |  |  | Defines the number of shards for the async log writer Default: 8 |
+| `ebpf.log_enricher.cache_size` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_SIZE` | `128` |  |  | Defines the maximum number of cached file descriptors Default: 128 |
+| `ebpf.log_enricher.cache_ttl` | `duration` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL` | `30m` | `30s`, `5m`, `1ms`, etc |  | Defines the TTL for cached file descriptors Default: 30m |
+| `ebpf.log_enricher.services` | [`LogEnricherServiceConfig`](#logenricherserviceconfig)[] |  |  |  |  | Specifies the services to enable log enrichment for |
+
+#### `ebpf.log_enricher.field_names`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.log_enricher.field_names.span_id` | `string` |  | `span_id` |  |  | Is the literal span ID field name used to preserve and inject span context |
+| `ebpf.log_enricher.field_names.trace_id` | `string` |  | `trace_id` |  |  | Is the literal trace ID field name used to preserve and inject trace context |
+
+#### `ebpf.log_enricher.plain_text`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.log_enricher.plain_text.enabled` | `boolean` |  | `true` |  |  | Controls trace context annotation for non-JSON logs |
+| `ebpf.log_enricher.plain_text.multiline` | `string` |  | `first_line` | `each_line`, `first_line`, `last_line` |  | Controls which nonempty lines in each write are annotated |
+| `ebpf.log_enricher.plain_text.placement` | `string` |  | `suffix` | `prefix`, `suffix` |  | Controls whether fields are added before or after each selected line |
+
+### `ebpf.maps_config`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.maps_config.global_scale_factor` | `integer` |  | `0` |  |  | Scales map sizes in powers of two:   > 0: grows size (2x per step)   < 0: shrinks size (1/2 per step)   = 0: no change |
 
 ### `ebpf.payload_extraction`
 
@@ -202,27 +236,31 @@ Generated from [`config-schema.json`](config-schema.json).
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.aws.enabled` | `boolean` | `OTEL_EBPF_HTTP_AWS_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.aws.enabled` | `boolean` | `OTEL_EBPF_HTTP_AWS_ENABLED` | `false` |  |  | Enable AWS services (S3, SQS, etc.) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.elasticsearch`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.elasticsearch.enabled` | `boolean` | `OTEL_EBPF_HTTP_ELASTICSEARCH_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.elasticsearch.enabled` | `boolean` | `OTEL_EBPF_HTTP_ELASTICSEARCH_ENABLED` | `false` |  |  | Enable Elasticsearch payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.enrichment`
 
+EnrichmentConfig configures HTTP header and payload extraction with policy-based rules.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.enrichment.enabled` | `boolean` | `OTEL_EBPF_HTTP_ENRICHMENT_ENABLED` | `false` |  |  |  |
-| `ebpf.payload_extraction.http.enrichment.rules` | [`HTTPParsingRule`](#httpparsingrule)[] |  |  |  |  |  |
+| `ebpf.payload_extraction.http.enrichment.enabled` | `boolean` | `OTEL_EBPF_HTTP_ENRICHMENT_ENABLED` | `false` |  |  | Enable HTTP header and payload enrichment |
+| `ebpf.payload_extraction.http.enrichment.rules` | [`HTTPParsingRule`](#httpparsingrule)[] |  |  |  |  | Is an ordered list of include/exclude/obfuscate rules. |
 
 #### `ebpf.payload_extraction.http.enrichment.policy`
 
+HTTPParsingPolicy defines the default action for http enrichment rules.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.enrichment.policy.default_action` | [`HTTPParsingDefaultAction`](#httpparsingdefaultaction) |  |  |  |  |  |
-| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING` | `***` |  |  |  |
+| `ebpf.payload_extraction.http.enrichment.policy.default_action` | [`HTTPParsingDefaultAction`](#httpparsingdefaultaction) |  |  |  |  | Specifies what to do when no rule matches, per type. |
+| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING` | `***` |  |  | Is the replacement string used when a rule's action is "obfuscate" and the rule doesn't define it's own obfuscation_string. |
 
 #### `ebpf.payload_extraction.http.genai`
 
@@ -230,87 +268,87 @@ Generated from [`config-schema.json`](config-schema.json).
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.anthropic.enabled` | `boolean` | `OTEL_EBPF_HTTP_ANTHROPIC_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.anthropic.enabled` | `boolean` | `OTEL_EBPF_HTTP_ANTHROPIC_ENABLED` | `false` |  |  | Enable Anthropic payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.bedrock`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.bedrock.enabled` | `boolean` | `OTEL_EBPF_HTTP_BEDROCK_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.bedrock.enabled` | `boolean` | `OTEL_EBPF_HTTP_BEDROCK_ENABLED` | `false` |  |  | Enable AWS Bedrock payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.embedding`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.embedding.enabled` | `boolean` | `OTEL_EBPF_HTTP_GENAI_EMBEDDING_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.embedding.enabled` | `boolean` | `OTEL_EBPF_HTTP_GENAI_EMBEDDING_ENABLED` | `false` |  |  | Enable generic embedding provider (Voyage AI, Cohere, Jina AI) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.gemini`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.gemini.enabled` | `boolean` | `OTEL_EBPF_HTTP_GEMINI_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.gemini.enabled` | `boolean` | `OTEL_EBPF_HTTP_GEMINI_ENABLED` | `false` |  |  | Enable Google AI Studio (Gemini) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.mcp`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.mcp.enabled` | `boolean` | `OTEL_EBPF_HTTP_MCP_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.mcp.enabled` | `boolean` | `OTEL_EBPF_HTTP_MCP_ENABLED` | `false` |  |  | Enable Model Context Protocol (MCP) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.ollama`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.ollama.enabled` | `boolean` | `OTEL_EBPF_HTTP_OLLAMA_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.ollama.enabled` | `boolean` | `OTEL_EBPF_HTTP_OLLAMA_ENABLED` | `false` |  |  | Enable Ollama native API payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.openai`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.openai.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.openai.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_ENABLED` | `false` |  |  | Enable OpenAI payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.openai_compatible`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.openai_compatible.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED` | `false` |  |  |  |
-| `ebpf.payload_extraction.http.genai.openai_compatible.gateways` | [`OpenAICompatibleGateway`](#openaicompatiblegateway)[] |  |  |  |  |  |
+| `ebpf.payload_extraction.http.genai.openai_compatible.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED` | `false` |  |  | Enable OpenAI-compatible gateway payload extraction and parsing |
+| `ebpf.payload_extraction.http.genai.openai_compatible.gateways` | [`OpenAICompatibleGateway`](#openaicompatiblegateway)[] |  |  |  |  | Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name |
 
 #### `ebpf.payload_extraction.http.genai.qwen`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.qwen.enabled` | `boolean` | `OTEL_EBPF_HTTP_QWEN_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.qwen.enabled` | `boolean` | `OTEL_EBPF_HTTP_QWEN_ENABLED` | `false` |  |  | Enable Qwen (DashScope) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.rerank`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.rerank.enabled` | `boolean` | `OTEL_EBPF_HTTP_RERANK_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.rerank.enabled` | `boolean` | `OTEL_EBPF_HTTP_RERANK_ENABLED` | `false` |  |  | Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.retrieval`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.retrieval.enabled` | `boolean` | `OTEL_EBPF_HTTP_RETRIEVAL_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.genai.retrieval.enabled` | `boolean` | `OTEL_EBPF_HTTP_RETRIEVAL_ENABLED` | `false` |  |  | Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.graphql`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.graphql.enabled` | `boolean` | `OTEL_EBPF_HTTP_GRAPHQL_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.graphql.enabled` | `boolean` | `OTEL_EBPF_HTTP_GRAPHQL_ENABLED` | `false` |  |  | Enable GraphQL payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.jsonrpc`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.jsonrpc.enabled` | `boolean` | `OTEL_EBPF_HTTP_JSONRPC_ENABLED` | `false` |  |  |  |
+| `ebpf.payload_extraction.http.jsonrpc.enabled` | `boolean` | `OTEL_EBPF_HTTP_JSONRPC_ENABLED` | `false` |  |  | Enable JSON-RPC payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.sqlpp`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.sqlpp.enabled` | `boolean` | `OTEL_EBPF_HTTP_SQLPP_ENABLED` | `false` |  |  |  |
-| `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `string`[] | `OTEL_EBPF_HTTP_SQLPP_ENDPOINT_PATTERNS` | `/query/service` |  |  |  |
+| `ebpf.payload_extraction.http.sqlpp.enabled` | `boolean` | `OTEL_EBPF_HTTP_SQLPP_ENABLED` | `false` |  |  | Enable SQL++ payload extraction and parsing |
+| `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `string`[] | `OTEL_EBPF_HTTP_SQLPP_ENDPOINT_PATTERNS` | `/query/service` |  |  | Specifies URL path patterns to detect SQL++ endpoints Example: ["/query/service", "/query"] |
 
 ### `ebpf.redis_db_cache`
 
@@ -319,15 +357,27 @@ Generated from [`config-schema.json`](config-schema.json).
 | `ebpf.redis_db_cache.enabled` | `boolean` | `OTEL_EBPF_BPF_REDIS_DB_CACHE_ENABLED` | `false` |  |  |  |
 | `ebpf.redis_db_cache.max_size` | `integer` | `OTEL_EBPF_BPF_REDIS_DB_CACHE_MAX_SIZE` | `1000` |  |  |  |
 
+## `filter`
+
+AttributesConfig stores the user-provided section for filtering either Application or Network records by attribute values
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `filter.application` | `map[string]object` |  |  |  |  | AttributeFamilyConfig maps, for a given record, each attribute with its MatchDefinition |
+| `filter.network` | `map[string]object` |  |  |  |  | AttributeFamilyConfig maps, for a given record, each attribute with its MatchDefinition |
+| `filter.stats` | `map[string]object` |  |  |  |  | AttributeFamilyConfig maps, for a given record, each attribute with its MatchDefinition |
+
 ## `health_check`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `health_check.listen_address` | `ip` | `OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS` | `127.0.0.1` |  |  |  |
-| `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `0` |  |  |  |
-| `health_check.unix_socket_path` | `string` | `OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH` |  |  |  |  |
+| `health_check.listen_address` | `ip` | `OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS` | `127.0.0.1` |  |  | IP address the TCP health endpoint binds to. Defaults to 127.0.0.1. Set to 0.0.0.0 or :: only when external probes require access. |
+| `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `0` |  |  | 0 (default) means disabled |
+| `health_check.unix_socket_path` | `string` | `OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH` |  |  |  | when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@' abstract name) instead of the TCP port |
 
 ## `internal_metrics`
+
+InternalMetricsConfig options for the different metrics exporters
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
@@ -336,17 +386,19 @@ Generated from [`config-schema.json`](config-schema.json).
 
 ### `internal_metrics.avoided_services`
 
+AvoidedServicesConfig controls the avoided-services internal metric.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `internal_metrics.avoided_services.disabled` | `boolean` | `OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_DISABLED` | `false` |  |  |  |
-| `internal_metrics.avoided_services.limit` | `integer` | `OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_LIMIT` | `2000` |  |  |  |
+| `internal_metrics.avoided_services.disabled` | `boolean` | `OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_DISABLED` | `false` |  |  | Disables the avoided-services internal metric. |
+| `internal_metrics.avoided_services.limit` | `integer` | `OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_LIMIT` | `2000` |  |  | Bounds the number of avoided-services metric series, including the overflow series. 0 uses the OpenTelemetry default metric cardinality limit. |
 
 ### `internal_metrics.prometheus`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `internal_metrics.prometheus.path` | `string` | `OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
-| `internal_metrics.prometheus.port` | `integer` | `OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` |  |  |  |
+| `internal_metrics.prometheus.port` | `integer` | `OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` |  |  | 0 (default) means disabled |
 
 ## `javaagent`
 
@@ -365,122 +417,132 @@ Generated from [`config-schema.json`](config-schema.json).
 
 ## `metrics`
 
+GlobalMetricsConfig is a placeholder for the progressive support of global and per-service configuration of metrics.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `metrics.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `256` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) |  | List of metric features to enable. |
+| `metrics.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `256` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) |  | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes |
 
 ## `name_resolver`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  |  |
-| `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  |  |
-| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s` | `dns`, `k8s`, `kube`, `kubernetes`, `rdns` |  |  |
+| `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
+| `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  | Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 |
+| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s` | `dns`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, k8s, rdns |
 
 ## `network`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `network.agent_ip` | `ip` | `OTEL_EBPF_NETWORK_AGENT_IP` |  |  |  |  |
-| `network.agent_ip_iface` | `string` | `OTEL_EBPF_NETWORK_AGENT_IP_IFACE` | `external` | `external`, `local` |  | Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external, local, or name:<interface name> (e.g. name:eth0). |
-| `network.agent_ip_type` | `string` | `OTEL_EBPF_NETWORK_AGENT_IP_TYPE` | `any` | `any`, `ipv4`, `ipv6` |  |  |
-| `network.cache_active_timeout` | `duration` | `OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `network.cache_max_flows` | `integer` | `OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS` | `5000` |  |  |  |
-| `network.cidrs` | `string`[] | `OTEL_EBPF_NETWORK_CIDRS` |  |  |  | A list of CIDRs to be set as the "src.cidr" and "dst.cidr" attribute as a function of the source and destination IP addresses. Each entry can be a plain CIDR string or an object with "cidr" and "name" fields. |
-| `network.deduper` | `string` | `OTEL_EBPF_NETWORK_DEDUPER` | `first_come` | `first_come`, `none` |  |  |
-| `network.deduper_fc_ttl` | `duration` | `OTEL_EBPF_NETWORK_DEDUPER_FC_TTL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `network.direction` | `string` | `OTEL_EBPF_NETWORK_DIRECTION` | `both` | `both`, `egress`, `ingress` |  |  |
-| `network.enable` | `boolean` | `OTEL_EBPF_NETWORK_METRICS` | `false` |  |  |  |
-| `network.exclude_interfaces` | `string`[] | `OTEL_EBPF_NETWORK_EXCLUDE_INTERFACES` | `lo` |  |  |  |
-| `network.exclude_protocols` | `string`[] | `OTEL_EBPF_NETWORK_EXCLUDE_PROTOCOLS` |  |  |  |  |
-| `network.guess_ports` | `string` | `OTEL_EBPF_NETWORK_GUESS_PORTS` | `disable` | `disable`, `ordinal` |  |  |
-| `network.interfaces` | `string`[] | `OTEL_EBPF_NETWORK_INTERFACES` |  |  |  |  |
-| `network.listen_interfaces` | `string` | `OTEL_EBPF_NETWORK_LISTEN_INTERFACES` | `watch` | `poll`, `watch` |  |  |
-| `network.listen_poll_period` | `duration` | `OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `network.print_flows` | `boolean` | `OTEL_EBPF_NETWORK_PRINT_FLOWS` | `false` |  |  |  |
-| `network.protocols` | `string`[] | `OTEL_EBPF_NETWORK_PROTOCOLS` |  |  |  |  |
-| `network.sampling` | `integer` | `OTEL_EBPF_NETWORK_SAMPLING` | `0` |  |  |  |
-| `network.source` | `string` | `OTEL_EBPF_NETWORK_SOURCE` | `socket_filter` | `socket_filter`, `tc` |  |  |
+| `network.agent_ip` | `ip` | `OTEL_EBPF_NETWORK_AGENT_IP` |  |  |  | Allows overriding the reported Agent IP address on each flow. |
+| `network.agent_ip_iface` | `string` | `OTEL_EBPF_NETWORK_AGENT_IP_IFACE` | `external` | `external`, `local` |  | Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external (default), local, or name:<interface name> (e.g. name:eth0). If the AgentIP configuration property is set, this property has no effect. |
+| `network.agent_ip_type` | `string` | `OTEL_EBPF_NETWORK_AGENT_IP_TYPE` | `any` | `any`, `ipv4`, `ipv6` |  | Specifies which type of IP address (IPv4 or IPv6 or any) should the agent report in the AgentID field of each flow. Accepted values are: any (default), ipv4, ipv6. If the AgentIP configuration property is set, this property has no effect. |
+| `network.cache_active_timeout` | `duration` | `OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum duration that flows are kept in the accounting cache before being flushed for its later export. |
+| `network.cache_max_flows` | `integer` | `OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS` | `5000` |  |  | Specifies how many flows can be accumulated in the accounting cache before being flushed for its later export. Default value is 5000. Decrease it if you see the "received message larger than max" error in OBI logs. |
+| `network.cidrs` | `string`[] | `OTEL_EBPF_NETWORK_CIDRS` |  |  |  | List, to be set as the "src.cidr" and "dst.cidr" attribute as a function of the source and destination IP addresses. If an IP does not match any address here, the attributes won't be set. If an IP matches multiple CIDR definitions, the flow will be decorated with the narrowest CIDR. By this reason, you can safely add a 0.0.0.0/0 entry to group there all the traffic that does not match any of the other CIDRs. |
+| `network.deduper` | `string` | `OTEL_EBPF_NETWORK_DEDUPER` | `first_come` | `first_come`, `none` |  | Specifies the deduper type. Accepted values are "none" (disabled) and "first_come". When enabled, it will detect duplicate flows (flows that have been detected e.g. through both the physical and a virtual interface). "first_come" will forward only flows from the first interface the flows are received from. Default value: first_come |
+| `network.deduper_fc_ttl` | `duration` | `OTEL_EBPF_NETWORK_DEDUPER_FC_TTL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the expiry duration of the flows "first_come" deduplicator. After a flow hasn't been received for that expiry time, the deduplicator forgets it. That means that a flow from a connection that has been inactive during that period could be forwarded again from a different interface. If the value is not set, it will default to 2 * CacheActiveTimeout |
+| `network.direction` | `string` | `OTEL_EBPF_NETWORK_DIRECTION` | `both` | `both`, `egress`, `ingress` |  | Allows selecting which flows to trace according to its direction. Accepted values are "ingress", "egress" or "both" (default). |
+| `network.enable` | `boolean` | `OTEL_EBPF_NETWORK_METRICS` | `false` |  | Yes | Network metrics. Default value is false (disabled)  add "network" or "network_flow_packets" or "network_inter_zone" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove |
+| `network.exclude_interfaces` | `string`[] | `OTEL_EBPF_NETWORK_EXCLUDE_INTERFACES` | `lo` |  |  | Contains the interface names that will be excluded from flow tracing. Default: "lo" (loopback). If an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression, otherwise it will be matched as a case-sensitive string. |
+| `network.exclude_protocols` | `string`[] | `OTEL_EBPF_NETWORK_EXCLUDE_PROTOCOLS` |  |  |  | Causes OBI to drop flows whose transport protocol is in this list. If the Protocols list is already defined, ExcludeProtocols has no effect. |
+| `network.guess_ports` | `string` | `OTEL_EBPF_NETWORK_GUESS_PORTS` | `disable` | `disable`, `ordinal` |  | Controls how OBI assigns server.port/client.port when the connection initiator is unknown. Accepted values are "ordinal" (assume highest port is client) and "disable" (default, do not guess and emit empty client/server port attributes for unknown-initiator flows). |
+| `network.interfaces` | `string`[] | `OTEL_EBPF_NETWORK_INTERFACES` |  |  |  | Contains the interface names from where flows will be collected. If empty, the agent will fetch all the interfaces in the system, excepting the ones listed in ExcludeInterfaces. If an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression, otherwise it will be matched as a case-sensitive string. |
+| `network.listen_interfaces` | `string` | `OTEL_EBPF_NETWORK_LISTEN_INTERFACES` | `watch` | `poll`, `watch` |  | Specifies the mechanism used by the agent to listen for added or removed network interfaces. Accepted values are "watch" (default) or "poll". If the value is "watch", interfaces are traced immediately after they are created. This is the recommended setting for most configurations. "poll" value is a fallback mechanism that periodically queries the current network interfaces (frequency specified by ListenPollPeriod). |
+| `network.listen_poll_period` | `duration` | `OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD` | `10s` | `30s`, `5m`, `1ms`, etc |  | Specifies the periodicity to query the network interfaces when the ListenInterfaces value is set to "poll". |
+| `network.print_flows` | `boolean` | `OTEL_EBPF_NETWORK_PRINT_FLOWS` | `false` |  |  | Enables printing the network flows to the Standard Output |
+| `network.protocols` | `string`[] | `OTEL_EBPF_NETWORK_PROTOCOLS` |  |  |  | Causes OBI to drop flows whose transport protocol is not in this list. |
+| `network.sampling` | `integer` | `OTEL_EBPF_NETWORK_SAMPLING` | `0` |  |  | Holds the rate at which packets should be sampled and sent to the target collector. E.g. if set to 100, one out of 100 packets, on average, will be sent to the target collector. |
+| `network.source` | `string` | `OTEL_EBPF_NETWORK_SOURCE` | `socket_filter` | `socket_filter`, `tc` |  | Specify the source type for network events, e.g tc or socket_filter. The tc implementation cannot be used when there are other tc eBPF probes, e.g. Cilium CNI. |
 
 ### `network.geo_ip`
 
+GeoIP is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall OBI performance.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `network.geo_ip.cache_expiry` | `duration` | `OTEL_EBPF_GEOIP_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
-| `network.geo_ip.cache_len` | `integer` | `OTEL_EBPF_GEOIP_CACHE_LEN` | `512` |  |  |  |
+| `network.geo_ip.cache_expiry` | `duration` | `OTEL_EBPF_GEOIP_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility |
+| `network.geo_ip.cache_len` | `integer` | `OTEL_EBPF_GEOIP_CACHE_LEN` | `512` |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN for backwards-compatibility |
 
 #### `network.geo_ip.ipinfo`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `network.geo_ip.ipinfo.path` | `string` | `OTEL_EBPF_GEOIP_IPINFO_PATH` |  |  |  |  |
+| `network.geo_ip.ipinfo.path` | `string` | `OTEL_EBPF_GEOIP_IPINFO_PATH` |  |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH for backwards-compatibility |
 
 #### `network.geo_ip.maxmind`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `network.geo_ip.maxmind.asn_path` | `string` | `OTEL_EBPF_GEOIP_MAXMIND_ASN_PATH` |  |  |  |  |
-| `network.geo_ip.maxmind.country_path` | `string` | `OTEL_EBPF_GEOIP_MAXMIND_COUNTRY_PATH` |  |  |  |  |
+| `network.geo_ip.maxmind.asn_path` | `string` | `OTEL_EBPF_GEOIP_MAXMIND_ASN_PATH` |  |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH for backwards-compatibility |
+| `network.geo_ip.maxmind.country_path` | `string` | `OTEL_EBPF_GEOIP_MAXMIND_COUNTRY_PATH` |  |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH for backwards-compatibility |
 
 ### `network.reverse_dns`
 
+ReverseDNS is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall OBI performance.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `network.reverse_dns.cache_expiry` | `duration` | `OTEL_EBPF_REVERSE_DNS_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
-| `network.reverse_dns.cache_len` | `integer` | `OTEL_EBPF_REVERSE_DNS_CACHE_LEN` | `256` |  |  |  |
-| `network.reverse_dns.type` | `string` | `OTEL_EBPF_REVERSE_DNS_TYPE` | `none` | `ebpf`, `local`, `none` |  |  |
+| `network.reverse_dns.cache_expiry` | `duration` | `OTEL_EBPF_REVERSE_DNS_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for backwards-compatibility |
+| `network.reverse_dns.cache_len` | `integer` | `OTEL_EBPF_REVERSE_DNS_CACHE_LEN` | `256` |  |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN for backwards-compatibility |
+| `network.reverse_dns.type` | `string` | `OTEL_EBPF_REVERSE_DNS_TYPE` | `none` | `ebpf`, `local`, `none` |  | Specifies the ReverseDNS method. Values are "none" (default), "local" and "ebpf" It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for backwards-compatibility |
 
 ## `nodejs`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `nodejs.enabled` | `boolean` | `OTEL_EBPF_NODEJS_ENABLED` | `true` |  |  |  |
-| `nodejs.manual_spans` | `boolean` | `OTEL_EBPF_NODEJS_MANUAL_SPANS` | `false` |  |  |  |
+| `nodejs.enabled` | `boolean` | `OTEL_EBPF_NODEJS_ENABLED` | `true` |  |  | Turns on the Node.js injector agent, used for trace-context propagation and runtime metrics. Setting it to false disables the injection entirely, runtime metrics included. |
+| `nodejs.manual_spans` | `boolean` | `OTEL_EBPF_NODEJS_MANUAL_SPANS` | `false` |  |  | Injects the span bridge (spanbridge.js) into Node.js processes, capturing spans the application creates through the OpenTelemetry API when no OpenTelemetry SDK is registered. |
 
 ## `otel_metrics_export`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-|  | `integer` | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` |  |  |  |
+|  | `integer` | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` |  |  | Supports metric intervals as specified by the standard OTEL definition. OTEL_EBPF_METRICS_INTERVAL takes precedence over it. |
 | `otel_metrics_export.allow_service_graph_self_references` | `boolean` | `OTEL_EBPF_ALLOW_SERVICE_GRAPH_SELF_REFERENCES` | `false` |  |  |  |
-| `otel_metrics_export.buckets` | [`Buckets`](#buckets) |  |  |  |  |  |
+| `otel_metrics_export.buckets` | [`Buckets`](#buckets) |  |  |  |  | Buckets defines the histograms bucket boundaries, and allows users to redefine them |
 | `otel_metrics_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |  |  |  |  |
-| `otel_metrics_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  |  |
-| `otel_metrics_export.features` | `string`[] |  | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) |  | List of metric features to enable. |
+| `otel_metrics_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to OTEL span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute, you should add `deployment.environment`. |
+| `otel_metrics_export.features` | `string`[] |  | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead. |
 | `otel_metrics_export.histogram_aggregation` | `string` | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` | `base2_exponential_bucket_histogram`, `explicit_bucket_histogram` |  |  |
-| `otel_metrics_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  |  |
-| `otel_metrics_export.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  |  |
+| `otel_metrics_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
+| `otel_metrics_export.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `otel_metrics_export.interval` | `duration` | `OTEL_EBPF_METRICS_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `otel_metrics_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  |  |
+| `otel_metrics_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Works independently from the global LogLevel because it prints GBs of logs in Debug mode and the Info messages leak internal details that are not usually valuable for the final user. Accepted values: debug, info, warn, error (case-insensitive). |
 | `otel_metrics_export.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
 | `otel_metrics_export.reporters_cache_len` | `integer` | `OTEL_EBPF_METRICS_REPORT_CACHE_LEN` | `256` |  |  |  |
-| `otel_metrics_export.ttl` | `duration` | `OTEL_EBPF_METRICS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  |  |
+| `otel_metrics_export.ttl` | `duration` | `OTEL_EBPF_METRICS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
 ### `otel_metrics_export.exponential_histogram`
 
+ExponentialHistogramConfig configures the precision and size of exponential histograms according to <https://opentelemetry.io/docs/specs/otel/metrics/sdk/#base2-exponential-bucket-histogram-aggregation>
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `otel_metrics_export.exponential_histogram.max_scale` | `integer` | `OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE` | `20` |  |  |  |
-| `otel_metrics_export.exponential_histogram.max_size` | `integer` | `OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE` | `160` |  |  |  |
+| `otel_metrics_export.exponential_histogram.max_scale` | `integer` | `OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE` | `20` |  |  | Sets the maximum resolution scale used by base-2 exponential histograms. Higher values create narrower buckets and more precision, but may require more buckets. Valid values are from -10 to 20. |
+| `otel_metrics_export.exponential_histogram.max_size` | `integer` | `OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE` | `160` |  |  | Sets the maximum number of buckets used for a base-2 exponential histogram. Higher values reduce bucket compaction and preserve more detail at the cost of larger metric payloads. |
 
 ## `otel_traces_export`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `otel_traces_export.backoff_initial_interval` | `duration` | `OTEL_EBPF_BACKOFF_INITIAL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `otel_traces_export.backoff_max_elapsed_time` | `duration` | `OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `otel_traces_export.backoff_max_interval` | `duration` | `OTEL_EBPF_BACKOFF_MAX_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
-| `otel_traces_export.batch_max_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE` | `4096` |  |  |  |
-| `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `otel_traces_export.backoff_initial_interval` | `duration` | `OTEL_EBPF_BACKOFF_INITIAL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Configuration options for BackOffConfig of the traces exporter. See <https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go> BackOffInitialInterval the time to wait after the first failure before retrying. |
+| `otel_traces_export.backoff_max_elapsed_time` | `duration` | `OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum amount of time (including retries) spent trying to send a request/batch. |
+| `otel_traces_export.backoff_max_interval` | `duration` | `OTEL_EBPF_BACKOFF_MAX_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the upper bound on backoff interval. |
+| `otel_traces_export.batch_max_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE` | `4096` |  |  | Is the maximum number of spans that the batcher will accumulate before flushing a batch to the sending queue. |
+| `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, etc |  | Is the time after which a batch will be sent regardless of its size. |
 | `otel_traces_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |  |  |  |  |
-| `otel_traces_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  |  |
-| `otel_traces_export.instrumentations` | `string`[] | `OTEL_EBPF_TRACES_INSTRUMENTATIONS` | `http`, `grpc`, `sql`, `redis`, `kafka`, `mqtt`, `nats`, `amqp`, `mongo`, `couchbase`, `memcached`, `sunrpc`, `aerospike` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  |  |
-| `otel_traces_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  |  |
+| `otel_traces_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
+| `otel_traces_export.instrumentations` | `string`[] | `OTEL_EBPF_TRACES_INSTRUMENTATIONS` | `http`, `grpc`, `sql`, `redis`, `kafka`, `mqtt`, `nats`, `amqp`, `mongo`, `couchbase`, `memcached`, `sunrpc`, `aerospike` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
+| `otel_traces_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Works independently from the global LogLevel because it prints GBs of logs in Debug mode and the Info messages leak internal details that are not usually valuable for the final user. Accepted values: debug, info, warn, error (case-insensitive). dpanic/panic/fatal are mapped to error. |
 | `otel_traces_export.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
-| `otel_traces_export.queue_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE` | `16384` |  |  |  |
+| `otel_traces_export.queue_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE` | `16384` |  |  | Is the maximum number of spans that the sending queue will hold before applying back-pressure. It must be >= `2 * BatchMaxSize`, otherwise the memory queue rejects every batch with "element size too large" and drops spans permanently. If left at 0 it defaults to `4 * BatchMaxSize`. |
 | `otel_traces_export.reporters_cache_len` | `integer` | `OTEL_EBPF_TRACES_REPORT_CACHE_LEN` | `256` |  |  |  |
 
 ### `otel_traces_export.sampler`
+
+Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers.
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
@@ -489,22 +551,26 @@ Generated from [`config-schema.json`](config-schema.json).
 
 ## `prometheus_export`
 
+TODO: TLS
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `prometheus_export.allow_service_graph_self_references` | `boolean` | `OTEL_EBPF_PROMETHEUS_ALLOW_SERVICE_GRAPH_SELF_REFERENCES` | `false` |  |  |  |
-| `prometheus_export.buckets` | [`Buckets`](#buckets) |  |  |  |  |  |
+| `prometheus_export.buckets` | [`Buckets`](#buckets) |  |  |  |  | Buckets defines the histograms bucket boundaries, and allows users to redefine them |
 | `prometheus_export.disable_build_info` | `boolean` | `OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO` | `false` |  |  |  |
-| `prometheus_export.exemplar_filter` | `string` | `OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER` |  |  |  |  |
-| `prometheus_export.extra_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES` |  |  |  |  |
-| `prometheus_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  |  |
-| `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) |  | List of metric features to enable. |
-| `prometheus_export.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  |  |
+| `prometheus_export.exemplar_filter` | `string` | `OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER` |  |  |  | Controls when exemplars are attached to metrics. Accepted values: "always_on", "always_off", "trace_based". Defaults to "always_off": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification. |
+| `prometheus_export.extra_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
+| `prometheus_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
+| `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead. |
+| `prometheus_export.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `prometheus_export.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/metrics` |  |  |  |
-| `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  |  |
+| `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  | 0 means disabled |
 | `prometheus_export.service_cache_size` | `integer` |  | `10000` |  |  |  |
-| `prometheus_export.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  |  |
+| `prometheus_export.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
 ### `prometheus_export.native_histogram`
+
+NativeHistogramConfig holds configuration for native histograms
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
@@ -512,57 +578,70 @@ Generated from [`config-schema.json`](config-schema.json).
 | `prometheus_export.native_histogram.max_bucket_number` | `integer` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER` | `100` |  |  |  |
 | `prometheus_export.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
 
-## `stats`
+## `routes`
+
+RoutesConfig allows grouping URLs sharing a given pattern.
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `stats.agent_ip` | `ip` | `OTEL_EBPF_STATS_AGENT_IP` |  |  |  |  |
-| `stats.agent_ip_iface` | `string` | `OTEL_EBPF_STATS_AGENT_IP_IFACE` | `external` | `external`, `local` |  | Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external, local, or name:<interface name> (e.g. name:eth0). |
-| `stats.agent_ip_type` | `string` | `OTEL_EBPF_STATS_AGENT_IP_TYPE` | `any` | `any`, `ipv4`, `ipv6` |  |  |
-| `stats.cidrs` | `string`[] | `OTEL_EBPF_STATS_CIDRS` |  |  |  | A list of CIDRs to be set as the "src.cidr" and "dst.cidr" attribute as a function of the source and destination IP addresses. Each entry can be a plain CIDR string or an object with "cidr" and "name" fields. |
-| `stats.print_stats` | `boolean` | `OTEL_EBPF_STATS_PRINT_STATS` | `false` |  |  |  |
+| `routes.ignore_mode` | `string` |  |  | `all`, `metrics`, `traces` | Yes | To be removed and replaced by a collector-like filtering mechanism |
+| `routes.ignored_patterns` | `string`[] |  |  |  | Yes | To be removed and replaced by a collector-like filtering mechanism |
+| `routes.max_path_segment_cardinality` | `integer` |  | `10` |  |  | Max allowed path segment cardinality (per service) for the heuristic matcher 0 = disabled |
+| `routes.patterns` | `string`[] |  |  |  |  | Defines the URL path patterns that will match to a route |
+| `routes.unmatched` | `string` |  | `heuristic` | `heuristic`, `low-cardinality`, `path`, `unset`, `wildcard` |  | Specifies what to do when a route pattern is not matched. Empty string is treated the same as "wildcard". |
+| `routes.wildcard_char` | `string` |  | `*` |  |  | Character that will be used to replace route segments |
+
+## `stats`
+
+TODO: see if there is a way to merge common fields with NetworkConfig
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `stats.agent_ip` | `ip` | `OTEL_EBPF_STATS_AGENT_IP` |  |  |  | Allows overriding the reported Agent IP address on each stat. |
+| `stats.agent_ip_iface` | `string` | `OTEL_EBPF_STATS_AGENT_IP_IFACE` | `external` | `external`, `local` |  | Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each stat. Accepted values are: external (default), local, or name:<interface name> (e.g. name:eth0). If the AgentIP configuration property is set, this property has no effect. |
+| `stats.agent_ip_type` | `string` | `OTEL_EBPF_STATS_AGENT_IP_TYPE` | `any` | `any`, `ipv4`, `ipv6` |  | Specifies which type of IP address (IPv4 or IPv6 or any) should the agent report in the AgentID field of each stat. Accepted values are: any (default), ipv4, ipv6. If the AgentIP configuration property is set, this property has no effect. |
+| `stats.cidrs` | `string`[] | `OTEL_EBPF_STATS_CIDRS` |  |  |  | List, to be set as the "src.cidr" and "dst.cidr" attribute as a function of the source and destination IP addresses. If an IP does not match any address here, the attributes won't be set. If an IP matches multiple CIDR definitions, the stat will be decorated with the narrowest CIDR. By this reason, you can safely add a 0.0.0.0/0 entry to group there all the traffic that does not match any of the other CIDRs. |
+| `stats.print_stats` | `boolean` | `OTEL_EBPF_STATS_PRINT_STATS` | `false` |  |  | Enables printing the stats to the Standard Output |
 
 ### `stats.geo_ip`
 
+GeoIP is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall OBI performance.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `stats.geo_ip.cache_expiry` | `duration` | `OTEL_EBPF_GEOIP_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
-| `stats.geo_ip.cache_len` | `integer` | `OTEL_EBPF_GEOIP_CACHE_LEN` | `512` |  |  |  |
+| `stats.geo_ip.cache_expiry` | `duration` | `OTEL_EBPF_GEOIP_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility |
+| `stats.geo_ip.cache_len` | `integer` | `OTEL_EBPF_GEOIP_CACHE_LEN` | `512` |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN for backwards-compatibility |
 
 #### `stats.geo_ip.ipinfo`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `stats.geo_ip.ipinfo.path` | `string` | `OTEL_EBPF_GEOIP_IPINFO_PATH` |  |  |  |  |
+| `stats.geo_ip.ipinfo.path` | `string` | `OTEL_EBPF_GEOIP_IPINFO_PATH` |  |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH for backwards-compatibility |
 
 #### `stats.geo_ip.maxmind`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `stats.geo_ip.maxmind.asn_path` | `string` | `OTEL_EBPF_GEOIP_MAXMIND_ASN_PATH` |  |  |  |  |
-| `stats.geo_ip.maxmind.country_path` | `string` | `OTEL_EBPF_GEOIP_MAXMIND_COUNTRY_PATH` |  |  |  |  |
+| `stats.geo_ip.maxmind.asn_path` | `string` | `OTEL_EBPF_GEOIP_MAXMIND_ASN_PATH` |  |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH for backwards-compatibility |
+| `stats.geo_ip.maxmind.country_path` | `string` | `OTEL_EBPF_GEOIP_MAXMIND_COUNTRY_PATH` |  |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH for backwards-compatibility |
 
 ### `stats.reverse_dns`
 
+ReverseDNS is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall OBI performance.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `stats.reverse_dns.cache_expiry` | `duration` | `OTEL_EBPF_REVERSE_DNS_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
-| `stats.reverse_dns.cache_len` | `integer` | `OTEL_EBPF_REVERSE_DNS_CACHE_LEN` | `256` |  |  |  |
-| `stats.reverse_dns.type` | `string` | `OTEL_EBPF_REVERSE_DNS_TYPE` | `none` | `ebpf`, `local`, `none` |  |  |
+| `stats.reverse_dns.cache_expiry` | `duration` | `OTEL_EBPF_REVERSE_DNS_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for backwards-compatibility |
+| `stats.reverse_dns.cache_len` | `integer` | `OTEL_EBPF_REVERSE_DNS_CACHE_LEN` | `256` |  |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN for backwards-compatibility |
+| `stats.reverse_dns.type` | `string` | `OTEL_EBPF_REVERSE_DNS_TYPE` | `none` | `ebpf`, `local`, `none` |  | Specifies the ReverseDNS method. Values are "none" (default), "local" and "ebpf" It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for backwards-compatibility |
 
 ---
 
 ## Type Definitions
 
-### AttributesConfig
-
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `application` | [`AttributeFamilyConfig`](#attributefamilyconfig) |  |  |
-| `network` | [`AttributeFamilyConfig`](#attributefamilyconfig) |  |  |
-| `stats` | [`AttributeFamilyConfig`](#attributefamilyconfig) |  |  |
-
 ### Buckets
+
+Buckets defines the histograms bucket boundaries, and allows users to redefine them
 
 | Field | Type | Values | Description |
 |---|---|---|---|
@@ -585,11 +664,11 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `cmd_args` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
+| `cmd_args` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Allows to limit by matching command line arguments |
 | `container_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
-| `containers_only` | `boolean` |  |  |
-| `exe_path` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
-| `exports` | `string`[] | `logs`, `metrics`, `traces` | List of signals to export. If undefined or null, all signals are exported. If an empty list, no signals are exported. |
+| `containers_only` | `boolean` |  | Restricts the discovery to processes which are running inside a container |
+| `exe_path` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Allows defining the regular expression matching the full executable path. |
+| `exports` | `string`[] | `logs`, `metrics`, `traces` | Configures what to export. Allowed values are 'metrics', 'traces', or an empty array (disabled). An unspecified value (nil) will use the default configuration value |
 | `k8s_container_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
 | `k8s_cronjob_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
 | `k8s_daemonset_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
@@ -597,21 +676,23 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 | `k8s_job_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
 | `k8s_namespace` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
 | `k8s_owner_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
-| `k8s_pod_annotations` | `map[string]string` |  |  |
-| `k8s_pod_labels` | `map[string]string` |  |  |
+| `k8s_pod_annotations` | `map[string]string` |  | Allows matching against the annotations of a pod |
+| `k8s_pod_labels` | `map[string]string` |  | Allows matching against the labels of a pod |
 | `k8s_pod_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
 | `k8s_replicaset_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
 | `k8s_statefulset_name` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
-| `languages` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Glob pattern to match against the attribute value |
-| `metrics` | [`SvcMetricsConfig`](#svcmetricsconfig) |  |  |
-| `name` | `string` |  |  |
-| `namespace` | `string` |  |  |
-| `open_ports` | [`IntEnum`](#intenum) |  |  |
+| `languages` | `glob` | `app-*`, `service-??`, `prod-*-db`, etc | Language allows defining services to instrument based on the programming language they are written in. Use lowercase names, e.g. java,go |
+| `metrics` | [`SvcMetricsConfig`](#svcmetricsconfig) |  | Configuration that is custom for this service match |
+| `name` | `string` |  | Will define a name for the matching service. If unset, it will take the name of the executable process, from the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.  Name should be set in the instrumentation target via kube metadata or standard env vars.  To be kept undocumented until we remove it. |
+| `namespace` | `string` |  | Will define a namespace for the matching service. If unset, it will be left empty.  Namespace should be set in the instrumentation target via kube metadata or standard env vars.  To be kept undocumented until we remove it. |
+| `open_ports` | [`IntEnum`](#intenum) |  | Allows defining a group of ports that this service could open. It accepts a comma-separated list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089) |
 | `routes` | [`CustomRoutesConfig`](#customroutesconfig) |  |  |
-| `sampler` | [`SamplerConfig`](#samplerconfig) |  |  |
-| `target_pids` | `integer`[] |  |  |
+| `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
+| `target_pids` | `integer`[] |  | Allows selecting processes by PID (static from config). When non-empty, the process PID must be in this list. |
 
 ### HTTPParsingDefaultAction
+
+HTTPParsingDefaultAction specifies the default action per rule type.
 
 | Field | Type | Values | Description |
 |---|---|---|---|
@@ -620,65 +701,50 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 
 ### HTTPParsingRule
 
+HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction.
+
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `action` | `string` | `exclude`, `include`, `obfuscate` |  |
-| `match` | [`HTTPParsingMatch`](#httpparsingmatch) |  |  |
-| `obfuscation_string` | `string` |  |  |
-| `scope` | `string` | `all`, `request`, `response` |  |
-| `type` | `string` | `body`, `headers` |  |
+| `action` | `string` | `exclude`, `include`, `obfuscate` | Of the rule: "include", "exclude", or "obfuscate" |
+| `match` | [`HTTPParsingMatch`](#httpparsingmatch) |  | Defines the matching criteria for this rule |
+| `obfuscation_string` | `string` |  | Is the replacement string used when a rule's action is "obfuscate" |
+| `scope` | `string` | `all`, `request`, `response` | Of the rule: "request", "response", or "all" |
+| `type` | `string` | `body`, `headers` | Specifies what this rule matches against: "headers" or "body" |
 
 ### IntEnum
+
+IntEnum defines an enumeration of integers (e.g. ports or PIDs). It allows a set of single values or ranges. When unmarshalled from text, it accepts a comma-separated list (e.g. 80,443,8000-8999). When unmarshalled from YAML, it accepts either a scalar (same as text) or a sequence (e.g. [1234, 5678]).
 
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `Ranges` | `string`[] | `1`, `1000`, `8080-8090`, `80,443,8000-8999`, etc |  |
 
-### LogEnricherFieldNames
-
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `span_id` | `string` |  |  |
-| `trace_id` | `string` |  |  |
-
-### LogEnricherPlainTextConfig
-
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `enabled` | `boolean` |  |  |
-| `multiline` | `string` | `each_line`, `first_line`, `last_line` |  |
-| `placement` | `string` | `prefix`, `suffix` |  |
-
 ### LogEnricherServiceConfig
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `service` | [`GlobAttributes`](#globattributes)[] |  |  |
-
-### MapsConfig
-
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `global_scale_factor` | `integer` |  |  |
+| `service` | [`GlobAttributes`](#globattributes)[] |  | Should also be contained in 'services' in the Discovery section |
 
 ### OpenAICompatibleGateway
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `host` | `string` |  |  |
-| `port` | `integer` |  |  |
-| `provider` | `string` |  |  |
+| `host` | `string` |  | Gateway hostname to match (case-insensitive) |
+| `port` | `integer` |  | Destination port; when 0 or omitted, matches any port |
+| `provider` | `string` |  | Name reported in the gen_ai.system span attribute |
 
 ### RegexSelector
 
+RegexSelector that specify a given instrumented service. Each instance has to define either the OpenPorts or Path property, or both. These are used to match a given executable. If both OpenPorts and Path are defined, the inspected executable must fulfill both properties.
+
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `cmd_args` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
+| `cmd_args` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Allows matching by command line arguments |
 | `container_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
-| `containers_only` | `boolean` |  |  |
-| `exe_path` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
-| `exe_path_regexp` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
-| `exports` | `string`[] | `logs`, `metrics`, `traces` | List of signals to export. If undefined or null, all signals are exported. If an empty list, no signals are exported. |
+| `containers_only` | `boolean` |  | Restrict the discovery to processes which are running inside a container |
+| `exe_path` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Allows defining the regular expression matching the full executable path. |
+| `exe_path_regexp` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Please use Path (exe_path YAML attribute) |
+| `exports` | `string`[] | `logs`, `metrics`, `traces` | Configures what to export. Allowed values are 'metrics', 'traces', or an empty array (disabled). An unspecified value (nil) will use the default configuration value |
 | `k8s_container_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
 | `k8s_cronjob_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
 | `k8s_daemonset_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
@@ -686,41 +752,28 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 | `k8s_job_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
 | `k8s_namespace` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
 | `k8s_owner_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
-| `k8s_pod_annotations` | `map[string]string` |  |  |
-| `k8s_pod_labels` | `map[string]string` |  |  |
+| `k8s_pod_annotations` | `map[string]string` |  | Allows matching against the annotations of a pod |
+| `k8s_pod_labels` | `map[string]string` |  | Allows matching against the labels of a pod |
 | `k8s_pod_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
 | `k8s_replicaset_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
 | `k8s_statefulset_name` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
-| `languages` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Regular expression to match against the executable file path |
-| `metrics` | [`SvcMetricsConfig`](#svcmetricsconfig) |  |  |
-| `name` | `string` |  |  |
-| `namespace` | `string` |  |  |
-| `open_ports` | [`IntEnum`](#intenum) |  |  |
+| `languages` | `regex` | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Language allows defining services to instrument based on the programming language they are written in. |
+| `metrics` | [`SvcMetricsConfig`](#svcmetricsconfig) |  | Configuration that is custom for this service match |
+| `name` | `string` |  | Will define a name for the matching service. If unset, it will take the name of the executable process, from the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.  Name should be set in the instrumentation target via kube metadata or standard env vars.  To be kept undocumented until we remove it. |
+| `namespace` | `string` |  | Will define a namespace for the matching service. If unset, it will be left empty.  Namespace should be set in the instrumentation target via kube metadata or standard env vars.  To be kept undocumented until we remove it. |
+| `open_ports` | [`IntEnum`](#intenum) |  | Allows defining a group of ports that this service could open. It accepts a comma-separated list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089) |
 | `routes` | [`CustomRoutesConfig`](#customroutesconfig) |  |  |
-| `sampler` | [`SamplerConfig`](#samplerconfig) |  |  |
-| `target_pids` | `integer`[] |  |  |
-
-### RoutesConfig
-
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `ignore_mode` | `string` | `all`, `metrics`, `traces` |  |
-| `ignored_patterns` | `string`[] |  |  |
-| `max_path_segment_cardinality` | `integer` |  |  |
-| `patterns` | `string`[] |  |  |
-| `unmatched` | `string` | `heuristic`, `low-cardinality`, `path`, `unset`, `wildcard` |  |
-| `wildcard_char` | `string` |  |  |
+| `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
+| `target_pids` | `integer`[] |  | Allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria). |
 
 ### SensitiveQueryParamsConfig
+
+SensitiveQueryParamsConfig controls which query-parameter keys are redacted. The effective list is DefaultSensitiveQueryParams + Add - Remove. When both Add and Remove are empty, DefaultSensitiveQueryParams is used unchanged.
 
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `add` | `string`[] |  |  |
 | `remove` | `string`[] |  |  |
-
-### AttributeFamilyConfig
-
-**Value type:** `object`
 
 ### CustomRoutesConfig
 
@@ -731,16 +784,20 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 
 ### HTTPParsingMatch
 
+HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rules use Patterns and CaseSensitive. Body rules use ObfuscationJSONPaths. URLPathPatterns and Methods are shared across both types.
+
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `case_sensitive` | `boolean` |  |  |
-| `methods` | `string`[] | `DELETE`, `GET`, `HEAD`, `OPTIONS`, `PATCH`, `POST`, `PUT` |  |
-| `obfuscation_json_paths` | `string`[] | `$.password`, `$.user.name`, `$.items[0].id`, etc |  |
-| `patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc |  |
-| `response_status_code` | [`NumericRange`](#numericrange) |  |  |
-| `url_path_patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc |  |
+| `case_sensitive` | `boolean` |  | Controls whether header matching is case-sensitive (headers only) |
+| `methods` | `string`[] | `DELETE`, `GET`, `HEAD`, `OPTIONS`, `PATCH`, `POST`, `PUT` | Is a list of HTTP methods this rule applies to (shared). Empty means all methods. |
+| `obfuscation_json_paths` | `string`[] | `$.password`, `$.user.name`, `$.items[0].id`, etc | Is a list of JSONPath expressions for fields to obfuscate (body only) |
+| `patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match header names against (headers only) |
+| `response_status_code` | [`NumericRange`](#numericrange) |  | Filters this rule to only apply when the response status code matches the given range. If unset, the rule applies regardless of status code. |
+| `url_path_patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match the request path against (shared) |
 
 ### SamplerConfig
+
+Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers.
 
 | Field | Type | Values | Description |
 |---|---|---|---|
@@ -749,11 +806,15 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 
 ### SvcMetricsConfig
 
+SvcMetricsConfig is equivalent to GlobalMetricsConfig, but avoids defining environment variable, since this is a per-service configuration that needs to be defined exclusively in the service definition YAML.
+
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) | List of metric features to enable. |
+| `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... |
 
 ### NumericRange
+
+NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated.
 
 | Field | Type | Values | Description |
 |---|---|---|---|
