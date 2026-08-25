@@ -1574,3 +1574,32 @@ func TestUnmarshalConfmapSequences(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigValidate_TracesCompression(t *testing.T) {
+	base := func(protocol, compression string) envMap {
+		return envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":             "foo",
+			"OTEL_EBPF_TRACE_PRINTER":               "text",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":    "http://localhost:4317",
+			"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL":    protocol,
+			"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION": compression,
+		}
+	}
+
+	t.Run("gzip over grpc", func(t *testing.T) {
+		require.NoError(t, loadConfig(t, base("grpc", "gzip")).Validate())
+	})
+
+	t.Run("zlib over http", func(t *testing.T) {
+		require.NoError(t, loadConfig(t, base("http/protobuf", "zlib")).Validate())
+	})
+
+	t.Run("zlib is http-only so grpc rejects it", func(t *testing.T) {
+		err := loadConfig(t, base("grpc", "zlib")).Validate()
+		require.ErrorContains(t, err, "zlib")
+	})
+
+	t.Run("unknown codec fails the oneof tag", func(t *testing.T) {
+		require.Error(t, loadConfig(t, base("http/protobuf", "not-a-codec")).Validate())
+	})
+}
