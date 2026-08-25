@@ -55,7 +55,7 @@ type JavaInjector struct {
 
 type jvmAttacher interface {
 	Init()
-	Cleanup() error
+	Cleanup(context.Context) error
 	Terminate() error
 	Attach(context.Context, *procs.ProcessHandle, []string, bool) (io.ReadCloser, error)
 }
@@ -407,7 +407,7 @@ func (i *JavaInjector) attachJDKAgent(
 	attacher.Init()
 
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(ctx); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
@@ -461,7 +461,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(
 	attacher.Init()
 
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(ctx); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
@@ -505,7 +505,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(
 	attacher.Init()
 
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(ctx); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
@@ -547,7 +547,7 @@ func (i *JavaInjector) verifyJVMVersion(
 	attacher.Init()
 
 	defer func() {
-		if err := attacher.Cleanup(); err != nil {
+		if err := attacher.Cleanup(ctx); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()

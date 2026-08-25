@@ -104,7 +104,7 @@ func TestInitIsIdempotent(t *testing.T) {
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 
 	attacher.Init()
-	require.NoError(t, attacher.Cleanup())
+	require.NoError(t, attacher.Cleanup(context.Background()))
 	attacher.Init()
 
 	require.Equal(t, 1, euidCalls)
@@ -148,8 +148,8 @@ func TestCleanupCanRunRepeatedly(t *testing.T) {
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 
 	attacher.Init()
-	require.NoError(t, attacher.Cleanup())
-	require.NoError(t, attacher.Cleanup())
+	require.NoError(t, attacher.Cleanup(context.Background()))
+	require.NoError(t, attacher.Cleanup(context.Background()))
 	require.Equal(t, []int{123, 123}, euidCalls)
 	require.Equal(t, []int{456, 456}, egidCalls)
 	require.True(t, attacher.initialized)
@@ -210,11 +210,11 @@ func TestDelayedCleanupDoesNotRestoreCredentialsDuringNewAttachAttemptForSamePID
 	require.NoError(t, newAttacher.setEGID(987))
 	require.NoError(t, newAttacher.setEUID(789))
 
-	require.NoError(t, oldAttacher.Cleanup())
+	require.NoError(t, oldAttacher.Cleanup(context.Background()))
 	require.Equal(t, []int{789}, euidCalls)
 	require.Equal(t, []int{987}, egidCalls)
 
-	require.NoError(t, newAttacher.Cleanup())
+	require.NoError(t, newAttacher.Cleanup(context.Background()))
 	require.Equal(t, []int{789, 123}, euidCalls)
 	require.Equal(t, []int{987, 456}, egidCalls)
 }
@@ -298,7 +298,7 @@ func TestTerminalCleanupCanRunRepeatedly(t *testing.T) {
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 	attacher.Init()
 	require.NoError(t, attacher.Terminate())
-	require.NoError(t, attacher.Cleanup())
+	require.NoError(t, attacher.Cleanup(context.Background()))
 
 	require.Equal(t, []int{123, 123}, euidCalls)
 	require.Equal(t, []int{456, 456}, egidCalls)

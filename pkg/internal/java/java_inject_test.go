@@ -581,9 +581,9 @@ type blockingResponseAttacher struct {
 	response *blockingAttachResponse
 }
 
-func (*blockingResponseAttacher) Init()            {}
-func (*blockingResponseAttacher) Cleanup() error   { return nil }
-func (*blockingResponseAttacher) Terminate() error { return nil }
+func (*blockingResponseAttacher) Init()                         {}
+func (*blockingResponseAttacher) Cleanup(context.Context) error { return nil }
+func (*blockingResponseAttacher) Terminate() error              { return nil }
 func (a *blockingResponseAttacher) Attach(
 	ctx context.Context,
 	_ *procs.ProcessHandle,

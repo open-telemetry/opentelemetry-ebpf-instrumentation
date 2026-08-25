@@ -124,7 +124,7 @@ func (j *JAttacher) Terminate() error {
 	return j.restoreCredentialsLocked()
 }
 
-func (j *JAttacher) Cleanup() error {
+func (j *JAttacher) Cleanup(ctx context.Context) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -135,7 +135,7 @@ func (j *JAttacher) Cleanup() error {
 	var cleanupErr error
 
 	if j.j9attacher != nil {
-		cleanupErr = errors.Join(cleanupErr, j.j9attacher.detach(context.Background()))
+		cleanupErr = errors.Join(cleanupErr, j.j9attacher.detach(ctx))
 	}
 
 	// Restore credentials if we are the active attach happening on the pipeline.
