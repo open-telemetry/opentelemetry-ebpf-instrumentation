@@ -138,6 +138,13 @@ done
 ok "all $(echo "${expected_assets}" | wc -l | tr -d ' ') expected assets present, each with a signature bundle"
 
 step "2/5 checksums (every line must report OK)"
+while read -r asset; do
+    case "${asset}" in SHA256SUMS) continue ;; esac
+    grep -q "[[:space:]]${asset}\$" "${release_dir}/SHA256SUMS" || {
+        err "FATAL: SHA256SUMS has no entry for ${asset}"
+        exit 1
+    }
+done <<< "${expected_assets}"
 (
     cd "${release_dir}"
     sha_check
@@ -158,7 +165,7 @@ for arch in amd64 arm64; do
     echo "--- $(basename "${archive}")"
     listing="$(tar -tzf "${archive}")"
     for entry in '^obi$' '^LICENSE$' '^NOTICE$' '^NOTICES/'; do
-        echo "${listing}" | grep -q "${entry}" || {
+        grep -q "${entry}" <<< "${listing}" || {
             err "FATAL: archive is missing an entry matching ${entry}"
             exit 1
         }
@@ -179,9 +186,12 @@ tar -tzf "${release_dir}/obi-${release_tag}-source-generated.tar.gz" >/dev/null
 ok "source-generated archive: readable"
 
 step "5/5 container image signatures (Docker Hub + GHCR)"
+# docker/metadata-action publishes the semver {{version}} tag, which drops any
+# +build metadata the git tag carries (see publish_dockerhub_main.yml)
+image_tag="${release_tag%%+*}"
 for image in \
-    "otel/ebpf-instrument:${release_tag}" \
-    "ghcr.io/${repository}/ebpf-instrument:${release_tag}"; do
+    "otel/ebpf-instrument:${image_tag}" \
+    "ghcr.io/${repository}/ebpf-instrument:${image_tag}"; do
     cosign verify \
         --certificate-identity "${image_identity}" \
         --certificate-oidc-issuer "${oidc_issuer}" \
