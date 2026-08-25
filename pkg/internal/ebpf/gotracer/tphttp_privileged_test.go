@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -163,17 +164,25 @@ func startHTTPClientTargetWithMode(
 	require.NoError(t, err)
 
 	require.NoError(t, cmd.Start())
-	t.Cleanup(func() {
-		_, _ = io.WriteString(stdin, "EXIT\n")
-		cancel()
-		_ = cmd.Wait()
-	})
+	var stopTargetOnce sync.Once
+	stopTarget := func() {
+		stopTargetOnce.Do(func() {
+			_, _ = io.WriteString(stdin, "EXIT\n")
+			cancel()
+			_ = cmd.Wait()
+		})
+	}
+	t.Cleanup(stopTarget)
 
 	stdoutLines := collectClientLines(t, "target stdout", stdout)
 	_ = collectClientLines(t, "target stderr", stderr)
 	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
 
-	attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
+	stopTracer := attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
+	t.Cleanup(func() {
+		stopTarget()
+		stopTracer()
+	})
 
 	return func(t *testing.T, mode string) string {
 		t.Helper()
@@ -247,11 +256,12 @@ func startGRPCClientTarget(
 	_ = collectClientLines(t, "target stderr", stderr)
 	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
 
-	attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
+	stopTracer := attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
 	t.Cleanup(func() {
 		_, _ = io.WriteString(stdin, "EXIT\n")
 		cancel()
 		_ = cmd.Wait()
+		stopTracer()
 	})
 
 	return func(t *testing.T) string {
@@ -265,7 +275,7 @@ func startGRPCClientTarget(
 
 // attachGoTracer wires up the real ProcessTracer with the gotracer against the
 // given PID, mirroring the production discovery/attach path.
-func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMode) {
+func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMode) func() {
 	t.Helper()
 
 	cfg := obi.DefaultConfig
@@ -302,7 +312,7 @@ func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMod
 		defer close(done)
 		processTracer.Run(runCtx, eventContext, spans)
 	}()
-	t.Cleanup(func() {
+	return func() {
 		cancel()
 		select {
 		case <-done:
@@ -310,7 +320,7 @@ func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMod
 			t.Log("timed out waiting for gotracer ProcessTracer to stop")
 		}
 		spans.Close()
-	})
+	}
 }
 
 // goFunctionNames returns the union of Go symbols the gotracer probes, matching
