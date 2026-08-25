@@ -28,6 +28,56 @@ func testHTTPTraces(t *testing.T) {
 	testHTTPTracesCommon(t, true, 500)
 }
 
+// A method outside the semconv http.request.method enum has to be reported as
+// _OTHER, with the wire value moved to http.request.method_original. Without
+// the clamp http.request.method carries arbitrary bytes off the request line.
+func testHTTPTracesUnknownMethod(t *testing.T) {
+	const (
+		slug = "unknown-method"
+		// Must fit k_method_max_len (7): the Go uprobe struct truncates longer
+		// methods, so a longer one would assert on a truncated value.
+		method = "PURGE"
+	)
+
+	req, err := http.NewRequest(method, instrumentedServiceStdURL+"/"+slug, nil)
+	require.NoError(t, err)
+	resp, err := testHTTPClient.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	var span jaeger.Span
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		r, err := http.Get(jaegerQueryURL + "?service=testserver&limit=1000")
+		require.NoError(ct, err)
+		if r == nil {
+			return
+		}
+		defer r.Body.Close()
+		require.Equal(ct, http.StatusOK, r.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
+
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug})
+		require.NotEmpty(ct, traces)
+
+		found := false
+		for _, s := range traces[len(traces)-1].Spans {
+			if _, ok := jaeger.FindIn(s.Tags, "http.request.method_original"); ok {
+				span, found = s, true
+				break
+			}
+		}
+		require.True(ct, found, "no span carrying http.request.method_original")
+	}, testTimeout, 100*time.Millisecond)
+
+	sd := span.Diff(
+		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "_OTHER"},
+		jaeger.Tag{Key: "http.request.method_original", Type: "string", Value: method},
+	)
+	assert.Empty(t, sd, sd.String())
+}
+
 func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	var traceID string
 	var parentID string
@@ -88,9 +138,19 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	)
 	assert.Empty(t, sd, sd.String())
 
+	// Assigned by the compose network, so only presence can be asserted.
+	peerAddr, ok := jaeger.FindIn(parent.Tags, "network.peer.address")
+	assert.True(t, ok, "expected network.peer.address on the server span")
+	assert.NotEmpty(t, peerAddr.Value)
+
+	peerPort, ok := jaeger.FindIn(parent.Tags, "network.peer.port")
+	assert.True(t, ok, "expected network.peer.port on the server span")
+	assert.Positive(t, peerPort.Value)
+
 	if httpCode >= 500 {
 		sd := parent.Diff(
 			jaeger.Tag{Key: "otel.status_code", Type: "string", Value: "ERROR"},
+			jaeger.Tag{Key: "error.type", Type: "string", Value: strconv.Itoa(httpCode)},
 		)
 		assert.Empty(t, sd, sd.String())
 	}

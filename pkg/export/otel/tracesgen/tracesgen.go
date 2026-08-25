@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,6 +36,19 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/idgen"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
+
+// httpMethodAttributes clamps a method outside the semconv enum to _OTHER,
+// keeping the wire value on http.request.method_original.
+func httpMethodAttributes(method string) []attribute.KeyValue {
+	if request.IsKnownHTTPMethod(method) {
+		return []attribute.KeyValue{request.HTTPRequestMethod(method)}
+	}
+
+	return []attribute.KeyValue{
+		semconv.HTTPRequestMethodOther,
+		semconv.HTTPRequestMethodOriginal(method),
+	}
+}
 
 // Attribute keys not yet available in semconv v1.41.0.
 // Replace with semconv helpers when the package is updated.
@@ -559,7 +573,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 		if span.Method != "" {
-			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
+			attrs = append(attrs, httpMethodAttributes(span.Method)...)
 		}
 		if span.Path != "" {
 			attrs = append(attrs, request.HTTPUrlPath(span.Path))
@@ -666,7 +680,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 		if span.Method != "" {
-			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
+			attrs = append(attrs, httpMethodAttributes(span.Method)...)
 		}
 
 		if scrubbedQS != "" {
@@ -1362,6 +1376,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, request.DBCollectionName(table))
 			}
 		}
+		if span.DBQuerySummary != "" {
+			attrs = append(attrs, semconv.DBQuerySummary(span.DBQuerySummary))
+		}
 		if span.Status == 1 && span.SQLError != nil {
 			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
 			// omit error.type when the SQLSTATE was not captured, instead of
@@ -1601,11 +1618,77 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 	}
 
+	attrs = append(attrs, networkPeerAttributes(span)...)
+
+	if version := span.ProtoVersion.String(); version != "" {
+		attrs = append(attrs, semconv.NetworkProtocolVersion(version))
+	}
+
+	if span.UserAgent != "" {
+		attrs = append(attrs, semconv.UserAgentOriginal(span.UserAgent))
+	}
+
+	// Protocol branches above may already have set a more specific error.type.
+	if errType := request.SpanErrorType(span); errType != "" && !hasAttribute(attrs, semconv.ErrorTypeKey) {
+		attrs = append(attrs, request.ErrorType(errType))
+	}
+
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {
 		attrs = append(attrs, spanMetricsSkip)
 	}
 
 	return attrs
+}
+
+// networkPeerAttributes reports the socket address of the connection's remote
+// end, which server.address and client.address drop when a resolved name or
+// Host header is available. DNS and failed-connect spans are excluded: their
+// client/server mapping does not follow the usual convention.
+func networkPeerAttributes(span *request.Span) []attribute.KeyValue {
+	var addr string
+	var port int
+
+	switch span.Type {
+	case request.EventTypeHTTP, request.EventTypeGRPC,
+		request.EventTypeSQLServer, request.EventTypeRedisServer,
+		request.EventTypeMemcachedServer, request.EventTypeSunRPCServer,
+		request.EventTypeKafkaServer, request.EventTypeMQTTServer,
+		request.EventTypeNATSServer:
+		addr, port = span.Peer, span.PeerPort
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient,
+		request.EventTypeSQLClient, request.EventTypeRedisClient,
+		request.EventTypeMongoClient, request.EventTypeCouchbaseClient,
+		request.EventTypeMemcachedClient, request.EventTypeAerospikeClient,
+		request.EventTypeSunRPCClient, request.EventTypeKafkaClient,
+		request.EventTypeMQTTClient, request.EventTypeNATSClient,
+		request.EventTypeAMQPClient:
+		addr, port = span.Host, span.HostPort
+	default:
+		return nil
+	}
+
+	// Semconv defines this as an IP or Unix socket address. Some paths fall back
+	// to the Host header, which is a name, and server.address already carries that.
+	if net.ParseIP(addr) == nil {
+		return nil
+	}
+
+	attrs := []attribute.KeyValue{semconv.NetworkPeerAddress(addr)}
+	if port > 0 {
+		attrs = append(attrs, semconv.NetworkPeerPort(port))
+	}
+
+	return attrs
+}
+
+func hasAttribute(attrs []attribute.KeyValue, key attribute.Key) bool {
+	for i := range attrs {
+		if attrs[i].Key == key {
+			return true
+		}
+	}
+
+	return false
 }
 
 // TraceAttributesSelector returns the []attribute.KeyValue for a single span.

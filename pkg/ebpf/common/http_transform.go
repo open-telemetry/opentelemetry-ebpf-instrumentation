@@ -53,12 +53,13 @@ func removeQuery(url string) string {
 
 type HTTPInfo struct {
 	BPFHTTPInfo
-	Method     string
-	URL        string
-	Host       string
-	Peer       string
-	HeaderHost string
-	Body       string
+	Method       string
+	URL          string
+	Host         string
+	Peer         string
+	HeaderHost   string
+	Body         string
+	ProtoVersion request.ProtoVersion
 }
 
 // misses serviceID
@@ -93,7 +94,8 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 			UserPID:   app.PID(info.Pid.UserPid),
 			Namespace: info.Pid.Ns,
 		},
-		Statement: scheme + request.SchemeHostSeparator + info.HeaderHost,
+		Statement:    scheme + request.SchemeHostSeparator + info.HeaderHost,
+		ProtoVersion: info.ProtoVersion,
 	}
 }
 
@@ -164,6 +166,9 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 }
 
 func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req *http.Request, resp *http.Response) request.Span {
+	httpSpan.ProtoVersion = request.HTTPProtoVersion(req.ProtoMajor, req.ProtoMinor)
+	httpSpan.UserAgent = req.UserAgent()
+
 	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.AWS.Enabled {
 		span, ok := ebpfhttp.AWSS3Span(httpSpan, req, resp)
 		if ok {
@@ -564,6 +569,7 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) 
 	}
 	result.URL = httpURLFromBuf(raw)
 	result.Method = httpMethodFromBuf(raw)
+	result.ProtoVersion = request.HTTPProtoVersionFromRequestLine(raw)
 
 	if request.EventType(result.Type) == request.EventTypeHTTPClient && !parsedHost {
 		bufHost, _ = httpHostFromBuf(raw)

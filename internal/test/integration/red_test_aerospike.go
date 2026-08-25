@@ -101,6 +101,7 @@ func testREDMetricsAerospikeOnly(t *testing.T) {
 				{Name: "PUT test.demo", Attributes: []attribute.KeyValue{
 					attribute.String("db.operation.name", "PUT"),
 					attribute.String("db.response.status_code", "KEY_EXISTS_ERROR"),
+					attribute.String("error.type", "KEY_EXISTS_ERROR"),
 				}},
 				{Name: "GET test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "GET")}},
 				{Name: "DELETE test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "DELETE")}},

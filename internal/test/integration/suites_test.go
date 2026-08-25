@@ -184,6 +184,7 @@ func TestSuite_NoDebugInfo(t *testing.T) {
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("HTTP traces (url.query redaction)", testHTTPTracesURLQuery)
+	t.Run("HTTP traces (unknown method clamped to _OTHER)", testHTTPTracesUnknownMethod)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })

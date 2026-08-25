@@ -1314,6 +1314,8 @@ type Span struct {
 	Type           EventType      `json:"type"`
 	SpanKind       trace.SpanKind `json:"-"`
 	Flags          uint8          `json:"-"`
+	ProtoVersion   ProtoVersion   `json:"-"`
+	UserAgent      string         `json:"-"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	FullPath       string         `json:"-"`
@@ -2117,7 +2119,12 @@ func (s *Span) TraceName() string {
 			return "jsonrpc"
 		}
 
+		// Semconv prescribes "HTTP {route}" when the method is outside the
+		// enum, so span.name stays bounded like http.request.method.
 		name := s.Method
+		if !IsKnownHTTPMethod(name) {
+			name = "HTTP"
+		}
 		if s.Route != "" {
 			name += " " + s.Route
 		}
