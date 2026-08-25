@@ -134,9 +134,41 @@ func (i *JavaInjector) runIfCurrentAttach(
 	return fn()
 }
 
+// verifyTargetIdentity fails when Pid no longer refers to the process that was
+// queued for injection. Every attach-side operation (entering the target's
+// namespaces, dropping to its credentials, writing the agent into its root
+// filesystem, and signaling it with SIGQUIT) is destructive to an unrelated
+// process, so it must be preceded by this check.
+//
+// A target whose start time was never captured cannot be checked at all, so it
+// is refused rather than injected on the assumption that its PID still holds
+// the process discovery saw.
+func verifyTargetIdentity(target InjectionTarget) error {
+	if target.StartTime == 0 {
+		return &JavaInjectError{Message: fmt.Sprintf("identity of process %d was not captured, refusing to inject", target.Pid)}
+	}
+
+	startTime, err := processStartTime(target.Pid)
+	if err != nil {
+		return &JavaInjectError{Message: fmt.Sprintf("cannot confirm identity of process %d: %s", target.Pid, err)}
+	}
+
+	if startTime != target.StartTime {
+		return &JavaInjectError{Message: fmt.Sprintf("process %d was replaced before injection", target.Pid)}
+	}
+
+	return nil
+}
+
 func (i *JavaInjector) NewExecutable(target InjectionTarget) error {
 	if target.Type != svc.InstrumentableJava {
 		return nil
+	}
+
+	// Injection is queued by PID and can start long after discovery, so the
+	// process must be proven to be the one we discovered before we touch it.
+	if err := verifyTargetIdentity(target); err != nil {
+		return err
 	}
 
 	attachID := i.nextAttachID()
@@ -200,6 +232,14 @@ func (i *JavaInjector) NewExecutable(target InjectionTarget) error {
 		}
 
 		i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", target.Pid)
+
+		// The handshake above can block for the whole attach timeout, which is
+		// long enough for the PID to be recycled before we write into the
+		// target's root filesystem and load the agent.
+		if err := verifyTargetIdentity(target); err != nil {
+			resultChan <- result{err: err}
+			return
+		}
 
 		agentPath, err := i.copyAgent(target.Pid, target.TempDirEnv)
 		if err != nil {

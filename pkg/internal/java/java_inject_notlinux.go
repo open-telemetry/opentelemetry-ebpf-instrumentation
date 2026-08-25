@@ -9,5 +9,5 @@ package javaagent // import "go.opentelemetry.io/obi/pkg/internal/java"
 
 type JavaInjector struct{}
 
-func NewJavaInjector(_ any) (*JavaInjector, error) { return nil, nil }
+func NewJavaInjector(_ any) (*JavaInjector, error)          { return nil, nil }
 func (*JavaInjector) NewExecutable(_ InjectionTarget) error { return nil }
