@@ -243,9 +243,10 @@ func getDefinitions(
 		extraGroupAttributes[GroupAppKube],
 	)
 
-	// ServiceName and ServiceNamespace are reported both as resource and metric attributes, as
-	// the OTEL definition requires that it is reported as resource attribute,
-	// but Cloud providers may extract this from the metric
+	// The semantic conventions define service.name and service.namespace as
+	// resource attributes, and OBI reports them there. They are also available
+	// as metric-level attributes for backends that read service identity off
+	// the series instead of joining through target_info.
 	appAttributes := NewAttrReportGroup(
 		false,
 		[]*AttrReportGroup{
@@ -254,8 +255,8 @@ func getDefinitions(
 			&appContainerAttributes,
 		},
 		map[attr.Name]Default{
-			attr.ServiceName:      true,
-			attr.ServiceNamespace: true,
+			attr.ServiceName:      false,
+			attr.ServiceNamespace: false,
 		},
 		extraGroupAttributes[GroupApp],
 	)

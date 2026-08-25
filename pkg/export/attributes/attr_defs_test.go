@@ -95,3 +95,35 @@ func TestGoRuntimeDefinitions(t *testing.T) {
 		})
 	}
 }
+
+// service.name and service.namespace are resource attributes per the semantic
+// conventions, so they are not reported as metric attributes by default. The
+// `app` extra-attribute group restores them for backends that read service
+// identity off the series rather than joining through target_info.
+func TestServiceAttributesAreNotMetricDefaults(t *testing.T) {
+	section := HTTPServerDuration.Section
+
+	t.Run("off by default", func(t *testing.T) {
+		definitions := getDefinitions(0, NewGroupAttributes(nil))
+		definition, ok := definitions[section]
+		require.True(t, ok)
+
+		// still selectable, just not part of the default set
+		assert.Contains(t, definition.All(), attr.ServiceName)
+		assert.Contains(t, definition.All(), attr.ServiceNamespace)
+
+		assert.NotContains(t, definition.Default(), attr.ServiceName)
+		assert.NotContains(t, definition.Default(), attr.ServiceNamespace)
+	})
+
+	t.Run("restored by the app extra-attribute group", func(t *testing.T) {
+		definitions := getDefinitions(0, NewGroupAttributes(map[string][]attr.Name{
+			"app": {attr.ServiceName, attr.ServiceNamespace},
+		}))
+		definition, ok := definitions[section]
+		require.True(t, ok)
+
+		assert.Contains(t, definition.Default(), attr.ServiceName)
+		assert.Contains(t, definition.Default(), attr.ServiceNamespace)
+	})
+}
