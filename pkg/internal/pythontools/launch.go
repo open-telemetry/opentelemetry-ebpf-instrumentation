@@ -151,7 +151,7 @@ func parseLauncher(command string, args []string, env map[string]string) pythonL
 	case "uwsgi":
 		return parseUWSGI(args)
 	case "waitress", "waitress-serve", "waitress_serve":
-		return parseApplicationServer(args, waitressOptions)
+		return parseWaitress(args)
 	case "flask":
 		return parseFlask(args, env)
 	case "fastapi":
@@ -297,13 +297,58 @@ func parseDaphne(args []string) pythonLaunch {
 	return pythonLaunch{}
 }
 
-func parseApplicationServer(args []string, options map[string]struct{}) pythonLaunch {
-	for _, arg := range positionals(args, options) {
-		if isApplicationReference(arg) {
-			return pythonLaunch{target: arg, targetKind: targetModule}
+func parseWaitress(args []string) pythonLaunch {
+	target, ok := waitressApplication(args)
+	if !ok || !isApplicationReference(target) {
+		return pythonLaunch{}
+	}
+	return pythonLaunch{target: target, targetKind: targetModule}
+}
+
+func waitressApplication(args []string) (string, bool) {
+	var app string
+	var positionals []string
+
+options:
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--":
+			positionals = append(positionals, args[i+1:]...)
+			break options
+		case !strings.HasPrefix(arg, "-") || arg == "-":
+			positionals = append(positionals, args[i:]...)
+			break options
+		case !strings.HasPrefix(arg, "--"):
+			return "", false
+		}
+
+		name, value, attached := strings.Cut(arg, "=")
+		if _, consumes := waitressOptionsWithValues[name]; consumes {
+			if !attached {
+				if i+1 == len(args) || !separatedOptionValue(args[i+1]) {
+					return "", false
+				}
+				i++
+				value = args[i]
+			}
+			if name == "--app" {
+				app = value
+			}
+			continue
+		}
+		if _, known := waitressOptionsWithoutValues[name]; !known || attached {
+			return "", false
 		}
 	}
-	return pythonLaunch{}
+
+	if app != "" {
+		return app, len(positionals) == 0
+	}
+	if len(positionals) != 1 {
+		return "", false
+	}
+	return positionals[0], true
 }
 
 func parseUWSGI(args []string) pythonLaunch {
@@ -640,7 +685,7 @@ func argparsePositionals(
 			name, _, attached := strings.Cut(arg, "=")
 			if _, consumes := optionsWithValues[name]; consumes {
 				if !attached {
-					if i+1 == len(args) || !argparseOptionValue(args[i+1]) {
+					if i+1 == len(args) || !separatedOptionValue(args[i+1]) {
 						return nil, false
 					}
 					i++
@@ -658,7 +703,7 @@ func argparsePositionals(
 				return nil, false
 			}
 			if consumes {
-				if i+1 == len(args) || !argparseOptionValue(args[i+1]) {
+				if i+1 == len(args) || !separatedOptionValue(args[i+1]) {
 					return nil, false
 				}
 				i++
@@ -670,7 +715,7 @@ func argparsePositionals(
 	return values, true
 }
 
-func argparseOptionValue(value string) bool {
+func separatedOptionValue(value string) bool {
 	if value == "-" || !strings.HasPrefix(value, "-") {
 		return true
 	}
@@ -841,11 +886,20 @@ var daphneOptionsWithoutValues = optionSet(
 	"--proxy-headers", "--no-server-name", "-h", "--help",
 )
 
-var waitressOptions = optionSet(
-	"--url-scheme", "--url-prefix", "--ident", "--url-prefix", "--listen", "--threads", "--channel-timeout",
-	"--cleanup-interval", "--connection-limit", "--asyncore-use-poll", "--unix-socket", "--unix-socket-perms",
-	"--url-prefix", "--backlog", "--recv-bytes", "--send-bytes", "--outbuf-overflow", "--outbuf-high-watermark",
-	"--inbuf-overflow", "--adj", "--max-request-header-size", "--max-request-body-size", "--expose-tracebacks",
+var waitressOptionsWithValues = optionSet(
+	"--host", "--port", "--listen", "--threads", "--trusted-proxy", "--trusted-proxy-count",
+	"--trusted-proxy-headers", "--url-scheme", "--url-prefix", "--backlog", "--recv-bytes", "--send-bytes",
+	"--outbuf-overflow", "--outbuf-high-watermark", "--inbuf-overflow", "--connection-limit",
+	"--cleanup-interval", "--channel-timeout", "--max-request-header-size", "--max-request-body-size",
+	"--ident", "--asyncore-loop-timeout", "--unix-socket", "--unix-socket-perms", "--sockets",
+	"--channel-request-lookahead", "--server-name", "--app",
+)
+
+var waitressOptionsWithoutValues = optionSet(
+	"--help", "--call", "--ipv4", "--no-ipv4", "--ipv6", "--no-ipv6", "--log-untrusted-proxy-headers",
+	"--no-log-untrusted-proxy-headers", "--clear-untrusted-proxy-headers", "--no-clear-untrusted-proxy-headers",
+	"--log-socket-errors", "--no-log-socket-errors", "--expose-tracebacks", "--no-expose-tracebacks",
+	"--asyncore-use-poll", "--no-asyncore-use-poll",
 )
 
 var fastAPIOptions = optionSet(
