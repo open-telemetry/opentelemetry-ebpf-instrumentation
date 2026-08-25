@@ -306,6 +306,89 @@ func TestParseUvicornAcceptsKnownOptionForms(t *testing.T) {
 	}
 }
 
+func TestParseHypercornOptions(t *testing.T) {
+	const application = "orders.asgi:app"
+	optionsWithValues := []string{
+		"--access-log", "--access-logfile", "--access-logformat", "--backlog", "-b", "--bind", "--ca-certs",
+		"--certfile", "--cert-reqs", "--ciphers", "-c", "--config", "--error-log", "--error-logfile", "--log-file",
+		"--graceful-timeout", "--read-timeout", "--max-requests", "--max-requests-jitter", "-g", "--group", "-k",
+		"--worker-class", "--keep-alive", "--keyfile", "--keyfile-password", "--insecure-bind", "--log-config",
+		"--log-level", "-p", "--pid", "--quic-bind", "--root-path", "--server-name", "--statsd-host",
+		"--statsd-prefix", "-m", "--umask", "-u", "--user", "--verify-mode", "--websocket-ping-interval", "-w",
+		"--workers",
+	}
+	assert.Equal(t, optionSet(optionsWithValues...), hypercornOptionsWithValues)
+
+	for _, option := range optionsWithValues {
+		t.Run(option, func(t *testing.T) {
+			launch := parsePythonLaunch("hypercorn", []string{option, "env:prod", application}, nil)
+
+			assert.Equal(t, application, launch.target)
+			assert.Equal(t, targetModule, launch.targetKind)
+		})
+	}
+
+	optionsWithoutValues := []string{"-D", "--daemon", "--debug", "--reload", "-h", "--help"}
+	assert.Equal(t, optionSet(optionsWithoutValues...), hypercornOptionsWithoutValues)
+
+	for _, option := range optionsWithoutValues {
+		t.Run(option, func(t *testing.T) {
+			launch := parsePythonLaunch("hypercorn", []string{option, application}, nil)
+
+			assert.Equal(t, application, launch.target)
+			assert.Equal(t, targetModule, launch.targetKind)
+		})
+	}
+}
+
+func TestParseHypercornFailsClosedOnUnknownOptions(t *testing.T) {
+	const application = "orders.asgi:app"
+	tests := map[string][]string{
+		"long option":                {"--future-option", "env:prod", application},
+		"attached long option":       {"--future-option=env:prod", application},
+		"short option":               {"-Z", "env:prod", application},
+		"short option cluster":       {"-DZ", application},
+		"after application":          {application, "--future-option", "env:prod"},
+		"value on flag":              {"--reload=true", application},
+		"missing value":              {application, "--workers"},
+		"unknown option as value":    {"--access-logfile", "--future-option", "env:prod", application},
+		"invalid cipher option":      {"--cipher", "env:prod", application},
+		"unsupported paste option":   {"--paste", "config:prod", application},
+		"unsupported version option": {"--version", application},
+	}
+	for name, args := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, pythonLaunch{}, parsePythonLaunch("hypercorn", args, nil))
+		})
+	}
+}
+
+func TestParseHypercornAcceptsKnownOptionForms(t *testing.T) {
+	const application = "orders.asgi:app"
+	tests := map[string][]string{
+		"stdout access log":        {"--access-logfile", "-", application},
+		"attached stdout log":      {"--access-logfile=-", application},
+		"python config":            {"--config", "python:settings", application},
+		"attached python config":   {"--config=python:settings", application},
+		"attached long value":      {"--workers=4", application},
+		"attached short value":     {"-w4", application},
+		"short value with equals":  {"-w=4", application},
+		"short option cluster":     {"-Dw4", application},
+		"negative long value":      {"--read-timeout", "-1", application},
+		"negative short value":     {"-w", "-1", application},
+		"option after application": {application, "--access-logfile", "-"},
+		"after terminator":         {"--", application},
+	}
+	for name, args := range tests {
+		t.Run(name, func(t *testing.T) {
+			launch := parsePythonLaunch("hypercorn", args, nil)
+
+			assert.Equal(t, application, launch.target)
+			assert.Equal(t, targetModule, launch.targetKind)
+		})
+	}
+}
+
 func TestTargetName(t *testing.T) {
 	tests := map[string]string{
 		"company.orders.api:app":                 "orders",

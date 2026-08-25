@@ -145,7 +145,7 @@ func parseLauncher(command string, args []string, env map[string]string) pythonL
 	case "uvicorn":
 		return parseUvicorn(args, env)
 	case "hypercorn":
-		return parseApplicationServer(args, hypercornOptions)
+		return parseHypercorn(args)
 	case "daphne":
 		return parseApplicationServer(args, daphneOptions)
 	case "uwsgi":
@@ -269,6 +269,19 @@ options:
 		launch.targetKind = targetModule
 	}
 	return launch
+}
+
+func parseHypercorn(args []string) pythonLaunch {
+	positionals, ok := hypercornPositionals(args)
+	if !ok {
+		return pythonLaunch{}
+	}
+	for _, arg := range positionals {
+		if isApplicationReference(arg) {
+			return pythonLaunch{target: arg, targetKind: targetModule}
+		}
+	}
+	return pythonLaunch{}
 }
 
 func parseApplicationServer(args []string, options map[string]struct{}) pythonLaunch {
@@ -599,6 +612,81 @@ func uvicornPositionals(args []string) ([]string, bool) {
 	return values, true
 }
 
+func hypercornPositionals(args []string) ([]string, bool) {
+	var values []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return append(values, args[i+1:]...), true
+		}
+		if strings.HasPrefix(arg, "--") {
+			name, _, attached := strings.Cut(arg, "=")
+			if _, consumes := hypercornOptionsWithValues[name]; consumes {
+				if !attached {
+					if i+1 == len(args) || !hypercornOptionValue(args[i+1]) {
+						return nil, false
+					}
+					i++
+				}
+				continue
+			}
+			if _, known := hypercornOptionsWithoutValues[name]; !known || attached {
+				return nil, false
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			consumes, known := hypercornShortOption(arg)
+			if !known {
+				return nil, false
+			}
+			if consumes {
+				if i+1 == len(args) || !hypercornOptionValue(args[i+1]) {
+					return nil, false
+				}
+				i++
+			}
+			continue
+		}
+		values = append(values, arg)
+	}
+	return values, true
+}
+
+func hypercornOptionValue(value string) bool {
+	if value == "-" || !strings.HasPrefix(value, "-") {
+		return true
+	}
+
+	digits := 0
+	dot := false
+	for i := 1; i < len(value); i++ {
+		switch {
+		case value[i] >= '0' && value[i] <= '9':
+			digits++
+		case value[i] == '.' && !dot:
+			dot = true
+		default:
+			return false
+		}
+	}
+	return digits > 0 && value[len(value)-1] != '.'
+}
+
+func hypercornShortOption(arg string) (bool, bool) {
+	for i := 1; i < len(arg); i++ {
+		name := "-" + arg[i:i+1]
+		if _, known := hypercornOptionsWithoutValues[name]; known {
+			continue
+		}
+		if _, consumes := hypercornOptionsWithValues[name]; consumes {
+			return i == len(arg)-1, true
+		}
+		return false, false
+	}
+	return false, true
+}
+
 func splitShellFields(value string) ([]string, bool) {
 	var fields []string
 	var field strings.Builder
@@ -706,11 +794,18 @@ var uvicornOptionsWithoutValues = optionSet(
 	"--version", "--reset-contextvars", "--factory", "--help",
 )
 
-var hypercornOptions = optionSet(
-	"-b", "--bind", "--ca-certs", "--certfile", "--cipher", "-c", "--config", "--debug", "--error-logfile",
-	"--graceful-timeout", "--keyfile", "--keep-alive", "--log-config", "--log-level", "-p", "--pid", "--quic-bind",
-	"--read-timeout", "--root-path", "--server-name", "--statsd-host", "--umask", "-u", "--user", "-w", "--workers",
-	"-k", "--worker-class", "-g", "--group", "--insecure-bind",
+var hypercornOptionsWithValues = optionSet(
+	"--access-log", "--access-logfile", "--access-logformat", "--backlog", "-b", "--bind", "--ca-certs",
+	"--certfile", "--cert-reqs", "--ciphers", "-c", "--config", "--error-log", "--error-logfile", "--log-file",
+	"--graceful-timeout", "--read-timeout", "--max-requests", "--max-requests-jitter", "-g", "--group", "-k",
+	"--worker-class", "--keep-alive", "--keyfile", "--keyfile-password", "--insecure-bind", "--log-config",
+	"--log-level", "-p", "--pid", "--quic-bind", "--root-path", "--server-name", "--statsd-host",
+	"--statsd-prefix", "-m", "--umask", "-u", "--user", "--verify-mode", "--websocket-ping-interval", "-w",
+	"--workers",
+)
+
+var hypercornOptionsWithoutValues = optionSet(
+	"-D", "--daemon", "--debug", "--reload", "-h", "--help",
 )
 
 var daphneOptions = optionSet(
