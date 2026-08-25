@@ -6,6 +6,7 @@ package discover
 import (
 	"context"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
 func javaTarget(pid app.PID) javaagent.InjectionTarget {
@@ -280,7 +282,17 @@ func TestJavaInjectionQueue_EnqueueAfterShutdownIsDropped(t *testing.T) {
 	cancel()
 	queue.wait()
 
-	queue.enqueue(javaTarget(1))
+	pid := app.PID(os.Getpid())
+	startTime, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	process, err := procs.OpenProcessHandle(pid, startTime)
+	require.NoError(t, err)
+	target := javaTarget(pid)
+	target.Process = process
+	target.StartTime = startTime
+
+	queue.enqueue(target)
 
 	assert.Equal(t, int32(0), injections.Load())
+	assert.Error(t, process.Alive(), "a target dropped after shutdown must be closed")
 }

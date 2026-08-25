@@ -7,10 +7,12 @@ package javaagent
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,8 +21,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -218,29 +219,13 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := tt.setupTempDir(t, tt.pid)
 
-			// Override the root directory function
-			originalRootFunc := rootDirForPID
-			defer func() { rootDirForPID = originalRootFunc }()
-			rootDirForPID = func(_ app.PID) string {
-				return filepath.Join(tmpDir, "proc", "root")
-			}
-
 			injector := &JavaInjector{
 				cfg: &obi.DefaultConfig,
 				log: slog.With("component", "javaagent.Injector"),
 			}
 
-			target := InjectionTargetFrom(&ebpf.Instrumentable{
-				FileInfo: exec.New(exec.Init{
-					Pid: tt.pid,
-					Service: svc.Attrs{
-						EnvVars: tt.envVars,
-					},
-				}),
-				Type: svc.InstrumentableJava,
-			})
-
-			resultPath, err := injector.copyAgent(target.Pid, target.TempDirEnv)
+			root := filepath.Join(tmpDir, "proc", "root")
+			resultPath, err := injector.copyAgent(root, tt.pid, tt.envVars["TMPDIR"])
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -369,15 +354,7 @@ func TestJavaInjector_FindTempDir(t *testing.T) {
 				cfg: &obi.Config{},
 			}
 
-			target := InjectionTargetFrom(&ebpf.Instrumentable{
-				FileInfo: exec.New(exec.Init{
-					Service: svc.Attrs{
-						EnvVars: tt.envVars,
-					},
-				}),
-			})
-
-			tmpDir, err := injector.findTempDir(root, target.TempDirEnv)
+			tmpDir, err := injector.findTempDir(root, tt.envVars["TMPDIR"])
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -567,6 +544,110 @@ func TestJavaInjector_NewExecutable_CanceledContextStartsNoAttach(t *testing.T) 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Less(t, time.Since(start), time.Second)
 	assert.Equal(t, int64(0), injector.currentAttachID, "no attach should have been started")
+}
+
+type blockingAttachResponse struct {
+	readStarted sync.Once
+	closeOnce   sync.Once
+	started     chan struct{}
+	closed      chan struct{}
+	release     chan struct{}
+	readDone    chan struct{}
+}
+
+func newBlockingAttachResponse() *blockingAttachResponse {
+	return &blockingAttachResponse{
+		started:  make(chan struct{}),
+		closed:   make(chan struct{}),
+		release:  make(chan struct{}),
+		readDone: make(chan struct{}),
+	}
+}
+
+func (r *blockingAttachResponse) Read([]byte) (int, error) {
+	r.readStarted.Do(func() { close(r.started) })
+	<-r.closed
+	<-r.release
+	close(r.readDone)
+	return 0, io.ErrClosedPipe
+}
+
+func (r *blockingAttachResponse) Close() error {
+	r.closeOnce.Do(func() { close(r.closed) })
+	return nil
+}
+
+type blockingResponseAttacher struct {
+	response *blockingAttachResponse
+}
+
+func (*blockingResponseAttacher) Init()            {}
+func (*blockingResponseAttacher) Cleanup() error   { return nil }
+func (*blockingResponseAttacher) Terminate() error { return nil }
+func (a *blockingResponseAttacher) Attach(
+	ctx context.Context,
+	_ *procs.ProcessHandle,
+	_ []string,
+	_ bool,
+) (io.ReadCloser, error) {
+	context.AfterFunc(ctx, func() { _ = a.response.Close() })
+	return a.response, nil
+}
+
+// The queue is only serialized if cancellation joins the response reader. A
+// returned outer call with this read still alive could overlap the next JVM's
+// credentials and outlive pipeline shutdown.
+func TestJavaInjector_NewExecutableCancellationJoinsResponseRead(t *testing.T) {
+	pid := app.PID(os.Getpid())
+	startTime, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	process, err := procs.OpenProcessHandle(pid, startTime)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, process.Close()) })
+
+	response := newBlockingAttachResponse()
+	injector := &JavaInjector{
+		log: slog.Default(),
+		cfg: &obi.Config{Java: obi.JavaConfig{Enabled: true, Timeout: time.Hour}},
+		newAttacher: func(*slog.Logger, int64, func(int64, func() error) error) jvmAttacher {
+			return &blockingResponseAttacher{response: response}
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- injector.NewExecutable(ctx, InjectionTarget{
+			Type:      svc.InstrumentableJava,
+			Pid:       pid,
+			StartTime: startTime,
+			Process:   process,
+		})
+	}()
+
+	<-response.started
+	cancel()
+	<-response.closed
+
+	select {
+	case err := <-done:
+		t.Fatalf("NewExecutable returned before its response reader stopped: %v", err)
+	default:
+	}
+
+	close(response.release)
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "canceled")
+	case <-time.After(time.Second):
+		t.Fatal("NewExecutable did not join the canceled response reader")
+	}
+	select {
+	case <-response.readDone:
+	default:
+		t.Fatal("response read was still alive after NewExecutable returned")
+	}
 }
 
 func TestJavaInjector_NewExecutable_IgnoresNonJavaTarget(t *testing.T) {

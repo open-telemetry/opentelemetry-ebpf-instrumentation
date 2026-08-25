@@ -20,6 +20,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
 func alwaysRunForCurrentAttach(_ int64, fn func() error) error {
@@ -34,7 +37,7 @@ func TestAttachReturnsCanceledContext(t *testing.T) {
 
 	attacher := NewJAttacher(slog.New(slog.NewTextHandler(io.Discard, nil)), attachID, alwaysRunForCurrentAttach)
 
-	out, err := attacher.Attach(ctx, os.Getpid(), []string{"jcmd"}, true)
+	out, err := attacher.Attach(ctx, nil, []string{"jcmd"}, true)
 	require.Nil(t, out)
 	require.ErrorIs(t, err, context.Canceled)
 }
@@ -355,12 +358,16 @@ func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *t
 
 	pid := os.Getpid()
 	nspid := 9_999_992
-	attachPid := 9_999_993
 	attachFile := filepath.Join(tmpPath, fmt.Sprintf(".attach_pid%d", nspid))
+	startTime, err := procs.StartTime(app.PID(pid))
+	require.NoError(t, err)
+	process, err := procs.OpenProcessHandle(app.PID(pid), startTime)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, process.Close()) })
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- startAttachMechanism(ctx, pid, nspid, attachPid, tmpPath)
+		errCh <- startAttachMechanism(ctx, process, nspid, nil, tmpPath)
 	}()
 
 	require.Eventually(t, func() bool {
@@ -377,7 +384,7 @@ func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *t
 		t.Fatal("timed out waiting for startAttachMechanism to stop")
 	}
 
-	_, err := os.Stat(attachFile)
+	_, err = os.Stat(attachFile)
 	require.True(t, os.IsNotExist(err), "attach file should be removed, stat error: %v", err)
 }
 
@@ -418,6 +425,54 @@ type blockingConn struct {
 	closed       chan struct{}
 	startOnce    sync.Once
 	closeOnce    sync.Once
+}
+
+type blockingReadCloser struct {
+	started   chan struct{}
+	closed    chan struct{}
+	startOnce sync.Once
+	closeOnce sync.Once
+}
+
+func newBlockingReadCloser() *blockingReadCloser {
+	return &blockingReadCloser{
+		started: make(chan struct{}),
+		closed:  make(chan struct{}),
+	}
+}
+
+func (r *blockingReadCloser) Read([]byte) (int, error) {
+	r.startOnce.Do(func() { close(r.started) })
+	<-r.closed
+	return 0, net.ErrClosed
+}
+
+func (r *blockingReadCloser) Close() error {
+	r.closeOnce.Do(func() { close(r.closed) })
+	return nil
+}
+
+func TestContextReadCloserStopsBlockedResponseRead(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := newBlockingReadCloser()
+	out := newContextReadCloser(ctx, reader, reader.Close)
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := out.Read(make([]byte, 1))
+		readDone <- err
+	}()
+	<-reader.started
+
+	cancel()
+
+	select {
+	case err := <-readDone:
+		require.ErrorIs(t, err, net.ErrClosed)
+	case <-time.After(time.Second):
+		t.Fatal("cancellation did not stop the blocked JVM response read")
+	}
+	require.NoError(t, out.Close())
 }
 
 func newBlockingConn() *blockingConn {
