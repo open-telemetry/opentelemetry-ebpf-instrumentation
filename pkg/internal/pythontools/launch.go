@@ -147,7 +147,7 @@ func parseLauncher(command string, args []string, env map[string]string) pythonL
 	case "hypercorn":
 		return parseHypercorn(args)
 	case "daphne":
-		return parseApplicationServer(args, daphneOptions)
+		return parseDaphne(args)
 	case "uwsgi":
 		return parseUWSGI(args)
 	case "waitress", "waitress-serve", "waitress_serve":
@@ -272,7 +272,20 @@ options:
 }
 
 func parseHypercorn(args []string) pythonLaunch {
-	positionals, ok := hypercornPositionals(args)
+	positionals, ok := argparsePositionals(args, hypercornOptionsWithValues, hypercornOptionsWithoutValues)
+	if !ok {
+		return pythonLaunch{}
+	}
+	for _, arg := range positionals {
+		if isApplicationReference(arg) {
+			return pythonLaunch{target: arg, targetKind: targetModule}
+		}
+	}
+	return pythonLaunch{}
+}
+
+func parseDaphne(args []string) pythonLaunch {
+	positionals, ok := argparsePositionals(args, daphneOptionsWithValues, daphneOptionsWithoutValues)
 	if !ok {
 		return pythonLaunch{}
 	}
@@ -612,7 +625,11 @@ func uvicornPositionals(args []string) ([]string, bool) {
 	return values, true
 }
 
-func hypercornPositionals(args []string) ([]string, bool) {
+func argparsePositionals(
+	args []string,
+	optionsWithValues map[string]struct{},
+	optionsWithoutValues map[string]struct{},
+) ([]string, bool) {
 	var values []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -621,27 +638,27 @@ func hypercornPositionals(args []string) ([]string, bool) {
 		}
 		if strings.HasPrefix(arg, "--") {
 			name, _, attached := strings.Cut(arg, "=")
-			if _, consumes := hypercornOptionsWithValues[name]; consumes {
+			if _, consumes := optionsWithValues[name]; consumes {
 				if !attached {
-					if i+1 == len(args) || !hypercornOptionValue(args[i+1]) {
+					if i+1 == len(args) || !argparseOptionValue(args[i+1]) {
 						return nil, false
 					}
 					i++
 				}
 				continue
 			}
-			if _, known := hypercornOptionsWithoutValues[name]; !known || attached {
+			if _, known := optionsWithoutValues[name]; !known || attached {
 				return nil, false
 			}
 			continue
 		}
 		if strings.HasPrefix(arg, "-") && arg != "-" {
-			consumes, known := hypercornShortOption(arg)
+			consumes, known := argparseShortOption(arg, optionsWithValues, optionsWithoutValues)
 			if !known {
 				return nil, false
 			}
 			if consumes {
-				if i+1 == len(args) || !hypercornOptionValue(args[i+1]) {
+				if i+1 == len(args) || !argparseOptionValue(args[i+1]) {
 					return nil, false
 				}
 				i++
@@ -653,7 +670,7 @@ func hypercornPositionals(args []string) ([]string, bool) {
 	return values, true
 }
 
-func hypercornOptionValue(value string) bool {
+func argparseOptionValue(value string) bool {
 	if value == "-" || !strings.HasPrefix(value, "-") {
 		return true
 	}
@@ -673,13 +690,17 @@ func hypercornOptionValue(value string) bool {
 	return digits > 0 && value[len(value)-1] != '.'
 }
 
-func hypercornShortOption(arg string) (bool, bool) {
+func argparseShortOption(
+	arg string,
+	optionsWithValues map[string]struct{},
+	optionsWithoutValues map[string]struct{},
+) (bool, bool) {
 	for i := 1; i < len(arg); i++ {
 		name := "-" + arg[i:i+1]
-		if _, known := hypercornOptionsWithoutValues[name]; known {
+		if _, known := optionsWithoutValues[name]; known {
 			continue
 		}
-		if _, consumes := hypercornOptionsWithValues[name]; consumes {
+		if _, consumes := optionsWithValues[name]; consumes {
 			return i == len(arg)-1, true
 		}
 		return false, false
@@ -808,10 +829,16 @@ var hypercornOptionsWithoutValues = optionSet(
 	"-D", "--daemon", "--debug", "--reload", "-h", "--help",
 )
 
-var daphneOptions = optionSet(
-	"-p", "--port", "-b", "--bind", "--websocket_timeout", "--websocket_connect_timeout", "-u", "--unix-socket",
-	"--fd", "-e", "--endpoint", "--http-timeout", "--access-log", "--ping-interval", "--ping-timeout",
-	"--application-close-timeout", "--root-path", "--proxy-forwarded-address-header", "--proxy-forwarded-port-header",
+var daphneOptionsWithValues = optionSet(
+	"-p", "--port", "-b", "--bind", "--websocket_timeout", "--websocket_connect_timeout", "-u",
+	"--unix-socket", "--fd", "-e", "--endpoint", "-v", "--verbosity", "-t", "--http-timeout",
+	"--access-log", "--log-fmt", "--ping-interval", "--ping-timeout", "--websocket-max-message-size",
+	"--websocket-max-frame-size", "--application-close-timeout", "--root-path", "--proxy-headers-host",
+	"--proxy-headers-port", "-s", "--server-name",
+)
+
+var daphneOptionsWithoutValues = optionSet(
+	"--proxy-headers", "--no-server-name", "-h", "--help",
 )
 
 var waitressOptions = optionSet(
