@@ -233,9 +233,18 @@ func applyGunicornSettings(args []string, settings *gunicornSettings) {
 }
 
 func parseUvicorn(args []string, env map[string]string) pythonLaunch {
+	positionals, ok := uvicornPositionals(args)
+	if !ok {
+		return pythonLaunch{}
+	}
+
 	appDir := env["UVICORN_APP_DIR"]
+
+options:
 	for i := 0; i < len(args); i++ {
 		switch {
+		case args[i] == "--":
+			break options
 		case args[i] == "--app-dir" && i+1 < len(args):
 			i++
 			appDir = args[i]
@@ -248,7 +257,7 @@ func parseUvicorn(args []string, env map[string]string) pythonLaunch {
 	if appDir != "" {
 		launch.searchPaths = append(launch.searchPaths, appDir)
 	}
-	for _, arg := range positionals(args, uvicornOptions) {
+	for _, arg := range positionals {
 		if isApplicationReference(arg) {
 			launch.target = arg
 			launch.targetKind = targetModule
@@ -559,6 +568,37 @@ func gunicornAttachedShortValue(arg, target string) (string, bool) {
 	return "", false
 }
 
+func uvicornPositionals(args []string) ([]string, bool) {
+	var values []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return append(values, args[i+1:]...), true
+		}
+		if strings.HasPrefix(arg, "--") {
+			name, _, attached := strings.Cut(arg, "=")
+			if _, consumes := uvicornOptionsWithValues[name]; consumes {
+				if !attached {
+					if i+1 == len(args) {
+						return nil, false
+					}
+					i++
+				}
+				continue
+			}
+			if _, known := uvicornOptionsWithoutValues[name]; !known || attached {
+				return nil, false
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			return nil, false
+		}
+		values = append(values, arg)
+	}
+	return values, true
+}
+
 func splitShellFields(value string) ([]string, bool) {
 	var fields []string
 	var field strings.Builder
@@ -650,20 +690,27 @@ var gunicornOptionsWithoutValues = optionSet(
 	"--no-control-socket", "-h", "--help", "-v", "--version", "--proxy-protocol",
 )
 
-var uvicornOptions = optionSet(
+var uvicornOptionsWithValues = optionSet(
 	"--host", "--port", "--uds", "--fd", "--reload-dir", "--reload-delay", "--reload-include", "--reload-exclude",
 	"--workers", "--env-file", "--timeout-worker-healthcheck", "--log-config", "--log-level", "--loop", "--http",
 	"--ws", "--ws-max-size", "--ws-max-queue", "--ws-ping-interval", "--ws-ping-timeout", "--ws-per-message-deflate",
 	"--lifespan", "--h11-max-incomplete-event-size", "--interface", "--root-path", "--forwarded-allow-ips", "--header",
 	"--ssl-keyfile", "--ssl-keyfile-password", "--ssl-certfile", "--ssl-version", "--ssl-cert-reqs", "--ssl-ca-certs",
-	"--ssl-ciphers", "--app-dir",
+	"--ssl-ciphers", "--app-dir", "--limit-concurrency", "--backlog", "--limit-max-requests",
+	"--limit-max-requests-jitter", "--timeout-keep-alive", "--timeout-graceful-shutdown",
+)
+
+var uvicornOptionsWithoutValues = optionSet(
+	"--reload", "--access-log", "--no-access-log", "--use-colors", "--no-use-colors", "--proxy-headers",
+	"--no-proxy-headers", "--server-header", "--no-server-header", "--date-header", "--no-date-header",
+	"--version", "--reset-contextvars", "--factory", "--help",
 )
 
 var hypercornOptions = optionSet(
 	"-b", "--bind", "--ca-certs", "--certfile", "--cipher", "-c", "--config", "--debug", "--error-logfile",
 	"--graceful-timeout", "--keyfile", "--keep-alive", "--log-config", "--log-level", "-p", "--pid", "--quic-bind",
 	"--read-timeout", "--root-path", "--server-name", "--statsd-host", "--umask", "-u", "--user", "-w", "--workers",
-	"-k", "--worker-class",
+	"-k", "--worker-class", "-g", "--group", "--insecure-bind",
 )
 
 var daphneOptions = optionSet(
