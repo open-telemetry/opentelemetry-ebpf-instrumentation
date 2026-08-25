@@ -52,6 +52,7 @@ func TestParseNodeLaunch(t *testing.T) {
 		{name: "V8 option with attached value", args: []string{"--stack-trace-limit=20", "app"}, entryPoint: "app"},
 		{name: "attached config file", args: []string{"--experimental-config-file=node.config.json", "app"}, entryPoint: "app"},
 		{name: "separate config file", args: []string{"--experimental-config-file", "config", "server.js"}, entryPoint: "server.js"},
+		{name: "default config file", args: []string{"--experimental-default-config-file", "app"}, entryPoint: "app"},
 		{name: "removed Node 16 option", args: []string{"--experimental-fetch", "app"}, entryPoint: "app"},
 		{name: "current compatibility option", args: []string{"--experimental-detect-module", "app"}, entryPoint: "app"},
 		{name: "removed option with value", args: []string{"--experimental-policy", "policy.json", "app"}, entryPoint: "app"},
