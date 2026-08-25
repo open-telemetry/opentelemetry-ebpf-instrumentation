@@ -22,7 +22,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -95,11 +94,9 @@ func dirOK(root, dir string) bool {
 	return err == nil && info.IsDir()
 }
 
-func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string, error) {
-	if tmpDir, ok := ie.FileInfo.ServiceAttrs().EnvVars["TMPDIR"]; ok {
-		if dirOK(root, tmpDir) {
-			return tmpDir, nil
-		}
+func (i *JavaInjector) findTempDir(root, tempDirEnv string) (string, error) {
+	if tempDirEnv != "" && dirOK(root, tempDirEnv) {
+		return tempDirEnv, nil
 	}
 
 	tmpDir := "/tmp"
@@ -137,14 +134,54 @@ func (i *JavaInjector) runIfCurrentAttach(
 	return fn()
 }
 
-func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
-	if ie.Type != svc.InstrumentableJava {
+// verifyTargetIdentity fails when Pid no longer refers to the process that was
+// queued for injection. Every attach-side operation (entering the target's
+// namespaces, dropping to its credentials, writing the agent into its root
+// filesystem, and signaling it with SIGQUIT) is destructive to an unrelated
+// process, so it must be preceded by this check.
+//
+// A target whose start time was never captured cannot be checked at all, so it
+// is refused rather than injected on the assumption that its PID still holds
+// the process discovery saw.
+func verifyTargetIdentity(target InjectionTarget) error {
+	if target.StartTime == 0 {
+		return &JavaInjectError{Message: fmt.Sprintf("identity of process %d was not captured, refusing to inject", target.Pid)}
+	}
+
+	startTime, err := processStartTime(target.Pid)
+	if err != nil {
+		return &JavaInjectError{Message: fmt.Sprintf("cannot confirm identity of process %d: %s", target.Pid, err)}
+	}
+
+	if startTime != target.StartTime {
+		return &JavaInjectError{Message: fmt.Sprintf("process %d was replaced before injection", target.Pid)}
+	}
+
+	return nil
+}
+
+// NewExecutable injects the Java agent into target. The attach deadline is
+// derived from ctx, so canceling ctx abandons an in-flight attach instead of
+// waiting out the configured timeout.
+func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget) error {
+	if target.Type != svc.InstrumentableJava {
 		return nil
+	}
+
+	// Nothing should signal a JVM once the caller has given up.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Injection is queued by PID and can start long after discovery, so the
+	// process must be proven to be the one we discovered before we touch it.
+	if err := verifyTargetIdentity(target); err != nil {
+		return err
 	}
 
 	attachID := i.nextAttachID()
 
-	ctx, cancel := context.WithTimeout(context.Background(), i.cfg.Java.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, i.cfg.Java.Timeout)
 	defer cancel()
 
 	// Channel to receive the result
@@ -177,7 +214,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 			}
 		}()
 
-		ok, jdk8 := i.verifyJVMVersion(ctx, attacher, ie.FileInfo.Pid())
+		ok, jdk8 := i.verifyJVMVersion(ctx, attacher, target.Pid)
 		if !ok {
 			resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
 			return
@@ -186,9 +223,9 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		var loaded bool
 		var err error
 		if jdk8 {
-			loaded, err = i.jdkAgentAlreadyLoadedHotspot8(ctx, attacher, ie.FileInfo.Pid())
+			loaded, err = i.jdkAgentAlreadyLoadedHotspot8(ctx, attacher, target.Pid)
 		} else {
-			loaded, err = i.jdkAgentAlreadyLoaded(ctx, attacher, ie.FileInfo.Pid())
+			loaded, err = i.jdkAgentAlreadyLoaded(ctx, attacher, target.Pid)
 		}
 
 		if err != nil {
@@ -202,17 +239,25 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 			return
 		}
 
-		i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid())
+		i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", target.Pid)
 
-		agentPath, err := i.copyAgent(ie)
-		if err != nil {
-			i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid(), "error", err)
+		// The handshake above can block for the whole attach timeout, which is
+		// long enough for the PID to be recycled before we write into the
+		// target's root filesystem and load the agent.
+		if err := verifyTargetIdentity(target); err != nil {
 			resultChan <- result{err: err}
 			return
 		}
 
-		if err = i.attachJDKAgent(ctx, attacher, ie.FileInfo.Pid(), agentPath); err != nil {
-			i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
+		agentPath, err := i.copyAgent(target.Pid, target.TempDirEnv)
+		if err != nil {
+			i.log.Error("failed to extract java agent", "pid", target.Pid, "error", err)
+			resultChan <- result{err: err}
+			return
+		}
+
+		if err = i.attachJDKAgent(ctx, attacher, target.Pid, agentPath); err != nil {
+			i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", target.Pid, "path", agentPath, "error", err)
 			resultChan <- result{err: err}
 			return
 		}
@@ -225,8 +270,12 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	case result := <-resultChan:
 		return result.err
 	case <-ctx.Done():
-		i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid())
-		return &JavaInjectError{Message: "java attach timed out"}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", target.Pid)
+			return &JavaInjectError{Message: "java attach timed out"}
+		}
+		i.log.Debug("java attach abandoned", "pid", target.Pid, "error", ctx.Err())
+		return &JavaInjectError{Message: "java attach canceled"}
 	}
 }
 
@@ -241,9 +290,9 @@ func ensureEmbeddedAgent() error {
 // to be changed in tests
 var rootDirForPID func(app.PID) string = ebpfcommon.RootDirectoryForPID
 
-func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
-	root := rootDirForPID(ie.FileInfo.Pid())
-	tempDir, err := i.findTempDir(root, ie)
+func (i *JavaInjector) copyAgent(pid app.PID, tempDirEnv string) (string, error) {
+	root := rootDirForPID(pid)
+	tempDir, err := i.findTempDir(root, tempDirEnv)
 	if err != nil {
 		return "", fmt.Errorf("error accessing temp directory: %w", err)
 	}
@@ -253,7 +302,7 @@ func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
 		return "", fmt.Errorf("invalid temp directory for injection: %q", tempDir)
 	}
 
-	i.log.Info("found injection directory for process", "pid", ie.FileInfo.Pid(), "path", fullTempDir)
+	i.log.Info("found injection directory for process", "pid", pid, "path", fullTempDir)
 
 	agentPathHost := filepath.Join(fullTempDir, ObiJavaAgentFileName)
 

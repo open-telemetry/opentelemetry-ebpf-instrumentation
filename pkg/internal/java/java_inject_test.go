@@ -6,11 +6,13 @@
 package javaagent
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -228,7 +230,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				log: slog.With("component", "javaagent.Injector"),
 			}
 
-			ie := &ebpf.Instrumentable{
+			target := InjectionTargetFrom(&ebpf.Instrumentable{
 				FileInfo: exec.New(exec.Init{
 					Pid: tt.pid,
 					Service: svc.Attrs{
@@ -236,9 +238,9 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 					},
 				}),
 				Type: svc.InstrumentableJava,
-			}
+			})
 
-			resultPath, err := injector.copyAgent(ie)
+			resultPath, err := injector.copyAgent(target.Pid, target.TempDirEnv)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -367,15 +369,15 @@ func TestJavaInjector_FindTempDir(t *testing.T) {
 				cfg: &obi.Config{},
 			}
 
-			ie := &ebpf.Instrumentable{
+			target := InjectionTargetFrom(&ebpf.Instrumentable{
 				FileInfo: exec.New(exec.Init{
 					Service: svc.Attrs{
 						EnvVars: tt.envVars,
 					},
 				}),
-			}
+			})
 
-			tmpDir, err := injector.findTempDir(root, ie)
+			tmpDir, err := injector.findTempDir(root, target.TempDirEnv)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -543,6 +545,41 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// The attach deadline must be derived from the caller's context, so a shutdown
+// abandons the attach instead of signaling a JVM and waiting out the timeout.
+func TestJavaInjector_NewExecutable_CanceledContextStartsNoAttach(t *testing.T) {
+	injector := &JavaInjector{
+		log: slog.Default(),
+		cfg: &obi.Config{Java: obi.JavaConfig{Enabled: true, Timeout: time.Hour}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	err := injector.NewExecutable(ctx, InjectionTarget{
+		Type: svc.InstrumentableJava,
+		Pid:  app.PID(os.Getpid()),
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Less(t, time.Since(start), time.Second)
+	assert.Equal(t, int64(0), injector.currentAttachID, "no attach should have been started")
+}
+
+func TestJavaInjector_NewExecutable_IgnoresNonJavaTarget(t *testing.T) {
+	injector := &JavaInjector{
+		log: slog.Default(),
+		cfg: &obi.Config{Java: obi.JavaConfig{Enabled: true, Timeout: time.Hour}},
+	}
+
+	require.NoError(t, injector.NewExecutable(context.Background(), InjectionTarget{
+		Type: svc.InstrumentableGolang,
+		Pid:  app.PID(os.Getpid()),
+	}))
+	assert.Equal(t, int64(0), injector.currentAttachID)
 }
 
 func TestNewJavaInjector_Disabled(t *testing.T) {
