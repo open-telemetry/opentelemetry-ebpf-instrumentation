@@ -96,6 +96,9 @@ func (c *Compose) servicesToBuild() ([]string, bool) {
 		return nil, false
 	}
 	prebuilt := strings.Split(prebuiltEnv, ",")
+	for i := range prebuilt {
+		prebuilt[i] = strings.TrimSpace(prebuilt[i])
+	}
 
 	data, err := os.ReadFile(c.Path)
 	if err != nil {

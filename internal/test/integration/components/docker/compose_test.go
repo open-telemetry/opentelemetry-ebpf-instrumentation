@@ -31,6 +31,9 @@ services:
     image: hatest-testserver
   prepulled:
     image: postgres:16
+  stringbuild:
+    build: ../../..
+    image: hatest-stringbuild
 `
 
 func fixtureCompose(t *testing.T) *Compose {
@@ -50,12 +53,12 @@ func TestServicesToBuildDisabledWithoutEnv(t *testing.T) {
 }
 
 func TestServicesToBuildSkipsPrebuiltImages(t *testing.T) {
-	t.Setenv("PREBUILT_IMAGES", "hatest-obi,hatest-obi-b")
+	t.Setenv("PREBUILT_IMAGES", "hatest-obi, hatest-obi-b")
 	c := fixtureCompose(t)
 
 	services, ok := c.servicesToBuild()
 	require.True(t, ok)
-	assert.Equal(t, []string{"testserver"}, services,
+	assert.Equal(t, []string{"stringbuild", "testserver"}, services,
 		"services without a build section or with a prebuilt image must be skipped")
 }
 
