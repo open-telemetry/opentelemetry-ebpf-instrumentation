@@ -364,8 +364,8 @@ func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMod
 		cancel()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Log("timed out waiting for gotracer ProcessTracer to stop")
+		case <-time.After(cfg.ShutdownTimeout):
+			t.Error("timed out waiting for gotracer ProcessTracer to stop")
 		}
 		spans.Close()
 	})
