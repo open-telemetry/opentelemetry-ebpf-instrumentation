@@ -4,7 +4,7 @@ services:
   # Resolved by the workload through the compose network's embedded DNS, so the
   # lookup under test needs no upstream resolver.
   valkey:
-    image: valkey/valkey:8-alpine@sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec
+    image: valkey/valkey:9-alpine@sha256:de31910896150d5e754a07d57d227cfdde4e258ddd0d1aa4607f2d2f95843715
     container_name: valkey
 
   # Answers the workload's hand-built queries after a delay, so that an
