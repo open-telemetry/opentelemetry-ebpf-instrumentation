@@ -614,7 +614,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.DBClientDuration.Section: attributes.InclusionLists{
-					Include: []string{string(attr.DBCollectionName), string(attr.ServerPort)},
+					Include: []string{string(attr.DBCollectionName), string(attr.ServerPort), string(attr.DBNamespace)},
 				},
 			},
 		},
@@ -632,6 +632,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 		Path:         "customers",
 		Method:       "SELECT",
 		HostPort:     5432,
+		DBNamespace:  "testdb",
 		RequestStart: 100,
 		End:          200,
 	}})
@@ -639,6 +640,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	records := readMetricsByName(t, metricRecords, timeout, attributes.DBClientDuration.OTEL)
 	require.Len(t, records, 1)
 	assert.Equal(t, "customers", records[0].Attributes[string(attr.DBCollectionName)])
+	assert.Equal(t, "testdb", records[0].Attributes[string(attr.DBNamespace)])
 	// the DBMS default port is still reported because the user explicitly
 	// included server.port in the selection
 	assert.Equal(t, "5432", records[0].Attributes[string(attr.ServerPort)])

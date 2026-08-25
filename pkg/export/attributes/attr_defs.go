@@ -396,6 +396,7 @@ func getDefinitions(
 				attr.DBSystemName:     true,
 				attr.ErrorType:        true,
 				attr.DBCollectionName: false,
+				attr.DBNamespace:      true,
 			},
 		},
 		DBServerDuration.Section: {
@@ -405,6 +406,7 @@ func getDefinitions(
 				attr.DBSystemName:     true,
 				attr.ErrorType:        true,
 				attr.DBCollectionName: false,
+				attr.DBNamespace:      true,
 			},
 		},
 		MessagingPublishDuration.Section: {
