@@ -41,6 +41,7 @@
 #include <generictracer/protocol_mssql.h>
 #include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
+#include <generictracer/tls_prefix.h>
 
 #include <maps/ongoing_http2_connections.h>
 
@@ -251,12 +252,21 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
 
     store_sock_pid(sk);
 
+    // any query staged by an earlier send on this thread has lost its return
+    // probe, so it must not be committed by this send's return
+    obi_discard_unconn_dns_query(id);
+
     send_args_t s_args = {.size = len};
 
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        if (is_dns(&s_args.p_conn.conn)) {
+        // an unrelated send does not retire the window: a query already sent on
+        // this socket is still owed an answer, and the window is bounded by
+        // k_unconn_dns_answer_timeout_ns and the socket's lifetime
+        if (is_dns_msg(&s_args.p_conn.conn, msg)) {
+            const connection_info_t local_conn = s_args.p_conn.conn;
+
             sort_connection_info(&s_args.p_conn.conn);
             s_args.p_conn.pid = pid_from_pid_tgid(id);
             s_args.orig_dport = orig_dport;
@@ -264,13 +274,53 @@ int BPF_KPROBE_GUARDED(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *m
             unsigned char *buf = iovec_memory();
             if (buf) {
                 len = read_msghdr_buf(msg, buf, len);
-                if (len) {
-                    bpf_dbg_printk("Got buffer with len: %d", len);
-                    handle_dns_buf(buf, len, &s_args.p_conn, orig_dport);
+                if (len && handle_dns_buf(buf, len, &s_args.p_conn, orig_dport, msg) &&
+                    orig_dport == 0) {
+                    // the answer to this query will carry no peer, so the only
+                    // thing left to recognise it by is the socket it arrives on.
+                    // Held until the return probe confirms the send.
+                    obi_stage_unconn_dns_query(id, sk, &local_conn);
                 }
             }
         }
     }
+
+    return 0;
+}
+
+// Opens the answer window only for a query that actually left the host. A
+// resolver whose send fails asked nothing, so a later nameless datagram on that
+// socket must not be reported as its answer.
+SEC("kretprobe/udp_sendmsg")
+int BPF_KRETPROBE_GUARDED(obi_kretprobe_udp_sendmsg, int ret) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    // a partial send still carries the query; only an error means it never went
+    if (ret > 0) {
+        obi_commit_unconn_dns_query(id);
+    } else {
+        bpf_dbg_printk("=== kretprobe/udp_sendmsg id=%llx failed ret=%d ===", id, ret);
+        obi_discard_unconn_dns_query(id);
+    }
+
+    return 0;
+}
+
+// unconn_dns_socks is keyed by the struct sock * address, which the kernel may
+// hand to a new socket once this one is gone. Retiring the entry here bounds the
+// key's meaning to the socket's lifetime, so a later socket at the same address
+// cannot inherit its DNS classification.
+SEC("kprobe/udp_destroy_sock")
+int BPF_KPROBE_GUARDED(obi_kprobe_udp_destroy_sock, struct sock *sk) {
+    (void)ctx;
+
+    obi_forget_unconn_dns_sock(sk);
 
     return 0;
 }
@@ -360,6 +410,15 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sys_connect, int res) {
         bpf_map_update_elem(&pid_tid_to_conn, &id, &info, BPF_ANY); // Support SSL lookup
 
         setup_cp_support_conn_info(&info.p_conn, true);
+
+        // connect() returning 0 means the handshake completed, so the socket
+        // cannot be a failed connect from here on, whether or not it ever
+        // carries data. The non-blocking path returns -EINPROGRESS and
+        // completes in softirq, where no probe of ours observes it, so for
+        // those the socket's own state at close time remains the only answer.
+        if (res == 0) {
+            cp_support_established(&info.p_conn);
+        }
 
         tracked_connection_t t_conn = {
             .time = bpf_ktime_get_ns(),
@@ -451,12 +510,28 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
         setup_connection_to_pid_mapping(id, &s_args.p_conn, orig_dport);
 
         u64 *ssl = is_ssl_connection(&s_args.p_conn);
+
         if (size > 0) {
             if (!ssl) {
                 unsigned char *buf = iovec_memory();
                 if (buf) {
+                    const size_t avail = size;
+
                     size = read_msghdr_buf(msg, buf, size);
 
+                    // A memory BIO stack reaches the socket from the event
+                    // loop, after the SSL_write uprobe has returned. Bind it
+                    // here by matching this record against the prefix recorded
+                    // when OpenSSL wrote it to the write BIO.
+                    if (tls_prefix_try_bind(
+                            id, buf, (u32)size, (u32)avail, &s_args.p_conn, orig_dport)) {
+                        // Now a known TLS connection, so leave the ciphertext
+                        // for the TLS path and skip the plaintext parsers.
+                        ssl = is_ssl_connection(&s_args.p_conn);
+                    }
+                }
+
+                if (buf && !ssl) {
                     // If a sock_msg program is installed, this kprobe will fail to
                     // read anything, because the data is in bvec physical pages. However,
                     // the sock_msg will setup a buffer for us if this is the case. We
@@ -517,16 +592,26 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
                         bpf_dbg_printk("can't find iovec ptr in msghdr, not tracking sendmsg");
                         return 0;
                     }
-                    s_args.buffer_read = 1;
+                    // The ciphertext only becomes readable here when a sock_msg
+                    // program moved it into bvec pages, so this is the memory
+                    // BIO match's only chance under context propagation.
+                    if (tls_prefix_try_bind(
+                            id, buf, (u32)size, (u32)size, &s_args.p_conn, orig_dport)) {
+                        ssl = is_ssl_connection(&s_args.p_conn);
+                    }
 
-                    const u64 sock_p = (u64)sk;
-                    bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
-                    bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
+                    if (!ssl) {
+                        s_args.buffer_read = 1;
 
-                    bpf_map_delete_elem(&msg_buffers, &e_key);
-                    // Logically last for !ssl.
-                    handle_buf_with_connection(
-                        ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                        const u64 sock_p = (u64)sk;
+                        bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
+                        bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
+
+                        bpf_map_delete_elem(&msg_buffers, &e_key);
+                        // Logically last for !ssl.
+                        handle_buf_with_connection(
+                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                    }
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);
             } else {
@@ -601,25 +686,37 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 // handle_buf_with_connection logic and then mark it as seen by making
                 // m_buf->pos be the size of the buffer.
                 if (!m_buf->pos) {
-                    s_args.buffer_read = 1;
                     const u16 size = use_fallback
                                          ? min(m_buf->real_size, (u16)k_kprobes_http2_buf_size)
                                          : m_buf->real_size;
                     m_buf->pos = size;
-                    s_args.size = size;
-                    bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);
-                    const u64 sock_p = (u64)sk;
-                    bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
-                    bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
-                    bpf_map_delete_elem(&msg_buffers, &e_key);
-                    // Logically last for !ssl.
-                    handle_buf_with_connection(
-                        ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                    // The sock_msg buffer is the only readable copy of this
+                    // send, so a memory BIO connection has to be matched here
+                    // as well as in tcp_sendmsg.
+                    if (tls_prefix_try_bind(id, buf, size, size, &s_args.p_conn, orig_dport)) {
+                        ssl = is_ssl_connection(&s_args.p_conn);
+                    }
+
+                    if (!ssl) {
+                        s_args.buffer_read = 1;
+                        s_args.size = size;
+                        bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);
+                        const u64 sock_p = (u64)sk;
+                        bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
+                        bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
+
+                        bpf_map_delete_elem(&msg_buffers, &e_key);
+                        // Logically last for !ssl.
+                        handle_buf_with_connection(
+                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                    }
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);
             }
-        } else {
+        }
+
+        if (ssl) {
             tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);
         }
     }
@@ -808,6 +905,7 @@ static __always_inline void setup_recvmsg(u64 id, struct sock *sk, struct msghdr
 
     recv_args_t args = {
         .sock_ptr = (u64)sk,
+        .msg_ptr = (u64)msg,
     };
 
     struct iov_iter___dummy *iov_iter = (struct iov_iter___dummy *)&msg->msg_iter;
@@ -903,12 +1001,35 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sock_recvmsg, int copied_len) {
     if (sock_ptr) {
         if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
             const u16 orig_dport = info.conn.d_port;
+
+            // the socket-identity tier matches on the local endpoint, which
+            // sorting may move into the destination fields
+            const connection_info_t local_conn = info.conn;
+
             sort_connection_info(&info.conn);
             info.pid = pid_from_pid_tgid(id);
             setup_cp_support_conn_info(&info, false);
             setup_connection_to_pid_mapping(id, &info, orig_dport);
 
-            if (is_dns(&info.conn)) {
+            const enum dns_msg_class dns_class =
+                classify_dns_msg(&info.conn, (struct msghdr *)args->msg_ptr);
+
+            // an explicit non-DNS peer is not reported, and it does not retire
+            // the window either: a query already sent on this socket is still
+            // owed its own nameless answer
+            u8 dns = dns_class == k_dns_msg_yes;
+
+            // msg_name did not classify it, but the answer arrived on a socket
+            // that recently sent an unconnected UDP DNS query
+            if (dns_class == k_dns_msg_unknown && orig_dport == 0 &&
+                obi_unconn_dns_answer_expected(sock_ptr, &local_conn)) {
+                bpf_dbg_printk("UNCONN_DNS_RECVFROM: expecting an unconnected UDP DNS answer on "
+                               "known DNS sock=%llx",
+                               (u64)sock_ptr);
+                dns = 1;
+            }
+
+            if (dns) {
                 sort_connection_info(&info.conn);
 
                 iovec_iter_ctx *iov_ctx = (iovec_iter_ctx *)&args->iovec_ctx;
@@ -927,7 +1048,8 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_sock_recvmsg, int copied_len) {
                     } else {
                         bpf_d_printk(
                             "Got potential dns buffer with len: %d [%s]", copied_len, __FUNCTION__);
-                        handle_dns_buf(buf, copied_len, &info, orig_dport);
+                        handle_dns_buf(
+                            buf, copied_len, &info, orig_dport, (struct msghdr *)args->msg_ptr);
                     }
                 }
             }

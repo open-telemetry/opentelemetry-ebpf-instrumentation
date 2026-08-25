@@ -48,6 +48,11 @@ tracer.startSpan('end-perf').end(perfEnd);
 const fracEnd = Date.now() + 2000 + 0.456;
 tracer.startSpan('end-frac').end(fracEnd);
 
+// Epoch millis just below performance.timeOrigin (possible after a clock
+// adjustment) must still be read as epoch, not as an offset.
+const nearOriginEnd = Math.trunc(performance.timeOrigin) - 1;
+tracer.startSpan('end-near-origin').end(nearOriginEnd);
+
 // A finite number too large for the decoder's int64 must be rejected.
 tracer.startSpan('end-huge').end(1e21);
 
@@ -72,5 +77,7 @@ process.stdout.write(
     frac: byName['end-frac'] && byName['end-frac'].endWallNs,
     fracWholeMsNs: (BigInt(Math.trunc(fracEnd)) * 1000000n).toString(),
     huge: byName['end-huge'] && byName['end-huge'].endWallNs,
+    nearOrigin: byName['end-near-origin'] && byName['end-near-origin'].endWallNs,
+    nearOriginExpected: (BigInt(nearOriginEnd) * 1000000n).toString(),
   })
 );

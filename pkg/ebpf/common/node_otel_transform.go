@@ -96,15 +96,19 @@ func ReadNodeSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, erro
 	if err != nil || durNs < 0 {
 		return request.Span{}, true, errors.New("invalid node span duration")
 	}
-	end := int64(event.EndKtime)
+	// The sentinel fires inside span.end(), so the anchor is the end() call
+	// time and anchor - durNs is the span's actual start. An explicit end
+	// timestamp only moves the end; it must never shift the start.
+	anchor := int64(event.EndKtime)
+	start := anchor - durNs
+	end := anchor
 	if rec.EndWallNs != "" {
 		if wallEnd, err := strconv.ParseInt(rec.EndWallNs, 10, 64); err == nil {
-			if monoEnd, ok := nodeExplicitEnd(wallEnd, end); ok {
+			if monoEnd, ok := nodeExplicitEnd(wallEnd, anchor); ok && monoEnd >= start {
 				end = monoEnd
 			}
 		}
 	}
-	start := end - durNs
 
 	var traceID trace.TraceID
 	var parentSpanID trace.SpanID

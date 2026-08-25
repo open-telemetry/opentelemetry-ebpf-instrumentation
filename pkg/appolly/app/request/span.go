@@ -203,9 +203,18 @@ func (t EventType) MarshalText() ([]byte, error) {
 }
 
 const (
+	MessagingSend    = "send"
+	MessagingReceive = "receive"
 	MessagingPublish = "publish"
 	MessagingProcess = "process"
 )
+
+func MessagingOperationTypeOf(operationName string) string {
+	if operationName == MessagingPublish {
+		return MessagingSend
+	}
+	return operationName
+}
 
 type converter struct {
 	clock     func() time.Time
@@ -1895,8 +1904,8 @@ func (s *Span) ServiceGraphKind() string {
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
-		switch s.Method {
-		case MessagingPublish:
+		switch MessagingOperationTypeOf(s.Method) {
+		case MessagingSend:
 			return "SPAN_KIND_PRODUCER"
 		case MessagingProcess:
 			return "SPAN_KIND_CONSUMER"

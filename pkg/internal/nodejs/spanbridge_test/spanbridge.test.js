@@ -136,6 +136,7 @@ test('explicit span.end(t) rides as endWallNs; absent otherwise', () => {
     'end-hrtime',
     'end-huge',
     'end-millis',
+    'end-near-origin',
     'end-none',
     'end-perf',
   ]);
@@ -154,6 +155,34 @@ test('explicit span.end(t) rides as endWallNs; absent otherwise', () => {
     `fractional epoch millis keep sub-ms precision (got remainder ${fracRemainderNs}ns)`
   );
   assert.strictEqual(r.huge, undefined, 'int64-unrepresentable end -> no endWallNs');
+  assert.strictEqual(
+    r.nearOrigin,
+    r.nearOriginExpected,
+    'an epoch-millis end just below timeOrigin is still an epoch timestamp'
+  );
+});
+
+test('versioned pre-acquired tracer keeps name/version/options through the handoff', () => {
+  const r = runScript('scenario_versioned_tracer.js');
+  assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-registration span');
+  assert.deepStrictEqual(
+    r.app.map((s) => s.name),
+    ['after'],
+    'the app SDK captures the post-registration span'
+  );
+  assert.deepStrictEqual(
+    r.app[0].scope,
+    { name: 'app', version: '1.2.3', schemaUrl: 'https://example.com/1.2.3' },
+    'the app-exported span keeps the declared scope identity'
+  );
+  const fwd = r.forwarded.find((f) => f.name === 'app');
+  assert.ok(fwd, 'the bridge forwards getTracer to the app provider');
+  assert.strictEqual(fwd.version, '1.2.3', 'original version is forwarded');
+  assert.deepStrictEqual(
+    fwd.options,
+    { schemaUrl: 'https://example.com/1.2.3' },
+    'original options (schemaUrl) are forwarded'
+  );
 });
 
 test('SDK registers after injection: bridge yields and the app SDK takes over', () => {

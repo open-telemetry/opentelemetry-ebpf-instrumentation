@@ -117,15 +117,16 @@ measured in-process by `process.hrtime.bigint()`.
 
 An explicit end timestamp passed to `span.end(t)` (Date, epoch milliseconds,
 or `[seconds, nanos]` hrtime tuple) travels as `endWallNs`. Matching
-`@opentelemetry/core`, a number below `performance.timeOrigin` is interpreted
-as a `performance.now()`-style offset; values the decoder cannot represent
-(int64 ns) are never emitted. It is honored at decode only when, translated
-into the monotonic domain, it lands within a
-bounded skew (5 minutes, `maxNodeExplicitEndSkew`) of the kernel-side
-sentinel anchor — an unbounded app wall clock must not corrupt the
-monotonic-domain consistency the pipeline assumes. Outside the bound (or on
-any unusable input) the sentinel anchor is used, as before. Duration always
-comes from `durNs`.
+`@opentelemetry/core`, a number below half of `performance.timeOrigin` is
+interpreted as a `performance.now()`-style offset; values the decoder cannot
+represent (int64 ns) are never emitted. It only moves the span **end**: the
+start stays at `anchor - durNs` (the span's actual start), so the exported
+duration becomes `explicit end - start`. The explicit end is honored only
+when, translated into the monotonic domain, it lands within a bounded skew
+(5 minutes, `maxNodeExplicitEndSkew`) of the kernel-side sentinel anchor and
+not before the start — an unbounded app wall clock must not corrupt the
+monotonic-domain consistency the pipeline assumes. Otherwise (or on any
+unusable input) the sentinel anchor is used, as before.
 
 ### Trace-context correlation
 

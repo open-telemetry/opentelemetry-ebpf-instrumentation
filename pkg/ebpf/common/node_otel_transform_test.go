@@ -215,9 +215,29 @@ func TestReadNodeSpanEventIntoSpan_SpanKind(t *testing.T) {
 }
 
 func TestReadNodeSpanEventIntoSpan_ExplicitEndHonoredWithinSkewBound(t *testing.T) {
-	// The span ended 2s ago by the app's wall clock; the sentinel anchor is
-	// "now" in the monotonic domain. 2s is well within the skew bound, so the
-	// decoded end must move ~2s before the anchor (not stay at the anchor).
+	// The span ran for 5s (durNs) and end() was called at the anchor, but the
+	// app dated the end 2s earlier. The start must stay at anchor-5s; only the
+	// end moves, so the exported duration becomes 3s.
+	anchor := int64(timing.MonoTimeNow())
+	ev := NodeSpanEvent{EndKtime: uint64(anchor)}
+	wallEnd := time.Now().Add(-2 * time.Second).UnixNano()
+	durNs := 5 * time.Second.Nanoseconds()
+
+	payload := fmt.Sprintf(`{"v":1,"name":"e","tid":"5b8efff798038103d269b633813fc60c",`+
+		`"sid":"eee19b7ec3c1b174","durNs":"%d","endWallNs":"%d","status":0}`, durNs, wallEnd)
+
+	span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
+	require.NoError(t, err)
+
+	assert.Equal(t, anchor-durNs, span.Start, "explicit end must not move the start")
+	// Tolerate scheduling jitter between the two MonoTimeNow samples.
+	assert.InDelta(t, anchor-2*time.Second.Nanoseconds(), span.End, float64(500*time.Millisecond),
+		"explicit end within the bound must be honored")
+}
+
+func TestReadNodeSpanEventIntoSpan_ExplicitEndBeforeStartIgnored(t *testing.T) {
+	// An explicit end earlier than the span's actual start would invert the
+	// interval; the decoder must keep the sentinel anchor as the end.
 	anchor := int64(timing.MonoTimeNow())
 	ev := NodeSpanEvent{EndKtime: uint64(anchor)}
 	wallEnd := time.Now().Add(-2 * time.Second).UnixNano()
@@ -228,10 +248,8 @@ func TestReadNodeSpanEventIntoSpan_ExplicitEndHonoredWithinSkewBound(t *testing.
 	span, _, err := ReadNodeSpanEventIntoSpan(nodeSpanRecordBytes(t, &ev, payload))
 	require.NoError(t, err)
 
-	// Tolerate scheduling jitter between the two MonoTimeNow samples.
-	assert.InDelta(t, anchor-2*time.Second.Nanoseconds(), span.End, float64(500*time.Millisecond),
-		"explicit end within the bound must be honored")
-	assert.Equal(t, span.End-1_000_000, span.Start, "start must stay end - durNs")
+	assert.Equal(t, anchor, span.End, "an end before the start must be ignored")
+	assert.Equal(t, anchor-1_000_000, span.Start)
 }
 
 func TestReadNodeSpanEventIntoSpan_ExplicitEndOutsideSkewBoundIgnored(t *testing.T) {

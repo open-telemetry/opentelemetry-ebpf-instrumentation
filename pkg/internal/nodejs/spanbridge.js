@@ -232,10 +232,12 @@
         return msToNs(t.getTime());
       }
       if (typeof t === 'number') {
-        // Matching @opentelemetry/core: a number below performance.timeOrigin
-        // is a performance.now()-style offset, not an epoch timestamp.
+        // Matching @opentelemetry/core: a number below half of
+        // performance.timeOrigin is a performance.now()-style offset. Comparing
+        // against the full origin would misclassify epoch millis that fall just
+        // below it after a clock adjustment.
         const origin = globalThis.performance && globalThis.performance.timeOrigin;
-        if (typeof origin === 'number' && Number.isFinite(t) && t < origin) {
+        if (typeof origin === 'number' && Number.isFinite(t) && t < origin / 2) {
           return msToNs(origin + t);
         }
         return msToNs(t);
@@ -417,20 +419,22 @@
   // to the app's current tracer instead of producing dead bridge spans. The
   // registry-appearance check also hands off for apps that registered through
   // a copy we could not wrap.
-  const activeAppTracer = (scope, version) => {
+  const activeAppTracer = (scope, version, options) => {
     if (!yielded && !detectRegistryHandoff()) return null;
     const reg = g[API_KEY];
     const prov = reg && reg.trace;
-    if (prov && typeof prov.getTracer === 'function') return prov.getTracer(scope, version);
+    if (prov && typeof prov.getTracer === 'function') return prov.getTracer(scope, version, options);
     return null;
   };
 
   class Tracer {
-    constructor(scopeName) {
+    constructor(scopeName, version, options) {
       this._scope = scopeName;
+      this._version = version;
+      this._options = options;
     }
     startSpan(name, options, context) {
-      const at = activeAppTracer(this._scope);
+      const at = activeAppTracer(this._scope, this._version, this._options);
       if (at) return at.startSpan(name, options, context);
       const ctx = context ?? contextManager.active();
       const opts = options ?? {};
@@ -452,7 +456,7 @@
       return span;
     }
     startActiveSpan(name, arg2, arg3, arg4) {
-      const at = activeAppTracer(this._scope);
+      const at = activeAppTracer(this._scope, this._version, this._options);
       if (at) return at.startActiveSpan(name, arg2, arg3, arg4);
       let options, context, fn;
       if (typeof arg2 === 'function') {
@@ -474,8 +478,8 @@
   }
 
   const tracerProvider = {
-    getTracer(name, _version, _options) {
-      return new Tracer(name || 'unknown');
+    getTracer(name, version, options) {
+      return new Tracer(name, version, options);
     },
   };
 
