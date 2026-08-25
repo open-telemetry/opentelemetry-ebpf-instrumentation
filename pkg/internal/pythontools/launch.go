@@ -15,6 +15,7 @@ const (
 	targetNone targetKind = iota
 	targetFile
 	targetModule
+	targetDottedReference
 )
 
 type pythonLaunch struct {
@@ -299,10 +300,17 @@ func parseDaphne(args []string) pythonLaunch {
 
 func parseWaitress(args []string) pythonLaunch {
 	target, ok := waitressApplication(args)
-	if !ok || !isApplicationReference(target) {
+	if !ok || cleanValue(target) != target {
 		return pythonLaunch{}
 	}
-	return pythonLaunch{target: target, targetKind: targetModule}
+	switch {
+	case isStrictApplicationReference(target):
+		return pythonLaunch{target: target, targetKind: targetModule}
+	case strings.Contains(target, ".") && validModule(target):
+		return pythonLaunch{target: target, targetKind: targetDottedReference}
+	default:
+		return pythonLaunch{}
+	}
 }
 
 func waitressApplication(args []string) (string, bool) {
@@ -385,15 +393,104 @@ func parseFlask(args []string, env map[string]string) pythonLaunch {
 func parseFastAPI(args []string) pythonLaunch {
 	for i, arg := range args {
 		if arg != "run" && arg != "dev" {
-			continue
+			if _, known := fastAPIGlobalOptionsWithoutValues[arg]; known {
+				continue
+			}
+			return pythonLaunch{}
 		}
-		positionals := positionals(args[i+1:], fastAPIOptions)
-		if len(positionals) == 0 {
+		commandArgs, ok := parseFastAPIArguments(args[i+1:])
+		if !ok {
+			return pythonLaunch{}
+		}
+		if commandArgs.explicitEntryPoint {
+			entryPoint := commandArgs.entryPoint
+			if cleanValue(entryPoint) != entryPoint || commandArgs.appOption || len(commandArgs.positionals) != 0 ||
+				!isStrictApplicationReference(entryPoint) {
+				return pythonLaunch{}
+			}
+			return pythonLaunch{target: entryPoint, targetKind: targetModule}
+		}
+		if len(commandArgs.positionals) == 0 {
+			if commandArgs.appOption {
+				return pythonLaunch{}
+			}
 			return pythonLaunch{fastAPIAuto: true}
 		}
-		return pythonLaunch{target: positionals[0], targetKind: classifyTarget(positionals[0])}
+		if len(commandArgs.positionals) != 1 {
+			return pythonLaunch{}
+		}
+		target := commandArgs.positionals[0]
+		return pythonLaunch{target: target, targetKind: classifyTarget(target)}
 	}
 	return pythonLaunch{}
+}
+
+type fastAPIArguments struct {
+	positionals        []string
+	entryPoint         string
+	explicitEntryPoint bool
+	appOption          bool
+}
+
+func parseFastAPIArguments(args []string) (fastAPIArguments, bool) {
+	var parsed fastAPIArguments
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			parsed.positionals = append(parsed.positionals, args[i+1:]...)
+			return parsed, true
+		}
+		if strings.HasPrefix(arg, "--") {
+			name, value, attached := strings.Cut(arg, "=")
+			if _, consumes := fastAPIOptionsWithValues[name]; !consumes {
+				if _, known := fastAPIOptionsWithoutValues[name]; !known || attached {
+					return fastAPIArguments{}, false
+				}
+				continue
+			}
+			if !attached {
+				if i+1 == len(args) {
+					return fastAPIArguments{}, false
+				}
+				i++
+				value = args[i]
+			}
+			switch name {
+			case "--entrypoint":
+				parsed.entryPoint = value
+				parsed.explicitEntryPoint = true
+			case "--app":
+				parsed.appOption = true
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			for j := 1; j < len(arg); j++ {
+				name := "-" + arg[j:j+1]
+				if _, consumes := fastAPIOptionsWithValues[name]; consumes {
+					value := arg[j+1:]
+					if value == "" {
+						if i+1 == len(args) {
+							return fastAPIArguments{}, false
+						}
+						i++
+						value = args[i]
+					}
+					if name == "-e" {
+						parsed.entryPoint = value
+						parsed.explicitEntryPoint = true
+					}
+					break
+				}
+				if _, known := fastAPIOptionsWithoutValues[name]; !known {
+					return fastAPIArguments{}, false
+				}
+			}
+			continue
+		}
+		parsed.positionals = append(parsed.positionals, arg)
+	}
+	return parsed, true
 }
 
 func parseDjango(args []string, env map[string]string) pythonLaunch {
@@ -518,6 +615,11 @@ func isApplicationReference(value string) bool {
 	return validModule(object)
 }
 
+func isStrictApplicationReference(value string) bool {
+	module, object, ok := strings.Cut(value, ":")
+	return ok && validModule(module) && validModule(object)
+}
+
 func validModule(value string) bool {
 	if value == "" {
 		return false
@@ -541,33 +643,6 @@ func validIdentifier(value string) bool {
 		}
 	}
 	return value != ""
-}
-
-func positionals(args []string, optionsWithValues map[string]struct{}) []string {
-	var values []string
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			return append(values, args[i+1:]...)
-		}
-		if strings.HasPrefix(arg, "--") {
-			name, _, attached := strings.Cut(arg, "=")
-			if !attached {
-				if _, consumes := optionsWithValues[name]; consumes && i+1 < len(args) {
-					i++
-				}
-			}
-			continue
-		}
-		if strings.HasPrefix(arg, "-") && arg != "-" {
-			if _, consumes := optionsWithValues[arg]; consumes && i+1 < len(args) {
-				i++
-			}
-			continue
-		}
-		values = append(values, arg)
-	}
-	return values
 }
 
 func gunicornPositionals(args []string) ([]string, bool) {
@@ -902,9 +977,17 @@ var waitressOptionsWithoutValues = optionSet(
 	"--asyncore-use-poll", "--no-asyncore-use-poll",
 )
 
-var fastAPIOptions = optionSet(
-	"--host", "--port", "--uds", "--fd", "--app", "--entrypoint", "--root-path", "--proxy-headers",
+var fastAPIOptionsWithValues = optionSet(
+	"--host", "--port", "--uds", "--fd", "--app", "--entrypoint", "-e", "--root-path",
 	"--forwarded-allow-ips", "--workers", "--reload-delay", "--reload-dir", "--reload-include", "--reload-exclude",
+)
+
+var fastAPIOptionsWithoutValues = optionSet(
+	"--reload", "--no-reload", "--proxy-headers", "--no-proxy-headers", "--verbose", "-v", "--help", "-h",
+)
+
+var fastAPIGlobalOptionsWithoutValues = optionSet(
+	"--verbose", "--no-verbose",
 )
 
 func optionSet(values ...string) map[string]struct{} {

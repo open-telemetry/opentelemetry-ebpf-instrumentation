@@ -198,6 +198,59 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "5.0", fileInfo.ServiceAttrs().Metadata[serviceVersion])
 	})
 
+	t.Run("fastapi command entrypoint associates project", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "company", "orders", "api.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'fast-orders'\n")
+		fileInfo := mockPythonProcess(t, root, "fastapi", []string{
+			"run", "--entrypoint", "company.orders.api:app",
+		}, nil, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "fast-orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("waitress dotted factory associates project", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "company", "orders", "wsgi.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'waitress-orders'\n")
+		fileInfo := mockPythonProcess(t, root, "waitress-serve", []string{
+			"--call", "company.orders.wsgi.application.create_app",
+		}, nil, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "waitress-orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("waitress dotted factory falls back to resolved module name", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "company", "orders", "wsgi.py"), "")
+		fileInfo := mockPythonProcess(t, root, "waitress-serve", []string{
+			"--call", "company.orders.wsgi.create_app",
+		}, nil, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("unresolved waitress dotted factory remains unnamed", func(t *testing.T) {
+		root := t.TempDir()
+		fileInfo := mockPythonProcess(t, root, "waitress-serve", []string{
+			"--call", "company.orders.wsgi.create_app",
+		}, nil, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("gunicorn name is final fallback", func(t *testing.T) {
 		root := t.TempDir()
 		fileInfo := mockPythonProcess(t, root, "gunicorn", []string{"--name", "orders-worker", "-b", "0.0.0.0:8080"}, nil, "/app")

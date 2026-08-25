@@ -75,10 +75,14 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	}
 
 	metadata := projectMetadata{}
-	if targetPath, ok := resolveTargetPath(root, cwd, launch, service.EnvVars); ok {
+	targetPath, resolvedTarget, targetFound := resolveTargetPath(root, cwd, launch, service.EnvVars)
+	if targetFound {
+		launch.target = resolvedTarget
 		var err error
 		metadata, err = findProjectMetadata(root, targetPath)
 		resolutionErr = errors.Join(resolutionErr, err)
+	} else if launch.targetKind == targetDottedReference {
+		launch.target = ""
 	}
 
 	if resolveName {
@@ -105,40 +109,58 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	return resolutionErr
 }
 
-func resolveTargetPath(root, cwd string, launch pythonLaunch, env map[string]string) (string, bool) {
+func resolveTargetPath(root, cwd string, launch pythonLaunch, env map[string]string) (string, string, bool) {
 	target := targetReference(launch.target)
 	if target == "" {
-		return "", false
+		return "", "", false
 	}
 
 	roots := targetSearchRoots(cwd, launch.searchPaths, env["PYTHONPATH"])
-	var candidates []string
+	type targetCandidate struct {
+		path   string
+		target string
+	}
+	var candidates []targetCandidate
+	appendModule := func(module string) {
+		modulePath := filepath.FromSlash(strings.ReplaceAll(module, ".", "/"))
+		candidates = append(candidates,
+			targetCandidate{path: modulePath + ".py", target: module},
+			targetCandidate{path: filepath.Join(modulePath, "__init__.py"), target: module},
+		)
+	}
 	switch launch.targetKind {
 	case targetFile:
-		candidates = append(candidates, target)
+		candidates = append(candidates, targetCandidate{path: target, target: target})
 		if filepath.Ext(target) == "" {
-			candidates = append(candidates, target+".py", filepath.Join(target, "__init__.py"))
+			candidates = append(candidates,
+				targetCandidate{path: target + ".py", target: target},
+				targetCandidate{path: filepath.Join(target, "__init__.py"), target: target},
+			)
 		}
 	case targetModule:
-		modulePath := filepath.FromSlash(strings.ReplaceAll(target, ".", "/"))
-		candidates = append(candidates, modulePath+".py", filepath.Join(modulePath, "__init__.py"))
+		appendModule(target)
+	case targetDottedReference:
+		parts := strings.Split(target, ".")
+		for i := len(parts); i > 0; i-- {
+			appendModule(strings.Join(parts[:i], "."))
+		}
 	default:
-		return "", false
+		return "", "", false
 	}
 
 	for _, base := range roots {
 		for _, candidate := range candidates {
-			path, ok := langtools.ResolveProcessPath(root, base, candidate)
+			path, ok := langtools.ResolveProcessPath(root, base, candidate.path)
 			if !ok {
 				continue
 			}
 			info, err := os.Stat(path)
 			if err == nil && info.Mode().IsRegular() {
-				return path, true
+				return path, candidate.target, true
 			}
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 func targetSearchRoots(cwd string, launcherPaths []string, pythonPath string) []string {
