@@ -28,19 +28,18 @@ const (
 )
 
 const (
-	h2BoundaryPreflightPull  = 1
-	h2BoundaryPush           = 2
-	h2BoundaryWritePull      = 3
-	h2BoundaryHPACKWrite     = 4
-	h2BoundaryHPACKReadback  = 5
-	h2BoundaryFramePull      = 6
-	h2BoundaryFrameWrite     = 7
-	h2BoundaryFrameReadback  = 8
-	h2BoundaryRollbackPop    = 9
-	h2BoundaryRollbackPull   = 10
-	h2BoundaryRollbackWrite  = 11
-	h2BoundaryRollbackRead   = 12
-	h2BoundaryPreflightApply = 13
+	h2BoundaryPreflightPull = 1
+	h2BoundaryPush          = 2
+	h2BoundaryWritePull     = 3
+	h2BoundaryHPACKWrite    = 4
+	h2BoundaryHPACKReadback = 5
+	h2BoundaryFramePull     = 6
+	h2BoundaryFrameWrite    = 7
+	h2BoundaryFrameReadback = 8
+	h2BoundaryRollbackPop   = 9
+	h2BoundaryRollbackPull  = 10
+	h2BoundaryRollbackWrite = 11
+	h2BoundaryRollbackRead  = 12
 )
 
 var h2ProbeExpectedHPACK = []byte("\x00\x0btraceparent\x37" +
@@ -78,7 +77,6 @@ func verifyH2MutationRollback() error {
 		mask uint64
 	}{
 		{name: "preflight pull", mask: h2BoundaryBit(h2BoundaryPreflightPull)},
-		{name: "apply bytes", mask: h2BoundaryBit(h2BoundaryPreflightApply)},
 		{name: "push", mask: h2BoundaryBit(h2BoundaryPush)},
 		{name: "post-push pull", mask: h2BoundaryBit(h2BoundaryWritePull)},
 		{name: "HPACK write", mask: h2BoundaryBit(h2BoundaryHPACKWrite)},
@@ -115,6 +113,9 @@ func verifyH2MutationBoundary(objects *BpfH2MutationProbeObjects, faultMask uint
 	if err := objects.Sockets.Update(uint64(0), uint32(clientFD), ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("inserting probe socket: %w", err)
 	}
+	if err := objects.Invocations.Update(uint32(0), uint32(0), ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("resetting invocation count: %w", err)
+	}
 
 	first := h2ProbeFrame(1)
 	if err := objects.FaultMask.Update(uint32(0), faultMask, ebpf.UpdateAny); err != nil {
@@ -148,6 +149,14 @@ func verifyH2MutationBoundary(objects *BpfH2MutationProbeObjects, faultMask uint
 	expected[2] = h2ProbePayloadLen + h2ProbeHPACKLen
 	if !bytes.Equal(got, expected) {
 		return errors.New("subsequent frame did not commit on the same connection")
+	}
+
+	var invocations uint32
+	if err := objects.Invocations.Lookup(uint32(0), &invocations); err != nil {
+		return fmt.Errorf("reading invocation count: %w", err)
+	}
+	if invocations != 2 {
+		return fmt.Errorf("SK_MSG ran %d times for two writes", invocations)
 	}
 	return nil
 }

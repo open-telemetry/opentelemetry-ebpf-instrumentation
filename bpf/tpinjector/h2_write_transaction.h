@@ -30,7 +30,6 @@ typedef enum h2_socket_transaction_boundary {
     k_h2_socket_boundary_rollback_pull,
     k_h2_socket_boundary_rollback_write,
     k_h2_socket_boundary_rollback_readback,
-    k_h2_socket_boundary_preflight_apply,
 } h2_socket_transaction_boundary_t;
 
 #ifndef H2_SOCKET_TRANSACTION_FAULT
@@ -124,11 +123,6 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
         inject_offset < frame_offset + k_h2_frame_header_len ||
         inject_offset > frame_offset + k_h2_frame_header_len + payload_len ||
         original_size > (u32)-1 - k_h2_tp_hpack_size) {
-        return k_h2_socket_transaction_no_mutation;
-    }
-
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_preflight_apply) ||
-        bpf_msg_apply_bytes(msg, original_size) != 0) {
         return k_h2_socket_transaction_no_mutation;
     }
 

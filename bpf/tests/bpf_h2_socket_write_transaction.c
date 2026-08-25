@@ -23,13 +23,18 @@ static unsigned char expected[k_h2_tp_hpack_size];
 static u32 message_len;
 static u64 fault_mask;
 static u32 forced_pop_failures;
+static u32 applied_bytes;
 
 static bool transaction_fault(unsigned int boundary) {
     return fault_mask & (1ULL << boundary);
 }
 
 static long test_msg_apply_bytes(struct sk_msg_md *msg, u32 bytes) {
-    return bytes == msg->size ? 0 : -1;
+    if (bytes > msg->size) {
+        return -1;
+    }
+    applied_bytes = bytes;
+    return 0;
 }
 
 static long test_msg_pull_data(struct sk_msg_md *msg, u32 start, u32 end, u64 flags) {
@@ -106,6 +111,7 @@ static struct sk_msg_md reset_message(void) {
     memcpy(original, message, message_len);
     fault_mask = 0;
     forced_pop_failures = 0;
+    applied_bytes = 0;
 
     return (struct sk_msg_md){
         .data = message,
@@ -135,6 +141,7 @@ static void test_commit(void) {
            "commit publishes the new frame length");
     expect(memcmp(message + k_h2_frame_header_len + 8, expected, sizeof(expected)) == 0,
            "commit writes the expected HPACK field");
+    expect(applied_bytes == 0, "commit does not limit the SK_MSG verdict to the original size");
 }
 
 static void test_no_mutation_boundary(h2_socket_transaction_boundary_t boundary,
@@ -166,8 +173,6 @@ int main(void) {
 
     test_no_mutation_boundary(k_h2_socket_boundary_preflight_pull,
                               "preflight pull failure does not mutate");
-    test_no_mutation_boundary(k_h2_socket_boundary_preflight_apply,
-                              "apply-bytes failure does not mutate");
     test_no_mutation_boundary(k_h2_socket_boundary_push, "push failure does not mutate");
 
     test_verified_rollback_boundary(k_h2_socket_boundary_write_pull,
@@ -197,6 +202,8 @@ int main(void) {
     forced_pop_failures = 2;
     expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_uncertain,
            "two failed pop attempts keep rollback uncertain");
+    expect(h2_scope_uncertain_drop(&msg), "uncertain rollback scopes the drop verdict");
+    expect(applied_bytes == msg.size, "uncertain rollback drops the complete socket message");
 
     puts("OK: bpf_h2_socket_write_transaction.c");
     return 0;
