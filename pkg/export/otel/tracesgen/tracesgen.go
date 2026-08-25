@@ -1592,7 +1592,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ClientAddr(request.SpanHost(span)),
 			request.ServerAddr(request.PeerAsClient(span)),
 			request.ServerPort(span.HostPort),
-			request.DNSAnswers(span.Statement),
+		}
+		if answers := span.DNSAnswerList(); len(answers) > 0 {
+			attrs = append(attrs, request.DNSAnswers(answers))
 		}
 		// Include DNSQuestionName only when selected via attribute config.
 		if _, ok := optionalAttrs[attr.DNSQuestionName]; ok {

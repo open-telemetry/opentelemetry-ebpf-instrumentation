@@ -128,6 +128,11 @@ RESPONDER_DELAY_SECONDS = 0.5
 INTERLEAVED_SEND_NAME = "interleaved-send.test"
 INTERLEAVED_RECV_NAME = "interleaved-recv.test"
 
+# Answered by the delayed responder with more than one A record, so the reported
+# dns.answers has to carry each address separately.
+MULTI_ANSWER_NAME = "multi-answer.test"
+MULTI_ANSWER_ADDRESSES = ("10.1.2.3", "10.1.2.4", "10.1.2.5")
+
 # Discards whatever it is sent, so the send-side sequence gets an unrelated send
 # on the socket without also putting a datagram in its receive queue
 BLACKHOLE_PORT = 8126
@@ -145,13 +150,35 @@ def dns_query(name, txid):
     return header + encode_labels(name) + struct.pack("!HH", 1, 1)  # type A, class IN
 
 
-def dns_answer_for(query):
-    """A NOERROR response echoing the question, with one A record."""
-    header = query[:2] + struct.pack("!HHHHH", 0x8180, 1, 1, 0, 0)
-    question = query[12:]
+def a_record(address):
     # name as a pointer back to the question, then type A, class IN, ttl, rdlength
-    answer = b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 60, 4) + bytes([127, 0, 0, 1])
-    return header + question + answer
+    return (
+        b"\xc0\x0c"
+        + struct.pack("!HHIH", 1, 1, 60, 4)
+        + bytes(int(octet) for octet in address.split("."))
+    )
+
+
+def dns_answer_for(query):
+    """A NOERROR response echoing the question.
+
+    MULTI_ANSWER_NAME is answered with several A records; every other name gets
+    one. A lookup with more than one answer is the only case that distinguishes
+    dns.answers being reported as a list of addresses from a single joined
+    string, so the suite needs one to assert on.
+    """
+    name = query[12:-4]
+    addresses = (
+        MULTI_ANSWER_ADDRESSES
+        if name == encode_labels(MULTI_ANSWER_NAME)
+        else ("127.0.0.1",)
+    )
+
+    header = query[:2] + struct.pack("!HHHHH", 0x8180, 1, len(addresses), 0, 0)
+    question = query[12:]
+    answers = b"".join(a_record(address) for address in addresses)
+
+    return header + question + answers
 
 
 def run_responder():
@@ -197,12 +224,13 @@ def interleave_non_dns_receive(sock):
 
 
 def interleaved_lookup(name, txid, interleave, responder_ip):
-    """One lookup with an unrelated step between the query and its answer.
+    """One lookup, with an optional unrelated step between the query and its answer.
 
     The answer is taken with recv() rather than recvfrom(), so the kernel fills
     in no address and the answer carries no peer. Classifying it therefore rests
     entirely on the window the query opened, which the interleaved step must not
-    have closed.
+    have closed. Passing no interleave gives a plain lookup on the same kind of
+    socket.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("", 0))  # bound but never connected, so its tuple has no peer
@@ -210,13 +238,19 @@ def interleaved_lookup(name, txid, interleave, responder_ip):
 
     try:
         sock.sendto(dns_query(name, txid), (responder_ip, RESPONDER_PORT))
-        interleave(sock)
+        if interleave is not None:
+            interleave(sock)
         sock.recv(512)
-        print(f"interleaved lookup answered name={name}", flush=True)
+        print(f"lookup answered name={name}", flush=True)
     except OSError as err:
-        print(f"interleaved lookup failed name={name} error={err}", flush=True)
+        print(f"lookup failed name={name} error={err}", flush=True)
     finally:
         sock.close()
+
+
+def responder_lookup(name, txid, responder_ip):
+    """A plain lookup against the delayed responder, with nothing interleaved."""
+    interleaved_lookup(name, txid, None, responder_ip)
 
 
 def main():
@@ -258,6 +292,7 @@ def main():
         interleaved_lookup(
             INTERLEAVED_RECV_NAME, next_txid(), interleave_non_dns_receive, responder_ip
         )
+        responder_lookup(MULTI_ANSWER_NAME, next_txid(), responder_ip)
         time.sleep(INTERVAL_SECONDS)
 
 
