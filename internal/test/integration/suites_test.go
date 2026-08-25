@@ -143,13 +143,14 @@ func TestSuite_DNSUnconnectedResolver(t *testing.T) {
 		compose.Env,
 		`OTEL_EBPF_EXECUTABLE_PATH=python`,
 		`OTEL_EBPF_OPEN_PORT=`,
-		`INSTRUMENTER_CONFIG_SUFFIX=-java`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-dns`,
 	)
 	require.NoError(t, compose.Up())
 	t.Run("DNS RED metrics over an unconnected resolver socket", testDNSUnconnectedResolver)
 	t.Run("every DNS lookup is counted", testDNSEveryLookupCounted)
 	t.Run("non-DNS UDP is not reported as DNS", testDNSNoFalsePositive)
 	t.Run("unrelated traffic does not lose an outstanding lookup", testDNSInterleavedTraffic)
+	t.Run("DNS spans report every resolved address", testDNSSpanAnswers)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

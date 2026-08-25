@@ -56,6 +56,9 @@ services:
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      # Pinned so the span assertions can name the service instead of relying on
+      # whatever the python executable is discovered as.
+      OTEL_EBPF_SERVICE_NAME: "dnsclient"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
@@ -78,7 +81,7 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
@@ -89,8 +92,22 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+      jaeger:
+        condition: service_started
       weaver:
         condition: service_healthy
+
+  # DNS spans are asserted directly, not just handed to weaver: weaver only
+  # judges the samples it receives, so a run that produced no DNS span at all
+  # would pass it silently.
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317" # OTEL GRPC traces collector
+      - "4318" # OTEL HTTP traces collector
+    command:
+      - "--set=service.telemetry.logs.level=debug"
 
   weaver:
     extends:
