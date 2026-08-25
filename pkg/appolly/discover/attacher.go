@@ -160,6 +160,8 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
 	switch ie.Type {
 	case svc.InstrumentableJava:
+	switch ie.Type {
+	case svc.InstrumentableJava:
 		err := jvmtools.ResolveServiceMetadata(ie.FileInfo)
 		if err != nil {
 			ta.log.Debug("unable to resolve Java service metadata", "pid", ie.FileInfo.Pid(), "error", err)

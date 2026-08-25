@@ -209,6 +209,15 @@ func (p *AttrSelector) For(metricName Name) []attr.Name {
 	return sas
 }
 
+func (p *AttrSelector) ExplicitlyIncluded(metricName Name, attrName attr.Name) bool {
+	for _, il := range p.selector.Matching(metricName) {
+		if il.includes(attrName) {
+			return true
+		}
+	}
+	return false
+}
+
 // returns if the inclusion list have contents or not
 // this will be useful to decide whether to use the default
 // attribute set or not

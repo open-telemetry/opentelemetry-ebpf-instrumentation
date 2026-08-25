@@ -63,7 +63,6 @@ static void test_failed_connect_record_is_fully_initialized(void) {
     const u16 orig_dport = 443;
     const u64 connect_ts = 123456789;
     const u64 end_ts = 123456999;
-    const u64 trace_ts = 123457111;
     const u64 extra_id = 0xaabbccddeeff0011;
 
     const pid_info pid = {
@@ -78,8 +77,7 @@ static void test_failed_connect_record_is_fully_initialized(void) {
 
     tcp_req_t actual;
     __builtin_memset(&actual, 0xff, sizeof(actual));
-    init_failed_connect_tcp_req(
-        &actual, &pid_conn, orig_dport, connect_ts, end_ts, trace_ts, extra_id, &pid);
+    init_failed_connect_tcp_req(&actual, &pid_conn, orig_dport, connect_ts, end_ts, extra_id, &pid);
 
     tcp_req_t expected = {};
     expected.flags = EVENT_FAILED_CONNECT;
@@ -90,12 +88,17 @@ static void test_failed_connect_record_is_fully_initialized(void) {
     expected.end_monotime_ns = end_ts;
     expected.extra_id = extra_id;
     expected.pid = pid;
-    expected.tp.ts = trace_ts;
+    expected.tp.ts = connect_ts;
 
     assert_tcp_req_equal(&actual, &expected);
     assert_true(actual.buf[0] == '\0', "request buffer is empty");
     assert_true(actual.rbuf[0] == '\0', "response buffer is empty");
     assert_true(actual.tp.flags == 0, "trace flags do not retain stale bytes");
+    // should_be_in_same_transaction() compares this against a candidate
+    // parent's start, so it has to be the instant the span starts rather than
+    // the close that produced the event.
+    assert_true(actual.tp.ts == actual.start_monotime_ns,
+                "trace timestamp is the connect, not the close");
 }
 
 int main(void) {

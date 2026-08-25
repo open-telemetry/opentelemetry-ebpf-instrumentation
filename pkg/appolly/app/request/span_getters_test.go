@@ -401,9 +401,9 @@ func TestSpanOTELGetters_MessagingOpName(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "kafka client publish",
-			span:     &Span{Type: EventTypeKafkaClient, Method: MessagingPublish},
-			expected: "publish",
+			name:     "kafka client send",
+			span:     &Span{Type: EventTypeKafkaClient, Method: MessagingSend},
+			expected: "send",
 		},
 		{
 			name:     "kafka server process",
@@ -434,6 +434,16 @@ func TestSpanOTELGetters_MessagingOpName(t *testing.T) {
 			name:     "amqp client publish",
 			span:     &Span{Type: EventTypeAMQPClient, Method: MessagingPublish},
 			expected: "publish",
+		},
+		{
+			name: "aws sqs client uses the sqs operation name",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAWSSQS,
+				Method:  "POST",
+				AWS:     &AWS{SQS: AWSSQS{OperationName: "SendMessage"}},
+			},
+			expected: "SendMessage",
 		},
 		{
 			name:     "http span returns empty",
@@ -783,7 +793,7 @@ func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
 
 	opTypeGetter, ok := spanOTELGetters(attr.MessagingOpType)
 	require.True(t, ok, "getter should be found for MessagingOpType")
-	assert.Equal(t, MessagingPublish, opTypeGetter(span).Value.AsString())
+	assert.Equal(t, MessagingSend, opTypeGetter(span).Value.AsString())
 
 	span.Method = MessagingProcess
 	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())
@@ -1238,4 +1248,79 @@ func TestSpanOTELGetters_Instance(t *testing.T) {
 	kv := getter(span)
 	assert.Equal(t, string(attr.Instance), string(kv.Key))
 	assert.Equal(t, "instance-42", kv.Value.AsString())
+}
+
+func TestDBClientServerPortGetter(t *testing.T) {
+	postgres := func(port int, host string) *Span {
+		return &Span{Type: EventTypeSQLClient, SubType: int(DBPostgres), HostPort: port, Host: host}
+	}
+	tests := []struct {
+		name     string
+		explicit bool
+		span     *Span
+		expected int
+		omitted  bool
+	}{
+		{
+			name:     "default selection, non-default port with address",
+			span:     postgres(5433, "dbhost"),
+			expected: 5433,
+		},
+		{
+			name:    "default selection, DBMS default port",
+			span:    postgres(5432, "dbhost"),
+			omitted: true,
+		},
+		{
+			name:    "default selection, known port without address",
+			span:    postgres(5433, ""),
+			omitted: true,
+		},
+		{
+			name:    "default selection, unknown port",
+			span:    postgres(0, "dbhost"),
+			omitted: true,
+		},
+		{
+			name:    "default selection, redis default port",
+			span:    &Span{Type: EventTypeRedisClient, HostPort: 6379, Host: "cache"},
+			omitted: true,
+		},
+		{
+			name:     "default selection, no known default for the DBMS",
+			span:     &Span{Type: EventTypeSQLClient, HostPort: 5432, Host: "dbhost"},
+			expected: 5432,
+		},
+		{
+			name:     "explicit inclusion, DBMS default port",
+			explicit: true,
+			span:     postgres(5432, "dbhost"),
+			expected: 5432,
+		},
+		{
+			name:     "explicit inclusion, known port without address",
+			explicit: true,
+			span:     postgres(5433, ""),
+			expected: 5433,
+		},
+		{
+			name:     "explicit inclusion, unknown port",
+			explicit: true,
+			span:     postgres(0, "dbhost"),
+			omitted:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kv := dbClientServerPortGetter(tt.explicit)(tt.span)
+			if tt.omitted {
+				assert.False(t, kv.Valid(), "expected server.port to be omitted, got %v", kv)
+				return
+			}
+			require.True(t, kv.Valid(), "expected server.port to be reported")
+			assert.Equal(t, string(attr.ServerPort), string(kv.Key))
+			assert.Equal(t, int64(tt.expected), kv.Value.AsInt64())
+		})
+	}
 }

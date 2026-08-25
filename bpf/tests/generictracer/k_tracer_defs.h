@@ -7,6 +7,15 @@
 
 #include <common/connection_info.h>
 
+// The skb path is not exercised; dependents only need the symbol
+static __always_inline void
+read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len) {
+    (void)skb;
+    (void)offset;
+    (void)buf;
+    (void)len;
+}
+
 extern int test_parser_call_count;
 extern int test_last_parser_bytes_len;
 extern u8 test_last_ssl;

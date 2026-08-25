@@ -1,5 +1,5 @@
 'use strict';
-// Regression for the late-loaded-@opentelemetry/api handoff (Tyler / MrAlias):
+// Regression for the late-loaded-@opentelemetry/api handoff:
 // the bridge is injected BEFORE @opentelemetry/api is ever require()d, so the
 // api copy is NOT in require.cache when the bridge wires up. A copy loaded
 // afterwards must still get its global setters wrapped (via the module-load

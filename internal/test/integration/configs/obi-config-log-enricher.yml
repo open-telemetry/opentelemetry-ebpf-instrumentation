@@ -17,6 +17,7 @@ ebpf:
     services:
       - service:
         - open_ports: "8380,50051,3030,8085,3040,8388"
+        - exe_path: "*substsh*"
 discovery:
   min_process_age: "0s"
 log_config: "yaml"

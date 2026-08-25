@@ -104,7 +104,7 @@ var DefaultNativeHistogramConfig = NativeHistogramConfig{
 type PrometheusConfig struct {
 	// 0 means disabled
 	Port int    `yaml:"port" env:"OTEL_EBPF_PROMETHEUS_PORT" validate:"gte=0,lte=65535"`
-	Path string `yaml:"path" env:"OTEL_EBPF_PROMETHEUS_PATH"`
+	Path string `yaml:"path" env:"OTEL_EBPF_PROMETHEUS_PATH" validate:"startswith=/"`
 
 	DisableBuildInfo bool `yaml:"disable_build_info" env:"OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"`
 
@@ -368,7 +368,11 @@ func newReporter(
 	var attrDBServerDuration []attributes.Field[*request.Span, string]
 
 	if is.DBEnabled() {
-		attrDBClientDuration = attributes.PrometheusGetters(attributeGetters,
+		// server.port on db.client metrics is reported conditionally per the
+		// DB semconv, unless the user explicitly includes it
+		explicitPort := attrsProvider.ExplicitlyIncluded(attributes.DBClientDuration, attr.ServerPort)
+		attrDBClientDuration = attributes.PrometheusGetters(
+			request.SpanPromGettersForDBClient(unresolved, explicitPort),
 			attrsProvider.For(attributes.DBClientDuration))
 		attrDBServerDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.DBServerDuration))
@@ -1132,8 +1136,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
 			if r.is.KafkaEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 				case request.MessagingProcess:
 					r.observeHistogram(r.msgProcessDuration.WithLabelValues(labelValues(span, r.attrMsgProcessDuration)...).Metric, duration, span)
@@ -1141,8 +1145,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
 			if r.is.MQTTEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 				case request.MessagingProcess:
 					r.observeHistogram(r.msgProcessDuration.WithLabelValues(labelValues(span, r.attrMsgProcessDuration)...).Metric, duration, span)
@@ -1150,8 +1154,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeNATSClient, request.EventTypeNATSServer:
 			if r.is.NATSEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					r.msgPublishDuration.WithLabelValues(
 						labelValues(span, r.attrMsgPublishDuration)...,
 					).Metric.Observe(duration)
@@ -1163,8 +1167,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeAMQPClient:
 			if r.is.AMQPEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 				case request.MessagingProcess:
 					r.observeHistogram(r.msgProcessDuration.WithLabelValues(labelValues(span, r.attrMsgProcessDuration)...).Metric, duration, span)
