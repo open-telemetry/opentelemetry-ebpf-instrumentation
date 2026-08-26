@@ -17,10 +17,17 @@
 // answering. Nothing comes back, which is the case the byte counter tells apart from
 // a response that arrived and went unparsed.
 //
-// The default role calls the relay (received), the peer directly (parsed), and the
-// resetter (silent) on every request, so one run carries all three. Keep-alives are
-// off, so each call's socket closes right after it completes. That close is what makes
-// the kernel finish the incomplete record.
+// The default role calls the relay (unread), the peer directly (parsed), the resetter
+// (silent), and a second peer it abandons (received) on every request, so one run
+// carries all four. Keep-alives are off, so each call's socket closes right after it
+// completes. That close is what makes the kernel finish the incomplete record.
+//
+// The abandoned call is the one whose response arrives but is never read: the request
+// goes out on a raw socket, the answer lands in the receive queue, and the socket closes
+// without a read ever being issued. No probe sees those bytes, so the record is finished
+// by the close rather than by the response, and only the socket's byte counter says an
+// answer came at all. That is the case whose duration overstates the request, so it is
+// the one whose duration is withheld from the metrics.
 //
 // It also drives REUSE_CALLS calls per request through a second relay over a pool
 // holding a single connection, with keep-alives on. Nothing closes that socket, so the
@@ -186,6 +193,34 @@ func call(client *http.Client, url string) error {
 	return nil
 }
 
+// abandonCall sends a request on a raw socket and closes without ever reading the
+// answer. The bytes still arrive, so the socket's counter advances, but no read is
+// issued and no probe sees them: the record is finished by the close, holding a
+// duration that runs to the close rather than to the response.
+func abandonCall(addr, path string, settle time.Duration) error {
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+
+	request := "GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n"
+	if _, err := conn.Write([]byte(request)); err != nil {
+		return err
+	}
+
+	// Long enough for the answer to reach the receive queue, so this is a response
+	// that arrived unseen rather than one that never came.
+	time.Sleep(settle)
+
+	return nil
+}
+
 // runResetter answers nothing. It reads what the caller sent so the request is
 // genuinely delivered, then sets SO_LINGER to zero and closes, which makes the kernel
 // send an RST.
@@ -342,6 +377,8 @@ func main() {
 	unobservedURL := "http://" + envOr("RELAY", "relay:9100") + "/unobserved"
 	observedURL := "http://" + envOr("PEER", "peer:9000") + "/observed"
 	resetURL := "http://" + envOr("RESETTER", "resetter:9200") + "/reset"
+	abandonAddr := envOr("ABANDON_PEER", "abandonpeer:9500")
+	abandonSettle := envMillis("ABANDON_SETTLE_MS", 100*time.Millisecond)
 	reusedURL := "http://" + envOr("REUSE_RELAY", "reuserelay:9300") + "/reused"
 	client := noKeepAlive()
 
@@ -419,6 +456,11 @@ func main() {
 			log.Printf("reset call failed as expected: %v", err)
 		} else {
 			log.Printf("reset call unexpectedly succeeded")
+		}
+
+		// To the abandoned peer: the response arrives and is never read.
+		if err := abandonCall(abandonAddr, "/abandoned", abandonSettle); err != nil {
+			log.Printf("abandoned call: %v", err)
 		}
 
 		fmt.Fprintln(w, "ok")

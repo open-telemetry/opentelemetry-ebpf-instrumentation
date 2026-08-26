@@ -62,6 +62,17 @@ services:
       ROLE: "resetter"
       RESETTER_PORT: "9200"
 
+  # Answers normally. It is a separate peer only so the calls the workload abandons
+  # are told apart from the ones it reads, which is the port the spans carry.
+  abandonpeer:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-abandonpeer
+    environment:
+      ROLE: "peer"
+      PEER_PORT: "9500"
+
   responseobservationclient:
     build:
       context: ../../..
@@ -69,6 +80,9 @@ services:
     image: hatest-responseobservationclient
     ports:
       - "8080:8080"
+      # OBI shares this container's network namespace, so its metrics endpoint is
+      # reachable here and Prometheus scrapes it by this service's name.
+      - "8999:8999"
     environment:
       # The response comes back re-segmented, so instrumentation never sees it.
       RELAY: "relay:9100"
@@ -76,6 +90,8 @@ services:
       PEER: "peer:9000"
       # A peer that never answers and resets instead: the failure path.
       RESETTER: "resetter:9200"
+      # A peer that answers into a socket the workload never reads.
+      ABANDON_PEER: "abandonpeer:9500"
       # The same unparsed responses, over one connection that is never closed.
       REUSE_RELAY: "reuserelay:9300"
       REUSE_PEER: "reusepeer:9400"
@@ -88,6 +104,8 @@ services:
       reusepeer:
         condition: service_started
       resetter:
+        condition: service_started
+      abandonpeer:
         condition: service_started
 
   obi:
@@ -114,6 +132,22 @@ services:
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
+    depends_on:
+      responseobservationclient:
+        condition: service_started
+
+  # The metrics side of the same calls. What a span reports and what a metric reports
+  # are decided in different code, so the suite has to read both.
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    command:
+      - --config.file=/etc/prometheus/prometheus-config-response-observation.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
     depends_on:
       responseobservationclient:
         condition: service_started

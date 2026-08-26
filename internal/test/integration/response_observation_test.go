@@ -6,6 +6,7 @@ package integration
 import (
 	"net/http"
 	"path"
+	"strconv"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -35,7 +37,15 @@ const (
 	// control that separates a loss caused by the unparsed response from one caused by
 	// reuse itself.
 	reusedControlPort = 9400
+	// The port of the peer whose answer the workload never reads. The response arrives
+	// and no probe sees it, so the record is finished by the close instead: the one case
+	// whose duration runs past the request it describes.
+	abandonedPeerPort = 9500
 )
+
+// The service graph names the far side of a call by the host it was made to, which is
+// the compose service name.
+const abandonedPeerService = "abandonpeer"
 
 // reuseStats mirrors what the workload reports at /stats.
 type reuseStats struct {
@@ -303,6 +313,86 @@ func testReusedConnectionDurationsAreBounded(t *testing.T) {
 	}
 }
 
+// The call whose answer arrives into a socket nobody reads. Only the socket's byte
+// counter says a response came, so the record is finished by the close and its duration
+// runs to the close rather than to the answer. The call still happened, so it is still
+// reported, and it carries no status because none was read.
+func testAbandonedResponseIsReportedWithoutStatus(t *testing.T) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		spans := clientSpansToPort(unobservedResponseTraces(ct), abandonedPeerPort)
+		if !assert.NotEmpty(ct, spans, "a call whose response went unread produced no span") {
+			return
+		}
+
+		for _, span := range spans {
+			status, ok := jaeger.FindIn(span.Tags, "http.response.status_code")
+			assert.False(ct, ok,
+				"a call whose response was never read reports a status: %v", status.Value)
+
+			assert.Empty(ct, span.Diff(
+				jaeger.Tag{Key: "obi.http.response.observed", Type: "bool", Value: false}))
+		}
+	}, testTimeout, 100*time.Millisecond)
+}
+
+// promSeries returns the series a query holds once it has any, so the assertions do
+// not race the scrape interval.
+func promSeries(t *testing.T, query string) []promtest.Result {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+
+	var results []promtest.Result
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var err error
+		results, err = pq.Query(query)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
+
+	return results
+}
+
+// A withheld duration must not take unrelated metrics down with it. This gauge reports
+// that the host is running, which no call's duration has a say in.
+//
+// The workload also makes calls that are measured, so this only proves the gauge is
+// exported at all. What proves it survives a service whose every call is unmeasured is
+// TestAppMetrics_TracesHostInfoUnmeasuredSpans, which drives that service directly.
+func testHostInfoIsExported(t *testing.T) {
+	promSeries(t, `traces_host_info{}`)
+}
+
+// The service graph edge to the abandoned peer exists and is counted, because the call
+// was made. Its latency is withheld, because the record's duration runs to the close.
+// Dropping the span whole would erase an edge that a service really does talk to.
+func testUnmeasuredCallCountsOnItsEdgeWithoutLatency(t *testing.T) {
+	counted := promSeries(t,
+		`traces_service_graph_request_total{server="`+abandonedPeerService+`"}`)
+	require.NotEmpty(t, counted, "the edge a call traveled is missing from the service graph")
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	latencies, err := pq.Query(
+		`traces_service_graph_request_client_seconds_count{server="` + abandonedPeerService + `"}`)
+	require.NoError(t, err)
+	assert.Empty(t, latencies,
+		"a duration that runs to the close of the socket was published as the call's latency")
+}
+
+// The RED series separates the two ways a response goes unobserved. The relay's answer
+// arrives and is read, so the record ends at those bytes and the duration is a
+// measurement worth publishing. The abandoned answer is never read, so the record ends
+// at the close and the duration is withheld.
+func testUnmeasuredCallPublishesNoDuration(t *testing.T) {
+	promSeries(t, `http_client_request_duration_seconds_count{server_port="`+
+		strconv.Itoa(unobservedPeerPort)+`"}`)
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	withheld, err := pq.Query(`http_client_request_duration_seconds_count{server_port="` +
+		strconv.Itoa(abandonedPeerPort) + `"}`)
+	require.NoError(t, err)
+	assert.Empty(t, withheld,
+		"a duration that runs past the request it describes was published as the call's duration")
+}
+
 func TestSuite_ResponseObservation(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-response-observation.yml", path.Join(pathOutput, "test-suite-unobserved-response.log"))
 	require.NoError(t, err)
@@ -322,6 +412,13 @@ func TestSuite_ResponseObservation(t *testing.T) {
 	t.Run("a reused connection reports every call", testReusedConnectionReportsEveryCall)
 	t.Run("a reused connection carries no status code", testReusedConnectionCarriesNoStatusCode)
 	t.Run("a reused connection's durations are bounded", testReusedConnectionDurationsAreBounded)
+	t.Run("an abandoned response is reported without a status", testAbandonedResponseIsReportedWithoutStatus)
+
+	// What a span reports and what a metric reports are decided in separate code, so
+	// the same calls are checked on both sides.
+	t.Run("the host info gauge is exported", testHostInfoIsExported)
+	t.Run("an unmeasured call counts on its edge without a latency", testUnmeasuredCallCountsOnItsEdgeWithoutLatency)
+	t.Run("an unmeasured call publishes no duration", testUnmeasuredCallPublishesNoDuration)
 
 	require.NoError(t, compose.Close())
 }
