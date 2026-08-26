@@ -2033,3 +2033,57 @@ func resourcesMatch(t *testing.T, one *TargetMetrics, two *TargetMetrics) {
 		assert.Equal(t, a.Value.AsString(), other.AsString())
 	}
 }
+
+// The OTel counterpart of the Prometheus case: a call whose response was never observed
+// publishes the size of the request it sent, and neither a duration nor a response size,
+// which it does not know.
+func TestAppMetrics_UnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	feats := export.FeatureApplicationRED
+	go makeMetricsReporter(ctx, t,
+		[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		feats, otlp, metrics, processEvents).reportMetrics(ctx)
+
+	unmeasured := request.Span{
+		Service:             svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}},
+		Type:                request.EventTypeHTTPClient,
+		Method:              "GET",
+		Route:               "/unmeasured",
+		RequestStart:        100,
+		End:                 6 * time.Second.Nanoseconds(),
+		ContentLength:       512,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	metrics.Send([]request.Span{unmeasured})
+
+	// One record is expected. Drain briefly afterwards so an instrument that should
+	// have stayed out has a chance to show up and fail the assertion.
+	published := map[string]struct{}{}
+	for _, r := range readNChan(t, otlp.Records(), 1, timeout) {
+		published[r.Name] = struct{}{}
+	}
+	drain := time.After(500 * time.Millisecond)
+	for draining := true; draining; {
+		select {
+		case r := <-otlp.Records():
+			published[r.Name] = struct{}{}
+		case <-drain:
+			draining = false
+		}
+	}
+
+	assert.Contains(t, published, "http.client.request.body.size",
+		"the size of the request that was sent is known and must be reported")
+	assert.NotContains(t, published, "http.client.request.duration",
+		"a duration that runs past the request it describes was published")
+	assert.NotContains(t, published, "http.client.response.body.size",
+		"a response nobody saw was reported as having a size")
+}

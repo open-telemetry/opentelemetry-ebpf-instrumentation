@@ -972,11 +972,68 @@ func (r *metricsReporter) collectMetrics(ctx context.Context) {
 	})
 }
 
-// otelMetricsObserved gates the RED series. A span with no measured duration stays out,
-// body-size histograms included: those buckets are only meaningful next to a duration.
+// recordedAsNonHTTPClient reports whether an HTTP client span is published under the
+// database, RPC, or GenAI instruments rather than the HTTP ones. Those families carry no
+// body-size instrument, so such a span has no size to publish. It mirrors the dispatch in
+// the duration switch.
+func (r *metricsReporter) recordedAsNonHTTPClient(span *request.Span) bool {
+	switch {
+	case r.is.DBEnabled() &&
+		(span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch):
+		return true
+	case span.SubType == request.HTTPSubtypeJSONRPC && r.is.GRPCEnabled():
+		return true
+	case r.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType):
+		return true
+	default:
+		return false
+	}
+}
+
+// observeBodySizes publishes what the exchange carried. The request size is known
+// whatever came of the response, so it is published even when the duration is not. The
+// response size is not known: a record finished without its response carries a zeroed
+// length, and publishing that would report an empty response for a call whose response
+// was never seen.
+func (r *metricsReporter) observeBodySizes(span *request.Span) {
+	if !r.is.HTTPEnabled() {
+		return
+	}
+
+	var requestSize, responseSize *Expirer[prometheus.Histogram]
+	var requestAttrs, responseAttrs []attributes.Field[*request.Span, string]
+
+	switch span.Type {
+	case request.EventTypeHTTP:
+		// JSON-RPC over HTTP is recorded as an RPC call, which has no size instrument.
+		if span.SubType == request.HTTPSubtypeJSONRPC && r.is.GRPCEnabled() {
+			return
+		}
+		requestSize, responseSize = r.httpRequestSize, r.httpResponseSize
+		requestAttrs, responseAttrs = r.attrHTTPRequestSize, r.attrHTTPResponseSize
+	case request.EventTypeHTTPClient:
+		if r.recordedAsNonHTTPClient(span) {
+			return
+		}
+		requestSize, responseSize = r.httpClientRequestSize, r.httpClientResponseSize
+		requestAttrs, responseAttrs = r.attrHTTPClientRequestSize, r.attrHTTPClientResponseSize
+	default:
+		return
+	}
+
+	r.observeHistogram(requestSize.WithLabelValues(labelValues(span, requestAttrs)...).Metric,
+		float64(span.RequestBodyLength()), span)
+
+	if request.IgnoreDurations(span) {
+		return
+	}
+
+	r.observeHistogram(responseSize.WithLabelValues(labelValues(span, responseAttrs)...).Metric,
+		float64(span.ResponseBodyLength()), span)
+}
+
 func (r *metricsReporter) otelMetricsObserved(span *request.Span) bool {
-	return span.Service.Features.AppRED() && !span.Service.ExportsOTelMetrics() &&
-		!request.IgnoreDurations(span)
+	return span.Service.Features.AppRED() && !span.Service.ExportsOTelMetrics()
 }
 
 func (r *metricsReporter) otelSpanMetricsObserved(span *request.Span) bool {
@@ -1067,6 +1124,14 @@ func (r *metricsReporter) observe(span *request.Span) {
 	duration := t.End.Sub(t.RequestStart).Seconds()
 
 	if r.otelMetricsObserved(span) {
+		// A record finished without its response ends when something other than the
+		// response ended it, so its duration describes more than the request it names.
+		// Every instrument in the switch stands on that duration; the body sizes do
+		// not, and are recorded on their own terms.
+		r.observeBodySizes(span)
+	}
+
+	if r.otelMetricsObserved(span) && !request.IgnoreDurations(span) {
 		switch span.Type {
 		case request.EventTypeHTTP:
 			// JSON-RPC over HTTP gets recorded as RPC server metrics
@@ -1074,8 +1139,6 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
 			} else if r.is.HTTPEnabled() {
 				r.observeHistogram(r.httpDuration.WithLabelValues(labelValues(span, r.attrHTTPDuration)...).Metric, duration, span)
-				r.observeHistogram(r.httpRequestSize.WithLabelValues(labelValues(span, r.attrHTTPRequestSize)...).Metric, float64(span.RequestBodyLength()), span)
-				r.observeHistogram(r.httpResponseSize.WithLabelValues(labelValues(span, r.attrHTTPResponseSize)...).Metric, float64(span.ResponseBodyLength()), span)
 			}
 		case request.EventTypeHTTPClient:
 			// HTTP client subtypes that are database calls get recorded as db client metrics
@@ -1099,8 +1162,6 @@ func (r *metricsReporter) observe(span *request.Span) {
 			default:
 				if r.is.HTTPEnabled() {
 					r.observeHistogram(r.httpClientDuration.WithLabelValues(labelValues(span, r.attrHTTPClientDuration)...).Metric, duration, span)
-					r.observeHistogram(r.httpClientRequestSize.WithLabelValues(labelValues(span, r.attrHTTPClientRequestSize)...).Metric, float64(span.RequestBodyLength()), span)
-					r.observeHistogram(r.httpClientResponseSize.WithLabelValues(labelValues(span, r.attrHTTPClientResponseSize)...).Metric, float64(span.ResponseBodyLength()), span)
 				}
 			}
 		case request.EventTypeGRPC:

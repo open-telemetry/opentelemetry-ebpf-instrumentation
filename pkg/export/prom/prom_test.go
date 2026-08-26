@@ -1526,7 +1526,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 // A span with no measured duration stays out of the RED series, whose buckets are only
 // meaningful next to a duration. otelSpanFiltered still passes it, so the service graph
 // can count the call.
-func TestREDMetricsExcludeSpansWithNoMeasuredDuration(t *testing.T) {
+func TestREDMetricsWithholdDurationsFromUnmeasuredSpans(t *testing.T) {
 	mr := metricsReporter{cfg: &PrometheusConfig{}}
 
 	svcRED := svc.Attrs{Features: export.FeatureApplicationRED}
@@ -1545,8 +1545,71 @@ func TestREDMetricsExcludeSpansWithNoMeasuredDuration(t *testing.T) {
 
 	assert.True(t, mr.otelMetricsObserved(&measured),
 		"an observed call is in the RED series")
-	assert.False(t, mr.otelMetricsObserved(&unmeasured),
-		"a call with no measured duration is not in the RED series")
+	assert.True(t, mr.otelMetricsObserved(&unmeasured),
+		"a call with no measured duration is still in the RED family: the request it sent "+
+			"has a known size even though its duration says more than the request")
 	assert.False(t, mr.otelSpanFiltered(&unmeasured),
 		"it is withheld from durations, not filtered out of every metric")
+}
+
+// A call whose response was never observed still sent a request, and the size of that
+// request is known. Withholding the duration must not withhold what the request itself
+// carried. The response size stays out: an unmeasured record carries a zeroed response
+// length, and publishing it would report an empty response for a call whose response was
+// never seen.
+func TestREDMetricsUnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
+	ctx := t.Context()
+	openPort := testutil.FreeTCPPort(t)
+	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{
+			Port:                        openPort,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+
+	go exporter(ctx)
+
+	svcAttrs := svc.Attrs{
+		Features: export.FeatureApplicationRED,
+		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+	}
+
+	unmeasured := request.Span{
+		Service:             svcAttrs,
+		Type:                request.EventTypeHTTPClient,
+		Method:              "GET",
+		Route:               "/unmeasured",
+		RequestStart:        100,
+		End:                 6 * time.Second.Nanoseconds(),
+		ContentLength:       512,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	promInput.Send([]request.Span{unmeasured})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, "http_client_request_body_size_bytes_count",
+			"the size of the request that was sent is known and must be reported")
+		assert.NotContains(ct, exported, "http_client_request_duration_seconds_count",
+			"a duration that runs past the request it describes was published")
+		assert.NotContains(ct, exported, "http_client_response_body_size_bytes_count",
+			"a response nobody saw was reported as having a size")
+	}, timeout, 100*time.Millisecond)
 }

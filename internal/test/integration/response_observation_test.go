@@ -393,6 +393,22 @@ func testUnmeasuredCallPublishesNoDuration(t *testing.T) {
 		"a duration that runs past the request it describes was published as the call's duration")
 }
 
+// A withheld duration says nothing about the request that was sent. Its size is known
+// and is reported. The response size is not known: the record carries a zeroed length,
+// and publishing it would report an empty response for a call whose response was never
+// seen.
+func testUnmeasuredCallStillPublishesItsRequestSize(t *testing.T) {
+	promSeries(t, `http_client_request_body_size_bytes_count{server_port="`+
+		strconv.Itoa(abandonedPeerPort)+`"}`)
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	withheld, err := pq.Query(`http_client_response_body_size_bytes_count{server_port="` +
+		strconv.Itoa(abandonedPeerPort) + `"}`)
+	require.NoError(t, err)
+	assert.Empty(t, withheld,
+		"a response nobody saw was reported as having a size")
+}
+
 func TestSuite_ResponseObservation(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-response-observation.yml", path.Join(pathOutput, "test-suite-unobserved-response.log"))
 	require.NoError(t, err)
@@ -419,6 +435,7 @@ func TestSuite_ResponseObservation(t *testing.T) {
 	t.Run("the host info gauge is exported", testHostInfoIsExported)
 	t.Run("an unmeasured call counts on its edge without a latency", testUnmeasuredCallCountsOnItsEdgeWithoutLatency)
 	t.Run("an unmeasured call publishes no duration", testUnmeasuredCallPublishesNoDuration)
+	t.Run("an unmeasured call still publishes its request size", testUnmeasuredCallStillPublishesItsRequestSize)
 
 	require.NoError(t, compose.Close())
 }
