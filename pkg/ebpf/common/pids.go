@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/idgen"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
@@ -30,20 +31,20 @@ const (
 // choose to filter traces using whether the User-space or Host-space PIDs
 var readNamespacePIDs = procs.FindNamespacedPids
 
-var pidsFilterNow = time.Now
+var pidsFilterMonoNow = timing.MonoTimeNow
 
-// blocked pids stay valid for this long: events of an exiting process can sit
-// in the kernel ring buffers up to the reader flush interval, and dropping the
-// pid immediately silently discards its final spans
-const pidRemovalGracePeriod = 5 * time.Second
+// removed entries are kept this long so spans captured before the removal can
+// still drain through the reader and batching stages; it only bounds memory,
+// admission is decided by comparing span timestamps against removedAt
+const pidRemovalRetention = 5 * time.Minute
 
 type PIDInfo struct {
 	fileInfo       *exec.FileInfo
 	pidTypes       PIDType
 	otherKnownPids []app.PID
-	// zero while the process lives; set when it is blocked, the entry then
-	// expires after pidRemovalGracePeriod
-	removedAt time.Time
+	// zero while the process lives; the CLOCK_MONOTONIC instant it was
+	// blocked at otherwise, comparable against BPF span timestamps
+	removedAt time.Duration
 }
 
 type ServiceFilter interface {
@@ -97,15 +98,22 @@ func (pf *PIDsFilter) ValidPID(userPID app.PID, ns uint32, pidType PIDType) bool
 
 	if ns, nsExists := pf.current[ns]; nsExists {
 		if info, pidExists := ns[userPID]; pidExists {
-			return info.pidTypes&pidType != 0 && !expired(&info)
+			return info.pidTypes&pidType != 0
 		}
 	}
 
 	return false
 }
 
-func expired(info *PIDInfo) bool {
-	return !info.removedAt.IsZero() && pidsFilterNow().Sub(info.removedAt) > pidRemovalGracePeriod
+// spans of a removed pid still pass if captured while it lived: they were
+// merely waiting in the reader and batching stages. Later timestamps mean the
+// pid was reused by a process we were not told to track
+func capturedWhileAllowed(info *PIDInfo, span *request.Span) bool {
+	return info.removedAt == 0 || span.End <= int64(info.removedAt)
+}
+
+func expired(info *PIDInfo, now time.Duration) bool {
+	return info.removedAt != 0 && now-info.removedAt > pidRemovalRetention
 }
 
 func (pf *PIDsFilter) CurrentPIDs(t PIDType) map[uint32]map[app.PID]svc.Attrs {
@@ -116,7 +124,7 @@ func (pf *PIDsFilter) CurrentPIDs(t PIDType) map[uint32]map[app.PID]svc.Attrs {
 	for k, v := range pf.current {
 		cVal := map[app.PID]svc.Attrs{}
 		for kv, vv := range v {
-			if vv.pidTypes&t != 0 && vv.removedAt.IsZero() {
+			if vv.pidTypes&t != 0 && vv.removedAt == 0 {
 				cVal[kv] = vv.fileInfo.UnsafeServiceAttrs()
 			}
 		}
@@ -155,7 +163,7 @@ func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 		// If the namespace exist, we confirm that we are tracking the user PID that OBI
 		// saw. We don't check for the host pid, because we can't be sure of the number
 		// of container layers. The Host PID is always the outer most layer.
-		if info, pidExists := ns[span.Pid.UserPID]; pidExists && !expired(&info) {
+		if info, pidExists := ns[span.Pid.UserPID]; pidExists && capturedWhileAllowed(&info, span) {
 			if pf.ignoreOtel {
 				pf.checkIfExportsOTel(info.fileInfo, span, pf.defaultOtlpGRPCPort)
 			}
@@ -193,10 +201,13 @@ func (pf *PIDsFilter) addPID(pid app.PID, nsid uint32, fi *exec.FileInfo, t PIDT
 
 	for _, p := range allPids {
 		pidInfo := ns[p]
+		if pidInfo.removedAt != 0 {
+			// a reused pid must not inherit the previous process's tracer types
+			pidInfo = PIDInfo{}
+		}
 		pidInfo.fileInfo = fi
 		pidInfo.pidTypes |= t
 		pidInfo.otherKnownPids = allPids
-		pidInfo.removedAt = time.Time{}
 		ns[p] = pidInfo
 	}
 }
@@ -207,9 +218,9 @@ func (pf *PIDsFilter) removePID(pid app.PID, nsid uint32) {
 		return
 	}
 
-	now := pidsFilterNow()
+	now := pidsFilterMonoNow()
 	markAsRemoved := func(p app.PID) {
-		if info, ok := ns[p]; ok && info.removedAt.IsZero() {
+		if info, ok := ns[p]; ok && info.removedAt == 0 {
 			info.removedAt = now
 			ns[p] = info
 		}
@@ -227,9 +238,10 @@ func (pf *PIDsFilter) removePID(pid app.PID, nsid uint32) {
 
 // callers must hold the write lock
 func (pf *PIDsFilter) pruneExpired() {
+	now := pidsFilterMonoNow()
 	for nsid, ns := range pf.current {
 		for pid, info := range ns {
-			if expired(&info) {
+			if expired(&info, now) {
 				delete(ns, pid)
 			}
 		}

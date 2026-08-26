@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
 
@@ -75,29 +76,31 @@ func TestFilter_Block(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid}, nil
 	}
-	now := time.Now()
-	pidsFilterNow = func() time.Time { return now }
-	t.Cleanup(func() { pidsFilterNow = time.Now })
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
 	pf.AllowPID(456, 33, exec.New(exec.Init{}), PIDTypeGo)
 	pf.BlockPID(123, 33)
-	now = now.Add(pidRemovalGracePeriod + time.Second)
 
-	// with the same namespace, it filters by user PID, as it is the PID
-	// that is seen by OBI's process discovery
+	// spans captured after the block belong to a process we are not tracking
+	postBlock := int64(now + time.Second)
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
-	}, resetTraceContext(pf.Filter(spanSet)))
+		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}, End: postBlock},
+	}, resetTraceContext(pf.Filter([]request.Span{
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, End: postBlock},
+		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}, End: postBlock},
+	})))
 }
 
 func TestFilter_NewNSLater(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid}, nil
 	}
-	now := time.Now()
-	pidsFilterNow = func() time.Time { return now }
-	t.Cleanup(func() { pidsFilterNow = time.Now })
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
 	pf.AllowPID(456, 33, exec.New(exec.Init{}), PIDTypeGo)
@@ -121,7 +124,8 @@ func TestFilter_NewNSLater(t *testing.T) {
 	}, resetTraceContext(pf.Filter(spanSet)))
 
 	pf.BlockPID(456, 33)
-	now = now.Add(pidRemovalGracePeriod + time.Second)
+	now += pidRemovalRetention + time.Second
+	pf.BlockPID(456, 33) // prunes the expired entry
 
 	assert.Equal(t, []request.Span{
 		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
@@ -130,7 +134,8 @@ func TestFilter_NewNSLater(t *testing.T) {
 	}, resetTraceContext(pf.Filter(spanSet)))
 
 	pf.BlockPID(1000, 44)
-	now = now.Add(pidRemovalGracePeriod + time.Second)
+	now += pidRemovalRetention + time.Second
+	pf.BlockPID(1000, 44) // prunes the expired entry
 
 	assert.Equal(t, []request.Span{
 		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
@@ -311,9 +316,9 @@ func TestFilter_TriggersOTelSpanFiltering(t *testing.T) {
 }
 
 func TestFilter_Cleanup(t *testing.T) {
-	now := time.Now()
-	pidsFilterNow = func() time.Time { return now }
-	t.Cleanup(func() { pidsFilterNow = time.Now })
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		switch pid {
 		case 123:
@@ -360,7 +365,8 @@ func TestFilter_Cleanup(t *testing.T) {
 	pf.BlockPID(123, 33)
 	pf.BlockPID(456, 33)
 	pf.BlockPID(789, 33)
-	now = now.Add(pidRemovalGracePeriod + time.Second)
+	now += pidRemovalRetention + time.Second
+	pf.BlockPID(123, 33) // prunes the expired entries
 
 	assert.False(t, pf.ValidPID(1, 33, PIDTypeGo))
 	assert.False(t, pf.ValidPID(2, 33, PIDTypeGo))
@@ -374,9 +380,9 @@ func TestFilter_PreservesMultiplePIDTypes(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid, pid + 1000}, nil
 	}
-	now := time.Now()
-	pidsFilterNow = func() time.Time { return now }
-	t.Cleanup(func() { pidsFilterNow = time.Now })
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
 	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
@@ -402,7 +408,8 @@ func TestFilter_PreservesMultiplePIDTypes(t *testing.T) {
 	}
 
 	pf.BlockPID(123, 33)
-	now = now.Add(pidRemovalGracePeriod + time.Second)
+	now += pidRemovalRetention + time.Second
+	pf.BlockPID(123, 33) // prunes the expired entries
 
 	assert.False(t, pf.ValidPID(123, 33, PIDTypeGo))
 	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes))
@@ -429,51 +436,79 @@ func filterService(spans []request.Span) []svc.Attrs {
 	return result
 }
 
-// a blocked pid stays valid for the removal grace period so events still
-// buffered in the kernel ring buffers can drain, then turns invalid
-func TestBlockPIDGracePeriod(t *testing.T) {
+// spans captured before a pid was blocked must pass no matter how long the
+// reader and batching stages delay them; spans captured after the block
+// belong to a reused pid and must not
+func TestBlockPIDDrainByCaptureTime(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid}, nil
 	}
-	now := time.Now()
-	pidsFilterNow = func() time.Time { return now }
-	t.Cleanup(func() { pidsFilterNow = time.Now })
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
 
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
 	require.True(t, pf.ValidPID(123, 33, PIDTypeKProbes))
 
+	preBlock := int64(now - time.Second)
 	pf.BlockPID(123, 33)
+	postBlock := int64(now + time.Second)
 
 	assert.True(t, pf.ValidPID(123, 33, PIDTypeKProbes),
-		"events of an exited process must drain during the grace period")
+		"events of an exited process must drain while its entry is retained")
 
-	spans := pf.Filter([]request.Span{{Pid: request.PidInfo{UserPID: 123, Namespace: 33}}})
-	assert.Len(t, spans, 1, "spans of an exited process must pass during the grace period")
+	now += pidRemovalRetention - time.Second
 
-	now = now.Add(pidRemovalGracePeriod + time.Second)
-	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes))
-	assert.Empty(t, pf.Filter([]request.Span{{Pid: request.PidInfo{UserPID: 123, Namespace: 33}}}))
+	spans := pf.Filter([]request.Span{{Pid: request.PidInfo{UserPID: 123, Namespace: 33}, End: preBlock}})
+	assert.Len(t, spans, 1, "spans captured before the block must survive any delivery delay")
+
+	assert.Empty(t, pf.Filter([]request.Span{{Pid: request.PidInfo{UserPID: 123, Namespace: 33}, End: postBlock}}),
+		"spans captured after the block must be dropped")
 }
 
-func TestBlockPIDGraceRevival(t *testing.T) {
+func TestBlockPIDReuseSameType(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid}, nil
 	}
-	now := time.Now()
-	pidsFilterNow = func() time.Time { return now }
-	t.Cleanup(func() { pidsFilterNow = time.Now })
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
 
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
 	pf.BlockPID(123, 33)
 	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
 
-	now = now.Add(pidRemovalGracePeriod + time.Second)
+	now += pidRemovalRetention + time.Second
 	assert.True(t, pf.ValidPID(123, 33, PIDTypeKProbes), "re-allowed pid must not inherit the removal mark")
+
+	spans := pf.Filter([]request.Span{{Pid: request.PidInfo{UserPID: 123, Namespace: 33}, End: int64(now)}})
+	assert.Len(t, spans, 1, "spans of the new incarnation must pass")
 }
 
-func TestBlockPIDGraceExcludedFromCurrentPIDs(t *testing.T) {
+// a pid reused by a process registered for a different tracer type must not
+// revive the previous process's types
+func TestBlockPIDReuseAcrossTypes(t *testing.T) {
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		return []app.PID{pid}, nil
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.BlockPID(123, 33)
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
+
+	assert.True(t, pf.ValidPID(123, 33, PIDTypeGo))
+	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes))
+
+	_, ok := pf.CurrentPIDs(PIDTypeKProbes)[33][123]
+	assert.False(t, ok, "the previous incarnation's tracer type must not re-enter the BPF filter")
+
+	_, ok = pf.CurrentPIDs(PIDTypeGo)[33][123]
+	assert.True(t, ok)
+}
+
+func TestBlockPIDExcludedFromCurrentPIDs(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid}, nil
 	}
@@ -486,24 +521,28 @@ func TestBlockPIDGraceExcludedFromCurrentPIDs(t *testing.T) {
 	assert.False(t, ok, "pids marked as removed must not appear in the live view")
 }
 
-func TestBlockPIDPrunesExpiredTombstones(t *testing.T) {
+func TestBlockPIDPrunesExpiredEntries(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid}, nil
 	}
-	now := time.Now()
-	pidsFilterNow = func() time.Time { return now }
-	t.Cleanup(func() { pidsFilterNow = time.Now })
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
 
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
 	pf.AllowPID(456, 33, exec.New(exec.Init{}), PIDTypeKProbes)
+	preBlock := int64(now - time.Second)
 	pf.BlockPID(123, 33)
 
-	now = now.Add(pidRemovalGracePeriod + time.Second)
+	now += pidRemovalRetention + time.Second
 	pf.BlockPID(456, 33)
 
 	pf.mux.RLock()
 	_, ok := pf.current[33][123]
 	pf.mux.RUnlock()
-	assert.False(t, ok, "entries past the grace period must be pruned")
+	assert.False(t, ok, "entries past the retention must be pruned")
+
+	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes))
+	assert.Empty(t, pf.Filter([]request.Span{{Pid: request.PidInfo{UserPID: 123, Namespace: 33}, End: preBlock}}))
 }
