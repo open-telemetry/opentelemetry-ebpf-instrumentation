@@ -251,11 +251,22 @@ func parseGunicorn(args []string, env map[string]string) pythonLaunch {
 		launch.searchPaths = append(launch.searchPaths, settings.chdir)
 	}
 	launch.searchPaths = append(launch.searchPaths, splitList(settings.pythonPath)...)
-	if target := firstApplicationReference(positionals); target != "" {
+	if target, ok := gunicornApplication(positionals); ok {
 		launch.target = target
 		launch.targetKind = targetModule
 	}
 	return launch
+}
+
+func gunicornApplication(positionals []string) (string, bool) {
+	if len(positionals) == 0 {
+		return "", false
+	}
+	target := positionals[0]
+	if cleanValue(target) != target || !validModule(target) && !isApplicationReference(target) {
+		return "", false
+	}
+	return target, true
 }
 
 type gunicornSettings struct {
@@ -331,7 +342,48 @@ options:
 }
 
 func parseHypercorn(args []string) pythonLaunch {
-	return parseArgparseApplication(args, hypercornOptionsWithValues, hypercornOptionsWithoutValues)
+	positionals, ok := argparsePositionals(args, hypercornOptionsWithValues, hypercornOptionsWithoutValues)
+	if !ok || len(positionals) != 1 {
+		return pythonLaunch{}
+	}
+	target, kind, ok := hypercornApplication(positionals[0])
+	if !ok {
+		return pythonLaunch{}
+	}
+	return pythonLaunch{target: target, targetKind: kind, searchPaths: []string{"."}}
+}
+
+func hypercornApplication(application string) (string, targetKind, bool) {
+	if cleanValue(application) != application {
+		return "", targetNone, false
+	}
+
+	module := application
+	object := ""
+	switch strings.Count(application, ":") {
+	case 0:
+	case 2:
+		mode, remainder, _ := strings.Cut(application, ":")
+		if mode != "asgi" && mode != "wsgi" {
+			return "", targetNone, false
+		}
+		module, object, _ = strings.Cut(remainder, ":")
+	default:
+		module, object, _ = strings.Cut(application, ":")
+	}
+	if module == "" || strings.Contains(application, ":") && object == "" {
+		return "", targetNone, false
+	}
+
+	kind := classifyTarget(module)
+	if kind == targetModule && !validModule(module) {
+		return "", targetNone, false
+	}
+	target := module
+	if object != "" {
+		target += ":" + object
+	}
+	return target, kind, true
 }
 
 func parseDaphne(args []string) pythonLaunch {
@@ -728,7 +780,17 @@ func gunicornPositionals(args []string) ([]string, bool) {
 			return append(values, args[i+1:]...), true
 		}
 		if strings.HasPrefix(arg, "--") {
-			name, _, attached := strings.Cut(arg, "=")
+			name, value, attached := strings.Cut(arg, "=")
+			if name == "--proxy-protocol" {
+				if attached {
+					if !gunicornProxyProtocolMode(value) {
+						return nil, false
+					}
+				} else if i+1 < len(args) && gunicornProxyProtocolMode(args[i+1]) {
+					i++
+				}
+				continue
+			}
 			if _, consumes := gunicornOptionsWithValues[name]; consumes {
 				if !attached {
 					if i+1 == len(args) {
@@ -738,7 +800,7 @@ func gunicornPositionals(args []string) ([]string, bool) {
 				}
 				continue
 			}
-			if _, known := gunicornOptionsWithoutValues[name]; !known || attached && name != "--proxy-protocol" {
+			if _, known := gunicornOptionsWithoutValues[name]; !known || attached {
 				return nil, false
 			}
 			continue
@@ -759,6 +821,15 @@ func gunicornPositionals(args []string) ([]string, bool) {
 		values = append(values, arg)
 	}
 	return values, true
+}
+
+func gunicornProxyProtocolMode(value string) bool {
+	switch value {
+	case "off", "v1", "v2", "auto":
+		return true
+	default:
+		return false
+	}
 }
 
 func gunicornAttachedShortValue(arg, target string) (string, bool) {

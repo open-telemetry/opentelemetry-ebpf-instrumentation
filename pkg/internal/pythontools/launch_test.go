@@ -225,6 +225,22 @@ func TestParseGunicornOptions(t *testing.T) {
 	}
 }
 
+func TestParseGunicornApplicationForms(t *testing.T) {
+	tests := map[string]string{
+		"default application object":  "company.orders.wsgi",
+		"explicit application object": "company.orders.wsgi:application",
+		"factory application object":  "company.orders.wsgi:create_app()",
+	}
+	for name, application := range tests {
+		t.Run(name, func(t *testing.T) {
+			launch := parsePythonLaunch("gunicorn", []string{"--workers", "4", application}, nil)
+
+			assert.Equal(t, application, launch.target)
+			assert.Equal(t, targetModule, launch.targetKind)
+		})
+	}
+}
+
 func TestParseGunicornFailsClosedOnUnknownOptions(t *testing.T) {
 	const application = "orders.wsgi:application"
 	tests := []struct {
@@ -283,9 +299,13 @@ func TestParseGunicornProxyProtocolOption(t *testing.T) {
 	const application = "orders.wsgi:application"
 
 	tests := map[string][]string{
-		"separated value":        {"--proxy-protocol", "auto", application},
+		"separated off value":    {"--proxy-protocol", "off", application},
+		"separated v1 value":     {"--proxy-protocol", "v1", application},
+		"separated v2 value":     {"--proxy-protocol", "v2", application},
+		"separated auto value":   {"--proxy-protocol", "auto", application},
 		"attached value":         {"--proxy-protocol=v1", application},
 		"legacy bare flag":       {"--proxy-protocol", application},
+		"bare before module app": {"--proxy-protocol", "company.orders.wsgi"},
 		"bare before an option":  {"--proxy-protocol", "--dogstatsd-tags", "env:prod", application},
 		"bare after application": {application, "--proxy-protocol"},
 	}
@@ -293,10 +313,16 @@ func TestParseGunicornProxyProtocolOption(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			launch := parsePythonLaunch("gunicorn", args, nil)
 
-			assert.Equal(t, application, launch.target)
+			expected := application
+			if name == "bare before module app" {
+				expected = "company.orders.wsgi"
+			}
+			assert.Equal(t, expected, launch.target)
 			assert.Equal(t, targetModule, launch.targetKind)
 		})
 	}
+
+	assert.Equal(t, pythonLaunch{}, parsePythonLaunch("gunicorn", []string{"--proxy-protocol=invalid", application}, nil))
 }
 
 func TestParseUvicornOptions(t *testing.T) {
@@ -427,6 +453,30 @@ func TestParseHypercornOptions(t *testing.T) {
 
 			assert.Equal(t, application, launch.target)
 			assert.Equal(t, targetModule, launch.targetKind)
+		})
+	}
+}
+
+func TestParseHypercornApplicationForms(t *testing.T) {
+	tests := []struct {
+		name        string
+		application string
+		target      string
+		kind        targetKind
+	}{
+		{name: "default app object", application: "company.orders.api", target: "company.orders.api", kind: targetModule},
+		{name: "explicit app object", application: "company.orders.api:app", target: "company.orders.api:app", kind: targetModule},
+		{name: "file app", application: "src/api.py:app", target: "src/api.py:app", kind: targetFile},
+		{name: "asgi mode", application: "asgi:company.orders.api:app", target: "company.orders.api:app", kind: targetModule},
+		{name: "wsgi file mode", application: "wsgi:src/api.py:app", target: "src/api.py:app", kind: targetFile},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			launch := parsePythonLaunch("hypercorn", []string{"--workers", "4", tt.application}, nil)
+
+			assert.Equal(t, tt.target, launch.target)
+			assert.Equal(t, tt.kind, launch.targetKind)
+			assert.Equal(t, []string{"."}, launch.searchPaths)
 		})
 	}
 }
