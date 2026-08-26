@@ -4,8 +4,12 @@
 package main
 
 import (
+	"archive/tar"
+	"encoding/json"
+	"encoding/xml"
 	"go/parser"
 	"go/token"
+	"net/http"
 	"reflect"
 	"testing"
 	"time"
@@ -478,7 +482,7 @@ func TestProcessInlineFields(t *testing.T) {
 	// Add a property to parent that should not be overwritten
 	schema.Definitions["ParentType"].Properties.Set("parent_field", &jsonschema.Schema{Type: "string"})
 
-	g.processInlineFields(schema)
+	g.processInlineFields(schema, nil)
 
 	// Check that inline_field was merged into ParentType
 	parentSchema := schema.Definitions["ParentType"]
@@ -527,7 +531,7 @@ func TestSortSchemaProperties(t *testing.T) {
 
 func TestBuildInlineTypeSchemas(t *testing.T) {
 	t.Run("finds MetadataGlobMap and MetadataRegexMap from obi.Config", func(t *testing.T) {
-		result := buildInlineTypeSchemas(reflect.TypeOf(obi.Config{}))
+		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeOf(obi.Config{}))
 
 		// Should find MetadataGlobMap
 		schemaFunc, found := result["MetadataGlobMap"]
@@ -552,12 +556,12 @@ func TestBuildInlineTypeSchemas(t *testing.T) {
 		type SimpleStruct struct {
 			Name string `yaml:"name"`
 		}
-		result := buildInlineTypeSchemas(reflect.TypeOf(SimpleStruct{}))
+		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeOf(SimpleStruct{}))
 		assert.Empty(t, result)
 	})
 
 	t.Run("handles pointer types", func(t *testing.T) {
-		result := buildInlineTypeSchemas(reflect.TypeOf(&obi.Config{}))
+		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeOf(&obi.Config{}))
 
 		// Should still find inline types
 		_, found := result["MetadataGlobMap"]
@@ -726,4 +730,123 @@ func TestIsZeroDefault(t *testing.T) {
 	assert.False(t, isZeroDefault(int64(0)))
 	assert.False(t, isZeroDefault("hello"))
 	assert.False(t, isZeroDefault([]any{"a"}))
+}
+
+func TestCheckTypeNameCollisions(t *testing.T) {
+	t.Run("no collision", func(t *testing.T) {
+		g := NewSchemaGenerator()
+		g.recordTypeName(reflect.TypeFor[json.Decoder]())
+		g.recordTypeName(reflect.TypeFor[json.Decoder]())
+		g.recordTypeName(reflect.TypeFor[xml.Encoder]())
+
+		require.NoError(t, g.checkTypeNameCollisions())
+	})
+
+	t.Run("same name in two packages", func(t *testing.T) {
+		g := NewSchemaGenerator()
+		g.recordTypeName(reflect.TypeFor[json.Decoder]())
+		g.recordTypeName(reflect.TypeFor[xml.Decoder]())
+
+		err := g.checkTypeNameCollisions()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Decoder")
+		assert.Contains(t, err.Error(), "encoding/json")
+		assert.Contains(t, err.Error(), "encoding/xml")
+	})
+
+	t.Run("types with no name or no package are ignored", func(t *testing.T) {
+		g := NewSchemaGenerator()
+		g.recordTypeName(reflect.TypeFor[struct{ A int }]())
+		g.recordTypeName(reflect.TypeFor[int]())
+
+		require.NoError(t, g.checkTypeNameCollisions())
+		assert.Empty(t, g.reflectedTypeNames)
+	})
+}
+
+// inlineHeaderRoot reproduces the shape that the reflector never names: an
+// inline field whose type is a named map. http.Header is such a map, and
+// tar.Header is an unrelated struct with the same bare name.
+type inlineHeaderRoot struct {
+	Inline http.Header `yaml:",inline"`
+	Other  tar.Header  `yaml:"other"`
+}
+
+// TestInlineTypeNameCollisionIsDetected covers a collision where both types are
+// reachable but only one of them is reflected into a definition. The inline type
+// is selected by bare name in processInlineFields, so the other type taking that
+// name would merge an unrelated schema into the parent.
+func TestInlineTypeNameCollisionIsDetected(t *testing.T) {
+	g := NewSchemaGenerator()
+	schema := g.newReflector().Reflect(&inlineHeaderRoot{})
+
+	// The reflector names the struct but not the inline map, which is why the
+	// inline walk has to record it too.
+	require.Contains(t, schema.Definitions, "Header")
+	require.NotContains(t, g.reflectedTypeNames["Header"], "net/http")
+
+	g.buildInlineTypeSchemas(reflect.TypeFor[inlineHeaderRoot]())
+
+	err := g.checkTypeNameCollisions()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "net/http")
+	assert.Contains(t, err.Error(), "archive/tar")
+}
+
+// propertyKeys lists the property names of a schema in order.
+func propertyKeys(schema *jsonschema.Schema) []string {
+	var keys []string
+	for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
+		keys = append(keys, pair.Key)
+	}
+	return keys
+}
+
+// hiddenInlineHeader carries an inline net/http.Header, and is only ever
+// reached through fields the reflector drops.
+type hiddenInlineHeader struct {
+	Header http.Header `yaml:",inline"`
+}
+
+// ignoredInlineRoot reaches hiddenInlineHeader only through fields excluded by
+// tag and an unexported one, while archive/tar.Header is genuinely reflected.
+type ignoredInlineRoot struct {
+	Ignored    hiddenInlineHeader `yaml:"-"`
+	SchemaSkip hiddenInlineHeader `jsonschema:"-"`
+	unexported hiddenInlineHeader //nolint:unused // Present so the walk meets an unexported field.
+	Other      tar.Header         `yaml:"other"`
+}
+
+// TestUnreachableInlineTypeNameDoesNotCollide keeps the inline walk from
+// aborting generation over a name the schema can never contain: only
+// archive/tar.Header reaches the schema here, so there is no collision.
+func TestUnreachableInlineTypeNameDoesNotCollide(t *testing.T) {
+	g := NewSchemaGenerator()
+	schema := g.newReflector().Reflect(&ignoredInlineRoot{})
+	g.buildInlineTypeSchemas(reflect.TypeFor[ignoredInlineRoot]())
+
+	// Pin the behavior reflectsField mirrors: the reflector keeps only the
+	// eligible field, so the inline type behind the dropped ones is unreachable.
+	require.Equal(t, []string{"other"}, propertyKeys(schema))
+
+	require.Contains(t, schema.Definitions, "Header")
+	assert.NotContains(t, g.reflectedTypeNames["Header"], "net/http")
+
+	require.NoError(t, g.checkTypeNameCollisions())
+}
+
+// TestConfigTypeNamesAreUnique guards the whole configuration graph: the schema
+// keys definitions by bare type name, so two config types sharing a name would
+// silently share one definition.
+func TestConfigTypeNamesAreUnique(t *testing.T) {
+	g := NewSchemaGenerator()
+	g.newReflector().Reflect(&obi.Config{})
+	g.buildInlineTypeSchemas(reflect.TypeFor[obi.Config]())
+
+	// Without these the test would pass vacuously if either path ever stopped
+	// recording type names. MetadataGlobMap is only seen by the inline walk.
+	require.Contains(t, g.reflectedTypeNames, "Config")
+	require.Contains(t, g.reflectedTypeNames, "MetadataGlobMap")
+
+	require.NoError(t, g.checkTypeNameCollisions())
 }

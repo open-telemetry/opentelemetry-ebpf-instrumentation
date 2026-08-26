@@ -1324,3 +1324,18 @@ func TestDBClientServerPortGetter(t *testing.T) {
 		})
 	}
 }
+
+func TestSpanOTELGetters_DBNamespace(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.DBNamespace)
+	require.True(t, ok, "getter should be found for DBNamespace")
+
+	kv := getter(&Span{Type: EventTypeRedisClient, DBNamespace: "1"})
+	require.True(t, kv.Valid())
+	assert.Equal(t, string(attr.DBNamespace), string(kv.Key))
+	assert.Equal(t, "1", kv.Value.AsString())
+
+	// spans without an available namespace must omit the attribute
+	// instead of emitting an empty value
+	kv = getter(&Span{Type: EventTypeSQLClient, SubType: int(DBMySQL)})
+	assert.False(t, kv.Valid(), "expected db.namespace to be omitted, got %v", kv)
+}

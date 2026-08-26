@@ -81,15 +81,15 @@ const (
 )
 
 // ExtraGroupAttributesMap defines additional attributes for attribute groups.
-// Currently only "k8s_app_meta" is supported as a key.
+// Supported keys are "app" and "k8s_app_meta".
 type ExtraGroupAttributesMap map[string][]attr.Name
 
 func (ExtraGroupAttributesMap) JSONSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type:        "object",
-		Description: "Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key.",
+		Description: "Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'.",
 		PropertyNames: &jsonschema.Schema{
-			Enum: []any{"k8s_app_meta"},
+			Enum: []any{"app", "k8s_app_meta"},
 		},
 		AdditionalProperties: &jsonschema.Schema{
 			Type: "array",
@@ -501,8 +501,11 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 		WeaklyTypedInput: true,
 		DecodeHook: mapstructure.ComposeDecodeHookFunc(
 			mapstructure.StringToTimeDurationHookFunc(),
-			mapstructure.TextUnmarshallerHookFunc(),
+			// ComposeDecodeHookFunc feeds each hook the previous hook's output, so the
+			// slice-joining hook must run before TextUnmarshallerHookFunc, which only
+			// fires on strings.
 			stringSliceToTextUnmarshalerHookFunc(),
+			mapstructure.TextUnmarshallerHookFunc(),
 			inlineMetadataHookFunc(),
 		),
 	})

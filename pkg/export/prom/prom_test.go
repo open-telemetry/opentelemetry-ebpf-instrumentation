@@ -590,7 +590,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}
@@ -633,7 +633,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelSpanMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelSpanMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}
@@ -676,7 +676,7 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelSpanMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelSpanMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}

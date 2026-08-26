@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -43,17 +44,79 @@ type SchemaGenerator struct {
 	// goFieldNames maps (typeName, propertyKey) to the Go field name,
 	// so we can strip it from descriptions.
 	goFieldNames map[string]map[string]string
+	// reflectedTypeNames maps a type name to the packages declaring a type with
+	// that name, for the types the reflector walks. Unlike the registries above
+	// it is filled during reflection, not by scanning source files.
+	reflectedTypeNames map[string]map[string]bool
 }
 
 // NewSchemaGenerator creates a new SchemaGenerator with initialized registries.
 func NewSchemaGenerator() *SchemaGenerator {
 	return &SchemaGenerator{
-		enums:        make(map[string][]any),
-		envVars:      make(map[string]map[string]string),
-		inlineFields: make(map[string][]string),
-		noYaml:       make(map[string]map[string]bool),
-		goFieldNames: make(map[string]map[string]string),
+		enums:              make(map[string][]any),
+		envVars:            make(map[string]map[string]string),
+		inlineFields:       make(map[string][]string),
+		noYaml:             make(map[string]map[string]bool),
+		goFieldNames:       make(map[string]map[string]string),
+		reflectedTypeNames: make(map[string]map[string]bool),
 	}
+}
+
+// newReflector builds the reflector used to generate the schema.
+func (g *SchemaGenerator) newReflector() *jsonschema.Reflector {
+	return &jsonschema.Reflector{
+		RequiredFromJSONSchemaTags: true,
+		AllowAdditionalProperties:  true,
+		ExpandedStruct:             true,
+		FieldNameTag:               "yaml",
+		Mapper:                     g.customMapper(),
+		Namer:                      g.recordTypeName,
+	}
+}
+
+// recordTypeName records the package that declares t and returns an empty name
+// so the reflector falls back to its default naming. It is installed as the
+// reflector's Namer because that is the single point where every type that
+// needs a definition name passes through.
+func (g *SchemaGenerator) recordTypeName(t reflect.Type) string {
+	name := t.Name()
+	pkgPath := t.PkgPath()
+	if name == "" || pkgPath == "" {
+		return ""
+	}
+
+	if g.reflectedTypeNames[name] == nil {
+		g.reflectedTypeNames[name] = make(map[string]bool)
+	}
+	g.reflectedTypeNames[name][pkgPath] = true
+
+	return ""
+}
+
+// checkTypeNameCollisions reports type names declared by more than one package.
+// Definitions are keyed by the bare type name, so the second type to be walked
+// silently reuses the first one's definition instead of getting its own.
+//
+// This covers the types the reflector walks. Collisions among source-scanned
+// types that the configuration does not reach are not detected here.
+func (g *SchemaGenerator) checkTypeNameCollisions() error {
+	var collisions []string
+	for name, pkgPaths := range g.reflectedTypeNames {
+		if len(pkgPaths) < 2 {
+			continue
+		}
+		collisions = append(collisions,
+			name+"\n    "+strings.Join(slices.Sorted(maps.Keys(pkgPaths)), "\n    "))
+	}
+
+	if len(collisions) == 0 {
+		return nil
+	}
+	sort.Strings(collisions)
+
+	return fmt.Errorf("type name declared in more than one package; "+
+		"rename one type per group so that every configuration type has a unique name:\n  %s",
+		strings.Join(collisions, "\n  "))
 }
 
 // packagesToScan lists packages that contain types used in the config
@@ -329,23 +392,27 @@ func main() {
 	// Scan source files to populate registries
 	g.scanSourceFiles()
 
-	reflector := &jsonschema.Reflector{
-		RequiredFromJSONSchemaTags: true,
-		AllowAdditionalProperties:  true,
-		ExpandedStruct:             true,
-		FieldNameTag:               "yaml",
-		Mapper:                     g.customMapper(),
-	}
+	reflector := g.newReflector()
 	if err := reflector.AddGoComments("go.opentelemetry.io/obi", "./", jsonschema.WithFullComment()); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not add Go comments: %v\n", err)
 	}
 
 	schema := reflector.Reflect(&obi.Config{})
+
+	inlineTypeSchemas := g.buildInlineTypeSchemas(reflect.TypeFor[obi.Config]())
+
+	// A collision makes every later step operate on a schema that already
+	// merged two unrelated types, so stop before post-processing it.
+	if err := g.checkTypeNameCollisions(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	schema.Title = "OBI Configuration Schema"
 	schema.Description = "JSON Schema for OpenTelemetry eBPF Instrumentation (OBI) configuration"
 
 	// Process inline fields first (merge properties from inline types)
-	g.processInlineFields(schema)
+	g.processInlineFields(schema, inlineTypeSchemas)
 
 	// Process deprecated annotations from comments
 	processDeprecated(schema)
@@ -398,9 +465,31 @@ type jsonSchemaer interface {
 	JSONSchema() *jsonschema.Schema
 }
 
+// reflectsField reports whether the schema reflector would follow f. It mirrors
+// the eligibility rules the library applies in reflectFieldName, so that walking
+// the type graph here does not reach types the schema can never contain.
+func reflectsField(f reflect.StructField) bool {
+	for _, key := range []string{"yaml", "jsonschema"} {
+		if strings.Split(f.Tag.Get(key), ",")[0] == "-" {
+			return false
+		}
+	}
+
+	// An unexported field is only followed when it is embedded.
+	return f.Anonymous || f.PkgPath == ""
+}
+
+// isInlineField reports whether f carries the yaml inline option.
+func isInlineField(f reflect.StructField) bool {
+	options := strings.Split(f.Tag.Get("yaml"), ",")
+	return slices.Contains(options[1:], "inline")
+}
+
 // buildInlineTypeSchemas uses reflection to find inline fields that implement JSONSchema().
 // It walks the type hierarchy starting from rootType and returns a map of type name to schema function.
-func buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema.Schema {
+// Walking also records the package of every named inline field type, which is
+// what makes those types visible to checkTypeNameCollisions.
+func (g *SchemaGenerator) buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema.Schema {
 	result := make(map[string]func() *jsonschema.Schema)
 	visited := make(map[reflect.Type]bool)
 
@@ -436,15 +525,19 @@ func buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema
 
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
-			yamlTag := field.Tag.Get("yaml")
+			if !reflectsField(field) {
+				continue
+			}
 
-			// Check if this is an inline field
-			if strings.Contains(yamlTag, "inline") {
+			if isInlineField(field) {
 				fieldType := field.Type
 				// Handle pointer types
 				for fieldType.Kind() == reflect.Pointer {
 					fieldType = fieldType.Elem()
 				}
+
+				// The reflector never names inline types, so the collision check only sees them from here.
+				g.recordTypeName(fieldType)
 
 				// Check if it implements JSONSchema()
 				if hasJSONSchemaMethod(fieldType) {
@@ -501,13 +594,10 @@ func callJSONSchemaMethod(t reflect.Type) *jsonschema.Schema {
 }
 
 // processInlineFields merges properties from inline field types into their parent schemas.
-func (g *SchemaGenerator) processInlineFields(schema *jsonschema.Schema) {
+func (g *SchemaGenerator) processInlineFields(schema *jsonschema.Schema, inlineTypeSchemas map[string]func() *jsonschema.Schema) {
 	if schema == nil {
 		return
 	}
-
-	// Build inline type schemas dynamically using reflection
-	inlineTypeSchemas := buildInlineTypeSchemas(reflect.TypeFor[obi.Config]())
 
 	// Process each definition that has inline fields
 	for typeName, inlineTypes := range g.inlineFields {

@@ -212,6 +212,7 @@ func testLogEnricherNodeJS(t *testing.T) {
 					return
 				}
 				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				req.Close = true
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
 					errCh <- err
@@ -721,6 +722,7 @@ func testLogEnricherMultiSegWritev(t *testing.T) {
 					return
 				}
 				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				req.Close = true
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
 					errCh <- err

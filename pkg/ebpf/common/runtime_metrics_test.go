@@ -133,20 +133,32 @@ type fakeRuntimeServiceFilter struct {
 func (f fakeRuntimeServiceFilter) AllowPID(app.PID, uint32, *exec.FileInfo, PIDType) {}
 func (f fakeRuntimeServiceFilter) BlockPID(app.PID, uint32)                          {}
 func (f fakeRuntimeServiceFilter) ValidPID(app.PID, uint32, PIDType) bool            { return false }
-func (f fakeRuntimeServiceFilter) Filter(inputSpans []request.Span) []request.Span   { return inputSpans }
+
+func (f fakeRuntimeServiceFilter) Filter(inputSpans []request.Span) []request.Span { return inputSpans }
+
 func (f fakeRuntimeServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]svc.Attrs {
 	return f.current
 }
 
 type fakeRuntimeMetricsSender struct {
-	events       []appruntime.JVMRuntimeEvent
-	nodejsEvents []appruntime.NodejsRuntimeEvent
-	goRecords    int
-	goFilter     ServiceFilter
+	events                []appruntime.JVMRuntimeEvent
+	nodejsEvents          []appruntime.NodejsRuntimeEvent
+	nodejsGCEvents        []appruntime.NodejsGCEvent
+	nodejsHeapSpaceEvents []appruntime.NodejsHeapSpaceEvent
+	goRecords             int
+	goFilter              ServiceFilter
 }
 
 func (s *fakeRuntimeMetricsSender) SendNodejsRuntimeMetrics(_ context.Context, events []appruntime.NodejsRuntimeEvent) {
 	s.nodejsEvents = append(s.nodejsEvents, events...)
+}
+
+func (s *fakeRuntimeMetricsSender) SendNodejsGCMetrics(_ context.Context, events []appruntime.NodejsGCEvent) {
+	s.nodejsGCEvents = append(s.nodejsGCEvents, events...)
+}
+
+func (s *fakeRuntimeMetricsSender) SendNodejsHeapSpaceMetrics(_ context.Context, events []appruntime.NodejsHeapSpaceEvent) {
+	s.nodejsHeapSpaceEvents = append(s.nodejsHeapSpaceEvents, events...)
 }
 
 func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, filter ServiceFilter) error {

@@ -143,13 +143,14 @@ func TestSuite_DNSUnconnectedResolver(t *testing.T) {
 		compose.Env,
 		`OTEL_EBPF_EXECUTABLE_PATH=python`,
 		`OTEL_EBPF_OPEN_PORT=`,
-		`INSTRUMENTER_CONFIG_SUFFIX=-java`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-dns`,
 	)
 	require.NoError(t, compose.Up())
 	t.Run("DNS RED metrics over an unconnected resolver socket", testDNSUnconnectedResolver)
 	t.Run("every DNS lookup is counted", testDNSEveryLookupCounted)
 	t.Run("non-DNS UDP is not reported as DNS", testDNSNoFalsePositive)
 	t.Run("unrelated traffic does not lose an outstanding lookup", testDNSInterleavedTraffic)
+	t.Run("DNS spans report every resolved address", testDNSSpanAnswers)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -351,7 +352,7 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
+	compose.Env = append(compose.Env, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 
