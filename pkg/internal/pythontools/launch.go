@@ -83,8 +83,8 @@ func parsePythonLaunch(executable string, args []string, env map[string]string) 
 	if isPythonInterpreter(command) {
 		return parseInterpreterLaunch(args, env)
 	}
-	if isLauncher(command) {
-		return parseLauncher(command, args, env)
+	if launch, ok := parseLauncher(command, args, env); ok {
+		return launch
 	}
 	return pythonLaunch{}
 }
@@ -173,8 +173,8 @@ func (config pythonPathConfig) apply(launch pythonLaunch) pythonLaunch {
 }
 
 func launchForModule(module string, args []string, env map[string]string) pythonLaunch {
-	if isLauncher(module) {
-		return parseLauncher(module, args, env)
+	if launch, ok := parseLauncher(module, args, env); ok {
+		return launch
 	}
 	if _, excluded := nonApplicationModules[module]; excluded {
 		return pythonLaunch{}
@@ -184,8 +184,8 @@ func launchForModule(module string, args []string, env map[string]string) python
 
 func launchForScript(script string, args []string, env map[string]string) pythonLaunch {
 	command := commandName(script)
-	if isLauncher(command) {
-		return parseLauncher(command, args, env)
+	if launch, ok := parseLauncher(command, args, env); ok {
+		return launch
 	}
 	if command == "manage" {
 		launch := parseDjango(args, env)
@@ -201,30 +201,30 @@ func launchForScript(script string, args []string, env map[string]string) python
 	return pythonLaunch{target: script, targetKind: targetScriptPath}
 }
 
-func parseLauncher(command string, args []string, env map[string]string) pythonLaunch {
+func parseLauncher(command string, args []string, env map[string]string) (pythonLaunch, bool) {
 	switch command {
 	case "gunicorn":
-		return parseGunicorn(args, env)
+		return parseGunicorn(args, env), true
 	case "uvicorn":
-		return parseUvicorn(args, env)
+		return parseUvicorn(args, env), true
 	case "hypercorn":
-		return parseHypercorn(args)
+		return parseHypercorn(args), true
 	case "daphne":
-		return parseDaphne(args)
+		return parseDaphne(args), true
 	case "uwsgi":
-		return parseUWSGI(args)
+		return parseUWSGI(args), true
 	case "waitress", "waitress-serve", "waitress_serve":
-		return parseWaitress(args)
+		return parseWaitress(args), true
 	case "flask":
-		return parseFlask(args, env)
+		return parseFlask(args, env), true
 	case "fastapi":
-		return parseFastAPI(args)
+		return parseFastAPI(args), true
 	case "django", "django-admin", "django_admin":
-		return parseDjango(args, env)
+		return parseDjango(args, env), true
 	case "celery":
-		return parseCelery(args)
+		return parseCelery(args), true
 	default:
-		return pythonLaunch{}
+		return pythonLaunch{}, false
 	}
 }
 
@@ -250,12 +250,9 @@ func parseGunicorn(args []string, env map[string]string) pythonLaunch {
 		launch.searchPaths = append(launch.searchPaths, settings.chdir)
 	}
 	launch.searchPaths = append(launch.searchPaths, splitList(settings.pythonPath)...)
-	for _, arg := range positionals {
-		if isApplicationReference(arg) {
-			launch.target = arg
-			launch.targetKind = targetModule
-			break
-		}
+	if target := firstApplicationReference(positionals); target != "" {
+		launch.target = target
+		launch.targetKind = targetModule
 	}
 	return launch
 }
@@ -320,12 +317,10 @@ options:
 	}
 
 	launch := pythonLaunch{searchPaths: []string{appDir}}
-	for _, arg := range positionals {
-		if isApplicationReference(arg) {
-			launch.target = arg
-			launch.targetKind = targetModule
-			return launch
-		}
+	if target := firstApplicationReference(positionals); target != "" {
+		launch.target = target
+		launch.targetKind = targetModule
+		return launch
 	}
 	if target := cleanValue(env["UVICORN_APP"]); target != "" {
 		launch.target = target
@@ -335,29 +330,27 @@ options:
 }
 
 func parseHypercorn(args []string) pythonLaunch {
-	positionals, ok := argparsePositionals(args, hypercornOptionsWithValues, hypercornOptionsWithoutValues)
-	if !ok {
-		return pythonLaunch{}
-	}
-	for _, arg := range positionals {
-		if isApplicationReference(arg) {
-			return pythonLaunch{target: arg, targetKind: targetModule, searchPaths: []string{"."}}
-		}
-	}
-	return pythonLaunch{}
+	return parseArgparseApplication(args, hypercornOptionsWithValues, hypercornOptionsWithoutValues)
 }
 
 func parseDaphne(args []string) pythonLaunch {
-	positionals, ok := argparsePositionals(args, daphneOptionsWithValues, daphneOptionsWithoutValues)
+	return parseArgparseApplication(args, daphneOptionsWithValues, daphneOptionsWithoutValues)
+}
+
+func parseArgparseApplication(
+	args []string,
+	optionsWithValues map[string]struct{},
+	optionsWithoutValues map[string]struct{},
+) pythonLaunch {
+	positionals, ok := argparsePositionals(args, optionsWithValues, optionsWithoutValues)
 	if !ok {
 		return pythonLaunch{}
 	}
-	for _, arg := range positionals {
-		if isApplicationReference(arg) {
-			return pythonLaunch{target: arg, targetKind: targetModule, searchPaths: []string{"."}}
-		}
+	target := firstApplicationReference(positionals)
+	if target == "" {
+		return pythonLaunch{}
 	}
-	return pythonLaunch{}
+	return pythonLaunch{target: target, targetKind: targetModule, searchPaths: []string{"."}}
 }
 
 func parseWaitress(args []string) pythonLaunch {
@@ -439,16 +432,7 @@ func parseUWSGI(args []string) pythonLaunch {
 }
 
 func parseFlask(args []string, env map[string]string) pythonLaunch {
-	target := env["FLASK_APP"]
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--app" && i+1 < len(args):
-			i++
-			target = args[i]
-		case strings.HasPrefix(args[i], "--app="):
-			target = strings.TrimPrefix(args[i], "--app=")
-		}
-	}
+	target := lastLongOptionValue(args, "--app", env["FLASK_APP"])
 	launch := pythonLaunch{target: target, targetKind: classifyTarget(target)}
 	if launch.targetKind == targetModule {
 		launch.searchPaths = []string{"."}
@@ -560,16 +544,7 @@ func parseFastAPIArguments(args []string) (fastAPIArguments, bool) {
 }
 
 func parseDjango(args []string, env map[string]string) pythonLaunch {
-	target := env["DJANGO_SETTINGS_MODULE"]
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--settings" && i+1 < len(args):
-			i++
-			target = args[i]
-		case strings.HasPrefix(args[i], "--settings="):
-			target = strings.TrimPrefix(args[i], "--settings=")
-		}
-	}
+	target := lastLongOptionValue(args, "--settings", env["DJANGO_SETTINGS_MODULE"])
 	return pythonLaunch{target: target, targetKind: classifyTarget(target)}
 }
 
@@ -660,16 +635,6 @@ func isPythonInterpreter(command string) bool {
 	return strings.HasPrefix(command, "python") || strings.HasPrefix(command, "pypy")
 }
 
-func isLauncher(command string) bool {
-	switch command {
-	case "gunicorn", "uvicorn", "hypercorn", "daphne", "uwsgi", "waitress", "waitress-serve", "waitress_serve",
-		"flask", "fastapi", "django", "django-admin", "django_admin", "celery":
-		return true
-	default:
-		return false
-	}
-}
-
 func isApplicationReference(value string) bool {
 	module, object, ok := strings.Cut(value, ":")
 	if !ok || !validModule(module) {
@@ -711,6 +676,29 @@ func validIdentifier(value string) bool {
 	return value != ""
 }
 
+func firstApplicationReference(values []string) string {
+	for _, value := range values {
+		if isApplicationReference(value) {
+			return value
+		}
+	}
+	return ""
+}
+
+func lastLongOptionValue(args []string, option, initial string) string {
+	value := initial
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == option && i+1 < len(args):
+			i++
+			value = args[i]
+		case strings.HasPrefix(args[i], option+"="):
+			value = strings.TrimPrefix(args[i], option+"=")
+		}
+	}
+	return value
+}
+
 func gunicornPositionals(args []string) ([]string, bool) {
 	var values []string
 	for i := 0; i < len(args); i++ {
@@ -735,7 +723,7 @@ func gunicornPositionals(args []string) ([]string, bool) {
 			continue
 		}
 		if strings.HasPrefix(arg, "-") && arg != "-" {
-			consumes, known := gunicornShortOption(arg)
+			consumes, known := argparseShortOption(arg, gunicornOptionsWithValues, gunicornOptionsWithoutValues)
 			if !known {
 				return nil, false
 			}
@@ -750,20 +738,6 @@ func gunicornPositionals(args []string) ([]string, bool) {
 		values = append(values, arg)
 	}
 	return values, true
-}
-
-func gunicornShortOption(arg string) (bool, bool) {
-	for i := 1; i < len(arg); i++ {
-		name := "-" + arg[i:i+1]
-		if _, known := gunicornOptionsWithoutValues[name]; known {
-			continue
-		}
-		if _, consumes := gunicornOptionsWithValues[name]; consumes {
-			return i == len(arg)-1, true
-		}
-		return false, false
-	}
-	return false, true
 }
 
 func gunicornAttachedShortValue(arg, target string) (string, bool) {

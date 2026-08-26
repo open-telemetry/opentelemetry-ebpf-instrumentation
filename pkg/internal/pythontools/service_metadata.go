@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -267,21 +266,13 @@ func resolvePythonModuleParts(root string, roots, parts []string) (resolvedPytho
 }
 
 func regularProcessFile(root, base, path string) (string, bool) {
-	resolved, ok := langtools.ResolveProcessPath(root, base, path)
-	if !ok {
-		return "", false
-	}
-	info, err := os.Stat(resolved)
-	return resolved, err == nil && info.Mode().IsRegular()
+	resolved, info, ok := langtools.StatProcessPath(root, base, path)
+	return resolved, ok && info.Mode().IsRegular()
 }
 
 func processDirectory(root, path string) bool {
-	resolved, ok := langtools.ResolveProcessPath(root, "/", path)
-	if !ok {
-		return false
-	}
-	info, err := os.Stat(resolved)
-	return err == nil && info.IsDir()
+	_, info, ok := langtools.StatProcessPath(root, "/", path)
+	return ok && info.IsDir()
 }
 
 func targetSearchRoots(cwd string, launcherPaths []string, pythonPath string, includeCWD bool) []string {
@@ -321,32 +312,29 @@ func findProjectMetadata(root, targetPath string) (projectMetadata, error) {
 		return projectMetadata{}, nil
 	}
 
-	for dir := filepath.Dir(targetPath); pathWithin(boundary, dir); dir = filepath.Dir(dir) {
+	var metadata projectMetadata
+	err := langtools.WalkParentDirectories(filepath.Dir(targetPath), boundary, func(dir string) (bool, error) {
 		pyproject, found, err := readPyproject(filepath.Join(dir, "pyproject.toml"))
 		if err != nil {
-			return projectMetadata{}, err
+			return false, err
 		}
 		pyprojectFound := found
 		if found && pyproject.recognized {
-			return pyproject.metadata, nil
+			metadata = pyproject.metadata
+			return true, nil
 		}
 
 		setup, found, err := readSetupConfig(filepath.Join(dir, "setup.cfg"))
 		if err != nil {
-			return projectMetadata{}, err
+			return false, err
 		}
 		if found && setup.recognized {
-			return setup.metadata, nil
+			metadata = setup.metadata
+			return true, nil
 		}
-		if pyprojectFound || found {
-			return projectMetadata{}, nil
-		}
-
-		if dir == boundary || filepath.Dir(dir) == dir {
-			break
-		}
-	}
-	return projectMetadata{}, nil
+		return pyprojectFound || found, nil
+	})
+	return metadata, err
 }
 
 func findFastAPIEntryPoint(root, cwd string) (string, string, error) {
@@ -359,42 +347,35 @@ func findFastAPIEntryPoint(root, cwd string) (string, string, error) {
 		return "", "", nil
 	}
 
-	for pathWithin(boundary, dir) {
+	var entryPoint string
+	var configDir string
+	err := langtools.WalkParentDirectories(dir, boundary, func(dir string) (bool, error) {
 		pyproject, found, err := readPyproject(filepath.Join(dir, "pyproject.toml"))
 		if err != nil {
-			return "", "", err
+			return false, err
 		}
 		pyprojectFound := found
 		if found {
 			if pyproject.entryPoint != "" {
-				return pyproject.entryPoint, processPath(boundary, dir), nil
+				entryPoint = pyproject.entryPoint
+				configDir = processPath(boundary, dir)
+				return true, nil
 			}
 			if pyproject.recognized || pyproject.fastAPISection {
-				return "", "", nil
+				return true, nil
 			}
 		}
 
 		setup, found, err := readSetupConfig(filepath.Join(dir, "setup.cfg"))
 		if err != nil {
-			return "", "", err
+			return false, err
 		}
 		if found && setup.recognized {
-			return "", "", nil
+			return true, nil
 		}
-		if pyprojectFound || found {
-			return "", "", nil
-		}
-		if dir == boundary || filepath.Dir(dir) == dir {
-			break
-		}
-		dir = filepath.Dir(dir)
-	}
-	return "", "", nil
-}
-
-func pathWithin(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+		return pyprojectFound || found, nil
+	})
+	return entryPoint, configDir, err
 }
 
 func processPath(root, hostPath string) string {
@@ -495,7 +476,7 @@ func readSetupConfig(path string) (pyprojectData, bool, error) {
 }
 
 func readProjectFile(path string) ([]byte, bool, error) {
-	file, found := langtools.OpenPackageFile(path, maxProjectFileBytes)
+	file, found := langtools.OpenMetadataFile(path, maxProjectFileBytes)
 	if file == nil {
 		return nil, found, nil
 	}

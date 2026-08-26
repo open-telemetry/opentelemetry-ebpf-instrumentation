@@ -12,7 +12,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func OpenPackageFile(path string, maxBytes int64) (*os.File, bool) {
+// OpenMetadataFile opens a bounded regular file. A nil file with found set marks
+// a path that exists but is unsafe or unusable as a metadata boundary.
+func OpenMetadataFile(path string, maxBytes int64) (*os.File, bool) {
 	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.ENOTDIR) {
