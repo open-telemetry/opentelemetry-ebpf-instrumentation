@@ -173,9 +173,8 @@ func (config pythonPathConfig) apply(launch pythonLaunch) pythonLaunch {
 }
 
 func launchForModule(module string, args []string, env map[string]string) pythonLaunch {
-	command := commandName(module)
-	if isLauncher(command) {
-		return parseLauncher(command, args, env)
+	if isLauncher(module) {
+		return parseLauncher(module, args, env)
 	}
 	if _, excluded := nonApplicationModules[module]; excluded {
 		return pythonLaunch{}
