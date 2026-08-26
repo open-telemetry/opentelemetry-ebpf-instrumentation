@@ -396,11 +396,12 @@ func TestRuntimeMetricsReporterProcessesPythonRemovalAfterTermination(t *testing
 	assertPythonRuntimePoint(t, reader, attributes.CPythonGCCollections.OTEL, 0, 33)
 }
 
-func TestRuntimeMetricsReporterEvictsStalePythonService(t *testing.T) {
+func TestRuntimeMetricsReporterEvictsReporterAfterServiceAttributesChange(t *testing.T) {
 	exportModes := services.NewExportModes()
 	exportModes.AllowMetrics()
 	oldService := svc.Attrs{
 		UID:         svc.UID{Name: "orders"},
+		HostName:    "old-host",
 		SDKLanguage: svc.InstrumentablePython,
 		Features:    export.FeatureApplicationRuntime,
 		ExportModes: exportModes,
@@ -421,15 +422,13 @@ func TestRuntimeMetricsReporterEvictsStalePythonService(t *testing.T) {
 		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
 	}
 
+	file := exec.New(exec.Init{Pid: 101, Service: oldService})
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventCreated, File: file})
 	oldMetrics, err := reporter.reporters.For(&oldService)
 	require.NoError(t, err)
-	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service:        oldService,
-		PID:            101,
-		Removed:        true,
-		ServiceChanged: true,
-		Python:         &runtimemetrics.PythonRuntimeMetricSnapshot{},
-	}})
+
+	file.SetHostName("new-host")
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventCreated, File: file})
 
 	assert.Equal(t, []*RuntimeMetrics{oldMetrics}, evicted)
 	_, exists := reporter.reporters.Lookup(oldService.UID)

@@ -95,6 +95,9 @@ The program sends each snapshot through the shared ring buffer. It also stores
 the latest snapshot in a process map. The controller reads this map at process
 exit and forwards the latest successfully read snapshot before removal.
 
+Each completed GC collection performs the counter reads, snapshot-map update,
+ring-buffer submission, and userspace counter update.
+
 The snapshot contains three cumulative counters for each CPython GC generation:
 
 ```text

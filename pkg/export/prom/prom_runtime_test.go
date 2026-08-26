@@ -554,38 +554,6 @@ func TestPythonRuntimeCountersDeleteStaleMetadataLabels(t *testing.T) {
 	})
 }
 
-func TestPythonRuntimeCountersDeleteStaleSnapshotLabels(t *testing.T) {
-	selection := attributes.Selection{
-		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name", "host.name"}},
-	}
-	reporter := &metricsReporter{userAttribSelection: selection}
-	reporter.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(
-		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
-		time.Now,
-		time.Minute,
-	)
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(reporter.pythonRuntimeMetrics.collectors()...)
-
-	snapshot := runtimemetrics.RuntimeMetricSnapshot{
-		PID:     101,
-		Service: svc.Attrs{UID: svc.UID{Name: "workers"}, HostName: "old-host"},
-		Python:  &runtimemetrics.PythonRuntimeMetricSnapshot{},
-	}
-	snapshot.Python.Generations[1].Collections = 11
-	reporter.collectPythonRuntimeMetrics(snapshot)
-
-	oldLabels := map[string]string{
-		"service_name": "workers", "host_name": "old-host", "cpython_gc_generation": "1",
-	}
-	require.NotNil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, oldLabels))
-
-	snapshot.Removed = true
-	snapshot.ServiceChanged = true
-	reporter.collectPythonRuntimeMetrics(snapshot)
-	assert.Nil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, oldLabels))
-}
-
 func TestPythonRuntimeDeleteMatchesExactBaseLabels(t *testing.T) {
 	collector := newPythonRuntimeMetricsCollector([]string{"service_name"}, time.Now, time.Minute)
 	registry := prometheus.NewRegistry()

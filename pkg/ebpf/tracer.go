@@ -28,7 +28,7 @@ type Instrumentable struct {
 	InstrumentationError error
 
 	// in some runtimes, like python gunicorn, we need to allow
-	// tracing both the parent pid and all of its children pid
+	// tracing both the parent PID and all of its child PIDs
 	ChildPids      []app.PID
 	ChildFileInfos []*exec.FileInfo
 

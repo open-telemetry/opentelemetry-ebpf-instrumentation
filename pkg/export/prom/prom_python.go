@@ -80,9 +80,6 @@ func (r *metricsReporter) collectPythonRuntimeMetrics(snapshot runtimemetrics.Ru
 
 	labels := r.pythonRuntimeMetrics.filterBaseLabels(r.labelValuesTargetInfo(&snapshot.Service))
 	if snapshot.Removed {
-		if snapshot.ServiceChanged {
-			r.pythonRuntimeMetrics.delete(r.labelValuesTargetInfo(&snapshot.Service))
-		}
 		r.pythonRuntimeMetrics.deletePID(snapshot.PID)
 		return
 	}

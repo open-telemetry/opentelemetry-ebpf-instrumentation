@@ -36,8 +36,6 @@ type RuntimeMetricSnapshot struct {
 	Time       time.Time
 	// Removed marks a tombstone; its runtime-kind payload remains non-nil for routing.
 	Removed bool
-	// ServiceChanged marks a tombstone that retires the previous service attributes.
-	ServiceChanged bool
 
 	Go              *GoRuntimeMetricSnapshot
 	JVM             *JVMRuntimeMetricSnapshot

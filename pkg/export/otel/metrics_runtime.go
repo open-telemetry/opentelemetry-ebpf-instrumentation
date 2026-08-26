@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -353,9 +354,16 @@ func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 	pid := pe.File.Pid()
 
 	if pe.Type == exec.ProcessEventCreated {
-		if staleUID, exists := r.pidTracker.TracksPID(pid); exists && !staleUID.Equals(&service.UID) {
-			r.pidTracker.ReplaceUID(staleUID, service.UID)
-			r.removeRuntimeReporter(staleUID)
+		if trackedUID, exists := r.pidTracker.TracksPID(pid); exists {
+			if !trackedUID.Equals(&service.UID) {
+				r.pidTracker.ReplaceUID(trackedUID, service.UID)
+				r.removeRuntimeReporter(trackedUID)
+				return
+			}
+			if metrics, exists := r.reporters.Lookup(trackedUID); exists &&
+				metrics.service != nil && !sameRuntimeMetricService(*metrics.service, service) {
+				r.removeRuntimeReporter(trackedUID)
+			}
 			return
 		}
 		r.pidTracker.AddPIDWithGeneration(pid, service.UID, pe.File.RuntimeMetricGeneration(pid))
@@ -379,13 +387,18 @@ func (r *RuntimeMetricsReporter) removeRuntimeReporter(uid svc.UID) {
 	r.reporters.Remove(uid)
 }
 
+func sameRuntimeMetricService(left, right svc.Attrs) bool {
+	return left.UID == right.UID &&
+		left.HostName == right.HostName &&
+		left.ExportModes == right.ExportModes &&
+		left.Features == right.Features &&
+		maps.Equal(left.Metadata, right.Metadata) &&
+		maps.Equal(left.EnvVars, right.EnvVars)
+}
+
 func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics.RuntimeMetricSnapshot) {
 	for _, snapshot := range snapshots {
 		if !r.shouldReportSnapshot(snapshot) {
-			continue
-		}
-		if snapshot.Removed && snapshot.ServiceChanged {
-			r.removeRuntimeReporter(snapshot.Service.UID)
 			continue
 		}
 		// A snapshot may still be in flight after its process terminated.
