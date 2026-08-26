@@ -1323,18 +1323,6 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
     }
 }
 
-static __always_inline bool is_traceparent_field_name(const unsigned char *name) {
-    static const unsigned char expected[] = "traceparent";
-
-#pragma unroll
-    for (u8 i = 0; i < W3C_KEY_LENGTH; i++) {
-        if (lowercase(name[i]) != expected[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 SEC("uprobe/http2ClientStreamEncodeAndWriteHeaders")
 int GUARDED_PROG(obi_uprobe_http2ClientStreamEncodeAndWriteHeaders, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
@@ -1375,7 +1363,7 @@ int GUARDED_PROG(obi_uprobe_http2ClientConnWriteHeader, struct pt_regs *, ctx) {
 
     unsigned char name[W3C_KEY_LENGTH];
     if (bpf_probe_read_user(name, sizeof(name), (void *)GO_PARAM2(ctx)) == 0 &&
-        is_traceparent_field_name(name)) {
+        stricmp((const char *)name, "traceparent", W3C_KEY_LENGTH)) {
         *observation = 1;
     }
     return 0;
