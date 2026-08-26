@@ -52,7 +52,10 @@ enum {
 };
 
 enum {
-    k_v8_kind_offset = 17,    // 'g' or 'h' after "/dev/null/obi-v8/"
+    // record kind chars at k_v8_kind_offset, emitted by fdextractor.js
+    k_v8_record_gc = 'g',
+    k_v8_record_heap_space = 'h',
+    k_v8_kind_offset = 17,    // record kind char after "/dev/null/obi-v8/"
     k_v8_payload_offset = 18, // record payload starts here
     // g payload: 1 kind char + 16 hex duration chars (+ NUL when read)
     k_v8_gc_payload_len = 1 + k_rt_field_hex_len,
@@ -324,7 +327,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
         return 0;
     }
 
-    if (kind_char == 'g') {
+    if (kind_char == k_v8_record_gc) {
         u8 kind = 0;
         u64 duration_ns = 0;
         if (nodejs_v8_parse_gc(payload, (u64)len, &kind, &duration_ns) != 0) {
@@ -349,7 +352,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
         return 0;
     }
 
-    if (kind_char == 'h') {
+    if (kind_char == k_v8_record_heap_space) {
         u64 vals[k_v8_heap_num_fields];
         u8 name_len = 0;
         if (nodejs_v8_parse_heap(payload, (u64)len, vals, &name_len) != 0) {
