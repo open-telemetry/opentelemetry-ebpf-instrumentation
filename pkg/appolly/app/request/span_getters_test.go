@@ -519,6 +519,16 @@ func TestSpanOTELGetters_HTTPRequestMethod(t *testing.T) {
 		kv := getter(&Span{Method: ""})
 		assert.False(t, kv.Valid(), "empty method must yield an invalid KeyValue so it is dropped")
 	})
+
+	// http.request.method is a closed enum, so an unclamped metric label is a
+	// weaver violation and an unbounded dimension.
+	t.Run("clamped when method is outside the enum", func(t *testing.T) {
+		for _, method := range []string{"PURGE", "PROPFIND", "get"} {
+			kv := getter(&Span{Method: method})
+			require.True(t, kv.Valid(), method)
+			assert.Equal(t, HTTPMethodOther, kv.Value.AsString(), method)
+		}
+	})
 }
 
 func TestSpanOTELGetters_SunRPC(t *testing.T) {

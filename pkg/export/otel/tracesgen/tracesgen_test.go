@@ -1396,3 +1396,125 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 		})
 	}
 }
+
+func defaultTraceAttrs(t *testing.T) map[attr.Name]struct{} {
+	t.Helper()
+	selected, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+	return selected
+}
+
+func attrValue(attrs []attribute.KeyValue, key string) (attribute.Value, bool) {
+	for _, kv := range attrs {
+		if string(kv.Key) == key {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
+}
+
+func countAttr(attrs []attribute.KeyValue, key string) int {
+	n := 0
+	for _, kv := range attrs {
+		if string(kv.Key) == key {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTraceAttributesSelector_HTTPRequestMethod(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	for _, method := range []string{"GET", "POST", "QUERY", "CONNECT", "TRACE"} {
+		t.Run("enum member "+method+" passes through", func(t *testing.T) {
+			span := &request.Span{Type: request.EventTypeHTTP, Method: method, Path: "/x", Status: 200}
+			attrs := TraceAttributesSelector(span, noOpts)
+
+			v, ok := attrValue(attrs, "http.request.method")
+			require.True(t, ok)
+			assert.Equal(t, method, v.AsString())
+			_, hasOriginal := attrValue(attrs, "http.request.method_original")
+			assert.False(t, hasOriginal)
+		})
+	}
+
+	for _, method := range []string{"get", "PROPFIND", "\x16\x03\x01", "GET /x HTTP/1.1"} {
+		t.Run("outside the enum is clamped", func(t *testing.T) {
+			span := &request.Span{Type: request.EventTypeHTTP, Method: method, Path: "/x", Status: 200}
+			attrs := TraceAttributesSelector(span, noOpts)
+
+			v, ok := attrValue(attrs, "http.request.method")
+			require.True(t, ok)
+			assert.Equal(t, "_OTHER", v.AsString())
+
+			orig, ok := attrValue(attrs, "http.request.method_original")
+			require.True(t, ok)
+			assert.Equal(t, method, orig.AsString())
+		})
+	}
+
+	t.Run("applies to client spans too", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTPClient, Method: "frobnicate", Path: "/x", Status: 200}
+		attrs := TraceAttributesSelector(span, noOpts)
+
+		v, _ := attrValue(attrs, "http.request.method")
+		assert.Equal(t, "_OTHER", v.AsString())
+		orig, ok := attrValue(attrs, "http.request.method_original")
+		require.True(t, ok)
+		assert.Equal(t, "frobnicate", orig.AsString())
+	})
+}
+
+func TestTraceAttributesSelector_DBQuerySummary(t *testing.T) {
+	span := &request.Span{
+		Type:           request.EventTypeSQLClient,
+		Method:         "SELECT",
+		Path:           "orders",
+		DBQuerySummary: "SELECT orders",
+	}
+	v, ok := attrValue(TraceAttributesSelector(span, defaultTraceAttrs(t)), "db.query.summary")
+	require.True(t, ok)
+	assert.Equal(t, "SELECT orders", v.AsString())
+}
+
+func TestTraceAttributesSelector_UserAgentOriginal(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	// The attribute is recommended by semconv, so it comes off the parsed
+	// request rather than requiring User-Agent in the header allowlist.
+	t.Run("reported without header capture", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200,
+			UserAgent: "curl/8.4.0",
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+
+		v, ok := attrValue(attrs, "user_agent.original")
+		require.True(t, ok)
+		assert.Equal(t, "curl/8.4.0", v.AsString())
+		assert.Equal(t, 1, countAttr(attrs, "user_agent.original"))
+
+		_, ok = attrValue(attrs, "http.request.header.user-agent")
+		assert.False(t, ok)
+	})
+
+	t.Run("not duplicated when the header is also captured", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200,
+			UserAgent:      "curl/8.4.0",
+			RequestHeaders: map[string][]string{"User-Agent": {"curl/8.4.0"}},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+
+		assert.Equal(t, 1, countAttr(attrs, "user_agent.original"))
+		_, ok := attrValue(attrs, "http.request.header.user-agent")
+		assert.True(t, ok, "the generic header attribute is still emitted")
+	})
+
+	t.Run("omitted when absent", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "user_agent.original")
+		assert.False(t, ok)
+	})
+}

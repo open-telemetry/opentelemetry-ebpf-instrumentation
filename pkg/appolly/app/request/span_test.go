@@ -158,6 +158,10 @@ func TestTraceName(t *testing.T) {
 		{name: "HTTP server", span: &Span{Type: EventTypeHTTP, Method: "GET", Route: "/users"}, expected: "GET /users"},
 		{name: "HTTP client", span: &Span{Type: EventTypeHTTPClient, Method: "POST", Route: "/api"}, expected: "POST /api"},
 		{name: "HTTP no route", span: &Span{Type: EventTypeHTTP, Method: "GET"}, expected: "GET"},
+		{name: "HTTP unknown method", span: &Span{Type: EventTypeHTTP, Method: "PURGE", Route: "/users"}, expected: "HTTP /users"},
+		{name: "HTTP unknown method no route", span: &Span{Type: EventTypeHTTP, Method: "PROPFIND"}, expected: "HTTP"},
+		{name: "HTTP lowercase method clamps", span: &Span{Type: EventTypeHTTP, Method: "get", Route: "/users"}, expected: "HTTP /users"},
+		{name: "HTTP empty method", span: &Span{Type: EventTypeHTTP, Route: "/users"}, expected: "HTTP /users"},
 
 		// gRPC spans
 		{name: "gRPC server", span: &Span{Type: EventTypeGRPC, Path: "/service/Method"}, expected: "/service/Method"},

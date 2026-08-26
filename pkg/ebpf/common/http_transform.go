@@ -135,6 +135,7 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 	httpSpan := request.Span{
 		Type:              reqType,
 		Method:            req.Method,
+		UserAgent:         req.UserAgent(),
 		Path:              removeQuery(req.URL.String()),
 		FullPath:          req.URL.String(),
 		Peer:              peer,

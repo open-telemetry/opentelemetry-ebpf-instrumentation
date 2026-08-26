@@ -36,6 +36,65 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
 
+const userAgentHeader = "user-agent"
+
+// userAgentAttributes reports user_agent.original, which semconv makes
+// recommended on server spans and opt-in on client spans.
+//
+// A captured header wins, so an operator's exclude or obfuscate rule for
+// User-Agent governs this attribute too. Without such a rule only server spans
+// fall back to the parsed request; a client span reports it solely when the
+// operator opted in by capturing the header.
+func userAgentAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+	if _, ok := optionalAttrs[attr.UserAgentOriginal]; !ok {
+		return nil
+	}
+
+	// SQL++ replaces the HTTP attribute set with a DB-only one; every other
+	// subtype keeps its HTTP attributes and is still an HTTP span.
+	if span.SubType == request.HTTPSubtypeSQLPP {
+		return nil
+	}
+
+	if ua := capturedUserAgent(span); ua != "" {
+		return []attribute.KeyValue{semconv.UserAgentOriginal(ua)}
+	}
+
+	if span.Type == request.EventTypeHTTP && span.UserAgent != "" {
+		return []attribute.KeyValue{semconv.UserAgentOriginal(span.UserAgent)}
+	}
+
+	return nil
+}
+
+func capturedUserAgent(span *request.Span) string {
+	for name, values := range span.RequestHeaders {
+		if strings.EqualFold(name, userAgentHeader) && len(values) > 0 {
+			return values[0]
+		}
+	}
+
+	return ""
+}
+
+// httpMethodAttributes clamps a method outside the semconv enum to _OTHER,
+// keeping the wire value on http.request.method_original.
+func httpMethodAttributes(method string, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+	if request.IsKnownHTTPMethod(method) {
+		return []attribute.KeyValue{request.HTTPRequestMethod(method)}
+	}
+
+	attrs := []attribute.KeyValue{semconv.HTTPRequestMethodOther}
+
+	// Conditionally required only when it differs from http.request.method, so a
+	// wire method of literally _OTHER reports nothing extra.
+	if _, ok := optionalAttrs[attr.HTTPRequestMethodOrig]; ok && method != request.HTTPMethodOther {
+		attrs = append(attrs, semconv.HTTPRequestMethodOriginal(method))
+	}
+
+	return attrs
+}
+
 // Attribute keys not yet available in semconv v1.41.0.
 // Replace with semconv helpers when the package is updated.
 var (
@@ -559,7 +618,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 		if span.Method != "" {
-			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
+			attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
 		}
 		if span.Path != "" {
 			attrs = append(attrs, request.HTTPUrlPath(span.Path))
@@ -666,7 +725,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 		if span.Method != "" {
-			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
+			attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
 		}
 
 		if scrubbedQS != "" {
@@ -1362,6 +1421,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, request.DBCollectionName(table))
 			}
 		}
+		if _, ok := optionalAttrs[attr.DBQuerySummary]; ok && span.DBQuerySummary != "" {
+			attrs = append(attrs, semconv.DBQuerySummary(span.DBQuerySummary))
+		}
 		if span.Status == 1 && span.SQLError != nil {
 			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
 			// omit error.type when the SQLSTATE was not captured, instead of
@@ -1602,6 +1664,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 
 	}
+
+	attrs = append(attrs, userAgentAttributes(span, optionalAttrs)...)
 
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {
 		attrs = append(attrs, spanMetricsSkip)
