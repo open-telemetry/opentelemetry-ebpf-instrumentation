@@ -107,9 +107,39 @@ jobs:
         if: steps.base-images-cache.outputs.cache-hit != 'true'
         run: bash scripts/pull-base-images.sh /tmp/base-images.tar
 
+  build-obi-image:
+    name: "Build OBI test image"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [generate-bpf]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bpf-generated-${{ github.run_id }}
+
+      # built once here and loaded by every shard so each shard skips the
+      # most expensive compose build
+      - name: Build and save OBI test image
+        run: |
+          docker build -t hatest-obi -f internal/test/integration/components/obi/Dockerfile .
+          docker save hatest-obi -o /tmp/hatest-obi.tar
+
+      - name: Upload OBI test image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: obi-image-amd64-${{ github.run_id }}
+          path: /tmp/hatest-obi.tar
+          retention-days: 1
+
   test:
     name: ${{ matrix.description }}
-    needs: [test-matrix, generate-bpf, prep-images]
+    needs: [test-matrix, generate-bpf, prep-images, build-obi-image]
     permissions:
       # Required for codecov
       checks: write
@@ -181,6 +211,18 @@ jobs:
             echo "::warning::base image cache miss; builds may pull from the upstream registry and risk HTTP 429"
           fi
 
+      - name: Download prebuilt OBI image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: obi-image-amd64-${{ github.run_id }}
+          path: /tmp/obi-image
+
+      # hatest-obi-b is the same plain build under a second tag
+      - name: Load prebuilt OBI image
+        run: |
+          docker load -i /tmp/obi-image/hatest-obi.tar
+          docker tag hatest-obi hatest-obi-b
+
       - name: Check disk usage before tests
         run: df -h
 
@@ -217,6 +259,9 @@ jobs:
           MATRIX_JSON: ${{ toJson(matrix) }}
           MATRIX_TEST_PATTERN: ${{ matrix.test_pattern }}
           RUN_NUMBER: ${{ github.run_number }}
+          # the OBI image is prebuilt and loaded above; component images keep
+          # rebuilding per suite (their tags are not unique per Dockerfile)
+          PREBUILT_IMAGES: "hatest-obi,hatest-obi-b"
         run: |
           echo Partition
           echo "${MATRIX_JSON}"

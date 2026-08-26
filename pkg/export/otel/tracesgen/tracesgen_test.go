@@ -404,6 +404,34 @@ func TestTraceAttributesSelector_UserAgentOriginal(t *testing.T) {
 	})
 }
 
+func TestTraceAttributesSelector_DNSAnswers(t *testing.T) {
+	dnsSpan := func(statement string) *request.Span {
+		return &request.Span{
+			Type:      request.EventTypeDNS,
+			Method:    "A",
+			Path:      "example.com",
+			Statement: statement,
+		}
+	}
+
+	t.Run("emitted as a string array", func(t *testing.T) {
+		attrs := TraceAttributesSelector(dnsSpan("10.0.0.1,10.0.0.2"), map[attr.Name]struct{}{})
+		assert.Contains(t, attrs, attribute.StringSlice(string(attr.DNSAnswers), []string{"10.0.0.1", "10.0.0.2"}))
+	})
+
+	t.Run("single answer is still an array", func(t *testing.T) {
+		attrs := TraceAttributesSelector(dnsSpan("10.0.0.1"), map[attr.Name]struct{}{})
+		assert.Contains(t, attrs, attribute.StringSlice(string(attr.DNSAnswers), []string{"10.0.0.1"}))
+	})
+
+	t.Run("omitted when the lookup resolved nothing", func(t *testing.T) {
+		attrs := TraceAttributesSelector(dnsSpan(""), map[attr.Name]struct{}{})
+		for _, kv := range attrs {
+			assert.NotEqual(t, attr.DNSAnswers, attr.Name(kv.Key))
+		}
+	})
+}
+
 func TestTraceAttributesSelector_GraphQLDocumentSelection(t *testing.T) {
 	const document = `mutation ChangeEmail { updateUser(email: "secret@example.com") { id } }`
 

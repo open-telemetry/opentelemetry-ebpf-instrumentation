@@ -143,14 +143,30 @@ func TestSuite_DNSUnconnectedResolver(t *testing.T) {
 		compose.Env,
 		`OTEL_EBPF_EXECUTABLE_PATH=python`,
 		`OTEL_EBPF_OPEN_PORT=`,
-		`INSTRUMENTER_CONFIG_SUFFIX=-java`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-dns`,
 	)
 	require.NoError(t, compose.Up())
 	t.Run("DNS RED metrics over an unconnected resolver socket", testDNSUnconnectedResolver)
 	t.Run("every DNS lookup is counted", testDNSEveryLookupCounted)
 	t.Run("non-DNS UDP is not reported as DNS", testDNSNoFalsePositive)
 	t.Run("unrelated traffic does not lose an outstanding lookup", testDNSInterleavedTraffic)
+	t.Run("DNS spans report every resolved address", testDNSSpanAnswers)
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// A JVM that cannot be attached to must not delay capture of its own traffic
+func TestSuite_JavaDiscoveryEarlyTraffic(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-discovery.yml", path.Join(pathOutput, "test-suite-java-discovery.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=java`,
+		`OTEL_EBPF_OPEN_PORT=`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("early JVM traffic is captured", testJavaDiscoveryEarlyTraffic)
 	require.NoError(t, compose.Close())
 }
 
@@ -838,6 +854,19 @@ func TestSuite_PythonMongo(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Mongo metrics", testREDMetricsPythonMongoOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// mongo shares the client's network namespace, so the client sees a local
+// listener on the server port
+func TestSuite_PythonMongoSameNetNS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mongo-samenet.yml", path.Join(pathOutput, "test-suite-python-mongo-samenet.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Mongo same-netns metrics", testREDMetricsPythonMongoOnly)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

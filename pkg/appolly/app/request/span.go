@@ -2239,6 +2239,16 @@ func (s *Span) IsDNSSpan() bool {
 	return s.Type == EventTypeDNS
 }
 
+// DNSAnswerList returns the addresses a DNS lookup resolved to, which the BPF
+// side accumulates into Statement as a comma-separated list.
+func (s *Span) DNSAnswerList() []string {
+	if s.Statement == "" {
+		return nil
+	}
+
+	return strings.Split(s.Statement, ",")
+}
+
 func (s *Span) isTracesExportURL() bool {
 	switch s.Type {
 	case EventTypeGRPCClient:

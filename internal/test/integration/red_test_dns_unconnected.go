@@ -4,12 +4,16 @@
 package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
@@ -33,6 +37,17 @@ const (
 
 // The workload resolves the delayed responder's own name once, at startup
 const responderDNSName = "dnsresponder."
+
+// Answered by the delayed responder with several A records, so the span's
+// dns.answers has to carry each address separately rather than one joined
+// string. Kept in step with MULTI_ANSWER_NAME / MULTI_ANSWER_ADDRESSES in
+// components/dnsclient/dnsclient.py.
+const multiAnswerDNSName = "multi-answer.test."
+
+var multiAnswerDNSAddresses = []string{"10.1.2.3", "10.1.2.4", "10.1.2.5"}
+
+// Pinned via OTEL_EBPF_SERVICE_NAME in docker-compose-dns-unconnected.yml
+const dnsClientService = "dnsclient"
 
 // The Redis traffic that follows each lookup. Instrumenting it confirms the
 // workload is being watched, so a missing DNS metric means the lookup was not
@@ -159,6 +174,7 @@ func testDNSNoFalsePositiveFromNonDNSUDP(t *testing.T, namespace string) {
 		interleavedSendDNSName,
 		interleavedRecvDNSName,
 		responderDNSName,
+		multiAnswerDNSName,
 	}
 
 	for _, result := range results {
@@ -184,4 +200,46 @@ func testDNSInterleavedTraffic(t *testing.T) {
 
 func testDNSEveryLookupCounted(t *testing.T) {
 	testDNSMetricsCountEveryLookup(t, "integration-test")
+}
+
+func testDNSSpanAnswers(t *testing.T) {
+	testDNSSpanReportsEveryAnswer(t, dnsClientService)
+}
+
+// dns.answers is a span-only attribute, so the metric assertions above say
+// nothing about it. Weaver validates its type on whatever spans it receives,
+// but a run that emitted no DNS span at all would satisfy weaver silently —
+// hence a direct assertion that the span exists and carries every answer.
+func testDNSSpanReportsEveryAnswer(t *testing.T, service string) {
+	// The workload's multi-answer lookup, as OBI names a DNS span:
+	// "{question type} {question name}".
+	const operation = "A " + multiAnswerDNSName
+
+	var span jaeger.Span
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&operation=" + url.QueryEscape(operation))
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		for i := range tq.Data {
+			if found := tq.Data[i].FindByOperationName(operation, ""); len(found) > 0 {
+				span = found[0]
+				return
+			}
+		}
+		assert.Fail(ct, "no DNS span yet", "operation %q on service %q", operation, service)
+	}, testTimeout, time.Second)
+
+	tag, ok := jaeger.FindIn(span.Tags, "dns.answers")
+	require.True(t, ok, "expected dns.answers on the DNS span")
+
+	// Reported as one joined string, this collapses to a single value that
+	// still contains the separator.
+	assert.ElementsMatch(t, multiAnswerDNSAddresses, jaeger.TagStringValues(tag),
+		"dns.answers must carry each resolved address as its own value")
 }

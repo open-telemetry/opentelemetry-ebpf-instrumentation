@@ -57,7 +57,7 @@ var knownHTTPMethods = sync.OnceValue(func() map[string]struct{} {
 })
 
 // IsKnownHTTPMethod reports whether method is a member of the semconv
-// http.request.method enum, honouring the override. Both the trace and metric
+// http.request.method enum, honoring the override. Both the trace and metric
 // pipelines clamp through this so they cannot disagree on the same attribute key.
 func IsKnownHTTPMethod(method string) bool {
 	_, ok := knownHTTPMethods()[method]
