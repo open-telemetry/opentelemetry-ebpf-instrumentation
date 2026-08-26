@@ -20,6 +20,7 @@ func TestParsePythonLaunch(t *testing.T) {
 		searchPaths  []string
 		fallbackName string
 		fastAPIAuto  bool
+		flaskAuto    bool
 		pathConfig   pythonPathConfig
 	}{
 		{name: "script", executable: "python3.14", args: []string{"/srv/orders.py"}, target: "/srv/orders.py", kind: targetScriptPath},
@@ -85,6 +86,9 @@ func TestParsePythonLaunch(t *testing.T) {
 		{name: "uwsgi file", executable: "uwsgi", args: []string{"--wsgi-file", "/srv/orders.py"}, target: "/srv/orders.py", kind: targetFile},
 		{name: "waitress", executable: "waitress-serve", args: []string{"--listen", "*:8080", "orders.wsgi:application"}, target: "orders.wsgi:application", kind: targetModule},
 		{name: "flask command line wins", executable: "flask", args: []string{"--app", "orders.web:create_app", "run"}, env: map[string]string{"FLASK_APP": "other"}, target: "orders.web:create_app", kind: targetModule, searchPaths: []string{"."}},
+		{name: "flask short app option", executable: "flask", args: []string{"-A", "orders.web:create_app", "run"}, target: "orders.web:create_app", kind: targetModule, searchPaths: []string{"."}},
+		{name: "flask attached short app option", executable: "flask", args: []string{"-Aorders.web:create_app", "run"}, target: "orders.web:create_app", kind: targetModule, searchPaths: []string{"."}},
+		{name: "flask automatic", executable: "flask", args: []string{"run"}, flaskAuto: true},
 		{name: "fastapi path", executable: "fastapi", args: []string{"run", "src/orders/main.py", "--port", "8080"}, target: "src/orders/main.py", kind: targetFile},
 		{name: "fastapi automatic", executable: "fastapi", args: []string{"run"}, fastAPIAuto: true},
 		{name: "django settings", executable: "django-admin", args: []string{"runserver", "--settings=company.orders.settings.production"}, target: "company.orders.settings.production", kind: targetModule},
@@ -106,6 +110,7 @@ func TestParsePythonLaunch(t *testing.T) {
 			assert.Equal(t, tt.searchPaths, launch.searchPaths)
 			assert.Equal(t, tt.fallbackName, launch.fallbackName)
 			assert.Equal(t, tt.fastAPIAuto, launch.fastAPIAuto)
+			assert.Equal(t, tt.flaskAuto, launch.flaskAuto)
 			assert.Equal(t, tt.pathConfig, launch.pathConfig)
 		})
 	}

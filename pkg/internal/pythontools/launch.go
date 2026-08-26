@@ -26,6 +26,7 @@ type pythonLaunch struct {
 	searchPaths  []string
 	fallbackName string
 	fastAPIAuto  bool
+	flaskAuto    bool
 	pathConfig   pythonPathConfig
 }
 
@@ -165,7 +166,7 @@ func parseInterpreterShortOptions(
 
 func (config pythonPathConfig) apply(launch pythonLaunch) pythonLaunch {
 	if launch.targetKind == targetNone && launch.target == "" && launch.fallbackName == "" &&
-		!launch.fastAPIAuto && len(launch.searchPaths) == 0 {
+		!launch.fastAPIAuto && !launch.flaskAuto && len(launch.searchPaths) == 0 {
 		return launch
 	}
 	launch.pathConfig = config
@@ -432,8 +433,28 @@ func parseUWSGI(args []string) pythonLaunch {
 }
 
 func parseFlask(args []string, env map[string]string) pythonLaunch {
-	target := lastLongOptionValue(args, "--app", env["FLASK_APP"])
+	target := env["FLASK_APP"]
+
+options:
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--":
+			break options
+		case (args[i] == "-A" || args[i] == "--app") && i+1 < len(args):
+			i++
+			target = args[i]
+		case strings.HasPrefix(args[i], "-A") && len(args[i]) > 2:
+			target = strings.TrimPrefix(strings.TrimPrefix(args[i], "-A"), "=")
+		case strings.HasPrefix(args[i], "--app="):
+			target = strings.TrimPrefix(args[i], "--app=")
+		}
+	}
+
 	launch := pythonLaunch{target: target, targetKind: classifyTarget(target)}
+	if target == "" {
+		launch.flaskAuto = true
+		return launch
+	}
 	if launch.targetKind == targetModule {
 		launch.searchPaths = []string{"."}
 	}

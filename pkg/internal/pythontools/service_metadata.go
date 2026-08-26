@@ -75,6 +75,9 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 
 	metadata := projectMetadata{}
 	targetPath, resolvedTarget, targetFound := resolveTargetPath(root, cwd, launch, service.EnvVars)
+	if launch.flaskAuto {
+		targetPath, resolvedTarget, targetFound = resolveFlaskTargetPath(root, cwd, launch, service.EnvVars)
+	}
 	if targetFound {
 		launch.target = resolvedTarget
 		var err error
@@ -106,6 +109,18 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	}
 
 	return resolutionErr
+}
+
+func resolveFlaskTargetPath(root, cwd string, launch pythonLaunch, env map[string]string) (string, string, bool) {
+	for _, target := range []string{"wsgi", "app"} {
+		launch.target = target
+		launch.targetKind = targetModule
+		launch.searchPaths = []string{"."}
+		if path, resolvedTarget, found := resolveTargetPath(root, cwd, launch, env); found {
+			return path, resolvedTarget, true
+		}
+	}
+	return "", "", false
 }
 
 type targetCandidate struct {

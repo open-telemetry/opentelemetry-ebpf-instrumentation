@@ -198,6 +198,30 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "5.0", fileInfo.ServiceAttrs().Metadata[serviceVersion])
 	})
 
+	t.Run("flask automatic app associates project", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "app.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'flask-orders'\nversion = '1.0'\n")
+		fileInfo := mockPythonProcess(t, root, "flask", []string{"run"}, nil, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "flask-orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "1.0", fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("flask automatic generic target remains unnamed", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "wsgi.py"), "")
+		fileInfo := mockPythonProcess(t, root, "flask", []string{"run"}, nil, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("fastapi command entrypoint associates project", func(t *testing.T) {
 		root := t.TempDir()
 		writePythonFile(t, filepath.Join(root, "app", "company", "orders", "api.py"), "")
