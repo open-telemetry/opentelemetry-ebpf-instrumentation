@@ -141,14 +141,24 @@ func (f fakeRuntimeServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]sv
 }
 
 type fakeRuntimeMetricsSender struct {
-	events       []appruntime.JVMRuntimeEvent
-	nodejsEvents []appruntime.NodejsRuntimeEvent
-	goRecords    int
-	goFilter     ServiceFilter
+	events                []appruntime.JVMRuntimeEvent
+	nodejsEvents          []appruntime.NodejsRuntimeEvent
+	nodejsGCEvents        []appruntime.NodejsGCEvent
+	nodejsHeapSpaceEvents []appruntime.NodejsHeapSpaceEvent
+	goRecords             int
+	goFilter              ServiceFilter
 }
 
 func (s *fakeRuntimeMetricsSender) SendNodejsRuntimeMetrics(_ context.Context, events []appruntime.NodejsRuntimeEvent) {
 	s.nodejsEvents = append(s.nodejsEvents, events...)
+}
+
+func (s *fakeRuntimeMetricsSender) SendNodejsGCMetrics(_ context.Context, events []appruntime.NodejsGCEvent) {
+	s.nodejsGCEvents = append(s.nodejsGCEvents, events...)
+}
+
+func (s *fakeRuntimeMetricsSender) SendNodejsHeapSpaceMetrics(_ context.Context, events []appruntime.NodejsHeapSpaceEvent) {
+	s.nodejsHeapSpaceEvents = append(s.nodejsHeapSpaceEvents, events...)
 }
 
 func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, filter ServiceFilter) error {
