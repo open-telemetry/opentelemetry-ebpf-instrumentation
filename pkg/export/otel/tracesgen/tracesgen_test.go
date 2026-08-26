@@ -1396,3 +1396,131 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 		})
 	}
 }
+
+func defaultTraceAttrs(t *testing.T) map[attr.Name]struct{} {
+	t.Helper()
+	selected, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+	return selected
+}
+
+func attrValue(attrs []attribute.KeyValue, key string) (attribute.Value, bool) {
+	for _, kv := range attrs {
+		if string(kv.Key) == key {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
+}
+
+func TestTraceAttributesSelector_NetworkPeer(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("server span reports the client socket", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200,
+			Peer: "10.0.0.5", PeerPort: 54321,
+			Host: "10.0.0.9", HostPort: 8080,
+			PeerName: "frontend",
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		addr, ok := attrValue(attrs, "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.5", addr.AsString())
+		port, ok := attrValue(attrs, "network.peer.port")
+		require.True(t, ok)
+		assert.Equal(t, int64(54321), port.AsInt64())
+	})
+
+	t.Run("client span reports the server socket", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+			Peer: "10.0.0.5", PeerPort: 54321,
+			Host: "10.0.0.9", HostPort: 8080,
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		addr, ok := attrValue(attrs, "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.9", addr.AsString())
+		port, ok := attrValue(attrs, "network.peer.port")
+		require.True(t, ok)
+		assert.Equal(t, int64(8080), port.AsInt64())
+	})
+
+	// semconv defines the attribute as an IP or Unix socket address, but some
+	// paths fall back to the Host header, which is a name.
+	t.Run("omitted when the address is not an IP", func(t *testing.T) {
+		for _, addr := range []string{"localhost", "api.example.com", "svc.default.svc.cluster.local"} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+				Host: addr, HostPort: 8443,
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			_, ok := attrValue(attrs, "network.peer.address")
+			assert.False(t, ok, "addr %q", addr)
+			_, ok = attrValue(attrs, "network.peer.port")
+			assert.False(t, ok, "port must not survive without the address (addr %q)", addr)
+		}
+	})
+
+	t.Run("reported for IPv6", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+			Host: "2001:db8::1", HostPort: 443,
+		}
+		v, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "2001:db8::1", v.AsString())
+	})
+
+	t.Run("omitted where the client/server mapping is ambiguous", func(t *testing.T) {
+		for _, et := range []request.EventType{request.EventTypeDNS, request.EventTypeFailedConnect} {
+			span := &request.Span{Type: et, Peer: "10.0.0.5", PeerPort: 5, Host: "10.0.0.9", HostPort: 53}
+			_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+			assert.False(t, ok, "event type %v", et)
+		}
+	})
+
+	t.Run("omitted with no socket address", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+		assert.False(t, ok)
+	})
+}
+
+func TestTraceAttributesSelector_NetworkProtocolVersion(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("reported for every protocol that carries a version", func(t *testing.T) {
+		cases := []struct {
+			et      request.EventType
+			version request.ProtoVersion
+			want    string
+		}{
+			{request.EventTypeHTTP, request.ProtoVersionHTTP11, "1.1"},
+			{request.EventTypeHTTP, request.ProtoVersionHTTP10, "1.0"},
+			{request.EventTypeHTTP, request.ProtoVersionHTTP2, "2"},
+			{request.EventTypeHTTPClient, request.ProtoVersionHTTP11, "1.1"},
+			{request.EventTypeGRPC, request.ProtoVersionHTTP2, "2"},
+			{request.EventTypeGRPCClient, request.ProtoVersionHTTP2, "2"},
+		}
+		for _, c := range cases {
+			span := &request.Span{Type: c.et, ProtoVersion: c.version, Method: "GET", Path: "/x", Status: 200}
+			v, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.version")
+			require.True(t, ok, "event type %v", c.et)
+			assert.Equal(t, c.want, v.AsString())
+		}
+	})
+
+	t.Run("omitted when the version was never determined", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.version")
+		assert.False(t, ok)
+	})
+
+	t.Run("protocol name is not reported", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, ProtoVersion: request.ProtoVersionHTTP11, Method: "GET", Path: "/x", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.name")
+		assert.False(t, ok)
+	})
+}
