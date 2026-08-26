@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,14 +28,7 @@ func TestSuite_ConfigV2Standalone(t *testing.T) {
 
 	waitForTestComponentsNoMetrics(t, instrumentedServiceStdURL+"/smoke")
 
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		obiLogs, err := compose.LogsOutput("obi")
-		require.NoError(ct, err)
-		require.Contains(ct, obiLogs, `"msg":"configuration loaded"`)
-		require.Contains(ct, obiLogs, `"version":"v2"`)
-		require.Contains(ct, obiLogs, `"msg":"instrumenting process"`)
-		require.Contains(ct, obiLogs, `"cmd":"/testserver"`)
-	}, testTimeout, time.Second)
+	requireOBIConfigV2(t, compose, `"cmd":"/testserver"`)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		appResp, err := http.Get(instrumentedServiceStdURL + "/smoke")
@@ -58,4 +52,27 @@ func TestSuite_ConfigV2Standalone(t *testing.T) {
 		require.Contains(ct, string(body), "http_server_request_duration_seconds_count")
 		require.Contains(ct, string(body), `http_route="/smoke"`)
 	}, 2*testTimeout, time.Second)
+}
+
+func requireOBIConfigV2(t *testing.T, compose *docker.Compose, target string) {
+	t.Helper()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		obiLogs, err := compose.LogsOutput("obi")
+		require.NoError(ct, err)
+
+		var configV2Loaded, targetInstrumented bool
+		for line := range strings.Lines(obiLogs) {
+			if strings.Contains(line, "configuration loaded") &&
+				(strings.Contains(line, `"version":"v2"`) || strings.Contains(line, "version=v2")) {
+				configV2Loaded = true
+			}
+			if strings.Contains(line, "instrumenting process") && strings.Contains(line, target) {
+				targetInstrumented = true
+			}
+		}
+
+		require.True(ct, configV2Loaded, "OBI did not report loading Config v2")
+		require.True(ct, targetInstrumented, "OBI did not report instrumenting %s", target)
+	}, testTimeout, time.Second)
 }

@@ -285,6 +285,7 @@ jobs:
           name: integration-arm-logs-${{ matrix.id }}-${{ github.run_number }}
           path: |
             testoutput/*.log
+            testoutput/*-v2.yml
             testoutput/kind
 
       - name: Check final disk usage

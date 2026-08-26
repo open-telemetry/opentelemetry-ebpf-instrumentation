@@ -1,0 +1,18 @@
+services:
+  obi-config-migrate:
+    image: hatest-javaobi
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - /obi config migrate /configs/obi-config-java.yml > /coverage/obi-config-java-v2.yml
+    volumes:
+      - ./configs/:/configs:ro
+      - ../../../testoutput:/coverage
+
+  obi:
+    command:
+      - --config=/coverage/obi-config-java-v2.yml
+    depends_on:
+      obi-config-migrate:
+        condition: service_completed_successfully
