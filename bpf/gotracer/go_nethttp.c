@@ -1456,6 +1456,12 @@ http2_frame_stream_id(const unsigned char header[k_h2_frame_header_len]) {
            header[8];
 }
 
+enum : u32 {
+    k_h2_pad_length_to_stream_id_offset = 34,
+    k_h2_pad_length_to_fragment_len_offset = 18,
+    k_h2_pad_length_stack_offset_limit = 512,
+};
+
 static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
                                                         go_offset_const pad_offset) {
     if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
@@ -1471,7 +1477,8 @@ static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
 
     off_table_t *ot = get_offsets_table();
     const u64 stack_offset = go_offset_of(ot, (go_offset){.v = pad_offset});
-    if (stack_offset == (u64)-1 || stack_offset < 34 || stack_offset >= 512) {
+    if (stack_offset == (u64)-1 || stack_offset < k_h2_pad_length_to_stream_id_offset ||
+        stack_offset >= k_h2_pad_length_stack_offset_limit) {
         return 0;
     }
 
@@ -1479,9 +1486,11 @@ static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
     u32 stream_id = 0;
     u8 original_pad = 0;
     u64 fragment_len = 0;
-    long err = bpf_probe_read_user(&stream_id, sizeof(stream_id), pad_ptr - 34);
+    long err = bpf_probe_read_user(
+        &stream_id, sizeof(stream_id), pad_ptr - k_h2_pad_length_to_stream_id_offset);
     err |= bpf_probe_read_user(&original_pad, sizeof(original_pad), pad_ptr);
-    err |= bpf_probe_read_user(&fragment_len, sizeof(fragment_len), pad_ptr - 18);
+    err |= bpf_probe_read_user(
+        &fragment_len, sizeof(fragment_len), pad_ptr - k_h2_pad_length_to_fragment_len_offset);
     const u64 max_fragment =
         k_h2_default_max_frame_size - HTTP2_ENCODED_HEADER_LEN - k_h2_priority_prefix_len - 1;
     if (err || !stream_id || stream_id != f_info->stream_id || original_pad ||
