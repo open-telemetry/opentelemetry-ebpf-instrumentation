@@ -40,6 +40,7 @@ func TestParsePythonLaunch(t *testing.T) {
 		{name: "attached x option looks isolated", executable: "python", args: []string{"-XI", "-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule},
 		{name: "module argument looks isolated", executable: "python", args: []string{"-m", "company.orders", "-I"}, target: "company.orders", kind: targetRunnableModule},
 		{name: "module uvicorn", executable: "python", args: []string{"-I", "-m", "uvicorn", "orders.api:app"}, target: "orders.api:app", kind: targetModule, searchPaths: []string{"."}, pathConfig: pythonPathConfig{ignorePythonEnvironment: true, safePath: true}},
+		{name: "module gunicorn", executable: "python", args: []string{"-I", "-m", "gunicorn", "orders.wsgi:application"}, target: "orders.wsgi:application", kind: targetModule, searchPaths: []string{"."}, pathConfig: pythonPathConfig{ignorePythonEnvironment: true, safePath: true}},
 		{
 			name:       "ignore environment keeps uvicorn environment",
 			executable: "python",
@@ -54,11 +55,12 @@ func TestParsePythonLaunch(t *testing.T) {
 			pathConfig:  pythonPathConfig{ignorePythonEnvironment: true},
 		},
 		{
-			name:       "gunicorn",
-			executable: "/venv/bin/gunicorn",
-			args:       []string{"-w", "4", "-b", "0.0.0.0:8080", "orders.wsgi:application", "--timeout", "90"},
-			target:     "orders.wsgi:application",
-			kind:       targetModule,
+			name:        "gunicorn",
+			executable:  "/venv/bin/gunicorn",
+			args:        []string{"-w", "4", "-b", "0.0.0.0:8080", "orders.wsgi:application", "--timeout", "90"},
+			target:      "orders.wsgi:application",
+			kind:        targetModule,
+			searchPaths: []string{"."},
 		},
 		{
 			name:       "gunicorn environment and command line precedence",
@@ -69,7 +71,7 @@ func TestParsePythonLaunch(t *testing.T) {
 			},
 			target:       "orders.wsgi:application",
 			kind:         targetModule,
-			searchPaths:  []string{"/srv/orders", "/libs", "/shared"},
+			searchPaths:  []string{"/shared", "/libs", "/srv/orders"},
 			fallbackName: "cli-name",
 		},
 		{

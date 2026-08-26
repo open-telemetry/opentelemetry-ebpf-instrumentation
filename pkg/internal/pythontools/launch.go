@@ -247,10 +247,19 @@ func parseGunicorn(args []string, env map[string]string) pythonLaunch {
 	applyGunicornSettings(args, &settings)
 
 	launch := pythonLaunch{fallbackName: cleanValue(settings.name)}
-	if settings.chdir != "" {
-		launch.searchPaths = append(launch.searchPaths, settings.chdir)
+	chdir := settings.chdir
+	if chdir == "" {
+		chdir = "."
 	}
-	launch.searchPaths = append(launch.searchPaths, splitList(settings.pythonPath)...)
+	pythonPaths := splitList(settings.pythonPath)
+	for i := len(pythonPaths) - 1; i >= 0; i-- {
+		path := pythonPaths[i]
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(chdir, path)
+		}
+		launch.searchPaths = append(launch.searchPaths, path)
+	}
+	launch.searchPaths = append(launch.searchPaths, chdir)
 	if target, ok := gunicornApplication(positionals); ok {
 		launch.target = target
 		launch.targetKind = targetModule
