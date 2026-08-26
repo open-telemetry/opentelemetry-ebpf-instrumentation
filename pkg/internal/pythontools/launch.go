@@ -26,7 +26,15 @@ type pythonLaunch struct {
 	searchPaths  []string
 	fallbackName string
 	fastAPIAuto  bool
+	pathConfig   pythonPathConfig
 }
+
+type pythonPathConfig struct {
+	ignorePythonEnvironment bool
+	safePath                bool
+}
+
+const interpreterOptionsWithoutValues = "bBdEhiIOPqRsStuvVx?"
 
 var genericModuleNames = map[string]struct{}{
 	"api":         {},
@@ -82,33 +90,86 @@ func parsePythonLaunch(executable string, args []string, env map[string]string) 
 }
 
 func parseInterpreterLaunch(args []string, env map[string]string) pythonLaunch {
+	pathConfig := pythonPathConfig{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == "--":
 			if i+1 < len(args) {
-				return launchForScript(args[i+1], args[i+2:], env)
+				return pathConfig.apply(launchForScript(args[i+1], args[i+2:], env))
 			}
 			return pythonLaunch{}
-		case arg == "-c" || strings.HasPrefix(arg, "-c"):
+		case arg == "-":
 			return pythonLaunch{}
-		case arg == "-m":
-			if i+1 >= len(args) {
-				return pythonLaunch{}
-			}
-			return launchForModule(args[i+1], args[i+2:], env)
-		case strings.HasPrefix(arg, "-m") && len(arg) > 2:
-			return launchForModule(arg[2:], args[i+1:], env)
-		case arg == "-W" || arg == "-X" || arg == "--check-hash-based-pycs":
+		case arg == "--check-hash-based-pycs":
 			i++
 			continue
-		case strings.HasPrefix(arg, "-"):
+		case strings.HasPrefix(arg, "--"):
 			continue
+		case strings.HasPrefix(arg, "-"):
+			if launch, done := parseInterpreterShortOptions(arg[1:], args, &i, env, &pathConfig); done {
+				return pathConfig.apply(launch)
+			}
 		default:
-			return launchForScript(arg, args[i+1:], env)
+			return pathConfig.apply(launchForScript(arg, args[i+1:], env))
 		}
 	}
 	return pythonLaunch{}
+}
+
+func parseInterpreterShortOptions(
+	options string,
+	args []string,
+	index *int,
+	env map[string]string,
+	pathConfig *pythonPathConfig,
+) (pythonLaunch, bool) {
+	for optionIndex := 0; optionIndex < len(options); optionIndex++ {
+		option := options[optionIndex]
+		switch option {
+		case 'E':
+			pathConfig.ignorePythonEnvironment = true
+		case 'I':
+			pathConfig.ignorePythonEnvironment = true
+			pathConfig.safePath = true
+		case 'P':
+			pathConfig.safePath = true
+		case 'c':
+			return pythonLaunch{}, true
+		case 'm':
+			module := options[optionIndex+1:]
+			if module == "" {
+				(*index)++
+				if *index >= len(args) {
+					return pythonLaunch{}, true
+				}
+				module = args[*index]
+			}
+			return launchForModule(module, args[*index+1:], env), true
+		case 'W', 'X':
+			if optionIndex+1 == len(options) {
+				(*index)++
+				if *index >= len(args) {
+					return pythonLaunch{}, true
+				}
+			}
+			return pythonLaunch{}, false
+		default:
+			if !strings.ContainsRune(interpreterOptionsWithoutValues, rune(option)) {
+				return pythonLaunch{}, true
+			}
+		}
+	}
+	return pythonLaunch{}, false
+}
+
+func (config pythonPathConfig) apply(launch pythonLaunch) pythonLaunch {
+	if launch.targetKind == targetNone && launch.target == "" && launch.fallbackName == "" &&
+		!launch.fastAPIAuto && len(launch.searchPaths) == 0 {
+		return launch
+	}
+	launch.pathConfig = config
+	return launch
 }
 
 func launchForModule(module string, args []string, env map[string]string) pythonLaunch {
@@ -255,11 +316,11 @@ options:
 			appDir = strings.TrimPrefix(args[i], "--app-dir=")
 		}
 	}
-
-	launch := pythonLaunch{}
-	if appDir != "" {
-		launch.searchPaths = append(launch.searchPaths, appDir)
+	if appDir == "" {
+		appDir = "."
 	}
+
+	launch := pythonLaunch{searchPaths: []string{appDir}}
 	for _, arg := range positionals {
 		if isApplicationReference(arg) {
 			launch.target = arg
@@ -281,7 +342,7 @@ func parseHypercorn(args []string) pythonLaunch {
 	}
 	for _, arg := range positionals {
 		if isApplicationReference(arg) {
-			return pythonLaunch{target: arg, targetKind: targetModule}
+			return pythonLaunch{target: arg, targetKind: targetModule, searchPaths: []string{"."}}
 		}
 	}
 	return pythonLaunch{}
@@ -294,7 +355,7 @@ func parseDaphne(args []string) pythonLaunch {
 	}
 	for _, arg := range positionals {
 		if isApplicationReference(arg) {
-			return pythonLaunch{target: arg, targetKind: targetModule}
+			return pythonLaunch{target: arg, targetKind: targetModule, searchPaths: []string{"."}}
 		}
 	}
 	return pythonLaunch{}
@@ -389,7 +450,11 @@ func parseFlask(args []string, env map[string]string) pythonLaunch {
 			target = strings.TrimPrefix(args[i], "--app=")
 		}
 	}
-	return pythonLaunch{target: target, targetKind: classifyTarget(target)}
+	launch := pythonLaunch{target: target, targetKind: classifyTarget(target)}
+	if launch.targetKind == targetModule {
+		launch.searchPaths = []string{"."}
+	}
+	return launch
 }
 
 func parseFastAPI(args []string) pythonLaunch {
@@ -410,7 +475,7 @@ func parseFastAPI(args []string) pythonLaunch {
 				!isStrictApplicationReference(entryPoint) {
 				return pythonLaunch{}
 			}
-			return pythonLaunch{target: entryPoint, targetKind: targetModule}
+			return pythonLaunch{target: entryPoint, targetKind: targetModule, searchPaths: []string{"."}}
 		}
 		if len(commandArgs.positionals) == 0 {
 			if commandArgs.appOption {

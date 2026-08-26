@@ -20,12 +20,35 @@ func TestParsePythonLaunch(t *testing.T) {
 		searchPaths  []string
 		fallbackName string
 		fastAPIAuto  bool
+		pathConfig   pythonPathConfig
 	}{
 		{name: "script", executable: "python3.14", args: []string{"/srv/orders.py"}, target: "/srv/orders.py", kind: targetScriptPath},
-		{name: "interpreter options", executable: "python", args: []string{"-I", "-W", "ignore", "orders.py"}, target: "orders.py", kind: targetScriptPath},
+		{name: "interpreter options", executable: "python", args: []string{"-I", "-W", "ignore", "orders.py"}, target: "orders.py", kind: targetScriptPath, pathConfig: pythonPathConfig{ignorePythonEnvironment: true, safePath: true}},
 		{name: "module", executable: "python", args: []string{"-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule},
 		{name: "module attached", executable: "python", args: []string{"-mcompany.orders"}, target: "company.orders", kind: targetRunnableModule},
-		{name: "module uvicorn", executable: "python", args: []string{"-m", "uvicorn", "orders.api:app"}, target: "orders.api:app", kind: targetModule},
+		{name: "ignore environment", executable: "python", args: []string{"-E", "-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule, pathConfig: pythonPathConfig{ignorePythonEnvironment: true}},
+		{name: "safe path", executable: "python", args: []string{"-P", "-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule, pathConfig: pythonPathConfig{safePath: true}},
+		{name: "clustered module", executable: "python", args: []string{"-IPmcompany.orders"}, target: "company.orders", kind: targetRunnableModule, pathConfig: pythonPathConfig{ignorePythonEnvironment: true, safePath: true}},
+		{name: "clustered eval", executable: "python", args: []string{"-Ic", "serve()", "orders.py"}},
+		{name: "clustered x option", executable: "python", args: []string{"-IX", "dev", "-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule, pathConfig: pythonPathConfig{ignorePythonEnvironment: true, safePath: true}},
+		{name: "warning value looks isolated", executable: "python", args: []string{"-W", "-I", "-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule},
+		{name: "attached warning looks safe", executable: "python", args: []string{"-WignoreP", "-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule},
+		{name: "attached x option looks isolated", executable: "python", args: []string{"-XI", "-m", "company.orders"}, target: "company.orders", kind: targetRunnableModule},
+		{name: "module argument looks isolated", executable: "python", args: []string{"-m", "company.orders", "-I"}, target: "company.orders", kind: targetRunnableModule},
+		{name: "module uvicorn", executable: "python", args: []string{"-I", "-m", "uvicorn", "orders.api:app"}, target: "orders.api:app", kind: targetModule, searchPaths: []string{"."}, pathConfig: pythonPathConfig{ignorePythonEnvironment: true, safePath: true}},
+		{
+			name:       "ignore environment keeps uvicorn environment",
+			executable: "python",
+			args:       []string{"-E", "-m", "uvicorn"},
+			env: map[string]string{
+				"UVICORN_APP":     "orders.api:app",
+				"UVICORN_APP_DIR": "/srv",
+			},
+			target:      "orders.api:app",
+			kind:        targetModule,
+			searchPaths: []string{"/srv"},
+			pathConfig:  pythonPathConfig{ignorePythonEnvironment: true},
+		},
 		{
 			name:       "gunicorn",
 			executable: "/venv/bin/gunicorn",
@@ -53,12 +76,12 @@ func TestParsePythonLaunch(t *testing.T) {
 			kind:        targetModule,
 			searchPaths: []string{"/srv"},
 		},
-		{name: "hypercorn", executable: "hypercorn", args: []string{"--bind", "0.0.0.0:8080", "orders.asgi:app"}, target: "orders.asgi:app", kind: targetModule},
-		{name: "daphne", executable: "daphne", args: []string{"-b", "0.0.0.0", "orders.asgi:application"}, target: "orders.asgi:application", kind: targetModule},
+		{name: "hypercorn", executable: "hypercorn", args: []string{"--bind", "0.0.0.0:8080", "orders.asgi:app"}, target: "orders.asgi:app", kind: targetModule, searchPaths: []string{"."}},
+		{name: "daphne", executable: "daphne", args: []string{"-b", "0.0.0.0", "orders.asgi:application"}, target: "orders.asgi:application", kind: targetModule, searchPaths: []string{"."}},
 		{name: "uwsgi module", executable: "uwsgi", args: []string{"--http", ":8080", "--module", "orders.wsgi:application"}, target: "orders.wsgi:application", kind: targetModule},
 		{name: "uwsgi file", executable: "uwsgi", args: []string{"--wsgi-file", "/srv/orders.py"}, target: "/srv/orders.py", kind: targetFile},
 		{name: "waitress", executable: "waitress-serve", args: []string{"--listen", "*:8080", "orders.wsgi:application"}, target: "orders.wsgi:application", kind: targetModule},
-		{name: "flask command line wins", executable: "flask", args: []string{"--app", "orders.web:create_app", "run"}, env: map[string]string{"FLASK_APP": "other"}, target: "orders.web:create_app", kind: targetModule},
+		{name: "flask command line wins", executable: "flask", args: []string{"--app", "orders.web:create_app", "run"}, env: map[string]string{"FLASK_APP": "other"}, target: "orders.web:create_app", kind: targetModule, searchPaths: []string{"."}},
 		{name: "fastapi path", executable: "fastapi", args: []string{"run", "src/orders/main.py", "--port", "8080"}, target: "src/orders/main.py", kind: targetFile},
 		{name: "fastapi automatic", executable: "fastapi", args: []string{"run"}, fastAPIAuto: true},
 		{name: "django settings", executable: "django-admin", args: []string{"runserver", "--settings=company.orders.settings.production"}, target: "company.orders.settings.production", kind: targetModule},
@@ -80,6 +103,7 @@ func TestParsePythonLaunch(t *testing.T) {
 			assert.Equal(t, tt.searchPaths, launch.searchPaths)
 			assert.Equal(t, tt.fallbackName, launch.fallbackName)
 			assert.Equal(t, tt.fastAPIAuto, launch.fastAPIAuto)
+			assert.Equal(t, tt.pathConfig, launch.pathConfig)
 		})
 	}
 }
@@ -341,9 +365,9 @@ func TestParseUvicornAcceptsKnownOptionForms(t *testing.T) {
 		env         map[string]string
 		searchPaths []string
 	}{
-		{name: "attached value", args: []string{"--host=0.0.0.0", application}},
-		{name: "option after application", args: []string{application, "--port", "8000"}},
-		{name: "after terminator", args: []string{"--", application, "--future-option", "env:prod"}},
+		{name: "attached value", args: []string{"--host=0.0.0.0", application}, searchPaths: []string{"."}},
+		{name: "option after application", args: []string{application, "--port", "8000"}, searchPaths: []string{"."}},
+		{name: "after terminator", args: []string{"--", application, "--future-option", "env:prod"}, searchPaths: []string{"."}},
 		{name: "separated app directory", args: []string{"--app-dir", "/srv", application}, searchPaths: []string{"/srv"}},
 		{name: "attached app directory", args: []string{"--app-dir=/srv", application}, searchPaths: []string{"/srv"}},
 		{

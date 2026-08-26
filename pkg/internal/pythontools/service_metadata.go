@@ -136,7 +136,16 @@ func resolveTargetPath(root, cwd string, launch pythonLaunch, env map[string]str
 		return "", "", false
 	}
 
-	roots := targetSearchRoots(cwd, launch.searchPaths, env["PYTHONPATH"])
+	pathConfig := launch.pathConfig
+	if !pathConfig.ignorePythonEnvironment && env["PYTHONSAFEPATH"] != "" {
+		pathConfig.safePath = true
+	}
+	pythonPath := env["PYTHONPATH"]
+	if pathConfig.ignorePythonEnvironment {
+		pythonPath = ""
+	}
+	includeCWD := !pathConfig.safePath || launch.targetKind == targetFile
+	roots := targetSearchRoots(cwd, launch.searchPaths, pythonPath, includeCWD)
 	switch launch.targetKind {
 	case targetFile:
 		candidates := []targetCandidate{{path: target, target: target}}
@@ -275,12 +284,14 @@ func processDirectory(root, path string) bool {
 	return err == nil && info.IsDir()
 }
 
-func targetSearchRoots(cwd string, launcherPaths []string, pythonPath string) []string {
+func targetSearchRoots(cwd string, launcherPaths []string, pythonPath string, includeCWD bool) []string {
 	roots := make([]string, 0, len(launcherPaths)+2)
 	for _, path := range launcherPaths {
 		roots = appendProcessPath(roots, cwd, path)
 	}
-	roots = appendProcessPath(roots, cwd, cwd)
+	if includeCWD {
+		roots = appendProcessPath(roots, cwd, cwd)
+	}
 	for _, path := range filepath.SplitList(pythonPath) {
 		if path == "" {
 			path = cwd

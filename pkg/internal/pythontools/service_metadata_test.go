@@ -331,6 +331,167 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 }
 
+func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
+	t.Run("ignore environment excludes pythonpath", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "libs", "orders.py"), "")
+		writePythonFile(t, filepath.Join(root, "libs", "pyproject.toml"), "[project]\nname = 'path-orders'\nversion = '2'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{"-E", "-m", "orders"}, map[string]string{
+			"PYTHONPATH": "/libs",
+		}, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	tests := []struct {
+		name        string
+		args        []string
+		env         map[string]string
+		wantName    string
+		wantVersion string
+	}{
+		{
+			name:        "default prefers cwd",
+			args:        []string{"-m", "orders"},
+			wantName:    "cwd-orders",
+			wantVersion: "1",
+		},
+		{
+			name:        "safe path omits automatic cwd",
+			args:        []string{"-P", "-m", "orders"},
+			wantName:    "path-orders",
+			wantVersion: "2",
+		},
+		{
+			name:        "python safe path accepts any nonempty value",
+			args:        []string{"-m", "orders"},
+			env:         map[string]string{"PYTHONSAFEPATH": "0"},
+			wantName:    "path-orders",
+			wantVersion: "2",
+		},
+		{
+			name:     "isolated mode omits cwd and ignores pythonpath",
+			args:     []string{"-I", "-m", "orders"},
+			wantName: "orders",
+		},
+		{
+			name:        "ignore Python environment disables safe path",
+			args:        []string{"-E", "-m", "orders"},
+			env:         map[string]string{"PYTHONSAFEPATH": "1"},
+			wantName:    "cwd-orders",
+			wantVersion: "1",
+		},
+		{
+			name:        "pythonpath can explicitly reintroduce cwd",
+			args:        []string{"-P", "-m", "orders"},
+			env:         map[string]string{"PYTHONPATH": ":/libs"},
+			wantName:    "cwd-orders",
+			wantVersion: "1",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+			writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
+			writePythonFile(t, filepath.Join(root, "libs", "orders.py"), "")
+			writePythonFile(t, filepath.Join(root, "libs", "pyproject.toml"), "[project]\nname = 'path-orders'\nversion = '2'\n")
+			env := map[string]string{"PYTHONPATH": "/libs"}
+			for name, value := range test.env {
+				env[name] = value
+			}
+			fileInfo := mockPythonProcess(t, root, "python", test.args, env, "/app")
+
+			err := ResolveServiceMetadata(fileInfo)
+
+			require.NoError(t, err)
+			assert.Equal(t, test.wantName, fileInfo.ServiceAttrs().UID.Name)
+			assert.Equal(t, test.wantVersion, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+		})
+	}
+
+	t.Run("direct script remains exact in isolated mode", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{"-I", "orders.py"}, map[string]string{
+			"PYTHONPATH": "/libs",
+		}, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "cwd-orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "1", fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("fastapi file remains cwd relative", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{
+			"-I", "-m", "fastapi", "run", "orders.py",
+		}, map[string]string{"PYTHONPATH": "/libs"}, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "cwd-orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "1", fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("isolation survives module launcher delegation", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "libs", "orders", "api.py"), "")
+		writePythonFile(t, filepath.Join(root, "libs", "pyproject.toml"), "[project]\nname = 'path-orders'\nversion = '2'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{
+			"-E", "-m", "uvicorn", "orders.api:app",
+		}, map[string]string{"PYTHONPATH": "/libs"}, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("launcher default app directory remains explicit", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders", "api.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{
+			"-I", "-m", "uvicorn", "orders.api:app",
+		}, map[string]string{"PYTHONPATH": "/libs"}, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "cwd-orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "1", fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("gunicorn pythonpath remains explicit in isolated mode", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "app", "orders", "wsgi.py"), "")
+		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
+		writePythonFile(t, filepath.Join(root, "libs", "orders", "wsgi.py"), "")
+		writePythonFile(t, filepath.Join(root, "libs", "pyproject.toml"), "[project]\nname = 'path-orders'\nversion = '2'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{
+			"-I", "-m", "gunicorn", "--pythonpath=/libs", "orders.wsgi:application",
+		}, nil, "/app")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "path-orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "2", fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+}
+
 func TestResolveTargetPathMatchesPython(t *testing.T) {
 	t.Run("extensionless script path is accepted", func(t *testing.T) {
 		root := t.TempDir()
