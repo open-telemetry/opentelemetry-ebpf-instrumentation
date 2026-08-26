@@ -1,0 +1,26 @@
+routes:
+  patterns:
+    - /basic/:rnd
+  unmatched: path
+ebpf:
+  track_request_headers: true
+otel_metrics_export:
+  endpoint: http://otelcol:4018
+otel_traces_export:
+  endpoint: http://jaeger:4318
+  sampler:
+    name: parentbased_always_off
+discovery:
+  disabled_route_harvesters: ["nodejs"]
+  services:
+    - namespace: multi-k
+      name: service-a
+      open_ports: 5000
+attributes:
+  kubernetes:
+    cluster_name: my-kube
+  select:
+    http_server_request_duration_seconds_count:
+      exclude: ["server_address"]
+    "*":
+      include: ["*"]
