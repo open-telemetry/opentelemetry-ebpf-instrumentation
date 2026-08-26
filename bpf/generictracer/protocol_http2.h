@@ -370,7 +370,7 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
             bpf_ringbuf_submit(trace, get_flags());
         }
         if (prev_info->type == EVENT_HTTP_CLIENT) {
-            obi_ctx__restore_server();
+            obi_ctx__restore_server(&prev_info->tp);
         }
     }
 

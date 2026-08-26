@@ -68,6 +68,69 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 	return nil
 }
 
+// set from main; used by the deep and nesting drivers below
+var (
+	deepLog      func(string)
+	deepGRPCCall func(string) error
+	nestInnerDB  *sql.DB
+)
+
+// ---- deep driver: its Query logs and calls gRPC, so one goroutine nests
+// server, SQL and gRPC spans. The query text is the request id ----
+
+type deepDriver struct{}
+
+func (deepDriver) Open(string) (driver.Conn, error) { return deepConn{}, nil }
+
+type deepConn struct{}
+
+func (deepConn) Prepare(q string) (driver.Stmt, error) { return deepStmt{id: q}, nil }
+func (deepConn) Close() error                          { return nil }
+func (deepConn) Begin() (driver.Tx, error)             { return nil, driver.ErrSkip }
+
+type deepStmt struct{ id string }
+
+func (deepStmt) Close() error                                 { return nil }
+func (deepStmt) NumInput() int                                { return 0 }
+func (s deepStmt) Exec([]driver.Value) (driver.Result, error) { return driver.RowsAffected(1), nil }
+func (s deepStmt) Query([]driver.Value) (driver.Rows, error) {
+	deepLog("deep: driver before grpc " + s.id)
+	if err := deepGRPCCall("deep: grpc handler " + s.id); err != nil {
+		return nil, err
+	}
+	deepLog("deep: driver after grpc " + s.id)
+	return &fakeRows{}, nil
+}
+
+// ---- nesting driver: its Query runs another database/sql query, nesting
+// two SQL spans of the same kind ----
+
+type nestDriver struct{}
+
+func (nestDriver) Open(string) (driver.Conn, error) { return nestConn{}, nil }
+
+type nestConn struct{}
+
+func (nestConn) Prepare(q string) (driver.Stmt, error) { return nestStmt{id: q}, nil }
+func (nestConn) Close() error                          { return nil }
+func (nestConn) Begin() (driver.Tx, error)             { return nil, driver.ErrSkip }
+
+type nestStmt struct{ id string }
+
+func (nestStmt) Close() error                                 { return nil }
+func (nestStmt) NumInput() int                                { return 0 }
+func (s nestStmt) Exec([]driver.Value) (driver.Result, error) { return driver.RowsAffected(1), nil }
+func (s nestStmt) Query([]driver.Value) (driver.Rows, error) {
+	rows, err := nestInnerDB.Query("SELECT n FROM fake")
+	if err != nil {
+		return nil, err
+	}
+	rows.Close()
+	// still inside the outer SQL span
+	deepLog("samekind: driver after inner " + s.id)
+	return &fakeRows{}, nil
+}
+
 // ---- JSON codec ----
 
 type jsonCodec struct{}
@@ -366,6 +429,8 @@ func main() {
 
 		sqlDone := make(chan error, 1)
 		go func() {
+			// a fresh goroutine owns no span yet: this line must stay unenriched
+			jsonLog("nestedg: child before sql " + id)
 			rows, err := db.Query("SELECT n FROM fake")
 			if err != nil {
 				sqlDone <- err
@@ -380,6 +445,101 @@ func main() {
 		}
 
 		jsonLog("nestedg: after sql " + id)
+
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	deepLog = jsonLog
+	deepGRPCCall = func(msg string) error {
+		conn, err := grpc.Dial(
+			"localhost:50051",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+		)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		var resp LogResponse
+		return conn.Invoke(ctx, "/LogService/Log", &LogRequest{Message: msg}, &resp)
+	}
+	sql.Register("deepfake", deepDriver{})
+	deepDB, err := sql.Open("deepfake", "")
+	if err != nil {
+		log.Fatal(err)
+	}
+	http.HandleFunc("/nested_logger_deep", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		jsonLog("deep: before sql " + id)
+
+		rows, err := deepDB.Query(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rows.Close()
+
+		jsonLog("deep: after sql " + id)
+
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	sql.Register("nestfake", nestDriver{})
+	nestInnerDB = db
+	nestDB, err := sql.Open("nestfake", "")
+	if err != nil {
+		log.Fatal(err)
+	}
+	http.HandleFunc("/nested_logger_samekind", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		jsonLog("samekind: before sql " + id)
+
+		rows, err := nestDB.Query(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rows.Close()
+
+		jsonLog("samekind: after sql " + id)
+
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	// the gRPC connection is closed on another goroutine
+	http.HandleFunc("/nested_logger_closeg", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		jsonLog("closeg: before grpc " + id)
+
+		conn, err := grpc.Dial(
+			"localhost:50051",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		var resp LogResponse
+		if err := conn.Invoke(ctx, "/LogService/Log",
+			&LogRequest{Message: "closeg: grpc handler " + id}, &resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		closed := make(chan struct{})
+		go func() {
+			conn.Close()
+			close(closed)
+		}()
+		<-closed
+
+		jsonLog("closeg: after close " + id)
 
 		_, _ = w.Write([]byte("ok\n"))
 	})

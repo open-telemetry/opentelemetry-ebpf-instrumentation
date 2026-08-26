@@ -1223,6 +1223,15 @@ func TestSuite_LogEnricherGoGRPC(t *testing.T) {
 	t.Run("Log Enricher nested spans goroutine", func(t *testing.T) {
 		testLogEnricherNestedSpansGoroutine(t, logEnricherGoGRPCConstants)
 	})
+	t.Run("Log Enricher nested spans deep", func(t *testing.T) {
+		testLogEnricherNestedSpansDeep(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans same kind", func(t *testing.T) {
+		testLogEnricherNestedSpansSameKind(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans close goroutine", func(t *testing.T) {
+		testLogEnricherNestedSpansCloseGoroutine(t, logEnricherGoGRPCConstants)
+	})
 	require.NoError(t, compose.Close())
 }
 

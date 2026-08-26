@@ -35,9 +35,11 @@ static __always_inline void delete_server_trace(pid_connection_info_t *pid_conn,
     }
 }
 
-// Hands traces_ctx_v1 back to this thread's ongoing server span when a
-// client span ends. Only ever writes the thread's own server tp
-static __always_inline void obi_ctx__restore_server(void) {
+// Hands traces_ctx_v1 back to the ended client span's parent server span
+static __always_inline void obi_ctx__restore_server(const tp_info_t *client_tp) {
+    if (!client_tp) {
+        return;
+    }
     trace_key_t t_key = {0};
     task_tid(&t_key.p_key);
     if (java_vt_translate_tid(&t_key.p_key)) {
@@ -45,13 +47,18 @@ static __always_inline void obi_ctx__restore_server(void) {
     }
     t_key.extra_id = extra_runtime_id();
     tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, &t_key);
-    // freshness gate: h2 server entries outlive their request
-    if (server_tp && server_tp->valid && correlated_request_with_current(server_tp)) {
+    if (server_tp && server_tp->valid &&
+        *(const u64 *)server_tp->tp.span_id == *(const u64 *)client_tp->parent_id) {
         obi_ctx__set(bpf_get_current_pid_tgid(), &server_tp->tp);
     }
 }
 
 static __always_inline void delete_client_trace_info(pid_connection_info_t *pid_conn) {
+    const tp_info_pid_t *client_tp = trace_info_for_connection(&pid_conn->conn, TRACE_TYPE_CLIENT);
+    if (client_tp) {
+        obi_ctx__restore_server(&client_tp->tp);
+    }
+
     delete_trace_info_for_connection(&pid_conn->conn, TRACE_TYPE_CLIENT);
 
     egress_key_t e_key = {
@@ -61,7 +68,6 @@ static __always_inline void delete_client_trace_info(pid_connection_info_t *pid_
     sort_egress_key(&e_key);
     bpf_map_delete_elem(&outgoing_trace_map, &e_key);
     bpf_map_delete_elem(&cp_support_connect_info, pid_conn);
-    obi_ctx__restore_server();
 }
 
 static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,

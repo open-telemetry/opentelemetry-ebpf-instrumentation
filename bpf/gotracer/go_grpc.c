@@ -140,7 +140,7 @@ int GUARDED_PROG(obi_uprobe_server_handleStream, struct pt_regs *, ctx) {
         bpf_dbg_printk("can't update grpc map element");
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_server, &invocation.tp);
 
     return 0;
 }
@@ -318,10 +318,10 @@ int GUARDED_PROG(obi_uprobe_server_handleStream_return, struct pt_regs *, ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_server, invocation ? &invocation->tp : NULL);
     bpf_map_delete_elem(&ongoing_grpc_server_requests, &g_key);
     bpf_map_delete_elem(&ongoing_grpc_request_status, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
@@ -398,7 +398,7 @@ static __always_inline void clientConnStart(
         bpf_dbg_printk("can't update grpc client map element");
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp);
 }
 
 SEC("uprobe/ClientConn_Invoke")
@@ -503,8 +503,8 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, invocation ? &invocation->tp : NULL);
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
     return 0;
 }
 
@@ -531,8 +531,8 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
 
     return 0;
 }

@@ -1181,6 +1181,13 @@ func testLogEnricherNestedSpansGoroutine(t *testing.T, constants testServerConst
 		// the gRPC handler runs under its own server span
 		assert.NotEqual(ct, before["span_id"], inGRPC["span_id"])
 
+		// a fresh goroutine owns no span, so its first log stays unenriched
+		childBefore := get("nestedg: child before sql")
+		if childBefore != nil {
+			assert.Empty(ct, childBefore["trace_id"],
+				"a goroutine without a span must not inherit trace context")
+		}
+
 		// a finished request's context must not leak into the next one
 		prev := newestLogFields(logs, func(m string) bool {
 			return strings.HasPrefix(m, "nestedg: after sql greq-") && m != afterSQL["message"]
@@ -1189,6 +1196,203 @@ func testLogEnricherNestedSpansGoroutine(t *testing.T, constants testServerConst
 			assert.NotEqual(ct, afterSQL["trace_id"], prev["trace_id"],
 				"trace context leaked across requests")
 		}
+	}, 2*testTimeout, time.Second)
+}
+
+// Server, SQL and gRPC nested on one goroutine: the driver's own logs must
+// carry the SQL span, before and after the inner gRPC call
+func testLogEnricherNestedSpansDeep(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	reqID := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reqID++
+		id := fmt.Sprintf("dreq-%d", reqID)
+		ti.DoHTTPGet(ct, constants.url+"/nested_logger_deep?id="+id, 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// log fetch can lag the current request: pair by the newest settled id
+		afterSQL := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "deep: after sql dreq-")
+		})
+		if !assert.NotNil(ct, afterSQL, "no 'deep: after sql' line found yet") {
+			return
+		}
+		pairID := afterSQL["message"][strings.LastIndex(afterSQL["message"], " ")+1:]
+
+		get := func(message string) map[string]string {
+			fields := newestLogFields(logs, func(m string) bool { return m == message+" "+pairID })
+			assert.NotNil(ct, fields, "log line %q not found", message)
+			return fields
+		}
+
+		before := get("deep: before sql")
+		driverBefore := get("deep: driver before grpc")
+		inGRPC := get("deep: grpc handler")
+		driverAfter := get("deep: driver after grpc")
+		if before == nil || driverBefore == nil || inGRPC == nil || driverAfter == nil {
+			return
+		}
+
+		for name, fields := range map[string]map[string]string{
+			"before sql": before, "driver before grpc": driverBefore,
+			"grpc handler": inGRPC, "driver after grpc": driverAfter,
+			"after sql": afterSQL,
+		} {
+			assertEnrichedCtx(ct, name, fields)
+		}
+
+		// everything in the handler belongs to one trace
+		assert.Equal(ct, before["trace_id"], driverBefore["trace_id"])
+		assert.Equal(ct, before["trace_id"], driverAfter["trace_id"])
+		assert.Equal(ct, before["trace_id"], afterSQL["trace_id"])
+
+		// the driver logs under the SQL span, not the server span
+		assert.NotEqual(ct, before["span_id"], driverBefore["span_id"])
+		// the inner gRPC call's end must restore the SQL span context
+		assert.Equal(ct, driverBefore["span_id"], driverAfter["span_id"])
+		// the SQL query's end must restore the server span context
+		assert.Equal(ct, before["span_id"], afterSQL["span_id"])
+		// the gRPC handler runs under its own server span
+		assert.NotEqual(ct, driverBefore["span_id"], inGRPC["span_id"])
+	}, 2*testTimeout, time.Second)
+}
+
+// Two nested SQL spans: the handler must get its own context back once both
+// return
+func testLogEnricherNestedSpansSameKind(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	reqID := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reqID++
+		id := fmt.Sprintf("sreq-%d", reqID)
+		ti.DoHTTPGet(ct, constants.url+"/nested_logger_samekind?id="+id, 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// log fetch can lag the current request: pair by the newest settled id
+		after := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "samekind: after sql sreq-")
+		})
+		if !assert.NotNil(ct, after, "no 'samekind: after sql' line found yet") {
+			return
+		}
+		pairID := after["message"][strings.LastIndex(after["message"], " ")+1:]
+
+		before := newestLogFields(logs, func(m string) bool {
+			return m == "samekind: before sql "+pairID
+		})
+		if !assert.NotNil(ct, before, "no matching 'samekind: before sql' line found") {
+			return
+		}
+
+		assertEnrichedCtx(ct, "before sql", before)
+		assertEnrichedCtx(ct, "after sql", after)
+
+		// nested same-kind spans must not strand or corrupt the handler context
+		assert.Equal(ct, before["trace_id"], after["trace_id"])
+		assert.Equal(ct, before["span_id"], after["span_id"])
+
+		driverAfter := newestLogFields(logs, func(m string) bool {
+			return m == "samekind: driver after inner "+pairID
+		})
+		if !assert.NotNil(ct, driverAfter, "no 'samekind: driver after inner' line found") {
+			return
+		}
+		assertEnrichedCtx(ct, "driver after inner", driverAfter)
+		// one frame per kind: the inner query's end falls back to the server
+		// span, and must never resurrect a stale context
+		assert.Equal(ct, before["trace_id"], driverAfter["trace_id"])
+		assert.Equal(ct, before["span_id"], driverAfter["span_id"])
+
+		// a finished request's context must not leak into the next one
+		prev := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "samekind: after sql sreq-") && m != after["message"]
+		})
+		if prev != nil && prev["trace_id"] != "" {
+			assert.NotEqual(ct, after["trace_id"], prev["trace_id"],
+				"trace context leaked across requests")
+		}
+	}, 2*testTimeout, time.Second)
+}
+
+// The gRPC connection is closed on another goroutine: the handler's context
+// must survive it
+func testLogEnricherNestedSpansCloseGoroutine(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	reqID := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reqID++
+		id := fmt.Sprintf("creq-%d", reqID)
+		ti.DoHTTPGet(ct, constants.url+"/nested_logger_closeg?id="+id, 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// log fetch can lag the current request: pair by the newest settled id
+		after := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "closeg: after close creq-")
+		})
+		if !assert.NotNil(ct, after, "no 'closeg: after close' line found yet") {
+			return
+		}
+		pairID := after["message"][strings.LastIndex(after["message"], " ")+1:]
+
+		get := func(message string) map[string]string {
+			fields := newestLogFields(logs, func(m string) bool { return m == message+" "+pairID })
+			assert.NotNil(ct, fields, "log line %q not found", message)
+			return fields
+		}
+
+		before := get("closeg: before grpc")
+		inGRPC := get("closeg: grpc handler")
+		if before == nil || inGRPC == nil {
+			return
+		}
+
+		assertEnrichedCtx(ct, "before grpc", before)
+		assertEnrichedCtx(ct, "grpc handler", inGRPC)
+		assertEnrichedCtx(ct, "after close", after)
+
+		// a cross-goroutine Close must leave the handler's context intact
+		assert.Equal(ct, before["trace_id"], after["trace_id"])
+		assert.Equal(ct, before["span_id"], after["span_id"])
+		assert.NotEqual(ct, before["span_id"], inGRPC["span_id"])
 	}, 2*testTimeout, time.Second)
 }
 

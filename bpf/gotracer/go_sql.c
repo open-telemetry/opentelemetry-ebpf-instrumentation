@@ -317,7 +317,7 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
         bpf_dbg_printk("can't update map element");
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_sql, &invocation.tp);
 }
 
 // Common SQL query return handler.
@@ -329,10 +329,12 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
     sql_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
     if (invocation == NULL) {
         bpf_dbg_printk("Request not found for this goroutine");
+        // an inner query of a nested pair took the map slot: still pop ours
+        go_obi_ctx__end(&g_key, k_obi_ctx_sql, NULL);
         return 0;
     }
+    go_obi_ctx__end(&g_key, k_obi_ctx_sql, &invocation->tp);
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
-    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
 
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {

@@ -1325,13 +1325,14 @@ int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
     const u32 newval = (u32)(uintptr_t)GO_PARAM3(ctx);
     switch (newval) {
     case g_running:
-    case g_syscall: {
-        tp_info_t tp;
-        if (obi_ctx__innermost_tp(&g_key, &tp)) {
-            obi_ctx__set(g_pid_tgid, &tp);
-        }
+    case g_syscall:
+        go_obi_ctx__resume(g_pid_tgid, &g_key);
         break;
-    }
+    case g_dead:
+        // g objects are recycled: drop the stack before reuse
+        bpf_map_delete_elem(&obi_ctx_stacks, &g_key);
+        obi_ctx__del(g_pid_tgid);
+        break;
     default:
         obi_ctx__del(g_pid_tgid);
     }
