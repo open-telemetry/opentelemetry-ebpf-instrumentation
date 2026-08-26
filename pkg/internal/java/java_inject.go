@@ -62,14 +62,17 @@ type jvmAttacher interface {
 }
 
 func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
+	log := slog.With("component", "javaagent.Injector")
 	if !cfg.Java.Enabled {
+		if cfg.AppRuntimeMetricsEnabled() {
+			log.Warn("application_runtime is enabled but the Java agent is disabled " +
+				"(javaagent.enabled=false): Java agent-backed JVM runtime metrics will not be collected")
+		}
 		return nil, nil
 	}
 	if err := ensureEmbeddedAgent(); err != nil {
 		return nil, err
 	}
-
-	log := slog.With("component", "javaagent.Injector")
 
 	// A locally built or outdated agent JAR may carry no version marker. Injection still
 	// works, we just cannot tell whether an agent already attached to a JVM is the one we
@@ -203,6 +206,7 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 		return err
 	}
 
+	agentOpts := i.attachOpts(target.RuntimeMetricsEnabled)
 	attachID := i.nextAttachID()
 
 	ctx, cancel := context.WithTimeout(ctx, i.cfg.Java.Timeout)
@@ -300,7 +304,7 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 			return
 		}
 
-		if err = i.attachJDKAgent(ctx, attacher, target.Process, target.Pid, agentPath); err != nil {
+		if err = i.attachJDKAgent(ctx, attacher, target.Process, target.Pid, agentPath, agentOpts); err != nil {
 			i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", target.Pid, "path", agentPath, "error", err)
 			resultChan <- result{err: err}
 			return
@@ -398,13 +402,18 @@ func returnCodeLine(line string) (bool, error) {
 	return false, nil
 }
 
-func (i *JavaInjector) attachOpts() string {
+func (i *JavaInjector) attachOpts(runtimeMetricsEnabled bool) string {
 	var opts []string
 	if i.cfg.Java.Debug {
 		opts = append(opts, "debug=true")
 	}
 	if i.cfg.Java.DebugInstrumentation {
 		opts = append(opts, "debugBB=true")
+	}
+	if runtimeMetricsEnabled {
+		opts = append(opts, "runtimeMetrics=true")
+		opts = append(opts, fmt.Sprintf("runtimeMetricsIntervalNanos=%d",
+			i.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds()))
 	}
 
 	if len(opts) == 0 {
@@ -420,6 +429,7 @@ func (i *JavaInjector) attachJDKAgent(
 	process *procs.ProcessHandle,
 	pid app.PID,
 	path string,
+	agentOpts string,
 ) error {
 	attacher.Init()
 
@@ -428,7 +438,7 @@ func (i *JavaInjector) attachJDKAgent(
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
-	out, err := attacher.Attach(ctx, process, []string{"load", "instrument", "false", path + i.attachOpts()}, false)
+	out, err := attacher.Attach(ctx, process, []string{"load", "instrument", "false", path + agentOpts}, false)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return err

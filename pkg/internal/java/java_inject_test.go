@@ -6,6 +6,7 @@
 package javaagent
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -21,6 +22,9 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/ebpf"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -473,16 +477,22 @@ func TestDirOK(t *testing.T) {
 
 func TestJavaInjector_AttachOpts(t *testing.T) {
 	tests := []struct {
-		name     string
-		debug    bool
-		debugBB  bool
-		expected string
+		name           string
+		debug          bool
+		debugBB        bool
+		runtimeMetrics bool
+		expected       string
 	}{
 		{
 			name:     "no options enabled",
 			debug:    false,
 			debugBB:  false,
 			expected: "",
+		},
+		{
+			name:           "runtime metrics only",
+			runtimeMetrics: true,
+			expected:       "=runtimeMetrics=true,runtimeMetricsIntervalNanos=2000000000",
 		},
 		{
 			name:     "debug only",
@@ -497,10 +507,11 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 			expected: "=debugBB=true",
 		},
 		{
-			name:     "both options enabled",
-			debug:    true,
-			debugBB:  true,
-			expected: "=debug=true,debugBB=true",
+			name:           "all options enabled",
+			debug:          true,
+			debugBB:        true,
+			runtimeMetrics: true,
+			expected:       "=debug=true,debugBB=true,runtimeMetrics=true,runtimeMetricsIntervalNanos=2000000000",
 		},
 	}
 
@@ -511,14 +522,27 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 					Debug:                tt.debug,
 					DebugInstrumentation: tt.debugBB,
 				},
+				JVMRuntimeMetrics: obi.JVMRuntimeMetricsConfig{
+					SamplingInterval: 2 * time.Second,
+				},
 			}
 
 			injector := &JavaInjector{
 				cfg: cfg,
 				log: slog.With("component", "javaagent.Injector"),
 			}
+			features := export.FeatureApplicationRED
+			if tt.runtimeMetrics {
+				features |= export.FeatureApplicationRuntime
+			}
+			ie := &ebpf.Instrumentable{
+				FileInfo: exec.New(exec.Init{
+					Service: svc.Attrs{Features: features},
+				}),
+			}
 
-			result := injector.attachOpts()
+			runtimeMetricsEnabled := ie.FileInfo.ServiceAttrs().Features.AppRuntime()
+			result := injector.attachOpts(runtimeMetricsEnabled)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -664,14 +688,19 @@ func TestJavaInjector_NewExecutable_IgnoresNonJavaTarget(t *testing.T) {
 }
 
 func TestNewJavaInjector_Disabled(t *testing.T) {
-	injector, err := NewJavaInjector(&obi.Config{
-		Java: obi.JavaConfig{
-			Enabled: false,
-		},
-	})
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	cfg := obi.DefaultConfig
+	cfg.Java.Enabled = false
+	cfg.Metrics.Features = export.FeatureApplicationRuntime
+	injector, err := NewJavaInjector(&cfg)
 
 	require.NoError(t, err)
 	assert.Nil(t, injector)
+	assert.Contains(t, logs.String(), "Java agent-backed JVM runtime metrics will not be collected")
 }
 
 func TestNewJavaInjector_MissingEmbeddedAgent(t *testing.T) {

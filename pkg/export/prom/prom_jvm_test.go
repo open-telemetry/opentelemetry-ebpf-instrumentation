@@ -4,6 +4,7 @@
 package prom
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
-func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
+func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	reporter, err := newReporter(
 		t.Context(),
@@ -38,12 +39,24 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+		ProcPID:  101,
+		Features: export.FeatureApplicationRuntime,
+	}
+	processEvent := func(service svc.Attrs, eventType exec.ProcessEventType) exec.ProcessEvent {
+		return exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: service.ProcPID, Service: service}),
+		}
+	}
+	reporter.handleProcessEvent(
+		processEvent(service, exec.ProcessEventCreated),
+		slog.Default(),
+	)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: svc.Attrs{
-			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
-			Features: export.FeatureApplicationRuntime,
-		},
+		Service: service,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,
@@ -62,6 +75,126 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 	})
 	require.NotNil(t, metric)
 	assert.InEpsilon(t, 42.0, metric.GetGauge().GetValue(), 0)
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: service,
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			RuntimeValues: &jvmruntime.JVMRuntimeValues{
+				LoadedClassCount:        43,
+				TotalLoadedClassCount:   100,
+				UnloadedClassCount:      5,
+				ThreadCount:             10,
+				DaemonThreadCount:       4,
+				AvailableProcessorCount: 8,
+				ProcessCPUTimeNS:        2_000_000_000,
+				RecentCPUUtilization:    0.25,
+			},
+		},
+	}})
+
+	labels := map[string]string{
+		"service_name":        "orders",
+		"service_namespace":   "prod",
+		"service_instance_id": "orders-1",
+	}
+	assert.InEpsilon(t, 100.0,
+		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 5.0,
+		gatheredMetric(t, registry, "jvm_class_unloaded_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 43.0,
+		gatheredMetric(t, registry, "jvm_class_count", labels).GetGauge().GetValue(), 0)
+	assert.InEpsilon(t, 4.0,
+		gatheredMetric(t, registry, "jvm_thread_count", map[string]string{
+			"service_name":        "orders",
+			"service_namespace":   "prod",
+			"service_instance_id": "orders-1",
+			"jvm_thread_daemon":   "true",
+		}).GetGauge().GetValue(), 0)
+	assert.InEpsilon(t, 6.0,
+		gatheredMetric(t, registry, "jvm_thread_count", map[string]string{
+			"service_name":        "orders",
+			"service_namespace":   "prod",
+			"service_instance_id": "orders-1",
+			"jvm_thread_daemon":   "false",
+		}).GetGauge().GetValue(), 0)
+	assert.InEpsilon(t, 2.0,
+		gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 8.0,
+		gatheredMetric(t, registry, "jvm_cpu_count", labels).GetGauge().GetValue(), 0)
+	assert.InEpsilon(t, 0.25,
+		gatheredMetric(t, registry, "jvm_cpu_recent_utilization_ratio", labels).GetGauge().GetValue(), 0)
+
+	secondService := service
+	secondService.ProcPID = 202
+	reporter.handleProcessEvent(
+		processEvent(secondService, exec.ProcessEventCreated),
+		slog.Default(),
+	)
+
+	// Discovering another PID for the same service must not reset its counters.
+	assert.InEpsilon(t, 100.0,
+		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: secondService,
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			RuntimeValues: &jvmruntime.JVMRuntimeValues{
+				TotalLoadedClassCount: 40,
+				UnloadedClassCount:    2,
+				ProcessCPUTimeNS:      1_000_000_000,
+			},
+		},
+	}})
+
+	assert.InEpsilon(t, 140.0,
+		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 7.0,
+		gatheredMetric(t, registry, "jvm_class_unloaded_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 3.0,
+		gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels).GetCounter().GetValue(), 0)
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: service,
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			RuntimeValues: &jvmruntime.JVMRuntimeValues{
+				TotalLoadedClassCount: 110,
+				UnloadedClassCount:    6,
+				ProcessCPUTimeNS:      3_000_000_000,
+			},
+		},
+	}})
+
+	assert.InEpsilon(t, 150.0,
+		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 8.0,
+		gatheredMetric(t, registry, "jvm_class_unloaded_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 4.0,
+		gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels).GetCounter().GetValue(), 0)
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: service,
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			RuntimeValues: &jvmruntime.JVMRuntimeValues{
+				TotalLoadedClassCount: 110,
+				UnloadedClassCount:    6,
+				ProcessCPUTimeNS:      3_000_000_000,
+				RecentCPUUtilization:  -1,
+			},
+		},
+	}})
+	assert.Nil(t, gatheredMetric(t, registry, "jvm_cpu_recent_utilization_ratio", labels))
+
+	reporter.handleProcessEvent(
+		processEvent(service, exec.ProcessEventTerminated),
+		slog.Default(),
+	)
+	reporter.handleProcessEvent(
+		processEvent(secondService, exec.ProcessEventTerminated),
+		slog.Default(),
+	)
+	assert.Nil(t, gatheredMetric(t, registry, "jvm_class_loaded_total", labels))
+	assert.Nil(t, gatheredMetric(t, registry, "jvm_class_unloaded_total", labels))
+	assert.Nil(t, gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels))
 }
 
 func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T) {
