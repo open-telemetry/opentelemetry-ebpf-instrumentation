@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -238,14 +239,22 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 	t.Log("Weaver container started")
 }
 
-// buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set, the image
-// has been pre-built for the VM workflow prior to QEMU startup.
+// buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set (VM
+// workflow) or PREBUILT_IMAGES lists it (CI shards), the image was loaded
+// into the Docker daemon before the run.
 func buildOBIImage(ctx context.Context) error {
-	if os.Getenv("SKIP_DOCKER_BUILD") != "" {
+	prebuilt := slices.Contains(strings.Split(os.Getenv("PREBUILT_IMAGES"), ","), "hatest-obi")
+
+	if os.Getenv("SKIP_DOCKER_BUILD") != "" || prebuilt {
 		_, err := dockerPool.Client().ImageInspect(ctx, "hatest-obi")
 		if err == nil {
 			fmt.Println("Skipping OBI image build (pre-built image found)")
 			return nil
+		}
+		if prebuilt {
+			// the workflow loads the image before the run: reaching this
+			// means broken wiring, not a slow path to fall back onto
+			return fmt.Errorf("PREBUILT_IMAGES lists hatest-obi but the image is not loaded: %w", err)
 		}
 		fmt.Println("SKIP_DOCKER_BUILD set but hatest-obi image not found, building...")
 	}

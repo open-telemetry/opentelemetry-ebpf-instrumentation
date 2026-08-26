@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -883,6 +884,15 @@ func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
 	i.rollbackOptionalGoProbeGroups()
 
 	assert.Equal(t, int32(1), linkCloser.closes.Load())
+}
+
+func TestProcessTracerCanLogBeforeRun(t *testing.T) {
+	pt := NewProcessTracer(Generic, nil, &obi.Config{}, imetrics.NoopReporter{})
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	assert.NotPanics(t, func() {
+		pt.UnlinkExecutable(fileInfo, 1)
+	})
 }
 
 func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {

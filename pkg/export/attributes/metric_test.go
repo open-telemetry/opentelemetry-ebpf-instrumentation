@@ -64,6 +64,11 @@ func TestPrometheusNames(t *testing.T) {
 		{StatTCPFailedConnections, "obi_stat_tcp_failed_connections_total"},
 		{StatTCPRetransmits, "obi_stat_tcp_retransmits_total"},
 		{StatTCPIo, "obi_stat_tcp_io_bytes_total"},
+		{V8JSGCDuration, "v8js_gc_duration_seconds"},
+		{V8JSMemoryHeapLimit, "v8js_memory_heap_limit_bytes"},
+		{V8JSMemoryHeapUsed, "v8js_memory_heap_used_bytes"},
+		{V8JSMemoryHeapSpaceAvailableSize, "v8js_memory_heap_space_available_size_bytes"},
+		{V8JSMemoryHeapSpacePhysicalSize, "v8js_memory_heap_space_physical_size_bytes"},
 	}
 
 	for _, test := range tests {
