@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/docker"
@@ -22,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 func TestProcessEventsLoopDoesntBlock(t *testing.T) {
@@ -50,6 +52,58 @@ func TestProcessEventsLoopDoesntBlock(t *testing.T) {
 	}
 
 	assert.NoError(t, err)
+}
+
+func TestDispatchCreatedProcessEventsIncludesRuntimeMetricWorkers(t *testing.T) {
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(3))
+	events := processEvents.Subscribe()
+	instrumenter := &Instrumenter{processEventInput: processEvents}
+	parent := exec.New(exec.Init{Pid: 100})
+	worker := exec.New(exec.Init{Pid: 101})
+	worker.SetRuntimeMetricServiceSource(parent)
+	worker.SetRuntimeMetricGeneration(worker.Pid(), 7)
+	unattachedWorker := exec.New(exec.Init{Pid: 102})
+
+	instrumenter.dispatchCreatedProcessEvents(&ebpf.Instrumentable{
+		FileInfo:       parent,
+		ChildFileInfos: []*exec.FileInfo{worker, unattachedWorker},
+	})
+
+	createdParent := <-events
+	createdWorker := <-events
+	assert.Same(t, parent, createdParent.File)
+	assert.Same(t, worker, createdWorker.File)
+	assert.Same(t, parent, createdWorker.ServiceFile())
+	select {
+	case unexpected := <-events:
+		t.Fatalf("unexpected process event for PID %d", unexpected.File.Pid())
+	default:
+	}
+}
+
+func TestHandleProcessEventDrainsOnlyTerminatingWorkerFinal(t *testing.T) {
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(2))
+	events := processEvents.Subscribe()
+	instrumenter := &Instrumenter{processEventInput: processEvents}
+	parent := exec.New(exec.Init{Pid: 100})
+	first := exec.New(exec.Init{Pid: 101})
+	first.SetRuntimeMetricServiceSource(parent)
+	second := exec.New(exec.Init{Pid: 102})
+	second.SetRuntimeMetricServiceSource(parent)
+	parent.SetPythonRuntimeMetricFinal(appruntime.PythonRuntimeMetricFinal{PID: 101, Generation: 1})
+	parent.SetPythonRuntimeMetricFinal(appruntime.PythonRuntimeMetricFinal{PID: 102, Generation: 2})
+
+	instrumenter.handleAndDispatchProcessEvent(exec.ProcessEvent{
+		Type: exec.ProcessEventTerminated,
+		File: first,
+	})
+
+	event := <-events
+	require.Len(t, event.FinalPythonRuntimeMetrics, 1)
+	assert.Equal(t, app.PID(101), event.FinalPythonRuntimeMetrics[0].PID)
+	remaining, ok := parent.TakePythonRuntimeMetricFinal(102)
+	require.True(t, ok)
+	assert.Equal(t, uint64(2), remaining.Generation)
 }
 
 // TestInstrumenter_WithDynamicPIDSelector verifies that when the caller passes a selector via

@@ -1539,7 +1539,7 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 		r.collectRuntimeMetricsLocked(runtimemetrics.PythonRuntimeMetricsFromProcessEvent(pe))
 	}
 
-	snap := pe.File.ServiceAttrs()
+	snap := pe.ServiceFile().ServiceAttrs()
 	pid := pe.File.Pid()
 	log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "attrs", snap.UID)
 	uid := snap.UID

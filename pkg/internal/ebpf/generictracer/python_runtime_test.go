@@ -137,11 +137,11 @@ func TestPythonRuntimeBlockRemovesExactLifecycle(t *testing.T) {
 	assert.True(t, closed.closed.Load())
 	assert.False(t, targets.hasEntries())
 	assert.False(t, snapshots.hasEntries())
-	finals := lifecycle.TakePythonRuntimeMetricFinals()
-	require.Len(t, finals, 1)
-	assert.True(t, finals[0].HasValue)
-	assert.Equal(t, uint64(12), finals[0].Generations[0].Collections)
-	assert.Equal(t, generation, finals[0].Generation)
+	final, ok := lifecycle.TakePythonRuntimeMetricFinal(123)
+	require.True(t, ok)
+	assert.True(t, final.HasValue)
+	assert.Equal(t, uint64(12), final.Generations[0].Collections)
+	assert.Equal(t, generation, final.Generation)
 }
 
 func TestPythonRuntimeBlockRejectsStaleLifecycle(t *testing.T) {
@@ -188,7 +188,7 @@ func TestPythonRuntimeChildCleanupDoesNotRemoveParent(t *testing.T) {
 	require.NoError(t, snapshots.Put(parentKey, BpfPythonRuntimeMetricSnapshot{Generation: 8}))
 	require.NoError(t, snapshots.Put(childKey, BpfPythonRuntimeMetricSnapshot{Generation: 9}))
 
-	controller.block(124, 42, child, parent)
+	controller.block(124, 42, child, child)
 
 	assert.True(t, targets.hasKey(parentKey))
 	assert.True(t, snapshots.hasKey(parentKey))
@@ -196,6 +196,11 @@ func TestPythonRuntimeChildCleanupDoesNotRemoveParent(t *testing.T) {
 	assert.False(t, snapshots.hasKey(childKey))
 	assert.Contains(t, controller.targets, app.PID(123))
 	assert.NotContains(t, controller.targets, app.PID(124))
+	final, ok := parent.TakePythonRuntimeMetricFinal(124)
+	require.True(t, ok)
+	assert.Equal(t, uint64(9), final.Generation)
+	_, ok = child.TakePythonRuntimeMetricFinal(124)
+	assert.False(t, ok)
 	controller.close()
 }
 

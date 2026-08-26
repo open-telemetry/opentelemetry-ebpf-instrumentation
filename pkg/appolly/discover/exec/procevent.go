@@ -17,3 +17,13 @@ type ProcessEvent struct {
 	Type                      ProcessEventType
 	FinalPythonRuntimeMetrics []appruntime.PythonRuntimeMetricFinal
 }
+
+func (pe ProcessEvent) ServiceFile() *FileInfo {
+	if pe.File == nil {
+		return nil
+	}
+	if source := pe.File.RuntimeMetricServiceSource(); source != nil {
+		return source
+	}
+	return pe.File
+}

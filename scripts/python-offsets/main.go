@@ -255,7 +255,9 @@ func validate(track *offsets.Track, item release, result probeResult) (bool, err
 		}
 	}
 	if item.series == "3.14" {
-		changed = setNewest(track, [2]string{"_gc_runtime_state", "generation_stats"}, item.version) || changed
+		for _, name := range [][2]string{{"_gc_runtime_state", "generation_stats"}, {"_Py_DebugOffsets", "gc"}, {"_Py_DebugOffsets", "interpreter_state.gc"}} {
+			changed = setNewest(track, name, item.version) || changed
+		}
 	}
 	return changed, nil
 }

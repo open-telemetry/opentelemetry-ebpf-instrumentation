@@ -507,6 +507,44 @@ func TestPythonRuntimeCountersSurviveWorkerDiscovery(t *testing.T) {
 	assert.InDelta(t, 11, metric.GetCounter().GetValue(), 0)
 }
 
+func TestPythonRuntimeWorkerGenerationUsesParentService(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "workers"},
+		SDKLanguage: svc.InstrumentablePython,
+	}
+	reporter := &metricsReporter{
+		serviceMap:  map[svc.UID]svc.Attrs{},
+		pidsTracker: otel.NewPidServiceTracker(),
+	}
+	reporter.createEventMetrics = func(*svc.Attrs) {}
+	reporter.deleteEventMetrics = func(*svc.Attrs) {}
+	reporter.deleteEventMetricsPreservingHistograms = func(*svc.Attrs) {}
+	parent := appexec.New(appexec.Init{Pid: 100, Service: service})
+	workerLifecycle := func(generation uint64) *appexec.FileInfo {
+		worker := appexec.New(appexec.Init{Pid: 101})
+		worker.SetRuntimeMetricServiceSource(parent)
+		worker.SetRuntimeMetricGeneration(worker.Pid(), generation)
+		return worker
+	}
+	snapshot := func(generation uint64) runtimemetrics.RuntimeMetricSnapshot {
+		return runtimemetrics.RuntimeMetricSnapshot{
+			PID: 101, Service: service, Generation: generation,
+			Python: &runtimemetrics.PythonRuntimeMetricSnapshot{},
+		}
+	}
+
+	first := workerLifecycle(1)
+	reporter.handleProcessEvent(appexec.ProcessEvent{Type: appexec.ProcessEventCreated, File: first}, slog.Default())
+	assert.True(t, reporter.runtimeSnapshotProcessLive(snapshot(1)))
+	reporter.handleProcessEvent(appexec.ProcessEvent{Type: appexec.ProcessEventTerminated, File: first}, slog.Default())
+	assert.False(t, reporter.runtimeSnapshotProcessLive(snapshot(1)))
+
+	second := workerLifecycle(2)
+	reporter.handleProcessEvent(appexec.ProcessEvent{Type: appexec.ProcessEventCreated, File: second}, slog.Default())
+	assert.False(t, reporter.runtimeSnapshotProcessLive(snapshot(1)))
+	assert.True(t, reporter.runtimeSnapshotProcessLive(snapshot(2)))
+}
+
 func TestPythonRuntimeCountersDeleteStaleMetadataLabels(t *testing.T) {
 	t.Run("same PID", func(t *testing.T) {
 		testPythonRuntimeMetadataRefresh(t, 101)

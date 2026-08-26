@@ -396,3 +396,50 @@ func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
 	assert.False(t, cacheHit,
 		"instrumentableCache should not contain a stale entry for dev:ino %v after the process owning it is deleted", key)
 }
+
+func TestFilterClassify_CacheEvictionCollapsesReplacementWorkerIntoLiveParent(t *testing.T) {
+	instrumentableCache, err := lru.New[cacheKey, instrumentedExecutable](100)
+	require.NoError(t, err)
+
+	const (
+		parentPID      app.PID = 99
+		workerPID      app.PID = 100
+		replacementPID app.PID = 101
+	)
+	parent := exec.New(exec.Init{
+		Pid: parentPID, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
+	})
+	worker := exec.New(exec.Init{
+		Pid: workerPID, Ppid: parentPID, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
+	})
+	replacement := exec.New(exec.Init{
+		Pid: replacementPID, Ppid: parentPID, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
+	})
+	key := cacheKey{Dev: worker.Dev(), Ino: worker.Ino()}
+	instrumentableCache.Add(key, instrumentedExecutable{Type: svc.InstrumentablePython})
+	ty := typer{
+		cfg: &obi.Config{
+			Routes: &transform.RoutesConfig{},
+			Discovery: services.DiscoveryConfig{
+				SkipGoSpecificTracers: true,
+			},
+		},
+		log: slog.Default(),
+		currentPids: map[app.PID]*exec.FileInfo{
+			parentPID: parent,
+			workerPID: worker,
+		},
+		instrumentableCache: instrumentableCache,
+	}
+
+	ty.FilterClassify([]Event[ProcessMatch]{{
+		Type: EventDeleted,
+		Obj:  ProcessMatch{Process: &services.ProcessInfo{Pid: workerPID}},
+	}})
+	ty.currentPids[replacementPID] = replacement
+	instrumentable := ty.asInstrumentable(replacement)
+
+	assert.Same(t, parent, instrumentable.FileInfo)
+	assert.Equal(t, []app.PID{replacementPID}, instrumentable.ChildPids)
+	assert.Equal(t, []*exec.FileInfo{replacement}, instrumentable.ChildFileInfos)
+}

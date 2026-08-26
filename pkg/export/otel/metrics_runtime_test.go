@@ -281,6 +281,52 @@ func TestRuntimeMetricsReporterAcceptsSnapshotsBeforeCreationAndSkipsAfterTermin
 		"a reused PID generation must be accepted before its creation event")
 }
 
+func TestRuntimeMetricsReporterTracksWorkerGenerationWithParentService(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "workers"},
+		SDKLanguage: svc.InstrumentablePython,
+	}
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10,
+		time.Minute,
+		time.Now,
+		func(svc.UID, *RuntimeMetrics) {},
+		func(service *svc.Attrs) (*RuntimeMetrics, error) { return &RuntimeMetrics{service: service}, nil },
+	)
+	require.NoError(t, err)
+	reporter := RuntimeMetricsReporter{
+		reporters:  reporters,
+		pidTracker: NewPidServiceTracker(),
+		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	parent := exec.New(exec.Init{Pid: 100, Service: service})
+	workerLifecycle := func(generation uint64) *exec.FileInfo {
+		worker := exec.New(exec.Init{Pid: 101})
+		worker.SetRuntimeMetricServiceSource(parent)
+		worker.SetRuntimeMetricGeneration(worker.Pid(), generation)
+		return worker
+	}
+	snapshot := func(generation uint64) runtimemetrics.RuntimeMetricSnapshot {
+		workerService := service
+		workerService.ProcPID = 101
+		return runtimemetrics.RuntimeMetricSnapshot{
+			PID: 101, Service: workerService, Generation: generation,
+			Python: &runtimemetrics.PythonRuntimeMetricSnapshot{},
+		}
+	}
+
+	first := workerLifecycle(1)
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventCreated, File: first})
+	assert.True(t, reporter.snapshotProcessLive(snapshot(1)))
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: first})
+	assert.False(t, reporter.snapshotProcessLive(snapshot(1)))
+
+	second := workerLifecycle(2)
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventCreated, File: second})
+	assert.False(t, reporter.snapshotProcessLive(snapshot(1)))
+	assert.True(t, reporter.snapshotProcessLive(snapshot(2)))
+}
+
 func TestRuntimeMetricsReporterProcessesPythonRemovalAfterTermination(t *testing.T) {
 	reader := metric.NewManualReader()
 	provider := metric.NewMeterProvider(metric.WithReader(reader))

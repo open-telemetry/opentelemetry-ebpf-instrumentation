@@ -128,6 +128,7 @@ func (c *pythonRuntimeController) allow(
 		serviceSource: serviceSource,
 		cancel:        cancel,
 	}
+	lifecycle.SetRuntimeMetricServiceSource(serviceSource)
 	lifecycle.SetRuntimeMetricGeneration(pid, generation)
 	if serviceSource != lifecycle {
 		serviceSource.SetRuntimeMetricGeneration(pid, generation)
@@ -293,7 +294,7 @@ func (c *pythonRuntimeController) block(
 	pid app.PID,
 	ns uint32,
 	lifecycle *exec.FileInfo,
-	serviceSource *exec.FileInfo,
+	_ *exec.FileInfo,
 ) {
 	if c == nil || lifecycle == nil {
 		return
@@ -333,12 +334,8 @@ func (c *pythonRuntimeController) block(
 	delete(c.targets, pid)
 	c.mu.Unlock()
 
-	service := serviceSource
-	if service == nil {
-		service = target.serviceSource
-	}
-	if service != nil {
-		service.SetPythonRuntimeMetricFinal(final)
+	if target.serviceSource != nil {
+		target.serviceSource.SetPythonRuntimeMetricFinal(final)
 	}
 }
 

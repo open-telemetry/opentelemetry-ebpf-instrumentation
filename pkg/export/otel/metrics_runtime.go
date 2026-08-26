@@ -349,7 +349,7 @@ func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 	if pe.Type == exec.ProcessEventTerminated {
 		r.reportRuntimeMetrics(runtimemetrics.PythonRuntimeMetricsFromProcessEvent(*pe))
 	}
-	service := pe.File.ServiceAttrs()
+	service := pe.ServiceFile().ServiceAttrs()
 	pid := pe.File.Pid()
 
 	if pe.Type == exec.ProcessEventCreated {

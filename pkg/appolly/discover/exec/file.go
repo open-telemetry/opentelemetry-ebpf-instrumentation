@@ -40,10 +40,13 @@ type Init struct {
 }
 
 type FileInfo struct {
-	mu             sync.RWMutex
-	service        svc.Attrs
-	runtimeGen     map[app.PID]uint64
-	pythonFinal    map[app.PID]appruntime.PythonRuntimeMetricFinal
+	mu          sync.RWMutex
+	service     svc.Attrs
+	runtimeGen  map[app.PID]uint64
+	pythonFinal map[app.PID]appruntime.PythonRuntimeMetricFinal
+
+	runtimeMetricServiceSource *FileInfo
+
 	cmdExePath     string
 	proExeLinkPath string
 	elfFile        *elf.File
@@ -85,16 +88,13 @@ func (fi *FileInfo) SetPythonRuntimeMetricFinal(value appruntime.PythonRuntimeMe
 	fi.pythonFinal[value.PID] = value
 }
 
-// TakePythonRuntimeMetricFinals drains all staged Python termination data.
-func (fi *FileInfo) TakePythonRuntimeMetricFinals() []appruntime.PythonRuntimeMetricFinal {
+// TakePythonRuntimeMetricFinal drains one PID's staged Python termination data.
+func (fi *FileInfo) TakePythonRuntimeMetricFinal(pid app.PID) (appruntime.PythonRuntimeMetricFinal, bool) {
 	fi.mu.Lock()
 	defer fi.mu.Unlock()
-	values := make([]appruntime.PythonRuntimeMetricFinal, 0, len(fi.pythonFinal))
-	for _, value := range fi.pythonFinal {
-		values = append(values, value)
-	}
-	clear(fi.pythonFinal)
-	return values
+	value, ok := fi.pythonFinal[pid]
+	delete(fi.pythonFinal, pid)
+	return value, ok
 }
 
 func (fi *FileInfo) RuntimeMetricGeneration(pid app.PID) uint64 {
@@ -112,6 +112,20 @@ func (fi *FileInfo) SetRuntimeMetricGeneration(pid app.PID, generation uint64) {
 		fi.runtimeGen = map[app.PID]uint64{}
 	}
 	fi.runtimeGen[pid] = generation
+}
+
+func (fi *FileInfo) SetRuntimeMetricServiceSource(source *FileInfo) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+
+	fi.runtimeMetricServiceSource = source
+}
+
+func (fi *FileInfo) RuntimeMetricServiceSource() *FileInfo {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+
+	return fi.runtimeMetricServiceSource
 }
 
 // Identity getters. Fields are set at construction and never mutated, so

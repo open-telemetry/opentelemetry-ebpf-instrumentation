@@ -250,7 +250,7 @@ func PythonRuntimeMetricsFromProcessEvent(event exec.ProcessEvent) []RuntimeMetr
 	if event.Type != exec.ProcessEventTerminated || event.File == nil {
 		return nil
 	}
-	service := event.File.ServiceAttrs()
+	service := event.ServiceFile().ServiceAttrs()
 	snapshots := make([]RuntimeMetricSnapshot, 0, 2*len(event.FinalPythonRuntimeMetrics))
 	for _, final := range event.FinalPythonRuntimeMetrics {
 		processService := service

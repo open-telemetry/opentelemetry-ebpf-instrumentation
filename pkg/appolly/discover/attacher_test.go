@@ -31,9 +31,18 @@ type blockedPID struct {
 	ns  uint32
 }
 
+type recordedPIDLifecycle struct {
+	pid           app.PID
+	ns            uint32
+	lifecycle     *execpkg.FileInfo
+	serviceSource *execpkg.FileInfo
+}
+
 type recordingTracer struct {
-	allowed []blockedPID
-	blocked []blockedPID
+	allowed           []blockedPID
+	blocked           []blockedPID
+	allowedLifecycles []recordedPIDLifecycle
+	blockedLifecycles []recordedPIDLifecycle
 }
 
 func (r *recordingTracer) AllowPID(pid app.PID, ns uint32, _ *execpkg.FileInfo) {
@@ -42,6 +51,30 @@ func (r *recordingTracer) AllowPID(pid app.PID, ns uint32, _ *execpkg.FileInfo) 
 
 func (r *recordingTracer) BlockPID(pid app.PID, ns uint32) {
 	r.blocked = append(r.blocked, blockedPID{pid: pid, ns: ns})
+}
+
+func (r *recordingTracer) AllowPIDLifecycle(
+	pid app.PID,
+	ns uint32,
+	lifecycle *execpkg.FileInfo,
+	serviceSource *execpkg.FileInfo,
+) {
+	r.AllowPID(pid, ns, serviceSource)
+	r.allowedLifecycles = append(r.allowedLifecycles, recordedPIDLifecycle{
+		pid: pid, ns: ns, lifecycle: lifecycle, serviceSource: serviceSource,
+	})
+}
+
+func (r *recordingTracer) BlockPIDLifecycle(
+	pid app.PID,
+	ns uint32,
+	lifecycle *execpkg.FileInfo,
+	serviceSource *execpkg.FileInfo,
+) {
+	r.BlockPID(pid, ns)
+	r.blockedLifecycles = append(r.blockedLifecycles, recordedPIDLifecycle{
+		pid: pid, ns: ns, lifecycle: lifecycle, serviceSource: serviceSource,
+	})
 }
 
 func (r *recordingTracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)           { return nil, nil }
@@ -105,6 +138,8 @@ func TestSyntheticDeletePath_TraceAttacherDeletesTracer(t *testing.T) {
 		Ino:        1234,
 		Ns:         17,
 	})
+	serviceSource := execpkg.New(execpkg.Init{Pid: 41})
+	fileInfo.SetRuntimeMetricServiceSource(serviceSource)
 	startDeletedTyperPipeline(ctx, &typer{
 		currentPids: map[app.PID]*execpkg.FileInfo{42: fileInfo},
 	}, processMatches, instrumentables)
@@ -141,6 +176,9 @@ func TestSyntheticDeletePath_TraceAttacherDeletesTracer(t *testing.T) {
 	assert.Same(t, tracer, ev.Obj.Tracer)
 	assert.Equal(t, uint64(1), ev.Obj.ExecutableGeneration)
 	assert.Equal(t, []blockedPID{{pid: 42, ns: 17}}, prog.blocked)
+	require.Len(t, prog.blockedLifecycles, 1)
+	assert.Same(t, fileInfo, prog.blockedLifecycles[0].lifecycle)
+	assert.Same(t, serviceSource, prog.blockedLifecycles[0].serviceSource)
 	_, exists := ta.existingTracers[key]
 	assert.False(t, exists)
 }
