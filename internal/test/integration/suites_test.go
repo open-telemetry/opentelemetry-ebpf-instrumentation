@@ -352,7 +352,7 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
+	compose.Env = append(compose.Env, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 
