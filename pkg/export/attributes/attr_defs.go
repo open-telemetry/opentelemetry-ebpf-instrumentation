@@ -68,7 +68,7 @@ func getDefinitions(
 		map[attr.Name]Default{
 			attr.Instance:         true,
 			attr.Job:              true,
-			attr.ServiceNamespace: true,
+			attr.ServiceNamespace: false,
 		},
 		extraGroupAttributes[GroupPrometheus],
 	)

@@ -103,18 +103,29 @@ func TestGoRuntimeDefinitions(t *testing.T) {
 func TestServiceAttributesAreNotMetricDefaults(t *testing.T) {
 	section := HTTPServerDuration.Section
 
-	t.Run("off by default", func(t *testing.T) {
-		definitions := getDefinitions(0, NewGroupAttributes(nil))
-		definition, ok := definitions[section]
-		require.True(t, ok)
+	// GroupPrometheus pulls in the prometheusAttributes subgroup, which used to
+	// re-enable service.namespace and made the default inconsistent between the
+	// two exporters.
+	for _, tc := range []struct {
+		name   string
+		groups AttrGroups
+	}{
+		{name: "otel", groups: 0},
+		{name: "prometheus", groups: GroupPrometheus},
+	} {
+		t.Run("off by default: "+tc.name, func(t *testing.T) {
+			definitions := getDefinitions(tc.groups, NewGroupAttributes(nil))
+			definition, ok := definitions[section]
+			require.True(t, ok)
 
-		// still selectable, just not part of the default set
-		assert.Contains(t, definition.All(), attr.ServiceName)
-		assert.Contains(t, definition.All(), attr.ServiceNamespace)
+			// still selectable, just not part of the default set
+			assert.Contains(t, definition.All(), attr.ServiceName)
+			assert.Contains(t, definition.All(), attr.ServiceNamespace)
 
-		assert.NotContains(t, definition.Default(), attr.ServiceName)
-		assert.NotContains(t, definition.Default(), attr.ServiceNamespace)
-	})
+			assert.NotContains(t, definition.Default(), attr.ServiceName)
+			assert.NotContains(t, definition.Default(), attr.ServiceNamespace)
+		})
+	}
 
 	t.Run("restored by the app extra-attribute group", func(t *testing.T) {
 		definitions := getDefinitions(0, NewGroupAttributes(map[string][]attr.Name{
