@@ -77,6 +77,35 @@ func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Na
 	return traceAttrs, err
 }
 
+// parentContext returns ctx carrying the span's remote parent, when it has
+// one received from the wire, so that parent-based samplers can honor the
+// sampling decision of the incoming trace context. Without it every span
+// looks like a trace root to the sampler and the parentbased_* samplers
+// collapse into their root halves (for example, parentbased_always_off
+// drops spans that belong to an already-sampled trace).
+//
+// Only server and consumer spans qualify: their parent comes from an
+// incoming trace context, where the sampled flag reflects a real upstream
+// sampling decision. Client and producer spans have a local parent whose
+// flags byte was written before any sampling decision existed (it is
+// unconditionally "sampled"), so presenting it would detach them from their
+// local root's fate. They keep root-half behavior until the sampling
+// decision is made in eBPF before the flags propagate.
+func parentContext(ctx context.Context, span *request.Span, kind trace2.SpanKind) context.Context {
+	if kind != trace2.SpanKindServer && kind != trace2.SpanKindConsumer {
+		return ctx
+	}
+	if !span.ParentSpanID.IsValid() || !span.TraceID.IsValid() {
+		return ctx
+	}
+	return trace2.ContextWithRemoteSpanContext(ctx, trace2.NewSpanContext(trace2.SpanContextConfig{
+		TraceID:    span.TraceID,
+		SpanID:     span.ParentSpanID,
+		TraceFlags: trace2.TraceFlags(span.TraceFlags),
+		Remote:     true,
+	}))
+}
+
 // GroupSpans must remain public for collectors embedding OBI.
 func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, redactKeys ...string) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
@@ -102,11 +131,12 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			return sampler
 		}
 
+		kind := spanKind(span)
 		sr := spanSampler().ShouldSample(trace.SamplingParameters{
-			ParentContext: ctx,
+			ParentContext: parentContext(ctx, span, kind),
 			Name:          span.TraceName(),
 			TraceID:       span.TraceID,
-			Kind:          spanKind(span),
+			Kind:          kind,
 			Attributes:    samplerAttrs,
 		})
 

@@ -1396,3 +1396,135 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 		})
 	}
 }
+
+// parentRecordingSampler captures the ParentContext handed to ShouldSample
+// and delegates the decision to an inner sampler.
+type parentRecordingSampler struct {
+	inner   sdktrace.Sampler
+	parents []trace2.SpanContext
+}
+
+func (s *parentRecordingSampler) ShouldSample(parameters sdktrace.SamplingParameters) sdktrace.SamplingResult {
+	s.parents = append(s.parents, trace2.SpanContextFromContext(parameters.ParentContext))
+	return s.inner.ShouldSample(parameters)
+}
+
+func (*parentRecordingSampler) Description() string {
+	return "parent recording sampler"
+}
+
+func samplingTestSpan(traceFlags uint8, parent trace2.SpanID) request.Span {
+	return request.Span{
+		Type:         request.EventTypeHTTP,
+		Method:       "GET",
+		Route:        "/products",
+		Status:       200,
+		TraceID:      trace2.TraceID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+		SpanID:       trace2.SpanID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18},
+		ParentSpanID: parent,
+		TraceFlags:   traceFlags,
+	}
+}
+
+func samplingTestClientSpan(traceFlags uint8, parent trace2.SpanID) request.Span {
+	span := samplingTestSpan(traceFlags, parent)
+	span.Type = request.EventTypeHTTPClient
+	return span
+}
+
+func TestGroupSpansSamplerSeesRemoteParent(t *testing.T) {
+	remoteParent := trace2.SpanID{0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28}
+	joined := samplingTestSpan(1, remoteParent)
+	root := samplingTestSpan(1, trace2.SpanID{})
+	client := samplingTestClientSpan(1, remoteParent)
+
+	sampler := &parentRecordingSampler{inner: sdktrace.AlwaysSample()}
+	GroupSpans(
+		t.Context(),
+		[]request.Span{joined, root, client},
+		map[attr.Name]struct{}{},
+		sampler,
+		instrumentations.NewInstrumentationSelection(
+			[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		),
+	)
+
+	require.Len(t, sampler.parents, 3)
+
+	joinedParent := sampler.parents[0]
+	require.True(t, joinedParent.IsValid(), "sampler must see the remote parent of a joined span")
+	assert.Equal(t, joined.TraceID, joinedParent.TraceID())
+	assert.Equal(t, remoteParent, joinedParent.SpanID())
+	assert.True(t, joinedParent.IsSampled())
+	assert.True(t, joinedParent.IsRemote())
+
+	assert.False(t, sampler.parents[1].IsValid(), "a root span must not present a parent to the sampler")
+	assert.False(t, sampler.parents[2].IsValid(), "a client span's local parent carries no sampling decision and must not be presented")
+}
+
+func TestGroupSpansParentBasedSampling(t *testing.T) {
+	remoteParent := trace2.SpanID{0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28}
+
+	tests := []struct {
+		name    string
+		span    request.Span
+		sampler sdktrace.Sampler
+		kept    bool
+	}{
+		{
+			name:    "parentbased_always_off keeps spans that join a sampled trace",
+			span:    samplingTestSpan(1, remoteParent),
+			sampler: sdktrace.ParentBased(sdktrace.NeverSample()),
+			kept:    true,
+		},
+		{
+			name:    "parentbased_always_off drops spans with an unsampled parent",
+			span:    samplingTestSpan(0, remoteParent),
+			sampler: sdktrace.ParentBased(sdktrace.NeverSample()),
+			kept:    false,
+		},
+		{
+			name:    "parentbased_always_off drops root spans",
+			span:    samplingTestSpan(1, trace2.SpanID{}),
+			sampler: sdktrace.ParentBased(sdktrace.NeverSample()),
+			kept:    false,
+		},
+		{
+			name:    "parentbased_always_on keeps root spans",
+			span:    samplingTestSpan(1, trace2.SpanID{}),
+			sampler: sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			kept:    true,
+		},
+		{
+			name:    "parentbased_always_off drops client spans: their local parent carries no decision",
+			span:    samplingTestClientSpan(1, remoteParent),
+			sampler: sdktrace.ParentBased(sdktrace.NeverSample()),
+			kept:    false,
+		},
+		{
+			name:    "parentbased_always_on keeps client spans via the root half",
+			span:    samplingTestClientSpan(1, remoteParent),
+			sampler: sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			kept:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			groups := GroupSpans(
+				t.Context(),
+				[]request.Span{tt.span},
+				map[attr.Name]struct{}{},
+				tt.sampler,
+				instrumentations.NewInstrumentationSelection(
+					[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				),
+			)
+			if tt.kept {
+				require.Len(t, groups[tt.span.Service.UID], 1)
+			} else {
+				assert.Empty(t, groups[tt.span.Service.UID])
+			}
+		})
+	}
+}
