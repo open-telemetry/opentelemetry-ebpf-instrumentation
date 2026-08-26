@@ -103,6 +103,8 @@ func TestParsePythonLaunch(t *testing.T) {
 		{name: "manage settings", executable: "python", args: []string{"/srv/orders/manage.py", "runserver", "--settings", "orders.settings"}, target: "orders.settings", kind: targetModule, scriptDir: "/srv/orders"},
 		{name: "manage fallback", executable: "python", args: []string{"manage.py", "runserver"}, target: "manage.py", kind: targetScriptPath},
 		{name: "celery", executable: "celery", args: []string{"-A", "company.orders.tasks", "worker"}, target: "company.orders.tasks", kind: targetModule},
+		{name: "celery environment", executable: "celery", args: []string{"worker"}, env: map[string]string{"CELERY_APP": "company.orders"}, target: "company.orders", kind: targetModule},
+		{name: "celery command line overrides environment", executable: "celery", args: []string{"--app", "company.invoices", "worker"}, env: map[string]string{"CELERY_APP": "company.orders"}, target: "company.invoices", kind: targetModule},
 		{name: "celery module", executable: "python", args: []string{"-m", "celery", "--app=orders.celery", "worker"}, target: "orders.celery", kind: targetModule},
 		{name: "eval", executable: "python", args: []string{"-c", "serve()"}},
 		{name: "stdin", executable: "python", args: []string{"-"}},

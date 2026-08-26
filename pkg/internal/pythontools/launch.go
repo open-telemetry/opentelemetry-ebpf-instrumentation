@@ -226,7 +226,7 @@ func parseLauncher(command string, args []string, env map[string]string) (python
 	case "django", "django-admin", "django_admin":
 		return parseDjango(args, env), true
 	case "celery":
-		return parseCelery(args), true
+		return parseCelery(args, env), true
 	default:
 		return pythonLaunch{}, false
 	}
@@ -685,19 +685,21 @@ func parseDjango(args []string, env map[string]string) pythonLaunch {
 	return launch
 }
 
-func parseCelery(args []string) pythonLaunch {
+func parseCelery(args []string, env map[string]string) pythonLaunch {
+	target := env["CELERY_APP"]
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case (arg == "-A" || arg == "--app") && i+1 < len(args):
-			return pythonLaunch{target: args[i+1], targetKind: targetModule}
+			i++
+			target = args[i]
 		case strings.HasPrefix(arg, "--app="):
-			return pythonLaunch{target: strings.TrimPrefix(arg, "--app="), targetKind: targetModule}
+			target = strings.TrimPrefix(arg, "--app=")
 		case strings.HasPrefix(arg, "-A") && len(arg) > 2:
-			return pythonLaunch{target: arg[2:], targetKind: targetModule}
+			target = strings.TrimPrefix(arg[2:], "=")
 		}
 	}
-	return pythonLaunch{}
+	return pythonLaunch{target: target, targetKind: classifyTarget(target)}
 }
 
 func classifyTarget(target string) targetKind {
