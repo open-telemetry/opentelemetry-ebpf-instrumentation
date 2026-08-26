@@ -38,7 +38,7 @@ type StatMetricsConfig struct {
 
 func (mc *StatMetricsConfig) Enabled() bool {
 	return mc.Metrics != nil && mc.Metrics.EndpointEnabled() &&
-		(mc.CommonCfg.Features.StatMetrics())
+		mc.CommonCfg.Features.StatMetrics()
 }
 
 func smlog() *slog.Logger {

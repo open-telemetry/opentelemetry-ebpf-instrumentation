@@ -1,7 +1,7 @@
 var express = require("express");
 const http = require("http");
 const https = require("https");
-const { trace, SpanStatusCode } = require("@opentelemetry/api");
+const { trace, SpanKind, SpanStatusCode } = require("@opentelemetry/api");
 var app = express();
 const port = 3030;
 
@@ -37,10 +37,10 @@ app.get("/manual", async (req, res, next) => {
     // Plain (non-active) child of checkout.
     const validate = tracer.startSpan("validate-cart");
     validate.setAttribute("valid", true);
-    validate.end();
+    validate.end(new Date()); // explicit end timestamp -> endWallNs path
 
     // Nested active span, so its own children nest under it.
-    tracer.startActiveSpan("charge-card", (charge) => {
+    tracer.startActiveSpan("charge-card", { kind: SpanKind.CLIENT }, (charge) => {
       charge.setAttribute("amount.cents", 4999);
       charge.setStatus({ code: SpanStatusCode.ERROR, message: "card declined" });
 

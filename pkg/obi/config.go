@@ -81,15 +81,15 @@ const (
 )
 
 // ExtraGroupAttributesMap defines additional attributes for attribute groups.
-// Currently only "k8s_app_meta" is supported as a key.
+// Supported keys are "app" and "k8s_app_meta".
 type ExtraGroupAttributesMap map[string][]attr.Name
 
 func (ExtraGroupAttributesMap) JSONSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type:        "object",
-		Description: "Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key.",
+		Description: "Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'.",
 		PropertyNames: &jsonschema.Schema{
-			Enum: []any{"k8s_app_meta"},
+			Enum: []any{"app", "k8s_app_meta"},
 		},
 		AdditionalProperties: &jsonschema.Schema{
 			Type: "array",
@@ -138,12 +138,13 @@ var DefaultConfig = Config{
 			MaxSize: 1000,
 		},
 		BufferSizes: config.EBPFBufferSizes{
-			HTTP:     0,
-			MySQL:    0,
-			Postgres: 0,
-			Kafka:    0,
-			MSSQL:    0,
-			TCP:      0,
+			HTTP:      0,
+			MySQL:     0,
+			Postgres:  0,
+			Kafka:     0,
+			MSSQL:     0,
+			TCP:       0,
+			Aerospike: 0,
 		},
 		MySQLPreparedStatementsCacheSize:    1024,
 		PostgresPreparedStatementsCacheSize: 1024,
@@ -818,13 +819,12 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if applicationEnabled && (c.Prometheus.EndpointEnabled() || otelMetricsEnabled) {
-		if c.Metrics.Features.InvalidSpanMetricsConfig() {
-			return ConfigError("you can only enable one format of span metrics," +
-				" application_span or application_span_otel")
+		if err := c.resolveSpanMetricsFormats(); err != nil {
+			return err
 		}
-		if c.Metrics.Features.ResolveSpanMetricsConflict() {
-			slog.Warn("application_span and application_span_otel cannot be used together, application_span_otel is selected automatically")
-		}
+		// Per-service sections can enable features the top-level list does not, and they
+		// drive the exporters through JoinMetricsConfig, so report against the same set.
+		c.warnDeprecatedMetricsFeatures()
 	}
 
 	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && c.InternalMetrics.Prometheus.Port != 0 {
@@ -835,6 +835,77 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	return nil
+}
+
+// spanMetricsFeatureMasks returns every feature list that feeds the span-metrics exporters:
+// the top-level one plus each per-service one. JoinMetricsConfig ORs them together, so a
+// format conflict left unresolved in any of them decides the naming for all services.
+func (c *Config) spanMetricsFeatureMasks() []*export.Features {
+	masks := make([]*export.Features, 0, 1+len(c.Discovery.Instrument)+len(c.Discovery.Services))
+	masks = append(masks, &c.Metrics.Features)
+	for i := range c.Discovery.Instrument {
+		masks = append(masks, &c.Discovery.Instrument[i].Metrics.Features)
+	}
+	for i := range c.Discovery.Services {
+		masks = append(masks, &c.Discovery.Services[i].Metrics.Features)
+	}
+	return masks
+}
+
+// resolveSpanMetricsFormats rejects an explicit legacy + OTel combination and resolves the
+// implicit one coming from "all"/"*" in favor of OTel, for every feature list that reaches
+// the exporters. Resolving only the top-level list would let a per-service "all" put every
+// span-metrics service back on the legacy names.
+func (c *Config) resolveSpanMetricsFormats() error {
+	resolved := false
+	legacyEnabled := false
+	otelEnabled := false
+	for _, features := range c.spanMetricsFeatureMasks() {
+		if features.InvalidSpanMetricsConfig() {
+			return ConfigError("you can only enable one format of span metrics," +
+				" application_span or application_span_otel")
+		}
+		if features.ResolveSpanMetricsConflict() {
+			resolved = true
+		}
+		if features.LegacySpanMetrics() {
+			legacyEnabled = true
+		} else if features.SpanMetrics() {
+			otelEnabled = true
+		}
+	}
+
+	// The exporters choose the metric names from the OR of all masks, so a legacy format in
+	// one list and OTel in another would silently select legacy names for every service.
+	// Track each format separately because joining an "all" mask with an explicit legacy
+	// mask reconstructs FeatureAll and makes InvalidSpanMetricsConfig exempt the conflict.
+	if legacyEnabled && otelEnabled {
+		return ConfigError("you can only enable one format of span metrics across the" +
+			" top-level and per-service metrics features, application_span or" +
+			" application_span_otel")
+	}
+
+	// Reachable only through "all"/"*": an explicit combination is rejected above. The user
+	// did not pick the legacy format, so report the resolution without a deprecation notice.
+	if resolved {
+		slog.Warn("application_span and application_span_otel cannot be used together," +
+			" application_span_otel is selected automatically")
+	}
+	return nil
+}
+
+// warnDeprecatedMetricsFeatures reports every deprecated metrics feature that is still
+// enabled, across the top-level and per-service configurations.
+func (c *Config) warnDeprecatedMetricsFeatures() {
+	for _, deprecated := range c.JoinMetricsConfig().Features.DeprecatedEnabled() {
+		if deprecated.Replacement == "" {
+			slog.Warn("metrics feature is deprecated and will be removed in a future release",
+				"feature", deprecated.Name)
+			continue
+		}
+		slog.Warn("metrics feature is deprecated and will be removed in a future release",
+			"feature", deprecated.Name, "use", deprecated.Replacement)
+	}
 }
 
 func (c *Config) enabledForValidation(feature Feature, context validationContext) bool {

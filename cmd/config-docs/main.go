@@ -730,6 +730,9 @@ func (g *DocGenerator) valuesString(original, resolved *Schema) string {
 			}
 			return strings.Join(vals, ", ")
 		}
+		if itemResolved != nil && len(itemResolved.OneOf) > 0 {
+			return strings.Join(unique(itemEnumValues(itemResolved.OneOf)), ", ")
+		}
 		if itemResolved != nil && len(itemResolved.Examples) > 0 {
 			var vals []string
 			for _, e := range itemResolved.Examples {
@@ -749,6 +752,22 @@ func (g *DocGenerator) valuesString(original, resolved *Schema) string {
 	}
 
 	return ""
+}
+
+// itemEnumValues formats the enum values of every oneOf branch of an array item type,
+// tagging the values of deprecated branches so they stay listed but discouraged.
+func itemEnumValues(alternatives []*Schema) []string {
+	var vals []string
+	for _, alt := range alternatives {
+		for _, e := range alt.Enum {
+			val := fmt.Sprintf("`%v`", e)
+			if alt.Deprecated {
+				val += " (deprecated)"
+			}
+			vals = append(vals, val)
+		}
+	}
+	return vals
 }
 
 func unique(in []string) []string {

@@ -29,3 +29,15 @@ sample_names = [
   "client.port",
   "iface.direction",
 ]
+
+# The legacy span metrics stay declared and marked deprecated in spanmetrics.yaml while
+# the deprecated `application_span` feature still emits them. Weaver reports any emitted
+# deprecated metric as a violation; accept these two for the compatibility window, scoped
+# to their exact names so a deprecated emission of any other metric still surfaces.
+# Remove this filter together with the legacy emission paths.
+[[live-check.finding_filters]]
+exclude = ["deprecated"]
+sample_names = [
+  "traces_spanmetrics_calls_total",
+  "traces_spanmetrics_latency",
+]

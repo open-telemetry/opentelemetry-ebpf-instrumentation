@@ -98,7 +98,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 
 	// "charge-card": a nested active manual span, child of checkout, carrying
 	// an integer attribute and an ERROR status.
-	res = trace.FindByOperationName("charge-card", "internal")
+	res = trace.FindByOperationName("charge-card", "client")
 	require.Len(t, res, 1)
 	charge := res[0]
 	p, ok = trace.ParentOf(&charge)
@@ -107,7 +107,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 	sd = charge.Diff(
 		jaeger.Tag{Key: "amount.cents", Type: "int64", Value: float64(4999)},
 		jaeger.Tag{Key: "otel.status_code", Type: "string", Value: "ERROR"},
-		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
 	)
 	assert.Empty(t, sd, sd.String())
 

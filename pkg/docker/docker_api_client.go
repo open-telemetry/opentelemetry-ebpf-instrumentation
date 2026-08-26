@@ -251,6 +251,9 @@ func (ci *ContainerMeta) DecorateService(s *svc.Attrs) {
 			s.UID.Name = ci.Name
 		}
 	}
+	if s.AutoNamespace() {
+		s.UID.Namespace = ""
+	}
 	// overriding the Instance here will avoid reusing the OTEL resource reporter
 	// if the application/process was discovered and reported information
 	// before the docker metadata was available

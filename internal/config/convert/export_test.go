@@ -246,6 +246,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.BufferSizes.MSSQL = 103
 	cfg.EBPF.BufferSizes.Kafka = 104
 	cfg.EBPF.BufferSizes.TCP = 105
+	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
@@ -382,6 +383,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 202, value(t, ext.Capture.Instrumentation, "sql", "mssql", "prepared_statements_cache_size"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "db_cache", "enabled"))
 	require.Equal(t, 204, value(t, ext.Capture.Instrumentation, "kafka", "topic_uuid_cache_size"))
+	require.Equal(t, uint32(106), value(t, ext.Capture.Instrumentation, "aerospike", "buffer_size"))
 	require.Equal(t, config.CudaModeOn, value(t, ext.Capture.Instrumentation, "gpu", "enabled_mode"))
 
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "go", "enabled"))

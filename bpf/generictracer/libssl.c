@@ -10,6 +10,7 @@
 #include <common/preempt_guard.h>
 
 #include <generictracer/ssl_defs.h>
+#include <generictracer/tls_prefix.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -323,16 +324,78 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_shutdown, void *s) {
 
     bpf_dbg_printk("=== SSL_shutdown id=%d ssl=%llx ===", id, s);
 
-    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &s);
-    if (s_conn) {
-        finish_possible_delayed_tls_http_request(&s_conn->p_conn);
-        bpf_map_delete_elem(&active_ssl_connections, &s_conn->p_conn);
+    ssl_release_connection_state(id, s);
+    ssl_release_thread_state(id);
+
+    return 0;
+}
+
+// Records which BIOs this SSL reads from and writes to.
+//
+// CPython (_ssl.c) and Node (crypto_tls.cc) both call this when building the
+// connection. It names the connection's own BIOs, separating them from
+// OpenSSL's internal staging BIOs, and identifies the SSL behind a BIO level
+// write during the handshake, while SSL_write is off the stack.
+SEC("uprobe/libssl.so:SSL_set_bio")
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_set_bio, void *ssl, void *rbio, void *wbio) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
     }
 
-    bpf_map_delete_elem(&ssl_to_conn, &s);
-    bpf_map_delete_elem(&ssl_to_pid_tid, &s);
+    // Split in two: bpf_trace_printk takes at most three arguments, and clang
+    // silently switches to bpf_trace_vprintk beyond that, which needs 5.16.
+    bpf_dbg_printk("=== SSL_set_bio id=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("SSL_set_bio rbio=%llx wbio=%llx", rbio, wbio);
 
-    bpf_map_delete_elem(&pid_tid_to_conn, &id);
+    ssl_bios_track(pid_from_pid_tgid(id), ssl, rbio, wbio);
+
+    return 0;
+}
+
+// Drops the BIO associations of an SSL that is going away.
+//
+// Allocators reuse BIO pointers, and a reused pointer may next serve as an
+// internal BIO that SSL_set_bio never names.
+SEC("uprobe/libssl.so:SSL_free")
+int BPF_UPROBE_GUARDED(obi_uprobe_ssl_free, void *ssl) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== SSL_free id=%d ssl=%llx ===", id, ssl);
+
+    // Node can free an SSL without shutting it down first, so this is the
+    // reliable release point. Only SSL-keyed state goes here: this thread may
+    // still be serving other connections through pid_tid_to_conn.
+    ssl_release_connection_state(id, ssl);
+
+    return 0;
+}
+
+// The seam where ciphertext becomes observable for every TLS stack.
+//
+// OpenSSL writes a finished record out through the BIO the same way for a
+// socket BIO and a memory BIO, whatever the application does with the buffer
+// afterwards. It is a libcrypto symbol.
+SEC("uprobe/libcrypto.so:BIO_write")
+int BPF_UPROBE_GUARDED(obi_uprobe_bio_write, void *bio, const void *buf, int len) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    tls_prefix_register_egress(bio, buf, len);
 
     return 0;
 }

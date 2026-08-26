@@ -148,6 +148,12 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	DBServerDuration = metric(Name{
+		Section: "db.server.operation.duration",
+		OTEL:    "db.server.operation.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
 	MessagingPublishDuration = metric(Name{
 		Section: "messaging.client.operation.duration",
 		OTEL:    "messaging.client.operation.duration",
@@ -367,6 +373,36 @@ var (
 		OTEL:    "nodejs.eventloop.delay.p99",
 		Unit:    "s",
 		Type:    InstrumentGauge,
+	})
+	V8JSGCDuration = metric(Name{
+		Section: "v8js.gc.duration",
+		OTEL:    "v8js.gc.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
+	V8JSMemoryHeapLimit = metric(Name{
+		Section: "v8js.memory.heap.limit",
+		OTEL:    "v8js.memory.heap.limit",
+		Unit:    "By",
+		Type:    InstrumentUpDownCounter,
+	})
+	V8JSMemoryHeapUsed = metric(Name{
+		Section: "v8js.memory.heap.used",
+		OTEL:    "v8js.memory.heap.used",
+		Unit:    "By",
+		Type:    InstrumentUpDownCounter,
+	})
+	V8JSMemoryHeapSpaceAvailableSize = metric(Name{
+		Section: "v8js.memory.heap.space.available_size",
+		OTEL:    "v8js.memory.heap.space.available_size",
+		Unit:    "By",
+		Type:    InstrumentUpDownCounter,
+	})
+	V8JSMemoryHeapSpacePhysicalSize = metric(Name{
+		Section: "v8js.memory.heap.space.physical_size",
+		OTEL:    "v8js.memory.heap.space.physical_size",
+		Unit:    "By",
+		Type:    InstrumentUpDownCounter,
 	})
 	// Resource is not an instrument: it only names the attributes.select section
 	// that selects resource attributes. It still goes through metric() so its

@@ -196,6 +196,53 @@ func TestDefault(t *testing.T) {
 	assert.Equal(t, p.For(NetworkFlow), p.For(NetworkFlowPackets))
 }
 
+func TestDefault_DBClientDuration(t *testing.T) {
+	p, err := NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{
+		attr.DBOperation,
+		attr.DBSystemName,
+		attr.ErrorType,
+		attr.ServerAddr,
+		attr.ServerPort,
+	}, p.For(DBClientDuration))
+}
+
+func TestExplicitlyIncluded(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		selection Selection
+		expected  bool
+	}{
+		{name: "no user selection", selection: nil, expected: false},
+		{name: "selection for another metric", selection: Selection{
+			"http.client.request.duration": InclusionLists{Include: []string{"server.port"}},
+		}, expected: false},
+		{name: "exact name", selection: Selection{
+			"db.client.operation.duration": InclusionLists{Include: []string{"server.port"}},
+		}, expected: true},
+		{name: "prom-style name", selection: Selection{
+			"db_client_operation_duration": InclusionLists{Include: []string{"server_port"}},
+		}, expected: true},
+		{name: "attribute glob", selection: Selection{
+			"db.client.operation.duration": InclusionLists{Include: []string{"server.*"}},
+		}, expected: true},
+		{name: "metric and attribute globs", selection: Selection{
+			"*": InclusionLists{Include: []string{"*"}},
+		}, expected: true},
+		{name: "unrelated include", selection: Selection{
+			"db.client.operation.duration": InclusionLists{Include: []string{"db.collection.name"}},
+		}, expected: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.selection.Normalize()
+			p, err := NewAttrSelector(0, &SelectorConfig{SelectionCfg: tc.selection})
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, p.ExplicitlyIncluded(DBClientDuration, attr.ServerPort))
+		})
+	}
+}
+
 func TestDefaultSensitiveQueryParamsIncludesLegacyAWSSignedURLKeys(t *testing.T) {
 	assert.Contains(t, DefaultSensitiveQueryParams, "AWSAccessKeyId")
 	assert.Contains(t, DefaultSensitiveQueryParams, "Signature")
@@ -233,9 +280,7 @@ func TestExtraGroupAttributes(t *testing.T) {
 		"k8s.statefulset.name",
 		"server.address",
 		"server.port",
-		"service.name",
 		"url.scheme",
-		"service.namespace",
 		"k8s.app.version",
 	}, p.For(HTTPServerRequestSize))
 }

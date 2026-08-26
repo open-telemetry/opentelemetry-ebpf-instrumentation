@@ -1,0 +1,83 @@
+services:
+  testserver-a:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/testserver/Dockerfile
+    image: hatest-testserver
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["cp /testserver /collision/testserver && exec /collision/testserver"]
+    tmpfs:
+      - /collision:exec,size=64m
+    network_mode: host
+    environment:
+      OTEL_SERVICE_NAME: inode-reuse-a
+      STD_PORT: 18080
+      STD_TLS_PORT: 18083
+      GIN_PORT: 18081
+      GORILLA_PORT: 18082
+      GORILLA_MID_PORT: 18084
+      GORILLA_MID2_PORT: 18087
+      GRPC_PORT: 18551
+      GRPC_TLS_PORT: 18552
+      JSRONRPC_PORT: 18088
+
+  testserver-b:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/testserver/Dockerfile
+    image: hatest-testserver
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["cp /testserver /collision/testserver && exec /collision/testserver"]
+    tmpfs:
+      - /collision:exec,size=64m
+    network_mode: host
+    environment:
+      OTEL_SERVICE_NAME: inode-reuse-b
+      STD_PORT: 18180
+      STD_TLS_PORT: 18183
+      GIN_PORT: 18181
+      GORILLA_PORT: 18182
+      GORILLA_MID_PORT: 18184
+      GORILLA_MID2_PORT: 18187
+      GRPC_PORT: 18651
+      GRPC_TLS_PORT: 18652
+      JSRONRPC_PORT: 18188
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-go-inode-reuse.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-go-inode-reuse:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    network_mode: host
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_EXECUTABLE_PATH: testserver
+      OTEL_EBPF_METRICS_FEATURES: application
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: 1ms
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: 10ms
+      OTEL_EBPF_LOG_LEVEL: DEBUG
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_PROCESSES_INTERVAL: 100ms
+    depends_on:
+      testserver-a:
+        condition: service_started
+      testserver-b:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
+    network_mode: host
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
