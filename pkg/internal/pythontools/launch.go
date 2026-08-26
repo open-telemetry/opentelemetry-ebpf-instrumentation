@@ -24,6 +24,7 @@ type pythonLaunch struct {
 	target       string
 	targetKind   targetKind
 	searchPaths  []string
+	scriptDir    string
 	fallbackName string
 	fastAPIAuto  bool
 	flaskAuto    bool
@@ -193,6 +194,8 @@ func launchForScript(script string, args []string, env map[string]string) python
 		if launch.target == "" {
 			launch.target = script
 			launch.targetKind = targetScriptPath
+		} else {
+			launch.scriptDir = filepath.Dir(script)
 		}
 		return launch
 	}
@@ -675,7 +678,11 @@ func parseFastAPIArguments(args []string) (fastAPIArguments, bool) {
 
 func parseDjango(args []string, env map[string]string) pythonLaunch {
 	target := lastLongOptionValue(args, "--settings", env["DJANGO_SETTINGS_MODULE"])
-	return pythonLaunch{target: target, targetKind: classifyTarget(target)}
+	launch := pythonLaunch{target: target, targetKind: classifyTarget(target)}
+	if pythonPath := lastLongOptionValue(args, "--pythonpath", ""); pythonPath != "" {
+		launch.searchPaths = []string{pythonPath}
+	}
+	return launch
 }
 
 func parseCelery(args []string) pythonLaunch {

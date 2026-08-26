@@ -236,6 +236,41 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "fast-orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("django uses the last explicit pythonpath", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "srv", "orders", "manage.py"), "")
+		writePythonFile(t, filepath.Join(root, "one", "company", "orders", "settings.py"), "")
+		writePythonFile(t, filepath.Join(root, "one", "pyproject.toml"), "[project]\nname = 'first-orders'\n")
+		writePythonFile(t, filepath.Join(root, "two", "company", "orders", "settings.py"), "")
+		writePythonFile(t, filepath.Join(root, "two", "pyproject.toml"), "[project]\nname = 'second-orders'\nversion = '2'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{
+			"-P", "/srv/orders/manage.py", "runserver", "--pythonpath", "/one", "--pythonpath=/two",
+			"--settings", "company.orders.settings",
+		}, nil, "/workspace")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "second-orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "2", fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("django uses the manage script directory", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "srv", "orders", "manage.py"), "")
+		writePythonFile(t, filepath.Join(root, "srv", "orders", "company", "orders", "settings.py"), "")
+		writePythonFile(t, filepath.Join(root, "srv", "orders", "pyproject.toml"), "[project]\nname = 'script-orders'\nversion = '3'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{
+			"/srv/orders/manage.py", "runserver", "--settings", "company.orders.settings",
+		}, nil, "/workspace")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "script-orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "3", fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
 	t.Run("waitress dotted factory associates project", func(t *testing.T) {
 		root := t.TempDir()
 		writePythonFile(t, filepath.Join(root, "app", "company", "orders", "wsgi.py"), "")
@@ -466,6 +501,22 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "cwd-orders", fileInfo.ServiceAttrs().UID.Name)
 		assert.Equal(t, "1", fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("safe path omits the manage script directory", func(t *testing.T) {
+		root := t.TempDir()
+		writePythonFile(t, filepath.Join(root, "srv", "orders", "manage.py"), "")
+		writePythonFile(t, filepath.Join(root, "srv", "orders", "company", "orders", "settings.py"), "")
+		writePythonFile(t, filepath.Join(root, "srv", "orders", "pyproject.toml"), "[project]\nname = 'script-orders'\nversion = '3'\n")
+		fileInfo := mockPythonProcess(t, root, "python", []string{
+			"-P", "/srv/orders/manage.py", "runserver", "--settings", "company.orders.settings",
+		}, nil, "/workspace")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
 	})
 
 	t.Run("isolation survives module launcher delegation", func(t *testing.T) {

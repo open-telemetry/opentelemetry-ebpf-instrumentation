@@ -18,6 +18,7 @@ func TestParsePythonLaunch(t *testing.T) {
 		target       string
 		kind         targetKind
 		searchPaths  []string
+		scriptDir    string
 		fallbackName string
 		fastAPIAuto  bool
 		flaskAuto    bool
@@ -98,7 +99,8 @@ func TestParsePythonLaunch(t *testing.T) {
 		{name: "fastapi path", executable: "fastapi", args: []string{"run", "src/orders/main.py", "--port", "8080"}, target: "src/orders/main.py", kind: targetFile},
 		{name: "fastapi automatic", executable: "fastapi", args: []string{"run"}, fastAPIAuto: true},
 		{name: "django settings", executable: "django-admin", args: []string{"runserver", "--settings=company.orders.settings.production"}, target: "company.orders.settings.production", kind: targetModule},
-		{name: "manage settings", executable: "python", args: []string{"manage.py", "runserver", "--settings", "orders.settings"}, target: "orders.settings", kind: targetModule},
+		{name: "django pythonpath", executable: "django-admin", args: []string{"--pythonpath", "/one", "runserver", "--pythonpath=/two", "--settings", "orders.settings"}, target: "orders.settings", kind: targetModule, searchPaths: []string{"/two"}},
+		{name: "manage settings", executable: "python", args: []string{"/srv/orders/manage.py", "runserver", "--settings", "orders.settings"}, target: "orders.settings", kind: targetModule, scriptDir: "/srv/orders"},
 		{name: "manage fallback", executable: "python", args: []string{"manage.py", "runserver"}, target: "manage.py", kind: targetScriptPath},
 		{name: "celery", executable: "celery", args: []string{"-A", "company.orders.tasks", "worker"}, target: "company.orders.tasks", kind: targetModule},
 		{name: "celery module", executable: "python", args: []string{"-m", "celery", "--app=orders.celery", "worker"}, target: "orders.celery", kind: targetModule},
@@ -114,6 +116,7 @@ func TestParsePythonLaunch(t *testing.T) {
 			assert.Equal(t, tt.target, launch.target)
 			assert.Equal(t, tt.kind, launch.targetKind)
 			assert.Equal(t, tt.searchPaths, launch.searchPaths)
+			assert.Equal(t, tt.scriptDir, launch.scriptDir)
 			assert.Equal(t, tt.fallbackName, launch.fallbackName)
 			assert.Equal(t, tt.fastAPIAuto, launch.fastAPIAuto)
 			assert.Equal(t, tt.flaskAuto, launch.flaskAuto)

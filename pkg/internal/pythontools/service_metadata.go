@@ -159,7 +159,14 @@ func resolveTargetPath(root, cwd string, launch pythonLaunch, env map[string]str
 		pythonPath = ""
 	}
 	includeCWD := !pathConfig.safePath || launch.targetKind == targetFile
-	roots := targetSearchRoots(cwd, launch.searchPaths, pythonPath, includeCWD)
+	launcherPaths := launch.searchPaths
+	if launch.scriptDir != "" {
+		includeCWD = false
+		if !pathConfig.safePath {
+			launcherPaths = append(slices.Clone(launcherPaths), launch.scriptDir)
+		}
+	}
+	roots := targetSearchRoots(cwd, launcherPaths, pythonPath, includeCWD)
 	switch launch.targetKind {
 	case targetFile:
 		candidates := []targetCandidate{{path: target, target: target}}
