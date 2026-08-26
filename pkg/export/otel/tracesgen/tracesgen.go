@@ -626,7 +626,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, request.DBOperationName(span.Method))
 			}
 			if span.DBError.ErrorCode != "" {
-				attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
 				attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
 				attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
 			}
@@ -685,10 +684,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
 			attrs = append(attrs, request.DBSystemName(span.Elasticsearch.DBSystemName))
 			// error.type only applies to failed requests: omit it instead of
-			// emitting an empty string on successful spans.
-			if span.DBError.ErrorCode != "" {
-				attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {
@@ -809,9 +804,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 					attrs = append(attrs, request.Metadata(string(ai.Metadata)))
 				}
 			}
-			if ai.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
-			}
 			if ai.OperationName == request.EmbeddingOperationName {
 				if dims := ai.GetEmbeddingDimensions(); dims > 0 {
 					attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(dims))
@@ -881,9 +873,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				}
 			}
 			// add error info
-			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeGemini && span.GenAI != nil && span.GenAI.Gemini != nil {
@@ -958,9 +947,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				if len(ai.Input.Tools) > 0 {
 					attrs = append(attrs, semconv.GenAIToolDefinitionsKey.String(request.NormalizeToolDefinitions(ai.Input.Tools)))
 				}
-			}
-			if ai.Output.Error != nil && ai.Output.Error.Status != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Status))
 			}
 		}
 
@@ -1052,9 +1038,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				if ai.Request.EncodingFormat != "" {
 					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
 				}
-			}
-			if ai.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
 			}
 		}
 
@@ -1177,9 +1160,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
 				}
 			}
-			if ai.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
@@ -1233,9 +1213,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 					attrs = append(attrs, semconv.GenAIToolDefinitionsKey.String(request.NormalizeToolDefinitions(ai.Input.Tools)))
 				}
 			}
-			if ai.Output.ErrorType != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.ErrorType))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeRerank && span.GenAI != nil && span.GenAI.Rerank != nil {
@@ -1264,9 +1241,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			if ai.Input.GetTopN() > 0 {
 				attrs = append(attrs, attribute.Int("gen_ai.rerank.top_n", ai.Input.GetTopN()))
-			}
-			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
 			}
 		}
 
@@ -1364,11 +1338,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 		if span.Status == 1 && span.SQLError != nil {
 			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
-			// omit error.type when the SQLSTATE was not captured, instead of
-			// emitting an empty string.
-			if span.SQLError.SQLState != "" {
-				attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
-			}
 			attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.SQLErrorDescription())...)
 		}
 		if span.DBNamespace != "" {
@@ -1603,11 +1572,31 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 	}
 
+	// The only derived error.type emission site, shared with the metric getter so
+	// the attribute and the label cannot disagree. A manual span may already
+	// carry a caller-supplied error.type, which is more specific than anything
+	// derived here and must not be duplicated: duplicate keys are invalid OTLP.
+	if _, ok := optionalAttrs[attr.ErrorType]; ok && !hasAttribute(attrs, semconv.ErrorTypeKey) {
+		if errType := request.SpanErrorType(span); errType != "" {
+			attrs = append(attrs, request.ErrorType(errType))
+		}
+	}
+
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {
 		attrs = append(attrs, spanMetricsSkip)
 	}
 
 	return attrs
+}
+
+func hasAttribute(attrs []attribute.KeyValue, key attribute.Key) bool {
+	for i := range attrs {
+		if attrs[i].Key == key {
+			return true
+		}
+	}
+
+	return false
 }
 
 // TraceAttributesSelector returns the []attribute.KeyValue for a single span.

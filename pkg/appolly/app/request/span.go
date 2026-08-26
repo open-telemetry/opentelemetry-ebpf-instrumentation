@@ -1806,28 +1806,10 @@ func HTTPSpanStatusCode(span *Span) string {
 
 	if span.Type == EventTypeHTTPClient {
 		if span.Status < 400 {
-			// this is possibly not needed, because in my experiments they
-			// respond with 429, but just to be correct according to the OTel
+			// A provider can report a failure inside a 2xx response, per the OTel
 			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
-			if span.GenAI != nil {
-				if span.GenAI.OpenAI != nil && span.GenAI.OpenAI.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Qwen != nil && span.GenAI.Qwen.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil && span.GenAI.Rerank.Output.Error.Type != "" {
-					return StatusCodeError
-				}
+			if span.GenAIFailed() {
+				return StatusCodeError
 			}
 
 			return StatusCodeUnset
@@ -2540,6 +2522,41 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Retrieval != nil {
 		return s.GenAI.Retrieval.Provider
 	}
+	return ""
+}
+
+// GenAIFailed reports whether a GenAI provider returned an error in its response
+// payload, which the providers do inside a 2xx as well as on an error status.
+func (s *Span) GenAIFailed() bool {
+	return s.GenAIErrorType() != ""
+}
+
+// GenAIErrorType returns the provider-reported error, mirroring the per-provider
+// shapes the trace exporter reads. Providers that carry no error field yield "".
+func (s *Span) GenAIErrorType() string {
+	if s.GenAI == nil {
+		return ""
+	}
+
+	// OpenAI, Qwen and OpenAI-compatible vendors share VendorOpenAI.
+	for _, ai := range []*VendorOpenAI{s.GenAI.OpenAI, s.GenAI.Qwen, s.GenAI.OpenAICompatible} {
+		if ai != nil && ai.Error.Type != "" {
+			return ai.Error.Type
+		}
+	}
+	if ai := s.GenAI.Anthropic; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+	if ai := s.GenAI.Gemini; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Status
+	}
+	if ai := s.GenAI.Bedrock; ai != nil && ai.Output.ErrorType != "" {
+		return ai.Output.ErrorType
+	}
+	if ai := s.GenAI.Rerank; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+
 	return ""
 }
 

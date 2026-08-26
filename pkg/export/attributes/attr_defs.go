@@ -429,6 +429,9 @@ func getDefinitions(
 				attr.GenAIToolCallResult:    false,
 				attr.GenAIResponseError:     false,
 				attr.DBResponseError:        false,
+				// Conditionally Required by OTel semconv when the request failed.
+				// Opt out via attributes.select.traces.exclude.
+				attr.ErrorType: true,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {
