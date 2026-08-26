@@ -477,20 +477,68 @@ options:
 }
 
 func parseUWSGI(args []string) pythonLaunch {
+	var settings uwsgiSettings
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		switch {
-		case (arg == "-w" || arg == "--module") && i+1 < len(args):
-			return pythonLaunch{target: args[i+1], targetKind: targetModule}
-		case strings.HasPrefix(arg, "--module="):
-			return pythonLaunch{target: strings.TrimPrefix(arg, "--module="), targetKind: targetModule}
-		case arg == "--wsgi-file" && i+1 < len(args):
-			return pythonLaunch{target: args[i+1], targetKind: targetFile}
-		case strings.HasPrefix(arg, "--wsgi-file="):
-			return pythonLaunch{target: strings.TrimPrefix(arg, "--wsgi-file="), targetKind: targetFile}
+		name, value, attached := strings.Cut(arg, "=")
+		if strings.HasPrefix(arg, "-w") && !strings.HasPrefix(arg, "--") && len(arg) > 2 {
+			name = "-w"
+			value = strings.TrimPrefix(strings.TrimPrefix(arg, "-w"), "=")
+			attached = true
+		}
+		switch name {
+		case "-w", "--module", "--wsgi":
+			if !attached {
+				if i+1 == len(args) {
+					return pythonLaunch{}
+				}
+				i++
+				value = args[i]
+			}
+			settings.module = value
+		case "--wsgi-file", "--file":
+			if !attached {
+				if i+1 == len(args) {
+					return pythonLaunch{}
+				}
+				i++
+				value = args[i]
+			}
+			settings.file = value
+		case "--pythonpath", "--python-path", "--pp":
+			if !attached {
+				if i+1 == len(args) {
+					return pythonLaunch{}
+				}
+				i++
+				value = args[i]
+			}
+			settings.pythonPaths = append(settings.pythonPaths, value)
 		}
 	}
-	return pythonLaunch{}
+
+	launch := pythonLaunch{}
+	if settings.module != "" && settings.file != "" {
+		return launch
+	}
+	if settings.module != "" {
+		launch.target = settings.module
+		launch.targetKind = targetModule
+	} else if settings.file != "" {
+		launch.target = settings.file
+		launch.targetKind = targetFile
+	}
+	for i := len(settings.pythonPaths) - 1; i >= 0; i-- {
+		launch.searchPaths = append(launch.searchPaths, settings.pythonPaths[i])
+	}
+	launch.searchPaths = append(launch.searchPaths, ".")
+	return launch
+}
+
+type uwsgiSettings struct {
+	module      string
+	file        string
+	pythonPaths []string
 }
 
 func parseFlask(args []string, env map[string]string) pythonLaunch {
