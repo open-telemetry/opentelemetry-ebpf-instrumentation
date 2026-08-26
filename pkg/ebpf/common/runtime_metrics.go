@@ -15,6 +15,8 @@ type RuntimeMetricSender interface {
 	SendGoRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
 	SendJVMRuntimeMetrics(context.Context, []appruntime.JVMRuntimeEvent)
 	SendNodejsRuntimeMetrics(context.Context, []appruntime.NodejsRuntimeEvent)
+	SendNodejsGCMetrics(context.Context, []appruntime.NodejsGCEvent)
+	SendNodejsHeapSpaceMetrics(context.Context, []appruntime.NodejsHeapSpaceEvent)
 }
 
 // RuntimeMetricRecordHandler lets tracers decode runtime metric records whose
@@ -33,7 +35,7 @@ func HandleRuntimeMetricsRecord(
 	eventContext *EBPFEventContext,
 	record *ringbuf.Record,
 	filter ServiceFilter,
-	_ *slog.Logger,
+	log *slog.Logger,
 	handlers ...RuntimeMetricRecordHandler,
 ) (bool, error) {
 	if record == nil || len(record.RawSample) == 0 {
@@ -73,6 +75,44 @@ func HandleRuntimeMetricsRecord(
 			return true, nil
 		}
 		eventContext.RuntimeMetrics.SendNodejsRuntimeMetrics(ctx, []appruntime.NodejsRuntimeEvent{event})
+		return true, nil
+	case EventTypeNodejsGC:
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
+			return true, nil
+		}
+		event, err := ParseNodejsGCRecord(record)
+		if err != nil {
+			return true, err
+		}
+		if event.GCType == appruntime.NodejsGCTypeUnknown {
+			if log != nil {
+				log.Debug("dropping nodejs gc event with unknown kind")
+			}
+			return true, nil
+		}
+		if !DecorateNodejsGCEvent(filter, &event) {
+			return true, nil
+		}
+		eventContext.RuntimeMetrics.SendNodejsGCMetrics(ctx, []appruntime.NodejsGCEvent{event})
+		return true, nil
+	case EventTypeNodejsHeapSpace:
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
+			return true, nil
+		}
+		event, err := ParseNodejsHeapSpaceRecord(record)
+		if err != nil {
+			return true, err
+		}
+		if !appruntime.IsSemconvHeapSpace(event.SpaceName) {
+			if log != nil {
+				log.Debug("dropping nodejs heap-space event outside the semconv enum", "space", event.SpaceName)
+			}
+			return true, nil
+		}
+		if !DecorateNodejsHeapSpaceEvent(filter, &event) {
+			return true, nil
+		}
+		eventContext.RuntimeMetrics.SendNodejsHeapSpaceMetrics(ctx, []appruntime.NodejsHeapSpaceEvent{event})
 		return true, nil
 	default:
 		return false, nil

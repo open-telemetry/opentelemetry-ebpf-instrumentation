@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
@@ -190,7 +191,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 func (r *RuntimeMetricsReporter) newMetricSet(service *svc.Attrs) (*RuntimeMetrics, error) {
 	metrics := r.newMetricsInstance(service)
 	meter := metrics.provider.Meter(reporterName)
-	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled); err != nil {
+	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled, r.cfg.Buckets); err != nil {
 		return nil, err
 	}
 	return &metrics, nil
@@ -201,6 +202,7 @@ func setupRuntimeMeters(
 	meter instrument.Meter,
 	ttl time.Duration,
 	enabled runtimemetrics.Enabled,
+	buckets export.Buckets,
 ) error {
 	if !enabled.Runtime {
 		return nil
@@ -211,7 +213,7 @@ func setupRuntimeMeters(
 	if err := setupJVMRuntimeMeters(metrics.ctx, &metrics.jvmMetrics, meter, ttl); err != nil {
 		return err
 	}
-	if err := setupNodejsRuntimeMeters(metrics.ctx, &metrics.nodejsMetrics, meter, ttl); err != nil {
+	if err := setupNodejsRuntimeMeters(metrics.ctx, &metrics.nodejsMetrics, meter, ttl, buckets); err != nil {
 		return err
 	}
 	return nil
@@ -375,6 +377,12 @@ func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot
 			return
 		}
 		metrics.nodejsMetrics.record(snapshot)
+	}
+	if snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil {
+		if !snapshot.Service.ExportModes.CanExportMetrics() || !snapshot.Service.Features.AppRuntime() {
+			return
+		}
+		metrics.nodejsMetrics.recordV8(snapshot)
 	}
 }
 

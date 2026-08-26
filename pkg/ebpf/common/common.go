@@ -93,6 +93,9 @@ const (
 	EventNodeSpan                  = 24 // EVENT_NODE_SPAN - OTel API manual span from the Node.js span bridge
 	EventTypeKHTTP2RequestHeaders  = 25 // Internal request HPACK observation
 	EventTypeKHTTP2ResponseHeaders = 26 // Internal response HPACK observation
+	EventTypeNodejsGC              = 27 // EVENT_NODEJS_GC - Node.js/V8 garbage-collection cycle
+	EventTypeNodejsHeapSpace       = 28 // EVENT_NODEJS_HEAP_SPACE - Node.js/V8 heap-space sample
+
 )
 
 // Kernel-side classification
