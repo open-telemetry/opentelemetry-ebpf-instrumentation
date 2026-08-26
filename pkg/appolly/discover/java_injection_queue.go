@@ -57,23 +57,32 @@ func (q *javaInjectionQueue) start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case target := <-q.targets:
-				// A ready target and a cancelled context make both cases above
-				// eligible, and select would pick either. No new attach may
-				// start once shutdown has begun.
-				if ctx.Err() != nil {
+				if !q.injectTarget(ctx, target) {
 					return
-				}
-
-				if err := q.inject(ctx, target); err != nil {
-					q.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work",
-						"pid", target.Pid, "error", err)
-				}
-				if err := target.Close(); err != nil {
-					q.log.Warn("unable to close java injection target", "pid", target.Pid, "error", err)
 				}
 			}
 		}
 	}()
+}
+
+func (q *javaInjectionQueue) injectTarget(ctx context.Context, target javaagent.InjectionTarget) bool {
+	defer func() {
+		if err := target.Close(); err != nil {
+			q.log.Warn("unable to close java injection target", "pid", target.Pid, "error", err)
+		}
+	}()
+
+	// A ready target and a cancelled context make both worker select cases
+	// eligible. No new attach may start once shutdown has begun.
+	if ctx.Err() != nil {
+		return false
+	}
+
+	if err := q.inject(ctx, target); err != nil {
+		q.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work",
+			"pid", target.Pid, "error", err)
+	}
+	return true
 }
 
 func (q *javaInjectionQueue) stopAndClosePending() {
