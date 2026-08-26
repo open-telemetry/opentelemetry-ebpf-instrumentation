@@ -69,3 +69,18 @@ func TestServicesToBuildFallsBackOnUnreadableFile(t *testing.T) {
 	_, ok := c.servicesToBuild()
 	assert.False(t, ok, "unparseable compose file must fall back to building everything")
 }
+
+func TestComposeArgsIncludeOverrides(t *testing.T) {
+	c := &Compose{
+		Path:          "compose.yml",
+		OverridePaths: []string{"first.yml", "second.yml"},
+	}
+
+	assert.Equal(t, []string{
+		"compose", "--ansi", "never",
+		"-f", "compose.yml",
+		"-f", "first.yml",
+		"-f", "second.yml",
+		"up", "--detach",
+	}, c.composeArgs("up", "--detach"))
+}
