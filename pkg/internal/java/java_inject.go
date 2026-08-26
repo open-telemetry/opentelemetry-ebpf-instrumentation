@@ -46,6 +46,7 @@ func (e *JavaInjectError) Error() string {
 type JavaInjector struct {
 	log             *slog.Logger
 	cfg             *obi.Config
+	agentVersion    string
 	currentAttachID int64
 	mu              sync.Mutex
 }
@@ -58,9 +59,20 @@ func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
 		return nil, err
 	}
 
+	log := slog.With("component", "javaagent.Injector")
+
+	// A locally built or outdated agent JAR may carry no version marker. Injection still
+	// works, we just cannot tell whether an agent already attached to a JVM is the one we
+	// would inject.
+	agentVersion, err := agentVersionFromJar(embeddedJavaAgentBytes)
+	if err != nil {
+		log.Debug("cannot read the embedded java agent version, compatibility checks are disabled", "error", err)
+	}
+
 	return &JavaInjector{
 		cfg:             cfg,
-		log:             slog.With("component", "javaagent.Injector"),
+		log:             log,
+		agentVersion:    agentVersion,
 		currentAttachID: 0,
 	}, nil
 }
@@ -234,6 +246,11 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 		}
 
 		if loaded {
+			if err := i.verifyLoadedAgentVersion(ctx, attacher, target.Pid); err != nil {
+				resultChan <- result{err: err}
+				return
+			}
+
 			i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
 			resultChan <- result{attached: false}
 			return
@@ -488,6 +505,64 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(ctx context.Context, attach
 	}
 
 	return false, nil
+}
+
+// verifyLoadedAgentVersion checks the agent a JVM already runs against the agent OBI would
+// inject. A Java agent cannot be unloaded or upgraded in place, so on a mismatch the process
+// keeps reporting through an agent this OBI build does not understand until it is restarted.
+func (i *JavaInjector) verifyLoadedAgentVersion(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) error {
+	// nothing to compare against when the embedded agent carries no version marker
+	if i.agentVersion == "" {
+		return nil
+	}
+
+	loadedVersion, err := i.loadedAgentVersion(ctx, attacher, pid)
+	if err != nil {
+		return err
+	}
+
+	return i.verifyAgentVersion(pid, loadedVersion)
+}
+
+func (i *JavaInjector) verifyAgentVersion(pid app.PID, loadedVersion string) error {
+	if loadedVersion == i.agentVersion {
+		return nil
+	}
+
+	// Agents older than the version marker publish no version at all.
+	if loadedVersion == "" {
+		loadedVersion = "unknown"
+	}
+
+	i.log.Error("the JVM already runs an incompatible OpenTelemetry eBPF Java Agent, restart the process to instrument it with this OBI version",
+		"pid", pid, "loadedVersion", loadedVersion, "expectedVersion", i.agentVersion)
+
+	return &JavaInjectError{
+		Message: fmt.Sprintf("incompatible OpenTelemetry eBPF Java Agent already loaded: version %s, expected %s", loadedVersion, i.agentVersion),
+	}
+}
+
+func (i *JavaInjector) loadedAgentVersion(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) (string, error) {
+	attacher.Init()
+
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
+	// OpenJ9 doesn't answer jcmd queries, but we only get here after a probe that uses them
+	out, err := attacher.Attach(ctx, int(pid), []string{"jcmd", "VM.system_properties"}, true)
+	if err != nil {
+		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
+		return "", err
+	}
+
+	if out == nil {
+		return "", nil
+	}
+	defer out.Close()
+
+	return javaProperty(out, agentVersionProperty)
 }
 
 func (i *JavaInjector) verifyJVMVersion(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) (bool, bool) {
