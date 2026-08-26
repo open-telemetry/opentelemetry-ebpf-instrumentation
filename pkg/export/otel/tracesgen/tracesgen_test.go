@@ -81,6 +81,13 @@ func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
 	assert.Contains(t, optInAttrs, semconv.DNSQuestionName("example.com"))
 }
 
+func defaultTraceAttrs(t *testing.T) map[attr.Name]struct{} {
+	t.Helper()
+	selected, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+	return selected
+}
+
 func attrValue(attrs []attribute.KeyValue, key string) (attribute.Value, bool) {
 	for _, kv := range attrs {
 		if string(kv.Key) == key {
@@ -101,7 +108,7 @@ func countAttr(attrs []attribute.KeyValue, key string) int {
 }
 
 func TestTraceAttributesSelector_ErrorType(t *testing.T) {
-	noOpts := map[attr.Name]struct{}{}
+	noOpts := defaultTraceAttrs(t)
 
 	t.Run("omitted when the span did not fail", func(t *testing.T) {
 		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
@@ -197,7 +204,7 @@ func TestTraceAttributesSelector_ErrorType(t *testing.T) {
 }
 
 func TestTraceAttributesSelector_NetworkPeer(t *testing.T) {
-	noOpts := map[attr.Name]struct{}{}
+	noOpts := defaultTraceAttrs(t)
 
 	t.Run("server span reports the client socket", func(t *testing.T) {
 		span := &request.Span{
@@ -272,7 +279,7 @@ func TestTraceAttributesSelector_NetworkPeer(t *testing.T) {
 }
 
 func TestTraceAttributesSelector_HTTPRequestMethod(t *testing.T) {
-	noOpts := map[attr.Name]struct{}{}
+	noOpts := defaultTraceAttrs(t)
 
 	for _, method := range []string{"GET", "POST", "QUERY", "CONNECT", "TRACE"} {
 		t.Run("enum member "+method+" passes through", func(t *testing.T) {
@@ -315,7 +322,7 @@ func TestTraceAttributesSelector_HTTPRequestMethod(t *testing.T) {
 }
 
 func TestTraceAttributesSelector_NetworkProtocolVersion(t *testing.T) {
-	noOpts := map[attr.Name]struct{}{}
+	noOpts := defaultTraceAttrs(t)
 
 	t.Run("reported for every protocol that carries a version", func(t *testing.T) {
 		cases := []struct {
@@ -358,13 +365,13 @@ func TestTraceAttributesSelector_DBQuerySummary(t *testing.T) {
 		Path:           "orders",
 		DBQuerySummary: "SELECT orders",
 	}
-	v, ok := attrValue(TraceAttributesSelector(span, map[attr.Name]struct{}{}), "db.query.summary")
+	v, ok := attrValue(TraceAttributesSelector(span, defaultTraceAttrs(t)), "db.query.summary")
 	require.True(t, ok)
 	assert.Equal(t, "SELECT orders", v.AsString())
 }
 
 func TestTraceAttributesSelector_UserAgentOriginal(t *testing.T) {
-	noOpts := map[attr.Name]struct{}{}
+	noOpts := defaultTraceAttrs(t)
 
 	// The attribute is recommended by semconv, so it comes off the parsed
 	// request rather than requiring User-Agent in the header allowlist.
@@ -428,6 +435,76 @@ func TestTraceAttributesSelector_DNSAnswers(t *testing.T) {
 		attrs := TraceAttributesSelector(dnsSpan(""), map[attr.Name]struct{}{})
 		for _, kv := range attrs {
 			assert.NotEqual(t, attr.DNSAnswers, attr.Name(kv.Key))
+		}
+	})
+}
+
+// A subtype carries a different protocol over HTTP, so the SQL++ branch's
+// DB-only attribute set must not pick up HTTP transport attributes.
+func TestTraceAttributesSelector_SubtypeKeepsNoHTTPTransportAttrs(t *testing.T) {
+	for _, sub := range []int{
+		request.HTTPSubtypeSQLPP,
+		request.HTTPSubtypeAWSSQS,
+		request.HTTPSubtypeElasticsearch,
+		request.HTTPSubtypeGraphQL,
+	} {
+		span := &request.Span{
+			Type: request.EventTypeHTTPClient, SubType: sub,
+			Method: "POST", Path: "/q", Host: "cb", HostPort: 8093, Status: 200,
+			DBSystem:     "couchbase",
+			UserAgent:    "couchbase-python-client/4.1.9",
+			ProtoVersion: request.ProtoVersionHTTP11,
+		}
+		attrs := TraceAttributesSelector(span, defaultTraceAttrs(t))
+
+		_, ok := attrValue(attrs, "network.protocol.version")
+		assert.False(t, ok, "subtype %d leaked network.protocol.version", sub)
+		_, ok = attrValue(attrs, "user_agent.original")
+		assert.False(t, ok, "subtype %d leaked user_agent.original", sub)
+	}
+}
+
+// Registering the new attributes in Traces.Section is only meaningful if the
+// exclusion actually reaches the emission sites.
+func TestTraceAttributesSelector_NewAttributesAreExcludable(t *testing.T) {
+	span := &request.Span{
+		Type: request.EventTypeHTTP, Method: "PURGE", Path: "/x", Status: 503,
+		Peer: "10.0.0.5", PeerPort: 54321,
+		UserAgent: "curl/8.4.0", ProtoVersion: request.ProtoVersionHTTP11,
+	}
+
+	for _, name := range []attr.Name{
+		attr.ErrorType,
+		attr.HTTPRequestMethodOrig,
+		attr.NetworkPeerAddress,
+		attr.NetworkPeerPort,
+		attr.NetworkProtocolVersion,
+		attr.UserAgentOriginal,
+	} {
+		t.Run("exclude "+string(name), func(t *testing.T) {
+			selected, err := UserSelectedAttributes(&attributes.SelectorConfig{
+				SelectionCfg: attributes.Selection{
+					attributes.Traces.Section: attributes.InclusionLists{
+						Exclude: []string{string(name)},
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			attrs := TraceAttributesSelector(span, selected)
+			_, ok := attrValue(attrs, string(name))
+			assert.False(t, ok, "%s must be excludable", name)
+		})
+	}
+
+	t.Run("all present by default", func(t *testing.T) {
+		attrs := TraceAttributesSelector(span, defaultTraceAttrs(t))
+		for _, key := range []string{
+			"error.type", "http.request.method_original", "network.peer.address",
+			"network.peer.port", "network.protocol.version", "user_agent.original",
+		} {
+			_, ok := attrValue(attrs, key)
+			assert.True(t, ok, "%s should be on by default", key)
 		}
 	})
 }

@@ -65,6 +65,12 @@ const (
 	GraphQLOperationName   = Name(semconv.GraphQLOperationNameKey)
 	GraphQLOperationType   = Name(semconv.GraphQLOperationTypeKey)
 	DNSAnswers             = Name(semconv.DNSAnswersKey)
+	DBQuerySummary         = Name(semconv.DBQuerySummaryKey)
+	NetworkPeerAddress     = Name(semconv.NetworkPeerAddressKey)
+	NetworkPeerPort        = Name(semconv.NetworkPeerPortKey)
+	NetworkProtocolVersion = Name(semconv.NetworkProtocolVersionKey)
+	UserAgentOriginal      = Name(semconv.UserAgentOriginalKey)
+	HTTPRequestMethodOrig  = Name(semconv.HTTPRequestMethodOriginalKey)
 	TelemetrySDKLanguage   = Name(semconv.TelemetrySDKLanguageKey)
 
 	K8sNamespaceName   = Name(semconv.K8SNamespaceNameKey)

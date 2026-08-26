@@ -34,10 +34,14 @@ func testHTTPTraces(t *testing.T) {
 func testHTTPTracesUnknownMethod(t *testing.T) {
 	const (
 		slug = "unknown-method"
-		// Must fit k_method_max_len (7): the Go uprobe struct truncates longer
-		// methods, so a longer one would assert on a truncated value.
+		// Kept within 7 bytes so the same assertion holds on the Go uprobe path,
+		// whose method field is k_method_max_len wide.
 		method = "PURGE"
 	)
+
+	// Ensure OBI is attached before sending the single marker request; this
+	// subtest may run first (e.g. filtered runs), without prior warm-up.
+	waitForTestComponents(t, instrumentedServiceStdURL)
 
 	req, err := http.NewRequest(method, instrumentedServiceStdURL+"/"+slug, nil)
 	require.NoError(t, err)

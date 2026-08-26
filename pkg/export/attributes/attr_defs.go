@@ -429,6 +429,15 @@ func getDefinitions(
 				attr.GenAIToolCallResult:    false,
 				attr.GenAIResponseError:     false,
 				attr.DBResponseError:        false,
+				// Conditionally Required or Recommended by OTel semconv, so emitted
+				// by default. Opt out via attributes.select.traces.exclude.
+				attr.ErrorType:              true,
+				attr.HTTPRequestMethodOrig:  true,
+				attr.DBQuerySummary:         true,
+				attr.NetworkPeerAddress:     true,
+				attr.NetworkPeerPort:        true,
+				attr.NetworkProtocolVersion: true,
+				attr.UserAgentOriginal:      true,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {

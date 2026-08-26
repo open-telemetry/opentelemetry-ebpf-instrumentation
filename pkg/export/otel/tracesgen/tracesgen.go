@@ -39,15 +39,20 @@ import (
 
 // httpMethodAttributes clamps a method outside the semconv enum to _OTHER,
 // keeping the wire value on http.request.method_original.
-func httpMethodAttributes(method string) []attribute.KeyValue {
+func httpMethodAttributes(method string, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	if request.IsKnownHTTPMethod(method) {
 		return []attribute.KeyValue{request.HTTPRequestMethod(method)}
 	}
 
-	return []attribute.KeyValue{
-		semconv.HTTPRequestMethodOther,
-		semconv.HTTPRequestMethodOriginal(method),
+	attrs := []attribute.KeyValue{semconv.HTTPRequestMethodOther}
+
+	// Conditionally required only when it differs from http.request.method, so a
+	// wire method of literally _OTHER reports nothing extra.
+	if _, ok := optionalAttrs[attr.HTTPRequestMethodOrig]; ok && method != request.HTTPMethodOther {
+		attrs = append(attrs, semconv.HTTPRequestMethodOriginal(method))
 	}
+
+	return attrs
 }
 
 // Attribute keys not yet available in semconv v1.41.0.
@@ -573,7 +578,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 		if span.Method != "" {
-			attrs = append(attrs, httpMethodAttributes(span.Method)...)
+			attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
 		}
 		if span.Path != "" {
 			attrs = append(attrs, request.HTTPUrlPath(span.Path))
@@ -680,7 +685,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 		if span.Method != "" {
-			attrs = append(attrs, httpMethodAttributes(span.Method)...)
+			attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
 		}
 
 		if scrubbedQS != "" {
@@ -1376,7 +1381,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, request.DBCollectionName(table))
 			}
 		}
-		if span.DBQuerySummary != "" {
+		if _, ok := optionalAttrs[attr.DBQuerySummary]; ok && span.DBQuerySummary != "" {
 			attrs = append(attrs, semconv.DBQuerySummary(span.DBQuerySummary))
 		}
 		if span.Status == 1 && span.SQLError != nil {
@@ -1620,19 +1625,27 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 	}
 
-	attrs = append(attrs, networkPeerAttributes(span)...)
+	attrs = append(attrs, networkPeerAttributes(span, optionalAttrs)...)
 
-	if version := span.ProtoVersion.String(); version != "" {
-		attrs = append(attrs, semconv.NetworkProtocolVersion(version))
-	}
+	// A subtype is a different protocol carried over HTTP, so the HTTP transport
+	// attributes do not belong on its span.
+	if span.SubType == request.HTTPSubtypeNone {
+		if _, ok := optionalAttrs[attr.NetworkProtocolVersion]; ok {
+			if version := span.ProtoVersion.String(); version != "" {
+				attrs = append(attrs, semconv.NetworkProtocolVersion(version))
+			}
+		}
 
-	if span.UserAgent != "" {
-		attrs = append(attrs, semconv.UserAgentOriginal(span.UserAgent))
+		if _, ok := optionalAttrs[attr.UserAgentOriginal]; ok && span.UserAgent != "" {
+			attrs = append(attrs, semconv.UserAgentOriginal(span.UserAgent))
+		}
 	}
 
 	// Protocol branches above may already have set a more specific error.type.
-	if errType := request.SpanErrorType(span); errType != "" && !hasAttribute(attrs, semconv.ErrorTypeKey) {
-		attrs = append(attrs, request.ErrorType(errType))
+	if _, ok := optionalAttrs[attr.ErrorType]; ok {
+		if errType := request.SpanErrorType(span); errType != "" && !hasAttribute(attrs, semconv.ErrorTypeKey) {
+			attrs = append(attrs, request.ErrorType(errType))
+		}
 	}
 
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {
@@ -1646,7 +1659,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 // end, which server.address and client.address drop when a resolved name or
 // Host header is available. DNS and failed-connect spans are excluded: their
 // client/server mapping does not follow the usual convention.
-func networkPeerAttributes(span *request.Span) []attribute.KeyValue {
+func networkPeerAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	var addr string
 	var port int
 
@@ -1675,8 +1688,12 @@ func networkPeerAttributes(span *request.Span) []attribute.KeyValue {
 		return nil
 	}
 
+	if _, ok := optionalAttrs[attr.NetworkPeerAddress]; !ok {
+		return nil
+	}
+
 	attrs := []attribute.KeyValue{semconv.NetworkPeerAddress(addr)}
-	if port > 0 {
+	if _, ok := optionalAttrs[attr.NetworkPeerPort]; ok && port > 0 {
 		attrs = append(attrs, semconv.NetworkPeerPort(port))
 	}
 

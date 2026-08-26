@@ -759,7 +759,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 9, attrs.Len())
+		assert.Equal(t, 8, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "insert")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mydatabase")
@@ -808,7 +808,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 9, attrs.Len())
+		assert.Equal(t, 8, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mybucket.myscope")
@@ -907,7 +907,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 6, attrs.Len())
+		assert.Equal(t, 5, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "SERVER_ERROR")
@@ -1089,7 +1089,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		// Only required attributes: server.addr, server.port, service.peer.name, db.system.name, db.operation.name, network.peer.address, network.peer.port
+		// Only required attributes: server.addr, server.port, service.peer.name, db.system.name, db.operation.name
 		assert.Equal(t, 5, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "INSERT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
