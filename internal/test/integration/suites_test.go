@@ -351,10 +351,14 @@ func TestSuite_Java_PID(t *testing.T) {
 
 // Same as Java Test suite, but searching the executable by port instead of executable name. We also run the jar version of Java instead of native image
 func TestSuite_Java_OpenPort(t *testing.T) {
-	compose, err := docker.ComposeSuiteWithOverrides(
+	compose, err := docker.ComposeSuiteWithConfigMigration(
 		"docker-compose-java.yml",
 		path.Join(pathOutput, "test-suite-java-openport.log"),
-		"docker-compose-java-migration.yml",
+		docker.ConfigMigration{
+			Source: "obi-config-java.yml",
+			Output: "obi-config-java-v2.yml",
+			Image:  "hatest-javaobi",
+		},
 	)
 	require.NoError(t, err)
 

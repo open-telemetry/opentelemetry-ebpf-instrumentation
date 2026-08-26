@@ -320,10 +320,14 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 }
 
 func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
-	compose, err := docker.ComposeSuiteWithOverrides(
+	compose, err := docker.ComposeSuiteWithConfigMigration(
 		"docker-compose-go-otel-grpc.yml",
 		path.Join(pathOutput, "test-suite-go-otel-grpc.log"),
-		"docker-compose-go-otel-grpc-migration.yml",
+		docker.ConfigMigration{
+			Source: "obi-config-go-otel-grpc.yml",
+			Output: "obi-config-go-otel-grpc-v2.yml",
+			Image:  "hatest-obi",
+		},
 	)
 	require.NoError(t, err)
 

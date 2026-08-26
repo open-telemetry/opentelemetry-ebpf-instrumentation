@@ -32,6 +32,14 @@ const stopTimeout = "15"
 // exit. A stuck container would otherwise burn the shard's job timeout.
 const waitTimeout = 30 * time.Second
 
+const configMigrationOverride = "docker-compose-config-migration.yml"
+
+type ConfigMigration struct {
+	Source string
+	Output string
+	Image  string
+}
+
 type Compose struct {
 	Path          string
 	OverridePaths []string
@@ -49,6 +57,24 @@ func defaultEnv() []string {
 
 func ComposeSuite(composeFile, logFile string) (*Compose, error) {
 	return ComposeSuiteWithOverrides(composeFile, logFile)
+}
+
+func ComposeSuiteWithConfigMigration(
+	composeFile, logFile string,
+	migration ConfigMigration,
+) (*Compose, error) {
+	compose, err := ComposeSuiteWithOverrides(composeFile, logFile, configMigrationOverride)
+	if err != nil {
+		return nil, err
+	}
+
+	compose.Env = append(
+		compose.Env,
+		"OBI_CONFIG_MIGRATION_SOURCE="+migration.Source,
+		"OBI_CONFIG_MIGRATION_OUTPUT="+migration.Output,
+		"OBI_CONFIG_MIGRATION_IMAGE="+migration.Image,
+	)
+	return compose, nil
 }
 
 func ComposeSuiteWithOverrides(composeFile, logFile string, overrideFiles ...string) (*Compose, error) {
