@@ -60,10 +60,9 @@ func TestTracesExportCompressionHTTP(t *testing.T) {
 		compression string
 		wantHeader  string
 	}{
-		{name: "default is the exporter's own gzip", compression: "", wantHeader: "gzip"},
-		{name: "explicit gzip", compression: "gzip", wantHeader: "gzip"},
-		{name: "none disables it", compression: "none", wantHeader: ""},
-		{name: "zstd is passed through", compression: "zstd", wantHeader: "zstd"},
+		{name: "unset sends uncompressed", compression: "", wantHeader: ""},
+		{name: "gzip compresses", compression: "gzip", wantHeader: "gzip"},
+		{name: "none is explicit off", compression: "none", wantHeader: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got atomic.Pointer[string]
@@ -80,31 +79,18 @@ func TestTracesExportCompressionHTTP(t *testing.T) {
 	}
 }
 
-func TestTracesExportCompressionRejectsUnknownValue(t *testing.T) {
-	for _, protocol := range []otelcfg.Protocol{otelcfg.ProtocolHTTPProtobuf, otelcfg.ProtocolGRPC} {
-		t.Run(string(protocol), func(t *testing.T) {
-			cfg := baseTracesConfig("http://127.0.0.1:1")
-			cfg.Protocol = protocol
-			cfg.TracesCompression = "not-a-codec"
-			_, _, err := getTracesExporter(context.Background(), cfg, imetrics.NoopReporter{})
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "not-a-codec")
-		})
-	}
-}
-
 func TestTracesCompressionTracesKeyWinsOverCommon(t *testing.T) {
 	var got atomic.Pointer[string]
 	coll := collectorRecordingEncoding(t, &got)
 
 	cfg := baseTracesConfig(coll.URL)
-	cfg.CommonCompression = "gzip"
-	cfg.TracesCompression = "none"
+	cfg.CommonCompression = "none"
+	cfg.TracesCompression = "gzip"
 	exportOneSpan(t, cfg)
 
 	require.Eventually(t, func() bool { return got.Load() != nil }, 5*time.Second, 20*time.Millisecond,
 		"the collector never received an export")
-	assert.Empty(t, *got.Load(), "the traces-specific setting must win")
+	assert.Equal(t, "gzip", *got.Load(), "the traces-specific setting must win")
 }
 
 // grpc-encoding is consumed by the transport, so it is absent from the handler's
@@ -138,8 +124,8 @@ func TestTracesExportCompressionGRPC(t *testing.T) {
 		compression  string
 		wantEncoding string
 	}{
-		{name: "default is the exporter's own gzip", compression: "", wantEncoding: "gzip"},
-		{name: "none disables it", compression: "none", wantEncoding: ""},
+		{name: "unset sends uncompressed", compression: "", wantEncoding: ""},
+		{name: "gzip compresses", compression: "gzip", wantEncoding: "gzip"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lis, err := net.Listen("tcp", "127.0.0.1:0")

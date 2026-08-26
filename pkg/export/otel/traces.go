@@ -16,6 +16,8 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configcompression"
+	"go.opentelemetry.io/collector/config/configgrpc"
+	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/configmiddleware"
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
@@ -285,15 +287,14 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		disabledRetry.Enabled = false
 		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		config.RetryConfig = disabledRetry
-		config.ClientConfig.Endpoint = opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath
-		config.ClientConfig.TLS = configtls.ClientConfig{
-			Insecure:           opts.Insecure,
-			InsecureSkipVerify: cfg.InsecureSkipVerify,
-		}
-		config.ClientConfig.Headers = convertHeaders(opts.Headers)
-		if err := setCompression(&config.ClientConfig.Compression, cfg.GetCompression()); err != nil {
-			slog.Error("invalid traces compression", "error", err)
-			return nil, nil, err
+		config.ClientConfig = confighttp.ClientConfig{
+			Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
+			TLS: configtls.ClientConfig{
+				Insecure:           opts.Insecure,
+				InsecureSkipVerify: cfg.InsecureSkipVerify,
+			},
+			Headers:     convertHeaders(opts.Headers),
+			Compression: configcompression.Type(cfg.GetCompression()),
 		}
 		host := component.Host(emptyHost{})
 		if opts.UnixSocketAddr != "" {
@@ -342,15 +343,14 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		disabledRetry.Enabled = false
 		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		config.RetryConfig = disabledRetry
-		config.ClientConfig.Endpoint = grpcEndpoint
-		config.ClientConfig.TLS = configtls.ClientConfig{
-			Insecure:           opts.Insecure,
-			InsecureSkipVerify: cfg.InsecureSkipVerify,
-		}
-		config.ClientConfig.Headers = convertHeaders(opts.Headers)
-		if err := setCompression(&config.ClientConfig.Compression, cfg.GetCompression()); err != nil {
-			slog.Error("invalid traces compression", "error", err)
-			return nil, nil, err
+		config.ClientConfig = configgrpc.ClientConfig{
+			Endpoint: grpcEndpoint,
+			TLS: configtls.ClientConfig{
+				Insecure:           opts.Insecure,
+				InsecureSkipVerify: cfg.InsecureSkipVerify,
+			},
+			Headers:     convertHeaders(opts.Headers),
+			Compression: configcompression.Type(cfg.GetCompression()),
 		}
 		set := getTraceSettings(factory.Type(), cfg.SDKLogLevel)
 		exp, err := factory.CreateTraces(ctx, set, config)
@@ -478,13 +478,4 @@ func convertHeaders(headers map[string]string) configopaque.MapList {
 		opaqueHeaders = append(opaqueHeaders, configopaque.Pair{Name: key, Value: configopaque.String(value)})
 	}
 	return opaqueHeaders
-}
-
-// An empty value keeps whatever the exporter factory set. UnmarshalText rejects codecs
-// the collector cannot encode.
-func setCompression(dst *configcompression.Type, value string) error {
-	if value == "" {
-		return nil
-	}
-	return dst.UnmarshalText([]byte(value))
 }

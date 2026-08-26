@@ -1590,16 +1590,15 @@ func TestConfigValidate_TracesCompression(t *testing.T) {
 		require.NoError(t, loadConfig(t, base("grpc", "gzip")).Validate())
 	})
 
-	t.Run("zlib over http", func(t *testing.T) {
-		require.NoError(t, loadConfig(t, base("http/protobuf", "zlib")).Validate())
+	t.Run("none over http", func(t *testing.T) {
+		require.NoError(t, loadConfig(t, base("http/protobuf", "none")).Validate())
 	})
 
-	t.Run("zlib is http-only so grpc rejects it", func(t *testing.T) {
-		err := loadConfig(t, base("grpc", "zlib")).Validate()
-		require.ErrorContains(t, err, "zlib")
+	t.Run("a codec receivers need not support is rejected", func(t *testing.T) {
+		require.Error(t, loadConfig(t, base("grpc", "zstd")).Validate())
 	})
 
-	t.Run("unknown codec fails the oneof tag", func(t *testing.T) {
+	t.Run("unknown codec is rejected", func(t *testing.T) {
 		require.Error(t, loadConfig(t, base("http/protobuf", "not-a-codec")).Validate())
 	})
 }

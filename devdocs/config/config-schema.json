@@ -3012,16 +3012,10 @@
         "compression": {
           "type": "string",
           "enum": [
-            "deflate",
             "gzip",
-            "lz4",
-            "none",
-            "snappy",
-            "x-snappy-framed",
-            "zlib",
-            "zstd"
+            "none"
           ],
-          "description": "Is the compression applied to exported OTLP payloads. Left unset, the OTLP exporter's own default of gzip applies. gRPC accepts a narrower set than HTTP, which Validate checks once the protocol is known.",
+          "description": "Sets the compression applied to exported OTLP payloads.",
           "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"
         },
         "endpoint": {

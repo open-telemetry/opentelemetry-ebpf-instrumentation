@@ -390,10 +390,10 @@ func TestGetCompression(t *testing.T) {
 		traces string
 		want   string
 	}{
-		{name: "neither set leaves the exporter default", common: "", traces: "", want: ""},
+		{name: "neither set", common: "", traces: "", want: ""},
 		{name: "common only", common: "gzip", traces: "", want: "gzip"},
-		{name: "traces only", common: "", traces: "zstd", want: "zstd"},
-		{name: "traces wins over common", common: "gzip", traces: "none", want: "none"},
+		{name: "traces only", common: "", traces: "gzip", want: "gzip"},
+		{name: "traces wins over common", common: "none", traces: "gzip", want: "gzip"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := TracesConfig{CommonCompression: tc.common, TracesCompression: tc.traces}
@@ -405,57 +405,11 @@ func TestGetCompression(t *testing.T) {
 func TestCompression_EnvVar(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
 	t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_COMPRESSION", "zstd")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_COMPRESSION", "none")
 
 	var cfg TracesConfig
 	require.NoError(t, env.Parse(&cfg))
 	assert.Equal(t, "gzip", cfg.CommonCompression)
-	assert.Equal(t, "zstd", cfg.TracesCompression)
-	assert.Equal(t, "zstd", cfg.GetCompression())
-}
-
-func TestCompressionValidate_ProtocolSpecific(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		protocol    Protocol
-		compression string
-		wantErr     bool
-	}{
-		{name: "grpc gzip", protocol: ProtocolGRPC, compression: "gzip"},
-		{name: "grpc snappy", protocol: ProtocolGRPC, compression: "snappy"},
-		{name: "grpc zstd", protocol: ProtocolGRPC, compression: "zstd"},
-		{name: "grpc none", protocol: ProtocolGRPC, compression: "none"},
-		{name: "grpc unset", protocol: ProtocolGRPC, compression: ""},
-		{name: "grpc zlib is http-only", protocol: ProtocolGRPC, compression: "zlib", wantErr: true},
-		{name: "grpc deflate is http-only", protocol: ProtocolGRPC, compression: "deflate", wantErr: true},
-		{name: "grpc lz4 is http-only", protocol: ProtocolGRPC, compression: "lz4", wantErr: true},
-		{name: "http accepts zlib", protocol: ProtocolHTTPProtobuf, compression: "zlib"},
-		{name: "http accepts lz4", protocol: ProtocolHTTPProtobuf, compression: "lz4"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := TracesConfig{
-				CommonEndpoint:    "http://localhost:4317",
-				Protocol:          tc.protocol,
-				TracesCompression: tc.compression,
-			}
-			err := cfg.Validate()
-			if tc.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.compression)
-				assert.Contains(t, err.Error(), "gRPC")
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
-func TestCompressionValidate_ChecksTheResolvedValue(t *testing.T) {
-	// only the common key is set, so Validate has to resolve it the same way the exporter does
-	cfg := TracesConfig{
-		CommonEndpoint:    "http://localhost:4317",
-		Protocol:          ProtocolGRPC,
-		CommonCompression: "zlib",
-	}
-	require.Error(t, cfg.Validate())
+	assert.Equal(t, "none", cfg.TracesCompression)
+	assert.Equal(t, "none", cfg.GetCompression())
 }

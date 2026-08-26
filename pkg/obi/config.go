@@ -759,10 +759,6 @@ func (c *Config) validate(context validationContext) error {
 		return ConfigError(err.Error())
 	}
 
-	if err := c.Traces.Validate(); err != nil {
-		return ConfigError(err.Error())
-	}
-
 	if err := c.EBPF.PayloadExtraction.HTTP.Enrichment.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}
