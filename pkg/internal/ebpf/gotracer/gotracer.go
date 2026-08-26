@@ -194,6 +194,15 @@ var goAutoSDKSpanContextOffsetFields = [...]goexec.GoOffset{
 	goexec.AutoSDKActivationSupported,
 }
 
+var goH2WriteOffsetFields = [...]goexec.GoOffset{
+	goexec.FramerWPos,
+	goexec.IoWriterBufPtrPos,
+	goexec.IoWriterNPos,
+	goexec.GrpcTransportBufWriterBufPos,
+	goexec.GrpcTransportBufWriterOffsetPos,
+	goexec.GrpcTransportBufWriterConnPos,
+}
+
 var goRuntimeMetricOffsetFields = [...]goexec.GoOffset{
 	goexec.RuntimeMemstatsNumGCPos,
 	goexec.RuntimeGCControllerMemoryLimitPos,
@@ -535,8 +544,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	p.recordGoChannelOffsetAvailability(fileInfo, offsets)
 
 	offTable := BpfOffTableT{}
-	initMissingGoChannelOffsets(&offTable)
-	initMissingGoAutoSDKSpanContextOffsets(&offTable)
+	initMissingGoOffsets(&offTable, goChannelOffsetFields[:])
+	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
+	initMissingGoOffsets(&offTable, goH2WriteOffsetFields[:])
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
 		goexec.ConnFdPos,
@@ -696,22 +706,12 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	}
 }
 
-func initMissingGoChannelOffsets(offTable *BpfOffTableT) {
+func initMissingGoOffsets(offTable *BpfOffTableT, fields []goexec.GoOffset) {
 	if offTable == nil {
 		return
 	}
 
-	for _, field := range goChannelOffsetFields {
-		offTable.Table[field] = missingGoOffset
-	}
-}
-
-func initMissingGoAutoSDKSpanContextOffsets(offTable *BpfOffTableT) {
-	if offTable == nil {
-		return
-	}
-
-	for _, field := range goAutoSDKSpanContextOffsetFields {
+	for _, field := range fields {
 		offTable.Table[field] = missingGoOffset
 	}
 }

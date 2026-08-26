@@ -95,9 +95,20 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 	var offTable BpfOffTableT
 
-	initMissingGoChannelOffsets(&offTable)
+	initMissingGoOffsets(&offTable, goChannelOffsetFields[:])
 
 	for _, field := range goChannelOffsetFields {
+		assert.Equal(t, missingGoOffset, offTable.Table[field])
+	}
+	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
+}
+
+func TestMissingGoH2WriteOffsetsUseSentinel(t *testing.T) {
+	var offTable BpfOffTableT
+
+	initMissingGoOffsets(&offTable, goH2WriteOffsetFields[:])
+
+	for _, field := range goH2WriteOffsetFields {
 		assert.Equal(t, missingGoOffset, offTable.Table[field])
 	}
 	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
@@ -106,7 +117,7 @@ func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 func TestGoAutoSDKSpanContextOffsetsUseSentinelAndPreserveZero(t *testing.T) {
 	var offTable BpfOffTableT
 
-	initMissingGoAutoSDKSpanContextOffsets(&offTable)
+	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
 
 	for _, field := range goAutoSDKSpanContextOffsetFields {
 		assert.Equal(t, missingGoOffset, offTable.Table[field])
