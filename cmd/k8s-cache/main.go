@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/buildinfo"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
@@ -32,6 +33,7 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: &lvl,
 	})))
+	klogbridge.Install()
 
 	slog.Info("OBI's Kubernetes Metadata cache service", "Version", buildinfo.Version, "Revision", buildinfo.Revision)
 
