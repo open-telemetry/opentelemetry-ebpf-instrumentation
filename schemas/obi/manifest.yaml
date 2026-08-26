@@ -1,4 +1,4 @@
-schema_url: https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/schemas/0.1.0
+schema_url: https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2
 description: |
   Schema registry for the OpenTelemetry eBPF instrumentation (OBI).
 

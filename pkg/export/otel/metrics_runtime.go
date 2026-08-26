@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
@@ -169,7 +170,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 	}
 	log.Debug("creating new runtime metrics reporter")
 
-	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
+	resources := resource.NewWithAttributes(attr.OBISchemaURL, resourceAttributes...)
 	goHistogramProducer := newGoRuntimeHistogramProducer(
 		r.exporter.Temporality(sdkmetric.InstrumentKindHistogram),
 	)
