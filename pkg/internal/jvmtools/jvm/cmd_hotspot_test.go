@@ -29,6 +29,18 @@ func alwaysRunForCurrentAttach(_ int64, fn func() error) error {
 	return fn()
 }
 
+func TestWriteHotspotCommandChecksProcessLiveness(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+
+	err := writeHotspotCommand(context.Background(), &procs.ProcessHandle{}, client, []string{"jcmd"})
+
+	require.ErrorContains(t, err, "target process exited before writing attach command")
+}
+
 func TestAttachReturnsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -391,11 +403,17 @@ func TestStartAttachMechanismStopsOnContextCancellationAndRemovesAttachFile(t *t
 func TestWriteHotspotCommandClosesSocketOnContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	pid := app.PID(os.Getpid())
+	startTime, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	process, err := procs.OpenProcessHandle(pid, startTime)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, process.Close()) })
 
 	conn := newBlockingConn()
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- writeHotspotCommand(ctx, conn, []string{"jcmd"})
+		errCh <- writeHotspotCommand(ctx, process, conn, []string{"jcmd"})
 	}()
 
 	select {

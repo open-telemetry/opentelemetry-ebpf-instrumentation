@@ -15,6 +15,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
+
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
 func TestNewJ9AttacherUsesNegativeFDSentinel(t *testing.T) {
@@ -31,6 +33,13 @@ func TestWriteCommandPreservesSyscallError(t *testing.T) {
 	if !errors.Is(err, syscall.EBADF) {
 		t.Fatalf("expected EBADF, got %v", err)
 	}
+}
+
+func TestWriteOpenJ9CommandChecksProcessLiveness(t *testing.T) {
+	err := writeOpenJ9Command(&procs.ProcessHandle{}, -1, "ATTACH_DIAGNOSTICS:OpenJ9Diagnostics.stringCommand(jcmd)")
+
+	require.ErrorContains(t, err, "target process exited before writing attach command")
+	require.NotErrorIs(t, err, syscall.EBADF)
 }
 
 func TestJ9ReaderReadReturnsZeroCountOnSyscallError(t *testing.T) {

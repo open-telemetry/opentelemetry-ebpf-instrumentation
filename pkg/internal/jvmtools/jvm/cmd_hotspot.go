@@ -115,7 +115,12 @@ func connectSocket(ctx context.Context, pid int, tmpPath string) (net.Conn, erro
 }
 
 // Send command with arguments to socket
-func writeHotspotCommand(ctx context.Context, conn net.Conn, args []string) error {
+func writeHotspotCommand(
+	ctx context.Context,
+	process *procs.ProcessHandle,
+	conn net.Conn,
+	args []string,
+) error {
 	request := make([]byte, 0)
 
 	request = append(request, byte('1'))
@@ -130,6 +135,9 @@ func writeHotspotCommand(ctx context.Context, conn net.Conn, args []string) erro
 
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if err := process.Alive(); err != nil {
+		return fmt.Errorf("target process exited before writing attach command: %w", err)
 	}
 
 	stop := context.AfterFunc(ctx, func() {
@@ -165,7 +173,7 @@ func jattachHotspot(
 
 	logger.Debug("connected to the JVM")
 
-	if err := writeHotspotCommand(ctx, conn, args); err != nil {
+	if err := writeHotspotCommand(ctx, process, conn, args); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("error writing to the JVM socket: %w", err)
 	}

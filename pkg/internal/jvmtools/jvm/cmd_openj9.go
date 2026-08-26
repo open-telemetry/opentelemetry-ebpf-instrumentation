@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
 const (
@@ -135,6 +137,14 @@ func writeCommand(fd int, cmd string) error {
 		off += n
 	}
 	return nil
+}
+
+func writeOpenJ9Command(process *procs.ProcessHandle, fd int, cmd string) error {
+	if err := process.Alive(); err != nil {
+		return fmt.Errorf("target process exited before writing attach command: %w", err)
+	}
+
+	return writeCommand(fd, cmd)
 }
 
 func closeWithErrno(fd int) {
@@ -508,7 +518,13 @@ func (j *j9Attacher) abort() error {
 	return errors.Join(shutdownErr, syscall.Close(fd))
 }
 
-func (j *j9Attacher) jattachOpenJ9(ctx context.Context, tmpPath string, nspid int, argv []string) (reader io.ReadCloser, err error) {
+func (j *j9Attacher) jattachOpenJ9(
+	ctx context.Context,
+	process *procs.ProcessHandle,
+	tmpPath string,
+	nspid int,
+	argv []string,
+) (reader io.ReadCloser, err error) {
 	attachLock, err := acquireLock(ctx, tmpPath, "", "_attachlock")
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire attach lock: %w", err)
@@ -584,7 +600,7 @@ func (j *j9Attacher) jattachOpenJ9(ctx context.Context, tmpPath string, nspid in
 
 	cmd := translateCommand(argv)
 
-	if writeErr := writeCommand(fd, cmd); writeErr != nil {
+	if writeErr := writeOpenJ9Command(process, fd, cmd); writeErr != nil {
 		return nil, errors.Join(fmt.Errorf("error writing to socket: %w", writeErr), j.closeFD())
 	}
 

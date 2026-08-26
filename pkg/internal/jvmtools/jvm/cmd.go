@@ -320,7 +320,7 @@ func (j *JAttacher) attachInNamespace(
 		}
 		j9attacher := newJ9Attacher(j.logger)
 		j.j9attacher = j9attacher
-		return j.j9attacher.jattachOpenJ9(ctx, tmpPath, nspid, argv)
+		return j.j9attacher.jattachOpenJ9(ctx, process, tmpPath, nspid, argv)
 	}
 
 	return jattachHotspot(ctx, process, nspid, argv, targetCWD, tmpPath, j.logger)
