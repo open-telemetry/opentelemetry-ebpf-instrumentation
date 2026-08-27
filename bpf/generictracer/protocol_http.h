@@ -5,6 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
+#include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
@@ -79,18 +80,6 @@ static __always_inline u8 is_http(const unsigned char *p, u32 len, u8 *packet_ty
     return 0;
 }
 
-static __always_inline bool still_responding(http_info_t *info) {
-    return info->status != 0;
-}
-
-static __always_inline bool still_reading(http_info_t *info) {
-    return info->status == 0 && info->start_monotime_ns != 0;
-}
-
-static __always_inline u8 http_info_complete(http_info_t *info) {
-    return (info->start_monotime_ns != 0 && info->status != 0 && info->pid.host_pid != 0);
-}
-
 static __always_inline u8 http_will_complete(http_info_t *info, unsigned char *buf, u32 len) {
     if (info->start_monotime_ns != 0) {
         u8 packet_type;
@@ -159,7 +148,7 @@ static __always_inline void mark_http_server_thread_trace_response_sent(http_inf
 }
 
 static __always_inline void submit_http_event(http_info_t *info, pid_connection_info_t *pid_conn) {
-    if (!http_info_complete(info) || info->submitted) {
+    if (!http_info_emittable(info) || info->submitted) {
         return;
     }
 
@@ -179,7 +168,7 @@ static __always_inline void submit_http_event(http_info_t *info, pid_connection_
 
 static __always_inline void
 finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_t *current_key) {
-    if (!http_info_complete(info)) {
+    if (!http_info_emittable(info)) {
         return;
     }
 
@@ -197,18 +186,33 @@ finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_
     bpf_map_delete_elem(&active_ssl_connections, pid_conn);
 }
 
+static __always_inline u64 http_response_bytes_from_sock(struct sock *sk, u8 type) {
+    if (!sk) {
+        return 0;
+    }
+
+    if (type == EVENT_HTTP_REQUEST) {
+        return BPF_CORE_READ((struct tcp_sock *)sk, bytes_sent);
+    }
+
+    return BPF_CORE_READ((struct tcp_sock *)sk, bytes_received);
+}
+
 static __always_inline void force_finish_http(http_info_t *info,
                                               pid_connection_info_t *pid_conn,
-                                              const trace_key_t *current_key) {
+                                              const trace_key_t *current_key,
+                                              u64 response_bytes) {
     if (info->submitted) {
         return;
     }
 
     if (!high_request_volume) {
         if (!http_info_complete(info)) {
+            // status stays 0: nothing was parsed, so there is no status to report.
             info->resp_len = 0;
             info->end_monotime_ns = bpf_ktime_get_ns();
-            info->status = 499;
+            info->response_observation =
+                http_response_observation_at_close(info->response_bytes_at_request, response_bytes);
         }
     }
 
@@ -271,9 +275,8 @@ static __always_inline void finish_possible_delayed_http_request(pid_connection_
     }
 }
 
-static __always_inline void
-force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn,
-                                           const trace_key_t *current_key) {
+static __always_inline void force_finish_possible_delayed_http_request(
+    pid_connection_info_t *pid_conn, const trace_key_t *current_key, struct sock *sk) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
         cleanup_incomplete_http_server_thread_trace(info, current_key);
@@ -281,7 +284,8 @@ force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn,
             finish_http(info, pid_conn, current_key);
         } else {
             bpf_dbg_printk("forcing HTTP event finish");
-            force_finish_http(info, pid_conn, current_key);
+            force_finish_http(
+                info, pid_conn, current_key, http_response_bytes_from_sock(sk, info->type));
         }
     }
     cleanup_http_info(pid_conn);
@@ -306,7 +310,8 @@ static __always_inline void process_http_request(http_info_t *info,
                                                  http_connection_metadata_t *meta,
                                                  int direction,
                                                  u16 orig_dport,
-                                                 lw_thread_t lw_thread) {
+                                                 lw_thread_t lw_thread,
+                                                 struct sock *sk) {
     // Set pid and type early as best effort in case the request times out or dies.
     if (meta) {
         info->pid = meta->pid;
@@ -350,6 +355,8 @@ static __always_inline void process_http_request(http_info_t *info,
     info->req_monotime_ns = req_time;
     info->status = 0;
     info->submitted = 0;
+    info->response_observation = http_response_parsed;
+    info->response_bytes_at_request = http_response_bytes_from_sock(sk, info->type);
     info->len = len;
     info->event_source = event_source(lw_thread); // generic events generated from Go
     info->extra_id = extra_runtime_id();          // required for deleting the trace information
@@ -476,8 +483,13 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
     // we copy some small part of the buffer to the info trace event, so that we can process an event even with
     // incomplete trace info in user space.
     read_request_buf(info, args);
-    process_http_request(
-        info, args->bytes_len, meta, args->direction, args->orig_dport, args->lw_thread);
+    process_http_request(info,
+                         args->bytes_len,
+                         meta,
+                         args->direction,
+                         args->orig_dport,
+                         args->lw_thread,
+                         (struct sock *)args->sock_ptr);
 
     // Emit large buffer last: may tail call for continuation batches, so all
     // critical state updates must precede this call.
