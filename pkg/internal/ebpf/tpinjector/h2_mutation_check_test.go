@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build linux
+//go:build linux && privileged_tests
 
 package tpinjector // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 
@@ -31,15 +31,9 @@ const (
 	h2BoundaryPreflightPull = 1
 	h2BoundaryPush          = 2
 	h2BoundaryWritePull     = 3
-	h2BoundaryHPACKWrite    = 4
-	h2BoundaryHPACKReadback = 5
-	h2BoundaryFramePull     = 6
-	h2BoundaryFrameWrite    = 7
-	h2BoundaryFrameReadback = 8
-	h2BoundaryRollbackPop   = 9
-	h2BoundaryRollbackPull  = 10
-	h2BoundaryRollbackWrite = 11
-	h2BoundaryRollbackRead  = 12
+	h2BoundaryFramePull     = 4
+	h2BoundaryRollbackPop   = 5
+	h2BoundaryRollbackPull  = 6
 )
 
 var h2ProbeExpectedHPACK = []byte("\x00\x0btraceparent\x37" +
@@ -79,15 +73,9 @@ func verifyH2MutationRollback() error {
 		{name: "preflight pull", mask: h2BoundaryBit(h2BoundaryPreflightPull)},
 		{name: "push", mask: h2BoundaryBit(h2BoundaryPush)},
 		{name: "post-push pull", mask: h2BoundaryBit(h2BoundaryWritePull)},
-		{name: "HPACK write", mask: h2BoundaryBit(h2BoundaryHPACKWrite)},
-		{name: "HPACK readback", mask: h2BoundaryBit(h2BoundaryHPACKReadback)},
 		{name: "frame pull", mask: h2BoundaryBit(h2BoundaryFramePull)},
-		{name: "frame write", mask: h2BoundaryBit(h2BoundaryFrameWrite)},
-		{name: "frame readback", mask: h2BoundaryBit(h2BoundaryFrameReadback)},
 		{name: "rollback pop", mask: h2BoundaryBit(h2BoundaryWritePull) | h2BoundaryBit(h2BoundaryRollbackPop)},
 		{name: "rollback pull", mask: h2BoundaryBit(h2BoundaryWritePull) | h2BoundaryBit(h2BoundaryRollbackPull)},
-		{name: "rollback write", mask: h2BoundaryBit(h2BoundaryWritePull) | h2BoundaryBit(h2BoundaryRollbackWrite)},
-		{name: "rollback readback", mask: h2BoundaryBit(h2BoundaryWritePull) | h2BoundaryBit(h2BoundaryRollbackRead)},
 	}
 
 	for _, boundary := range boundaries {

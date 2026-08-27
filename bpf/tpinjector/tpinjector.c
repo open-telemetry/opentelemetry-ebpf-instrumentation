@@ -1826,9 +1826,7 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
     const h2_socket_transaction_outcome_t outcome =
         h2_write_socket_transaction(msg, frame_offset, payload_len, inject_offset, expected);
     if (outcome == k_h2_socket_transaction_rollback_uncertain) {
-        if (!h2_scope_uncertain_drop(msg)) {
-            bpf_d_printk("failed to scope uncertain h2 rollback [%s]", __FUNCTION__);
-        }
+        bpf_d_printk("dropping message after uncertain h2 rollback [%s]", __FUNCTION__);
         return SK_DROP;
     }
     if (outcome != k_h2_socket_transaction_committed) {

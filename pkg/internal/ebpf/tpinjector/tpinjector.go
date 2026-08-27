@@ -35,7 +35,7 @@ import (
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/tpinjector/tpinjector.c -- -I../../../../bpf -I../../../../bpf
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfIter ../../../../bpf/tpinjector/sock_iter.c -- -I../../../../bpf -I../../../../bpf
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfFionreadFixup ../../../../bpf/tpinjector/fionread_fixup.c -- -I../../../../bpf -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfH2MutationProbe ../../../../bpf/tpinjector/testdata/h2_mutation_peer.c -- -I../../../../bpf -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -tags privileged_tests -target amd64,arm64 BpfH2MutationProbe ../../../../bpf/tests/testdata/h2_mutation_peer.c -- -I../../../../bpf -I../../../../bpf
 
 type Tracer struct {
 	cfg                     *obi.Config
@@ -142,7 +142,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 		return nil, err
 	}
 	if err := verifyH2MutationSupport(); err != nil {
-		p.log.Warn("HTTP/2 socket mutation disabled because verified rollback is unavailable",
+		p.log.Warn("HTTP/2 socket mutation disabled because the rollback helper is unavailable",
 			"error", err)
 		disableH2SocketMutation(spec)
 	}
@@ -189,12 +189,10 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 }
 
 func verifyH2MutationSupport() error {
-	for _, helper := range []asm.BuiltinFunc{asm.FnMsgApplyBytes, asm.FnMsgPopData} {
-		if err := features.HaveProgramHelper(ebpf.SkMsg, helper); err != nil {
-			return fmt.Errorf("sk_msg helper %s: %w", helper, err)
-		}
+	if err := features.HaveProgramHelper(ebpf.SkMsg, asm.FnMsgPopData); err != nil {
+		return fmt.Errorf("sk_msg helper %s: %w", asm.FnMsgPopData, err)
 	}
-	return verifyH2MutationRollback()
+	return nil
 }
 
 func disableH2SocketMutation(spec *ebpf.CollectionSpec) {

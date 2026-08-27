@@ -23,18 +23,9 @@ static unsigned char expected[k_h2_tp_hpack_size];
 static u32 message_len;
 static u64 fault_mask;
 static u32 forced_pop_failures;
-static u32 applied_bytes;
 
 static bool transaction_fault(unsigned int boundary) {
     return fault_mask & (1ULL << boundary);
-}
-
-static long test_msg_apply_bytes(struct sk_msg_md *msg, u32 bytes) {
-    if (bytes > msg->size) {
-        return -1;
-    }
-    applied_bytes = bytes;
-    return 0;
 }
 
 static long test_msg_pull_data(struct sk_msg_md *msg, u32 start, u32 end, u64 flags) {
@@ -81,11 +72,9 @@ static long test_msg_pop_data(struct sk_msg_md *msg, u32 start, u32 len, u64 fla
 #define bpf_msg_pull_data test_msg_pull_data
 #define bpf_msg_push_data test_msg_push_data
 #define bpf_msg_pop_data test_msg_pop_data
-#define bpf_msg_apply_bytes test_msg_apply_bytes
 #define H2_SOCKET_TRANSACTION_FAULT(boundary) transaction_fault(boundary)
 #include <tpinjector/h2_write_transaction.h>
 #undef H2_SOCKET_TRANSACTION_FAULT
-#undef bpf_msg_apply_bytes
 #undef bpf_msg_pop_data
 #undef bpf_msg_push_data
 #undef bpf_msg_pull_data
@@ -111,7 +100,6 @@ static struct sk_msg_md reset_message(void) {
     memcpy(original, message, message_len);
     fault_mask = 0;
     forced_pop_failures = 0;
-    applied_bytes = 0;
 
     return (struct sk_msg_md){
         .data = message,
@@ -141,7 +129,6 @@ static void test_commit(void) {
            "commit publishes the new frame length");
     expect(memcmp(message + k_h2_frame_header_len + 8, expected, sizeof(expected)) == 0,
            "commit writes the expected HPACK field");
-    expect(applied_bytes == 0, "commit does not limit the SK_MSG verdict to the original size");
 }
 
 static void test_no_mutation_boundary(h2_socket_transaction_boundary_t boundary,
@@ -177,33 +164,25 @@ int main(void) {
 
     test_verified_rollback_boundary(k_h2_socket_boundary_write_pull,
                                     "post-push pull failure rolls back");
-    test_verified_rollback_boundary(k_h2_socket_boundary_hpack_write,
-                                    "partial HPACK write rolls back");
-    test_verified_rollback_boundary(k_h2_socket_boundary_hpack_readback,
-                                    "HPACK readback failure rolls back");
     test_verified_rollback_boundary(k_h2_socket_boundary_frame_pull,
                                     "frame pull failure rolls back");
-    test_verified_rollback_boundary(k_h2_socket_boundary_frame_write,
-                                    "partial frame-length write rolls back");
-    test_verified_rollback_boundary(k_h2_socket_boundary_frame_readback,
-                                    "frame-length readback failure rolls back");
 
     test_retried_rollback_boundary(k_h2_socket_boundary_rollback_pop,
                                    "transient pop failure is retried and verified");
     test_retried_rollback_boundary(k_h2_socket_boundary_rollback_pull,
                                    "transient rollback pull failure is retried and verified");
-    test_retried_rollback_boundary(k_h2_socket_boundary_rollback_write,
-                                   "rollback write is verified after a partial store");
-    test_retried_rollback_boundary(k_h2_socket_boundary_rollback_readback,
-                                   "rollback readback is verified twice");
 
     struct sk_msg_md msg = reset_message();
     fault_mask = 1ULL << k_h2_socket_boundary_write_pull;
     forced_pop_failures = 2;
     expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_uncertain,
            "two failed pop attempts keep rollback uncertain");
-    expect(h2_scope_uncertain_drop(&msg), "uncertain rollback scopes the drop verdict");
-    expect(applied_bytes == msg.size, "uncertain rollback drops the complete socket message");
+
+    msg = reset_message();
+    fault_mask = (1ULL << k_h2_socket_boundary_write_pull) |
+                 (1ULL << k_h2_socket_boundary_rollback_readback);
+    expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_uncertain,
+           "failed rollback verification keeps rollback uncertain");
 
     puts("OK: bpf_h2_socket_write_transaction.c");
     return 0;

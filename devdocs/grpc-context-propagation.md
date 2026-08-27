@@ -38,20 +38,18 @@ The mutation sequence and failure outcomes are:
 
 | Boundary | Message state on failure | Outcome |
 |----------|--------------------------|---------|
-| Preflight verdict scope, length-field pull, and read | Original | Pass unchanged |
+| Preflight length-field pull and read | Original | Pass unchanged |
 | `bpf_msg_push_data` | Original when the helper rejects the push | Pass unchanged |
 | Post-push HPACK pull or bounds check | Resized, original frame length | Pop and verify rollback |
-| HPACK store or immediate readback | Resized, original frame length | Pop and verify rollback |
-| Frame-length pull or bounds check | Resized with verified HPACK, original frame length | Pop and verify rollback |
-| Frame-length store or immediate readback | Resized; length may be partially written | Pop, restore length, and verify rollback |
-| First rollback pop, pull, restore, or readback | Restoration is not yet verified | Retry and verify rollback |
-| Repeated rollback failure | Restoration is uncertain | Drop the scoped message; never pass uncertain bytes |
+| Frame-length pull or bounds check | Resized with HPACK written, original frame length | Pop and verify rollback |
+| First rollback pop or pull | Restoration is not yet verified | Retry and verify rollback |
+| Repeated rollback helper failure or failed restoration readback | Restoration is uncertain | Drop the message; never pass uncertain bytes |
 
-Before mutation, `bpf_msg_apply_bytes` scopes the eventual verdict to the current message size. An uncertain rollback scopes the drop again using the post-mutation size. This prevents either an inserted remainder or a cached denied verdict from affecting later sends, so a subsequent request can still use the same peer connection.
+Dropping after an uncertain rollback makes the application's socket write fail, and callers should discard the connection. This is preferable to passing a possibly resized or partially rewritten HTTP/2 frame to the peer. Verified rollback still passes the original bytes unchanged.
 
-The socket-message commit point is the successful readback of the new three-byte frame length after the inserted HPACK bytes have already been read back. No fallible socket helper or message-memory write runs after that point. The checked `outgoing_trace_map` update that publishes `written=1` follows as bookkeeping and cannot change the committed wire bytes. A rollback is successful only when `bpf_msg_pop_data` succeeds, `msg->size` equals the original size, and the restored frame length reads back exactly. Helper success alone is not treated as proof of restoration.
+The socket-message commit point is the store of the new three-byte frame length after the inserted HPACK bytes have been written. No fallible socket helper or message-memory write runs after that point. The checked `outgoing_trace_map` update that publishes `written=1` follows as bookkeeping and cannot change the committed wire bytes. A rollback is successful only when `bpf_msg_pop_data` succeeds, `msg->size` equals the original size, and the restored frame length reads back exactly. Helper success alone is not treated as proof of restoration. The transaction does not read back ordinary message-memory writes because no operation can change those bytes between the store and the read.
 
-`bpf_msg_pop_data` is an upstream Linux 5.0 helper, but OBI selects by capability rather than the reported release. At load time, the cilium/ebpf feature probe asks the running kernel verifier whether `BPF_PROG_TYPE_SK_MSG` may call both `bpf_msg_apply_bytes` and `bpf_msg_pop_data`. This detects both Linux 5.8+ support and RHEL-family 4.18 backports. A transient loopback `SK_MSG` probe then exercises every failure boundary and verifies exact restoration plus a successful follow-up injection on the same plaintext connection. If either helper probe or the semantic probe fails, the loader replaces `write_h2_tp` with a verifier-safe program that only resumes frame scanning and never calls push, pull, pop, or writes message memory.
+`bpf_msg_pop_data` is an upstream Linux 5.0 helper, but OBI selects by capability rather than the reported release. At load time, the cilium/ebpf feature probe asks the running kernel verifier whether `BPF_PROG_TYPE_SK_MSG` may call it. This detects both Linux 5.8+ support and RHEL-family 4.18 backports without attaching a program to a socket. If the helper probe fails, the loader replaces `write_h2_tp` with a verifier-safe program that only resumes frame scanning and never calls push, pull, pop, or writes message memory. Privileged tests separately exercise rollback boundaries and same-peer continuity with a transient loopback `SK_MSG` program.
 
 The scan recognizes the encodings that put identifying bytes on the wire: a literal name in any of the three literal prefixes, plain or huffman, and a dyn-table name reference whose value is plain (`0x37` + `00-` + dash positions). On egress a compressed value still counts only as *present*, not adoptable; ingress decodes it.
 

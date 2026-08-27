@@ -21,14 +21,9 @@ typedef enum h2_socket_transaction_boundary {
     k_h2_socket_boundary_preflight_pull,
     k_h2_socket_boundary_push,
     k_h2_socket_boundary_write_pull,
-    k_h2_socket_boundary_hpack_write,
-    k_h2_socket_boundary_hpack_readback,
     k_h2_socket_boundary_frame_pull,
-    k_h2_socket_boundary_frame_write,
-    k_h2_socket_boundary_frame_readback,
     k_h2_socket_boundary_rollback_pop,
     k_h2_socket_boundary_rollback_pull,
-    k_h2_socket_boundary_rollback_write,
     k_h2_socket_boundary_rollback_readback,
 } h2_socket_transaction_boundary_t;
 
@@ -82,34 +77,13 @@ static __always_inline bool h2_restore_socket_message(struct sk_msg_md *msg,
         return false;
     }
 
-    bool wrote = false;
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_write)) {
-        data[0] ^= 1;
-    } else {
-        h2_store_frame_len(data, payload_len);
-        wrote = h2_frame_len_bytes_are(data, payload_len);
-    }
-    if (!wrote) {
-        h2_store_frame_len(data, payload_len);
-    }
-
-    bool restored = false;
-    if (!H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_readback)) {
-        restored = h2_frame_len_bytes_are(data, payload_len);
-    }
-    if (!restored) {
-        restored = h2_frame_len_bytes_are(data, payload_len);
-    }
-    return restored;
+    h2_store_frame_len(data, payload_len);
+    return !H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_readback) &&
+           h2_frame_len_bytes_are(data, payload_len);
 }
 
-static __always_inline bool h2_scope_uncertain_drop(struct sk_msg_md *msg) {
-    return bpf_msg_apply_bytes(msg, msg->size) == 0;
-}
-
-// Inserts one complete HPACK field. Successful frame-length readback is the socket-message commit
-// point: every fallible socket helper runs before it, and rollback leaves the original length
-// untouched unless a tested write fault partially changed it.
+// Inserts one complete HPACK field. The frame-length store is the socket-message commit point:
+// every fallible socket helper runs before it.
 static __always_inline h2_socket_transaction_outcome_t
 h2_write_socket_transaction(struct sk_msg_md *msg,
                             u32 frame_offset,
@@ -157,22 +131,7 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
                    : k_h2_socket_transaction_rollback_uncertain;
     }
 
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_hpack_write)) {
-        data[0] = expected[0];
-        return h2_restore_socket_message(
-                   msg, original_size, frame_offset, payload_len, inject_offset)
-                   ? k_h2_socket_transaction_rollback_verified
-                   : k_h2_socket_transaction_rollback_uncertain;
-    }
     __builtin_memcpy(data, expected, k_h2_tp_hpack_size);
-
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_hpack_readback) ||
-        bpf_memcmp(data, expected, k_h2_tp_hpack_size) != 0) {
-        return h2_restore_socket_message(
-                   msg, original_size, frame_offset, payload_len, inject_offset)
-                   ? k_h2_socket_transaction_rollback_verified
-                   : k_h2_socket_transaction_rollback_uncertain;
-    }
 
     if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_frame_pull) ||
         bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
@@ -190,22 +149,6 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
                    : k_h2_socket_transaction_rollback_uncertain;
     }
 
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_frame_write)) {
-        data[0] ^= 1;
-        return h2_restore_socket_message(
-                   msg, original_size, frame_offset, payload_len, inject_offset)
-                   ? k_h2_socket_transaction_rollback_verified
-                   : k_h2_socket_transaction_rollback_uncertain;
-    }
     h2_store_frame_len(data, payload_len + k_h2_tp_hpack_size);
-
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_frame_readback) ||
-        !h2_frame_len_bytes_are(data, payload_len + k_h2_tp_hpack_size)) {
-        return h2_restore_socket_message(
-                   msg, original_size, frame_offset, payload_len, inject_offset)
-                   ? k_h2_socket_transaction_rollback_verified
-                   : k_h2_socket_transaction_rollback_uncertain;
-    }
-
     return k_h2_socket_transaction_committed;
 }
