@@ -513,7 +513,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedClient, Method: "SET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedServer, Method: "GET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: request.MessagingSend, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
@@ -590,7 +590,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}
@@ -633,7 +633,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelSpanMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelSpanMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}
@@ -676,7 +676,7 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelSpanMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelSpanMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}

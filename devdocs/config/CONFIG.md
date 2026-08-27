@@ -59,7 +59,7 @@ Attributes configures the decoration of some extra attributes that will be added
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.extra_group_attributes` | [`ExtraGroupAttributesMap`](#extragroupattributesmap) |  |  |  |  | Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key. |
+| `attributes.extra_group_attributes` | [`ExtraGroupAttributesMap`](#extragroupattributesmap) |  |  |  |  | Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'. |
 | `attributes.metric_span_names_limit` | `integer` | `OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT` | `100` |  |  | Works PER SERVICE and only relates to span_metrics. When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED. If the value <= 0, it is disabled. |
 | `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  | Will replace HostName and PeerName attributes when they are empty or contain unresolved IP addresses to reduce cardinality. Set this value to the empty string to disable this feature. |
 | `attributes.rename_unresolved_hosts_incoming` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING` | `incoming` |  |  |  |
@@ -421,7 +421,7 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `metrics.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `256` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` |  | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes |
+| `metrics.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `256` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) |  | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes |
 
 ## `name_resolver`
 
@@ -504,7 +504,7 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 | `otel_metrics_export.buckets` | [`Buckets`](#buckets) |  |  |  |  | Buckets defines the histograms bucket boundaries, and allows users to redefine them |
 | `otel_metrics_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |  |  |  |  |
 | `otel_metrics_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to OTEL span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute, you should add `deployment.environment`. |
-| `otel_metrics_export.features` | `string`[] |  | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead. |
+| `otel_metrics_export.features` | `string`[] |  | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead. |
 | `otel_metrics_export.histogram_aggregation` | `string` | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` | `base2_exponential_bucket_histogram`, `explicit_bucket_histogram` |  |  |
 | `otel_metrics_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
 | `otel_metrics_export.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
@@ -561,7 +561,7 @@ TODO: TLS
 | `prometheus_export.exemplar_filter` | `string` | `OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER` |  |  |  | Controls when exemplars are attached to metrics. Accepted values: "always_on", "always_off", "trace_based". Defaults to "always_off": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification. |
 | `prometheus_export.extra_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
 | `prometheus_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
-| `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead. |
+| `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead. |
 | `prometheus_export.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `prometheus_export.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/metrics` |  |  |  |
 | `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  | 0 means disabled |
@@ -651,12 +651,13 @@ Buckets defines the histograms bucket boundaries, and allows users to redefine t
 | `request_size_histogram` | `number`[] |  |  |
 | `response_size_histogram` | `number`[] |  |  |
 | `stat_tcp_rtt_histogram` | `number`[] |  |  |
+| `v8js_gc_duration_histogram` | `number`[] |  |  |
 
 ### ExtraGroupAttributesMap
 
-Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key.
+Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'.
 
-**Known keys:** `k8s_app_meta`
+**Known keys:** `app`, `k8s_app_meta`
 
 **Value type:** `string[]`
 
@@ -810,7 +811,7 @@ SvcMetricsConfig is equivalent to GlobalMetricsConfig, but avoids defining envir
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... |
+| `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span_otel`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt`, `application_span` (deprecated), `application_span_sizes` (deprecated) | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... |
 
 ### NumericRange
 

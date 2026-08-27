@@ -110,15 +110,18 @@ groups:
       - ref: host.id
 
   # Legacy Grafana-style names for the same two metrics, matching the older
-  # spanmetrics processor output. This is what OBI emits by DEFAULT — the
-  # `traces.span.metrics.*` names above are the opt-in OTel naming
-  # (`OTEL_EBPF_OTEL_METRICS_FEATURES=application_span_otel`).
+  # spanmetrics processor output. Emitted by the deprecated `application_span`
+  # metrics feature; the `traces.span.metrics.*` names above are the
+  # replacement (`OTEL_EBPF_OTEL_METRICS_FEATURES=application_span_otel`).
   - id: metric.traces_spanmetrics_calls_total
     type: metric
     metric_name: traces_spanmetrics_calls_total
     instrument: counter
     unit: ""
     stability: development
+    deprecated:
+      reason: renamed
+      renamed_to: traces.span.metrics.calls
     brief: >
       Total number of spans observed, grouped by span name / kind / status
       (legacy naming).
@@ -139,6 +142,9 @@ groups:
     instrument: histogram
     unit: ""
     stability: development
+    deprecated:
+      reason: renamed
+      renamed_to: traces.span.metrics.duration
     brief: >
       Duration distribution for observed spans, grouped by span name / kind
       / status (legacy naming).

@@ -231,7 +231,7 @@ OBI is also available as container images:
 
 ```bash
 # Set your desired version.
-export VERSION=v0.11.0
+export VERSION=v0.12.2
 export CERTIFICATE_IDENTITY="https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/${VERSION}"
 
 # (Optional) Verify the signature of the container image

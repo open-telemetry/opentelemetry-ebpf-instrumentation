@@ -2,6 +2,8 @@ module go.opentelemetry.io/obi
 
 go 1.25.11
 
+toolchain go1.27.0
+
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
 	github.com/andybalholm/brotli v1.2.2
@@ -28,9 +30,9 @@ require (
 	github.com/mitchellh/copystructure v1.2.0
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.1
-	github.com/ohler55/ojg v1.28.4
+	github.com/ohler55/ojg v1.28.5
 	github.com/ory/dockertest/v4 v4.0.0
-	github.com/oschwald/maxminddb-golang/v2 v2.2.0
+	github.com/oschwald/maxminddb-golang/v2 v2.5.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.70.1
@@ -94,7 +96,7 @@ require (
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/tools v0.49.0
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.35.4

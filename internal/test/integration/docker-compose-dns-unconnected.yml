@@ -1,0 +1,129 @@
+version: "3.8"
+
+services:
+  # Resolved by the workload through the compose network's embedded DNS, so the
+  # lookup under test needs no upstream resolver.
+  valkey:
+    image: valkey/valkey:9-alpine@sha256:de31910896150d5e754a07d57d227cfdde4e258ddd0d1aa4607f2d2f95843715
+    container_name: valkey
+
+  # Answers the workload's hand-built queries after a delay, so that an
+  # interleaved step on the resolver socket is ordered ahead of the answer
+  # rather than racing it. Runs outside the instrumented PID namespace, so its
+  # own DNS traffic does not appear in the telemetry under test.
+  dnsresponder:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/dnsclient/Dockerfile
+    image: hatest-dnsclient
+    container_name: dnsresponder
+    environment:
+      DNS_RESPONDER: "1"
+
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/dnsclient/Dockerfile
+    image: hatest-dnsclient
+    environment:
+      DNS_LOOKUP_INTERVAL_SECONDS: "1"
+    depends_on:
+      otelcol:
+        condition: service_started
+      valkey:
+        condition: service_started
+      dnsresponder:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-dns-unconnected:/var/run/obi
+    image: hatest-obi
+    privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
+    network_mode: "service:testserver"
+    pid: "service:testserver"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config${INSTRUMENTER_CONFIG_SUFFIX}.yml"
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      # Pinned so the span assertions can name the service instead of relying on
+      # whatever the python executable is discovered as.
+      OTEL_EBPF_SERVICE_NAME: "dnsclient"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span,application_service_graph"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  # OpenTelemetry Collector
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317" # OTLP over gRPC receiver
+      - "4318:4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
+    depends_on:
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  # DNS spans are asserted directly, not just handed to weaver: weaver only
+  # judges the samples it receives, so a run that produced no DNS span at all
+  # would pass it silently.
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317" # OTEL GRPC traces collector
+      - "4318" # OTEL HTTP traces collector
+    command:
+      - "--set=service.telemetry.logs.level=debug"
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"

@@ -79,7 +79,7 @@ func testREDMetricsMQTTPublish(t *testing.T, comm string, warmupConnect bool) {
 					Name: "publish test/topic",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
-						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.operation.type", "send"),
 						attribute.String("messaging.destination.name", "test/topic"),
 					},
 				},

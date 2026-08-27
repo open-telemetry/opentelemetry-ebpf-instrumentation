@@ -31,7 +31,7 @@ func TestReadGoKafkaGoRequestIntoSpanOperation(t *testing.T) {
 		{
 			name:     "produce",
 			apiKey:   kafkaGoAPIProduce,
-			method:   request.MessagingPublish,
+			method:   request.MessagingSend,
 			spanKind: "SPAN_KIND_PRODUCER",
 		},
 	}
