@@ -1,4 +1,4 @@
-package frameworks
+package frameworks // import "go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 
 func ParseDjango(args []string, env map[string]string) PythonLaunch {
 	target := lastLongOptionValue(args, "--settings", env["DJANGO_SETTINGS_MODULE"])

@@ -1,4 +1,4 @@
-package frameworks
+package frameworks // import "go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 
 import (
 	"strings"
