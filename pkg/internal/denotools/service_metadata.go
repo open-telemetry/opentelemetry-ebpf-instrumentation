@@ -11,6 +11,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -358,12 +359,12 @@ func metadataFromRegistrySpecifier(specifier string) serviceMetadata {
 			return serviceMetadata{}
 		}
 		scope := rest[1:scopeEnd]
-		packagePart := strings.SplitN(rest[scopeEnd+1:], "/", 2)[0]
+		packagePart, _, _ := strings.Cut(rest[scopeEnd+1:], "/")
 		name, parsedVersion := splitPackageVersion(packagePart)
 		rawName = "@" + scope + "/" + name
 		version = parsedVersion
 	} else {
-		packagePart := strings.SplitN(rest, "/", 2)[0]
+		packagePart, _, _ := strings.Cut(rest, "/")
 		rawName, version = splitPackageVersion(packagePart)
 	}
 
@@ -443,19 +444,14 @@ func pathHasNodeModules(cwd, path string) bool {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(cwd, path)
 	}
-	for _, part := range strings.Split(filepath.Clean(path), string(filepath.Separator)) {
-		if part == "node_modules" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.Split(filepath.Clean(path), string(filepath.Separator)), "node_modules")
 }
 
 func projectSearchCWD(cwd string) string {
 	separator := string(filepath.Separator)
 	clean := filepath.Clean(cwd)
 	prefix := separator
-	for _, part := range strings.Split(strings.TrimPrefix(clean, separator), separator) {
+	for part := range strings.SplitSeq(strings.TrimPrefix(clean, separator), separator) {
 		if part == "node_modules" {
 			return prefix
 		}
