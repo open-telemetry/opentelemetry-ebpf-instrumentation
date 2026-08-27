@@ -1,0 +1,10 @@
+package frameworks
+
+func ParseDjango(args []string, env map[string]string) PythonLaunch {
+	target := lastLongOptionValue(args, "--settings", env["DJANGO_SETTINGS_MODULE"])
+	launch := PythonLaunch{Target: target, TargetKind: ClassifyTarget(target)}
+	if pythonPath := lastLongOptionValue(args, "--pythonpath", ""); pythonPath != "" {
+		launch.SearchPaths = []string{pythonPath}
+	}
+	return launch
+}

@@ -17,6 +17,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
+	"go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 )
 
 const (
@@ -64,36 +65,38 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	root := rootDirForPID(pid)
 	launch := parsePythonLaunch(executable, args, service.EnvVars)
 	var resolutionErr error
-	if launch.fastAPIAuto {
+	if launch.FastAPIAuto {
 		var configDir string
-		launch.target, configDir, resolutionErr = findFastAPIEntryPoint(root, cwd)
-		if launch.target != "" {
-			launch.targetKind = classifyTarget(launch.target)
-			launch.searchPaths = append([]string{configDir}, launch.searchPaths...)
+		launch.Target, configDir, resolutionErr = findFastAPIEntryPoint(root, cwd)
+		if launch.Target != "" {
+			launch.TargetKind = frameworks.ClassifyTarget(launch.Target)
+			launch.SearchPaths = append([]string{configDir}, launch.SearchPaths...)
 		}
 	}
 
 	metadata := projectMetadata{}
 	targetPath, resolvedTarget, targetFound := resolveTargetPath(root, cwd, launch, service.EnvVars)
-	if launch.flaskAuto {
+
+	if launch.FlaskAuto {
 		targetPath, resolvedTarget, targetFound = resolveFlaskTargetPath(root, cwd, launch, service.EnvVars)
 	}
+
 	if targetFound {
-		launch.target = resolvedTarget
+		launch.Target = resolvedTarget
 		var err error
 		metadata, err = findProjectMetadata(root, targetPath)
 		resolutionErr = errors.Join(resolutionErr, err)
-	} else if launch.targetKind == targetDottedReference {
-		launch.target = ""
+	} else if launch.TargetKind == frameworks.TargetDottedReference {
+		launch.Target = ""
 	}
 
 	if resolveName {
 		name := metadata.name
 		if name == "" {
-			name = targetName(launch.target)
+			name = frameworks.TargetName(launch.Target)
 		}
 		if name == "" {
-			name = cleanValue(launch.fallbackName)
+			name = frameworks.CleanValue(launch.FallbackName)
 		}
 		if name != "" {
 			fileInfo.SetAutoServiceName(name)
@@ -111,11 +114,11 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	return resolutionErr
 }
 
-func resolveFlaskTargetPath(root, cwd string, launch pythonLaunch, env map[string]string) (string, string, bool) {
+func resolveFlaskTargetPath(root, cwd string, launch frameworks.PythonLaunch, env map[string]string) (string, string, bool) {
 	for _, target := range []string{"wsgi", "app"} {
-		launch.target = target
-		launch.targetKind = targetModule
-		launch.searchPaths = []string{"."}
+		launch.Target = target
+		launch.TargetKind = frameworks.TargetModule
+		launch.SearchPaths = []string{"."}
 		if path, resolvedTarget, found := resolveTargetPath(root, cwd, launch, env); found {
 			return path, resolvedTarget, true
 		}
@@ -134,41 +137,42 @@ type resolvedPythonModule struct {
 	isPackage   bool
 }
 
-func resolveTargetPath(root, cwd string, launch pythonLaunch, env map[string]string) (string, string, bool) {
-	if launch.targetKind == targetScriptPath {
-		if launch.target == "" {
+func resolveTargetPath(root, cwd string, launch frameworks.PythonLaunch, env map[string]string) (string, string, bool) {
+	if launch.TargetKind == frameworks.TargetScriptPath {
+		if launch.Target == "" {
 			return "", "", false
 		}
 		return resolveTargetCandidates(root, []string{cwd}, []targetCandidate{
-			{path: launch.target, target: launch.target},
-			{path: filepath.Join(launch.target, "__main__.py"), target: launch.target},
+			{path: launch.Target, target: launch.Target},
+			{path: filepath.Join(launch.Target, "__main__.py"), target: launch.Target},
 		})
 	}
 
-	target := targetReference(launch.target)
+	target := frameworks.TargetReference(launch.Target)
 	if target == "" {
 		return "", "", false
 	}
 
-	pathConfig := launch.pathConfig
-	if !pathConfig.ignorePythonEnvironment && env["PYTHONSAFEPATH"] != "" {
-		pathConfig.safePath = true
+	pathConfig := launch.PathConfig
+
+	if !pathConfig.IgnorePythonEnvironment && env["PYTHONSAFEPATH"] != "" {
+		pathConfig.SafePath = true
 	}
 	pythonPath := env["PYTHONPATH"]
-	if pathConfig.ignorePythonEnvironment {
+	if pathConfig.IgnorePythonEnvironment {
 		pythonPath = ""
 	}
-	includeCWD := !pathConfig.safePath || launch.targetKind == targetFile
-	launcherPaths := launch.searchPaths
-	if launch.scriptDir != "" {
+	includeCWD := !pathConfig.SafePath || launch.TargetKind == frameworks.TargetFile
+	launcherPaths := launch.SearchPaths
+	if launch.ScriptDir != "" {
 		includeCWD = false
-		if !pathConfig.safePath {
-			launcherPaths = append(slices.Clone(launcherPaths), launch.scriptDir)
+		if !pathConfig.SafePath {
+			launcherPaths = append(slices.Clone(launcherPaths), launch.ScriptDir)
 		}
 	}
 	roots := targetSearchRoots(cwd, launcherPaths, pythonPath, includeCWD)
-	switch launch.targetKind {
-	case targetFile:
+	switch launch.TargetKind {
+	case frameworks.TargetFile:
 		candidates := []targetCandidate{{path: target, target: target}}
 		if filepath.Ext(target) == "" {
 			candidates = append(candidates,
@@ -177,11 +181,11 @@ func resolveTargetPath(root, cwd string, launch pythonLaunch, env map[string]str
 			)
 		}
 		return resolveTargetCandidates(root, roots, candidates)
-	case targetModule:
+	case frameworks.TargetModule:
 		return resolveImportedModule(root, roots, target)
-	case targetRunnableModule:
+	case frameworks.TargetRunnableModule:
 		return resolveRunnableModule(root, roots, target)
-	case targetDottedReference:
+	case frameworks.TargetDottedReference:
 		return resolveDottedReference(root, roots, target)
 	default:
 		return "", "", false
@@ -436,18 +440,18 @@ func readPyproject(path string) (pyprojectData, bool, error) {
 
 	result := pyprojectData{fastAPISection: file.Tool.FastAPI != nil}
 	if file.Tool.FastAPI != nil {
-		result.entryPoint = cleanValue(file.Tool.FastAPI.EntryPoint)
+		result.entryPoint = frameworks.CleanValue(file.Tool.FastAPI.EntryPoint)
 	}
 	if file.Project != nil {
 		result.recognized = true
 		result.metadata.name = cleanProjectName(file.Project.Name)
 		if !slices.Contains(file.Project.Dynamic, "version") {
-			result.metadata.version = cleanValue(file.Project.Version)
+			result.metadata.version = frameworks.CleanValue(file.Project.Version)
 		}
 	} else if file.Tool.Poetry != nil {
 		result.recognized = true
 		result.metadata.name = cleanProjectName(file.Tool.Poetry.Name)
-		result.metadata.version = cleanValue(file.Tool.Poetry.Version)
+		result.metadata.version = frameworks.CleanValue(file.Tool.Poetry.Version)
 	}
 	return result, true, nil
 }
@@ -490,7 +494,7 @@ func readSetupConfig(path string) (pyprojectData, bool, error) {
 			lowerValue := strings.ToLower(value)
 			if !strings.HasPrefix(lowerValue, "attr:") && !strings.HasPrefix(lowerValue, "file:") &&
 				!strings.Contains(value, "%(") {
-				result.metadata.version = cleanValue(value)
+				result.metadata.version = frameworks.CleanValue(value)
 			}
 		}
 	}
@@ -515,7 +519,7 @@ func readProjectFile(path string) ([]byte, bool, error) {
 }
 
 func cleanProjectName(value string) string {
-	value = cleanValue(value)
+	value = frameworks.CleanValue(value)
 	for i := range len(value) {
 		char := value[i]
 		alphanumeric := char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9'
