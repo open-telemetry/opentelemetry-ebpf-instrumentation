@@ -1,0 +1,21 @@
+name: oats java routes
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-java-routes.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /greeting123/obitest
+expected:
+  traces:
+    - traceql: '{ .http.route = "/greeting123/{whatever}" }'
+      match_spans:
+        - name: GET /greeting123/{whatever}
+          attributes:
+            - key: server.port
+              value: "8085"
+            - key: url.path
+              value: /greeting123/obitest

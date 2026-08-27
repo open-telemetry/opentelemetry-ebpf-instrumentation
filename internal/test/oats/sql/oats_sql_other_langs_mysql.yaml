@@ -1,0 +1,34 @@
+name: oats sql other langs mysql
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-obi-mysql.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /query
+expected:
+  traces:
+    - traceql: '{ .db.operation.name = "SELECT" && .db.system.name = "mysql"}'
+      match_spans:
+        - name: SELECT actor
+          attributes:
+            - key: db.collection.name
+              value: actor
+            - key: db.operation.name
+              value: SELECT
+            - key: db.query.text
+              value: SELECT * FROM actor WHERE actor_id=1
+            - key: db.system.name
+              value: mysql
+  metrics:
+    - promql: db_client_operation_duration_seconds_sum{db_system_name="mysql"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_bucket{le="0", db_system_name="mysql"}
+      value: == 0
+    - promql: db_client_operation_duration_seconds_bucket{le="10", db_system_name="mysql"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_count{db_system_name="mysql"}
+      value: '> 0'

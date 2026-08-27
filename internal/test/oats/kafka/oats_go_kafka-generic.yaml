@@ -1,0 +1,33 @@
+name: oats go kafka generic
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-obi-go-kafka-generic.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /produce
+expected:
+  traces:
+    - traceql: '{ .messaging.operation.type = "send" && .messaging.destination.name="my-topic"}'
+      match_spans:
+        - name: send my-topic
+          attributes:
+            - key: messaging.destination.name
+              value: my-topic
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9093"
+    - traceql: '{ .http.route = "/produce" }'
+      match_spans:
+        - name: GET /produce
+          attributes:
+            - key: server.port
+              value: "8080"
+            - key: url.path
+              value: /produce

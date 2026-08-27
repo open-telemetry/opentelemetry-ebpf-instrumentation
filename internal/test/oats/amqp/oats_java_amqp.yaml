@@ -1,0 +1,44 @@
+name: oats java amqp
+interval: 500ms
+fixture:
+  compose:
+    file: docker-compose-obi-java-amqp.yml
+seed:
+  type: app
+input:
+  - path: /message
+expected:
+  traces:
+    - traceql: '{ kind=producer && .messaging.system = "amqp" && .messaging.operation.type = "send" }'
+      match_spans:
+        - name: publish
+          attributes:
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: amqp
+            - key: server.port
+              value: "5672"
+    - traceql: '{ kind=consumer && .messaging.system = "amqp" && .messaging.operation.type = "process" }'
+      match_spans:
+        - name: process
+          attributes:
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.system
+              value: amqp
+            - key: server.port
+              value: "5672"
+  metrics:
+    - promql: messaging_client_operation_duration_seconds_count{messaging_system="amqp"}
+      value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_count{messaging_system="amqp"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_process_duration_seconds_bucket{le="10"}
+      value: '> 0'

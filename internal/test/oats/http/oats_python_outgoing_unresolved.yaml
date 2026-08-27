@@ -1,0 +1,15 @@
+name: oats python outgoing unresolved
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-python-unresolved.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /without_name
+expected:
+  metrics:
+    - promql: traces_service_graph_request_client_seconds_count{client="testserver", server="outgoing"}
+      value: '> 5'

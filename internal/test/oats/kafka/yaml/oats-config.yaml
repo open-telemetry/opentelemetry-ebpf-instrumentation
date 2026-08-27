@@ -1,10 +1,10 @@
 meta:
   version: 3
 cases:
-  - oats_go_kafka-generic.yaml
-  - oats_go_kafka-go-topic.yaml
-  - oats_go_kafka-go.yaml
-  - oats_go_kafka-sarama-no-promise.yaml
-  - oats_go_kafka-sarama.yaml
-  - oats_java_kafka.yaml
-  - oats_python_kafka.yaml
+  - ../oats_go_kafka-generic.yaml
+  - ../oats_go_kafka-go-topic.yaml
+  - ../oats_go_kafka-go.yaml
+  - ../oats_go_kafka-sarama-no-promise.yaml
+  - ../oats_go_kafka-sarama.yaml
+  - ../oats_java_kafka.yaml
+  - ../oats_python_kafka.yaml

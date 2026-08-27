@@ -1,4 +1,4 @@
 meta:
   version: 3
 cases:
-  - oats_python_nats.yaml
+  - ../oats_python_nats.yaml

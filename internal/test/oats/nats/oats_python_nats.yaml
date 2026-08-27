@@ -1,0 +1,50 @@
+name: oats python nats
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-obi-python-nats.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /publish
+expected:
+  traces:
+    - traceql: '{ .messaging.system = "nats" && .messaging.operation.type = "send" && .messaging.destination.name = "updates.orders" }'
+      match_spans:
+        - name: publish updates.orders
+          attributes:
+            - key: messaging.destination.name
+              value: updates.orders
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: nats
+            - key: server.port
+              value: "4222"
+    - traceql: '{ .messaging.system = "nats" && .messaging.operation.type = "process" && .messaging.destination.name = "updates.orders" }'
+      match_spans:
+        - name: process updates.orders
+          attributes:
+            - key: messaging.destination.name
+              value: updates.orders
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.system
+              value: nats
+            - key: server.port
+              value: "4222"
+  metrics:
+    - promql: messaging_client_operation_duration_seconds_count{messaging_system="nats", messaging_destination_name="updates.orders"}
+      value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_count{messaging_system="nats", messaging_destination_name="updates.orders"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_process_duration_seconds_bucket{le="10"}
+      value: '> 0'

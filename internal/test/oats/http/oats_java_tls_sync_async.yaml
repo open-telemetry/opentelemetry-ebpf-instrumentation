@@ -1,0 +1,27 @@
+name: oats java tls sync async
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-java-tls-sync-async.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /request
+expected:
+  traces:
+    - traceql: '{ .http.route = "/greeting" }'
+      match_spans:
+        - name: GET /greeting
+          attributes:
+            - key: server.port
+              value: "8443"
+            - key: url.path
+              value: /greeting
+    - traceql: '{ .url.full = "https://google.com/" }'
+      match_spans:
+        - name: GET /
+          attributes:
+            - key: server.port
+              value: "443"

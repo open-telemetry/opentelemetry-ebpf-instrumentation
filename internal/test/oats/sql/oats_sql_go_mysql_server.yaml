@@ -1,0 +1,23 @@
+name: oats sql go mysql server
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-obi-mysqlserver.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /mysqltest
+expected:
+  traces:
+    - traceql: '{ kind=server && name="SELECT students" && .db.operation.name = "SELECT" && .db.system.name = "mysql" }'
+      match_spans:
+        - name: SELECT students
+          attributes:
+            - key: db.collection.name
+              value: students
+            - key: db.operation.name
+              value: SELECT
+            - key: db.system.name
+              value: mysql

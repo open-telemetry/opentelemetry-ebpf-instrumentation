@@ -1,5 +1,5 @@
 meta:
   version: 3
 cases:
-  - oats_java_amqp.yaml
-  - oats_python_amqp.yaml
+  - ../oats_java_amqp.yaml
+  - ../oats_python_amqp.yaml

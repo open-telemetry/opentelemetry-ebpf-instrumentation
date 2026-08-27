@@ -1,10 +1,10 @@
 meta:
   version: 3
 cases:
-  - oats_anthropic_test.yaml
-  - oats_bedrock_test.yaml
-  - oats_gemini_test.yaml
-  - oats_open_ai_test.yaml
-  - oats_open_ai_test_go.yaml
-  - oats_open_ai_test_go_http2.yaml
-  - oats_qwen_test.yaml
+  - ../oats_anthropic_test.yaml
+  - ../oats_bedrock_test.yaml
+  - ../oats_gemini_test.yaml
+  - ../oats_open_ai_test.yaml
+  - ../oats_open_ai_test_go.yaml
+  - ../oats_open_ai_test_go_http2.yaml
+  - ../oats_qwen_test.yaml

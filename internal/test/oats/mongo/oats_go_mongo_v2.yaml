@@ -1,0 +1,29 @@
+name: oats go mongo v2
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-go-mongo-v2.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /mongo
+expected:
+  traces:
+    - traceql: '{ .http.route = "/mongo" }'
+      match_spans:
+        - name: GET /mongo
+          attributes:
+            - key: server.port
+              value: "8080"
+            - key: url.path
+              value: /mongo
+    - traceql: '{ .db.operation.name = "insert" && .db.system.name = "mongodb" }'
+      match_spans:
+        - name: insert testdb.items
+          attributes:
+            - key: db.collection.name
+              value: testdb.items
+            - key: server.port
+              value: "27017"

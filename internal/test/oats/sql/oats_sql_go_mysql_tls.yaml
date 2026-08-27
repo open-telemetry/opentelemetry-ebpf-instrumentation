@@ -1,0 +1,32 @@
+name: oats sql go mysql tls
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-obi-gomysqlclient-tls.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /mysqltest
+expected:
+  traces:
+    - traceql: '{ .db.operation.name = "SELECT" && .db.system.name = "mysql" }'
+      match_spans:
+        - name: SELECT students
+          attributes:
+            - key: db.collection.name
+              value: students
+            - key: db.operation.name
+              value: SELECT
+            - key: db.system.name
+              value: mysql
+  metrics:
+    - promql: db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_bucket{le="0",db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
+      value: == 0
+    - promql: db_client_operation_duration_seconds_bucket{le="10",db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
+      value: '> 0'

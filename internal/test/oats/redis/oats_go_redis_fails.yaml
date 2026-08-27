@@ -1,0 +1,25 @@
+name: oats go redis fails
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-obi-go-redis.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /fail
+expected:
+  traces:
+    - traceql: '{ .db.system.name = "redis" && status = error }'
+      match_spans:
+        - name: REDIS
+  metrics:
+    - promql: db_client_operation_duration_seconds_sum{error_type!="", db_system_name="redis"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_bucket{le="0", error_type!="", db_system_name="redis"}
+      value: == 0
+    - promql: db_client_operation_duration_seconds_bucket{le="10", error_type!="", db_system_name="redis"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_count{error_type!="", db_system_name="redis"}
+      value: '> 0'

@@ -1,0 +1,62 @@
+name: oats go kafka sarama
+interval: 500ms
+fixture:
+  compose:
+    files:
+      - docker-compose-obi-go-kafka-sarama.yml
+      - ../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /?data
+expected:
+  traces:
+    - traceql: '{ .messaging.operation.type = "process" && .messaging.destination.name="important"}'
+      match_spans:
+        - name: process important
+          attributes:
+            - key: messaging.destination.name
+              value: important
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+    - traceql: '{ .messaging.operation.type = "send" && .messaging.destination.name="important"}'
+      match_spans:
+        - name: send important
+          attributes:
+            - key: messaging.destination.name
+              value: important
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+    - traceql: '{ .messaging.operation.type = "send" && .messaging.destination.name="access_log"}'
+      match_spans:
+        - name: send access_log
+          attributes:
+            - key: messaging.destination.name
+              value: access_log
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+  metrics:
+    - promql: messaging_client_operation_duration_seconds_count{messaging_system="kafka", messaging_destination_name="important"}
+      value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_count{messaging_system="kafka", messaging_destination_name="important"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_process_duration_seconds_bucket{le="10"}
+      value: '> 0'
