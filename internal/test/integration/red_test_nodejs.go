@@ -25,7 +25,7 @@ func testREDMetricsForNodeHTTPLibrary(t *testing.T, url, urlPath, comm, namespac
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPPost(t, url+urlPath, 200, jsonBody)
 	}
 
@@ -56,7 +56,7 @@ func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace s
 	slug := "/users/u"
 	// Call 3 times the instrumented service, forcing it to:
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		ti.DoHTTPGet(t, url+slug+strconv.Itoa(i), 200)
 	}
 

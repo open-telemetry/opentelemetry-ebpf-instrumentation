@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1610,7 +1611,7 @@ func findJSAppDir(pid app.PID, parseEntryPoint func([]string) string) (string, e
 		return "", fmt.Errorf("error finding cwd: %w", err)
 	}
 
-	entryPoint := parseEntryPoint(args)
+	entryPoint := nodejstools.ParseNodeLaunch(args).EntryPoint
 
 	dir := FindScriptDirectory(rootDir, entryPoint, workdir)
 	if dir == "" {
@@ -1623,9 +1624,7 @@ func findJSAppDir(pid app.PID, parseEntryPoint func([]string) string) (string, e
 // JavaScript lives precisely in the directories the source scan skips.
 var compiledSkipDirs = func() map[string]string {
 	m := make(map[string]string, len(skipDirs))
-	for k, v := range skipDirs {
-		m[k] = v
-	}
+	maps.Copy(m, skipDirs)
 	delete(m, "dist")
 	delete(m, "build")
 	return m

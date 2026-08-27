@@ -117,6 +117,68 @@ func TestAerospikeStatusError(t *testing.T) {
 	assert.Equal(t, 0, status)
 }
 
+// aerospikeErrorBody returns a 22-byte as_msg header with the given result_code
+// at body offset 5.
+func aerospikeErrorBody(resultCode byte) []byte {
+	body := make([]byte, 22)
+	body[0] = 22 // header_sz
+	body[5] = resultCode
+	return body
+}
+
+// TestAerospikeStatusSplitResponse feeds aerospikeStatus the buffer shape the
+// kernel reassembly produces for split-read clients (Java): the 8-byte proto
+// header and the as_msg body arrive as separate chunks of one LargeBuffer. The
+// result_code at wire offset 13 must be read across the chunk boundary.
+func TestAerospikeStatusSplitResponse(t *testing.T) {
+	lb := largebuf.NewLargeBuffer()
+	lb.AppendChunk([]byte{2, 3, 0, 0, 0, 0, 0, 22}) // recv #1: proto header only
+	lb.AppendChunk(aerospikeErrorBody(5))           // recv #2: body, KEY_EXISTS_ERROR
+
+	status, dbErr := aerospikeStatus(lb)
+	assert.Equal(t, 1, status)
+	assert.Equal(t, "KEY_EXISTS_ERROR", dbErr.ErrorCode)
+
+	// Same split shape with a success body.
+	lb = largebuf.NewLargeBuffer()
+	lb.AppendChunk([]byte{2, 3, 0, 0, 0, 0, 0, 22})
+	lb.AppendChunk(aerospikeErrorBody(0))
+
+	status, dbErr = aerospikeStatus(lb)
+	assert.Equal(t, 0, status)
+	assert.Empty(t, dbErr.ErrorCode)
+}
+
+// TestAerospikeStatusBodyOnlyBuffer covers the degradation path: if the
+// reassembled large buffer was lost, the span's inline response buffer holds
+// only the last recv chunk — the as_msg body without the proto header. The
+// status parser must reject it (byte 0 is header_sz 22, not proto version 2)
+// and report success rather than reading garbage as a result code.
+func TestAerospikeStatusBodyOnlyBuffer(t *testing.T) {
+	status, dbErr := aerospikeStatus(largebuf.NewLargeBufferFrom(aerospikeErrorBody(5)))
+	assert.Equal(t, 0, status)
+	assert.Empty(t, dbErr.ErrorCode)
+}
+
+// TestDispatchAerospikeReassembledError is the userspace half of the split-read
+// fix end to end: a kernel-classified event whose response buffer was
+// reassembled from a header chunk and a body chunk yields an error span.
+func TestDispatchAerospikeReassembledError(t *testing.T) {
+	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
+	resp := largebuf.NewLargeBuffer()
+	resp.AppendChunk([]byte{2, 3, 0, 0, 0, 0, 0, 22})
+	resp.AppendChunk(aerospikeErrorBody(5))
+
+	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike}
+	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	require.NoError(t, err)
+	require.True(t, matched)
+	assert.False(t, ignore)
+	assert.Equal(t, "PUT", span.Method)
+	assert.Equal(t, 1, span.Status)
+	assert.Equal(t, "KEY_EXISTS_ERROR", span.DBError.ErrorCode)
+}
+
 func fixtureHex(t *testing.T, name string) string {
 	t.Helper()
 	for _, tc := range aerospikeRequestFixtures {
@@ -201,17 +263,20 @@ func TestDispatchAerospikeIgnoresNoise(t *testing.T) {
 	assert.True(t, ignore, "noise frames must not produce a span")
 }
 
-// TestDispatchAerospikeServerSideIgnored mirrors the matchAerospike server-side
-// guard on the kernel-classified path.
-func TestDispatchAerospikeServerSideIgnored(t *testing.T) {
+// TestDispatchAerospikeServerSpan covers the kernel-classified path for an
+// exchange observed from the server process: it must produce a server span.
+func TestDispatchAerospikeServerSpan(t *testing.T) {
 	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
 	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
 
 	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike, IsServer: true}
-	_, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
 	require.NoError(t, err)
-	assert.True(t, matched)
-	assert.True(t, ignore, "server-side exchange must not produce a client span")
+	require.True(t, matched)
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeAerospikeServer, span.Type)
+	assert.Equal(t, "PUT", span.Method)
+	assert.Equal(t, "PUT test.s_put", span.TraceName())
 }
 
 // TestDispatchAerospikeUnknownFallsThrough ensures unclassified events are left
@@ -226,19 +291,43 @@ func TestDispatchAerospikeUnknownFallsThrough(t *testing.T) {
 	assert.False(t, matched, "unknown protocol must fall through to the detection stages")
 }
 
-// TestMatchAerospikeServerSideSkipped ensures a valid Aerospike exchange observed
-// from the server process (IsServer) does not produce a span, so an operation
-// instrumented on both peers is reported only once (client-side).
-func TestMatchAerospikeServerSideSkipped(t *testing.T) {
+// TestMatchAerospikeSpanTypeByRole ensures the same exchange produces a client
+// span on the client process and a server span on the server process, so an
+// operation instrumented on both peers is reported once per role, never twice
+// with the same type (redis/SQL precedent).
+func TestMatchAerospikeSpanTypeByRole(t *testing.T) {
 	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
 	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
 
-	_, _, matched, err := matchAerospike(&TCPRequestInfo{IsServer: true}, req, resp)
+	span, _, matched, err := matchAerospike(&TCPRequestInfo{IsServer: false}, req, resp)
 	require.NoError(t, err)
-	assert.False(t, matched, "server-side Aerospike exchange must not produce a client span")
+	require.True(t, matched)
+	assert.Equal(t, request.EventTypeAerospikeClient, span.Type)
+	assert.Equal(t, "SPAN_KIND_CLIENT", span.ServiceGraphKind())
 
-	// the same exchange on the client side still matches
-	_, _, matched, err = matchAerospike(&TCPRequestInfo{IsServer: false}, req, resp)
+	span, _, matched, err = matchAerospike(&TCPRequestInfo{IsServer: true}, req, resp)
 	require.NoError(t, err)
-	assert.True(t, matched, "client-side Aerospike exchange must still match")
+	require.True(t, matched)
+	assert.Equal(t, request.EventTypeAerospikeServer, span.Type)
+	assert.Equal(t, "SPAN_KIND_SERVER", span.ServiceGraphKind())
+	assert.Equal(t, "PUT test.s_put", span.TraceName(), "server span keeps the same name convention")
+}
+
+// TestMatchAerospikeServerErrorStatus ensures the server role reports the
+// response result_code like the client role does.
+func TestMatchAerospikeServerErrorStatus(t *testing.T) {
+	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
+
+	// KEY_EXISTS_ERROR response: as_msg header with result_code 5 at body offset 5.
+	body := make([]byte, 22)
+	body[0] = 22
+	body[5] = 5
+	resp := largebuf.NewLargeBufferFrom(append([]byte{2, 3, 0, 0, 0, 0, 0, 22}, body...))
+
+	span, _, matched, err := matchAerospike(&TCPRequestInfo{IsServer: true}, req, resp)
+	require.NoError(t, err)
+	require.True(t, matched)
+	assert.Equal(t, request.EventTypeAerospikeServer, span.Type)
+	assert.Equal(t, 1, span.Status)
+	assert.Equal(t, "KEY_EXISTS_ERROR", span.DBError.ErrorCode)
 }

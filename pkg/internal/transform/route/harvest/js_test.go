@@ -1457,6 +1457,9 @@ func TestExtractNodejsRoutes(t *testing.T) {
 	tempDir := t.TempDir()
 	testAppDir := filepath.Join(tempDir, "app")
 	require.NoError(t, os.MkdirAll(testAppDir, 0o755))
+	configDir := filepath.Join(tempDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "runtime-config"), nil, 0o644))
 
 	// Create a simple test JavaScript file with routes
 	testFile := filepath.Join(testAppDir, "server.js")
@@ -1595,6 +1598,18 @@ app.get('/api/health', (req, res) => {
 			pid:         12345,
 			mockRootDir: tempDir,
 			mockCmdline: []string{"--inspect", "/app/server.js"},
+			mockCwd:     "/app",
+			expectedRoutes: []string{
+				"/api/users",
+				"/api/users/:id",
+			},
+			expectedCount: 2,
+		},
+		{
+			name:        "config file before script",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"--experimental-config-file", "/config/runtime-config", "/app/server.js"},
 			mockCwd:     "/app",
 			expectedRoutes: []string{
 				"/api/users",

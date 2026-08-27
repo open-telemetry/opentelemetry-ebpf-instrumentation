@@ -12,6 +12,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,8 +29,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -749,11 +753,9 @@ func TestUSDTLinkCloserCloseIsConcurrentSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
 	for range cap(errs) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs <- closer.Close()
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -883,6 +885,15 @@ func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
 	i.rollbackOptionalGoProbeGroups()
 
 	assert.Equal(t, int32(1), linkCloser.closes.Load())
+}
+
+func TestProcessTracerCanLogBeforeRun(t *testing.T) {
+	pt := NewProcessTracer(Generic, nil, &obi.Config{}, imetrics.NoopReporter{})
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	assert.NotPanics(t, func() {
+		pt.UnlinkExecutable(fileInfo, 1)
+	})
 }
 
 func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
@@ -1184,4 +1195,38 @@ func TestDedupModuleProbes(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, []*ebpfcommon.ProbeDesc{descC}, got["uv_fs_access"])
 	})
+}
+
+func TestSetupOtelBPFFSPathFallsBackToInternalMaps(t *testing.T) {
+	bpffsPath := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(bpffsPath, nil, 0o600))
+
+	const maxEntries = 1 << 14
+	spec := &ebpf.CollectionSpec{Maps: map[string]*ebpf.MapSpec{
+		"traces_ctx_v1": {
+			Type:       ebpf.LRUHash,
+			MaxEntries: maxEntries,
+			Pinning:    ebpf.PinByName,
+		},
+	}}
+	pt := &ProcessTracer{bpffsPath: bpffsPath}
+
+	assert.Empty(t, pt.setupOtelBPFFSPath([]*ebpfcommon.SpecBundle{{Spec: spec}}))
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["traces_ctx_v1"].Pinning)
+	assert.Equal(t, uint32(maxEntries), spec.Maps["traces_ctx_v1"].MaxEntries)
+}
+
+func TestMakeOtelBPFFSPathRejectsInaccessibleExistingDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+
+	bpffsPath := t.TempDir()
+	otelPath := filepath.Join(bpffsPath, "otel")
+	require.NoError(t, os.Mkdir(otelPath, 0o000))
+
+	pt := &ProcessTracer{bpffsPath: bpffsPath}
+	_, err := pt.makeOtelBPFFSPath()
+
+	require.ErrorContains(t, err, "accessing bpffs otel path")
 }

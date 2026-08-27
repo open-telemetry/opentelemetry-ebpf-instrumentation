@@ -8,11 +8,12 @@ input:
 interval: 500ms
 expected:
   traces:
-  - traceql: '{ .messaging.system = "nats" && .messaging.operation.type = "publish" && .messaging.destination.name = "updates.orders" }'
+  - traceql: '{ .messaging.system = "nats" && .messaging.operation.type = "send" && .messaging.destination.name = "updates.orders" }'
     equals: publish updates.orders
     attributes:
       messaging.destination.name: updates.orders
-      messaging.operation.type: publish
+      messaging.operation.type: send
+      messaging.operation.name: publish
       messaging.system: nats
       server.port: '4222'
   - traceql: '{ .messaging.system = "nats" && .messaging.operation.type = "process" && .messaging.destination.name = "updates.orders" }'
@@ -20,6 +21,7 @@ expected:
     attributes:
       messaging.destination.name: updates.orders
       messaging.operation.type: process
+      messaging.operation.name: process
       messaging.system: nats
       server.port: '4222'
   metrics:

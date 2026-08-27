@@ -17,7 +17,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -167,7 +170,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 	}
 	log.Debug("creating new runtime metrics reporter")
 
-	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
+	resources := resource.NewWithAttributes(attr.OBISchemaURL, resourceAttributes...)
 	goHistogramProducer := newGoRuntimeHistogramProducer(
 		r.exporter.Temporality(sdkmetric.InstrumentKindHistogram),
 	)
@@ -189,7 +192,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 func (r *RuntimeMetricsReporter) newMetricSet(service *svc.Attrs) (*RuntimeMetrics, error) {
 	metrics := r.newMetricsInstance(service)
 	meter := metrics.provider.Meter(reporterName)
-	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled); err != nil {
+	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled, r.cfg.Buckets); err != nil {
 		return nil, err
 	}
 	return &metrics, nil
@@ -200,6 +203,7 @@ func setupRuntimeMeters(
 	meter instrument.Meter,
 	ttl time.Duration,
 	enabled runtimemetrics.Enabled,
+	buckets export.Buckets,
 ) error {
 	if !enabled.Runtime {
 		return nil
@@ -210,7 +214,7 @@ func setupRuntimeMeters(
 	if err := setupJVMRuntimeMeters(metrics.ctx, &metrics.jvmMetrics, meter, ttl); err != nil {
 		return err
 	}
-	if err := setupNodejsRuntimeMeters(metrics.ctx, &metrics.nodejsMetrics, meter, ttl); err != nil {
+	if err := setupNodejsRuntimeMeters(metrics.ctx, &metrics.nodejsMetrics, meter, ttl, buckets); err != nil {
 		return err
 	}
 	return nil
@@ -374,6 +378,12 @@ func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot
 			return
 		}
 		metrics.nodejsMetrics.record(snapshot)
+	}
+	if snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil {
+		if !snapshot.Service.ExportModes.CanExportMetrics() || !snapshot.Service.Features.AppRuntime() {
+			return
+		}
+		metrics.nodejsMetrics.recordV8(snapshot)
 	}
 }
 
@@ -557,4 +567,85 @@ func (r *RuntimeMetricsReporter) close() {
 		}
 		rmlog().Debug("runtime metrics reporter closed")
 	}()
+}
+
+type runtimeCurrentUpDownCounter struct {
+	ctx     context.Context
+	metric  instrument.Int64UpDownCounter
+	attrs   []attributes.Field[runtimemetrics.RuntimeMetricSnapshot, attribute.KeyValue]
+	entries *expire.ExpiryMap[*runtimeCurrentUpDownCounterEntry]
+	log     *slog.Logger
+
+	clock          expire.Clock
+	lastExpiration time.Time
+	ttl            time.Duration
+}
+
+type runtimeCurrentUpDownCounterEntry struct {
+	attrs       attribute.Set
+	value       int64
+	initialized bool
+}
+
+func newRuntimeCurrentUpDownCounter(
+	ctx context.Context,
+	metric instrument.Int64UpDownCounter,
+	attrs []attributes.Field[runtimemetrics.RuntimeMetricSnapshot, attribute.KeyValue],
+	clock expire.Clock,
+	ttl time.Duration,
+) *runtimeCurrentUpDownCounter {
+	return &runtimeCurrentUpDownCounter{
+		ctx:            ctx,
+		metric:         metric,
+		attrs:          attrs,
+		entries:        expire.NewExpiryMap[*runtimeCurrentUpDownCounterEntry](clock, ttl),
+		log:            plog().With("type", fmt.Sprintf("%T", metric)),
+		clock:          clock,
+		lastExpiration: clock(),
+		ttl:            ttl,
+	}
+}
+
+func (c *runtimeCurrentUpDownCounter) Record(snapshot runtimemetrics.RuntimeMetricSnapshot, value int64) {
+	now := c.clock()
+	if now.Sub(c.lastExpiration) >= c.ttl {
+		c.removeOutdated(c.ctx)
+		c.lastExpiration = now
+	}
+
+	recordAttrs, attrValues := runtimeAttributeSet(c.attrs, snapshot)
+	entry := c.entries.GetOrCreate(attrValues, func() *runtimeCurrentUpDownCounterEntry {
+		c.log.Debug("storing new metric label set", "labelValues", attrValues)
+		return &runtimeCurrentUpDownCounterEntry{attrs: recordAttrs}
+	})
+
+	delta := value - entry.value
+	if !entry.initialized || delta != 0 {
+		c.metric.Add(c.ctx, delta, instrument.WithAttributeSet(entry.attrs))
+	}
+	entry.value = value
+	entry.initialized = true
+}
+
+func (c *runtimeCurrentUpDownCounter) removeOutdated(ctx context.Context) {
+	for _, entry := range c.entries.DeleteExpired() {
+		c.metric.Add(ctx, -entry.value, instrument.WithAttributeSet(entry.attrs))
+		c.metric.Remove(ctx, instrument.WithAttributeSet(entry.attrs))
+	}
+}
+
+func runtimeAttributeSet(
+	fields []attributes.Field[runtimemetrics.RuntimeMetricSnapshot, attribute.KeyValue],
+	snapshot runtimemetrics.RuntimeMetricSnapshot,
+) (attribute.Set, []string) {
+	keyVals := make([]attribute.KeyValue, 0, len(fields))
+	vals := make([]string, 0, len(fields))
+
+	for _, field := range fields {
+		kv := sanitizeKeyValue(field.Get(snapshot))
+		keyVals = append(keyVals, kv)
+		vals = append(vals, kv.Value.Emit())
+	}
+
+	return attribute.NewSet(keyVals...), vals
 }

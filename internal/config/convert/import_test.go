@@ -321,6 +321,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.BufferSizes.MSSQL = 103
 	cfg.EBPF.BufferSizes.Kafka = 104
 	cfg.EBPF.BufferSizes.TCP = 105
+	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201

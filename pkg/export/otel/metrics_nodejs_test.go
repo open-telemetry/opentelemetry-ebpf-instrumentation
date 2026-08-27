@@ -31,6 +31,7 @@ type nodejsMetricRecord struct {
 	Name          string
 	Type          pmetric.MetricType
 	Value         float64
+	Count         uint64
 	IsMonotonic   bool
 	Attrs         map[string]string
 	ResourceAttrs map[string]string
@@ -59,12 +60,26 @@ func testNodejsRuntimeMetricsConsumer(out chan<- nodejsMetricRecord) consumer.Me
 						sum := metric.Sum()
 						record.IsMonotonic = sum.IsMonotonic()
 						points = sum.DataPoints()
+					case pmetric.MetricTypeHistogram:
+						histPoints := metric.Histogram().DataPoints()
+						for l := 0; l < histPoints.Len(); l++ {
+							point := histPoints.At(l)
+							record.Value = point.Sum()
+							record.Count = point.Count()
+							record.Attrs = attrsToMap(point.Attributes())
+							out <- record
+						}
+						continue
 					default:
 						continue
 					}
 					for l := 0; l < points.Len(); l++ {
 						point := points.At(l)
-						record.Value = point.DoubleValue()
+						if point.ValueType() == pmetric.NumberDataPointValueTypeInt {
+							record.Value = float64(point.IntValue())
+						} else {
+							record.Value = point.DoubleValue()
+						}
 						record.Attrs = attrsToMap(point.Attributes())
 						out <- record
 					}
@@ -217,6 +232,147 @@ func TestNodejsDelayGaugesSkipEmptyWindows(t *testing.T) {
 	// ... then the delay gauge must still export the previous window
 	p99 = readNodejsMetricRecord(t, records, attributes.NodejsEventLoopDelayP99.OTEL, "")
 	assert.InDelta(t, 0.005, p99.Value, 1e-9)
+}
+
+func TestRuntimeMetricsReporterRecordsV8GCDuration(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	records := make(chan nodejsMetricRecord, 100)
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          20 * time.Millisecond,
+		TTL:               time.Minute,
+		ReportersCacheLen: 10,
+		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+	}
+	reporter, err := newRuntimeMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		cfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+	)
+	require.NoError(t, err)
+	defer reporter.close()
+
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: svc.Attrs{
+			UID:      svc.UID{Name: "orders-node", Namespace: "prod", Instance: "orders-node-1"},
+			Features: export.FeatureApplicationRuntime,
+		},
+		PID: 55,
+		NodejsGC: &runtimemetrics.NodejsGCSnapshot{
+			GCType:     nodejsruntime.NodejsGCTypeMajor,
+			DurationNs: 350_000_000, // 350 ms
+		},
+	}})
+
+	gc := readNodejsMetricRecord(t, records, attributes.V8JSGCDuration.OTEL, "")
+	assert.Equal(t, pmetric.MetricTypeHistogram, gc.Type)
+	assert.Equal(t, uint64(1), gc.Count)
+	assert.InDelta(t, 0.35, gc.Value, 1e-9)
+	assert.Equal(t, "major", gc.Attrs["v8js.gc.type"])
+	assert.Equal(t, "orders-node", gc.ResourceAttrs["service.name"])
+}
+
+func TestRuntimeMetricsReporterRecordsV8HeapSpaces(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	records := make(chan nodejsMetricRecord, 100)
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          20 * time.Millisecond,
+		TTL:               time.Minute,
+		ReportersCacheLen: 10,
+		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+	}
+	reporter, err := newRuntimeMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		cfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+	)
+	require.NoError(t, err)
+	defer reporter.close()
+
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: svc.Attrs{
+			UID:      svc.UID{Name: "orders-node", Namespace: "prod", Instance: "orders-node-1"},
+			Features: export.FeatureApplicationRuntime,
+		},
+		PID: 55,
+		NodejsHeapSpace: &runtimemetrics.NodejsHeapSpaceSnapshot{
+			SpaceName: "old_space",
+			NodejsHeapSpaceValues: nodejsruntime.NodejsHeapSpaceValues{
+				SpaceSize:          200 << 20,
+				SpaceUsedSize:      150 << 20,
+				SpaceAvailableSize: 30 << 20,
+				PhysicalSpaceSize:  200 << 20,
+			},
+		},
+	}})
+
+	expected := map[string]float64{
+		attributes.V8JSMemoryHeapLimit.OTEL:              float64(uint64(200 << 20)),
+		attributes.V8JSMemoryHeapUsed.OTEL:               float64(uint64(150 << 20)),
+		attributes.V8JSMemoryHeapSpaceAvailableSize.OTEL: float64(uint64(30 << 20)),
+		attributes.V8JSMemoryHeapSpacePhysicalSize.OTEL:  float64(uint64(200 << 20)),
+	}
+	for name, value := range expected {
+		record := readNodejsMetricRecord(t, records, name, "")
+		assert.Equal(t, pmetric.MetricTypeSum, record.Type, name)
+		assert.False(t, record.IsMonotonic, name)
+		assert.InDelta(t, value, record.Value, 1e-9, name)
+		assert.Equal(t, "old_space", record.Attrs["v8js.heap.space.name"], name)
+	}
+}
+
+func TestRuntimeMetricsReporterDropsV8ServiceWithoutRuntimeFeature(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	records := make(chan nodejsMetricRecord, 100)
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          20 * time.Millisecond,
+		TTL:               time.Minute,
+		ReportersCacheLen: 10,
+		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+	}
+	reporter, err := newRuntimeMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		cfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+	)
+	require.NoError(t, err)
+	defer reporter.close()
+
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders-node", Namespace: "prod", Instance: "orders-node-1"},
+		Features: export.FeatureApplicationRED,
+	}
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
+		{Service: service, PID: 55, NodejsGC: &runtimemetrics.NodejsGCSnapshot{
+			GCType: nodejsruntime.NodejsGCTypeMajor, DurationNs: 1000,
+		}},
+		{Service: service, PID: 55, NodejsHeapSpace: &runtimemetrics.NodejsHeapSpaceSnapshot{
+			SpaceName: "old_space",
+		}},
+	})
+
+	select {
+	case record := <-records:
+		t.Fatalf("expected no v8 metrics for a service without the runtime feature, got %q", record.Name)
+	case <-time.After(200 * time.Millisecond):
+	}
 }
 
 func TestRuntimeMetricsReporterDropsNodejsServiceWithoutRuntimeFeature(t *testing.T) {

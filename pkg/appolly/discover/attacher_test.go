@@ -43,6 +43,7 @@ func (r *recordingTracer) AllowPID(pid app.PID, ns uint32, _ *execpkg.FileInfo) 
 func (r *recordingTracer) BlockPID(pid app.PID, ns uint32) {
 	r.blocked = append(r.blocked, blockedPID{pid: pid, ns: ns})
 }
+
 func (r *recordingTracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)           { return nil, nil }
 func (r *recordingTracer) AddCloser(...io.Closer)                                 {}
 func (r *recordingTracer) SetupTailCalls()                                        {}

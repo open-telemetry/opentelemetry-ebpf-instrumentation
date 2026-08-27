@@ -20,6 +20,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/link"
+	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -89,6 +90,7 @@ func unloadInternalMaps(eventContext *common.EBPFEventContext) {
 
 func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer, cfg *obi.Config, metrics imetrics.Reporter) *ProcessTracer {
 	return &ProcessTracer{
+		log:                       ptlog().With("type", tracerType),
 		Programs:                  programs,
 		Type:                      tracerType,
 		Instrumentables:           map[ExecutableKey]*instrumenter{},
@@ -109,8 +111,6 @@ func (pt *ProcessTracer) Run(
 	ebpfEventContext *common.EBPFEventContext,
 	out *msg.Queue[[]request.Span],
 ) {
-	pt.log = ptlog().With("type", pt.Type)
-
 	pt.log.Debug("starting process tracer")
 
 	// Searches for traceable functions
@@ -162,6 +162,14 @@ func (pt *ProcessTracer) makeOtelBPFFSPath() (string, error) {
 	if err := os.MkdirAll(otelPath, 0o1700); err != nil {
 		return "", fmt.Errorf("creating bpffs otel path: %w", err)
 	}
+	if err := unix.Faccessat(
+		unix.AT_FDCWD,
+		otelPath,
+		unix.R_OK|unix.W_OK|unix.X_OK,
+		unix.AT_EACCESS,
+	); err != nil {
+		return "", fmt.Errorf("accessing bpffs otel path: %w", err)
+	}
 
 	return otelPath, nil
 }
@@ -176,17 +184,16 @@ func (pt *ProcessTracer) setupOtelBPFFSPath(bundles []*common.SpecBundle) string
 
 	log := ptlog()
 
-	log.Warn("creating OTEL namespace in bpffs failed (is bpffs mounted?)",
+	log.Warn("creating or accessing OTEL namespace in bpffs failed (is bpffs mounted and accessible?)",
 		"bpffs_path", pt.bpffsPath, "err", err)
 
-	log.Warn("OBI will still work, but features depending on pinned maps (e.g., log enricher, profile correlation) will be disabled")
+	log.Warn("OBI will use process-internal maps; external features depending on pinned maps (e.g., profile correlation) will be disabled")
 
 	// disable pinning for ALL specs
 	for _, bundle := range bundles {
 		for _, v := range bundle.Spec.Maps {
 			if v.Pinning == ebpf.PinByName {
-				v.Pinning = ebpf.PinNone
-				v.MaxEntries = 1
+				v.Pinning = ebpfconvenience.PinInternal
 			}
 		}
 	}

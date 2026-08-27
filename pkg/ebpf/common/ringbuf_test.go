@@ -264,6 +264,97 @@ func TestRingbufLastReadAtRace(t *testing.T) {
 	<-readDone
 }
 
+// A producer that submitted with BPF_RB_NO_WAKEUP leaves bytes pending without
+// waking the reader, so the reader only makes progress when it is flushed on its
+// own behalf. Each flush therefore has to be issued on the tick that follows the
+// previous one: while the idle window matched the tick period, the reads caused
+// by one flush suppressed the next tick, so records waited two intervals and a
+// DNS answer could reach the pairing stage past its request timeout.
+func TestRingbufStalledReaderIsFlushedOnConsecutiveTicks(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	rbf := &ringBufForwarder[HTTPRequestTrace]{
+		cfg:    &config.EBPFTracer{BatchLength: 1},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		parse: func(*ringbuf.Record) (HTTPRequestTrace, bool, error) {
+			return HTTPRequestTrace{}, true, nil
+		},
+	}
+
+	eventsReader := newStalledReader()
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		rbf.readAndForwardInner(ctx, eventsReader, msg.NewQueue[[]HTTPRequestTrace](msg.ChannelBufferLen(1)))
+	}()
+
+	// Two flushes land within two ticks once each one is issued on the tick
+	// following the last. Skipping every other tick needs four.
+	require.Eventually(t, func() bool {
+		return eventsReader.FlushCount() >= 2
+	}, 2*flushInterval+time.Second, 50*time.Millisecond)
+
+	cancel()
+	eventsReader.Close()
+	<-readDone
+}
+
+// stalledReader always reports pending bytes and only lets a read through once
+// it has been flushed, so that every flush advances lastReadAt exactly the way a
+// woken reader does.
+type stalledReader struct {
+	flushCount atomic.Int64
+	readTokens chan struct{}
+	closed     chan struct{}
+}
+
+func newStalledReader() *stalledReader {
+	return &stalledReader{
+		readTokens: make(chan struct{}, 1),
+		closed:     make(chan struct{}),
+	}
+}
+
+func (r *stalledReader) FlushCount() int { return int(r.flushCount.Load()) }
+
+func (r *stalledReader) Close() error {
+	select {
+	case <-r.closed:
+	default:
+		close(r.closed)
+	}
+	return nil
+}
+
+func (r *stalledReader) Read() (ringbuf.Record, error) {
+	record := ringbuf.Record{}
+	err := r.ReadInto(&record)
+	return record, err
+}
+
+func (r *stalledReader) ReadInto(record *ringbuf.Record) error {
+	select {
+	case <-r.readTokens:
+		record.RawSample = nil
+		return nil
+	case <-r.closed:
+		return ringbuf.ErrClosed
+	}
+}
+
+func (r *stalledReader) AvailableBytes() int { return 1 }
+
+func (r *stalledReader) Flush() error {
+	r.flushCount.Add(1)
+	// the woken reader drains one record, which is what moves lastReadAt
+	select {
+	case r.readTokens <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
 // replaces the original ring buffer factory by a fake ring buffer creator and returns it
 func replaceTestRingBuf() *fakeRingBufReader {
 	rb := fakeRingBufReader{events: make(chan HTTPRequestTrace, 100), closeCh: make(chan struct{})}

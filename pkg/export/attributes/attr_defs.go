@@ -68,7 +68,7 @@ func getDefinitions(
 		map[attr.Name]Default{
 			attr.Instance:         true,
 			attr.Job:              true,
-			attr.ServiceNamespace: true,
+			attr.ServiceNamespace: false,
 		},
 		extraGroupAttributes[GroupPrometheus],
 	)
@@ -243,9 +243,10 @@ func getDefinitions(
 		extraGroupAttributes[GroupAppKube],
 	)
 
-	// ServiceName and ServiceNamespace are reported both as resource and metric attributes, as
-	// the OTEL definition requires that it is reported as resource attribute,
-	// but Cloud providers may extract this from the metric
+	// The semantic conventions define service.name and service.namespace as
+	// resource attributes, and OBI reports them there. They are also available
+	// as metric-level attributes for backends that read service identity off
+	// the series instead of joining through target_info.
 	appAttributes := NewAttrReportGroup(
 		false,
 		[]*AttrReportGroup{
@@ -254,8 +255,8 @@ func getDefinitions(
 			&appContainerAttributes,
 		},
 		map[attr.Name]Default{
-			attr.ServiceName:      true,
-			attr.ServiceNamespace: true,
+			attr.ServiceName:      false,
+			attr.ServiceNamespace: false,
 		},
 		extraGroupAttributes[GroupApp],
 	)
@@ -275,6 +276,24 @@ func getDefinitions(
 		[]*AttrReportGroup{&appAttributes},
 		map[attr.Name]Default{
 			attr.NodejsEventLoopState: true,
+		},
+		nil,
+	)
+
+	v8jsGCAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.V8JSGCType: true,
+		},
+		nil,
+	)
+
+	v8jsHeapSpaceAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.V8JSHeapSpaceName: true,
 		},
 		nil,
 	)
@@ -390,10 +409,12 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.ServerAddr:       true,
+				attr.ServerPort:       true,
 				attr.DBOperation:      true,
 				attr.DBSystemName:     true,
 				attr.ErrorType:        true,
 				attr.DBCollectionName: false,
+				attr.DBNamespace:      true,
 			},
 		},
 		DBServerDuration.Section: {
@@ -403,6 +424,7 @@ func getDefinitions(
 				attr.DBSystemName:     true,
 				attr.ErrorType:        true,
 				attr.DBCollectionName: false,
+				attr.DBNamespace:      true,
 			},
 		},
 		MessagingPublishDuration.Section: {
@@ -533,6 +555,26 @@ func getDefinitions(
 		},
 		NodejsEventLoopTime.Section: {
 			SubGroups:  []*AttrReportGroup{&nodejsEventLoopTimeAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSGCDuration.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsGCAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSMemoryHeapLimit.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSMemoryHeapUsed.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSMemoryHeapSpaceAvailableSize.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSMemoryHeapSpacePhysicalSize.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {

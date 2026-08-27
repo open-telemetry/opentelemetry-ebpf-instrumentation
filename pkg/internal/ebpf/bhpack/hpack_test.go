@@ -174,7 +174,7 @@ func TestDecoderRejectsMalformedInputDeterministically(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var previous string
-			for run := 0; run < 2; run++ {
+			for run := range 2 {
 				decoder := NewDecoder(64, nil)
 				fields, err := decoder.DecodeFull(tt.block)
 				require.Error(t, err)
