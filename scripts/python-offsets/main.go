@@ -136,7 +136,7 @@ func update(ctx context.Context) error {
 
 func parseRefs(data []byte) (map[string]string, error) {
 	refs := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 || !strings.HasPrefix(fields[1], "refs/tags/") {
 			continue
