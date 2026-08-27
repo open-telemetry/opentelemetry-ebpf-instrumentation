@@ -60,6 +60,8 @@ type executableIdentity = BpfGoExecutableKeyT
 // Linux's internal dev_t reserves its lower 20 bits for the minor number.
 const linuxMinorDeviceBits = 20
 
+var goH2WriteFailStepForTest uint8
+
 func kernelDeviceNumber(dev uint64) uint64 {
 	return uint64(unix.Major(dev))<<linuxMinorDeviceBits | uint64(unix.Minor(dev))
 }
@@ -191,6 +193,12 @@ var goAutoSDKSpanContextOffsetFields = [...]goexec.GoOffset{
 	goexec.SpanContextTraceFlagsPos,
 	goexec.AutoSDKSpanContextPos,
 	goexec.AutoSDKActivationSupported,
+}
+
+var goGRPCBufWriterOffsetFields = [...]goexec.GoOffset{
+	goexec.GrpcTransportBufWriterBufPos,
+	goexec.GrpcTransportBufWriterOffsetPos,
+	goexec.GrpcTransportBufWriterConnPos,
 }
 
 var goRuntimeMetricOffsetFields = [...]goexec.GoOffset{
@@ -451,6 +459,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_bpf_debug":                    p.cfg.BpfDebug,
 		"g_bpf_header_propagation":       p.cfg.ContextPropagation.HasHeaders(),
 		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
+		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
 		"wakeup_data_bytes":              uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
 		"disable_black_box_cp":           blackBoxCP,
 		"attr_type_invalid":              uint64(attribute.INVALID),
@@ -526,8 +535,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	p.recordGoChannelOffsetAvailability(fileInfo, offsets)
 
 	offTable := BpfOffTableT{}
-	initMissingGoChannelOffsets(&offTable)
-	initMissingGoAutoSDKSpanContextOffsets(&offTable)
+	initMissingGoOffsets(&offTable, goChannelOffsetFields[:])
+	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
+	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
 		goexec.ConnFdPos,
@@ -687,22 +697,12 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	}
 }
 
-func initMissingGoChannelOffsets(offTable *BpfOffTableT) {
+func initMissingGoOffsets(offTable *BpfOffTableT, fields []goexec.GoOffset) {
 	if offTable == nil {
 		return
 	}
 
-	for _, field := range goChannelOffsetFields {
-		offTable.Table[field] = missingGoOffset
-	}
-}
-
-func initMissingGoAutoSDKSpanContextOffsets(offTable *BpfOffTableT) {
-	if offTable == nil {
-		return
-	}
-
-	for _, field := range goAutoSDKSpanContextOffsetFields {
+	for _, field := range fields {
 		offTable.Table[field] = missingGoOffset
 	}
 }

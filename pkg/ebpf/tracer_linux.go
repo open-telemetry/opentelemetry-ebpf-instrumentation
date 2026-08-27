@@ -106,6 +106,16 @@ type tracerInstance struct {
 	done     atomic.Bool
 }
 
+func unfinishedTracerTypes(tracers []tracerInstance) []string {
+	unfinished := make([]string, 0, len(tracers))
+	for i := range tracers {
+		if !tracers[i].done.Load() {
+			unfinished = append(unfinished, tracers[i].implType)
+		}
+	}
+	return unfinished
+}
+
 func (pt *ProcessTracer) Run(
 	ctx context.Context,
 	ebpfEventContext *common.EBPFEventContext,
@@ -145,7 +155,7 @@ func (pt *ProcessTracer) Run(
 		select {
 		// notifying before OBI times out on finish
 		case <-time.After(3 * pt.shutdownTimeout / 4):
-			pt.log.Warn("some process tracers did not finish", "tracers", runningTracers)
+			pt.log.Warn("some process tracers did not finish", "tracers", unfinishedTracerTypes(runningTracers))
 			hasWarned = true
 		case <-tracersEnded:
 			if hasWarned {
