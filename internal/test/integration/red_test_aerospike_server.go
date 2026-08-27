@@ -34,7 +34,7 @@ const aerospikeServerService = "asd"
 func testREDTracesAerospikeServerSide(t *testing.T) {
 	baseURL := "http://localhost:8392"
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, baseURL+"/aerospike", 200)
 	}
 
