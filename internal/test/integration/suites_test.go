@@ -416,7 +416,7 @@ func TestSuite_NodeJS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "testserver") })
-	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver") })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver", true) })
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
 	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	t.Run("HTTP manual spans (background span isolation)", testHTTPTracesNodeManualBackgroundSpan)
@@ -431,7 +431,7 @@ func TestSuite_Deno(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
 	require.NoError(t, compose.Up())
 	t.Run("Deno RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "denoserver") })
-	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver") })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver", false) })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

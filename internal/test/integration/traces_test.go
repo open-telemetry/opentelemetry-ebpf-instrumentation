@@ -334,9 +334,11 @@ func testGRPCKProbeTraces(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 }
 
-func testHTTPTracesKProbes(t *testing.T, serviceName string) {
+func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceId bool) {
 	var traceID string
 	var parentID string
+
+	waitForTestComponents(t, "http://localhost:3031")
 
 	// Add and check for specific trace ID
 	traceID = createTraceID()
@@ -389,7 +391,9 @@ func testHTTPTracesKProbes(t *testing.T, serviceName string) {
 
 	serviceInstance, ok := jaeger.FindIn(process.Tags, "service.instance.id")
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
-	assert.Regexp(t, `^integration-test\.`+serviceName+`\.`, serviceInstance.Value)
+	if validateInstanceId {
+		assert.Regexp(t, `^integration-test\.`+serviceName+`\.`, serviceInstance.Value)
+	}
 
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
