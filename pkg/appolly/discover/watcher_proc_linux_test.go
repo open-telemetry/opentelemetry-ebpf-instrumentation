@@ -118,7 +118,6 @@ func TestProcessAgeFuncConcurrent(t *testing.T) {
 
 	for range goroutines {
 		wg.Go(func() {
-
 			for range iterations {
 				if age := processAge(pid); age <= 0 {
 					errCh <- fmt.Errorf("expected positive process age for pid %d", pid)
