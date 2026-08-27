@@ -19,7 +19,7 @@ import (
 
 func TestProtocolToLargeBufferKind(t *testing.T) {
 	tests := []struct {
-		protocolType uint8
+		protocolType BpfProtocolType
 		expected     largeBufferKind
 	}{
 		{ProtocolTypeKafka, KindLayerApp},
