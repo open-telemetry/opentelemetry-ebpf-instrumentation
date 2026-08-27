@@ -304,7 +304,7 @@ func metadataMatches(metadata serviceMetadata, requireName bool) bool {
 }
 
 func readMetadataFile(path string, jsonWithComments bool) (serviceMetadata, bool) {
-	file, found := langtools.OpenServiceMetadataFile(path, maxServiceMetadataBytes)
+	file, found := langtools.OpenMetadataFile(path, maxServiceMetadataBytes)
 	if file == nil {
 		return serviceMetadata{}, found
 	}
@@ -313,7 +313,7 @@ func readMetadataFile(path string, jsonWithComments bool) (serviceMetadata, bool
 }
 
 func readRegularMetadataFile(path string, jsonWithComments bool) (serviceMetadata, bool) {
-	file, _ := langtools.OpenServiceMetadataFile(path, maxServiceMetadataBytes)
+	file, _ := langtools.OpenMetadataFile(path, maxServiceMetadataBytes)
 	if file == nil {
 		return serviceMetadata{}, false
 	}
