@@ -36,7 +36,6 @@ type Init struct {
 	Dev            uint64
 	Ino            uint64
 	Ns             uint32
-	StartTime      uint64
 }
 
 type FileInfo struct {
@@ -56,7 +55,6 @@ type FileInfo struct {
 	dev            uint64
 	ino            uint64
 	ns             uint32
-	startTime      uint64
 }
 
 func New(init Init) *FileInfo {
@@ -73,7 +71,6 @@ func New(init Init) *FileInfo {
 		dev:            init.Dev,
 		ino:            init.Ino,
 		ns:             init.Ns,
-		startTime:      init.StartTime,
 	}
 }
 
@@ -137,7 +134,6 @@ func (fi *FileInfo) StartTime() uint64      { return fi.startTime }
 func (fi *FileInfo) Dev() uint64            { return fi.dev }
 func (fi *FileInfo) Ino() uint64            { return fi.ino }
 func (fi *FileInfo) Ns() uint32             { return fi.ns }
-func (fi *FileInfo) StartTime() uint64      { return fi.startTime }
 func (fi *FileInfo) CmdExePath() string     { return fi.cmdExePath }
 func (fi *FileInfo) ProExeLinkPath() string { return fi.proExeLinkPath }
 func (fi *FileInfo) ELF() *elf.File         { return fi.elfFile }
