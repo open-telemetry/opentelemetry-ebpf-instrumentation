@@ -145,7 +145,7 @@ func TestParseUSDTArgSpecHotSpotArm64MemoryPoolGC(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, uint16(8), spec.ArgCount)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		assert.Equal(t, obiUSDTArgReg, spec.Args[i].ArgType)
 	}
 	assert.Equal(t, int16(22*8), spec.Args[0].RegOff)

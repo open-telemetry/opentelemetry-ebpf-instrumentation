@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -272,12 +273,7 @@ func resolveRegularProcessFile(root, cwd, path string) (string, bool) {
 }
 
 func pathHasNodeModules(cwd, path string) bool {
-	for _, part := range strings.Split(absoluteProcessPath(cwd, path), string(filepath.Separator)) {
-		if part == "node_modules" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.Split(absoluteProcessPath(cwd, path), string(filepath.Separator)), "node_modules")
 }
 
 func absoluteProcessPath(cwd, path string) string {

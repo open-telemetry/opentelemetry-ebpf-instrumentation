@@ -5,6 +5,7 @@ package selection
 
 import (
 	"net"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,12 +31,7 @@ func (s *stubPIDSelector) GetPIDs() ([]app.PID, bool) {
 }
 
 func (s *stubPIDSelector) IncludesPID(pid app.PID) bool {
-	for _, p := range s.pids {
-		if p == pid {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.pids, pid)
 }
 
 func (s *stubPIDSelector) AddedPIDsNotify() <-chan []app.PID { return s.addedCh }

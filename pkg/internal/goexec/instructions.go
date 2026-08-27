@@ -757,7 +757,7 @@ func decodeRelr(relr map[uint64]struct{}, data []byte, order binary.ByteOrder) {
 		} else {
 			// Bitmap entry: bits [1..63] select word slots after base.
 			bitmap := word >> 1
-			for b := 0; b < 63; b++ {
+			for b := range 63 {
 				if bitmap&(1<<uint(b)) != 0 {
 					relr[base+wordSize*uint64(b)] = struct{}{}
 				}

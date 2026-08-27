@@ -21,6 +21,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -323,14 +324,7 @@ func New(
 ) *Tracer {
 	log := slog.With("component", "go.Tracer")
 
-	disabledRouteHarvesting := false
-
-	for _, lang := range cfg.Discovery.DisabledRouteHarvesters {
-		if lang == services.RouteHarvesterLanguageGo {
-			disabledRouteHarvesting = true
-			break
-		}
-	}
+	disabledRouteHarvesting := slices.Contains(cfg.Discovery.DisabledRouteHarvesters, services.RouteHarvesterLanguageGo)
 
 	return &Tracer{
 		log:                               log,
@@ -780,7 +774,7 @@ func resetGoAutoSDKActivationAttempts(
 	}
 
 	var cleanupErrors []error
-	for attempt := uint8(0); attempt < goAutoSDKActivationMaxAttempts; attempt++ {
+	for attempt := range uint8(goAutoSDKActivationMaxAttempts) {
 		key := BpfGoAutoActivationAttemptKeyT{
 			Generation: generation,
 			Pid:        uint32(pid),
