@@ -75,7 +75,8 @@ static __always_inline u64 allocate_python_task_generation(void) {
         return 0;
     }
 
-    return __sync_fetch_and_add(counter, 1) + 1;
+    __sync_fetch_and_add(counter, 1);
+    return *counter;
 }
 
 typedef enum python_task_resolution {
