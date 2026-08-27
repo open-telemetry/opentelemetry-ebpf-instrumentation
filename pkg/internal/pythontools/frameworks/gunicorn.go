@@ -5,6 +5,7 @@ package frameworks // import "go.opentelemetry.io/obi/pkg/internal/pythontools/f
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -34,8 +35,8 @@ func ParseGunicorn(args []string, env map[string]string) PythonLaunch {
 
 	pythonPaths := splitList(settings.pythonPath)
 
-	for i := len(pythonPaths) - 1; i >= 0; i-- {
-		path := pythonPaths[i]
+	for _, path := range slices.Backward(pythonPaths) {
+
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(chdir, path)
 		}
