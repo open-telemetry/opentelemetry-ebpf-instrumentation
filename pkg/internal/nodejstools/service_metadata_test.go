@@ -290,6 +290,20 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "node", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("config file is not used as the entrypoint fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "runtime-config"), nil)
+		writeNodeFile(t, filepath.Join(root, "app", "server.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{
+			"--experimental-config-file", "runtime-config", "server.js",
+		}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "server", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("missing explicit script is not used as a fallback", func(t *testing.T) {
 		root := t.TempDir()
 		fileInfo := mockNodeProcess(t, root, []string{"missing.js"}, nil)

@@ -68,9 +68,12 @@ func TestSQLExtraction(t *testing.T) {
 						customers c
 					WHERE c.is = p.id AND c.inactive IS NULL
 				) as bananas`: {op: "SELECT", table: "customers"},
-			"SELECT 1.2":                              {op: "SELECT", table: ""},
-			"SELECT 0xdeadBEEF":                       {op: "SELECT", table: ""},
-			"SELECT A + B":                            {op: "SELECT", table: ""},
+			"SELECT 1.2": {op: "SELECT", table: ""},
+
+			"SELECT 0xdeadBEEF": {op: "SELECT", table: ""},
+
+			"SELECT A + B": {op: "SELECT", table: ""},
+
 			"SELECT * FROM TABLE123":                  {op: "SELECT", table: "TABLE123"},
 			"SELECT FIELD2 FROM TABLE_123 WHERE X<>7": {op: "SELECT", table: "TABLE_123"},
 			"SELECT * FROM TABLE t WHERE FIELD = ' an escaped '' quote mark inside' JOIN ABC ON t.id=ABC.id": {op: "SELECT", table: ""},

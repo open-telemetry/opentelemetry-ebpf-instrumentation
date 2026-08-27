@@ -5,9 +5,9 @@ through language-specific library instrumentation documented later in this file.
 
 | Protocol      | Languages |    Versions | Methods                                                                                  | Secure | Propagates Context |                                                                                                                     Limitations
 |:--------------|:---------:|------------:|------------------------------------------------------------------------------------------|:------:|-------------------:|--------------------------------------------------------------------------------------------------------------------------------:
-| HTTP          |    All    |     1.0/1.1 | All                                                                                      |  Yes   |                Yes |                                                                                                                             N/A
-| HTTP          |    All    |         2.0 | All                                                                                      |  Yes   |                 No |                                                                    Context propagation for HTTP/2 is only through Go library instrumentation
-| gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                 Yes |                                      Can't get method for long living connections before OBI started, will mark method with `*`
+| HTTP          |    All    |     1.0/1.1 | All                                                                                      |  Yes   |                Yes | Generic TLS inject uses TCP option kind 25 only (OBI-to-OBI; L7 proxies drop it). Header inject works for plaintext.
+| HTTP          |    All    |         2.0 | All                                                                                      |  Yes   |                Yes | Network-level HPACK inject/extract on plaintext HTTP/2. Generic TLS cannot inject (`sk_msg` sees ciphertext); extract still works if a peer injected. Huffman-encoded `traceparent` extract requires kernel 5.17+. Go library instrumentation covers TLS inject via uprobes. See [grpc-context-propagation.md](grpc-context-propagation.md).
+| gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                Yes | Same HPACK path as HTTP/2. Can't get method for long living connections before OBI started, will mark method with `*`. Generic TLS cannot inject. Huffman extract requires kernel 5.17+. Message body capture is not supported (needs a `.proto` OBI does not have).
 | MySQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | PostgreSQL    |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | MSSQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
@@ -18,17 +18,18 @@ through language-specific library instrumentation documented later in this file.
 | Aerospike     |    All    |         All | GET, EXISTS, PUT, TOUCH, OPERATE, DELETE, SCAN, QUERY, BATCH, UDF                         |   No   |                 No |     Native client protocol (port 3000); compressed (type-4) payloads not parsed; only operation metadata captured, not record/bin values; `db.query.text` requires the client's `sendKey` write policy (otherwise only the key digest is on the wire)
 | Kafka         |    All    |         All | produce, fetch                                                                           |  Yes   |                 No |                     Might fail getting topic name for fetch requests in newer versions of kafka (where Fetch api version >= 13)
 | MQTT          |    All    |   3.1.1/5.0 | publish, subscribe                                                                       |   No   |                 No |                                                            For subscribe, only first topic filter is used; payload not captured
-| NATS          |    All    |         All | publish, process                                                                         |   No   |                 No |                                  Only `PUB`/`HPUB` and delivered `MSG`/`HMSG` frames are traced; control traffic is ignored
+| NATS          |    All    |         All | publish, process                                                                         |   No   |                 No |                                  Only `PUB`/`HPUB` and delivered `MSG`/`HMSG` frames are traced; control traffic is ignored; TLS is not parsed
 | AMQP          |    All    |       1.0   | publish, process                                                                         |   No   |                 No |                  Userspace heuristic only; transfer frames are traced while handshake and flow-control performatives are ignored
 | SunRPC (ONC RPC) | All    |         All | CALL procedures on known TCP programs (for example portmapper, mount, nfs)               |  Yes   |                 No | TCP only; kernel + userspace fallback; RPCSEC_GSS hides arguments; procedure names not mapped yet
-| GraphQL       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
+| DNS           |    All    |         All | lookups                                                                                  |   No   |                 No | Not enabled by default for traces; DNS-over-TLS/HTTPS is not parsed
+| GraphQL       |    All    |         All | All                                                                                      |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
 | JSON-RPC      |    All    |         2.0 | All                                                                                      |  Yes   |                 No |                          Requires HTTP payload capture enabled (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`) and `OTEL_EBPF_HTTP_JSONRPC_ENABLED=true`
-| Elasticsearch |    All    |       7.14+ | /_search, /_msearch, /_bulk, /_doc                                                       |  Yes   |                 No |                                                                                                                             N/A
-| Opensearch    |    All    |      3.0.0+ | /_search, /_msearch, /_bulk, /_doc                                                       |  Yes   |                 No |                                                                                                                             N/A
-| AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No |                                                                                                                             N/A
-| AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
-| SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
-| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate)
+| Elasticsearch |    All    |       7.14+ | /_search, /_msearch, /_bulk, /_doc                                                       |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
+| Opensearch    |    All    |      3.0.0+ | /_search, /_msearch, /_bulk, /_doc                                                       |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
+| AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
+| AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
+| SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
+| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), MCP. Requires HTTP payload capture.
 
 ## GenAI token usage availability
 
@@ -131,15 +132,29 @@ for the request direction and, separately, the total bytes captured for the resp
 `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP=4096` captures up to 4096 bytes of request body and up to 4096 bytes of response body.
 Large payloads are streamed to userspace across multiple ring-buffer events and reassembled there.
 
+The HTTP buffer size currently covers **HTTP/1** (plaintext and TLS) on both the generic and Go tracers. HTTP/2 payload
+capture exists only for **Go clients** (`go_http2_client_connections`). Generic HTTP/2 never emits large buffers, and
+Go HTTP/2 **servers** do not. gRPC message bodies are not captured: they are protobuf, and OBI has no access to the
+application's `.proto`.
+
 | Environment variable               | Protocol   | Maximum | Default      |
 |:-----------------------------------|:----------:|--------:|:------------:|
-| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP       | 262144  | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP/1     | 262144  | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL`  | MySQL      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA`  | Kafka      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | PostgreSQL | 65535 | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL`  | MSSQL      | 65535   | 0 (disabled) |
 
 Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,mssql}`.
+
+## Node.js Manual Spans
+
+Since OBI v0.12.1, OBI can capture spans that a Node.js application creates through `@opentelemetry/api` when no
+OpenTelemetry SDK is registered. Opt-in: `nodejs.manual_spans: true` or `OTEL_EBPF_NODEJS_MANUAL_SPANS=true`. The
+Node.js inspector must be reachable, and the process must not register its own `SIGUSR1` handler. If the application
+registers an SDK, OBI leaves span creation to that SDK.
+
+See [nodejs-manual-spans.md](nodejs-manual-spans.md).
 
 ## GPU Instrumentation
 
@@ -160,10 +175,10 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 
 | Framework           | Languages |         Versions | Limitations                                       | Status
 |:--------------------|:---------:|-----------------:|:--------------------------------------------------|:-------------
-| Go Routines         |    Go     |       Go >= 1.18 | up to 3 nested levels of goroutines               | Stable
+| Go Routines         |    Go     |       Go >= 1.18 | up to 6 nested levels of goroutines               | Stable
 | Go channel span links |  Go     |       Go >= 1.17 | `select` paths are not supported                  | Experimental
 | Node.js Async Hooks |  Node.js  |   Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
 | Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
-| Java Thread pool    |   Java    |           JDK 8+ | N/A                                               | Stable
+| Java Thread pool    |   Java    |           JDK 8+ | Parent lookup walks up to 3 thread-nesting levels | Stable
 | Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads      | Stable
 | Python asyncio      |  Python   |    Python >= 3.9 | Only works with uvloop event loop                 | Stable

@@ -194,7 +194,14 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return attribute.KeyValue{}
 		}
 	case attr.DBNamespace:
-		getter = func(span *Span) attribute.KeyValue { return DBNamespace(span.DBNamespace) }
+		getter = func(span *Span) attribute.KeyValue {
+			// db.namespace is Conditionally Required "if available": omit it
+			// instead of emitting an empty value
+			if span.DBNamespace == "" {
+				return attribute.KeyValue{}
+			}
+			return DBNamespace(span.DBNamespace)
+		}
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
 			if span.Type == EventTypeDNS && span.Status != int(dnsparser.RCodeSuccess) {

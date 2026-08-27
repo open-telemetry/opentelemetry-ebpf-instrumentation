@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/traces"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -68,12 +69,12 @@ type finisher struct {
 func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (*Instrumenter, error) {
 	setupFeatureContextInfo(ctx, ctxInfo, config)
 
-	tracesInput := msg2.QueueFromConfig[[]request.Span](config, "tracesInput")
+	tracesInput := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "tracesInput")
 
 	swi := &swarm.Instancer{}
 
-	processEventsInput := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsInput")
-	processEventsHostDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsHostDecorated")
+	processEventsInput := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsInput")
+	processEventsHostDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsHostDecorated")
 
 	swi.Add(traces.HostProcessEventDecoratorProvider(
 		&config.Attributes.InstanceID,
@@ -81,7 +82,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsHostDecorated,
 	), swarm.WithID("HostProcessEventDecoratorProvider"))
 
-	processEventsKubeDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsKubeDecorated")
+	processEventsKubeDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsKubeDecorated")
 	swi.Add(transform.KubeProcessEventDecoratorProvider(
 		ctxInfo,
 		&config.Attributes.Kubernetes,
@@ -89,14 +90,14 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsKubeDecorated,
 	), swarm.WithID("KubeProcessEventDecoratorProvider"))
 
-	processEventsDockerDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsDockerDecorated")
+	processEventsDockerDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsDockerDecorated")
 	swi.Add(transform.DockerProcessEventDecoratorProvider(
 		ctxInfo,
 		processEventsKubeDecorated,
 		processEventsDockerDecorated,
 	), swarm.WithID("DockerProcessEventDecorator"))
 
-	runtimeMetrics := newRuntimeMetricsQueue(config)
+	runtimeMetrics := newRuntimeMetricsQueue(config, ctxInfo.Metrics)
 	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
 
 	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated, runtimeMetrics)
@@ -126,7 +127,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 	return instr, nil
 }
 
-func newRuntimeMetricsQueue(config *obi.Config) *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot] {
+func newRuntimeMetricsQueue(config *obi.Config, metrics imetrics.Reporter) *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot] {
 	jointMetricsConfig := appolly.JoinMetricsConfig(config)
 	runtimeMetricsEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
 
@@ -136,7 +137,7 @@ func newRuntimeMetricsQueue(config *obi.Config) *msg.Queue[[]runtimemetrics.Runt
 		return nil
 	}
 
-	return msg2.QueueFromConfig[[]runtimemetrics.RuntimeMetricSnapshot](config, "runtimeMetrics")
+	return msg2.QueueFromConfig[[]runtimemetrics.RuntimeMetricSnapshot](config, metrics, "runtimeMetrics")
 }
 
 // FindAndInstrument searches in background for any new executable matching the

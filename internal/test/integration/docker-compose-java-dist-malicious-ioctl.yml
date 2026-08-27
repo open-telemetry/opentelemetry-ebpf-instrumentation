@@ -23,7 +23,7 @@ services:
       - /sys/fs/cgroup:/sys/fs/cgroup
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-nodejsdist:/var/run/obi
-    image: hatest-obi-b
+    image: hatest-obi-javaagent
     privileged: true
     network_mode: "host"
     pid: "host"
