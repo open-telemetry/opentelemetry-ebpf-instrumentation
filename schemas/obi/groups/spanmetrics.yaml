@@ -6,7 +6,9 @@ groups:
       Attributes used by OBI's span-metrics emission. The metric names match
       the output of the OTel collector-contrib `spanmetricsconnector` so the
       same dashboards consume both OBI-emitted and connector-emitted data.
-      Emitted when OBI's `application_span_otel` metrics feature is enabled.
+      Emitted when OBI's `application_span_otel` metrics feature is enabled,
+      except the `traces_spanmetrics_*_size_total` counters, which are gated
+      separately on the deprecated `application_span_sizes` feature.
 
       `service.name`, `service.namespace`, `service.instance.id`, `host.id`
       and `telemetry.sdk.language` are referenced from upstream OpenTelemetry
@@ -165,6 +167,11 @@ groups:
     instrument: counter
     unit: ""
     stability: development
+    deprecated:
+      reason: obsoleted
+      note: >
+        The `application_span_sizes` metrics feature that emits this counter is
+        deprecated with no replacement.
     brief: >
       Total request size observed for spans, grouped by span name / kind /
       status (legacy naming). Emitted with the `application_span_sizes`
@@ -186,6 +193,11 @@ groups:
     instrument: counter
     unit: ""
     stability: development
+    deprecated:
+      reason: obsoleted
+      note: >
+        The `application_span_sizes` metrics feature that emits this counter is
+        deprecated with no replacement.
     brief: >
       Total response size observed for spans, grouped by span name / kind /
       status (legacy naming). Emitted with the `application_span_sizes`
