@@ -308,6 +308,7 @@ type Tracer struct {
 	closers                           []io.Closer
 	disabledRouteHarvesting           bool
 	supportsBPFLoop                   bool
+	runtimeMetricsEnabled             bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
@@ -341,6 +342,7 @@ func New(
 		metrics:                           metrics,
 		disabledRouteHarvesting:           disabledRouteHarvesting,
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
+		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -1225,7 +1227,7 @@ func (p *Tracer) recordGoChannelOffsetAvailability(fileInfo *exec.FileInfo, offs
 }
 
 func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
-	if p == nil || fileInfo == nil {
+	if p == nil || !p.runtimeMetricsEnabled || fileInfo == nil {
 		return
 	}
 
@@ -1387,7 +1389,7 @@ func hasBaseGoRuntimeMetrics(mask uint64) bool {
 // into BPF. Offsets stay inode-scoped in go_offsets_map, but these addresses
 // are process-scoped for PIE/ASLR and must follow the PID allow lifecycle.
 func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *exec.FileInfo) {
-	if fileInfo == nil || p.bpfObjects.GoRuntimeMetricTargets == nil {
+	if !p.runtimeMetricsEnabled || fileInfo == nil || p.bpfObjects.GoRuntimeMetricTargets == nil {
 		return
 	}
 	identity := goOffsetsMapKey(fileInfo)
@@ -1950,24 +1952,26 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 	}
 
-	if p.goRuntimeHeapSnapshotProbeEnabled() {
-		// Go 1.23+ heap statistics use a rotating ring. Collect at nextGen after GC
-		// accounting and before the world restarts so the ring cannot rotate mid-read.
-		m[goRuntimeMetricHeapSnapshotSymbol] = []*ebpfcommon.ProbeDesc{{
-			Start: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
-		}}
-	} else {
-		// Older Go versions expose only the scalar metric set and may not contain
-		// nextGen. Keep the gcMarkDone return probe for backward compatibility.
-		m[goRuntimeMetricGCMarkDoneSymbol] = []*ebpfcommon.ProbeDesc{{
-			End: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
-		}}
-	}
+	if p.runtimeMetricsEnabled {
+		if p.goRuntimeHeapSnapshotProbeEnabled() {
+			// Go 1.23+ heap statistics use a rotating ring. Collect at nextGen after GC
+			// accounting and before the world restarts so the ring cannot rotate mid-read.
+			m[goRuntimeMetricHeapSnapshotSymbol] = []*ebpfcommon.ProbeDesc{{
+				Start: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
+			}}
+		} else {
+			// Older Go versions expose only the scalar metric set and may not contain
+			// nextGen. Keep the gcMarkDone return probe for backward compatibility.
+			m[goRuntimeMetricGCMarkDoneSymbol] = []*ebpfcommon.ProbeDesc{{
+				End: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
+			}}
+		}
 
-	if p.goRuntimeGCGoalSourceEnabled() {
-		m[goRuntimeMetricGCGoalSymbol] = []*ebpfcommon.ProbeDesc{{
-			Start: p.bpfObjects.ObiUprobeGoRuntimeGcGoal,
-		}}
+		if p.goRuntimeGCGoalSourceEnabled() {
+			m[goRuntimeMetricGCGoalSymbol] = []*ebpfcommon.ProbeDesc{{
+				Start: p.bpfObjects.ObiUprobeGoRuntimeGcGoal,
+			}}
+		}
 	}
 
 	if p.goChannelLinkProbesEnabled() {
