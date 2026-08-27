@@ -212,6 +212,9 @@ const (
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")
 
+	V8JSGCType        = Name("v8js.gc.type")
+	V8JSHeapSpaceName = Name("v8js.heap.space.name")
+
 	VendorVersionSuffix  = Name(".version")
 	VendorRevisionSuffix = Name(".revision")
 )

@@ -262,14 +262,18 @@ func TestContainerInfo(t *testing.T) {
 }
 
 func TestDecorateService(t *testing.T) {
-	t.Run("autoname_with_compose_service_sets_name", func(t *testing.T) {
+	t.Run("autoname_with_compose_service_replaces_automatic_identity", func(t *testing.T) {
 		ci := &ContainerMeta{Name: "my-container", ComposeService: "web"}
-		s := &svc.Attrs{}
+		s := &svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "acme"}}
 		s.SetAutoName()
+		s.SetAutoNamespace()
 
 		ci.DecorateService(s)
 
 		assert.Equal(t, "web", s.UID.Name)
+		// if docker decorated the namespace, lose any previously determined
+		// namespace by lower level, language specific naming.
+		assert.Empty(t, s.UID.Namespace)
 		assert.Equal(t, "web.my-container", s.UID.Instance)
 	})
 
@@ -284,13 +288,16 @@ func TestDecorateService(t *testing.T) {
 		assert.Equal(t, "my-container", s.UID.Instance)
 	})
 
-	t.Run("with_namespace_builds_instance_from_namespace", func(t *testing.T) {
+	t.Run("autoname_preserves_explicit_namespace", func(t *testing.T) {
 		ci := &ContainerMeta{Name: "my-container", ComposeService: "web"}
-		s := &svc.Attrs{UID: svc.UID{Namespace: "prod", Name: "svc"}}
+		s := &svc.Attrs{UID: svc.UID{Namespace: "prod", Name: "orders"}}
+		s.SetAutoName()
 
 		ci.DecorateService(s)
 
-		assert.Equal(t, "prod.svc.my-container", s.UID.Instance)
+		assert.Equal(t, "web", s.UID.Name)
+		assert.Equal(t, "prod", s.UID.Namespace)
+		assert.Equal(t, "prod.web.my-container", s.UID.Instance)
 	})
 
 	t.Run("metadata_is_populated", func(t *testing.T) {

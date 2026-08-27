@@ -73,6 +73,16 @@ public class Agent {
     return builder;
   }
 
+  // OBI reads this property from JVMs that already have an agent attached, to tell whether the
+  // attached agent is the one it would inject.
+  private static void publishVersion() {
+    try {
+      System.setProperty(AgentVersion.PROPERTY, AgentVersion.read());
+    } catch (Exception x) {
+      logger.log(Level.WARNING, "Failed to publish the agent version", x);
+    }
+  }
+
   private static Map<String, String> parseArgs(String agentArgs) {
     Map<String, String> opts = new HashMap<>();
     if (agentArgs != null && !agentArgs.isEmpty()) {
@@ -109,6 +119,8 @@ public class Agent {
       }
       agentLoaded = true;
     }
+
+    publishVersion();
 
     Map<String, String> opts = parseArgs(agentArgs);
 

@@ -22,7 +22,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -47,6 +46,7 @@ func (e *JavaInjectError) Error() string {
 type JavaInjector struct {
 	log             *slog.Logger
 	cfg             *obi.Config
+	agentVersion    string
 	currentAttachID int64
 	mu              sync.Mutex
 }
@@ -59,9 +59,20 @@ func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
 		return nil, err
 	}
 
+	log := slog.With("component", "javaagent.Injector")
+
+	// A locally built or outdated agent JAR may carry no version marker. Injection still
+	// works, we just cannot tell whether an agent already attached to a JVM is the one we
+	// would inject.
+	agentVersion, err := agentVersionFromJar(embeddedJavaAgentBytes)
+	if err != nil {
+		log.Debug("cannot read the embedded java agent version, compatibility checks are disabled", "error", err)
+	}
+
 	return &JavaInjector{
 		cfg:             cfg,
-		log:             slog.With("component", "javaagent.Injector"),
+		log:             log,
+		agentVersion:    agentVersion,
 		currentAttachID: 0,
 	}, nil
 }
@@ -95,11 +106,9 @@ func dirOK(root, dir string) bool {
 	return err == nil && info.IsDir()
 }
 
-func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string, error) {
-	if tmpDir, ok := ie.FileInfo.ServiceAttrs().EnvVars["TMPDIR"]; ok {
-		if dirOK(root, tmpDir) {
-			return tmpDir, nil
-		}
+func (i *JavaInjector) findTempDir(root, tempDirEnv string) (string, error) {
+	if tempDirEnv != "" && dirOK(root, tempDirEnv) {
+		return tempDirEnv, nil
 	}
 
 	tmpDir := "/tmp"
@@ -137,14 +146,54 @@ func (i *JavaInjector) runIfCurrentAttach(
 	return fn()
 }
 
-func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
-	if ie.Type != svc.InstrumentableJava {
+// verifyTargetIdentity fails when Pid no longer refers to the process that was
+// queued for injection. Every attach-side operation (entering the target's
+// namespaces, dropping to its credentials, writing the agent into its root
+// filesystem, and signaling it with SIGQUIT) is destructive to an unrelated
+// process, so it must be preceded by this check.
+//
+// A target whose start time was never captured cannot be checked at all, so it
+// is refused rather than injected on the assumption that its PID still holds
+// the process discovery saw.
+func verifyTargetIdentity(target InjectionTarget) error {
+	if target.StartTime == 0 {
+		return &JavaInjectError{Message: fmt.Sprintf("identity of process %d was not captured, refusing to inject", target.Pid)}
+	}
+
+	startTime, err := processStartTime(target.Pid)
+	if err != nil {
+		return &JavaInjectError{Message: fmt.Sprintf("cannot confirm identity of process %d: %s", target.Pid, err)}
+	}
+
+	if startTime != target.StartTime {
+		return &JavaInjectError{Message: fmt.Sprintf("process %d was replaced before injection", target.Pid)}
+	}
+
+	return nil
+}
+
+// NewExecutable injects the Java agent into target. The attach deadline is
+// derived from ctx, so canceling ctx abandons an in-flight attach instead of
+// waiting out the configured timeout.
+func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget) error {
+	if target.Type != svc.InstrumentableJava {
 		return nil
+	}
+
+	// Nothing should signal a JVM once the caller has given up.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Injection is queued by PID and can start long after discovery, so the
+	// process must be proven to be the one we discovered before we touch it.
+	if err := verifyTargetIdentity(target); err != nil {
+		return err
 	}
 
 	attachID := i.nextAttachID()
 
-	ctx, cancel := context.WithTimeout(context.Background(), i.cfg.Java.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, i.cfg.Java.Timeout)
 	defer cancel()
 
 	// Channel to receive the result
@@ -177,7 +226,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 			}
 		}()
 
-		ok, jdk8 := i.verifyJVMVersion(ctx, attacher, ie.FileInfo.Pid())
+		ok, jdk8 := i.verifyJVMVersion(ctx, attacher, target.Pid)
 		if !ok {
 			resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
 			return
@@ -186,9 +235,9 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		var loaded bool
 		var err error
 		if jdk8 {
-			loaded, err = i.jdkAgentAlreadyLoadedHotspot8(ctx, attacher, ie.FileInfo.Pid())
+			loaded, err = i.jdkAgentAlreadyLoadedHotspot8(ctx, attacher, target.Pid)
 		} else {
-			loaded, err = i.jdkAgentAlreadyLoaded(ctx, attacher, ie.FileInfo.Pid())
+			loaded, err = i.jdkAgentAlreadyLoaded(ctx, attacher, target.Pid)
 		}
 
 		if err != nil {
@@ -197,22 +246,35 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		}
 
 		if loaded {
+			if err := i.verifyLoadedAgentVersion(ctx, attacher, target.Pid); err != nil {
+				resultChan <- result{err: err}
+				return
+			}
+
 			i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
 			resultChan <- result{attached: false}
 			return
 		}
 
-		i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid())
+		i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", target.Pid)
 
-		agentPath, err := i.copyAgent(ie)
-		if err != nil {
-			i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid(), "error", err)
+		// The handshake above can block for the whole attach timeout, which is
+		// long enough for the PID to be recycled before we write into the
+		// target's root filesystem and load the agent.
+		if err := verifyTargetIdentity(target); err != nil {
 			resultChan <- result{err: err}
 			return
 		}
 
-		if err = i.attachJDKAgent(ctx, attacher, ie.FileInfo.Pid(), agentPath); err != nil {
-			i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
+		agentPath, err := i.copyAgent(target.Pid, target.TempDirEnv)
+		if err != nil {
+			i.log.Error("failed to extract java agent", "pid", target.Pid, "error", err)
+			resultChan <- result{err: err}
+			return
+		}
+
+		if err = i.attachJDKAgent(ctx, attacher, target.Pid, agentPath); err != nil {
+			i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", target.Pid, "path", agentPath, "error", err)
 			resultChan <- result{err: err}
 			return
 		}
@@ -225,8 +287,12 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	case result := <-resultChan:
 		return result.err
 	case <-ctx.Done():
-		i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid())
-		return &JavaInjectError{Message: "java attach timed out"}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", target.Pid)
+			return &JavaInjectError{Message: "java attach timed out"}
+		}
+		i.log.Debug("java attach abandoned", "pid", target.Pid, "error", ctx.Err())
+		return &JavaInjectError{Message: "java attach canceled"}
 	}
 }
 
@@ -241,9 +307,9 @@ func ensureEmbeddedAgent() error {
 // to be changed in tests
 var rootDirForPID func(app.PID) string = ebpfcommon.RootDirectoryForPID
 
-func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
-	root := rootDirForPID(ie.FileInfo.Pid())
-	tempDir, err := i.findTempDir(root, ie)
+func (i *JavaInjector) copyAgent(pid app.PID, tempDirEnv string) (string, error) {
+	root := rootDirForPID(pid)
+	tempDir, err := i.findTempDir(root, tempDirEnv)
 	if err != nil {
 		return "", fmt.Errorf("error accessing temp directory: %w", err)
 	}
@@ -253,7 +319,7 @@ func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
 		return "", fmt.Errorf("invalid temp directory for injection: %q", tempDir)
 	}
 
-	i.log.Info("found injection directory for process", "pid", ie.FileInfo.Pid(), "path", fullTempDir)
+	i.log.Info("found injection directory for process", "pid", pid, "path", fullTempDir)
 
 	agentPathHost := filepath.Join(fullTempDir, ObiJavaAgentFileName)
 
@@ -439,6 +505,64 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(ctx context.Context, attach
 	}
 
 	return false, nil
+}
+
+// verifyLoadedAgentVersion checks the agent a JVM already runs against the agent OBI would
+// inject. A Java agent cannot be unloaded or upgraded in place, so on a mismatch the process
+// keeps reporting through an agent this OBI build does not understand until it is restarted.
+func (i *JavaInjector) verifyLoadedAgentVersion(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) error {
+	// nothing to compare against when the embedded agent carries no version marker
+	if i.agentVersion == "" {
+		return nil
+	}
+
+	loadedVersion, err := i.loadedAgentVersion(ctx, attacher, pid)
+	if err != nil {
+		return err
+	}
+
+	return i.verifyAgentVersion(pid, loadedVersion)
+}
+
+func (i *JavaInjector) verifyAgentVersion(pid app.PID, loadedVersion string) error {
+	if loadedVersion == i.agentVersion {
+		return nil
+	}
+
+	// Agents older than the version marker publish no version at all.
+	if loadedVersion == "" {
+		loadedVersion = "unknown"
+	}
+
+	i.log.Error("the JVM already runs an incompatible OpenTelemetry eBPF Java Agent, restart the process to instrument it with this OBI version",
+		"pid", pid, "loadedVersion", loadedVersion, "expectedVersion", i.agentVersion)
+
+	return &JavaInjectError{
+		Message: fmt.Sprintf("incompatible OpenTelemetry eBPF Java Agent already loaded: version %s, expected %s", loadedVersion, i.agentVersion),
+	}
+}
+
+func (i *JavaInjector) loadedAgentVersion(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) (string, error) {
+	attacher.Init()
+
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
+	// OpenJ9 doesn't answer jcmd queries, but we only get here after a probe that uses them
+	out, err := attacher.Attach(ctx, int(pid), []string{"jcmd", "VM.system_properties"}, true)
+	if err != nil {
+		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
+		return "", err
+	}
+
+	if out == nil {
+		return "", nil
+	}
+	defer out.Close()
+
+	return javaProperty(out, agentVersionProperty)
 }
 
 func (i *JavaInjector) verifyJVMVersion(ctx context.Context, attacher *jvm.JAttacher, pid app.PID) (bool, bool) {

@@ -88,12 +88,6 @@ struct sockaddr {
     u16 sa_family;
 };
 
-struct sockaddr_in {
-    u16 sin_family;
-    u16 sin_port;
-    u32 sin_addr;
-};
-
 struct sockaddr_in6 {
     u16 sin6_family;
     u16 sin6_port;
@@ -132,5 +126,47 @@ struct iovec {
     size_t iov_len;
 };
 struct msghdr {
+    void *msg_name;
+    int msg_namelen;
     struct iov_iter msg_iter;
+};
+struct in_addr {
+    u32 s_addr;
+};
+struct udphdr {
+    u16 source;
+    u16 dest;
+    u16 len;
+    u16 check;
+};
+struct tcphdr {
+    u16 source;
+    u16 dest;
+    u32 seq;
+    u32 ack_seq;
+    u16 res1 : 4;
+    u16 doff : 4;
+    u16 fin : 1;
+    u16 syn : 1;
+    u16 rst : 1;
+    u16 psh : 1;
+    u16 ack : 1;
+    u16 urg : 1;
+    u16 ece : 1;
+    u16 cwr : 1;
+    u16 window;
+    u16 check;
+    u16 urg_ptr;
+};
+struct __sk_buff {
+    u32 len;
+    u32 protocol;
+};
+// 16 bytes, as in bpfcore/vmlinux_*.h; obi_msg_name_port length-checks
+// msg_namelen against sizeof(struct sockaddr_in)
+struct sockaddr_in {
+    u16 sin_family;
+    u16 sin_port;
+    struct in_addr sin_addr;
+    unsigned char __pad[8];
 };

@@ -1457,6 +1457,9 @@ func TestExtractNodejsRoutes(t *testing.T) {
 	tempDir := t.TempDir()
 	testAppDir := filepath.Join(tempDir, "app")
 	require.NoError(t, os.MkdirAll(testAppDir, 0o755))
+	configDir := filepath.Join(tempDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "runtime-config"), nil, 0o644))
 
 	// Create a simple test JavaScript file with routes
 	testFile := filepath.Join(testAppDir, "server.js")
@@ -1544,7 +1547,7 @@ app.get('/api/health', (req, res) => {
 			name:        "successful extraction",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "/app/server.js"},
+			mockCmdline: []string{"/app/server.js"},
 			mockCwd:     "/app",
 			expectedRoutes: []string{
 				"/api/users",
@@ -1565,7 +1568,7 @@ app.get('/api/health', (req, res) => {
 			name:        "cwd error",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "/app/server.js"},
+			mockCmdline: []string{"/app/server.js"},
 			mockCwd:     "",
 			cwdErr:      assert.AnError,
 			expectedErr: "error finding cwd",
@@ -1574,7 +1577,7 @@ app.get('/api/health', (req, res) => {
 			name:        "script directory not found",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "/nonexistent/script.js"},
+			mockCmdline: []string{"/nonexistent/script.js"},
 			mockCwd:     "/nonexistent",
 			expectedErr: "error scanning directory, error lstat",
 		},
@@ -1582,7 +1585,7 @@ app.get('/api/health', (req, res) => {
 			name:        "relative path in args",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "server.js"},
+			mockCmdline: []string{"server.js"},
 			mockCwd:     "/app",
 			expectedRoutes: []string{
 				"/api/users",
@@ -1594,7 +1597,19 @@ app.get('/api/health', (req, res) => {
 			name:        "args with flags",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "--inspect", "/app/server.js"},
+			mockCmdline: []string{"--inspect", "/app/server.js"},
+			mockCwd:     "/app",
+			expectedRoutes: []string{
+				"/api/users",
+				"/api/users/:id",
+			},
+			expectedCount: 2,
+		},
+		{
+			name:        "config file before script",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"--experimental-config-file", "/config/runtime-config", "/app/server.js"},
 			mockCwd:     "/app",
 			expectedRoutes: []string{
 				"/api/users",
@@ -1606,7 +1621,7 @@ app.get('/api/health', (req, res) => {
 			name:        "prefers Next.js manifest and skips .next directory",
 			pid:         12346,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "/nextapp/server.js"},
+			mockCmdline: []string{"/nextapp/server.js"},
 			mockCwd:     "/nextapp",
 			expectedRoutes: []string{
 				"/about",        // from manifest (root "/" is filtered out by GetHarvestedRoutes)
@@ -1634,11 +1649,7 @@ app.get('/api/health', (req, res) => {
 				if tt.cmdlineErr != nil {
 					return "", nil, tt.cmdlineErr
 				}
-				var exe string
-				if len(tt.mockCmdline) > 0 {
-					exe = tt.mockCmdline[0]
-				}
-				return exe, tt.mockCmdline, nil
+				return "node", tt.mockCmdline, nil
 			}
 
 			cwdForPID = func(pid app.PID) (string, error) {
@@ -1699,7 +1710,7 @@ func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 	}
 
 	cmdlineForPID = func(_ app.PID) (string, []string, error) {
-		return "node", []string{"node", "server.js"}, nil
+		return "node", []string{"server.js"}, nil
 	}
 
 	cwdForPID = func(_ app.PID) (string, error) {
@@ -2000,15 +2011,15 @@ func TestExtractNodejsRoutes_CompiledDistOnly(t *testing.T) {
 	}{
 		// cwd-anchored scan: the source walk skips dist/, finds nothing, and the
 		// compiled walk descends into it
-		{name: "relative entrypoint", cmdline: []string{"node", "dist/main.js"}},
+		{name: "relative entrypoint", cmdline: []string{"dist/main.js"}},
 		// script-anchored scan: the scan root itself is the dist directory
-		{name: "absolute entrypoint inside dist", cmdline: []string{"node", "/dist/main.js"}},
+		{name: "absolute entrypoint inside dist", cmdline: []string{"/dist/main.js"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rootDirForPID = func(_ app.PID) string { return distApp }
-			cmdlineForPID = func(_ app.PID) (string, []string, error) { return tt.cmdline[0], tt.cmdline, nil }
+			cmdlineForPID = func(_ app.PID) (string, []string, error) { return "node", tt.cmdline, nil }
 			cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
 
 			result, err := ExtractNodejsRoutes(4242)
@@ -2083,7 +2094,7 @@ func TestExtractNodejsRoutes_CompiledVersionedDist(t *testing.T) {
 
 	rootDirForPID = func(_ app.PID) string { return distApp }
 	cmdlineForPID = func(_ app.PID) (string, []string, error) {
-		return "node", []string{"node", "dist/main.js"}, nil
+		return "node", []string{"dist/main.js"}, nil
 	}
 	cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
 

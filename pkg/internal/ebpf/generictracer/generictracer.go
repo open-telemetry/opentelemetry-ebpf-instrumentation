@@ -336,6 +336,14 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 		"udp_sendmsg": {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeUdpSendmsg,
+			End:      p.bpfObjects.ObiKretprobeUdpSendmsg,
+		},
+		// Not required: without it the unconnected DNS state still expires on its
+		// own, so a kernel where this symbol is unavailable loses the lifetime
+		// bound rather than the whole tracer.
+		"udp_destroy_sock": {
+			Required: false,
+			Start:    p.bpfObjects.ObiKprobeUdpDestroySock,
 		},
 		"tcp_close": {
 			Required: true,

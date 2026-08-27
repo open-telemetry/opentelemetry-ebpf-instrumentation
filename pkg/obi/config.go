@@ -81,15 +81,15 @@ const (
 )
 
 // ExtraGroupAttributesMap defines additional attributes for attribute groups.
-// Currently only "k8s_app_meta" is supported as a key.
+// Supported keys are "app" and "k8s_app_meta".
 type ExtraGroupAttributesMap map[string][]attr.Name
 
 func (ExtraGroupAttributesMap) JSONSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type:        "object",
-		Description: "Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key.",
+		Description: "Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'.",
 		PropertyNames: &jsonschema.Schema{
-			Enum: []any{"k8s_app_meta"},
+			Enum: []any{"app", "k8s_app_meta"},
 		},
 		AdditionalProperties: &jsonschema.Schema{
 			Type: "array",
@@ -501,8 +501,11 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 		WeaklyTypedInput: true,
 		DecodeHook: mapstructure.ComposeDecodeHookFunc(
 			mapstructure.StringToTimeDurationHookFunc(),
-			mapstructure.TextUnmarshallerHookFunc(),
+			// ComposeDecodeHookFunc feeds each hook the previous hook's output, so the
+			// slice-joining hook must run before TextUnmarshallerHookFunc, which only
+			// fires on strings.
 			stringSliceToTextUnmarshalerHookFunc(),
+			mapstructure.TextUnmarshallerHookFunc(),
 			inlineMetadataHookFunc(),
 		),
 	})
@@ -858,6 +861,8 @@ func (c *Config) spanMetricsFeatureMasks() []*export.Features {
 // span-metrics service back on the legacy names.
 func (c *Config) resolveSpanMetricsFormats() error {
 	resolved := false
+	legacyEnabled := false
+	otelEnabled := false
 	for _, features := range c.spanMetricsFeatureMasks() {
 		if features.InvalidSpanMetricsConfig() {
 			return ConfigError("you can only enable one format of span metrics," +
@@ -866,12 +871,18 @@ func (c *Config) resolveSpanMetricsFormats() error {
 		if features.ResolveSpanMetricsConflict() {
 			resolved = true
 		}
+		if features.LegacySpanMetrics() {
+			legacyEnabled = true
+		} else if features.SpanMetrics() {
+			otelEnabled = true
+		}
 	}
 
 	// The exporters choose the metric names from the OR of all masks, so a legacy format in
 	// one list and OTel in another would silently select legacy names for every service.
-	// Each mask is already conflict-free here, so a joined conflict is always cross-mask.
-	if c.JoinMetricsConfig().Features.InvalidSpanMetricsConfig() {
+	// Track each format separately because joining an "all" mask with an explicit legacy
+	// mask reconstructs FeatureAll and makes InvalidSpanMetricsConfig exempt the conflict.
+	if legacyEnabled && otelEnabled {
 		return ConfigError("you can only enable one format of span metrics across the" +
 			" top-level and per-service metrics features, application_span or" +
 			" application_span_otel")

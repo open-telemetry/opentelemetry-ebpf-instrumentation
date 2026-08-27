@@ -26,3 +26,6 @@ discovery:
       metrics: { features: [ "application", "application_span_otel" ] }
     - name: rtestserver
       open_ports: 8090
+attributes:
+  extra_group_attributes:
+    app: [service.name, service.namespace]
