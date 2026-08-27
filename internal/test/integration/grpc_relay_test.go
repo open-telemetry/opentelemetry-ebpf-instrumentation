@@ -607,7 +607,7 @@ func testGRPCPersistentDynTable(t *testing.T) {
 		lastFailed = lastFailed[:0]
 		traceIDs := make([]string, numRequests)
 		base := uint64(time.Now().UnixNano())
-		for i := 0; i < numRequests; i++ {
+		for i := range numRequests {
 			nowI := base + uint64(i)*1000
 			traceIDs[i] = fmt.Sprintf("%016x%016x", nowI, nowI+1)
 			req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay", nil)

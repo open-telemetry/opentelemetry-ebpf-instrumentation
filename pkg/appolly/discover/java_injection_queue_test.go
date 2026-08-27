@@ -55,8 +55,7 @@ func TestJavaInjectionQueue_InjectsOneAtATimeInOrder(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	queue.start(ctx)
 
 	var want []app.PID
@@ -114,8 +113,7 @@ func TestJavaInjectionQueue_NoTwoJVMsShareProcessCredentials(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	queue.start(ctx)
 
 	for pid := app.PID(1); pid <= targets; pid++ {
@@ -148,8 +146,7 @@ func TestJavaInjectionQueue_EnqueueDoesNotBlockOnStuckInjection(t *testing.T) {
 		return nil
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	queue.start(ctx)
 
 	queue.enqueue(javaTarget(1))

@@ -48,7 +48,7 @@ func doHTTPGetWithRawHeaders(t *testing.T, url string, status int, headers http.
 func testGenericHeaderExtraction(t *testing.T) {
 	// Send requests to /rolldice/42 with custom request headers.
 	// The test server sets response headers: Content-Type and X-Dice-Roll.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetWithHeaders(t, instrumentedServiceStdURL+"/rolldice/42", 200, map[string]string{
 			"X-Custom-Foo":  "custom-value",
 			"Authorization": "Bearer secret-token",
@@ -115,7 +115,7 @@ func testGenericHeaderExtraction(t *testing.T) {
 // the obfuscate rule for Authorization fires before the include-all rule.
 func testGenericHeaderRuleOrder(t *testing.T) {
 	// Send a request with both Authorization and a custom header.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetWithHeaders(t, instrumentedServiceStdURL+"/rolldice/99", 200, map[string]string{
 			"Authorization":   "Bearer another-secret",
 			"X-Custom-Header": "should-be-included",
@@ -169,7 +169,7 @@ func testGenericHeaderMultipleValues(t *testing.T) {
 	headers.Add("X-Custom-Triple", "beta")
 	headers.Add("X-Custom-Triple", "gamma")
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetWithRawHeaders(t, instrumentedServiceStdURL+"/rolldice/77", 200, headers.Clone())
 	}
 

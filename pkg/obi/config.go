@@ -558,7 +558,7 @@ func (c *Config) Log() {
 func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
 		// Check if target implements TextUnmarshaler
-		if to.Kind() == reflect.Ptr {
+		if to.Kind() == reflect.Pointer {
 			to = to.Elem()
 		}
 		toPtr := reflect.New(to)
@@ -602,7 +602,7 @@ func inlineMetadataHookFunc() mapstructure.DecodeHookFunc {
 
 		// Check if target type is GlobAttributes or RegexSelector
 		switch to {
-		case reflect.TypeOf(services.GlobAttributes{}), reflect.TypeOf(services.RegexSelector{}):
+		case reflect.TypeFor[services.GlobAttributes](), reflect.TypeFor[services.RegexSelector]():
 			// continue processing
 		default:
 			return data, nil

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -266,7 +267,7 @@ func testLogEnricherNodeJS(t *testing.T) {
 
 		// Log lines must appear in the same order requests were made.
 		// Using last-occurrence positions compares within the most recent batch.
-		for i := 0; i < len(logEnricherTestTraceparents)-1; i++ {
+		for i := range len(logEnricherTestTraceparents) - 1 {
 			a, b := logEnricherTestTraceparents[i], logEnricherTestTraceparents[i+1]
 			posA, okA := lastPos[a.traceID]
 			posB, okB := lastPos[b.traceID]
@@ -549,7 +550,7 @@ func testLogEnricherPythonAsyncEndpoint(t *testing.T, cl *client.Client, logEndp
 func testLogEnricherPythonAsyncOTelInstrumented(t *testing.T) {
 	waitForTestComponentsNoMetrics(t, logEnricherPythonAsyncConstants.url+logEnricherPythonAsyncConstants.smokeEndpoint)
 
-	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cl, err := client.New(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
 	defer cl.Close()
 
@@ -980,8 +981,8 @@ func testLogEnricher(t *testing.T, constants testServerConstants) {
 		logIdx := -1
 		// Loop from the end -- it might be possible that OBI wasn't ready to inject
 		// context when the test started, so get the latest request logs every time.
-		for i := len(logs) - 1; i >= 0; i-- {
-			if strings.Contains(logs[i], "span_id") {
+		for i, log := range slices.Backward(logs) {
+			if strings.Contains(log, "span_id") {
 				logIdx = i
 				break
 			}
@@ -1049,8 +1050,8 @@ func testLogEnricherPlainText(t *testing.T, constants testServerConstants) {
 }
 
 func findLogLine(logs []string, message string) string {
-	for i := len(logs) - 1; i >= 0; i-- {
-		line := logs[i]
+	for _, line := range slices.Backward(logs) {
+
 		if strings.Contains(line, message) {
 			return line
 		}
@@ -1062,7 +1063,7 @@ func findLogLine(logs []string, message string) string {
 func testLogEnricherWritevClamp(t *testing.T, constants testServerConstants) {
 	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
 
-	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cl, err := client.New(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
 	defer cl.Close()
 

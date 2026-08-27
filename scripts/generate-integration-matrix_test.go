@@ -29,7 +29,7 @@ func TestGenerateIntegrationMatrixIsCompleteUniqueAndDeterministic(t *testing.T)
 	mustWriteIntegrationTestFile(t, searchDir, "a_test.go", "TestCharlie", "TestBravo")
 	weightsFile := mustWriteWeightsFile(t, `{"_default": 1}`)
 	var first string
-	for run := 0; run < 5; run++ {
+	for run := range 5 {
 		stdout, stderr, err := runGenerateIntegrationMatrix(t, searchDir, "3", "", weightsFile, "")
 		if err != nil {
 			t.Fatalf("run %d failed: %v\nstderr:\n%s", run, err, stderr)
@@ -213,7 +213,7 @@ func matrixTestNames(t *testing.T, stdout string) []string {
 	seen := map[string]bool{}
 	var names []string
 	for _, shard := range matrix.Include {
-		for _, name := range strings.Split(shard.TestPattern, "|") {
+		for name := range strings.SplitSeq(shard.TestPattern, "|") {
 			if seen[name] {
 				t.Fatalf("test %s appears more than once", name)
 			}

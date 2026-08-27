@@ -25,7 +25,7 @@ func testREDMetricsTracesForOldGRPCLibrary(t *testing.T, svcNs string) {
 
 	path := "/factorial/2"
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetIgnoreStatus(t, url+path)
 	}
 

@@ -86,7 +86,7 @@ func setupGoOTelTestServer(t *testing.T, net dockertest.Network, env []string) {
 }
 
 func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
@@ -142,7 +142,7 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 }
 
 func testInstrumentationMissing(t *testing.T, route, svcNs string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
