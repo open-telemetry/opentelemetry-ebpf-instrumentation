@@ -445,7 +445,7 @@ func TestMetrics_CapacityGauge(t *testing.T) {
 	working := q.Subscribe(SubscriberName("working"))
 	blocked := q.Subscribe(SubscriberName("blocked"))
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		q.SendCtx(t.Context(), i)
 		// working channel reads values as long as they arrive
 		testutil.ReadChannel(t, working, timeout)
@@ -457,7 +457,7 @@ func TestMetrics_CapacityGauge(t *testing.T) {
 	assert.InDelta(t, 0.49, fp.GaugeFor("blocked"), 0.0001)
 
 	// send another batch
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		q.SendCtx(t.Context(), i)
 		testutil.ReadChannel(t, working, timeout)
 	}
@@ -466,7 +466,7 @@ func TestMetrics_CapacityGauge(t *testing.T) {
 	assert.InDelta(t, 0.99, fp.GaugeFor("blocked"), 0.0001)
 
 	// unblock blocked subscriber --> metrics should go to lowest value
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		testutil.ReadChannel(t, blocked, timeout)
 	}
 	// send a last message to force update of metrics
@@ -528,7 +528,7 @@ func TestMetrics_CapacityGauge_Saturation(t *testing.T) {
 	full := q.Subscribe(SubscriberName("full"))
 
 	// nobody reads: the 5th send observes 4 unread messages out of 5
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		q.SendCtx(t.Context(), i)
 	}
 	assert.InDelta(t, 0.8, fp.GaugeFor("full"), 0.0001)
@@ -544,7 +544,7 @@ func TestMetrics_CapacityGauge_Saturation(t *testing.T) {
 	}, timeout, time.Millisecond, "a full queue must report a ratio of exactly 1")
 
 	// drain, unblocking the pending sender
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		testutil.ReadChannel(t, full, timeout)
 	}
 	testutil.ReadChannel(t, sent, timeout)

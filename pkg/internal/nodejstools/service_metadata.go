@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -106,14 +106,15 @@ func findPackageMetadata(root, cwd, entryPoint string, env map[string]string) pa
 		return packageMetadata{}
 	}
 
-	for dir := start; ; dir = filepath.Dir(dir) {
-		if metadata, found := readPackageJSON(filepath.Join(dir, "package.json")); found {
-			return metadata
+	var metadata packageMetadata
+	_ = langtools.WalkParentDirectories(start, boundary, func(dir string) (bool, error) {
+		foundMetadata, found := readPackageJSON(filepath.Join(dir, "package.json"))
+		if found {
+			metadata = foundMetadata
 		}
-		if dir == boundary || filepath.Dir(dir) == dir {
-			return packageMetadata{}
-		}
-	}
+		return found, nil
+	})
+	return metadata
 }
 
 func packageSearchStart(root, cwd, entryPoint string) (string, bool) {
@@ -124,12 +125,8 @@ func packageSearchStart(root, cwd, entryPoint string) (string, bool) {
 		return filepath.Dir(path), true
 	}
 
-	path, ok := langtools.ResolveProcessPath(root, cwd, entryPoint)
+	path, info, ok := langtools.StatProcessPath(root, cwd, entryPoint)
 	if ok {
-		info, err := os.Stat(path)
-		if err != nil {
-			return "", false
-		}
 		if info.IsDir() {
 			return path, true
 		}
@@ -141,7 +138,7 @@ func packageSearchStart(root, cwd, entryPoint string) (string, bool) {
 }
 
 func readPackageJSON(path string) (packageMetadata, bool) {
-	file, found := openPackageJSON(path)
+	file, found := langtools.OpenMetadataFile(path, maxPackageJSONBytes)
 	if file == nil {
 		return packageMetadata{}, found
 	}
@@ -251,33 +248,20 @@ func resolveNodeExtensionFile(root, cwd, path string) (string, bool) {
 }
 
 func processDirectory(root, cwd, path string) (string, bool) {
-	resolved, ok := langtools.ResolveProcessPath(root, cwd, path)
-	if !ok {
-		return "", false
-	}
-	info, err := os.Stat(resolved)
-	return resolved, err == nil && info.IsDir()
+	resolved, info, ok := langtools.StatProcessPath(root, cwd, path)
+	return resolved, ok && info.IsDir()
 }
 
 func resolveRegularProcessFile(root, cwd, path string) (string, bool) {
-	resolved, ok := langtools.ResolveProcessPath(root, cwd, path)
-	if !ok {
-		return "", false
-	}
-	info, err := os.Stat(resolved)
-	if err != nil || !info.Mode().IsRegular() {
+	resolved, info, ok := langtools.StatProcessPath(root, cwd, path)
+	if !ok || !info.Mode().IsRegular() {
 		return "", false
 	}
 	return resolved, true
 }
 
 func pathHasNodeModules(cwd, path string) bool {
-	for _, part := range strings.Split(absoluteProcessPath(cwd, path), string(filepath.Separator)) {
-		if part == "node_modules" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.Split(absoluteProcessPath(cwd, path), string(filepath.Separator)), "node_modules")
 }
 
 func absoluteProcessPath(cwd, path string) string {

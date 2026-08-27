@@ -31,6 +31,7 @@ type Init struct {
 	ELF            *elf.File
 	Pid            app.PID
 	Ppid           app.PID
+	StartTime      uint64
 	Dev            uint64
 	Ino            uint64
 	Ns             uint32
@@ -45,6 +46,7 @@ type FileInfo struct {
 	elfFile        *elf.File
 	pid            app.PID
 	ppid           app.PID
+	startTime      uint64
 	dev            uint64
 	ino            uint64
 	ns             uint32
@@ -59,6 +61,7 @@ func New(init Init) *FileInfo {
 		elfFile:        init.ELF,
 		pid:            init.Pid,
 		ppid:           init.Ppid,
+		startTime:      init.StartTime,
 		dev:            init.Dev,
 		ino:            init.Ino,
 		ns:             init.Ns,
@@ -87,6 +90,7 @@ func (fi *FileInfo) SetRuntimeMetricGeneration(pid app.PID, generation uint64) {
 
 func (fi *FileInfo) Pid() app.PID           { return fi.pid }
 func (fi *FileInfo) Ppid() app.PID          { return fi.ppid }
+func (fi *FileInfo) StartTime() uint64      { return fi.startTime }
 func (fi *FileInfo) Dev() uint64            { return fi.dev }
 func (fi *FileInfo) Ino() uint64            { return fi.ino }
 func (fi *FileInfo) Ns() uint32             { return fi.ns }

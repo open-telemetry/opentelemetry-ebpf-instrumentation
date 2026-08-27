@@ -31,6 +31,9 @@ import (
 )
 
 func TestGoOffsetsMapKey(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping test because not on linux")
+	}
 	const inode = uint64(123)
 
 	testCases := []struct {
@@ -95,7 +98,7 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 	var offTable BpfOffTableT
 
-	initMissingGoChannelOffsets(&offTable)
+	initMissingGoOffsets(&offTable, goChannelOffsetFields[:])
 
 	for _, field := range goChannelOffsetFields {
 		assert.Equal(t, missingGoOffset, offTable.Table[field])
@@ -103,10 +106,27 @@ func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
 }
 
+func TestMissingGoGRPCBufWriterOffsetsUseSentinel(t *testing.T) {
+	var offTable BpfOffTableT
+
+	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
+
+	for _, field := range goGRPCBufWriterOffsetFields {
+		assert.Equal(t, missingGoOffset, offTable.Table[field])
+	}
+	for _, field := range []goexec.GoOffset{
+		goexec.FramerWPos,
+		goexec.IoWriterBufPtrPos,
+		goexec.IoWriterNPos,
+	} {
+		assert.Zero(t, offTable.Table[field])
+	}
+}
+
 func TestGoAutoSDKSpanContextOffsetsUseSentinelAndPreserveZero(t *testing.T) {
 	var offTable BpfOffTableT
 
-	initMissingGoAutoSDKSpanContextOffsets(&offTable)
+	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
 
 	for _, field := range goAutoSDKSpanContextOffsetFields {
 		assert.Equal(t, missingGoOffset, offTable.Table[field])

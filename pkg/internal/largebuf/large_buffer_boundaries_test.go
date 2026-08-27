@@ -140,7 +140,7 @@ func TestAbsoluteMethodsIntegerBoundaries(t *testing.T) {
 func TestChunkLayoutsMatchFlatOracle(t *testing.T) {
 	rng := rand.New(rand.NewPCG(20260803, 1))
 
-	for iteration := 0; iteration < 64; iteration++ {
+	for range 64 {
 		data := make([]byte, 1+rng.IntN(64))
 		layout := make([]byte, 1+rng.IntN(16))
 		for i := range data {
@@ -151,7 +151,7 @@ func TestChunkLayoutsMatchFlatOracle(t *testing.T) {
 		}
 		lb := chunkedLargeBuffer(data, layout)
 
-		for sample := 0; sample < 16; sample++ {
+		for range 16 {
 			offset := rng.IntN(len(data) + 1)
 			n := rng.IntN(len(data) - offset + 1)
 			want := data[offset : offset+n]
@@ -288,10 +288,7 @@ func chunkedLargeBuffer(data, layout []byte) *LargeBuffer {
 		if position == len(data) {
 			break
 		}
-		n := int(width)%8 + 1
-		if n > len(data)-position {
-			n = len(data) - position
-		}
+		n := min(int(width)%8+1, len(data)-position)
 		lb.AppendChunk(data[position : position+n])
 		position += n
 	}

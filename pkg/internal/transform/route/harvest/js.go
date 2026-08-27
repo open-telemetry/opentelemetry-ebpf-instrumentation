@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1610,9 +1611,7 @@ func FindNodeJSAppDir(pid app.PID) (string, error) {
 // JavaScript lives precisely in the directories the source scan skips.
 var compiledSkipDirs = func() map[string]string {
 	m := make(map[string]string, len(skipDirs))
-	for k, v := range skipDirs {
-		m[k] = v
-	}
+	maps.Copy(m, skipDirs)
 	delete(m, "dist")
 	delete(m, "build")
 	return m

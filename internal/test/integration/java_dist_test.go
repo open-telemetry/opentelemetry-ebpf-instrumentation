@@ -59,7 +59,7 @@ func testJavaNestedTraces(t *testing.T, slug string) {
 func testJavaNestedTracesPlainHTTP(t *testing.T, slug string) {
 	t.Log("checking server to client nesting over plain HTTP for [/api/" + slug + "]")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			ti.DoHTTPGet(ct, "http://localhost:8081/api/"+slug+"?url=http://downstream:8086/rolldice/1", 200)
 		}
 

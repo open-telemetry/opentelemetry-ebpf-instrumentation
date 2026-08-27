@@ -255,7 +255,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, mr.selector)
 	}
 	log.Debug("creating new Metrics reporter")
-	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
+	resources := resource.NewWithAttributes(attr.OBISchemaURL, resourceAttributes...)
 
 	opts := []metric.Option{
 		metric.WithResource(resources),

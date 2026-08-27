@@ -25,7 +25,7 @@ import (
 // under OBI's "processing" sub-span, which carries the in-flight request
 // context that the bridge spans inherit).
 func testHTTPTracesNodeManualSpans(t *testing.T) {
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		ti.DoHTTPGet(t, "http://localhost:3031/manual", 200)
 	}
 
@@ -133,7 +133,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 // background span ends, mis-parenting it into that trace. The request's own
 // manual span ("slow-op") must still re-anchor correctly afterwards.
 func testHTTPTracesNodeManualBackgroundSpan(t *testing.T) {
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		ti.DoHTTPGet(t, "http://localhost:3031/manual-slow", 200)
 	}
 

@@ -31,6 +31,8 @@ func FindINodeForPID(pid app.PID) (dev uint64, ino uint64, err error) {
 }
 
 func findExecElf(p *services.ProcessInfo, svcID *svc.Attrs) (*exec.FileInfo, error) {
+	startTime, _ := procs.StartTime(p.Pid)
+
 	// In container environments or K8s, we can't just open the executable exe path, because it might
 	// be in the volume of another pod/container. We need to access it through the /proc/<pid>/exe symbolic link
 	ns, err := procs.FindNamespace(p.Pid)
@@ -61,6 +63,7 @@ func findExecElf(p *services.ProcessInfo, svcID *svc.Attrs) (*exec.FileInfo, err
 		ELF:            elfFile,
 		Pid:            p.Pid,
 		Ppid:           p.PPid,
+		StartTime:      startTime,
 		Dev:            dev,
 		Ino:            ino,
 		Ns:             ns,
