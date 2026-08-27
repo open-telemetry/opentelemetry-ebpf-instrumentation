@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package frameworks // import "go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 
 import (
