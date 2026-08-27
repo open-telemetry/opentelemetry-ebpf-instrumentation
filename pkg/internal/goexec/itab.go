@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -70,15 +71,13 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 	if err != nil {
 		return nil, err
 	}
-	for typeName, address := range moduleImplementations {
-		implementations[typeName] = address
-	}
+	maps.Copy(implementations, moduleImplementations)
 	return implementations, nil
 }
 
 func findInterfaceImplsFromModuledata(ef *elf.File) (map[string]uint64, error) {
 	if ef.Class != elf.ELFCLASS64 {
-		return nil, errors.New("Go 1.27 itab discovery only supports 64-bit ELF")
+		return nil, errors.New("go 1.27 itab discovery only supports 64-bit ELF")
 	}
 
 	gopclntab := ef.Section(".gopclntab")
@@ -119,7 +118,7 @@ func readGo127InterfaceImpls(
 		return nil, errors.New("invalid Go 1.27 type metadata")
 	}
 	if itabOffset > ^uint64(0)-types || itabSize > ^uint64(0)-(types+itabOffset) {
-		return nil, errors.New("Go 1.27 itab metadata overflows address space")
+		return nil, errors.New("go 1.27 itab metadata overflows address space")
 	}
 
 	implementations := map[string]uint64{}
