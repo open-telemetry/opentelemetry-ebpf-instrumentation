@@ -125,7 +125,9 @@ func (r *metricsReporter) collectRuntimeMetricsLocked(snapshots []runtimemetrics
 			}
 		}
 		if snapshot.JVM != nil {
-			r.collectJVMRuntimeMetrics(snapshot)
+			if r.runtimeSnapshotProcessLive(snapshot) {
+				r.collectJVMRuntimeMetrics(snapshot)
+			}
 		}
 		if snapshot.Nodejs != nil {
 			r.collectNodejsRuntimeMetrics(snapshot)
@@ -144,10 +146,14 @@ func (r *metricsReporter) collectRuntimeMetricsLocked(snapshots []runtimemetrics
 func (r *metricsReporter) runtimeSnapshotProcessLive(
 	snapshot runtimemetrics.RuntimeMetricSnapshot,
 ) bool {
-	if snapshot.PID == 0 {
+	pid := snapshot.PID
+	if snapshot.JVM != nil {
+		pid = snapshot.Service.ProcPID
+	}
+	if pid == 0 {
 		return true
 	}
-	return r.pidsTracker.PIDLiveOrUnknown(snapshot.PID, snapshot.Service.UID, snapshot.Generation)
+	return r.pidsTracker.PIDLiveOrUnknown(pid, snapshot.Service.UID, snapshot.Generation)
 }
 
 func (r *metricsReporter) runtimeMetricsEnabled() runtimemetrics.Enabled {
@@ -361,6 +367,14 @@ func (c *runtimeCounterTracker) deleteAggregate(
 
 func runtimeMetricLabelsKey(labels []string) string {
 	return runtimeMetricLabelTuple(labels)
+}
+
+func (c *runtimeCounterTracker) deleteAggregateSource(metric string, labels []string, source string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	keyParts := append([]string{metric}, labels...)
+	delete(c.values, runtimeMetricLabelsKey(append(keyParts, source)))
 }
 
 func (c *goRuntimeMetricsCollector) collectCPUTime(

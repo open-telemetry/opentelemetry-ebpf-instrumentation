@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -51,6 +52,7 @@ type Tracer struct {
 	ingressFilters   map[ifaces.Interface]*netlink.BpfFilter
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
 	libsMux          sync.Mutex
+	jvmGenerations   sync.Map
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
@@ -151,6 +153,10 @@ func (p *Tracer) rebuildValidPids() error {
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	if generation := ensureJVMRuntimeMetricGeneration(fi); generation != 0 {
+		p.jvmGenerations.Store(pid, generation)
+	}
+
 	serviceSource := fi
 	if source := fi.RuntimeMetricServiceSource(); source != nil {
 		serviceSource = source
@@ -172,7 +178,18 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 }
 
+func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
+	if fi.ServiceAttrs().SDKLanguage != svc.InstrumentableJava {
+		return 0
+	}
+	if fi.RuntimeMetricGeneration(fi.Pid()) == 0 {
+		fi.SetRuntimeMetricGeneration(fi.Pid(), ebpfcommon.NewRuntimeMetricGeneration())
+	}
+	return fi.RuntimeMetricGeneration(fi.Pid())
+}
+
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
+	p.jvmGenerations.Delete(pid)
 	p.pidsFilter.BlockPID(pid, ns)
 
 	if err := p.rebuildValidPids(); err != nil {
@@ -852,6 +869,9 @@ func (p *Tracer) parseJVMRuntimeRecord(record *ringbuf.Record) (jvmruntime.JVMRu
 	}
 	if !ebpfcommon.DecorateJVMRuntimeEvent(p.pidsFilter, &event) {
 		return jvmruntime.JVMRuntimeEvent{}, true, nil
+	}
+	if generation, ok := p.jvmGenerations.Load(app.PID(raw.GlobalPid)); ok {
+		event.Generation = generation.(uint64)
 	}
 
 	return event, false, nil

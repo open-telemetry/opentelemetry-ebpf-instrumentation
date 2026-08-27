@@ -23,7 +23,6 @@ import (
 	"os"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -132,16 +131,6 @@ type goAutoSDKActivationEvent struct {
 const missingGoOffset = ^uint64(0)
 
 const goAutoSDKActivationMaxAttempts = 3
-
-var nextRuntimeMetricGeneration atomic.Uint64
-
-func newRuntimeMetricGeneration() uint64 {
-	for {
-		if generation := nextRuntimeMetricGeneration.Add(1); generation != 0 {
-			return generation
-		}
-	}
-}
 
 // Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h. Scalar
 // bits also mirror the raw snapshot masks in pkg/runtimemetrics/reader.go.
@@ -1413,7 +1402,7 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 	p.goRuntimeMetricMaskByExecutable[identity] = availableMask
 	generation := fileInfo.RuntimeMetricGeneration(pid)
 	if generation == 0 {
-		generation = newRuntimeMetricGeneration()
+		generation = ebpfcommon.NewRuntimeMetricGeneration()
 	}
 
 	value := BpfGoRuntimeMetricTargetT{

@@ -52,9 +52,11 @@ func TestRuntimeMetricsReporterEvictsServiceAfterLastPIDTerminates(t *testing.T)
 		pidTracker: NewPidServiceTracker(),
 	}
 	processEvent := func(pid app.PID, eventType exec.ProcessEventType) *exec.ProcessEvent {
+		file := exec.New(exec.Init{Pid: pid, Service: service})
+		file.SetRuntimeMetricGeneration(pid, uint64(pid))
 		return &exec.ProcessEvent{
 			Type: eventType,
-			File: exec.New(exec.Init{Pid: pid, Service: service}),
+			File: file,
 		}
 	}
 
@@ -62,8 +64,14 @@ func TestRuntimeMetricsReporterEvictsServiceAfterLastPIDTerminates(t *testing.T)
 	reporter.onProcessEvent(processEvent(202, exec.ProcessEventCreated))
 	first, err := reporter.reporters.For(&service)
 	require.NoError(t, err)
+	first.jvmMetrics.runtimeEntries = map[jvmRuntimeEntryKey]*jvmRuntimeEntry{
+		{pid: 101, generation: 101}: {},
+		{pid: 202, generation: 202}: {},
+	}
 
 	reporter.onProcessEvent(processEvent(101, exec.ProcessEventTerminated))
+	assert.NotContains(t, first.jvmMetrics.runtimeEntries, jvmRuntimeEntryKey{pid: 101, generation: 101})
+	assert.Contains(t, first.jvmMetrics.runtimeEntries, jvmRuntimeEntryKey{pid: 202, generation: 202})
 	current, err := reporter.reporters.For(&service)
 	require.NoError(t, err)
 	assert.Same(t, first, current)

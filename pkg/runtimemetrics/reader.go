@@ -651,9 +651,10 @@ func SnapshotFromJVMGCEvent(event appruntime.JVMGCEvent) RuntimeMetricSnapshot {
 func SnapshotFromJVMRuntimeEvent(event appruntime.JVMRuntimeEvent) RuntimeMetricSnapshot {
 	values := event.Values
 	return RuntimeMetricSnapshot{
-		Service: event.Service,
-		PID:     event.PID,
-		Time:    event.Time,
+		Service:    event.Service,
+		PID:        event.PID,
+		Generation: event.Generation,
+		Time:       event.Time,
 		JVM: &JVMRuntimeMetricSnapshot{
 			RuntimeValues: &values,
 		},

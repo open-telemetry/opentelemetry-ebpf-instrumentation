@@ -16,12 +16,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 final class JVMRuntimeMetrics {
   static final long DEFAULT_SAMPLING_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(10);
-  private static final Logger logger = Logger.getLogger("JVMRuntimeMetrics");
   private static final AtomicBoolean started = new AtomicBoolean();
   private static NativeMemory packet;
 
@@ -52,7 +49,7 @@ final class JVMRuntimeMetrics {
     try {
       collection.run();
     } catch (Throwable error) {
-      logger.log(Level.WARNING, "Failed to collect JVM runtime metrics", error);
+      System.err.println("Failed to collect JVM runtime metrics: " + error);
     }
   }
 

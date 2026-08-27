@@ -6,10 +6,22 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 
 	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
+
+var nextRuntimeMetricGeneration atomic.Uint64
+
+// NewRuntimeMetricGeneration returns a process-lifetime identifier shared by runtime tracers.
+func NewRuntimeMetricGeneration() uint64 {
+	for {
+		if generation := nextRuntimeMetricGeneration.Add(1); generation != 0 {
+			return generation
+		}
+	}
+}
 
 type RuntimeMetricSender interface {
 	SendGoRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error

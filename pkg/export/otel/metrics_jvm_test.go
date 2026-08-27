@@ -260,6 +260,81 @@ func TestRuntimeMetricsReporterRecordsJVMClassMetrics(t *testing.T) {
 	readJVMMetricRecordValue(t, records, "jvm.thread.count", 0)
 }
 
+func TestRuntimeMetricsReporterRetainsJVMCounterBaselineBeyondTTL(t *testing.T) {
+	originalTimeNow := timeNow
+	clock := &syncedClock{now: time.Now()}
+	timeNow = clock.Now
+	t.Cleanup(func() { timeNow = originalTimeNow })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	const ttl = time.Minute
+	records := make(chan jvmMetricRecord, 100)
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          20 * time.Millisecond,
+		TTL:               ttl,
+		ReportersCacheLen: 10,
+		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+	}
+	reporter, err := newRuntimeMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		cfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+	)
+	require.NoError(t, err)
+	defer reporter.close()
+
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+		ProcPID:  101,
+		Features: export.FeatureApplicationRuntime,
+	}
+	file := exec.New(exec.Init{Pid: service.ProcPID, Service: service})
+	file.SetRuntimeMetricGeneration(service.ProcPID, 17)
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventCreated, File: file})
+
+	runtimeSnapshot := func(loaded uint64, cpuTime int64) runtimemetrics.RuntimeMetricSnapshot {
+		return runtimemetrics.RuntimeMetricSnapshot{
+			Service:    service,
+			Generation: 17,
+			JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+				RuntimeValues: &jvmruntime.JVMRuntimeValues{
+					TotalLoadedClassCount: loaded,
+					ProcessCPUTimeNS:      cpuTime,
+				},
+			},
+		}
+	}
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
+		runtimeSnapshot(100, 2_000_000_000),
+	})
+	readJVMMetricRecordValue(t, records, "jvm.class.loaded", 100)
+	readJVMMetricRecordValue(t, records, "jvm.cpu.time", 2)
+
+	clock.Advance(40 * time.Second)
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: service,
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			Kind:       jvmruntime.JVMMetricMemoryUsed,
+			MemoryType: jvmruntime.JVMMemoryTypeHeap,
+			PoolName:   "G1 Old Gen",
+			ValueBytes: 42,
+		},
+	}})
+	clock.Advance(40 * time.Second)
+
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
+		runtimeSnapshot(110, 3_000_000_000),
+	})
+	readJVMMetricRecordValue(t, records, "jvm.class.loaded", 110)
+	readJVMMetricRecordValue(t, records, "jvm.cpu.time", 3)
+}
+
 func TestJVMThreadOTELAttributes(t *testing.T) {
 	for _, daemon := range []bool{false, true} {
 		fields := jvmThreadOTELAttributes(daemon)

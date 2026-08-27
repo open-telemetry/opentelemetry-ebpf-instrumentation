@@ -6,15 +6,14 @@ package otel // import "go.opentelemetry.io/obi/pkg/export/otel"
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-	"go.opentelemetry.io/obi/pkg/export/expire"
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
@@ -33,10 +32,12 @@ type jvmRuntimeMetrics struct {
 	cpuTime               instrument.Float64Counter
 	cpuCount              *runtimeCurrentUpDownCounter
 	cpuRecentUtilization  instrument.Float64Gauge
-	runtimeEntries        *expire.ExpiryMap[*jvmRuntimeEntry]
-	clock                 expire.Clock
-	lastExpiration        time.Time
-	ttl                   time.Duration
+	runtimeEntries        map[jvmRuntimeEntryKey]*jvmRuntimeEntry
+}
+
+type jvmRuntimeEntryKey struct {
+	pid        app.PID
+	generation uint64
 }
 
 type jvmRuntimeEntry struct {
@@ -50,10 +51,7 @@ func setupJVMRuntimeMeters(ctx context.Context, m *jvmRuntimeMetrics, meter inst
 	var err error
 
 	m.ctx = ctx
-	m.runtimeEntries = expire.NewExpiryMap[*jvmRuntimeEntry](timeNow, ttl)
-	m.clock = timeNow
-	m.lastExpiration = timeNow()
-	m.ttl = ttl
+	m.runtimeEntries = map[jvmRuntimeEntryKey]*jvmRuntimeEntry{}
 	memoryUsed, err := meter.Int64UpDownCounter(attributes.JVMMemoryUsed.OTEL, instrument.WithUnit(attributes.JVMMemoryUsed.Unit))
 	if err != nil {
 		return fmt.Errorf("creating JVM memory used up-down counter: %w", err)
@@ -122,17 +120,15 @@ func (m *jvmRuntimeMetrics) record(snapshot runtimemetrics.RuntimeMetricSnapshot
 		return
 	}
 	if values := snapshot.JVM.RuntimeValues; values != nil {
-		now := m.clock()
-		if now.Sub(m.lastExpiration) >= m.ttl {
-			m.runtimeEntries.DeleteExpired()
-			m.lastExpiration = now
+		key := jvmRuntimeEntryKey{
+			pid:        snapshot.Service.ProcPID,
+			generation: snapshot.Generation,
 		}
-
-		entryKey := strconv.Itoa(int(snapshot.Service.ProcPID))
-		entry := m.runtimeEntries.GetOrCreate(
-			[]string{entryKey},
-			func() *jvmRuntimeEntry { return &jvmRuntimeEntry{} },
-		)
+		entry := m.runtimeEntries[key]
+		if entry == nil {
+			entry = &jvmRuntimeEntry{}
+			m.runtimeEntries[key] = entry
+		}
 		recordJVMRuntimeCounter(m.ctx, m.classLoaded, &entry.classLoaded, values.TotalLoadedClassCount)
 		recordJVMRuntimeCounter(m.ctx, m.classUnloaded, &entry.classUnloaded, values.UnloadedClassCount)
 		m.classCount.Record(snapshot, int64(values.LoadedClassCount))
@@ -170,6 +166,10 @@ func (m *jvmRuntimeMetrics) record(snapshot runtimemetrics.RuntimeMetricSnapshot
 	case jvmruntime.JVMMetricMemoryUsedAfterLastGC:
 		m.memoryUsedAfterLastGC.Record(snapshot, value)
 	}
+}
+
+func (m *jvmRuntimeMetrics) deleteProcess(pid app.PID, generation uint64) {
+	delete(m.runtimeEntries, jvmRuntimeEntryKey{pid: pid, generation: generation})
 }
 
 func recordJVMRuntimeCounter(

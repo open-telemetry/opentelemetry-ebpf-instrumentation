@@ -328,10 +328,12 @@ func TestParseJVMRuntimeRecordUsesGeneratedBPFStruct(t *testing.T) {
 	tracer := &Tracer{pidsFilter: fakeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
 		99: {55: service},
 	}}}
+	tracer.jvmGenerations.Store(app.PID(101), uint64(17))
 
 	event, ignore, err := tracer.parseJVMRuntimeRecord(&ringbuf.Record{RawSample: rawPayload(
 		BpfJvmRuntimeMetricsEvent{
 			Timestamp:                12345,
+			GlobalPid:                101,
 			NsPid:                    55,
 			PidNsId:                  99,
 			LoadedClassCount:         11,
@@ -350,6 +352,7 @@ func TestParseJVMRuntimeRecordUsesGeneratedBPFStruct(t *testing.T) {
 	assert.Equal(t, service, event.Service)
 	assert.Equal(t, app.PID(55), event.PID)
 	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, uint64(17), event.Generation)
 	assert.Equal(t, jvmruntime.JVMRuntimeValues{
 		LoadedClassCount:        11,
 		TotalLoadedClassCount:   12,
@@ -361,6 +364,20 @@ func TestParseJVMRuntimeRecordUsesGeneratedBPFStruct(t *testing.T) {
 		RecentCPUUtilization:    0.25,
 	}, event.Values)
 	assert.False(t, event.Time.IsZero())
+}
+
+func TestEnsureJVMRuntimeMetricGeneration(t *testing.T) {
+	file := exec.New(exec.Init{
+		Pid:     101,
+		Service: svc.Attrs{SDKLanguage: svc.InstrumentableJava},
+	})
+
+	ensureJVMRuntimeMetricGeneration(file)
+	first := file.RuntimeMetricGeneration(101)
+	second := ensureJVMRuntimeMetricGeneration(file)
+
+	assert.NotZero(t, first)
+	assert.Equal(t, first, second)
 }
 
 // Ties the clang-compiled layout of struct nodejs_eventloop_event (via the

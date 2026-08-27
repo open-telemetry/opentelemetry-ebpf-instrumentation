@@ -9,7 +9,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
@@ -94,7 +96,7 @@ func (r *metricsReporter) collectJVMRuntimeMetrics(snapshot runtimemetrics.Runti
 	}
 	if values := snapshot.JVM.RuntimeValues; values != nil {
 		labels := runtimeServiceLabelValues(snapshot)
-		source := strconv.Itoa(int(snapshot.Service.ProcPID))
+		source := jvmRuntimeSource(snapshot.Service.ProcPID, snapshot.Generation)
 		r.jvmRuntimeMetrics.counters.addToAggregate(
 			r.jvmRuntimeMetrics.classLoaded,
 			attributes.JVMClassLoaded.Prom,
@@ -146,6 +148,22 @@ func (r *metricsReporter) collectJVMRuntimeMetrics(snapshot runtimemetrics.Runti
 	case jvmruntime.JVMMetricMemoryUsedAfterLastGC:
 		r.jvmRuntimeMetrics.memoryUsedAfterLastGC.WithLabelValues(jvmMemoryLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
 	}
+}
+
+func (c *jvmRuntimeMetricsCollector) deleteSource(service *svc.Attrs, pid app.PID, generation uint64) {
+	if service == nil || c.classLoaded == nil {
+		return
+	}
+
+	labels := runtimeServiceLabelValuesForService(*service)
+	source := jvmRuntimeSource(pid, generation)
+	c.counters.deleteAggregateSource(attributes.JVMClassLoaded.Prom, labels, source)
+	c.counters.deleteAggregateSource(attributes.JVMClassUnloaded.Prom, labels, source)
+	c.counters.deleteAggregateSource(attributes.JVMCPUTime.Prom, labels, source)
+}
+
+func jvmRuntimeSource(pid app.PID, generation uint64) string {
+	return strconv.Itoa(int(pid)) + ":" + strconv.FormatUint(generation, 10)
 }
 
 func jvmMemoryLabels() []string {

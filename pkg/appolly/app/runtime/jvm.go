@@ -67,6 +67,7 @@ type JVMRuntimeValues struct {
 type JVMRuntimeEvent struct {
 	PID            app.PID
 	PIDNamespaceID uint32
+	Generation     uint64
 	Service        svc.Attrs
 	Time           time.Time
 	Values         JVMRuntimeValues

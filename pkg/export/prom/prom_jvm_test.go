@@ -44,19 +44,22 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 		ProcPID:  101,
 		Features: export.FeatureApplicationRuntime,
 	}
-	processEvent := func(service svc.Attrs, eventType exec.ProcessEventType) exec.ProcessEvent {
+	processEvent := func(service svc.Attrs, eventType exec.ProcessEventType, generation uint64) exec.ProcessEvent {
+		file := exec.New(exec.Init{Pid: service.ProcPID, Service: service})
+		file.SetRuntimeMetricGeneration(service.ProcPID, generation)
 		return exec.ProcessEvent{
 			Type: eventType,
-			File: exec.New(exec.Init{Pid: service.ProcPID, Service: service}),
+			File: file,
 		}
 	}
 	reporter.handleProcessEvent(
-		processEvent(service, exec.ProcessEventCreated),
+		processEvent(service, exec.ProcessEventCreated, 1),
 		slog.Default(),
 	)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: service,
+		Service:    service,
+		Generation: 1,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,
@@ -77,7 +80,8 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 	assert.InEpsilon(t, 42.0, metric.GetGauge().GetValue(), 0)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: service,
+		Service:    service,
+		Generation: 1,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			RuntimeValues: &jvmruntime.JVMRuntimeValues{
 				LoadedClassCount:        43,
@@ -127,7 +131,7 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 	secondService := service
 	secondService.ProcPID = 202
 	reporter.handleProcessEvent(
-		processEvent(secondService, exec.ProcessEventCreated),
+		processEvent(secondService, exec.ProcessEventCreated, 1),
 		slog.Default(),
 	)
 
@@ -136,7 +140,8 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: secondService,
+		Service:    secondService,
+		Generation: 1,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			RuntimeValues: &jvmruntime.JVMRuntimeValues{
 				TotalLoadedClassCount: 40,
@@ -154,7 +159,8 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 		gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels).GetCounter().GetValue(), 0)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: service,
+		Service:    service,
+		Generation: 1,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			RuntimeValues: &jvmruntime.JVMRuntimeValues{
 				TotalLoadedClassCount: 110,
@@ -172,7 +178,8 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 		gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels).GetCounter().GetValue(), 0)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: service,
+		Service:    service,
+		Generation: 1,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			RuntimeValues: &jvmruntime.JVMRuntimeValues{
 				TotalLoadedClassCount: 110,
@@ -185,16 +192,64 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 	assert.Nil(t, gatheredMetric(t, registry, "jvm_cpu_recent_utilization_ratio", labels))
 
 	reporter.handleProcessEvent(
-		processEvent(service, exec.ProcessEventTerminated),
+		processEvent(service, exec.ProcessEventTerminated, 1),
 		slog.Default(),
 	)
+	assert.InEpsilon(t, 150.0,
+		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
+	assert.NotContains(t, reporter.jvmRuntimeMetrics.counters.values,
+		runtimeMetricLabelsKey(append(
+			append([]string{attributes.JVMClassLoaded.Prom}, runtimeServiceLabelValuesForService(service)...),
+			jvmRuntimeSource(service.ProcPID, 1),
+		)))
+
 	reporter.handleProcessEvent(
-		processEvent(secondService, exec.ProcessEventTerminated),
+		processEvent(service, exec.ProcessEventCreated, 2),
+		slog.Default(),
+	)
+	reusedSnapshot := runtimemetrics.RuntimeMetricSnapshot{
+		Service:    service,
+		Generation: 2,
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			RuntimeValues: &jvmruntime.JVMRuntimeValues{
+				TotalLoadedClassCount: 120,
+				UnloadedClassCount:    7,
+				ProcessCPUTimeNS:      4_000_000_000,
+			},
+		},
+	}
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{reusedSnapshot})
+	assert.InEpsilon(t, 270.0,
+		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 15.0,
+		gatheredMetric(t, registry, "jvm_class_unloaded_total", labels).GetCounter().GetValue(), 0)
+	assert.InEpsilon(t, 8.0,
+		gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels).GetCounter().GetValue(), 0)
+
+	staleSnapshot := reusedSnapshot
+	staleSnapshot.Generation = 1
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{staleSnapshot})
+	assert.InEpsilon(t, 270.0,
+		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0,
+		"an old JVM generation must be rejected after PID reuse")
+
+	reporter.handleProcessEvent(
+		processEvent(secondService, exec.ProcessEventTerminated, 1),
+		slog.Default(),
+	)
+	assert.InEpsilon(t, 270.0,
+		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
+	reporter.handleProcessEvent(
+		processEvent(service, exec.ProcessEventTerminated, 2),
 		slog.Default(),
 	)
 	assert.Nil(t, gatheredMetric(t, registry, "jvm_class_loaded_total", labels))
 	assert.Nil(t, gatheredMetric(t, registry, "jvm_class_unloaded_total", labels))
 	assert.Nil(t, gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels))
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{reusedSnapshot})
+	assert.Nil(t, gatheredMetric(t, registry, "jvm_class_loaded_total", labels),
+		"an in-flight snapshot must not recreate counters after termination")
 }
 
 func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T) {

@@ -471,16 +471,18 @@ func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
 		RecentCPUUtilization: 0.25,
 	}
 	event := appruntime.JVMRuntimeEvent{
-		PID:     app.PID(123),
-		Service: svc.Attrs{UID: svc.UID{Name: "orders"}},
-		Time:    time.Unix(123, 456),
-		Values:  values,
+		PID:        app.PID(123),
+		Generation: 17,
+		Service:    svc.Attrs{UID: svc.UID{Name: "orders"}},
+		Time:       time.Unix(123, 456),
+		Values:     values,
 	}
 
 	snapshot := SnapshotFromJVMRuntimeEvent(event)
 
 	require.Equal(t, event.Service, snapshot.Service)
 	require.Equal(t, event.PID, snapshot.PID)
+	require.Equal(t, event.Generation, snapshot.Generation)
 	require.Equal(t, event.Time, snapshot.Time)
 	require.NotNil(t, snapshot.JVM)
 	require.Equal(t, values, *snapshot.JVM.RuntimeValues)
@@ -517,12 +519,14 @@ func TestQueueSenderSendsJVMRuntimeMetrics(t *testing.T) {
 	values := appruntime.JVMRuntimeValues{LoadedClassCount: 11}
 
 	NewQueueSender(queue).SendJVMRuntimeMetrics(t.Context(), []appruntime.JVMRuntimeEvent{{
-		PID:    app.PID(123),
-		Values: values,
+		PID:        app.PID(123),
+		Generation: 17,
+		Values:     values,
 	}})
 
 	batch := <-received
 	require.Len(t, batch, 1)
+	require.Equal(t, uint64(17), batch[0].Generation)
 	require.Equal(t, values, *batch[0].JVM.RuntimeValues)
 }
 

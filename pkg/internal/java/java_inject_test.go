@@ -700,7 +700,7 @@ func TestNewJavaInjector_Disabled(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Nil(t, injector)
-	assert.Contains(t, logs.String(), "Java agent-backed JVM runtime metrics will not be collected")
+	assert.Contains(t, logs.String(), "JVM class loading, thread, and CPU metrics will not be collected")
 }
 
 func TestNewJavaInjector_MissingEmbeddedAgent(t *testing.T) {
