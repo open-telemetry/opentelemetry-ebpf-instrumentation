@@ -132,7 +132,7 @@ func TestPythonRuntimeBlockRemovesExactLifecycle(t *testing.T) {
 	raw := BpfPythonRuntimeMetricSnapshot{Generation: generation}
 	raw.Generations[0].Collections = 12
 	require.NoError(t, snapshots.Put(key, raw))
-	controller.block(123, 42, lifecycle, lifecycle)
+	controller.block(123, 42, lifecycle)
 
 	assert.True(t, closed.closed.Load())
 	assert.False(t, targets.hasEntries())
@@ -158,7 +158,7 @@ func TestPythonRuntimeBlockRejectsStaleLifecycle(t *testing.T) {
 	require.NoError(t, targets.Put(key, BpfPythonRuntimeMetricTarget{Generation: 8}))
 	require.NoError(t, snapshots.Put(key, BpfPythonRuntimeMetricSnapshot{Generation: 8}))
 
-	controller.block(123, 42, stale, stale)
+	controller.block(123, 42, stale)
 
 	assert.True(t, targets.hasEntries())
 	assert.True(t, snapshots.hasEntries())
@@ -188,7 +188,7 @@ func TestPythonRuntimeChildCleanupDoesNotRemoveParent(t *testing.T) {
 	require.NoError(t, snapshots.Put(parentKey, BpfPythonRuntimeMetricSnapshot{Generation: 8}))
 	require.NoError(t, snapshots.Put(childKey, BpfPythonRuntimeMetricSnapshot{Generation: 9}))
 
-	controller.block(124, 42, child, child)
+	controller.block(124, 42, child)
 
 	assert.True(t, targets.hasKey(parentKey))
 	assert.True(t, snapshots.hasKey(parentKey))

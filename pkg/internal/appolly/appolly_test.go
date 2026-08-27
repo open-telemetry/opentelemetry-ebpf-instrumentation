@@ -54,33 +54,6 @@ func TestProcessEventsLoopDoesntBlock(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestDispatchCreatedProcessEventsIncludesRuntimeMetricWorkers(t *testing.T) {
-	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(3))
-	events := processEvents.Subscribe()
-	instrumenter := &Instrumenter{processEventInput: processEvents}
-	parent := exec.New(exec.Init{Pid: 100})
-	worker := exec.New(exec.Init{Pid: 101})
-	worker.SetRuntimeMetricServiceSource(parent)
-	worker.SetRuntimeMetricGeneration(worker.Pid(), 7)
-	unattachedWorker := exec.New(exec.Init{Pid: 102})
-
-	instrumenter.dispatchCreatedProcessEvents(&ebpf.Instrumentable{
-		FileInfo:       parent,
-		ChildFileInfos: []*exec.FileInfo{worker, unattachedWorker},
-	})
-
-	createdParent := <-events
-	createdWorker := <-events
-	assert.Same(t, parent, createdParent.File)
-	assert.Same(t, worker, createdWorker.File)
-	assert.Same(t, parent, createdWorker.ServiceFile())
-	select {
-	case unexpected := <-events:
-		t.Fatalf("unexpected process event for PID %d", unexpected.File.Pid())
-	default:
-	}
-}
-
 func TestHandleProcessEventDrainsOnlyTerminatingWorkerFinal(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(2))
 	events := processEvents.Subscribe()

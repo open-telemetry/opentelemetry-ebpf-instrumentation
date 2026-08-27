@@ -442,21 +442,25 @@ func (ta *traceAttacher) updateTracerProbes(tracer *ebpf.ProcessTracer, ie *ebpf
 
 func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instrumentable) {
 	ie.CopyToServiceAttributes()
+	serviceSource := runtimeMetricServiceSource(ie.FileInfo, ie.FileInfo)
+	if serviceSource != ie.FileInfo {
+		serviceSource.ApplyServiceDefaults(ie.Type)
+	}
 
 	if ta.DynamicPIDSelector != nil {
 		ta.registerDynamicFileInfo(ie)
 	}
 
 	// allowing the tracer to forward traces from the discovered PID and its children processes
-	tracer.AllowPIDLifecycle(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo, ie.FileInfo)
+	tracer.AllowPID(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
 	for _, pid := range ie.ChildPids {
-		tracer.AllowPIDLifecycle(pid, ie.FileInfo.Ns(), instrumentableFileInfo(ie, pid), ie.FileInfo)
+		tracer.AllowPID(pid, ie.FileInfo.Ns(), ie.FileInfo)
 	}
 
 	for _, ct := range ta.commonTracers {
-		allowPIDLifecycle(ct, ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo, ie.FileInfo)
+		ct.AllowPID(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
 		for _, pid := range ie.ChildPids {
-			allowPIDLifecycle(ct, pid, ie.FileInfo.Ns(), instrumentableFileInfo(ie, pid), ie.FileInfo)
+			ct.AllowPID(pid, ie.FileInfo.Ns(), ie.FileInfo)
 		}
 	}
 
@@ -485,18 +489,6 @@ func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 	}
 }
 
-func instrumentableFileInfo(instrumentable *ebpf.Instrumentable, pid app.PID) *exec.FileInfo {
-	if instrumentable.FileInfo != nil && instrumentable.FileInfo.Pid() == pid {
-		return instrumentable.FileInfo
-	}
-	for _, fileInfo := range instrumentable.ChildFileInfos {
-		if fileInfo != nil && fileInfo.Pid() == pid {
-			return fileInfo
-		}
-	}
-	return instrumentable.FileInfo
-}
-
 func runtimeMetricServiceSource(lifecycle, fallback *exec.FileInfo) *exec.FileInfo {
 	if lifecycle != nil {
 		if source := lifecycle.RuntimeMetricServiceSource(); source != nil {
@@ -506,29 +498,14 @@ func runtimeMetricServiceSource(lifecycle, fallback *exec.FileInfo) *exec.FileIn
 	return fallback
 }
 
-func allowPIDLifecycle(
-	tracer ebpf.Tracer,
-	pid app.PID,
-	ns uint32,
-	lifecycle *exec.FileInfo,
-	serviceSource *exec.FileInfo,
-) {
-	if lifecycleTracer, ok := tracer.(ebpf.LifecyclePIDsAccounter); ok {
-		lifecycleTracer.AllowPIDLifecycle(pid, ns, lifecycle, serviceSource)
-		return
-	}
-	tracer.AllowPID(pid, ns, serviceSource)
-}
-
 func blockPIDLifecycle(
 	tracer ebpf.Tracer,
 	pid app.PID,
 	ns uint32,
 	lifecycle *exec.FileInfo,
-	serviceSource *exec.FileInfo,
 ) {
-	if lifecycleTracer, ok := tracer.(ebpf.LifecyclePIDsAccounter); ok {
-		lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle, serviceSource)
+	if lifecycleTracer, ok := tracer.(ebpf.LifecyclePIDBlocker); ok {
+		lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle)
 		return
 	}
 	tracer.BlockPID(pid, ns)
@@ -578,21 +555,14 @@ func (ta *traceAttacher) notifyProcessDeletion(ie *ebpf.Instrumentable) {
 		// to avoid that a new process reusing this PID could send traces
 		// unless explicitly allowed
 		ta.Metrics.UninstrumentProcess(ie.FileInfo.ExecutableName())
-		serviceSource := runtimeMetricServiceSource(ie.FileInfo, ie.FileInfo)
-		tracer.BlockPIDLifecycle(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo, serviceSource)
+		tracer.BlockPIDLifecycle(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
 		for _, pid := range ie.ChildPids {
-			lifecycle := instrumentableFileInfo(ie, pid)
-			tracer.BlockPIDLifecycle(
-				pid, ie.FileInfo.Ns(), lifecycle, runtimeMetricServiceSource(lifecycle, ie.FileInfo),
-			)
+			tracer.BlockPID(pid, ie.FileInfo.Ns())
 		}
 		for _, ct := range ta.commonTracers {
-			blockPIDLifecycle(ct, ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo, serviceSource)
+			blockPIDLifecycle(ct, ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
 			for _, pid := range ie.ChildPids {
-				lifecycle := instrumentableFileInfo(ie, pid)
-				blockPIDLifecycle(
-					ct, pid, ie.FileInfo.Ns(), lifecycle, runtimeMetricServiceSource(lifecycle, ie.FileInfo),
-				)
+				ct.BlockPID(pid, ie.FileInfo.Ns())
 			}
 		}
 

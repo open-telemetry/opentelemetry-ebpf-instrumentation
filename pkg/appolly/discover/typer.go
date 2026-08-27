@@ -261,8 +261,13 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	log := t.log.With("pid", execElf.Pid(), "comm", execElf.CmdExePath())
 	if ic, ok := t.instrumentableCache.Get(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}); ok {
 		log.Debug("new instance of existing executable", "type", ic.Type)
+		if parent, ok := t.currentPids[execElf.Ppid()]; ok && ic.Type == svc.InstrumentablePython &&
+			execElf.CmdExePath() == parent.CmdExePath() {
+			execElf.SetRuntimeMetricServiceSource(parent)
+		}
 		return ebpf.Instrumentable{Type: ic.Type, FileInfo: execElf, Offsets: ic.Offsets, InstrumentationError: ic.InstrumentationError}
 	}
+	lifecycle := execElf
 
 	log.Debug("getting instrumentable information")
 	// look for suitable Go application first
@@ -286,7 +291,6 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 
 	// select the parent (or grandparent) of the executable, if any
 	var child []app.PID
-	var childFileInfos []*exec.FileInfo
 	parent, ok := t.currentPids[execElf.Ppid()]
 	for ok && execElf.Ppid() != execElf.Pid() &&
 		// we will ignore parent processes that are not the same executable. For example,
@@ -295,7 +299,6 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		execElf.CmdExePath() == parent.CmdExePath() {
 		log.Debug("replacing executable by its parent", "ppid", execElf.Ppid())
 		child = append(child, execElf.Pid())
-		childFileInfos = append(childFileInfos, execElf)
 		execElf = parent
 		parent, ok = t.currentPids[parent.Ppid()]
 	}
@@ -317,13 +320,19 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	// Return the instrumentable without offsets, as it is identified as a generic
 	// (or non-instrumentable Go proxy) executable
 	t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
+	if detectedType == svc.InstrumentablePython {
+		lifecycle.SetRuntimeMetricServiceSource(execElf)
+		return ebpf.Instrumentable{
+			Type: detectedType, FileInfo: lifecycle, InstrumentationError: err,
+			LogEnricherEnabled: lifecycle.LogEnricherEnabled(),
+		}
+	}
 
 	return ebpf.Instrumentable{
 		Type:                 detectedType,
 		Offsets:              nil,
 		FileInfo:             execElf,
 		ChildPids:            child,
-		ChildFileInfos:       childFileInfos,
 		InstrumentationError: err,
 		LogEnricherEnabled:   execElf.LogEnricherEnabled(),
 	}

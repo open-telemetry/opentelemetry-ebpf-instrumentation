@@ -202,7 +202,7 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 					pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
 				})
 			}
-			i.dispatchCreatedProcessEvents(pt)
+			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: pt.FileInfo})
 		case discover.EventDeleted:
 			dp := ev.Obj
 			log.Debug("stopping ProcessTracer because there are no more instances of such process",
@@ -217,22 +217,6 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 			log.Error("BUG ALERT! unknown event type", "type", ev.Type)
 		}
 	})
-}
-
-func (i *Instrumenter) dispatchCreatedProcessEvents(instrumentable *ebpf.Instrumentable) {
-	i.handleAndDispatchProcessEvent(exec.ProcessEvent{
-		Type: exec.ProcessEventCreated,
-		File: instrumentable.FileInfo,
-	})
-	for _, child := range instrumentable.ChildFileInfos {
-		if child.RuntimeMetricGeneration(child.Pid()) == 0 {
-			continue
-		}
-		i.handleAndDispatchProcessEvent(exec.ProcessEvent{
-			Type: exec.ProcessEventCreated,
-			File: child,
-		})
-	}
 }
 
 // ReadAndForward keeps listening for traces in the BPF map, then reads,

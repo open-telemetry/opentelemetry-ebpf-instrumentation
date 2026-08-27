@@ -29,8 +29,7 @@ type Instrumentable struct {
 
 	// in some runtimes, like python gunicorn, we need to allow
 	// tracing both the parent PID and all of its child PIDs
-	ChildPids      []app.PID
-	ChildFileInfos []*exec.FileInfo
+	ChildPids []app.PID
 
 	FileInfo *exec.FileInfo
 	Offsets  *goexec.Offsets
@@ -55,11 +54,10 @@ type PIDsAccounter interface {
 	BlockPID(app.PID, uint32)
 }
 
-// LifecyclePIDsAccounter receives the exact process identity when a tracer owns
-// state that must survive PID reuse safely.
-type LifecyclePIDsAccounter interface {
-	AllowPIDLifecycle(app.PID, uint32, *exec.FileInfo, *exec.FileInfo)
-	BlockPIDLifecycle(app.PID, uint32, *exec.FileInfo, *exec.FileInfo)
+// LifecyclePIDBlocker receives the exact process identity when PID-only removal
+// could remove state belonging to a reused PID.
+type LifecyclePIDBlocker interface {
+	BlockPIDLifecycle(app.PID, uint32, *exec.FileInfo)
 }
 
 type CommonTracer interface {
@@ -180,25 +178,6 @@ func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 }
 
-func (pt *ProcessTracer) AllowPIDLifecycle(
-	pid app.PID,
-	ns uint32,
-	lifecycle *exec.FileInfo,
-	serviceSource *exec.FileInfo,
-) {
-	logEnricherEnabled := serviceSource.LogEnricherEnabled()
-	for i := range pt.Programs {
-		if _, ok := pt.Programs[i].(*logenricher.Tracer); ok && !logEnricherEnabled {
-			continue
-		}
-		if lifecycleTracer, ok := pt.Programs[i].(LifecyclePIDsAccounter); ok {
-			lifecycleTracer.AllowPIDLifecycle(pid, ns, lifecycle, serviceSource)
-		} else {
-			pt.Programs[i].AllowPID(pid, ns, serviceSource)
-		}
-	}
-}
-
 func (pt *ProcessTracer) BlockPID(pid app.PID, ns uint32) {
 	for i := range pt.Programs {
 		pt.Programs[i].BlockPID(pid, ns)
@@ -209,11 +188,10 @@ func (pt *ProcessTracer) BlockPIDLifecycle(
 	pid app.PID,
 	ns uint32,
 	lifecycle *exec.FileInfo,
-	serviceSource *exec.FileInfo,
 ) {
 	for i := range pt.Programs {
-		if lifecycleTracer, ok := pt.Programs[i].(LifecyclePIDsAccounter); ok {
-			lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle, serviceSource)
+		if lifecycleTracer, ok := pt.Programs[i].(LifecyclePIDBlocker); ok {
+			lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle)
 		} else {
 			pt.Programs[i].BlockPID(pid, ns)
 		}

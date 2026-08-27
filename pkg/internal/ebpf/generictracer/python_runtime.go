@@ -294,7 +294,6 @@ func (c *pythonRuntimeController) block(
 	pid app.PID,
 	ns uint32,
 	lifecycle *exec.FileInfo,
-	_ *exec.FileInfo,
 ) {
 	if c == nil || lifecycle == nil {
 		return

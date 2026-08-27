@@ -6,6 +6,8 @@ package integration
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"path"
 	"strconv"
 	"strings"
@@ -19,7 +21,11 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
-const pythonRuntimeMetricsHostPort = "8395"
+const (
+	pythonRuntimeMetricsHostPort              = "8395"
+	pythonRuntimeMetricsWorkerTestVersion     = "3.12.12"
+	pythonRuntimeMetricsRepresentativeWorkers = 10
+)
 
 type pythonRuntimeMetricsImage struct {
 	version            string
@@ -163,11 +169,25 @@ func runPythonRuntimeMetricsIntegration(t *testing.T, exporter string, image pyt
 	logs, err := compose.LogsTail(20000, "obi")
 	require.NoError(t, err)
 	attachedBefore := strings.Count(logs, "Python runtime metrics attached")
-	forkPID := readPythonForkPID(t, compose, "/fork")
-	waitForPythonRuntimeMetricsAttachmentCount(t, compose, attachedBefore+1)
-	fork := readPythonForkStats(t, compose, forkPID)
+	workerCount := 1
+	if exporter == "prom" && image.version == pythonRuntimeMetricsWorkerTestVersion {
+		workerCount = pythonRuntimeMetricsRepresentativeWorkers
+	}
+	workerPIDs := make([]int, 0, workerCount)
+	for range workerCount {
+		workerPIDs = append(workerPIDs, readPythonForkPID(t, compose, "/fork"))
+	}
+	waitForPythonRuntimeMetricsAttachmentCount(t, compose, attachedBefore+workerCount)
+	var workerStats pythonGCStats
+	for _, workerPID := range workerPIDs {
+		worker := readPythonForkStats(t, compose, workerPID)
+		addPythonGCStats(workerStats, worker.Stats)
+	}
 	expectedParentStats := readPythonGCStats(t, compose, "/stats")
-	assertPythonRuntimeWorkersEventuallyMatch(t, pq, expectedParentStats, fork.Stats)
+	assertPythonRuntimeWorkersEventuallyMatch(t, pq, expectedParentStats, workerStats)
+	if workerCount == pythonRuntimeMetricsRepresentativeWorkers {
+		assertPythonRuntimeTargetInfoCardinality(t, pq, 1)
+	}
 	expectedStats = readPythonGCStats(t, compose, "/stop-children")
 	if exporter == "prom" {
 		assertAutomaticPythonGCEventuallyIncreases(t, compose, pq)
@@ -286,14 +306,17 @@ func readPythonGCStats(t require.TestingT, compose *docker.Compose, endpoint str
 	return stats
 }
 
-func pythonGCStatsOutput(compose *docker.Compose, endpoint string) (string, error) {
-	return compose.ExecOutput(
-		"testserver",
-		"python3",
-		"-c",
-		`import sys, urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8080" + sys.argv[1]).read().decode())`,
-		endpoint,
-	)
+func pythonGCStatsOutput(_ *docker.Compose, endpoint string) (string, error) {
+	resp, err := http.Get("http://127.0.0.1:" + pythonRuntimeMetricsHostPort + endpoint)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected Python runtime metrics service status: %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	return string(body), err
 }
 
 func assertPythonRuntimeMetricsEventuallyMatch(t *testing.T, pq pythonRuntimePrometheus, expected pythonGCStats) {
@@ -353,6 +376,26 @@ func addPythonRuntimeMetricDelta(
 		exportedBeforeExit[generation].Uncollectable += parentAfterExit[generation].Uncollectable - parentBeforeExit[generation].Uncollectable
 	}
 	return exportedBeforeExit
+}
+
+func addPythonGCStats(total, next pythonGCStats) {
+	for generation := range next {
+		current := total[generation]
+		current.Collections += next[generation].Collections
+		current.Collected += next[generation].Collected
+		current.Uncollectable += next[generation].Uncollectable
+		total[generation] = current
+	}
+}
+
+func assertPythonRuntimeTargetInfoCardinality(t *testing.T, pq pythonRuntimePrometheus, expected int) {
+	t.Helper()
+	query := `target_info{service_name="python-runtime-metrics",service_namespace="integration-test"}`
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(query)
+		require.NoError(ct, err)
+		assert.Len(ct, results, expected)
+	}, testTimeout, 250*time.Millisecond)
 }
 
 func assertPythonRuntimeWorkersEventuallyMatch(

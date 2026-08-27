@@ -150,9 +150,13 @@ func (p *Tracer) rebuildValidPids() error {
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
-	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
+	serviceSource := fi
+	if source := fi.RuntimeMetricServiceSource(); source != nil {
+		serviceSource = source
+	}
+	p.pidsFilter.AllowPID(pid, ns, serviceSource, ebpfcommon.PIDTypeKProbes)
 	if p.pythonRuntime != nil {
-		p.pythonRuntime.allow(pid, ns, fi, fi)
+		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
 	}
 
 	if err := p.rebuildValidPids(); err != nil {
@@ -182,27 +186,10 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	}
 }
 
-// AllowPIDLifecycle registers an exact lifecycle and a possibly shared service source.
-func (p *Tracer) AllowPIDLifecycle(pid app.PID, ns uint32, lifecycle, serviceSource *exec.FileInfo) {
-	p.pidsFilter.AllowPID(pid, ns, serviceSource, ebpfcommon.PIDTypeKProbes)
-	if p.pythonRuntime != nil {
-		p.pythonRuntime.allow(pid, ns, lifecycle, serviceSource)
-	}
-
-	if err := p.rebuildValidPids(); err != nil {
-		p.log.Error("rebuilding the BPF PID filter", "error", err)
-		return
-	}
-	if p.bpfObjects.PidCache != nil {
-		pidU32 := uint32(pid)
-		_ = p.bpfObjects.PidCache.Put(pidU32, pidU32)
-	}
-}
-
 // BlockPIDLifecycle removes Python state only for the matching process lifecycle.
-func (p *Tracer) BlockPIDLifecycle(pid app.PID, ns uint32, lifecycle, serviceSource *exec.FileInfo) {
+func (p *Tracer) BlockPIDLifecycle(pid app.PID, ns uint32, lifecycle *exec.FileInfo) {
 	if p.pythonRuntime != nil {
-		p.pythonRuntime.block(pid, ns, lifecycle, serviceSource)
+		p.pythonRuntime.block(pid, ns, lifecycle)
 	}
 	p.BlockPID(pid, ns)
 }
