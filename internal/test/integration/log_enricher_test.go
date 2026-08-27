@@ -1051,7 +1051,6 @@ func testLogEnricherPlainText(t *testing.T, constants testServerConstants) {
 
 func findLogLine(logs []string, message string) string {
 	for _, line := range slices.Backward(logs) {
-
 		if strings.Contains(line, message) {
 			return line
 		}

@@ -3,9 +3,10 @@
 
 package gorillamid // import "go.opentelemetry.io/obi/internal/test/integration/components/testserver/gorillamid"
 
-import "slices"
-
-import "net/http"
+import (
+	"net/http"
+	"slices"
+)
 
 // Interface is the shared contract for all middleware, and allows middlewares
 // to wrap handlers.
