@@ -7,8 +7,7 @@ description: |
   the standard semconv set:
 
   - The `target.info` meta-metric family (Prometheus / OpenMetrics
-    `target_info` heritage, emitted in OTel dot notation over OTLP) and the
-    `instance` / `job` scrape-convention attributes
+    `target_info` heritage, emitted in OTel dot notation over OTLP)
   - Span metrics matching the OTel collector-contrib `spanmetricsconnector`
     output, in both naming schemes: the OTel-canonical
     `traces.span.metrics.*` names (emitted when the `application_span_otel`

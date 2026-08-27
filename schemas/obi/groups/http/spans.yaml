@@ -1,0 +1,73 @@
+groups:
+  # --- Spans ------------------------------------------------------------
+  # OBI enriches HTTP spans in place with GraphQL, MCP and JSON-RPC payload
+  # attributes when it detects those protocols, and with captured request /
+  # response bodies when body capture is enabled, so those attributes appear
+  # on the HTTP span rather than a dedicated one.
+  - id: span.obi.http.server
+    type: span
+    span_kind: server
+    stability: development
+    brief: OBI inbound HTTP server span.
+    attributes:
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: url.path
+      - ref: url.scheme
+      - ref: url.query
+      - ref: http.route
+      - ref: client.address
+      - ref: server.address
+      - ref: server.port
+      - ref: http.request.body.size
+      - ref: http.response.body.size
+      - ref: http.request.body.content
+      - ref: http.response.body.content
+      - ref: http.request.header
+      - ref: http.response.header
+      - ref: span.metrics.skip
+      - ref: graphql.operation.name
+      - ref: graphql.operation.type
+      - ref: graphql.document
+      - ref: mcp.method.name
+      - ref: mcp.resource.uri
+      - ref: mcp.session.id
+      - ref: mcp.protocol.version
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.tool.name
+      - ref: gen_ai.tool.type
+      - ref: gen_ai.tool.call.arguments
+      - ref: gen_ai.tool.call.result
+      - ref: gen_ai.prompt.name
+      - ref: jsonrpc.request.id
+      - ref: jsonrpc.protocol.version
+      - ref: rpc.system.name
+      - ref: rpc.method
+      - ref: rpc.response.status_code
+
+  - id: span.obi.http.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI outbound HTTP client span.
+    attributes:
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: url.full
+      - ref: url.scheme
+      - ref: url.query
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: http.request.body.size
+      - ref: http.response.body.size
+      - ref: http.request.body.content
+      - ref: http.response.body.content
+      - ref: http.request.header
+      - ref: http.response.header
+      - ref: rpc.system.name
+      - ref: rpc.method
+      - ref: rpc.response.status_code
+      - ref: jsonrpc.protocol.version
+      - ref: jsonrpc.request.id
+      - ref: span.metrics.skip

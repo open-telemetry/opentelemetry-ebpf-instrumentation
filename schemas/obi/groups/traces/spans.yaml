@@ -1,0 +1,15 @@
+# The failed-connect span has no upstream semconv domain of its own, so it
+# lives here rather than in a protocol domain file. Every other OBI span lives
+# in its protocol's domain directory (http/, db/, rpc/, messaging/, gen_ai/,
+# aws/, dns/).
+groups:
+  - id: span.obi.failed_connect
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI failed outbound connection span.
+    attributes:
+      - ref: client.address
+      - ref: server.address
+      - ref: server.port
+      - ref: span.metrics.skip

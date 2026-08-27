@@ -1,0 +1,47 @@
+groups:
+  - id: metric.obi.db.client.operation.duration
+    type: metric
+    metric_name: db.client.operation.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted db.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: stable
+    attributes:
+      - ref: db.collection.name
+        requirement_level: opt_in
+      - ref: db.namespace
+      - ref: db.operation.name
+      - ref: db.system.name
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+        requirement_level: opt_in
+
+  # OBI-custom metric: upstream semconv defines only the client-side
+  # db.client.operation.duration. OBI's eBPF instrumentation also observes
+  # operations from the database server's perspective (the instrumented
+  # process IS the server), reported here so server-side measurements don't
+  # pollute the client metric or double-count against it.
+  - id: metric.obi.db.server.operation.duration
+    type: metric
+    metric_name: db.server.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      Duration of database operations observed from the server side.
+    attributes:
+      - ref: db.system.name
+        requirement_level: required
+      - ref: db.operation.name
+      - ref: db.namespace
+      - ref: error.type
+      - ref: db.collection.name
+        requirement_level: opt_in
+      - ref: server.address
+      - ref: server.port
+      - ref: client.address
+        requirement_level: opt_in

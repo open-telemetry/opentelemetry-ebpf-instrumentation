@@ -1,0 +1,32 @@
+groups:
+  - id: metric.obi.messaging.client.operation.duration
+    type: metric
+    metric_name: messaging.client.operation.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted messaging.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: messaging.destination.name
+      - ref: messaging.operation.name
+      - ref: messaging.system
+      - ref: server.address
+
+  - id: metric.obi.messaging.process.duration
+    type: metric
+    metric_name: messaging.process.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted messaging.process.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: messaging.destination.name
+      - ref: messaging.operation.name
+      - ref: messaging.system
+      - ref: server.address

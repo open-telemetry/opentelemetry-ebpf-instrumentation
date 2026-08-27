@@ -1,0 +1,35 @@
+groups:
+  - id: metric.obi.rpc.client.call.duration
+    type: metric
+    metric_name: rpc.client.call.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted rpc.client.call.duration
+    instrument: histogram
+    unit: "s"
+    stability: release_candidate
+    attributes:
+      - ref: rpc.method
+      - ref: rpc.response.status_code
+      - ref: rpc.system.name
+      - ref: server.address
+
+  - id: metric.obi.rpc.server.call.duration
+    type: metric
+    metric_name: rpc.server.call.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted rpc.server.call.duration
+    instrument: histogram
+    unit: "s"
+    stability: release_candidate
+    attributes:
+      - ref: client.address
+        requirement_level: opt_in
+      - ref: rpc.method
+      - ref: rpc.response.status_code
+      - ref: rpc.system.name
+      - ref: server.address
+      - ref: server.port

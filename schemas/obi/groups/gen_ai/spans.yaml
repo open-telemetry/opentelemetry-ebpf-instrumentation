@@ -1,0 +1,73 @@
+# These spans are HTTP client calls OBI recognises by their payload, so they
+# carry the HTTP client attributes in addition to the protocol-specific ones.
+groups:
+  # Union across OpenAI, Anthropic, Gemini, Qwen, Ollama, OpenAI-compatible,
+  # AWS Bedrock, rerank, embedding and vector-retrieval flows.
+  - id: span.obi.gen_ai.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI GenAI client span.
+    attributes:
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: url.full
+      - ref: url.scheme
+      - ref: url.query
+      - ref: http.request.body.size
+      - ref: http.response.body.size
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: gen_ai.response.id
+      - ref: gen_ai.conversation.id
+      - ref: gen_ai.request.temperature
+      - ref: gen_ai.request.top_p
+      - ref: gen_ai.request.top_k
+      - ref: gen_ai.request.max_tokens
+      - ref: gen_ai.request.frequency_penalty
+      - ref: gen_ai.request.presence_penalty
+      - ref: gen_ai.request.choice.count
+      - ref: gen_ai.request.seed
+      - ref: gen_ai.request.stop_sequences
+      - ref: gen_ai.request.encoding_formats
+      - ref: gen_ai.request.stream
+      - ref: gen_ai.usage.input_tokens
+      - ref: gen_ai.usage.output_tokens
+      - ref: gen_ai.usage.cache_read.input_tokens
+      - ref: gen_ai.usage.cache_creation.input_tokens
+      - ref: gen_ai.usage.reasoning.output_tokens
+      - ref: gen_ai.response.finish_reasons
+      - ref: gen_ai.embeddings.dimension.count
+      - ref: gen_ai.output.type
+      - ref: gen_ai.data_source.id
+      - ref: gen_ai.input.messages
+      - ref: gen_ai.output.messages
+      - ref: gen_ai.system_instructions
+      - ref: gen_ai.tool.definitions
+      - ref: gen_ai.metadata
+      - ref: gen_ai.rerank.top_n
+      - ref: gen_ai.request.embedding.input_count
+      - ref: gen_ai.retrieval.top_k
+      - ref: openai.request.service_tier
+      - ref: openai.response.service_tier
+      - ref: openai.response.system_fingerprint
+      - ref: openai.api.type
+      - ref: aws.bedrock.guardrail.id
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: mcp.method.name
+      - ref: mcp.protocol.version
+      - ref: mcp.resource.uri
+      - ref: mcp.session.id
+      - ref: gen_ai.tool.name
+      - ref: gen_ai.tool.type
+      - ref: gen_ai.tool.call.arguments
+      - ref: gen_ai.tool.call.result
+      - ref: gen_ai.prompt.name
+      - ref: jsonrpc.request.id
+      - ref: rpc.response.status_code
+      - ref: span.metrics.skip

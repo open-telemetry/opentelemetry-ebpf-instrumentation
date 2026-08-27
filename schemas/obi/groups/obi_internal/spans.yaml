@@ -1,0 +1,17 @@
+# Resource attributes OBI sets on exported trace data itself, rather than on
+# any metric. These are declared here so they resolve as part of OBI's contract
+# without being falsely attributed to a metric carrier.
+groups:
+  - id: registry.obi.traces_resource
+    type: attribute_group
+    display_name: OBI Traces Resource Attributes
+    brief: >
+      Resource attributes OBI's trace exporter sets on the exported
+      `ResourceSpans` in addition to the service and infrastructure attributes
+      shared with the metrics pipeline.
+    attributes:
+      # Set by the trace exporter on the ResourceSpans resource
+      # (pkg/export/otel/tracesgen), naming the OBI reporter that produced the
+      # spans. It is a resource attribute of the trace payload, not a label of
+      # the traces.target.info metric.
+      - ref: otel.scope.name

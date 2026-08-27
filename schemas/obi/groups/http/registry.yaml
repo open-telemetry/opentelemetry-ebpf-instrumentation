@@ -1,12 +1,14 @@
+# OBI's HTTP telemetry: the body-capture attributes OBI adds on top of upstream
+# semconv, its narrowed copies of the upstream HTTP metrics, and its HTTP span
+# contract. The metric groups carry the obi.upstream_override annotation so the
+# schemacheck drift test pins unit/instrument/stability to upstream.
 groups:
-  - id: registry.obi.traces
+  - id: registry.obi.http
     type: attribute_group
-    display_name: OBI Application Span Attributes
+    display_name: OBI HTTP Attributes
     brief: >
-      Attributes OBI emits on application spans that are not part of upstream
-      OpenTelemetry semantic conventions — captured HTTP request/response
-      bodies and ONC/Sun RPC auth flavor. Attributes already defined by
-      upstream semconv (`http.*`, …) are not redeclared here.
+      HTTP attributes OBI emits that are not part of upstream semconv
+      (captured request/response bodies).
     attributes:
       - id: http.request.body.content
         type: string
@@ -36,24 +38,3 @@ groups:
           registry until that proposal is merged and released, at which point
           this attribute moves to upstream semconv.
         examples: ['{"status":"ok"}']
-      - id: onc_rpc.auth.flavor
-        type: string
-        stability: development
-        brief: ONC/Sun RPC authentication flavor observed on the call.
-        note: >
-          OBI extension attribute, emitted on Sun RPC spans until upstream
-          semconv adds an official ONC RPC auth flavor attribute, at which
-          point this key will be migrated to the semconv name.
-        examples: ["AUTH_NONE", "AUTH_SYS"]
-      - id: gen_ai.metadata
-        type: string
-        stability: development
-        brief: >
-          Provider-specific request/response metadata captured on GenAI
-          spans, JSON-encoded.
-        note: >
-          only emitted when selected via `attributes.select`
-          (`gen_ai.metadata`), alongside the upstream
-          `gen_ai.input.messages` / `gen_ai.output.messages` capture
-          attributes.
-        examples: ['{"conversation_id":"conv_abc123"}']

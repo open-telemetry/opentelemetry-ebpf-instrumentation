@@ -1,0 +1,38 @@
+groups:
+  # Kafka, MQTT, NATS, AMQP. Producer / consumer split by operation; the
+  # attribute set is the union OBI emits across systems.
+  - id: span.obi.messaging.producer
+    type: span
+    span_kind: producer
+    stability: development
+    brief: OBI messaging producer span.
+    attributes:
+      - ref: messaging.system
+      - ref: messaging.destination.name
+      - ref: messaging.operation.type
+      - ref: messaging.client.id
+      - ref: messaging.destination.partition.id
+      - ref: messaging.kafka.offset
+      - ref: messaging.message.envelope.size
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: span.metrics.skip
+
+  - id: span.obi.messaging.consumer
+    type: span
+    span_kind: consumer
+    stability: development
+    brief: OBI messaging consumer span.
+    attributes:
+      - ref: messaging.system
+      - ref: messaging.destination.name
+      - ref: messaging.operation.type
+      - ref: messaging.client.id
+      - ref: messaging.destination.partition.id
+      - ref: messaging.kafka.offset
+      - ref: messaging.message.envelope.size
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: span.metrics.skip

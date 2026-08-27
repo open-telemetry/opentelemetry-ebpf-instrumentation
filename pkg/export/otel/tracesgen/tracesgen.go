@@ -971,7 +971,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if ai.OperationName != "" {
 				// gen_ai.operation.name must not be emitted as an empty
 				// string: omit it when the operation could not be derived
-				// (re-typed to string in schemas/obi/groups/gen_ai.yaml).
+				// (re-typed to string in schemas/obi/groups/gen_ai/registry.yaml).
 				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
 			}
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))

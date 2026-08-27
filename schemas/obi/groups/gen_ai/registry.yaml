@@ -15,7 +15,7 @@ groups:
   #   plus MCP JSON-RPC method names verbatim — custom MCP servers make the
   #   value space unbounded, so it cannot be enumerated.
   #
-  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # See ../../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
   - id: x.obi.gen_ai
     type: attribute_group
@@ -175,3 +175,47 @@ groups:
           for Qwen/DashScope, 'conversation'/'response' for the OpenAI APIs,
           'rerank') and passes MCP JSON-RPC method names through verbatim.
         examples: ['chat', 'embeddings', 'response', 'conversation', 'invoke_model', 'rerank', 'tools/call']
+
+  - id: registry.obi.gen_ai
+    type: attribute_group
+    display_name: OBI GenAI Attributes
+    brief: >
+      GenAI attributes OBI emits that are not part of upstream semconv.
+    attributes:
+      - id: gen_ai.metadata
+        type: string
+        stability: development
+        brief: >
+          Provider-specific request/response metadata captured on GenAI
+          spans, JSON-encoded.
+        note: >
+          only emitted when selected via `attributes.select`
+          (`gen_ai.metadata`), alongside the upstream
+          `gen_ai.input.messages` / `gen_ai.output.messages` capture
+          attributes.
+        examples: ['{"conversation_id":"conv_abc123"}']
+      - id: gen_ai.rerank.top_n
+        type: int
+        stability: development
+        brief: >
+          Number of top results requested from a GenAI rerank operation.
+        note: >
+          OBI extension attribute, emitted on rerank spans until upstream
+          semconv defines an official rerank top-N attribute.
+      - id: gen_ai.request.embedding.input_count
+        type: int
+        stability: development
+        brief: >
+          Number of inputs submitted to a GenAI embedding request.
+        note: >
+          OBI extension attribute, emitted on embedding spans until upstream
+          semconv defines an official embedding input-count attribute.
+      - id: gen_ai.retrieval.top_k
+        type: int
+        stability: development
+        brief: >
+          Number of top results requested from a GenAI vector-retrieval
+          operation.
+        note: >
+          OBI extension attribute, emitted on vector-retrieval spans until
+          upstream semconv defines an official retrieval top-K attribute.

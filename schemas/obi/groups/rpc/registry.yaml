@@ -6,7 +6,7 @@ groups:
   # Emitters: pkg/appolly/app/request/span_getters.go (attr.RPCSystem) and
   # pkg/export/otel/tracesgen/tracesgen.go.
   #
-  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # See ../../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
   - id: x.obi.rpc
     type: attribute_group
@@ -54,3 +54,19 @@ groups:
                 ONC/Sun RPC, detected by OBI's SunRPC instrumentation.
               stability: development
         stability: release_candidate
+
+  - id: registry.obi.rpc
+    type: attribute_group
+    display_name: OBI RPC Attributes
+    brief: >
+      RPC attributes OBI emits that are not part of upstream semconv.
+    attributes:
+      - id: onc_rpc.auth.flavor
+        type: string
+        stability: development
+        brief: ONC/Sun RPC authentication flavor observed on the call.
+        note: >
+          OBI extension attribute, emitted on Sun RPC spans until upstream
+          semconv adds an official ONC RPC auth flavor attribute, at which
+          point this key will be migrated to the semconv name.
+        examples: ["AUTH_NONE", "AUTH_SYS"]

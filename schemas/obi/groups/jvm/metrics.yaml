@@ -1,0 +1,58 @@
+# OBI's narrowed copies of the upstream JVM runtime metrics
+# (semconv model/jvm). service/container metadata is on the meter resource, so
+# these groups list only the jvm memory pool/type data-point attributes. Each
+# carries the obi.upstream_override annotation so the schemacheck drift test
+# pins its unit/instrument/stability to upstream.
+groups:
+  - id: metric.obi.jvm.memory.committed
+    type: metric
+    metric_name: jvm.memory.committed
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.memory.committed
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes:
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+  - id: metric.obi.jvm.memory.limit
+    type: metric
+    metric_name: jvm.memory.limit
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.memory.limit
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes:
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+  - id: metric.obi.jvm.memory.used
+    type: metric
+    metric_name: jvm.memory.used
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.memory.used
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes:
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+  - id: metric.obi.jvm.memory.used_after_last_gc
+    type: metric
+    metric_name: jvm.memory.used_after_last_gc
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.memory.used_after_last_gc
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes:
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type

@@ -1,0 +1,34 @@
+# OBI's AWS SDK span contract. OBI surfaces AWS S3 and SQS calls detected on
+# the wire as client spans carrying the upstream aws.* / cloud.* attributes;
+# SQS additionally carries messaging.* attributes. All attributes are upstream
+# semconv, so no OBI-specific attributes are declared here.
+groups:
+  - id: span.obi.aws.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI AWS SDK client span (S3, SQS).
+    attributes:
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: url.full
+      - ref: url.scheme
+      - ref: url.query
+      - ref: http.request.body.size
+      - ref: http.response.body.size
+      - ref: service.peer.name
+      - ref: rpc.system.name
+      - ref: rpc.method
+      - ref: cloud.region
+      - ref: aws.request_id
+      - ref: aws.extended_request_id
+      - ref: aws.s3.bucket
+      - ref: aws.s3.key
+      - ref: aws.sqs.queue.url
+      - ref: messaging.operation.name
+      - ref: messaging.operation.type
+      - ref: messaging.destination.name
+      - ref: messaging.message.id
+      - ref: server.address
+      - ref: server.port
+      - ref: span.metrics.skip

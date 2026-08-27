@@ -16,10 +16,11 @@
 #    intentionally emits, or an open-ended enum re-typed as string.
 #
 # 3. DeprecatedIncludeUnreferencedWarning: weaver 0.25 deprecated the
-#    `--include-unreferenced` flag, which OBI still needs — its override and
-#    marker groups are standalone (not referenced by a signal), so without it
-#    they drop out of resolution. `--future` promotes the deprecation to an
-#    error; accept it until OBI migrates to explicit `import:` statements.
+#    `--include-unreferenced` flag. OBI no longer relies on it — the emitted
+#    metrics, spans, and resource entities now reference every override and
+#    marker group, so nothing drops from resolution and live-check runs
+#    without the flag. `--future` can still surface the deprecation notice, so
+#    it is filtered defensively.
 #
 # Any other diagnostic — including duplicates for other metrics/attributes,
 # or the expected ones with unexpected provenances/groups — is kept and fails

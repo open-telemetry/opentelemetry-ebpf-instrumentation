@@ -1,0 +1,151 @@
+groups:
+  - id: registry.obi
+    type: attribute_group
+    display_name: OBI Internal Telemetry
+    brief: >
+      OBI's own meta-telemetry: the `target.info` / `host.info` family of
+      per-target meta-metrics (emitted in OTel dot notation over OTLP, and
+      as the Prometheus-style `target_info` / `host_info` underscore
+      variants by the Prometheus exporter) that
+      identify the instrumenter and the resource it is running against,
+      together with the labels they carry and any deviations from upstream
+      semconv that are tracked for removal. Distinct from OBI's emissions
+      that describe the *instrumented application's* behaviour
+      (HTTP / DB / messaging / spanmetrics / service-graph), which live in
+      sibling files or in upstream semconv.
+    attributes:
+      - id: source
+        type: string
+        stability: development
+        brief: >
+          Identifier of the vendor / SDK that produced the metric. OBI sets
+          this to `obi`. Used by the spanmetrics and service-graph
+          emissions to disambiguate from collector-contrib connector
+          output.
+        examples: [ "obi" ]
+      - id: instance
+        type: string
+        stability: development
+        brief: >
+          Instance identifier of the reporting service, carried on target.info.
+        examples: ["host.local:9090"]
+      - id: job
+        type: string
+        stability: development
+        brief: >
+          Job identifier of the reporting service, carried on target.info.
+        examples: ["my-service"]
+      - id: obi.version
+        type: string
+        stability: development
+        brief: >
+          OBI build version, e.g. the release tag the instrumenter was
+          built from. Carried as a resource attribute on every signal.
+        examples: ["v0.42.0"]
+      - id: obi.revision
+        type: string
+        stability: development
+        brief: >
+          Git SHA of the OBI build. Carried as a resource attribute on
+          every signal.
+        examples: ["a2a9a6e2"]
+
+  # ======================================================================
+  # OBI internal ("meta") metrics emitted over OTLP by the
+  # InternalMetricsReporter (pkg/export/otel/metrics_internal.go) when
+  # internal_metrics.exporter=otel. These describe OBI's own behaviour
+  # (exporter throughput, instrumentation accounting, eBPF probe/map stats,
+  # build info), NOT the instrumented application. All names use the `obi.`
+  # vendor prefix (attr.VendorPrefix).
+  #
+  # Where an existing semantic-convention attribute fits, the metric references
+  # it directly (`process.executable.name` for the instrumented process,
+  # `error.type` for the instrumentation-error class). The keys declared here
+  # mirror what the OTLP InternalMetricsReporter emits, including the ones
+  # weaver flags as needing a namespace (`instance`, `job`, `source`): the
+  # registry describes the emitted contract rather than the
+  # contract OBI would emit if the keys were renamed. (OBI's Prometheus
+  # internal exporter keeps underscore keys — Prometheus labels cannot carry
+  # dots — but weaver only validates the OTLP tap.)
+  # ======================================================================
+  - id: registry.obi.internal_metrics
+    type: attribute_group
+    display_name: OBI Internal Metrics
+    brief: >
+      Attributes carried by OBI's own internal (obi.*) OTLP metrics. Keys are
+      namespaced; where a semantic-convention attribute already fits
+      (`process.executable.name`, `error.type`) the metrics reference it
+      directly rather than declaring an OBI-specific alias.
+    attributes:
+      - id: obi.error
+        type: string
+        stability: development
+        brief: >
+          Raw error message from a failed OTLP export.
+        examples: ["context deadline exceeded"]
+      - id: obi.goarch
+        type: string
+        stability: development
+        brief: Go build target architecture (runtime.GOARCH).
+        examples: ["amd64", "arm64"]
+      - id: obi.goos
+        type: string
+        stability: development
+        brief: Go build target OS (runtime.GOOS).
+        examples: ["linux"]
+      - id: obi.goversion
+        type: string
+        stability: development
+        brief: Go toolchain version OBI was built with (runtime.Version()).
+        examples: ["go1.25.11"]
+      - id: bpf.probe.id
+        type: string
+        stability: development
+        brief: Identifier of the eBPF program (probe) the stats belong to.
+        examples: ["42"]
+      - id: bpf.probe.type
+        type: string
+        stability: development
+        brief: eBPF program type of the probe.
+        examples: ["kprobe", "tracepoint"]
+      - id: bpf.probe.name
+        type: string
+        stability: development
+        brief: Name of the eBPF probe.
+        examples: ["kprobe_tcp_sendmsg"]
+      - id: bpf.map.id
+        type: string
+        stability: development
+        brief: Identifier of the eBPF map the stats belong to.
+        examples: ["17"]
+      - id: bpf.map.type
+        type: string
+        stability: development
+        brief: eBPF map type.
+        examples: ["hash", "lru_hash", "perf_event_array"]
+      - id: bpf.map.name
+        type: string
+        stability: development
+        brief: Name of the eBPF map.
+        examples: ["events", "ongoing_http"]
+      - id: subscriber
+        type: string
+        stability: development
+        brief: >
+          Name of the pipeline stage consuming the internal queue, as given to
+          msg.SubscriberName when the stage subscribed. Subscribers that do not
+          provide a name fall back to the name of the queue they subscribed to.
+        examples: ["discover.CriteriaMatcher", "traceAttacher"]
+      - id: telemetry.type
+        type: string
+        stability: development
+        brief: >
+          Which OBI pipeline avoided instrumenting a service that already has
+          OpenTelemetry instrumentation. Value is "metrics" or "traces".
+        examples: ["metrics", "traces"]
+      - id: otel.metric.overflow
+        type: boolean
+        stability: development
+        brief: >
+          Set by the OpenTelemetry SDK cardinality limiter when the
+          avoided-services attribute set overflows its configured limit.

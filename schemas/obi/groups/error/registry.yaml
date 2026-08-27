@@ -9,7 +9,7 @@ groups:
   # pkg/appolly/app/request/span_getters_test.go and
   # pkg/export/otel/traces_test.go.
   #
-  # See ../README.md for the override mechanics (x.obi.* group id, string
+  # See ../../README.md for the override mechanics (x.obi.* group id, string
   # re-typing of open-ended value spaces, lint allowlist).
   - id: x.obi.error
     type: attribute_group
