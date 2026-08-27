@@ -134,6 +134,10 @@ func init() {
 
 var OBIIP = Name("obi.ip")
 
+// OBIHTTPResponseObservation says how much of the response OBI saw on a span whose
+// status could not be parsed, and is absent otherwise.
+var OBIHTTPResponseObservation = Name("obi.http.response.observation")
+
 const (
 	Transport       = Name("transport")
 	NetworkType     = Name(semconv.NetworkTypeKey)

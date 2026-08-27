@@ -57,3 +57,41 @@ groups:
           `gen_ai.input.messages` / `gen_ai.output.messages` capture
           attributes.
         examples: ['{"conversation_id":"conv_abc123"}']
+      - id: obi.http.response.observation
+        type:
+          members:
+            - id: not_captured
+              value: not_captured
+              stability: development
+              brief: >
+                The peer answered and instrumentation stopped watching before
+                capturing the response. The end timestamp is when watching
+                stopped, so the duration is withheld.
+            - id: not_received
+              value: not_received
+              stability: development
+              brief: >
+                Nothing came back and the local process closed the socket. The
+                close ended the request, so the duration is a measurement.
+            - id: not_parsed
+              value: not_parsed
+              stability: development
+              brief: >
+                The response arrived and no probe could parse it. The end
+                timestamp came from the response's own bytes, so the duration
+                is a measurement.
+        stability: development
+        brief: >
+          How much of the HTTP response OBI observed. Emitted only when no
+          status was parsed, and absent when `http.response.status_code`
+          carries one.
+        note: >
+          OBI cannot read a status it did not parse, so it publishes this
+          instead of inventing one. None of these values is reported as an
+          error: `not_captured` and `not_parsed` describe a response that did
+          arrive, and on `not_received` a peer that failed and a client that
+          gave up are indistinguishable once the socket is closed, which
+          semconv's carve-out for intentional cancellation asks not to be
+          called an error. Spans carrying this attribute leave the span status
+          unset and set no `error.type`.
+        examples: [not_received]
