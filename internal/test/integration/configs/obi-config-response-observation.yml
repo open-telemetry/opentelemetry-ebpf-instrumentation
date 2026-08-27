@@ -1,0 +1,34 @@
+trace_printer: text
+log_level: debug
+ebpf:
+  # The pooled calls are made after the request that triggered them has already
+  # answered, so they arrive conditionally parented and are held until their parent
+  # settles or this bound elapses. The default of five minutes outlives the suite,
+  # which would leave the spans unexported rather than late.
+  max_transaction_time: 15s
+routes:
+  unmatched: path
+otel_traces_export:
+  # Through the collector, which fans the same spans out to Jaeger (what the
+  # assertions read) and to weaver (the semconv live check).
+  endpoint: http://otelcol:4318
+prometheus_export:
+  port: 8999
+metrics:
+  features:
+    - application
+    # The service graph is emitted from inside the span-metrics path, so that
+    # feature has to be on for the graph series to exist at all.
+    - application_span_otel
+    - application_service_graph
+    # The span-metrics size counters are their own feature, and are what prove the
+    # request size survives a call whose response was never parsed.
+    - application_span_sizes
+    - application_host
+discovery:
+  # The workload is a Go binary, and the code under test is in the generic
+  # tracer, which is where every non-Go workload lands.
+  skip_go_specific_tracers: true
+  services:
+    - name: responseobservationclient
+      exe_path: responseobservationclient

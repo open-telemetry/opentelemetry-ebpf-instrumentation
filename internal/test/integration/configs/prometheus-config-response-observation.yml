@@ -1,0 +1,11 @@
+global:
+  evaluation_interval: 250ms
+  scrape_interval: 250ms
+scrape_configs:
+  # OBI runs in the workload's network namespace, so its metrics endpoint answers on
+  # the workload's name.
+  - job_name: obi
+    honor_labels: true
+    static_configs:
+      - targets:
+          - 'responseobservationclient:8999'
