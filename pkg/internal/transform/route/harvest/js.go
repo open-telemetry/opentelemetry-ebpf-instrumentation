@@ -1611,7 +1611,7 @@ func findJSAppDir(pid app.PID, parseEntryPoint func([]string) string) (string, e
 		return "", fmt.Errorf("error finding cwd: %w", err)
 	}
 
-	entryPoint := nodejstools.ParseNodeLaunch(args).EntryPoint
+	entryPoint := parseEntryPoint(args)
 
 	dir := FindScriptDirectory(rootDir, entryPoint, workdir)
 	if dir == "" {
