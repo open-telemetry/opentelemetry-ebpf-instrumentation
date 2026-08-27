@@ -198,11 +198,11 @@ func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
 		if err != nil {
 			ta.log.Debug("unable to resolve Python service metadata", "pid", ie.FileInfo.Pid(), "error", err)
 		}
-    case svc.InstrumentableDotnet:
-        err := dotnettools.ResolveServiceMetadata(ie.FileInfo)
-        if err != nil {
-            ta.log.Debug("unable to resolve .NET service metadata", "pid", ie.FileInfo.Pid(), "error", err)
-        }
+	case svc.InstrumentableDotnet:
+		err := dotnettools.ResolveServiceMetadata(ie.FileInfo)
+		if err != nil {
+			ta.log.Debug("unable to resolve .NET service metadata", "pid", ie.FileInfo.Pid(), "error", err)
+		}
 	}
 }
 

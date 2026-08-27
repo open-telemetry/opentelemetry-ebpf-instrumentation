@@ -5,6 +5,7 @@ package frameworks // import "go.opentelemetry.io/obi/pkg/internal/pythontools/f
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -87,7 +88,7 @@ func validModule(value string) bool {
 	if value == "" {
 		return false
 	}
-	for _, part := range strings.Split(value, ".") {
+	for part := range strings.SplitSeq(value, ".") {
 		if !validIdentifier(part) {
 			return false
 		}
@@ -184,7 +185,7 @@ func splitShellFields(value string) ([]string, bool) {
 
 func splitList(value string) []string {
 	var values []string
-	for _, item := range strings.Split(value, ",") {
+	for item := range strings.SplitSeq(value, ",") {
 		if item = strings.TrimSpace(item); item != "" {
 			values = append(values, item)
 		}
@@ -262,8 +263,8 @@ func TargetName(target string) string {
 			return specificModuleName(parts[i-1])
 		}
 	}
-	for i := len(parts) - 1; i >= 0; i-- {
-		if name := specificModuleName(parts[i]); name != "" {
+	for _, part := range slices.Backward(parts) {
+		if name := specificModuleName(part); name != "" {
 			return name
 		}
 	}

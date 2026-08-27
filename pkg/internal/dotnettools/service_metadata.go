@@ -139,10 +139,12 @@ func metadataSourceForProcess(fileInfo *exec.FileInfo) (metadataSource, error) {
 }
 
 func readDepsJSON(path, entryAssembly string) serviceMetadata {
-	file := openDepsJSON(path)
-	if file == nil {
+	file, ok := langtools.OpenMetadataFile(path, maxDepsJSONBytes)
+
+	if file == nil || !ok {
 		return serviceMetadata{}
 	}
+
 	defer file.Close()
 
 	data, err := io.ReadAll(io.LimitReader(file, maxDepsJSONBytes+1))

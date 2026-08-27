@@ -3,7 +3,10 @@
 
 package frameworks // import "go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 type uwsgiSettings struct {
 	module      string
@@ -67,8 +70,8 @@ func ParseUWSGI(args []string) PythonLaunch {
 		launch.TargetKind = TargetFile
 	}
 
-	for i := len(settings.pythonPaths) - 1; i >= 0; i-- {
-		launch.SearchPaths = append(launch.SearchPaths, settings.pythonPaths[i])
+	for _, v := range slices.Backward(settings.pythonPaths) {
+		launch.SearchPaths = append(launch.SearchPaths, v)
 	}
 
 	launch.SearchPaths = append(launch.SearchPaths, ".")

@@ -5,6 +5,7 @@ package pythontools
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -460,9 +461,7 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 			writePythonFile(t, filepath.Join(root, "libs", "orders.py"), "")
 			writePythonFile(t, filepath.Join(root, "libs", "pyproject.toml"), "[project]\nname = 'path-orders'\nversion = '2'\n")
 			env := map[string]string{"PYTHONPATH": "/libs"}
-			for name, value := range test.env {
-				env[name] = value
-			}
+			maps.Copy(env, test.env)
 			fileInfo := mockPythonProcess(t, root, "python", test.args, env, "/app")
 
 			err := ResolveServiceMetadata(fileInfo)
