@@ -719,7 +719,7 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, mr.userAttribSelection)
 	}
 	mlog.Debug("creating new Metrics reporter")
-	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
+	resources := resource.NewWithAttributes(attr.OBISchemaURL, resourceAttributes...)
 
 	opts := []metric.Option{
 		metric.WithResource(resources),

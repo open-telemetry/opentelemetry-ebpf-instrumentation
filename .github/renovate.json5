@@ -205,14 +205,14 @@
       "enabled": false
     },
     {
-      "description": "Block golang Docker image major upgrades (these require coordinated manual changes)",
+      "description": "Block golang Docker image minor and major upgrades (these require coordinated manual changes)",
       "matchDatasources": ["docker"],
       "matchPackageNames": [
         "golang",
         "docker.io/library/golang",
         "library/golang"
       ],
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": ["minor", "major"],
       "enabled": false
     },
     {
