@@ -652,6 +652,7 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 		"net/http.Header.writeSubset",
 		"golang.org/x/net/http2.(*Framer).WriteHeaders",
 		"net/http.(*http2Framer).WriteHeaders",
+		"net/http/internal/http2.(*Framer).WriteHeaders",
 	}
 	tracingProbeSymbols := []string{
 		"net/http.(*Transport).roundTrip",
@@ -726,6 +727,26 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 		assert.Equal(t, expectedSymbols[i][1], group.Probes[1].Symbol)
 		assert.NotNil(t, group.Probes[0].Probe)
 		assert.NotNil(t, group.Probes[1].Probe)
+	}
+}
+
+func TestGo127HTTP2Probes(t *testing.T) {
+	setContextPropagationSupportForTest(t, true)
+
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{ContextPropagation: config.ContextPropagationHeaders},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	probes := tracer.GoProbes()
+	for _, symbol := range []string{
+		"net/http/internal/http2.(*ClientConn).writeHeaders",
+		"net/http/internal/http2.(*Framer).WriteHeaders",
+		"net/http/internal/http2.(*responseWriter).handlerDone",
+		"net/http/internal/http2.(*responseWriterState).writeHeader",
+		"net/http/internal/http2.(*serverConn).processHeaders",
+		"net/http/internal/http2.(*serverConn).runHandler",
+	} {
+		assert.Contains(t, probes, symbol)
 	}
 }
 

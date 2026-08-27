@@ -1645,6 +1645,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
+		"net/http/internal/http2.(*responseWriter).handlerDone": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
+		}},
 		"golang.org/x/net/http2.(*responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
@@ -1654,10 +1657,16 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2ClientConn).writeHeaders": {{ // http2 client vendored in Go, but used from http 1.1 transition
 			Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored,
 		}},
+		"net/http/internal/http2.(*ClientConn).writeHeaders": {{
+			Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored,
+		}},
 		"golang.org/x/net/http2.(*responseWriterState).writeHeader": {{ // http2 server request done, capture the response code
 			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
 		}},
 		"net/http.(*http2responseWriterState).writeHeader": {{ // same as above, vendored in go
+			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
+		}},
+		"net/http/internal/http2.(*responseWriterState).writeHeader": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
 		}},
 		"net/http.(*response).WriteHeader": {{
@@ -1669,11 +1678,17 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2serverConn).runHandler": {{
 			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler, // http2 server connection tracking, vendored in go
 		}},
+		"net/http/internal/http2.(*serverConn).runHandler": {{
+			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler,
+		}},
 		"golang.org/x/net/http2.(*serverConn).processHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing
 		}},
 		"net/http.(*http2serverConn).processHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing, vendored in go
+		}},
+		"net/http/internal/http2.(*serverConn).processHeaders": {{
+			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders,
 		}},
 		// tracking of tcp connections for black-box propagation
 		"net/http.(*conn).serve": {{ // http server
@@ -2037,6 +2052,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			},
 		}
 		m["net/http.(*http2Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{{ // http2 context propagation
+			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
+			End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
+		}}
+		m["net/http/internal/http2.(*Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
 			End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
 		}}

@@ -3,7 +3,14 @@
 
 package goexec
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/test/tools"
+)
 
 func TestIsITabEntry(t *testing.T) {
 	cases := []struct {
@@ -44,4 +51,22 @@ func TestITabType(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
+	goVersion, _, err := getGoDetails(smallELF)
+	require.NoError(t, err)
+	if !goVersionAtLeast(goVersion, "1.27.0") {
+		t.Skip("Go 1.27 moduledata is not available")
+	}
+
+	elfFile := compileELF(
+		tools.ProjectDir()+"/pkg/internal/goexec/testdata/itab/main.go",
+		"-ldflags", "-s -w",
+	)
+	t.Cleanup(func() { require.NoError(t, elfFile.Close()) })
+
+	implementations, err := findInterfaceImpls(elfFile)
+	require.NoError(t, err)
+	assert.NotZero(t, implementations["*main.workerImpl"])
 }

@@ -424,6 +424,33 @@ var structMembers = map[string]structInfo{
 			"conn": ScConnPos,
 		},
 	},
+	"net/http/internal/http2.ClientConn": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"nextStreamID": CcNextStreamIDVendoredPos,
+			"tconn":        CcTconnVendoredPos,
+			"tlsState":     CcTLSVendoredPos,
+			"fr":           CcFramerVendoredPos,
+		},
+	},
+	"net/http/internal/http2.Framer": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"w": FramerWPos,
+		},
+	},
+	"net/http/internal/http2.MetaHeadersFrame": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"Fields": MetaHeadersFrameFieldsPtrPos,
+		},
+	},
+	"net/http/internal/http2.serverConn": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"conn": ScConnPos,
+		},
+	},
 	"net.TCPConn": {
 		lib: "go",
 		fields: map[string]GoOffset{
