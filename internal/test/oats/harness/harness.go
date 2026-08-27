@@ -59,6 +59,7 @@ func oatsArgs(base string) ([]string, error) {
 		"--config", filepath.Join(base, "oats-config.yaml"),
 		"--timeout", timeout,
 		"--container-runtime", "docker",
+		"--gcx-version", "1.0.0",
 		"--gcx-download", "auto",
 		"--no-cache",
 	}, nil
