@@ -126,7 +126,7 @@ func appendValue(b *strings.Builder, pkt couchbasekv.Packet) {
 func stripLEB128Prefix(key []byte) []byte {
 	const maxLen = 5
 	limit := min(len(key), maxLen)
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		if key[i]&0x80 == 0 {
 			return key[i+1:]
 		}

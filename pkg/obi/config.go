@@ -562,7 +562,7 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 			to = to.Elem()
 		}
 		toPtr := reflect.New(to)
-		if _, ok := toPtr.Interface().(encoding.TextUnmarshaler); !ok {
+		if _, ok := reflect.TypeAssert[encoding.TextUnmarshaler](toPtr); !ok {
 			return data, nil
 		}
 
