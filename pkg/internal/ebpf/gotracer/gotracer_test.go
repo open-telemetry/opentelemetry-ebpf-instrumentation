@@ -31,6 +31,9 @@ import (
 )
 
 func TestGoOffsetsMapKey(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping test because not on linux")
+	}
 	const inode = uint64(123)
 
 	testCases := []struct {
