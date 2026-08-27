@@ -178,8 +178,9 @@ Mechanism:
   `trace_parent.h`): after the fd-correlation map resolves the outgoing call's
   server parent, if the shadow slot exists and the live `traces_ctx_v1` entry
   shares the resolved trace id, the client span's parent is swapped to the live
-  (manual) span id. Downstream traceparent propagation reads the same resolved
-  client tp, so it propagates the manual span with no extra changes.
+  (manual) span id. Downstream traceparent propagation follows transitively: the
+  injected header carries the client span's own id, whose parent is now the
+  manual span. Nothing in the tpinjector path reads `traces_ctx_v1` itself.
 - **Root vs. client parenting differ.** The manual span-end handler
   (`handle_node_span`) parents from the **shadow slot** (the server context),
   not the live entry — otherwise a root manual span, whose own override is live
@@ -316,6 +317,13 @@ would otherwise leave two providers active in one process.
   mid-request (the span id is temporarily the manual span's while one is
   active); the trace id is always the server's, and the pre-override base is
   preserved in the shadow slot and restored on unwind.
+
+  The **log enricher** (`bpf/logenricher/logenricher.c`) is the other reader of
+  `traces_ctx_v1`, so this also moves log-to-trace correlation for Node manual-
+  span users from the server span to the innermost active manual span — the
+  correlation OTel SDKs produce for the same code. The override is dropped on
+  the async_hooks `after` boundary as well as on synchronous unwind, so a log
+  line emitted after the span ended does not carry it.
 - **End-time context sampling.** The request context is read when the span
   *ends*. A manual span that outlives its request falls back to the bridge
   trace ID; if a nested chain ends across the request boundary, the chain

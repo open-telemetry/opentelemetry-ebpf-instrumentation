@@ -175,15 +175,19 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
 //     /dev/null/obi-mspan/-                                   -> pop
 //
 // "Override" means: the innermost active manual span is now this one; make the
-// thread's traces_ctx_v1 entry point at it so OBI's automatic client spans and
-// downstream traceparent propagation (which both read traces_ctx_v1) nest under
-// the manual span instead of the server span. We keep the request (base) trace
-// id and only swap in the manual span's span id. The pre-override entry is saved
-// once per sync block in node_manual_ctx_shadow; "pop" restores it. This mirrors
-// go_sdk.c's update_tp_parent_go / prev_tp semantics.
+// thread's traces_ctx_v1 entry point at it so OBI's automatic client spans nest
+// under the manual span instead of the server span. Downstream traceparent
+// propagation follows transitively — the injected header carries the client
+// span's own id, whose parent is now the manual span. We keep the request (base)
+// trace id and only swap in the manual span's span id. The pre-override entry is
+// saved once per sync block in node_manual_ctx_shadow; "pop" restores it. This
+// mirrors go_sdk.c's update_tp_parent_go / prev_tp semantics.
+//
+// The log enricher (logenricher.c) also reads traces_ctx_v1, so while a manual
+// span is active, log lines correlate to it rather than to the server span.
 static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgid) {
     // 48 hex chars + NUL for an override, or the single-char '-' pop marker.
-    char hexbuf[2 * (TRACE_ID_SIZE_BYTES + SPAN_ID_SIZE_BYTES) + 1] = {};
+    unsigned char hexbuf[2 * (TRACE_ID_SIZE_BYTES + SPAN_ID_SIZE_BYTES) + 1] = {};
     const long n = bpf_probe_read_user_str(hexbuf, sizeof(hexbuf), path + k_mspan_payload_offset);
     if (n <= 0) {
         return 0;
@@ -195,9 +199,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
         obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
         if (shadow) {
             if (ctx_has_trace_id(shadow)) {
-                obi_ctx_info_t restore = {};
-                bpf_memcpy(&restore, shadow, sizeof(restore));
-                bpf_map_update_elem(&traces_ctx_v1, &pid_tgid, &restore, BPF_ANY);
+                bpf_map_update_elem(&traces_ctx_v1, &pid_tgid, shadow, BPF_ANY);
             } else {
                 obi_ctx__del(pid_tgid);
             }
@@ -213,10 +215,8 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
     }
 
     obi_ctx_info_t sentinel = {};
-    decode_hex(sentinel.trace_id, (const unsigned char *)hexbuf, 2 * TRACE_ID_SIZE_BYTES);
-    decode_hex(sentinel.span_id,
-               (const unsigned char *)hexbuf + 2 * TRACE_ID_SIZE_BYTES,
-               2 * SPAN_ID_SIZE_BYTES);
+    decode_hex(sentinel.trace_id, hexbuf, 2 * TRACE_ID_SIZE_BYTES);
+    decode_hex(sentinel.span_id, hexbuf + 2 * TRACE_ID_SIZE_BYTES, 2 * SPAN_ID_SIZE_BYTES);
 
     // Save the pre-override base on the first override of this sync block. A
     // missing live entry is recorded as an all-zero "no base existed" marker so

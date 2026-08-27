@@ -73,6 +73,17 @@ test('active manual spans publish -mspan/ override and restore on unwind', () =>
   assert.deepStrictEqual(r.bridge, ['inner', 'outer'], 'both spans are still captured');
 });
 
+test('a span ending in an async callback releases its override', () => {
+  // The override must not outlive the callback: nothing else clears it when no
+  // further callback runs (a timer in an idle process, work outside a request),
+  // so eBPF client spans and enriched log lines would keep carrying an ended
+  // span. The 'after' boundary pops it.
+  const r = runScenario('mspan-async-release');
+  assert.ok(r.mspan.includes('override'), 'the active span must publish an override');
+  assert.strictEqual(r.mspan[r.mspan.length - 1], 'pop', 'the last sentinel must release it');
+  assert.deepStrictEqual(r.bridge, ['job'], 'the span is still captured');
+});
+
 test('re-injection keeps the override hook after the context-refresh hook', () => {
   // async_hooks fire in enable order; a re-injected fdextractor re-enables its
   // '-ctx' hook, which would then erase the override every callback unless the

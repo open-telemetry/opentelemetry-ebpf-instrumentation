@@ -174,13 +174,18 @@
     }
   };
 
-  // Both gate on the same handoff condition as emit(): once the app's SDK owns
-  // telemetry — via a wrapped setter (yielded) or a registration through an
-  // unwrapped copy (detectRegistryHandoff) — the bridge must stop mutating the
-  // kernel context map, or stale overrides would point eBPF client spans at
-  // bridge span ids that are no longer exported.
+  // Once the app's SDK owns telemetry — via a wrapped setter (yielded) or a
+  // registration through an unwrapped copy (detectRegistryHandoff) — the bridge
+  // must stop pointing the kernel context map at its own spans, or stale
+  // overrides would point eBPF client spans at bridge span ids that are no
+  // longer exported. Handoff drops the override rather than skipping the emit:
+  // skipping would latch whichever override was already in the map.
   const emitOverride = (span) => {
-    if (yielded || detectRegistryHandoff()) return;
+    if (yielded) return;
+    if (detectRegistryHandoff()) {
+      emitPop();
+      return;
+    }
     const sc = span._spanContext;
     try {
       fs.accessSync(MSPAN_PREFIX + sc.traceId + sc.spanId);
@@ -557,13 +562,36 @@
   // in the current async context. Nothing is emitted when no manual span is
   // active (zero cost outside manual spans). fs.accessSync is safe here:
   // synchronous fs ops create no AsyncWrap and cannot re-enter async_hooks.
+  // 'after' drops the override again: a callback that starts no further
+  // callbacks (a timer in an idle process, any work outside a request) would
+  // otherwise leave the manual span latched in traces_ctx_v1 long after it
+  // ended, and every later eBPF client span and enriched log line would carry
+  // it. Only the outermost callback pops, so a nested one does not strip the
+  // override the outer callback is still running under.
   let mspanHook;
+  let hookDepth = 0;
+  let overrideEmitted = false;
   try {
     mspanHook = createHook({
       before() {
+        hookDepth++;
         try {
           const span = activeBridgeSpan(als.getStore());
-          if (span) emitOverride(span);
+          if (span) {
+            emitOverride(span);
+            overrideEmitted = true;
+          }
+        } catch (_) {
+          // never let the hook throw into the app
+        }
+      },
+      after() {
+        if (hookDepth > 0) hookDepth--;
+        try {
+          if (hookDepth === 0 && overrideEmitted) {
+            emitPop();
+            overrideEmitted = false;
+          }
         } catch (_) {
           // never let the hook throw into the app
         }

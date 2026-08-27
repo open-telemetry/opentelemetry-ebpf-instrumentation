@@ -151,6 +151,27 @@ async function run() {
       process.stdout.write(JSON.stringify({ mspan: seq, bridge: bridgeCaptured }));
       return;
     }
+    case 'mspan-async-release': {
+      // A manual span whose scope ends inside an async callback must not leave
+      // its override latched: the async_hooks 'after' boundary pops it. Without
+      // that pop the last sentinel is an override, and every later eBPF client
+      // span and enriched log line would carry a span that already ended.
+      const tracer = trace.getTracer('app');
+      injectBridge();
+      await new Promise((resolve) => {
+        tracer.startActiveSpan('job', (job) => {
+          setTimeout(() => {
+            job.end();
+            resolve();
+          }, 5);
+        });
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      const seq = mspanCaptured.map((pl) => (pl === '-' ? 'pop' : 'override'));
+      fs.accessSync = origAccess;
+      process.stdout.write(JSON.stringify({ mspan: seq, bridge: bridgeCaptured }));
+      return;
+    }
     default:
       throw new Error('unknown scenario: ' + scenario);
   }

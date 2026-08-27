@@ -22,6 +22,6 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64); // pid_tgid
     __type(value, obi_ctx_info_t);
-    __uint(max_entries, 1000); // nodejs is single threaded; small like nodejs_fd_map
+    __uint(max_entries, 1 << 14); // sized with traces_ctx_v1, whose entries it shadows
     __uint(pinning, OBI_PIN_INTERNAL);
 } node_manual_ctx_shadow SEC(".maps");
