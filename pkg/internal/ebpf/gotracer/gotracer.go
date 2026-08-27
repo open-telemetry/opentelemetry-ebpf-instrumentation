@@ -194,10 +194,7 @@ var goAutoSDKSpanContextOffsetFields = [...]goexec.GoOffset{
 	goexec.AutoSDKActivationSupported,
 }
 
-var goH2WriteOffsetFields = [...]goexec.GoOffset{
-	goexec.FramerWPos,
-	goexec.IoWriterBufPtrPos,
-	goexec.IoWriterNPos,
+var goGRPCBufWriterOffsetFields = [...]goexec.GoOffset{
 	goexec.GrpcTransportBufWriterBufPos,
 	goexec.GrpcTransportBufWriterOffsetPos,
 	goexec.GrpcTransportBufWriterConnPos,
@@ -546,7 +543,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	offTable := BpfOffTableT{}
 	initMissingGoOffsets(&offTable, goChannelOffsetFields[:])
 	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
-	initMissingGoOffsets(&offTable, goH2WriteOffsetFields[:])
+	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
 		goexec.ConnFdPos,

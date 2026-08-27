@@ -103,15 +103,21 @@ func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
 }
 
-func TestMissingGoH2WriteOffsetsUseSentinel(t *testing.T) {
+func TestMissingGoGRPCBufWriterOffsetsUseSentinel(t *testing.T) {
 	var offTable BpfOffTableT
 
-	initMissingGoOffsets(&offTable, goH2WriteOffsetFields[:])
+	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
 
-	for _, field := range goH2WriteOffsetFields {
+	for _, field := range goGRPCBufWriterOffsetFields {
 		assert.Equal(t, missingGoOffset, offTable.Table[field])
 	}
-	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
+	for _, field := range []goexec.GoOffset{
+		goexec.FramerWPos,
+		goexec.IoWriterBufPtrPos,
+		goexec.IoWriterNPos,
+	} {
+		assert.Zero(t, offTable.Table[field])
+	}
 }
 
 func TestGoAutoSDKSpanContextOffsetsUseSentinelAndPreserveZero(t *testing.T) {
