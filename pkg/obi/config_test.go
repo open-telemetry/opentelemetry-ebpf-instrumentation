@@ -453,7 +453,7 @@ func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
 		seen[typ] = true
 		for i := 0; i < typ.NumField(); i++ {
 			f := typ.Field(i)
-			yamlTag := strings.Split(f.Tag.Get("yaml"), ",")[0]
+			yamlTag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
 			envDefault := f.Tag.Get("envDefault")
 			if yamlTag != "" && yamlTag != "-" && envDefault != "" && !strings.HasPrefix(envDefault, "${") {
 				violations = append(violations, path+"."+f.Name)
@@ -461,7 +461,7 @@ func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
 			walk(f.Type, path+"."+f.Name)
 		}
 	}
-	walk(reflect.TypeOf(Config{}), "Config")
+	walk(reflect.TypeFor[Config](), "Config")
 	assert.Empty(t, violations, "literal envDefault on yaml-configurable fields; move the default to DefaultConfig")
 }
 
@@ -1442,9 +1442,7 @@ func loadConfig(t *testing.T, env envMap) *Config {
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
 		"OTEL_EBPF_PROMETHEUS_PORT":           "0",
 	}
-	for k, v := range env {
-		isolatedEnv[k] = v
-	}
+	maps.Copy(isolatedEnv, env)
 	for k, v := range isolatedEnv {
 		t.Setenv(k, v)
 	}

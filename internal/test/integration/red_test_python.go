@@ -20,7 +20,7 @@ func testREDMetricsForPythonHTTPLibrary(t *testing.T, url, comm, namespace strin
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
@@ -76,7 +76,7 @@ func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespac
 }
 
 func testREDMetricsDNSForPython(t *testing.T, url, comm, namespace string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/ok_dns", 200)
 		ti.DoHTTPGet(t, url+"/bad_dns", 200)
 	}

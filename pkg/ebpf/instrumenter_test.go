@@ -750,11 +750,9 @@ func TestUSDTLinkCloserCloseIsConcurrentSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
 	for range cap(errs) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs <- closer.Close()
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

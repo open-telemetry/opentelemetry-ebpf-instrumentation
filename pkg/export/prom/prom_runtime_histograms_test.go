@@ -532,7 +532,7 @@ func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *
 
 	go func() {
 		defer waitGroup.Done()
-		for i := 0; i < iterations; i++ {
+		for i := range iterations {
 			counts := testPromRuntimeHistogramCounts()
 			counts[i%len(counts)] = uint64(i)
 			collector.Update(101, []string{"orders"}, &runtimemetrics.GoRuntimeHistogramSnapshot{
@@ -553,7 +553,7 @@ func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *
 				_ = metric
 			}
 		}()
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			collector.Collect(metrics)
 		}
 		close(metrics)
@@ -561,7 +561,7 @@ func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *
 	}()
 	go func() {
 		defer waitGroup.Done()
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			collector.Delete([]string{"orders"})
 		}
 	}()

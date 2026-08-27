@@ -28,7 +28,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	// Call 4 times the instrumented service, forcing it to:
 	// - take a large JSON body
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPPost(t, url+urlPath, 200, jsonBody)
 	}
 
@@ -153,7 +153,7 @@ func validateLargeDownloadURLSeen(t *testing.T, comm, namespace, urlPath string)
 }
 
 func testREDMetricsForLargeRustDownloads(t *testing.T, tURL, comm, namespace string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetFullResponse(t, tURL+"/large", 200)
 		doHTTPGetFullResponse(t, tURL+"/download1", 200)
 		doHTTPGetFullResponse(t, tURL+"/download2", 200)
@@ -228,7 +228,7 @@ func testREDMetricsForRustHTTP2Library(t *testing.T, url, comm, namespace string
 	// Call 4 times the instrumented service, forcing it to:
 	// - take a large JSON body
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTP2Post(t, url+urlPath, 200, jsonBody)
 	}
 
