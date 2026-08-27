@@ -122,6 +122,9 @@ func (r *metricsReporter) collectRuntimeMetrics(snapshots []runtimemetrics.Runti
 		if snapshot.Nodejs != nil {
 			r.collectNodejsRuntimeMetrics(snapshot)
 		}
+		if snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil {
+			r.collectNodejsV8Metrics(snapshot)
+		}
 	}
 }
 

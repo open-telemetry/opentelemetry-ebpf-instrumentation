@@ -33,9 +33,11 @@ type RuntimeMetricSnapshot struct {
 	Generation uint64
 	Time       time.Time
 
-	Go     *GoRuntimeMetricSnapshot
-	JVM    *JVMRuntimeMetricSnapshot
-	Nodejs *NodejsRuntimeMetricSnapshot
+	Go              *GoRuntimeMetricSnapshot
+	JVM             *JVMRuntimeMetricSnapshot
+	Nodejs          *NodejsRuntimeMetricSnapshot
+	NodejsGC        *NodejsGCSnapshot
+	NodejsHeapSpace *NodejsHeapSpaceSnapshot
 
 	Histogram *GoRuntimeHistogramSnapshot
 }
@@ -123,6 +125,16 @@ type NodejsRuntimeMetricSnapshot struct {
 	appruntime.NodejsEventLoopValues
 }
 
+type NodejsGCSnapshot struct {
+	GCType     appruntime.NodejsGCType
+	DurationNs uint64
+}
+
+type NodejsHeapSpaceSnapshot struct {
+	SpaceName string
+	appruntime.NodejsHeapSpaceValues
+}
+
 type QueueSender struct {
 	queue *msg.Queue[[]RuntimeMetricSnapshot]
 }
@@ -156,6 +168,30 @@ func (s *QueueSender) SendNodejsRuntimeMetrics(ctx context.Context, events []app
 	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
 	for i := range events {
 		snapshots = append(snapshots, SnapshotFromNodejsRuntimeEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
+}
+
+func (s *QueueSender) SendNodejsGCMetrics(ctx context.Context, events []appruntime.NodejsGCEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromNodejsGCEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
+}
+
+func (s *QueueSender) SendNodejsHeapSpaceMetrics(ctx context.Context, events []appruntime.NodejsHeapSpaceEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromNodejsHeapSpaceEvent(events[i]))
 	}
 	s.queue.SendCtx(ctx, snapshots)
 }
@@ -424,6 +460,30 @@ func convertGoRuntimeMetricSnapshot(
 			MemoryAllocations: memoryAllocations,
 			GoroutineCount:    goroutineCount,
 			MemoryGCGoal:      memoryGCGoal,
+		},
+	}
+}
+
+func SnapshotFromNodejsGCEvent(event appruntime.NodejsGCEvent) RuntimeMetricSnapshot {
+	return RuntimeMetricSnapshot{
+		Service: event.Service,
+		PID:     event.PID,
+		Time:    event.Time,
+		NodejsGC: &NodejsGCSnapshot{
+			GCType:     event.GCType,
+			DurationNs: event.DurationNs,
+		},
+	}
+}
+
+func SnapshotFromNodejsHeapSpaceEvent(event appruntime.NodejsHeapSpaceEvent) RuntimeMetricSnapshot {
+	return RuntimeMetricSnapshot{
+		Service: event.Service,
+		PID:     event.PID,
+		Time:    event.Time,
+		NodejsHeapSpace: &NodejsHeapSpaceSnapshot{
+			SpaceName:             event.SpaceName,
+			NodejsHeapSpaceValues: event.NodejsHeapSpaceValues,
 		},
 	}
 }

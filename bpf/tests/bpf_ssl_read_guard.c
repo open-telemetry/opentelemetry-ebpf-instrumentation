@@ -35,6 +35,11 @@ struct bpf_test_map ssl_to_conn = {.id = 1};
 struct bpf_test_map pid_tid_to_conn = {.id = 2};
 struct bpf_test_map ssl_to_pid_tid = {.id = 3};
 struct bpf_test_map ongoing_http = {.id = 4};
+struct bpf_test_map active_ssl_connections = {.id = 5};
+struct bpf_test_map bio_to_ssl = {.id = 6};
+struct bpf_test_map ssl_to_bios = {.id = 7};
+struct bpf_test_map tls_prefix_to_ssl = {.id = 8};
+tls_prefix_scratch_t test_tls_prefix_scratch;
 
 int test_parser_call_count;
 int test_last_parser_bytes_len;

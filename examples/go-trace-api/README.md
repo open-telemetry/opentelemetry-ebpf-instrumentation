@@ -101,8 +101,9 @@ curl --get --fail --silent --show-error \
 ## How Activation Works
 
 OBI activates the Auto SDK only when the application has not registered a
-`TracerProvider` and the executable and host meet the v0.11.0 requirements. See
-the [exact module and platform allowlist](../../SUPPORT_MATRIX.md#go-global-trace-api-and-auto-sdk-activation).
+`TracerProvider` and the executable and host meet the current Auto SDK
+requirements. See the
+[exact module and platform allowlist](../../SUPPORT_MATRIX.md#go-global-trace-api-and-auto-sdk-activation).
 
 The requirements cover canonical module versions and checksums, modules without
 replacements, supported 64-bit ABI and architecture, required symbols and field
@@ -128,7 +129,7 @@ substitute for the application-authored span. If the application has registered
 an SDK `TracerProvider`, OBI defers to that provider instead of activating the
 Auto SDK or creating a competing synthetic span.
 
-OBI v0.11.0 has no metric or log that confirms Auto SDK activation. Check the
+OBI has no metric or log that confirms Auto SDK activation. Check the
 application response and the expected application-supplied fields in Jaeger.
 
 ## Troubleshooting
@@ -183,13 +184,15 @@ activation.
 
 ### Payload Size
 
-In OBI v0.11.0, each application-authored span must fit within a 16 KiB encoded
-payload. Spans whose payloads exceed this limit are not exported. v0.11.0 does
+Each application-authored span must fit within a 16 KiB encoded
+payload. Spans whose payloads exceed this limit are not exported. OBI does
 not log a warning or publish a metric when this happens, so a missing span in
 Jaeger does not by itself show that its payload was too large. OBI also does not
 guarantee a synthetic replacement.
 
-## Known Limitations In v0.11.0
+## Known Limitations
+
+These limits have been present since the Auto SDK path shipped in v0.11.0:
 
 - OBI's configured trace sampler does not control whether the Auto SDK records
   a span:

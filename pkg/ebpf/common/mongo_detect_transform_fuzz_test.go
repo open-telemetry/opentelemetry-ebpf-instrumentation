@@ -125,10 +125,7 @@ func assertAcceptedMongoHeader(t *testing.T, payload []byte) {
 		t.Fatalf("accepted invalid MongoDB header: length=%d request=%d response=%d opcode=%d",
 			messageLength, requestID, responseTo, opcode)
 	}
-	parsedLength := len(payload)
-	if int(messageLength) < parsedLength {
-		parsedLength = int(messageLength)
-	}
+	parsedLength := min(int(messageLength), len(payload))
 	if responseTo != 0 && parsedLength == 16 {
 		return
 	}

@@ -11,15 +11,16 @@ import (
 	"strings"
 	"testing"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 func TestHTTP2InfoToSpanSetsFullPath(t *testing.T) {
@@ -359,7 +360,8 @@ func TestHPACKOpensResponseRejectsRequests(t *testing.T) {
 	for _, method := range methods {
 		for _, path := range paths {
 			for _, sizes := range [][]uint32{nil, {4096}, {0, 4096}} {
-				block := encodeHPACK(t, sizes,
+				block := encodeHPACK(
+					t, sizes,
 					hpack.HeaderField{Name: ":method", Value: method},
 					hpack.HeaderField{Name: ":path", Value: path},
 					hpack.HeaderField{Name: ":scheme", Value: "https"},
@@ -404,7 +406,7 @@ func TestHPACKOpensResponseExhaustive(t *testing.T) {
 		varintMore  = 15
 	)
 
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		idx, isField := hpackReference(byte(b))
 		fourBit := b&0x80 == 0 && b&0xc0 != 0x40 && b&0xe0 != 0x20
 
@@ -431,7 +433,7 @@ func TestHPACKOpenersAreDisjoint(t *testing.T) {
 		return idx >= 1 && idx <= 7
 	}
 
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		if hpackOpensResponse([]byte{byte(b)}) {
 			assert.False(t, opensRequest(byte(b)), "byte 0x%02x opens both", b)
 		}
@@ -918,6 +920,26 @@ func makeHeadersFrame(t *testing.T, block []byte) []byte {
 	return append(frame, block...)
 }
 
+func makeSplitHeadersFrame(t *testing.T, block []byte) []byte {
+	t.Helper()
+	split := len(block) / 2
+	headers := []byte{
+		0, 0, byte(split),
+		0x1,
+		0,
+		0, 0, 0, 0x1,
+	}
+	headers = append(headers, block[:split]...)
+	continuationLen := len(block) - split
+	continuation := []byte{
+		byte(continuationLen >> 16), byte(continuationLen >> 8), byte(continuationLen),
+		0x9,
+		0x4,
+		0, 0, 0, 0x1,
+	}
+	return append(headers, append(continuation, block[split:]...)...)
+}
+
 // requestFields mirrors what a Java gRPC client sends: unique traceparent and
 // timeout per request keep those literal on the wire, the rest gets indexed.
 func requestFields(path, traceparent string) []hpack.HeaderField {
@@ -949,11 +971,50 @@ func (c *h2ConnEncoder) frame(t *testing.T, fields []hpack.HeaderField) []byte {
 	return makeHeadersFrame(t, c.buf.Bytes())
 }
 
-func h2Event(frame []byte, connID uint64, seq uint32) BPFHTTP2Info {
-	info := makeBPFHTTP2InfoNewRequest(frame, nil, len(frame))
+func h2Event(frame, response []byte, connID uint64, streamID uint32) BPFHTTP2Info {
+	info := makeBPFHTTP2InfoNewRequest(frame, response, len(frame))
 	info.NewConnId = connID
-	info.Seq = seq
+	info.StreamId = streamID
+	info.HpackFlags = h2HpackNewConnection
 	return info
+}
+
+func observeH2Headers(t *testing.T, parseContext *EBPFParseContext, event BPFHTTP2Info, eventType uint8) {
+	t.Helper()
+	event.Flags = eventType
+	buf := event.Data[:]
+	if eventType == EventTypeKHTTP2ResponseHeaders {
+		buf = event.RetData[:]
+	}
+	if wireLen := headerBlockWireLen(buf); wireLen > 0 {
+		event.Len = int32(wireLen)
+	}
+	require.NoError(t, readHTTP2HeaderEvent(parseContext, &event))
+}
+
+func headerBlockWireLen(buf []byte) int {
+	pos := 0
+	for pos+frameHeaderLen <= len(buf) {
+		fh, err := readFrameHeader(buf[pos:])
+		if err != nil {
+			return 0
+		}
+		frameLen := frameHeaderLen + int(fh.Length)
+		pos += frameLen
+		if fh.Flags&http2.FlagHeadersEndHeaders != 0 || pos > len(buf) {
+			return pos
+		}
+	}
+	return 0
+}
+
+func completeH2(t *testing.T, parseContext *EBPFParseContext, event BPFHTTP2Info) request.Span {
+	t.Helper()
+	event.Flags = EventTypeKHTTP2
+	span, ignore, err := http2FromBuffers(parseContext, &event)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	return span
 }
 
 const (
@@ -961,149 +1022,166 @@ const (
 	pathB = "/ipservice.IPService/GetIpV6Info"
 )
 
-// Contiguous events keep the dynamic table in sync: repeated methods resolve
-// even when nothing readable is left on the wire.
+// Header-observation events keep the dynamic table in sync before completion.
 func TestSequentialRequestsKeepResolvingMethods(t *testing.T) {
 	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}
 	enc.enc = hpack.NewEncoder(&enc.buf)
 
-	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 810, 1)))
-	require.False(t, ignore)
+	first := h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), nil, 810, 1)
+	observeH2Headers(t, parseContext, first, EventTypeKHTTP2RequestHeaders)
+	span := completeH2(t, parseContext, first)
 	require.Equal(t, pathA, span.Path)
 
-	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), 810, 2)))
-	require.False(t, ignore)
+	second := h2Event(enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), nil, 810, 3)
+	observeH2Headers(t, parseContext, second, EventTypeKHTTP2RequestHeaders)
+	span = completeH2(t, parseContext, second)
 	require.Equal(t, pathB, span.Path)
 
 	// repeat of pathB: :path now rides as a pure dynamic-table index
-	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01")), 810, 3)))
-	require.False(t, ignore)
+	third := h2Event(enc.frame(t, requestFields(pathB, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01")), nil, 810, 5)
+	observeH2Headers(t, parseContext, third, EventTypeKHTTP2RequestHeaders)
+	span = completeH2(t, parseContext, third)
 	require.Equal(t, pathB, span.Path)
 }
 
-// A lost request event carried a header block the decoders never saw: later
-// indexed lookups may name the wrong method. The sequence gap must degrade the
-// connection to "*", never to another request's method (discussion #2916).
-func TestLostHeadersEventPoisonsConnection(t *testing.T) {
-	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(8))
-	emitted := spans.Subscribe()
-	parseContext := NewEBPFParseContext(nil, spans, nil)
+func TestCoalescedDataDoesNotPoisonHeaderState(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}
 	enc.enc = hpack.NewEncoder(&enc.buf)
 
-	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 916, 1)))
-	require.False(t, ignore)
-	require.Equal(t, pathA, span.Path)
+	firstFrame := enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01"))
+	dataFrame := []byte{0, 0, 1, byte(http2.FrameData), 0, 0, 0, 0, 1, 0}
+	coalesced := append(append([]byte(nil), firstFrame...), dataFrame...)
+	first := h2Event(coalesced, nil, 810, 1)
+	first.Flags = EventTypeKHTTP2RequestHeaders
+	require.NoError(t, readHTTP2HeaderEvent(parseContext, &first))
+	require.Equal(t, pathA, completeH2(t, parseContext, first).Path)
 
-	// this event is dropped before user space sees it
-	_ = enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01"))
+	second := h2Event(enc.frame(t, requestFields(pathA, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), nil, 810, 3)
+	observeH2Headers(t, parseContext, second, EventTypeKHTTP2RequestHeaders)
+	require.Equal(t, pathA, completeH2(t, parseContext, second).Path)
+}
 
-	// successors of the missing ordinal are held back while the gap could
-	// still be an inversion in flight
-	for seq := uint32(3); seq <= 3+seqReorderWindow-1; seq++ {
-		_, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01")), 916, seq)))
-		require.True(t, ignore, "seq %d must be held while the gap is within the window", seq)
-	}
+func TestMissingRequestHeaderEventPoisonsDecoder(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
 
-	// the gap outlives the window: everything drains degraded instead of
-	// resolving stale indexes
-	_, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-0a0a4bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703c-01")), 916, 3+seqReorderWindow)))
-	require.True(t, ignore)
+	_ = enc.frame(t, requestFields(pathB, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01"))
+	second := enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01"))
+	event := h2Event(second, nil, 811, 3)
+	event.HpackFlags = h2HpackRequestUnreliable
+	span := completeH2(t, parseContext, event)
+	require.Equal(t, "*", span.Path)
+}
 
-	select {
-	case replayed := <-emitted:
-		require.NotEmpty(t, replayed)
-		for _, replay := range replayed {
-			require.NotEqual(t, pathA, replay.Path, "a desynced lookup must never resolve another request's method")
-			require.Equal(t, "*", replay.Path)
-		}
-	default:
-		t.Fatal("the held events were never replayed")
-	}
+func TestUnusableRequestHeaderEventFallsBackToWildcard(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	event := h2Event(makeHeadersFrame(t, []byte{0xbe}), nil, 812, 3)
+	event.HpackFlags = h2HpackRequestUnreliable
+
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	conn, ok := parseContext.h2c.Peek(event.NewConnId)
+	require.True(t, ok)
+	stream := conn.streams[event.StreamId]
+	require.True(t, stream.requestSeen)
+	require.False(t, stream.requestOK)
+
+	span := completeH2(t, parseContext, event)
+	require.Equal(t, "*", span.Path)
 }
 
 // Multiplexed streams can complete in a different order than their header
 // blocks were captured: decoding must follow capture order, or the second
 // block resolves against a table missing the first block's insertions.
 func TestInvertedCompletionKeepsCaptureOrder(t *testing.T) {
-	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
-	emitted := spans.Subscribe()
-	parseContext := NewEBPFParseContext(nil, spans, nil)
+	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}
 	enc.enc = hpack.NewEncoder(&enc.buf)
-
-	// a baseline request establishes the connection ordinal
-	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 919, 1)))
-	require.False(t, ignore)
-	require.Equal(t, pathA, span.Path)
+	respEnc := &h2ConnEncoder{}
+	respEnc.enc = hpack.NewEncoder(&respEnc.buf)
 
 	// capture order: B then C, each inserting new table entries
 	frameB := enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01"))
 	frameC := enc.frame(t, requestFields(pathA, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01"))
+	// response order is independent: C then B. B's response reuses C's
+	// dynamic-table entries and must still decode in response order.
+	responseC := respEnc.frame(t, []hpack.HeaderField{
+		{Name: ":status", Value: "200"},
+		{Name: "content-type", Value: "application/grpc"},
+		{Name: "grpc-status", Value: "7"},
+	})
+	responseB := respEnc.frame(t, []hpack.HeaderField{
+		{Name: ":status", Value: "200"},
+		{Name: "content-type", Value: "application/grpc"},
+		{Name: "grpc-status", Value: "7"},
+	})
 
-	// C completes first: held until B arrives
-	_, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(frameC, 919, 3)))
-	require.True(t, ignore)
+	eventB := h2Event(frameB, responseB, 919, 3)
+	eventC := h2Event(frameC, responseC, 919, 5)
+	observeH2Headers(t, parseContext, eventB, EventTypeKHTTP2RequestHeaders)
+	observeH2Headers(t, parseContext, eventC, EventTypeKHTTP2RequestHeaders)
+	observeH2Headers(t, parseContext, eventC, EventTypeKHTTP2ResponseHeaders)
+	observeH2Headers(t, parseContext, eventB, EventTypeKHTTP2ResponseHeaders)
 
-	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(frameB, 919, 2)))
-	require.False(t, ignore)
-	require.Equal(t, pathB, span.Path)
-
-	select {
-	case replayed := <-emitted:
-		require.Len(t, replayed, 1)
-		require.Equal(t, pathA, replayed[0].Path,
-			"the held block must decode against the table that includes its predecessor")
-	default:
-		t.Fatal("the held event was never replayed")
-	}
+	spanC := completeH2(t, parseContext, eventC)
+	spanB := completeH2(t, parseContext, eventB)
+	require.Equal(t, pathA, spanC.Path)
+	require.Equal(t, pathB, spanB.Path)
+	require.Equal(t, 7, spanC.Status)
+	require.Equal(t, 7, spanB.Status)
 }
 
-// Two requests ending concurrently can take their ordinals in one order and
-// their ring buffer slots in the other: a single swapped pair must not poison
-// the connection.
-func TestReorderedEventsDoNotPoison(t *testing.T) {
-	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
-	emitted := spans.Subscribe()
-	parseContext := NewEBPFParseContext(nil, spans, nil)
-	enc := &h2ConnEncoder{}
-	enc.enc = hpack.NewEncoder(&enc.buf)
+func TestResponseHeadersAndTrailersShareDecoderState(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	reqEnc := &h2ConnEncoder{}
+	reqEnc.enc = hpack.NewEncoder(&reqEnc.buf)
+	respEnc := &h2ConnEncoder{}
+	respEnc.enc = hpack.NewEncoder(&respEnc.buf)
 
-	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 917, 1)))
-	require.False(t, ignore)
-	require.Equal(t, pathA, span.Path)
+	requestFrame := reqEnc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01"))
+	initial := respEnc.frame(t, []hpack.HeaderField{
+		{Name: ":status", Value: "200"},
+		{Name: "content-type", Value: "application/grpc"},
+		{Name: "grpc-status", Value: "7"},
+	})
+	trailers := respEnc.frame(t, []hpack.HeaderField{
+		{Name: "grpc-status", Value: "7"},
+	})
 
-	// two requests whose events arrive swapped; the second inserts new table
-	// entries, so decoding it out of order would corrupt the dynamic table
-	second := enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01"))
-	third := enc.frame(t, requestFields(pathB, "00-07354bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703b-01"))
-
-	// the successor is held back until its predecessor arrives
-	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(third, 917, 3)))
-	require.True(t, ignore)
-
-	// the predecessor decodes first, then the held event replays in order
-	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(second, 917, 2)))
-	require.False(t, ignore)
-	require.Equal(t, pathB, span.Path)
-
-	select {
-	case replayed := <-emitted:
-		require.Len(t, replayed, 1)
-		require.Equal(t, pathB, replayed[0].Path, "a healed reorder must decode the held event correctly")
-	default:
-		t.Fatal("the held event was never replayed")
-	}
-
-	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-0a0a4bea1effc570ca25d2c68ce56409-6f3a3d0efb2b703c-01")), 917, 4)))
-	require.False(t, ignore)
-	require.Equal(t, pathA, span.Path, "a healed reorder must not degrade later requests")
+	event := h2Event(requestFrame, initial, 920, 1)
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2ResponseHeaders)
+	event.RetData = h2Event(nil, trailers, 920, 1).RetData
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2ResponseHeaders)
+	require.Equal(t, 7, completeH2(t, parseContext, event).Status)
 }
 
-// A header block larger than the eBPF capture window arrives truncated with its
-// true length restored in the frame header: the decoder resumes the cut field on
-// the next event, so the connection keeps resolving methods.
+func TestResponseContinuationAdvancesDecoder(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	requestEncoder := &h2ConnEncoder{}
+	requestEncoder.enc = hpack.NewEncoder(&requestEncoder.buf)
+	responseEncoder := &h2ConnEncoder{}
+	responseEncoder.enc = hpack.NewEncoder(&responseEncoder.buf)
+
+	requestFrame := requestEncoder.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01"))
+	fullResponse := responseEncoder.frame(t, []hpack.HeaderField{
+		{Name: ":status", Value: "200"},
+		{Name: "content-type", Value: "application/grpc"},
+		{Name: "grpc-status", Value: "7"},
+	})
+	responseFrame := makeSplitHeadersFrame(t, fullResponse[frameHeaderLen:])
+	require.LessOrEqual(t, len(responseFrame), len(BPFHTTP2Info{}.RetData))
+
+	event := h2Event(requestFrame, responseFrame, 921, 1)
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2ResponseHeaders)
+	require.Equal(t, 7, completeH2(t, parseContext, event).Status)
+}
+
+// A truncated block may still yield literals captured before the cut, but its
+// missing table mutations make later dynamic indexes unsafe.
 func TestOversizedHeadersBlockStillResolves(t *testing.T) {
 	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}
@@ -1114,29 +1192,111 @@ func TestOversizedHeadersBlockStillResolves(t *testing.T) {
 	oversized := enc.frame(t, fields)
 	require.Greater(t, len(oversized), len(BPFHTTP2Info{}.Data))
 
-	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(oversized, 1024, 1)))
-	require.False(t, ignore)
+	event := h2Event(oversized, nil, 1024, 1)
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	span := completeH2(t, parseContext, event)
 	require.Equal(t, pathA, span.Path, ":path precedes the cut and still resolves")
+
+	next := h2Event(enc.frame(t, requestFields(pathA, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), nil, 1024, 3)
+	observeH2Headers(t, parseContext, next, EventTypeKHTTP2RequestHeaders)
+	require.Equal(t, "*", completeH2(t, parseContext, next).Path)
 }
 
-func ptr[T any](v T) *T { return &v }
-
-// The BPF side signals exhausted ordinal allocation with a sentinel: the event
-// must poison the decoders instead of bypassing gap detection.
-func TestUnreliableSeqSentinelPoisonsConnection(t *testing.T) {
+func TestRequestTrailersAdvanceDecoder(t *testing.T) {
 	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}
 	enc.enc = hpack.NewEncoder(&enc.buf)
 
-	span, ignore, _ := http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 918, 1)))
-	require.False(t, ignore)
-	require.Equal(t, pathA, span.Path)
+	first := h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), nil, 1030, 1)
+	observeH2Headers(t, parseContext, first, EventTypeKHTTP2RequestHeaders)
+	trailer := h2Event(enc.frame(t, []hpack.HeaderField{{Name: "x-request-trailer", Value: "present"}}), nil, 1030, 1)
+	observeH2Headers(t, parseContext, trailer, EventTypeKHTTP2RequestHeaders)
 
-	_, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), 918, h2SeqUnreliable)))
-	require.False(t, ignore)
+	second := h2Event(enc.frame(t, requestFields(pathB, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), nil, 1030, 3)
+	observeH2Headers(t, parseContext, second, EventTypeKHTTP2RequestHeaders)
+	require.Equal(t, pathB, completeH2(t, parseContext, second).Path)
+}
 
-	// index-only repeat: with the table poisoned it must degrade, not resolve
-	span, ignore, _ = http2FromBuffers(parseContext, ptr(h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), 918, 2)))
+func TestEvictedConnectionReappearsUnreliable(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	parseContext.h2c, _ = lru.New[uint64, *h2Connection](1)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	first := h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), nil, 1040, 1)
+	observeH2Headers(t, parseContext, first, EventTypeKHTTP2RequestHeaders)
+	other := h2Event(makeHeadersFrame(t, []byte{0x82, 0x84}), nil, 1041, 1)
+	observeH2Headers(t, parseContext, other, EventTypeKHTTP2RequestHeaders)
+
+	reappeared := h2Event(enc.frame(t, requestFields(pathA, "00-06f46c3e09e28ec908c07d784c0bd10c-de2edfcb452449bf-01")), nil, 1040, 3)
+	reappeared.HpackFlags = 0
+	observeH2Headers(t, parseContext, reappeared, EventTypeKHTTP2RequestHeaders)
+	require.Equal(t, "*", completeH2(t, parseContext, reappeared).Path)
+}
+
+func TestDuplicateCompletionIsIgnored(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+	event := h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), nil, 1050, 1)
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	_ = completeH2(t, parseContext, event)
+
+	_, ignore, err := http2FromBuffers(parseContext, &event)
+	require.NoError(t, err)
+	require.True(t, ignore)
+}
+
+func TestPendingStreamStateIsBounded(t *testing.T) {
+	h2c := getOrInitH2Conn(mustLRU(t, 1), 1060)
+	for streamID := uint32(1); streamID <= maxPendingH2Streams*3; streamID += 2 {
+		getOrInitH2Stream(h2c, streamID)
+		require.LessOrEqual(t, len(h2c.streams), maxPendingH2Streams)
+	}
+}
+
+func TestRejectedHeaderObservationDoesNotAlterCache(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	event := h2Event(makeHeadersFrame(t, []byte{0x82, 0x84}), nil, 1070, 1)
+	event.Flags = EventTypeKHTTP2RequestHeaders
+	event.Pid.UserPid = 123
+	record := &ringbuf.Record{RawSample: traceRecordBytes(&event)}
+
+	require.NoError(t, ReadHTTP2HeaderEvent(parseContext, record, fakeRuntimeServiceFilter{}))
+	_, cached := parseContext.h2c.Get(event.NewConnId)
+	require.False(t, cached)
+}
+
+func TestCompletionResponseLengthIsIndependent(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	requestEncoder := &h2ConnEncoder{}
+	requestEncoder.enc = hpack.NewEncoder(&requestEncoder.buf)
+	responseEncoder := &h2ConnEncoder{}
+	responseEncoder.enc = hpack.NewEncoder(&responseEncoder.buf)
+
+	requestFrame := requestEncoder.frame(t, []hpack.HeaderField{
+		{Name: ":method", Value: "POST"},
+		{Name: ":path", Value: "/x"},
+		{Name: "content-type", Value: "application/grpc"},
+	})
+	responseFrame := responseEncoder.frame(t, []hpack.HeaderField{
+		{Name: ":status", Value: "200"},
+		{Name: "x-padding", Value: strings.Repeat("p", 24)},
+		{Name: "grpc-status", Value: "7"},
+	})
+	require.Greater(t, len(responseFrame), len(requestFrame))
+	require.LessOrEqual(t, len(responseFrame), len(BPFHTTP2Info{}.RetData))
+
+	event := h2Event(requestFrame, responseFrame, 1080, 0)
+	span, ignore, err := http2FromBuffers(parseContext, &event)
+	require.NoError(t, err)
 	require.False(t, ignore)
-	require.Equal(t, "*", span.Path, "a sentinel event must not leave dynamic-table state trusted")
+	require.Equal(t, 7, span.Status)
+}
+
+func mustLRU(t *testing.T, size int) *lru.Cache[uint64, *h2Connection] {
+	t.Helper()
+	cache, err := lru.New[uint64, *h2Connection](size)
+	require.NoError(t, err)
+	return cache
 }

@@ -22,6 +22,7 @@
 #include <maps/tp_info_mem.h>
 
 #include <generictracer/failed_connect.h>
+#include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/tcp_trace_cleanup.h>
 #include <generictracer/protocol_kafka.h>
@@ -206,10 +207,8 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;
     case k_protocol_type_aerospike:
-        // No protocol-specific large buffers yet: keep the generic wire-layer
-        // capture so classification doesn't reduce what userspace sees.
-        unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
-        break;
+        return aerospike_send_large_buffer(
+            req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
     case k_protocol_type_nats:
     case k_protocol_type_amqp:
     case k_protocol_type_unknown:
@@ -231,7 +230,7 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
         const u64 event_ts = bpf_ktime_get_ns();
         const u64 extra_id = extra_runtime_id();
         init_failed_connect_tcp_req(
-            req, pid_conn, orig_dport, connect_ts, event_ts, event_ts, extra_id, &pid);
+            req, pid_conn, orig_dport, connect_ts, event_ts, extra_id, &pid);
 
         bpf_dbg_printk("TCP connect failed event");
 
@@ -266,9 +265,13 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
     }
     if (!existing) {
+        // must check the local port: the peer port may also have a local
+        // listener (docker-proxy), which would misclassify a client as a server
+        const u16 local_port =
+            pid_conn->conn.d_port == orig_dport ? pid_conn->conn.s_port : pid_conn->conn.d_port;
         // Determining the server information for unix sockets is only valid on request creation
-        const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
-                               is_unix_sock_server(direction, orig_dport);
+        const bool is_server =
+            is_listening(local_port, netns) || is_unix_sock_server(direction, orig_dport);
         if (direction == TCP_RECV) {
             cp_support_data_t *tk = bpf_map_lookup_elem(&cp_support_connect_info, pid_conn);
             if (tk && tk->real_client) {

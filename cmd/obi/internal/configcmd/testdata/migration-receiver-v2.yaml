@@ -220,6 +220,7 @@ instrumentation:
             metrics:
                 http.request.method:
                     not_match: OPTIONS
+        buffer_size: 0
 runtimes:
     go:
         enabled: true

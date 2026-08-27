@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -749,11 +750,9 @@ func TestUSDTLinkCloserCloseIsConcurrentSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
 	for range cap(errs) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs <- closer.Close()
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -883,6 +882,15 @@ func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
 	i.rollbackOptionalGoProbeGroups()
 
 	assert.Equal(t, int32(1), linkCloser.closes.Load())
+}
+
+func TestProcessTracerCanLogBeforeRun(t *testing.T) {
+	pt := NewProcessTracer(Generic, nil, &obi.Config{}, imetrics.NoopReporter{})
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	assert.NotPanics(t, func() {
+		pt.UnlinkExecutable(fileInfo, 1)
+	})
 }
 
 func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {

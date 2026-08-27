@@ -15,7 +15,6 @@ static __always_inline void init_failed_connect_tcp_req(tcp_req_t *req,
                                                         u16 orig_dport,
                                                         u64 connect_ts,
                                                         u64 end_ts,
-                                                        u64 trace_ts,
                                                         u64 extra_id,
                                                         const pid_info *pid) {
     __builtin_memset(req, 0, sizeof(*req));
@@ -35,5 +34,10 @@ static __always_inline void init_failed_connect_tcp_req(tcp_req_t *req,
     req->pid = *pid;
     req->buf[0] = '\0';
 
-    req->tp.ts = trace_ts;
+    // The event is built at close time, but the span starts at the connect.
+    // tp.ts is what should_be_in_same_transaction() compares against a
+    // candidate parent's start, so it has to be the same instant the span
+    // reports, or a connect made before the parent request existed passes a
+    // check meant to reject exactly that.
+    req->tp.ts = connect_ts;
 }

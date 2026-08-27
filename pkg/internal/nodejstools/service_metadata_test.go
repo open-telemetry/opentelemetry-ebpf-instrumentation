@@ -136,16 +136,283 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "eval-service", fileInfo.ServiceAttrs().UID.Name)
 	})
 
-	t.Run("entrypoint basename is the final Node.js fallback", func(t *testing.T) {
+	t.Run("explicit script is used as a fallback", func(t *testing.T) {
+		for _, extension := range []string{".js", ".mjs", ".cjs", ".ts"} {
+			t.Run(extension, func(t *testing.T) {
+				root := t.TempDir()
+				entryPoint := "client" + extension
+				writeNodeFile(t, filepath.Join(root, "app", entryPoint), nil)
+				fileInfo := mockNodeProcess(t, root, []string{entryPoint}, nil)
+
+				err := ResolveServiceMetadata(fileInfo)
+
+				require.NoError(t, err)
+				service := fileInfo.ServiceAttrs()
+				assert.Equal(t, "client", service.UID.Name)
+				assert.True(t, service.AutoName())
+			})
+		}
+	})
+
+	t.Run("extensionless entrypoint resolves runtime extensions", func(t *testing.T) {
+		for _, extension := range []string{".js", ".json", ".node"} {
+			t.Run(extension, func(t *testing.T) {
+				root := t.TempDir()
+				writeNodeFile(t, filepath.Join(root, "app", "client"+extension), nil)
+				fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
+
+				err := ResolveServiceMetadata(fileInfo)
+
+				require.NoError(t, err)
+				service := fileInfo.ServiceAttrs()
+				assert.Equal(t, "client", service.UID.Name)
+				assert.True(t, service.AutoName())
+			})
+		}
+	})
+
+	t.Run("extensionless entrypoint does not infer explicit source extensions", func(t *testing.T) {
+		for _, extension := range []string{".mjs", ".cjs", ".ts"} {
+			t.Run(extension, func(t *testing.T) {
+				root := t.TempDir()
+				writeNodeFile(t, filepath.Join(root, "app", "client"+extension), nil)
+				fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
+
+				err := ResolveServiceMetadata(fileInfo)
+
+				require.NoError(t, err)
+				assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+			})
+		}
+	})
+
+	t.Run("directory entrypoint resolves package main", func(t *testing.T) {
 		root := t.TempDir()
-		writeNodeFile(t, filepath.Join(root, "app", "client.js"), nil)
-		fileInfo := mockNodeProcess(t, root, []string{"client.js"}, nil)
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "package.json"), []byte(`{"main":"lib/server"}`))
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "lib", "server.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"orders"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		service := fileInfo.ServiceAttrs()
+		assert.Equal(t, "orders", service.UID.Name)
+		assert.True(t, service.AutoName())
+	})
+
+	t.Run("directory entrypoint resolves package main directory", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "package.json"), []byte(`{"main":"lib/server"}`))
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "lib", "server", "index.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"orders"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("directory entrypoint resolves index JavaScript", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "package.json"), []byte(`{}`))
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "index.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"orders"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		service := fileInfo.ServiceAttrs()
+		assert.Equal(t, "orders", service.UID.Name)
+		assert.True(t, service.AutoName())
+	})
+
+	t.Run("unresolved package main falls back to directory index", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "package.json"), []byte(`{"main":"missing"}`))
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "index.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"orders"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("malformed directory package does not resolve its index", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "package.json"), []byte(`{`))
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "index.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"orders"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("unresolvable directory entrypoint uses the Node default", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "package.json"), []byte(`{"main":"missing"}`))
+		fileInfo := mockNodeProcess(t, root, []string{"orders"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+		fileInfo.ApplyServiceDefaults(svc.InstrumentableNodejs)
+		assert.Equal(t, "node", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("package lookup follows the resolved file before a sibling directory", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "package.json"), []byte(`{"name":"application"}`))
+		writeNodeFile(t, filepath.Join(root, "app", "orders.js"), nil)
+		writeNodeFile(t, filepath.Join(root, "app", "orders", "package.json"), []byte(`{"name":"wrong"}`))
+		fileInfo := mockNodeProcess(t, root, []string{"orders"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "application", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("nonexistent extensionless entrypoint is not used as a fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "app.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"--max-old-space-size", "4096", "app.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+
+		fileInfo.ApplyServiceDefaults(svc.InstrumentableNodejs)
+		assert.Equal(t, "node", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("config file is not used as the entrypoint fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "runtime-config"), nil)
+		writeNodeFile(t, filepath.Join(root, "app", "server.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{
+			"--experimental-config-file", "runtime-config", "server.js",
+		}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "server", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("missing explicit script is not used as a fallback", func(t *testing.T) {
+		root := t.TempDir()
+		fileInfo := mockNodeProcess(t, root, []string{"missing.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("extensionless file is used as a fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "client"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
 
 		err := ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "client", service.UID.Name)
+		assert.True(t, service.AutoName())
+	})
+
+	t.Run("exact file is used regardless of extension", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "client.jsx"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"client.jsx"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "client", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("script path must be a regular file", func(t *testing.T) {
+		root := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "client.js"), 0o755))
+		fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("script path cannot escape the process root", func(t *testing.T) {
+		outside := t.TempDir()
+		writeNodeFile(t, filepath.Join(outside, "client.js"), nil)
+		root := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "app"), 0o755))
+		require.NoError(t, os.Symlink(
+			filepath.Join(outside, "client.js"),
+			filepath.Join(root, "app", "client.js"),
+		))
+		fileInfo := mockNodeProcess(t, root, []string{"client"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("package name takes precedence over an invalid entrypoint fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "app.js"), nil)
+		writeNodeFile(t, filepath.Join(root, "app", "package.json"), []byte(`{"name":"orders"}`))
+		fileInfo := mockNodeProcess(t, root, []string{"--max-old-space-size", "4096", "app.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("application arguments are not treated as the entrypoint", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "opt", "orders", "server.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"/opt/orders/server", "--config", "worker.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		service := fileInfo.ServiceAttrs()
+		assert.Equal(t, "server", service.UID.Name)
+		assert.True(t, service.AutoName())
+	})
+
+	t.Run("unknown option does not supply an entrypoint fallback", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "app", "worker.js"), nil)
+		writeNodeFile(t, filepath.Join(root, "app", "server.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"--future-option", "worker.js", "server.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("file URL entrypoint supplies the fallback name", func(t *testing.T) {
+		root := t.TempDir()
+		writeNodeFile(t, filepath.Join(root, "opt", "orders", "main.js"), nil)
+		fileInfo := mockNodeProcess(t, root, []string{"--entry-url", "file:///opt/orders/main.js"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		service := fileInfo.ServiceAttrs()
+		assert.Equal(t, "main", service.UID.Name)
 		assert.True(t, service.AutoName())
 	})
 
@@ -288,7 +555,8 @@ func mockNodeProcessWithErrors(
 	})
 
 	return exec.New(exec.Init{
-		Pid: app.PID(1234),
+		Pid:        app.PID(1234),
+		CmdExePath: "/usr/bin/node",
 		Service: svc.Attrs{
 			EnvVars:  env,
 			Metadata: map[attr.Name]string{},

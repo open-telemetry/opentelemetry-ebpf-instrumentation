@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
 	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
+	"go.opentelemetry.io/obi/pkg/internal/pythontools"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -127,6 +128,14 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	in := ta.InputInstrumentables.Subscribe(msg.SubscriberName("traceAttacher"))
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
+
+		var javaInjections *javaInjectionQueue
+		if ta.javaInjector != nil {
+			javaInjections = newJavaInjectionQueue(ta.log, ta.javaInjector.NewExecutable)
+			javaInjections.start(ctx)
+			defer javaInjections.wait()
+		}
+
 		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
 			for _, instr := range instrumentables {
 				ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
@@ -135,15 +144,30 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 				case EventCreated:
 					ta.resolveServiceMetadata(&instr.Obj)
 					ta.nodeInjector.NewExecutable(&instr.Obj)
-					if ta.javaInjector != nil {
-						if err := ta.javaInjector.NewExecutable(&instr.Obj); err != nil {
-							ta.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work", "pid", instr.Obj.FileInfo.Pid(), "error", err)
+
+					var javaTarget *javaagent.InjectionTarget
+					if javaInjections != nil && instr.Obj.Type == svc.InstrumentableJava {
+						target, err := javaagent.InjectionTargetFrom(&instr.Obj)
+						if err != nil {
+							ta.log.Warn("unable to capture stable java injection target, Java TLS telemetry will not work",
+								"pid", instr.Obj.FileInfo.Pid(), "error", err)
+						} else {
+							javaTarget = &target
 						}
 					}
 
 					ta.processInstances.Inc(executableKey(instr.Obj.FileInfo))
 					if ok := ta.getTracer(&instr.Obj); ok {
 						ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
+					}
+
+					// Injection blocks for up to the Java attach timeout, so it is
+					// queued after the PID is allowed through the eBPF filter, and
+					// runs off the discovery loop. The target is copied out here so
+					// the injection does not share instr.Obj with the consumers it
+					// was just sent to.
+					if javaTarget != nil {
+						javaInjections.enqueue(*javaTarget)
 					}
 
 					if instr.Obj.FileInfo.ELF() != nil {
@@ -169,11 +193,16 @@ func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
 		if err != nil {
 			ta.log.Debug("unable to resolve Node.js service metadata", "pid", ie.FileInfo.Pid(), "error", err)
 		}
-	case svc.InstrumentableDotnet:
-		err := dotnettools.ResolveServiceMetadata(ie.FileInfo)
+	case svc.InstrumentablePython:
+		err := pythontools.ResolveServiceMetadata(ie.FileInfo)
 		if err != nil {
-			ta.log.Debug("unable to resolve .NET service metadata", "pid", ie.FileInfo.Pid(), "error", err)
+			ta.log.Debug("unable to resolve Python service metadata", "pid", ie.FileInfo.Pid(), "error", err)
 		}
+    case svc.InstrumentableDotnet:
+        err := dotnettools.ResolveServiceMetadata(ie.FileInfo)
+        if err != nil {
+            ta.log.Debug("unable to resolve .NET service metadata", "pid", ie.FileInfo.Pid(), "error", err)
+        }
 	}
 }
 

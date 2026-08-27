@@ -1195,6 +1195,10 @@ func applyFullV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrume
 	cfg.EBPF.BufferSizes.Kafka = instrumentation.Kafka.BufferSize
 	cfg.EBPF.KafkaTopicUUIDCacheSize = instrumentation.Kafka.TopicUUIDCacheSize
 
+	if instrumentation.Aerospike != nil {
+		cfg.EBPF.BufferSizes.Aerospike = instrumentation.Aerospike.BufferSize
+	}
+
 	cfg.EBPF.MongoRequestsCacheSize = instrumentation.Mongo.RequestsCacheSize
 	cfg.EBPF.CouchbaseDBCacheSize = instrumentation.Couchbase.DBCacheSize
 	cfg.EBPF.DNSRequestTimeout = instrumentation.DNS.RequestTimeout.TimeDuration()
@@ -1244,6 +1248,9 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 	}
 	if instrumentation.Kafka.TopicUUIDCacheSize != 0 {
 		cfg.EBPF.KafkaTopicUUIDCacheSize = instrumentation.Kafka.TopicUUIDCacheSize
+	}
+	if instrumentation.Aerospike != nil && instrumentation.Aerospike.BufferSize != 0 {
+		cfg.EBPF.BufferSizes.Aerospike = instrumentation.Aerospike.BufferSize
 	}
 	if instrumentation.Mongo.RequestsCacheSize != 0 {
 		cfg.EBPF.MongoRequestsCacheSize = instrumentation.Mongo.RequestsCacheSize
