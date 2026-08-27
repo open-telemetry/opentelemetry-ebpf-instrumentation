@@ -68,7 +68,7 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 		scheme = "https"
 	}
 
-	return request.Span{
+	span := request.Span{
 		Type:              request.EventType(info.Type),
 		Method:            info.Method,
 		Path:              removeQuery(info.URL),
@@ -94,6 +94,62 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 			Namespace: info.Pid.Ns,
 		},
 		Statement: scheme + request.SchemeHostSeparator + info.HeaderHost,
+	}
+
+	markResponseObservation(&span, &info.BPFHTTPInfo)
+
+	return span
+}
+
+// The kernel's enum http_response_observation. Nonzero means no probe read the
+// response, so the record carries no status.
+const (
+	bpfResponseParsed   = 0
+	bpfResponseReceived = 1
+	bpfResponseSilent   = 2
+	bpfResponseUnread   = 3
+)
+
+// markResponseObservation copies the kernel's observation onto the span. Every
+// nonzero value means no response was read, so Status is cleared in each case.
+//
+// They differ in whether the end timestamp is usable. ResponseReceived took it when
+// instrumentation stopped watching, which can be long after the response arrived, so
+// the duration is discarded. ResponseSilent took it from the close that ended the
+// request and ResponseUnread from the response's own bytes, so both durations are
+// preserved.
+func markResponseObservation(span *request.Span, event *BPFHTTPInfo) {
+	switch event.ResponseObservation {
+	case bpfResponseParsed:
+		return
+	case bpfResponseSilent:
+		span.ResponseObservation = request.ResponseSilent
+	case bpfResponseUnread:
+		span.ResponseObservation = request.ResponseUnread
+	// An unrecognized value withholds the duration, which asserts less than publishing
+	// one.
+	case bpfResponseReceived:
+		fallthrough
+	default:
+		span.ResponseObservation = request.ResponseReceived
+		request.SetIgnoreDurations(span)
+	}
+
+	span.Status = 0
+}
+
+// keepParsedResponse applies the kernel's observation to a span whose response was
+// parsed in userspace. The parsed status and length stand: they were read from the
+// response itself, which is more than the kernel's classification knows. Only the end
+// timestamp is still in doubt, because bpfResponseReceived took it when instrumentation
+// stopped watching rather than when the response arrived. An unrecognized value is
+// treated the same way, which asserts less than publishing a duration.
+func keepParsedResponse(span *request.Span, event *BPFHTTPInfo) {
+	switch event.ResponseObservation {
+	case bpfResponseParsed, bpfResponseSilent, bpfResponseUnread:
+		return
+	default:
+		request.SetIgnoreDurations(span)
 	}
 }
 
@@ -159,6 +215,8 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		},
 		Statement: scheme + request.SchemeHostSeparator + headerHost,
 	}
+
+	keepParsedResponse(&httpSpan, event)
 
 	return postProcessHTTPSpan(parseCtx, &httpSpan, req, resp)
 }
