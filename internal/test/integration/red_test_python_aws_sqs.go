@@ -44,7 +44,7 @@ func testPythonAWSSQS(t *testing.T) {
 		assertSQSOperation(ct, "CreateQueue", qr.QueueURL, "", "")
 		assertSQSOperation(ct, "SendMessage", qr.QueueURL, mr.Messages[0].MessageID, "send")
 		assertSQSOperation(ct, "ReceiveMessage", qr.QueueURL, "", "receive")
-		assertSQSOperation(ct, "DeleteMessage", qr.QueueURL, "", "")
+		assertSQSOperation(ct, "DeleteMessage", qr.QueueURL, "", "settle")
 		assertSQSOperation(ct, "GetQueueAttributes", qr.QueueURL, "", "")
 		assertSQSOperation(ct, "DeleteQueue", qr.QueueURL, "", "")
 	}, testTimeout, time.Second)

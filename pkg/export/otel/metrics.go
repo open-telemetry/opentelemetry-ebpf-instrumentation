@@ -378,7 +378,7 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 		)
 	}
 
-	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() || mr.is.HTTPEnabled() {
 		opts = append(opts,
 			metric.WithView(mr.otelHistogramConfig(attributes.RPCServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 			metric.WithView(mr.otelHistogramConfig(attributes.RPCClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
@@ -392,7 +392,7 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 		)
 	}
 
-	if mr.is.MQEnabled() {
+	if mr.is.MQEnabled() || mr.is.HTTPEnabled() {
 		opts = append(opts,
 			metric.WithView(mr.otelHistogramConfig(attributes.MessagingPublishDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 			metric.WithView(mr.otelHistogramConfig(attributes.MessagingProcessDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
@@ -491,7 +491,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, httpClientResponseSize, mr.attrHTTPClientResponseSize, timeNow, mr.cfg.TTL)
 	}
 
-	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() || mr.is.HTTPEnabled() {
 		grpcDuration, err := meter.Float64Histogram(attributes.RPCServerDuration.OTEL, instrument.WithUnit(attributes.RPCServerDuration.Unit))
 		if err != nil {
 			return fmt.Errorf("creating grpc duration histogram metric: %w", err)
@@ -523,7 +523,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, dbServerDuration, mr.attrDBServer, timeNow, mr.cfg.TTL)
 	}
 
-	if mr.is.MQEnabled() {
+	if mr.is.MQEnabled() || mr.is.HTTPEnabled() {
 		msgPublishDuration, err := meter.Float64Histogram(attributes.MessagingPublishDuration.OTEL, instrument.WithUnit(attributes.MessagingPublishDuration.Unit))
 		if err != nil {
 			return fmt.Errorf("creating messaging client publish duration histogram metric: %w", err)
@@ -972,9 +972,14 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			} else if span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled() {
-				// JSON-RPC client calls over HTTP get recorded as RPC client metrics
 				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			} else if span.SubType == request.HTTPSubtypeAWSS3 {
+				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			} else if span.SubType == request.HTTPSubtypeAWSSQS && request.IsMessagingClientOperation(span) {
+				msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+				msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {
 				genAIClientDuration, attrs := r.genAIClientDuration.ForRecord(span)
 				genAIClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))

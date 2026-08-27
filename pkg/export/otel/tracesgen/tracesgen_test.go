@@ -1396,3 +1396,91 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	transportKeys := []string{
+		"url.full", "url.scheme", "url.query", "http.request.method",
+		"http.response.status_code", "http.request.body.size", "http.response.body.size",
+	}
+
+	for _, tt := range []struct {
+		name    string
+		subType int
+		payload func(*request.Span)
+		present []string
+	}{
+		{
+			name:    "plain http client keeps the full transport surface",
+			subType: request.HTTPSubtypeNone,
+			present: transportKeys,
+		},
+		{
+			name:    "elasticsearch keeps only what the db conventions require",
+			subType: request.HTTPSubtypeElasticsearch,
+			payload: func(s *request.Span) {
+				s.Elasticsearch = &request.Elasticsearch{DBSystemName: "elasticsearch", DBOperationName: "search"}
+			},
+			present: []string{"url.full", "http.request.method"},
+		},
+		{
+			name:    "aws s3 carries no http transport attributes",
+			subType: request.HTTPSubtypeAWSS3,
+			payload: func(s *request.Span) { s.AWS = &request.AWS{} },
+		},
+		{
+			name:    "aws sqs carries no http transport attributes",
+			subType: request.HTTPSubtypeAWSSQS,
+			payload: func(s *request.Span) { s.AWS = &request.AWS{} },
+		},
+		{
+			name:    "openai carries no http transport attributes",
+			subType: request.HTTPSubtypeOpenAI,
+			payload: func(s *request.Span) { s.GenAI = &request.GenAI{OpenAI: &request.VendorOpenAI{ID: "chatcmpl-1"}} },
+		},
+		{
+			name:    "mcp carries no http transport attributes",
+			subType: request.HTTPSubtypeMCP,
+			payload: func(s *request.Span) { s.GenAI = &request.GenAI{MCP: &request.MCPCall{Method: "tools/call"}} },
+		},
+		{
+			name:    "json-rpc carries no http transport attributes",
+			subType: request.HTTPSubtypeJSONRPC,
+			payload: func(s *request.Span) { s.JSONRPC = &request.JSONRPC{Method: "subtract", Version: "2.0"} },
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:     request.EventTypeHTTPClient,
+				SubType:  tt.subType,
+				Method:   "POST",
+				Path:     "/v1/things",
+				FullPath: "/v1/things?q=1",
+				Host:     "api.example.com",
+				HostPort: 443,
+				Status:   200,
+			}
+			if tt.payload != nil {
+				tt.payload(span)
+			}
+
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+
+			expected := map[string]bool{}
+			for _, k := range tt.present {
+				expected[k] = true
+			}
+			for _, key := range transportKeys {
+				_, ok := selected.Get(key)
+				assert.Equal(t, expected[key], ok, key)
+			}
+
+			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
+				_, ok := selected.Get(key)
+				assert.True(t, ok, "%s must survive on every http client subtype", key)
+			}
+		})
+	}
+}
