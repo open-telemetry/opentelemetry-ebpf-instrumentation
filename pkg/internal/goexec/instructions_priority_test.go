@@ -89,16 +89,17 @@ func TestStoreFunctionOffsetDeduplicatesAttachmentOffsets(t *testing.T) {
 	allOffsets := map[string][]FuncOffsets{}
 
 	storeFunctionOffset(allOffsets, name, FuncOffsets{
-		Symbol: "z/vendor/" + name, Start: 1, Returns: []uint64{4, 3},
+		Symbol: "z/vendor/" + name, Start: 1, Returns: []uint64{4, 3}, CallTargets: []uint64{9, 8},
 		PadStart: 6, PadOffset: 7,
 	})
 	storeFunctionOffset(allOffsets, name, FuncOffsets{
-		Symbol: "a/vendor/" + name, Start: 1, Returns: []uint64{3, 5},
+		Symbol: "a/vendor/" + name, Start: 1, Returns: []uint64{3, 5}, CallTargets: []uint64{8, 10},
 	})
 
 	require.Len(t, allOffsets[name], 1)
 	assert.Equal(t, "a/vendor/"+name, allOffsets[name][0].Symbol)
 	assert.Equal(t, []uint64{3, 4, 5}, allOffsets[name][0].Returns)
+	assert.Equal(t, []uint64{8, 9, 10}, allOffsets[name][0].CallTargets)
 	assert.Equal(t, uint64(6), allOffsets[name][0].PadStart)
 	assert.Equal(t, uint64(7), allOffsets[name][0].PadOffset)
 }

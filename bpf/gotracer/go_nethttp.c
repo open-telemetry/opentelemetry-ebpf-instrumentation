@@ -1671,7 +1671,7 @@ int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, c
 
     framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
 
-    if (f_info) {
+    if (f_info && !f_info->reserved_padding) {
         void *w_ptr = 0;
         const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
         const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});

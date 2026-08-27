@@ -701,6 +701,7 @@ func TestHTTP2PreflushProbeGroupsRespectPropagation(t *testing.T) {
 		require.Len(t, group.Probes, 2)
 		assert.True(t, group.Probes[0].Probe.UsePadStart)
 		assert.False(t, group.Probes[1].Probe.UsePadStart)
+		assert.Equal(t, group.Probes[0].Symbol, group.Probes[1].CalledFrom)
 	}
 
 	tracer.cfg.ContextPropagation = config.ContextPropagationDisabled

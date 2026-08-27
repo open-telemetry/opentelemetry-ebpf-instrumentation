@@ -2096,7 +2096,8 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 						},
 					},
 					{
-						Symbol: goHTTP2FlushProbeSymbols[1],
+						Symbol:     goHTTP2FlushProbeSymbols[1],
+						CalledFrom: goHTTP2FlushProbeSymbols[0],
 						Probe: &ebpfcommon.ProbeDesc{
 							Start: p.bpfObjects.ObiUprobeHttp2FramerEndWrite,
 						},
@@ -2115,7 +2116,8 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 						},
 					},
 					{
-						Symbol: goHTTP2FlushProbeSymbols[3],
+						Symbol:     goHTTP2FlushProbeSymbols[3],
+						CalledFrom: goHTTP2FlushProbeSymbols[2],
 						Probe: &ebpfcommon.ProbeDesc{
 							Start: p.bpfObjects.ObiUprobeHttp2FramerEndWrite,
 						},

@@ -169,6 +169,8 @@ type GoProbe struct {
 	Symbol        string
 	Probe         *ProbeDesc
 	ProcessScoped bool
+	// CalledFrom rejects this probe unless the named group symbol calls it directly.
+	CalledFrom string
 }
 
 // GoProbeGroup is an optional set of Go probes that must be attached atomically.

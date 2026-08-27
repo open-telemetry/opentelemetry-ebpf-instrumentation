@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"unsafe"
 
@@ -47,23 +48,46 @@ func main() {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, file.Close()) })
 
-	symbols := []string{
-		"golang.org/x/net/http2.(*Framer).WriteHeaders",
-		"golang.org/x/net/http2.(*Framer).endWrite",
-		"net/http.(*http2Framer).WriteHeaders",
-		"net/http.(*http2Framer).endWrite",
+	implementations := [][2]string{
+		{
+			"golang.org/x/net/http2.(*Framer).WriteHeaders",
+			"golang.org/x/net/http2.(*Framer).endWrite",
+		},
+		{
+			"net/http.(*http2Framer).WriteHeaders",
+			"net/http.(*http2Framer).endWrite",
+		},
+	}
+	var symbols []string
+	for _, implementation := range implementations {
+		symbols = append(symbols, implementation[:]...)
 	}
 	offsets, err := instrumentationPoints(file, symbols)
 	require.NoError(t, err)
-	for _, symbol := range symbols {
-		require.Contains(t, offsets, symbol)
-		require.NotZero(t, offsets[symbol][0].Start)
-		if isFramerWriteHeaders(symbol) {
-			require.Greater(t, offsets[symbol][0].PadStart, offsets[symbol][0].Start)
-			require.GreaterOrEqual(t, offsets[symbol][0].PadOffset, uint64(34))
-			require.Less(t, offsets[symbol][0].PadOffset, uint64(512))
+	foundImplementations := 0
+	for _, implementation := range implementations {
+		writeHeaders := offsets[implementation[0]]
+		endWrite := offsets[implementation[1]]
+		if len(writeHeaders) == 0 && len(endWrite) == 0 {
+			continue
 		}
+		require.NotEmpty(t, writeHeaders)
+		require.NotEmpty(t, endWrite)
+		for _, writeOffset := range writeHeaders {
+			require.NotZero(t, writeOffset.Start)
+			require.Greater(t, writeOffset.PadStart, writeOffset.Start)
+			require.GreaterOrEqual(t, writeOffset.PadOffset, uint64(34))
+			require.Less(t, writeOffset.PadOffset, uint64(512))
+
+			called := false
+			for _, endOffset := range endWrite {
+				called = called || slices.Contains(writeOffset.CallTargets, endOffset.Start)
+			}
+			require.True(t, called)
+		}
+		foundImplementations++
 	}
+	require.Positive(t, foundImplementations)
 
 	var params http2.HeadersFrameParam
 	require.Equal(t, uintptr(34), unsafe.Offsetof(params.PadLength))

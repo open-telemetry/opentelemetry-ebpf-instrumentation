@@ -48,6 +48,31 @@ func FindReturnOffsets(baseOffset uint64, data []byte) ([]uint64, error) {
 	return returnOffsets, nil
 }
 
+func FindCallTargets(baseOffset uint64, data []byte) ([]uint64, error) {
+	var targets []uint64
+	for index := 0; index < len(data); {
+		if isENDBRXX(data[index:]) {
+			index += endbrSize
+			continue
+		}
+
+		instruction, err := x86asm.Decode(data[index:], 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode x64 instruction at offset %d: %w", index, err)
+		}
+		if instruction.Op == x86asm.CALL {
+			if relative, ok := instruction.Args[0].(x86asm.Rel); ok {
+				target := int64(baseOffset) + int64(index+instruction.Len) + int64(relative)
+				if target >= 0 {
+					targets = append(targets, uint64(target))
+				}
+			}
+		}
+		index += instruction.Len
+	}
+	return targets, nil
+}
+
 func FindPadStartOffset(baseOffset uint64, data []byte) (uint64, uint64, error) {
 	type decoded struct {
 		index int

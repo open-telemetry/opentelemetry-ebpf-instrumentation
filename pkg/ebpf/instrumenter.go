@@ -1301,6 +1301,12 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 		complete := true
 		for _, candidate := range group.Probes {
 			offsets := resolvedBySymbol[candidate.Symbol][copyID]
+			if candidate.CalledFrom != "" {
+				offsets = calledFunctionOffsets(
+					offsets,
+					resolvedBySymbol[candidate.CalledFrom][copyID],
+				)
+			}
 			if candidate.Probe == nil || len(offsets) == 0 {
 				complete = false
 				break
@@ -1324,6 +1330,19 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 	}
 
 	return resolvedGroups
+}
+
+func calledFunctionOffsets(callees, callers []goexec.FuncOffsets) []goexec.FuncOffsets {
+	called := make([]goexec.FuncOffsets, 0, len(callees))
+	for _, callee := range callees {
+		for _, caller := range callers {
+			if slices.Contains(caller.CallTargets, callee.Start) {
+				called = append(called, callee)
+				break
+			}
+		}
+	}
+	return called
 }
 
 func goFunctionCopyID(requestedName, resolvedName string) (string, bool) {

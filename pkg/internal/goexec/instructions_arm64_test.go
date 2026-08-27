@@ -96,6 +96,17 @@ func TestFindReturnOffsets_Truncated_ARM64(t *testing.T) {
 	require.Empty(t, offsets)
 }
 
+func TestFindCallTargets_ARM64(t *testing.T) {
+	data := []byte{
+		0x04, 0x00, 0x00, 0x94, // BL 0x2010
+		0x00, 0x00, 0x3f, 0xd6, // BLR X0
+		0xc0, 0x03, 0x5f, 0xd6, // RET
+	}
+	targets, err := FindCallTargets(0x2000, data)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0x2010}, targets)
+}
+
 func TestFindPadStartOffset_ARM64(t *testing.T) {
 	data := []byte{
 		0xe5, 0x03, 0x42, 0x39, // LDRB W5, [SP, #128] (EndStream)

@@ -30,6 +30,25 @@ func FindReturnOffsets(baseOffset uint64, data []byte) ([]uint64, error) {
 	return returnOffsets, nil
 }
 
+func FindCallTargets(baseOffset uint64, data []byte) ([]uint64, error) {
+	var targets []uint64
+	for index := 0; index < len(data); index += armInstructionSize {
+		instruction, err := arm64asm.Decode(data[index:])
+		if err != nil || instruction.Op != arm64asm.BL {
+			continue
+		}
+		relative, ok := instruction.Args[0].(arm64asm.PCRel)
+		if !ok {
+			continue
+		}
+		target := int64(baseOffset) + int64(index) + int64(relative)
+		if target >= 0 {
+			targets = append(targets, uint64(target))
+		}
+	}
+	return targets, nil
+}
+
 func FindPadStartOffset(baseOffset uint64, data []byte) (uint64, uint64, error) {
 	const (
 		loadByteImmediateMask = 0xffc00000
