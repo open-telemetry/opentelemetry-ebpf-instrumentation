@@ -12,7 +12,7 @@
 # Intended to run at release prep (invoked by `make prerelease`). Files are
 # immutable once published: if telemetry changed in this release, add the
 # rename entries by hand under the new <version>: block before committing
-# (see site/README.md).
+# (see devdocs/telemetry-schema.md).
 
 set -euo pipefail
 
