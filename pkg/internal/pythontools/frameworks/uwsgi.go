@@ -3,9 +3,10 @@
 
 package frameworks // import "go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 
-import "slices"
-
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 type uwsgiSettings struct {
 	module      string
