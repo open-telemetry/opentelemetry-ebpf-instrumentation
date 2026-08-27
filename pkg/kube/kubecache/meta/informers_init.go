@@ -25,7 +25,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta/cni"
@@ -118,7 +117,6 @@ func WithCacheSyncTimeout(to time.Duration) InformerOption {
 }
 
 func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, error) {
-	klogbridge.Install()
 	config := initConfigOpts(opts)
 	log := slog.With("component", "kube.Informers")
 	svc := &Informers{

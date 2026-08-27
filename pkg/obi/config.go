@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -970,6 +971,7 @@ func (c *Config) SpanMetricsEnabledForTraces() bool {
 // TODO: maybe this method has too many responsibilities, as it affects the global logger.
 func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	slog.SetDefault(slog.New(handler))
+	klogbridge.Install()
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
 		c.EBPF.BpfDebug = true

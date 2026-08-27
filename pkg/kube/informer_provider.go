@@ -21,7 +21,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
-	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 )
@@ -143,7 +142,6 @@ func (mp *MetadataProvider) Get(ctx context.Context) (*Store, error) {
 }
 
 func (mp *MetadataProvider) getInformer(ctx context.Context) (meta.Notifier, error) {
-	klogbridge.Install()
 	if mp.informer != nil {
 		return mp.informer, nil
 	}

@@ -33,7 +33,6 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: &lvl,
 	})))
-	klogbridge.Install()
 
 	slog.Info("OBI's Kubernetes Metadata cache service", "Version", buildinfo.Version, "Revision", buildinfo.Revision)
 
@@ -47,6 +46,9 @@ func main() {
 		slog.Error("unknown log level specified, choices are [DEBUG, INFO, WARN, ERROR]", "error", err)
 		os.Exit(-1)
 	}
+	// Install after the configured log level is applied so the bridge
+	// captures the final slog default (klog logger setup is not thread-safe).
+	klogbridge.Install()
 
 	if config.ProfilePort != 0 {
 		go func() {
