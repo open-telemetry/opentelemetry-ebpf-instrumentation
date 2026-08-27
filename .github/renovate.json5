@@ -216,18 +216,6 @@
       "enabled": false
     },
     {
-      "description": "Keep integration Go builders on the latest instrumentable Go release line",
-      "matchManagers": ["dockerfile"],
-      "matchDatasources": ["docker"],
-      "matchFileNames": ["internal/test/integration/components/**"],
-      "matchPackageNames": [
-        "golang",
-        "docker.io/library/golang",
-        "library/golang"
-      ],
-      "allowedVersions": "/^1\\.26\\./"
-    },
-    {
       "description": "Keep the Go 1.17 runtime-metrics fixture on its tested Go release line",
       "matchManagers": ["dockerfile"],
       "matchFileNames": ["internal/test/integration/components/go-runtime-metrics-server/Dockerfile_1.17"],
