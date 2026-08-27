@@ -51,12 +51,12 @@ The implementation introduces three pieces of Python-specific state:
 2. **Per-task state** in `python_task_state`
    - stores the parent task pointer,
    - stores an ephemeral partial connection key (`connection_info_part_t`) that identifies the server-side request owned by that task,
-   - stores a monotonically increasing version for `TaskObj*` reuse protection.
+   - stores a monotonically increasing generation for `TaskObj*` reuse protection.
 
 3. **Context-to-task state** in `python_context_task`
    - binds a copied `PyContext*` to the task that owned it when the copy was
      created,
-   - stores the task version captured at bind time,
+   - stores the task generation captured at bind time,
    - lives exactly as long as the context object: the binding is deleted when
      `context_tp_dealloc` runs, so a recycled `PyContext*` address can never
      resolve through a stale binding.
@@ -142,7 +142,8 @@ Runs when Python activates a `Context` on a thread.
 Responsibilities:
 
 - track which `PyContext*` is active on the current thread,
-- resolve the context's owner task from `python_context_task`,
+- resolve the context's owner task from `python_context_task` and cache it in
+  `python_thread_state.current_context_task`,
 - preserve the rest of the thread snapshot while updating the current context.
 
 This is the bridge for cases where there is no direct task identity on the
@@ -158,14 +159,13 @@ When a Python client request needs a trace parent, lookup happens in two phases.
 `resolve_python_current_task()` checks:
 
 1. `python_thread_state.current_task`
-2. `python_thread_state.current_context` — the currently entered context, whose
-   owner is resolved with task-version and `ctx_vars` checks on every use
+2. `python_thread_state.current_context_task` — the owner of the currently
+   entered context, resolved (with a `resolve_python_context_task()` generation
+   check against stale task pointers) and cached when the context was entered
 
 If the current thread is executing a normal task step, the first path wins. If
 the current thread is a `to_thread` worker, the second path resolves the task
-through the active copied context on each use. A stale context-to-task mapping
-stops parent lookup. The lookup does not use the thread-local or process
-fallback in this case.
+through the active copied context.
 
 ### Phase 2: walk task ancestry until a request owner is found
 
@@ -194,13 +194,13 @@ the same event-loop thread, the thread-local connection can already belong to a
 different in-flight request. Preferring the parent keeps child tasks in the
 same request lineage across concurrent `gather()` workloads.
 
-### Task pointer reuse is versioned
+### Task pointer reuse is generation-checked
 
 CPython can eventually reuse the same `TaskObj*` address for a different task
 instance. To prevent stale `PyContext* -> TaskObj*` mappings from resolving to
-the wrong task, each task state carries a version counter. Context bindings
-capture that version, and lookup rejects the mapping if the current task state
-version no longer matches.
+the wrong task, each task state carries a generation counter. Context bindings
+capture that generation, and lookup rejects the mapping if the current task
+state generation no longer matches.
 
 ### Probe attachment is version-aware
 

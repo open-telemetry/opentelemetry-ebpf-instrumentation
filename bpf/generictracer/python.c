@@ -26,12 +26,14 @@
 // Python task/context pointers use 0 to mean "no active state" in thread-local tracking.
 enum { k_python_state_none = 0 };
 
-static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid, u64 task_id) {
-    if (!task_id) {
+static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid,
+                                                     const python_task_ref_t *task_ref) {
+    if (!task_ref || !task_ref->addr) {
         obi_ctx__del(pid_tgid);
         return;
     }
-    tp_info_pid_t *tp = find_python_owning_server_trace(pid_tgid, task_id);
+    python_task_resolution_t resolution = PYTHON_TASK_NOT_FOUND;
+    tp_info_pid_t *tp = find_python_owning_server_trace(pid_tgid, *task_ref, &resolution);
     if (tp && tp->valid) {
         obi_ctx__set(pid_tgid, &tp->tp);
         return;
@@ -41,8 +43,7 @@ static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid, u64 task_id) 
 
 static __always_inline void map_context_to_task(u64 pid_tgid, u64 context, u64 task) {
     python_context_task_t mapping = {
-        .task = task,
-        .version = 0,
+        .task.addr = task,
         .vars = read_python_context_vars(context),
     };
 
@@ -50,7 +51,7 @@ static __always_inline void map_context_to_task(u64 pid_tgid, u64 context, u64 t
     const python_task_state_t *task_state =
         (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_key);
     if (task_state) {
-        mapping.version = task_state->version;
+        mapping.task.generation = task_state->generation;
     }
 
     const python_addr_key_t context_key = python_addr_key(pid_tgid, context);
@@ -80,7 +81,9 @@ static __always_inline int update_current_task(u64 id, u64 task) {
     }
 
     thread_state->current_task = task;
-    refresh_obi_ctx_for_task(id, task);
+    python_task_ref_t task_ref = {};
+    resolve_python_task_ref(id, task, &task_ref);
+    refresh_obi_ctx_for_task(id, &task_ref);
     return 0;
 }
 
@@ -156,9 +159,11 @@ int GUARDED_PROG(obi_uprobe_context_run, struct pt_regs *, ctx) {
     // asyncio.to_thread worker has no current_task; look up which task copied this context.
     // The ctx_vars check rejects stale bindings left by a freed context whose
     // address was recycled, for builds where context_tp_dealloc is not attached.
-    const u64 task_id = resolve_python_task_from_context(id, context, NULL);
-    if (task_id) {
-        refresh_obi_ctx_for_task(id, task_id);
+    python_task_ref_t task_ref = {};
+    const python_task_resolution_t resolution =
+        resolve_python_task_from_context(id, context, &task_ref);
+    if (resolution == PYTHON_TASK_RESOLVED) {
+        refresh_obi_ctx_for_task(id, &task_ref);
     } else if (thread_state->current_task == k_python_state_none) {
         // Worker thread (no current_task) reusing entry from a previous job:
         // drop stale obi_ctx so profiler samples taken before refresh are not
@@ -276,29 +281,34 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     }
 
     thread_state->inflight_task = child_task;
-    u64 parent_task = thread_state->current_task;
-    u8 stale_context_task = 0;
+    python_task_ref_t parent_ref = {};
+    python_task_resolution_t parent_resolution = PYTHON_TASK_NOT_FOUND;
     // Tasks created from plain loop callbacks have no current task; the
     // entered context's owner is the logical parent.
-    if (parent_task == k_python_state_none) {
-        parent_task = resolve_python_task_from_context(
-            id, thread_state->current_context, &stale_context_task);
+    if (thread_state->current_task != k_python_state_none) {
+        if (resolve_python_task_ref(id, thread_state->current_task, &parent_ref)) {
+            parent_resolution = PYTHON_TASK_RESOLVED;
+        }
+    } else {
+        parent_resolution =
+            resolve_python_task_from_context(id, thread_state->current_context, &parent_ref);
     }
     const python_addr_key_t child_task_key = python_addr_key(id, child_task);
-    const python_task_state_t *existing_state =
-        (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &child_task_key);
-    // Task versions start at 1; version 0 means no task version.
-    const u64 next_version = existing_state ? existing_state->version + 1 : 1;
+    const u64 generation = allocate_python_task_generation();
+    if (!generation) {
+        return 0;
+    }
     python_task_state_t task_state = {
-        .parent = parent_task,
-        .version = next_version ? next_version : 1,
+        .parent = parent_ref,
+        .generation = generation,
     };
 
     const python_task_state_t *parent_state = NULL;
-    if (parent_task != k_python_state_none) {
-        const python_addr_key_t parent_task_key = python_addr_key(id, parent_task);
-        parent_state =
-            (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &parent_task_key);
+    if (parent_ref.addr) {
+        parent_state = lookup_python_task_state(id, &parent_ref);
+        if (!parent_state) {
+            parent_resolution = PYTHON_TASK_STALE;
+        }
     }
 
     // Use the parent's connection when it exists. If there is no parent
@@ -307,7 +317,7 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     // request by the time the child task is initialized.
     if (parent_state && parent_state->conn.port) {
         task_state.conn = parent_state->conn;
-    } else if (!stale_context_task) {
+    } else if (parent_resolution != PYTHON_TASK_STALE) {
         const ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         if (info) {
             connection_info_part_t conn_part = {};
