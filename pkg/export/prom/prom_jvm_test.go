@@ -101,3 +101,49 @@ func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T
 		"jvm_memory_pool_name": "G1 Old Gen",
 	}))
 }
+
+// The service.name / service.namespace metric-attribute defaults are off, but
+// that only governs metric families whose labels come from AttrSelector. The
+// Prometheus runtime collectors build their label sets directly --
+// runtimeServiceLabels for JVM and Node.js, labelNamesTargetInfo for Go -- so
+// runtime series keep both labels regardless of the default and of
+// extra_group_attributes. This pins that exception until the runtime
+// collectors are routed through their attribute definitions.
+func TestRuntimeMetricsKeepServiceLabelsRegardlessOfDefaults(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	reporter, err := newReporter(
+		t.Context(),
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		nil,
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+		nil,
+	)
+	require.NoError(t, err)
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: svc.Attrs{
+			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+			Features: export.FeatureApplicationRuntime,
+		},
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			Kind:       jvmruntime.JVMMetricMemoryUsed,
+			MemoryType: jvmruntime.JVMMemoryTypeHeap,
+			PoolName:   "G1 Old Gen",
+			GCPhase:    jvmruntime.JVMGCPhaseAfter,
+			ValueBytes: 42,
+		},
+	}})
+
+	metric := gatheredMetric(t, registry, "jvm_memory_used_bytes", map[string]string{
+		"service_name":         "orders",
+		"service_namespace":    "prod",
+		"service_instance_id":  "orders-1",
+		"jvm_memory_type":      "heap",
+		"jvm_memory_pool_name": "G1 Old Gen",
+	})
+	require.NotNil(t, metric, "runtime metrics must keep service_name and service_namespace")
+}

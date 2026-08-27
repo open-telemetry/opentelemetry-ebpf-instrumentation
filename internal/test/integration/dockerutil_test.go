@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,11 +34,11 @@ import (
 )
 
 const (
-	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.13.2@sha256:508729e0e2d18e11fd742a5a5ca70e557b940a93948c3c95fd0123a6fd538b69")
+	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0")
 	imgJaeger      = img.Docker("jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8")
 	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc")
 	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
-	imgNginx       = img.Docker("library/nginx:1.31.3@sha256:8541484afbc9c8a5a8a99b379568ebbc957f658583ec9448fc43104229c03cf8")
+	imgNginx       = img.Docker("library/nginx:1.31.4@sha256:0d4374c710a9649200e84f8ef8dbdd4fa76c0c107839cd50f1e42a63916b0f2e")
 	// imgWeaver MUST match the digest pinned in
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
@@ -238,14 +239,22 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 	t.Log("Weaver container started")
 }
 
-// buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set, the image
-// has been pre-built for the VM workflow prior to QEMU startup.
+// buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set (VM
+// workflow) or PREBUILT_IMAGES lists it (CI shards), the image was loaded
+// into the Docker daemon before the run.
 func buildOBIImage(ctx context.Context) error {
-	if os.Getenv("SKIP_DOCKER_BUILD") != "" {
+	prebuilt := slices.Contains(strings.Split(os.Getenv("PREBUILT_IMAGES"), ","), "hatest-obi")
+
+	if os.Getenv("SKIP_DOCKER_BUILD") != "" || prebuilt {
 		_, err := dockerPool.Client().ImageInspect(ctx, "hatest-obi")
 		if err == nil {
 			fmt.Println("Skipping OBI image build (pre-built image found)")
 			return nil
+		}
+		if prebuilt {
+			// the workflow loads the image before the run: reaching this
+			// means broken wiring, not a slow path to fall back onto
+			return fmt.Errorf("PREBUILT_IMAGES lists hatest-obi but the image is not loaded: %w", err)
 		}
 		fmt.Println("SKIP_DOCKER_BUILD set but hatest-obi image not found, building...")
 	}

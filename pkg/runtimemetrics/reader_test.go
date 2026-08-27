@@ -558,7 +558,9 @@ type runtimeMetricFilter struct {
 func (f runtimeMetricFilter) AllowPID(app.PID, uint32, *exec.FileInfo, ebpfcommon.PIDType) {}
 func (f runtimeMetricFilter) BlockPID(app.PID, uint32)                                     {}
 func (f runtimeMetricFilter) ValidPID(app.PID, uint32, ebpfcommon.PIDType) bool            { return false }
-func (f runtimeMetricFilter) Filter(spans []request.Span) []request.Span                   { return spans }
+
+func (f runtimeMetricFilter) Filter(spans []request.Span) []request.Span { return spans }
+
 func (f runtimeMetricFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
 	return f.current
 }
