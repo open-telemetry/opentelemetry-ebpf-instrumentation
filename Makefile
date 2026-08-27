@@ -164,6 +164,16 @@ lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
+.PHONY: check-schema-files
+check-schema-files:
+	@echo "### Checking published OBI telemetry schema files"
+	@./scripts/check-schema-files.sh "$(CURDIR)/site/schemas/obi"
+
+.PHONY: generate-schema-next
+generate-schema-next:
+	@echo "### Cutting the OBI telemetry schema for the versions.yaml version"
+	@./scripts/generate-schema-next.sh
+
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
 	@echo "### Linting dependency integrity policy"
@@ -896,6 +906,7 @@ verify-mods:
 .PHONY: prerelease
 prerelease: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
+	@$(MAKE) generate-schema-next
 	go tool $(TOOLS_MODFILE) multimod prerelease -m ${MODSET}
 
 COMMIT ?= "HEAD"

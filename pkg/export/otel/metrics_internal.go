@@ -317,7 +317,7 @@ func newResourceInternal(nodeMeta *meta.NodeMeta) *resource.Resource {
 		attrs = append(attrs, event.Key.OTEL().String(event.Value))
 	}
 
-	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
+	return resource.NewWithAttributes(attr.OBISchemaURL, attrs...)
 }
 
 func (p *InternalMetricsReporter) recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, telemetryType string) {

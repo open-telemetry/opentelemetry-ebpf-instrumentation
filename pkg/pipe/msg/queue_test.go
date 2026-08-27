@@ -450,19 +450,20 @@ func TestMetrics_CapacityGauge(t *testing.T) {
 		// working channel reads values as long as they arrive
 		testutil.ReadChannel(t, working, timeout)
 	}
-	// working gauge will stay in 0.01 (metric is not cleaned up after last read)
-	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
-	// blocked gauge reaches 0.5
-	assert.InDelta(t, 0.5, fp.GaugeFor("blocked"), 0.0001)
+	// working gauge stays at 0: its buffer is drained between sends
+	assert.True(t, fp.Reported("working"))
+	assert.InDelta(t, 0.0, fp.GaugeFor("working"), 0.0001)
+	// blocked gauge reaches 0.49: 49 unread messages out of 100 when the 50th is sent
+	assert.InDelta(t, 0.49, fp.GaugeFor("blocked"), 0.0001)
 
 	// send another batch
 	for i := 0; i < 50; i++ {
 		q.SendCtx(t.Context(), i)
 		testutil.ReadChannel(t, working, timeout)
 	}
-	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
-	// blocked gauge reaches 1 (max)
-	assert.InDelta(t, 1.0, fp.GaugeFor("blocked"), 0.0001)
+	assert.InDelta(t, 0.0, fp.GaugeFor("working"), 0.0001)
+	// blocked gauge reaches 0.99: 99 unread messages out of 100 when the 100th is sent
+	assert.InDelta(t, 0.99, fp.GaugeFor("blocked"), 0.0001)
 
 	// unblock blocked subscriber --> metrics should go to lowest value
 	for i := 0; i < 100; i++ {
@@ -470,8 +471,8 @@ func TestMetrics_CapacityGauge(t *testing.T) {
 	}
 	// send a last message to force update of metrics
 	q.SendCtx(t.Context(), 0)
-	assert.InDelta(t, 0.01, fp.GaugeFor("blocked"), 0.0001)
-	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
+	assert.InDelta(t, 0.0, fp.GaugeFor("blocked"), 0.0001)
+	assert.InDelta(t, 0.0, fp.GaugeFor("working"), 0.0001)
 }
 
 func TestMetrics_Labels(t *testing.T) {
@@ -483,6 +484,7 @@ func TestMetrics_Labels(t *testing.T) {
 			InternalMetrics(fp))
 		q.Subscribe(SubscriberName("subs"))
 		q.SendCtx(t.Context(), 1)
+		q.SendCtx(t.Context(), 2)
 		assert.InDelta(t, 0.2, fp.GaugeFor("subs"), 0.001)
 	})
 	t.Run("bypasses subscription", func(t *testing.T) {
@@ -507,12 +509,46 @@ func TestMetrics_Labels(t *testing.T) {
 
 		h1.SendCtx(t.Context(), 1)
 		h1.SendCtx(t.Context(), 2)
-		assert.InDelta(t, 0.4, fp.GaugeFor("subs1"), 0.001)
-		assert.InDelta(t, 0.4, fp.GaugeFor("subs2"), 0.001)
-		assert.InDelta(t, 0.4, fp.GaugeFor("subs3"), 0.001)
-		assert.InDelta(t, 0.4, fp.GaugeFor("subs4"), 0.001)
-		assert.InDelta(t, 0.4, fp.GaugeFor("subs5"), 0.001)
+		assert.InDelta(t, 0.2, fp.GaugeFor("subs1"), 0.001)
+		assert.InDelta(t, 0.2, fp.GaugeFor("subs2"), 0.001)
+		assert.InDelta(t, 0.2, fp.GaugeFor("subs3"), 0.001)
+		assert.InDelta(t, 0.2, fp.GaugeFor("subs4"), 0.001)
+		assert.InDelta(t, 0.2, fp.GaugeFor("subs5"), 0.001)
 	})
+}
+
+// A saturated queue must report exactly 1: the ratio is what tells operators the
+// consuming stage cannot keep up, so it may neither overshoot nor be clamped away.
+func TestMetrics_CapacityGauge_Saturation(t *testing.T) {
+	fp := &fakeProvisioner{gauges: map[string]float64{}}
+	q := NewQueue[int](
+		Name("head"),
+		ChannelBufferLen(5),
+		InternalMetrics(fp))
+	full := q.Subscribe(SubscriberName("full"))
+
+	// nobody reads: the 5th send observes 4 unread messages out of 5
+	for i := 0; i < 5; i++ {
+		q.SendCtx(t.Context(), i)
+	}
+	assert.InDelta(t, 0.8, fp.GaugeFor("full"), 0.0001)
+
+	// the buffer is now full, so this send samples a saturated queue and then blocks
+	sent := make(chan struct{})
+	go func() {
+		q.SendCtx(t.Context(), 5)
+		close(sent)
+	}()
+	assert.Eventually(t, func() bool {
+		return fp.GaugeFor("full") == 1.0
+	}, timeout, time.Millisecond, "a full queue must report a ratio of exactly 1")
+
+	// drain, unblocking the pending sender
+	for i := 0; i < 6; i++ {
+		testutil.ReadChannel(t, full, timeout)
+	}
+	testutil.ReadChannel(t, sent, timeout)
+	assert.LessOrEqual(t, fp.GaugeFor("full"), 1.0)
 }
 
 // implementation of fake gauge metrics for testing
@@ -526,6 +562,13 @@ func (fp *fakeProvisioner) GaugeFor(subscriber string) float64 {
 	fp.mt.RLock()
 	defer fp.mt.RUnlock()
 	return fp.gauges[subscriber]
+}
+
+func (fp *fakeProvisioner) Reported(subscriber string) bool {
+	fp.mt.RLock()
+	defer fp.mt.RUnlock()
+	_, ok := fp.gauges[subscriber]
+	return ok
 }
 
 func (fp *fakeProvisioner) QueueBufferUtilization(name string, val float64) {

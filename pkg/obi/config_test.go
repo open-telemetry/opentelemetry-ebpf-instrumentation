@@ -21,6 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/collector/confmap"
+
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
@@ -1515,4 +1517,60 @@ func TestNormalizeConfig_Network(t *testing.T) {
 	obi.normalize()
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork,
 		obi.Metrics.Features)
+}
+
+// stringSliceToTextUnmarshalerHookFunc exists so that Features and ExportModes accept a
+// YAML sequence as well as the comma-separated text their UnmarshalText parses. Both shapes
+// have to decode through confmap, which is how the collector receiver loads the
+// configuration; plain YAML loading only ever reaches UnmarshalYAML.
+func TestUnmarshalConfmapSequences(t *testing.T) {
+	unmarshal := func(t *testing.T, raw map[string]any) *Config {
+		t.Helper()
+		cfg := DefaultConfig
+		require.NoError(t, cfg.Unmarshal(confmap.NewFromStringMap(raw)))
+		return &cfg
+	}
+
+	t.Run("metrics features", func(t *testing.T) {
+		expected := export.FeatureApplicationRED | export.FeatureSpanOTel
+
+		for _, tc := range []struct {
+			name  string
+			value any
+		}{
+			{name: "sequence", value: []any{"application", "application_span_otel"}},
+			{name: "comma separated", value: "application,application_span_otel"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := unmarshal(t, map[string]any{
+					"metrics": map[string]any{"features": tc.value},
+				})
+				assert.Equal(t, expected, cfg.Metrics.Features)
+			})
+		}
+	})
+
+	t.Run("discovery export modes", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			value any
+		}{
+			{name: "sequence", value: []any{"metrics", "traces"}},
+			{name: "comma separated", value: "metrics,traces"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := unmarshal(t, map[string]any{
+					"discovery": map[string]any{"instrument": []any{
+						map[string]any{"k8s_namespace": "demo", "exports": tc.value},
+					}},
+				})
+				require.Len(t, cfg.Discovery.Instrument, 1)
+
+				modes := cfg.Discovery.Instrument[0].ExportModes
+				assert.True(t, modes.CanExportMetrics())
+				assert.True(t, modes.CanExportTraces())
+				assert.False(t, modes.CanExportLogs())
+			})
+		}
+	})
 }
