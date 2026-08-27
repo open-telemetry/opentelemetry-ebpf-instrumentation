@@ -14,13 +14,14 @@ type dotnetLaunch struct {
 }
 
 var dotnetOptionsWithValues = map[string]struct{}{
-	"--additional-deps":       {},
-	"--additionalprobingpath": {},
-	"--depsfile":              {},
-	"--fx-version":            {},
-	"--property":              {},
-	"--roll-forward":          {},
-	"--runtimeconfig":         {},
+	"--additional-deps":                 {},
+	"--additionalprobingpath":           {},
+	"--depsfile":                        {},
+	"--fx-version":                      {},
+	"--property":                        {},
+	"--roll-forward":                    {},
+	"--roll-forward-on-no-candidate-fx": {},
+	"--runtimeconfig":                   {},
 }
 
 func parseDotnetLaunch(args []string) dotnetLaunch {

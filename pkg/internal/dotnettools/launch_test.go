@@ -25,6 +25,11 @@ func TestParseDotnetLaunch(t *testing.T) {
 			entryPoint: "Orders.Api.dll",
 		},
 		{
+			name:       "legacy roll forward option",
+			args:       []string{"--roll-forward-on-no-candidate-fx", "2", "Orders.Api.dll"},
+			entryPoint: "Orders.Api.dll",
+		},
+		{
 			name:       "deps file",
 			args:       []string{"exec", "--depsfile", "metadata/Orders.deps.json", "Orders.Api.dll"},
 			entryPoint: "Orders.Api.dll",
