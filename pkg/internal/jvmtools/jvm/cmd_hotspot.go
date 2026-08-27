@@ -86,7 +86,7 @@ func startAttachMechanism(ctx context.Context, pid, nspid, attachPid int, tmpPat
 	}
 
 	ts := 20 * time.Millisecond
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		if err := sleepContext(ctx, ts); err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func writeHotspotCommand(ctx context.Context, conn net.Conn, args []string) erro
 	request = append(request, byte('1'))
 	request = append(request, byte(0))
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if i < len(args) {
 			request = append(request, []byte(args[i])...)
 		}
