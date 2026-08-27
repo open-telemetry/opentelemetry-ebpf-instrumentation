@@ -1344,3 +1344,45 @@ func TestSpanOTELGetters_DBNamespace(t *testing.T) {
 	kv = getter(&Span{Type: EventTypeSQLClient, SubType: int(DBMySQL)})
 	assert.False(t, kv.Valid(), "expected db.namespace to be omitted, got %v", kv)
 }
+
+// A status is a metric dimension, so publishing 0 for a response nobody parsed labels
+// the series as if the response had said so. The Prometheus wrapper turns the invalid
+// value into an empty label and the OTel expirer drops the attribute, so both exporters
+// need only this one decision.
+func TestSpanGetters_HTTPResponseStatusCodeFollowsTheResponse(t *testing.T) {
+	const seededStatus = 200
+
+	otelGetter, ok := spanOTELGetters(attr.HTTPResponseStatusCode)
+	require.True(t, ok, "getter should be found for HTTPResponseStatusCode")
+
+	promGetter := spanPromGetters(attr.HTTPResponseStatusCode)
+
+	t.Run("parsed", func(t *testing.T) {
+		span := &Span{Status: seededStatus, ResponseObservation: ResponseParsed}
+
+		kv := otelGetter(span)
+		require.True(t, kv.Valid())
+		assert.Equal(t, int64(seededStatus), kv.Value.AsInt64())
+		assert.Equal(t, "200", promGetter(span))
+	})
+
+	for _, tc := range []struct {
+		name     string
+		observed ResponseObservation
+	}{
+		{"received", ResponseReceived},
+		{"silent", ResponseSilent},
+		{"unread", ResponseUnread},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Seeded nonzero so the assertion cannot pass on a span that simply has no
+			// status to report.
+			span := &Span{Status: seededStatus, ResponseObservation: tc.observed}
+
+			assert.False(t, otelGetter(span).Valid(),
+				"a status nobody parsed must yield an invalid KeyValue so it is dropped")
+			assert.Empty(t, promGetter(span),
+				"a status nobody parsed must become an empty label, not a fabricated one")
+		})
+	}
+}

@@ -1211,6 +1211,52 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 	}, timeout, 100*time.Millisecond)
 }
 
+// The gauge reports that the host is running. A service whose every call ended
+// without a usable duration still runs, so the only traffic being unmeasured must
+// not withhold it.
+func TestAppMetrics_TracesHostInfoUnmeasuredSpans(t *testing.T) {
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	feats := export.FeatureApplicationRED | export.FeatureApplicationHost
+	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, feats, otlp, metrics, processEvents)
+	go mr.reportMetrics(ctx)
+
+	processEvents.Send(exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{
+			Service: svc.Attrs{
+				Features: feats,
+				UID:      svc.UID{Instance: "foo"},
+			},
+		}),
+	})
+
+	unmeasured := request.Span{
+		Service:             svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}},
+		Type:                request.EventTypeHTTPClient,
+		Path:                "/foo",
+		RequestStart:        100,
+		End:                 200,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	metrics.Send([]request.Span{unmeasured})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
+			"traces.host.info metric has not been created for a service whose only calls were unmeasured")
+	}, timeout, 100*time.Millisecond)
+}
+
 func TestMetricResourceAttributes(t *testing.T) {
 	// Test different filtering scenarios
 	testCases := []struct {
@@ -1977,5 +2023,231 @@ func resourcesMatch(t *testing.T, one *TargetMetrics, two *TargetMetrics) {
 		other, ok := two.resourceAttributes.Value(a.Key)
 		assert.True(t, ok)
 		assert.Equal(t, a.Value.AsString(), other.AsString())
+	}
+}
+
+// The OTel counterpart of the Prometheus case: a call whose response was never observed
+// publishes the size of the request it sent, and neither a duration nor a response size,
+// which it does not know.
+func TestAppMetrics_UnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	feats := export.FeatureApplicationRED
+	go makeMetricsReporter(ctx, t,
+		[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		feats, otlp, metrics, processEvents).reportMetrics(ctx)
+
+	unmeasured := request.Span{
+		Service:             svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}},
+		Type:                request.EventTypeHTTPClient,
+		Method:              "GET",
+		Route:               "/unmeasured",
+		RequestStart:        100,
+		End:                 6 * time.Second.Nanoseconds(),
+		ContentLength:       512,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	metrics.Send([]request.Span{unmeasured})
+
+	// One record is expected. Drain briefly afterwards so an instrument that should
+	// have stayed out has a chance to show up and fail the assertion.
+	published := map[string]struct{}{}
+	for _, r := range readNChan(t, otlp.Records(), 1, timeout) {
+		published[r.Name] = struct{}{}
+	}
+	drain := time.After(500 * time.Millisecond)
+	for draining := true; draining; {
+		select {
+		case r := <-otlp.Records():
+			published[r.Name] = struct{}{}
+		case <-drain:
+			draining = false
+		}
+	}
+
+	assert.Contains(t, published, "http.client.request.body.size",
+		"the size of the request that was sent is known and must be reported")
+	assert.NotContains(t, published, "http.client.request.duration",
+		"a duration that runs past the request it describes was published")
+	assert.NotContains(t, published, "http.client.response.body.size",
+		"a response nobody saw was reported as having a size")
+}
+
+// bodySizeCase is one response outcome and what the size instruments owe it.
+type bodySizeCase struct {
+	name        string
+	observation request.ResponseObservation
+	// unmeasured mirrors the span's ignoreDurations flag, which is set independently
+	// of the observation and must not decide the response size either way.
+	unmeasured   bool
+	wantResponse bool
+}
+
+// The response size turns on what was read, not on whether the clock is usable. The two
+// questions have different answers on a silent or unread response, whose duration is a
+// measurement, and on a parsed response whose duration is not. The request size is known
+// in every case, so it is the control that separates a suppressed instrument from a span
+// that never arrived at all.
+func TestAppMetrics_BodySizesFollowTheResponse(t *testing.T) {
+	kinds := []struct {
+		eventType    request.EventType
+		requestSize  string
+		responseSize string
+	}{
+		{request.EventTypeHTTP, "http.server.request.body.size", "http.server.response.body.size"},
+		{request.EventTypeHTTPClient, "http.client.request.body.size", "http.client.response.body.size"},
+	}
+
+	cases := []bodySizeCase{
+		{"parsed", request.ResponseParsed, false, true},
+		// What keepParsedResponse produces: read in userspace, timed at teardown. The
+		// length is known even though the duration is not.
+		{"parsed but unmeasured", request.ResponseParsed, true, true},
+		{"received", request.ResponseReceived, true, false},
+		{"silent", request.ResponseSilent, false, false},
+		{"unread", request.ResponseUnread, false, false},
+	}
+
+	for _, kind := range kinds {
+		for _, tc := range cases {
+			t.Run(kind.eventType.String()+"/"+tc.name, func(t *testing.T) {
+				published := publishBodySizeSpan(t, kind.eventType, tc)
+
+				assert.Contains(t, published, kind.requestSize,
+					"the request size is known whatever came of the response")
+
+				if tc.wantResponse {
+					assert.Contains(t, published, kind.responseSize,
+						"a parsed response has a length worth publishing")
+					return
+				}
+
+				assert.NotContains(t, published, kind.responseSize,
+					"a response nobody parsed was reported as having a size")
+			})
+		}
+	}
+}
+
+// publishBodySizeSpan reports one span through a fresh reporter and returns the names of
+// every instrument it produced.
+func publishBodySizeSpan(t *testing.T, eventType request.EventType, tc bodySizeCase) map[string]struct{} {
+	t.Helper()
+
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	feats := export.FeatureApplicationRED
+	go makeMetricsReporter(ctx, t,
+		[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		feats, otlp, metrics, processEvents).reportMetrics(ctx)
+
+	span := request.Span{
+		Service:             svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}},
+		Type:                eventType,
+		Method:              "GET",
+		Route:               "/sized",
+		RequestStart:        100,
+		End:                 6 * time.Second.Nanoseconds(),
+		ContentLength:       512,
+		ResponseLength:      1024,
+		Status:              200,
+		ResponseObservation: tc.observation,
+	}
+	if tc.unmeasured {
+		request.SetIgnoreDurations(&span)
+	}
+
+	metrics.Send([]request.Span{span})
+
+	// Collect for a fixed window rather than counting records: the assertions turn on
+	// which instruments are absent, and a count would race the ones that are.
+	published := map[string]struct{}{}
+	drain := time.After(2 * time.Second)
+	for draining := true; draining; {
+		select {
+		case r := <-otlp.Records():
+			published[r.Name] = struct{}{}
+		case <-drain:
+			draining = false
+		}
+	}
+
+	return published
+}
+
+// The size counters are their own feature. A service that asked for sizes and not for
+// the latency pair has no calls counter for a request size to disagree with, so
+// withholding it on an unmeasured span loses a number for nothing. The response size is
+// withheld on its own terms, which the silent case isolates: its duration is a
+// measurement, so only the response rule can keep the counter out.
+func TestAppMetrics_SpanSizesDoNotStandOnTheDuration(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		observation request.ResponseObservation
+		unmeasured  bool
+	}{
+		{"received and unmeasured", request.ResponseReceived, true},
+		{"silent but measured", request.ResponseSilent, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			otlp, err := collector.Start(ctx)
+			require.NoError(t, err)
+
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			// Sizes only: no latency, no calls.
+			feats := export.FeatureSpanSizes
+			go makeMetricsReporter(ctx, t,
+				[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				feats, otlp, metrics, processEvents).reportMetrics(ctx)
+
+			span := request.Span{
+				Service:             svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}},
+				Type:                request.EventTypeHTTPClient,
+				Method:              "GET",
+				Route:               "/sized",
+				RequestStart:        100,
+				End:                 6 * time.Second.Nanoseconds(),
+				ContentLength:       512,
+				ResponseLength:      1024,
+				Status:              200,
+				ResponseObservation: tc.observation,
+			}
+			if tc.unmeasured {
+				request.SetIgnoreDurations(&span)
+			}
+
+			metrics.Send([]request.Span{span})
+
+			published := map[string]struct{}{}
+			drain := time.After(2 * time.Second)
+			for draining := true; draining; {
+				select {
+				case r := <-otlp.Records():
+					published[r.Name] = struct{}{}
+				case <-drain:
+					draining = false
+				}
+			}
+
+			assert.Contains(t, published, SpanMetricsRequestSizes,
+				"the request size is known whatever came of the response or the clock")
+			assert.NotContains(t, published, SpanMetricsResponseSizes,
+				"a response nobody parsed was counted as having a size")
+		})
 	}
 }
