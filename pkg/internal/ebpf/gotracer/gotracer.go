@@ -565,6 +565,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.NetConnPos,
 		goexec.CcTconnPos,
 		goexec.CcTconnVendoredPos,
+		goexec.CcTLSPos,
+		goexec.CcTLSVendoredPos,
 		goexec.ScConnPos,
 		goexec.CRwcPos,
 		goexec.CTlsPos,

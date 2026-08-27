@@ -1230,6 +1230,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                                                     void *cc_ptr,
                                                     u32 stream_id,
                                                     go_offset_const off_cc_tconn_pos,
+                                                    go_offset_const off_cc_tls_pos,
                                                     go_offset_const off_cc_framer_pos) {
     go_addr_key_t writer_key = {};
     go_addr_key_from_id(&writer_key, goroutine_addr);
@@ -1261,16 +1262,20 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
         bpf_dbg_printk("tconn=%llx", tconn);
 
         if (tconn) {
-            void *tconn_conn = 0;
-            bpf_probe_read(
-                &tconn_conn, sizeof(tconn_conn), (void *)(tconn + k_go_iface_data_offset));
-            bpf_dbg_printk("tconn_conn=%llx", tconn_conn);
+            void *tls_state = 0;
+            bpf_probe_read(&tls_state,
+                           sizeof(tls_state),
+                           (void *)(cc_ptr + go_offset_of(ot, (go_offset){.v = off_cc_tls_pos})));
+
+            void *conn_ptr = tconn;
+            if (tls_state) {
+                bpf_probe_read(
+                    &conn_ptr, sizeof(conn_ptr), (void *)(tconn + k_go_iface_data_offset));
+            }
+            bpf_dbg_printk("tls_state=%llx, conn_ptr=%llx", tls_state, conn_ptr);
 
             connection_info_t conn = {0};
-            u8 ok = get_conn_info(tconn_conn, &conn);
-            if (!ok) {
-                ok = get_conn_info(tconn, &conn);
-            }
+            const u8 ok = get_conn_info(conn_ptr, &conn);
 
             if (ok) {
                 bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -1389,7 +1394,8 @@ int GUARDED_PROG(obi_uprobe_http2WriteHeaders, struct pt_regs *, ctx) {
 
     bpf_dbg_printk("=== uprobe/http2WriteHeaders ===");
 
-    setup_http2_client_conn(goroutine_addr, cc_ptr, (u32)stream_id, _cc_tconn_pos, _cc_framer_pos);
+    setup_http2_client_conn(
+        goroutine_addr, cc_ptr, (u32)stream_id, _cc_tconn_pos, _cc_tls_pos, _cc_framer_pos);
 
     return 0;
 }
@@ -1405,8 +1411,12 @@ int GUARDED_PROG(obi_uprobe_http2WriteHeaders_vendored, struct pt_regs *, ctx) {
 
     bpf_dbg_printk("=== uprobe/http2WriteHeadersVendored ===");
 
-    setup_http2_client_conn(
-        goroutine_addr, cc_ptr, (u32)stream_id, _cc_tconn_vendored_pos, _cc_framer_vendored_pos);
+    setup_http2_client_conn(goroutine_addr,
+                            cc_ptr,
+                            (u32)stream_id,
+                            _cc_tconn_vendored_pos,
+                            _cc_tls_vendored_pos,
+                            _cc_framer_vendored_pos);
 
     return 0;
 }
