@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
 	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
+	"go.opentelemetry.io/obi/pkg/internal/pythontools"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -190,6 +191,11 @@ func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
 		err := nodejstools.ResolveServiceMetadata(ie.FileInfo)
 		if err != nil {
 			ta.log.Debug("unable to resolve Node.js service metadata", "pid", ie.FileInfo.Pid(), "error", err)
+		}
+	case svc.InstrumentablePython:
+		err := pythontools.ResolveServiceMetadata(ie.FileInfo)
+		if err != nil {
+			ta.log.Debug("unable to resolve Python service metadata", "pid", ie.FileInfo.Pid(), "error", err)
 		}
 	}
 }
