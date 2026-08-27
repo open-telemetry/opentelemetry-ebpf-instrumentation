@@ -334,7 +334,7 @@ func testGRPCKProbeTraces(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 }
 
-func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceId bool) {
+func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID bool) {
 	var traceID string
 	var parentID string
 
@@ -391,7 +391,7 @@ func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceId 
 
 	serviceInstance, ok := jaeger.FindIn(process.Tags, "service.instance.id")
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
-	if validateInstanceId {
+	if validateInstanceID {
 		assert.Regexp(t, `^integration-test\.`+serviceName+`\.`, serviceInstance.Value)
 	}
 
