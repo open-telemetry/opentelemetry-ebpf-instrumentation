@@ -312,8 +312,8 @@ func (c *runtimeCounterTracker) addToAggregate(
 
 	keyParts := append([]string{metric}, labels...)
 	key := runtimeMetricLabelsKey(append(keyParts, source))
-	delta, _ := c.delta(key, value)
-	if delta > 0 {
+	delta, first := c.delta(key, value)
+	if delta > 0 || first {
 		counter.WithLabelValues(labels...).Add(float64(delta) * scale)
 	}
 }

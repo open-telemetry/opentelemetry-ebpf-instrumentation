@@ -86,7 +86,7 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 			RuntimeValues: &jvmruntime.JVMRuntimeValues{
 				LoadedClassCount:        43,
 				TotalLoadedClassCount:   100,
-				UnloadedClassCount:      5,
+				UnloadedClassCount:      0,
 				ThreadCount:             10,
 				DaemonThreadCount:       4,
 				AvailableProcessorCount: 8,
@@ -103,8 +103,9 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 	}
 	assert.InEpsilon(t, 100.0,
 		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
-	assert.InEpsilon(t, 5.0,
-		gatheredMetric(t, registry, "jvm_class_unloaded_total", labels).GetCounter().GetValue(), 0)
+	unloaded := gatheredMetric(t, registry, "jvm_class_unloaded_total", labels)
+	require.NotNil(t, unloaded)
+	assert.Zero(t, unloaded.GetCounter().GetValue())
 	assert.InEpsilon(t, 43.0,
 		gatheredMetric(t, registry, "jvm_class_count", labels).GetGauge().GetValue(), 0)
 	assert.InEpsilon(t, 4.0,
@@ -153,7 +154,7 @@ func TestRuntimeMetricsReporterRecordsJVMMetrics(t *testing.T) {
 
 	assert.InEpsilon(t, 140.0,
 		gatheredMetric(t, registry, "jvm_class_loaded_total", labels).GetCounter().GetValue(), 0)
-	assert.InEpsilon(t, 7.0,
+	assert.InEpsilon(t, 2.0,
 		gatheredMetric(t, registry, "jvm_class_unloaded_total", labels).GetCounter().GetValue(), 0)
 	assert.InEpsilon(t, 3.0,
 		gatheredMetric(t, registry, "jvm_cpu_time_seconds_total", labels).GetCounter().GetValue(), 0)
