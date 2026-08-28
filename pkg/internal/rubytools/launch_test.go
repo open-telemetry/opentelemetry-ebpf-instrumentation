@@ -817,7 +817,7 @@ func TestLastLauncherOption(t *testing.T) {
 }
 
 func TestParseLauncherArguments(t *testing.T) {
-	options := map[string]launcherOptionArity{
+	options := map[string]optionArity{
 		"-a":      launcherNoValue,
 		"-b":      launcherRequiredValue,
 		"-c":      launcherPlacedOptionalValue,

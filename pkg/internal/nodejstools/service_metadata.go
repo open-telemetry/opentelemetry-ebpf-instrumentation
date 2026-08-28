@@ -133,7 +133,7 @@ func packageSearchStart(root, cwd, entryPoint string) (string, bool) {
 		return filepath.Dir(path), true
 	}
 
-	entryPoint = absoluteProcessPath(cwd, entryPoint)
+	entryPoint = langtools.AbsoluteProcessPath(cwd, entryPoint)
 	return langtools.ResolveProcessPath(root, "/", filepath.Dir(entryPoint))
 }
 
@@ -193,8 +193,7 @@ func serviceNameFromEntryPoint(cwd, entryPoint string) string {
 	name := filepath.Base(entryPoint)
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 	name = strings.TrimSpace(name)
-	if name == "" || name == "." || name == ".." || name == "-" ||
-		name == string(filepath.Separator) || strings.ContainsFunc(name, unicode.IsControl) {
+	if !langtools.ValidServiceName(name) {
 		return ""
 	}
 	return name
@@ -261,12 +260,5 @@ func resolveRegularProcessFile(root, cwd, path string) (string, bool) {
 }
 
 func pathHasNodeModules(cwd, path string) bool {
-	return slices.Contains(strings.Split(absoluteProcessPath(cwd, path), string(filepath.Separator)), "node_modules")
-}
-
-func absoluteProcessPath(cwd, path string) string {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path)
-	}
-	return filepath.Clean(filepath.Join(cwd, path))
+	return slices.Contains(strings.Split(langtools.AbsoluteProcessPath(cwd, path), string(filepath.Separator)), "node_modules")
 }

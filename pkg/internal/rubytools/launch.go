@@ -35,6 +35,8 @@ const (
 	requiredValue
 	terminalOption
 	dumpValue
+	placedOptionalValue
+	attachedOptionalValue
 )
 
 var longOptions = map[string]optionArity{
@@ -105,16 +107,14 @@ var longOptions = map[string]optionArity{
 	"--zjit-trace-exits-sample-rate": noValue,
 }
 
-type launcherOptionArity uint8
-
 const (
-	launcherNoValue launcherOptionArity = iota
-	launcherRequiredValue
-	launcherPlacedOptionalValue
-	launcherAttachedOptionalValue
+	launcherNoValue               = noValue
+	launcherRequiredValue         = requiredValue
+	launcherPlacedOptionalValue   = placedOptionalValue
+	launcherAttachedOptionalValue = attachedOptionalValue
 )
 
-var rackupOptions = map[string]launcherOptionArity{
+var rackupOptions = map[string]optionArity{
 	"-?":                  launcherNoValue,
 	"-D":                  launcherNoValue,
 	"-E":                  launcherRequiredValue,
@@ -153,7 +153,7 @@ var rackupOptions = map[string]launcherOptionArity{
 	"--warn":              launcherNoValue,
 }
 
-var pumaOptions = map[string]launcherOptionArity{
+var pumaOptions = map[string]optionArity{
 	"-C":                           launcherRequiredValue,
 	"-I":                           launcherRequiredValue,
 	"-R":                           launcherRequiredValue,
@@ -204,7 +204,7 @@ var pumaOptions = map[string]launcherOptionArity{
 	"--workers":                    launcherRequiredValue,
 }
 
-var unicornOptions = map[string]launcherOptionArity{
+var unicornOptions = map[string]optionArity{
 	"-D":                      launcherNoValue,
 	"-E":                      launcherRequiredValue,
 	"-I":                      launcherRequiredValue,
@@ -396,7 +396,7 @@ type launcherArguments struct {
 
 func parseLauncherArguments(
 	args []string,
-	options map[string]launcherOptionArity,
+	options map[string]optionArity,
 	configShort string,
 	configLong string,
 ) launcherArguments {
@@ -423,17 +423,10 @@ func parseLauncherArguments(
 				parsed.positionalsKnown = false
 				return parsed
 			}
-			if arity == launcherRequiredValue && !attached {
-				i++
-				if i >= len(args) {
-					parsed.positionalsKnown = false
-					return parsed
-				}
-				value = args[i]
-			}
-			if arity == launcherPlacedOptionalValue && !attached && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				i++
-				value = args[i]
+			value, i, ok = consumeOptionValue(args, i, value, attached, arity)
+			if !ok {
+				parsed.positionalsKnown = false
+				return parsed
 			}
 			if name == configLong && value != "" {
 				parsed.configPath = value
@@ -456,18 +449,11 @@ func parseLauncherArguments(
 			}
 
 			value := arg[offset+1:]
-			if value == "" && arity == launcherRequiredValue {
-				i++
-				if i >= len(args) {
-					parsed.positionalsKnown = false
-					return parsed
-				}
-				value = args[i]
-			}
-
-			if value == "" && arity == launcherPlacedOptionalValue && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				i++
-				value = args[i]
+			var valueOK bool
+			value, i, valueOK = consumeOptionValue(args, i, value, value != "", arity)
+			if !valueOK {
+				parsed.positionalsKnown = false
+				return parsed
 			}
 
 			if name == configShort && value != "" {
@@ -519,12 +505,9 @@ func parseRubyArgs(args []string) RubyLaunch {
 				return RubyLaunch{}
 			}
 
-			if (arity == requiredValue || arity == dumpValue) && !attached {
-				i++
-				if i >= len(args) {
-					return RubyLaunch{}
-				}
-				value = args[i]
+			value, i, ok = consumeOptionValue(args, i, value, attached, arity)
+			if !ok {
+				return RubyLaunch{}
 			}
 
 			if arity == dumpValue {
@@ -560,6 +543,34 @@ func parseRubyArgs(args []string) RubyLaunch {
 		return launchFromProgram(arg, args[i+1:])
 	}
 	return RubyLaunch{}
+}
+
+func consumeOptionValue(
+	args []string,
+	index int,
+	value string,
+	attached bool,
+	arity optionArity,
+) (string, int, bool) {
+	if attached {
+		return value, index, true
+	}
+
+	switch arity {
+	case requiredValue, dumpValue:
+		index++
+		if index >= len(args) {
+			return "", index, false
+		}
+		return args[index], index, true
+	case placedOptionalValue:
+		if index+1 < len(args) && !strings.HasPrefix(args[index+1], "-") {
+			index++
+			return args[index], index, true
+		}
+	}
+
+	return "", index, true
 }
 
 func allowsAttachedLongValue(name string) bool {

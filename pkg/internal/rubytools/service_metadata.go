@@ -77,7 +77,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		return resolutionErr
 	}
 
-	if resolveName && validServiceName(metadata.Name) {
+	if resolveName && langtools.ValidServiceName(metadata.Name) {
 		fileInfo.SetAutoServiceName(metadata.Name)
 	}
 	if resolveVersion && validGemVersion(metadata.Version) {
@@ -293,7 +293,7 @@ func searchStart(root, cwd, path string, assumeFile bool) (string, bool) {
 		return projectDirectoryForFile(resolved), true
 	}
 
-	containerPath := absoluteProcessPath(cwd, path)
+	containerPath := langtools.AbsoluteProcessPath(cwd, path)
 	if !assumeFile {
 		return "", false
 	}

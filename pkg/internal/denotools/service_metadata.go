@@ -243,7 +243,7 @@ func findProjectMetadata(
 	firstConfig *serviceMetadata,
 	requireName bool,
 ) (serviceMetadata, bool) {
-	if !pathWithinBoundary(boundary, start) {
+	if !langtools.PathWithinBoundary(boundary, start) {
 		return serviceMetadata{}, false
 	}
 
@@ -441,8 +441,7 @@ func serviceNameFromEntryPoint(entryPoint string) string {
 	name := filepath.Base(entryPoint)
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 	name = strings.TrimSpace(name)
-	if name == "" || name == "." || name == ".." || name == "-" ||
-		name == string(filepath.Separator) || strings.ContainsFunc(name, unicode.IsControl) {
+	if !langtools.ValidServiceName(name) {
 		return ""
 	}
 	return name
@@ -466,12 +465,4 @@ func projectSearchCWD(cwd string) string {
 		prefix = filepath.Join(prefix, part)
 	}
 	return clean
-}
-
-func pathWithinBoundary(boundary, path string) bool {
-	relative, err := filepath.Rel(boundary, path)
-	if err != nil {
-		return false
-	}
-	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }

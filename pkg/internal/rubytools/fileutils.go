@@ -9,7 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode"
+
+	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
 
 func projectDirectoryForFile(path string) string {
@@ -43,9 +44,9 @@ func gemDependencyRoots(cwd string, env map[string]string) []string {
 }
 
 func pathInDependencyRoot(cwd, path string, roots []string) bool {
-	path = absoluteProcessPath(cwd, path)
+	path = langtools.AbsoluteProcessPath(cwd, path)
 	for _, root := range roots {
-		if pathWithinBoundary(root, path) {
+		if langtools.PathWithinBoundary(root, path) {
 			return true
 		}
 	}
@@ -58,20 +59,12 @@ func cleanDependencyRoot(cwd, path string) string {
 		return ""
 	}
 
-	path = absoluteProcessPath(cwd, path)
+	path = langtools.AbsoluteProcessPath(cwd, path)
 	if !filepath.IsAbs(path) {
 		return ""
 	}
 
 	return path
-}
-
-func absoluteProcessPath(cwd, path string) string {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path)
-	}
-
-	return filepath.Clean(filepath.Join(cwd, path))
 }
 
 func regularFile(path string) bool {
@@ -97,7 +90,7 @@ func serviceNameFromEntryPoint(path string) string {
 		return ""
 	}
 
-	if !validServiceName(name) || name == "config.ru" {
+	if !langtools.ValidServiceName(name) || name == "config.ru" {
 		return ""
 	}
 	return name
@@ -109,34 +102,19 @@ func serviceNameFromProjectDirectory(dir, boundary string) string {
 	}
 
 	name := filepath.Base(dir)
-	if !validServiceName(name) {
+	if !langtools.ValidServiceName(name) {
 		return ""
 	}
 
 	return name
 }
 
-func validServiceName(value string) bool {
-	return value != "" && value != "." && value != ".." && value != "-" &&
-		value != string(filepath.Separator) && !strings.ContainsFunc(value, unicode.IsControl)
-}
-
 func firstValidName(values ...string) string {
 	for _, value := range values {
-		if validServiceName(value) {
+		if langtools.ValidServiceName(value) {
 			return value
 		}
 	}
 
 	return ""
-}
-
-func pathWithinBoundary(boundary, path string) bool {
-	relative, err := filepath.Rel(boundary, path)
-
-	if err != nil {
-		return false
-	}
-
-	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
