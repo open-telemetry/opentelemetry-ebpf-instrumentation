@@ -154,6 +154,9 @@ func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request)
 		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve product"), http.StatusInternalServerError)
 		return
 	}
+
+	fe.recordProductView(r.Context(), log, id)
+
 	currencies, err := fe.getCurrencies(r.Context())
 	if err != nil {
 		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve currencies"), http.StatusInternalServerError)
@@ -204,6 +207,36 @@ func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request)
 	})); err != nil {
 		log.Println(err)
 	}
+}
+
+// recordProductView tells the recentlyviewed service that this product was
+// looked at, which is what gives the demo its Aerospike traffic.
+//
+// Optional and best-effort, like getRecommendations below: the service may not
+// be deployed, and a failure here must never affect the product page.
+func (fe *frontendServer) recordProductView(ctx context.Context, log logrus.FieldLogger, id string) {
+	if fe.recentlyViewedSvcAddr == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("http://%s/viewed/%s", fe.recentlyViewedSvcAddr, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		log.WithField("error", err).Warn("failed to build recently-viewed request")
+		return
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.WithField("error", err).Warn("failed to record recently-viewed product")
+		return
+	}
+	defer resp.Body.Close()
+	// Drain so the connection can be reused.
+	_, _ = io.Copy(io.Discard, resp.Body)
 }
 
 func (fe *frontendServer) addToCartHandler(w http.ResponseWriter, r *http.Request) {
