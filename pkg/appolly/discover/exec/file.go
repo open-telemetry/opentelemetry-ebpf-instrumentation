@@ -155,6 +155,14 @@ func (fi *FileInfo) ServiceAttrs() svc.Attrs {
 	return out
 }
 
+// Do not use this function anywhere but when dealing with span events
+func (fi *FileInfo) ReadOnlyServiceAttrs() svc.Attrs {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+
+	return fi.service
+}
+
 func (fi *FileInfo) SDKLanguage() svc.InstrumentableType {
 	fi.mu.RLock()
 	defer fi.mu.RUnlock()

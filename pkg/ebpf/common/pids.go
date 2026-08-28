@@ -147,7 +147,7 @@ func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 			if pf.ignoreOtelSpan {
 				pf.checkIfExportsOTelSpanMetrics(info.fileInfo, span, pf.defaultOtlpGRPCPort)
 			}
-			inputSpans[i].Service = info.fileInfo.ServiceAttrs()
+			inputSpans[i].Service = info.fileInfo.ReadOnlyServiceAttrs()
 			pf.normalizeTraceContext(&inputSpans[i])
 			outputSpans = append(outputSpans, inputSpans[i])
 		}
