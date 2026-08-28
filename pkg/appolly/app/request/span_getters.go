@@ -196,8 +196,6 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(span *Span) attribute.KeyValue { return DBNamespace(span.DBNamespace) }
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
-			// Metrics and spans classify a failure the same way, so the label
-			// can be joined to the span that produced it.
 			if errType := SpanErrorType(span); errType != "" {
 				return ErrorType(errType)
 			}

@@ -12,8 +12,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
-// The metric label and the span attribute must agree, otherwise error.type
-// cannot be used to join a span to its own RED metric.
+// The metric label and the span attribute must agree.
 func TestErrorTypeMetricMatchesSpan(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.ErrorType)
 	require.True(t, ok)
@@ -47,6 +46,28 @@ func TestErrorTypeMetricMatchesSpan(t *testing.T) {
 			name:     "genai provider error",
 			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOpenAI, Status: 429, GenAI: &GenAI{OpenAI: &VendorOpenAI{Error: OpenAIError{Type: "rate_limit_error"}}}},
 			expected: "rate_limit_error",
+		},
+		{
+			name:     "sql sqlstate",
+			span:     &Span{Type: EventTypeSQLClient, Method: "SELECT", Status: 1, SQLError: &SQLError{Code: 1064, SQLState: "42000"}},
+			expected: "42000",
+		},
+		{
+			// MySQL reports the numeric code unconditionally, SQLSTATE only
+			// under CLIENT_PROTOCOL_41.
+			name:     "sql numeric code when sqlstate is absent",
+			span:     &Span{Type: EventTypeSQLClient, Method: "SELECT", Status: 1, SQLError: &SQLError{Code: 1064}},
+			expected: "1064",
+		},
+		{
+			name:     "sunrpc denied",
+			span:     &Span{Type: EventTypeSunRPCClient, Path: "portmapper", Route: "0", Status: 1},
+			expected: "denied",
+		},
+		{
+			name:     "sunrpc accept_stat",
+			span:     &Span{Type: EventTypeSunRPCServer, Path: "nfs", Route: "1", Status: 3},
+			expected: "2",
 		},
 		{
 			name:     "failed with nothing to classify by",

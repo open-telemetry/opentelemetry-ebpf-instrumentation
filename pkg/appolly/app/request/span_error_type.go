@@ -12,16 +12,8 @@ import (
 const ErrorTypeOther = "_OTHER"
 
 // SpanErrorType returns error.type for a failed span, or "" when the span did
-// not fail. It is the single source for both the trace and the metric pipeline,
-// so the attribute and the metric label cannot disagree.
-//
-// A failed span always yields a value: semconv requires error.type on failure,
-// and _OTHER is its fallback for a failure that cannot be classified further.
+// not fail. It is the single source for the trace and the metric pipeline.
 func SpanErrorType(span *Span) string {
-	// A parsed protocol error is the most specific answer available, wherever
-	// the parser happened to put it. It is checked before the status gate
-	// because some protocols report a failure inside a 2xx response: SQL++
-	// classifies from the JSON body and never touches span.Status.
 	if errType := parsedErrorType(span); errType != "" {
 		return errType
 	}
@@ -39,6 +31,8 @@ func SpanErrorType(span *Span) string {
 		if code := GRPCStatusCodeString(span.Status); code != "" {
 			return code
 		}
+	case EventTypeSunRPCClient, EventTypeSunRPCServer:
+		return SunRPCResponseStatusCode(span.Status)
 	case EventTypeDNS:
 		return dnsparser.RCode(span.Status).String()
 	}
@@ -47,13 +41,21 @@ func SpanErrorType(span *Span) string {
 }
 
 // parsedErrorType reports the error a protocol parser extracted from the
-// payload, across every field the parsers write it to.
+// payload, which some protocols report inside a 2xx response.
 func parsedErrorType(span *Span) string {
 	if span.DBError.ErrorCode != "" {
 		return span.DBError.ErrorCode
 	}
-	if span.SQLError != nil && span.SQLError.SQLState != "" {
-		return span.SQLError.SQLState
+	if span.SQLError != nil {
+		// Semconv prefers the vendor code and falls back to SQLSTATE; MySQL
+		// reports the code unconditionally but SQLSTATE only under
+		// CLIENT_PROTOCOL_41.
+		if span.SQLError.SQLState != "" {
+			return span.SQLError.SQLState
+		}
+		if span.SQLError.Code != 0 {
+			return strconv.Itoa(int(span.SQLError.Code))
+		}
 	}
 	if errType := span.GenAIErrorType(); errType != "" {
 		return errType

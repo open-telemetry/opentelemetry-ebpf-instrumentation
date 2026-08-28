@@ -16,8 +16,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
-// manualStringAttrs encodes key/value pairs the way the manual-span path expects
-// to find them in Statement.
 func manualStringAttrs(t *testing.T, kv ...string) string {
 	t.Helper()
 	require.Zero(t, len(kv)%2, "want key/value pairs")
@@ -36,8 +34,6 @@ func manualStringAttrs(t *testing.T, kv ...string) string {
 	return string(payload)
 }
 
-// A manual span may already carry a caller-supplied error.type. Duplicate keys
-// are invalid OTLP, and the caller's classification is the specific one.
 func TestTraceAttributesSelector_ManualSpanKeepsItsOwnErrorType(t *testing.T) {
 	span := &request.Span{
 		Type:      request.EventTypeManualSpan,
@@ -53,8 +49,6 @@ func TestTraceAttributesSelector_ManualSpanKeepsItsOwnErrorType(t *testing.T) {
 	assert.Equal(t, "MyCustomError", v.AsString(), "the caller's value must win over _OTHER")
 }
 
-// Some protocols report a failure inside a 2xx response, so the parsed error
-// cannot be gated on the HTTP status.
 func TestTraceAttributesSelector_ParsedErrorInsideSuccessResponse(t *testing.T) {
 	t.Run("sql++ classifies from the response body", func(t *testing.T) {
 		span := &request.Span{

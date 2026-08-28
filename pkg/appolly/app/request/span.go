@@ -2525,8 +2525,8 @@ func (s *Span) GenAIProviderName() string {
 	return ""
 }
 
-// GenAIFailed reports whether a GenAI provider returned an error in its response
-// payload, which the providers do inside a 2xx as well as on an error status.
+// GenAIFailed reports whether a GenAI provider returned an error in its
+// response payload, which can happen inside a 2xx.
 func (s *Span) GenAIFailed() bool {
 	return s.GenAIErrorType() != ""
 }
@@ -2538,7 +2538,6 @@ func (s *Span) GenAIErrorType() string {
 		return ""
 	}
 
-	// OpenAI, Qwen and OpenAI-compatible vendors share VendorOpenAI.
 	for _, ai := range []*VendorOpenAI{s.GenAI.OpenAI, s.GenAI.Qwen, s.GenAI.OpenAICompatible} {
 		if ai != nil && ai.Error.Type != "" {
 			return ai.Error.Type

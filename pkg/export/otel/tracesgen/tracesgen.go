@@ -683,7 +683,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
 			attrs = append(attrs, request.DBSystemName(span.Elasticsearch.DBSystemName))
-			// error.type only applies to failed requests: omit it instead of
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {
@@ -1572,10 +1571,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 	}
 
-	// The only derived error.type emission site, shared with the metric getter so
-	// the attribute and the label cannot disagree. A manual span may already
-	// carry a caller-supplied error.type, which is more specific than anything
-	// derived here and must not be duplicated: duplicate keys are invalid OTLP.
+	// A manual span may already carry a caller-supplied error.type; duplicate
+	// keys are invalid OTLP.
 	if _, ok := optionalAttrs[attr.ErrorType]; ok && !hasAttribute(attrs, semconv.ErrorTypeKey) {
 		if errType := request.SpanErrorType(span); errType != "" {
 			attrs = append(attrs, request.ErrorType(errType))

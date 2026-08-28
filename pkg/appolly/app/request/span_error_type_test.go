@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Each GenAI provider reports its error in a different shape; SpanErrorType has
-// to find all of them or the attribute silently disappears for that provider.
 func TestSpanErrorType_GenAI(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -61,8 +59,6 @@ func TestSpanErrorType_GenAI(t *testing.T) {
 			expected: "invalid_model",
 		},
 		{
-			// No provider error parsed, but the span still failed, so the HTTP
-			// status classifies it rather than dropping the attribute.
 			name:     "provider with no error falls back to the status",
 			genAI:    &GenAI{OpenAI: &VendorOpenAI{}},
 			expected: "429",
