@@ -102,7 +102,7 @@ func (pf *PIDsFilter) CurrentPIDs(t PIDType) map[uint32]map[app.PID]svc.Attrs {
 		cVal := map[app.PID]svc.Attrs{}
 		for kv, vv := range v {
 			if vv.pidTypes&t != 0 {
-				cVal[kv] = vv.fileInfo.ServiceAttrs()
+				cVal[kv] = vv.fileInfo.UnsafeServiceAttrs()
 			}
 		}
 		cp[k] = cVal
