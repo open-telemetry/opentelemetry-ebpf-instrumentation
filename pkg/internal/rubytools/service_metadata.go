@@ -166,7 +166,10 @@ func findProjectMetadata(
 			switch kind {
 			case projectRails:
 				if candidate.Name == "" {
-					candidate.Name = serviceNameFromProjectDirectory(dir, boundary)
+					candidate.Name = firstValidName(
+						directFallback,
+						serviceNameFromProjectDirectory(dir, boundary),
+					)
 				}
 			case projectGemspec:
 				if candidate.Name == "" {

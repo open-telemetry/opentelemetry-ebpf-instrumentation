@@ -70,6 +70,20 @@ ApplicationClass = Class.new(Rails::Application)
 		assert.Equal(t, "Orders-Service", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("unparseable Rails application falls back to the direct script", func(t *testing.T) {
+		root := t.TempDir()
+		writeRubyFile(t, filepath.Join(root, "app", "config", "application.rb"), []byte(`
+class Application < Rails::Application
+`))
+		writeRubyFile(t, filepath.Join(root, "app", "bin", "worker.rb"), nil)
+		fileInfo := mockRubyProcess(t, root, "/app", "ruby", []string{"/app/bin/worker.rb"}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "worker", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("Rails never takes a version from a colocated gemspec", func(t *testing.T) {
 		root := t.TempDir()
 		writeRubyFile(t, filepath.Join(root, "app", "config", "application.rb"), []byte(`
