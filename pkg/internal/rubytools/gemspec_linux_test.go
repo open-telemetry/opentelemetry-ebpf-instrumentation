@@ -31,7 +31,7 @@ end
 	require.NoError(t, unix.Mkfifo(filepath.Join(root, "app", "orders.gemspec"), 0o600))
 	fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-	require.NoError(t, ResolveServiceMetadata(fileInfo))
+	require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 	service := fileInfo.ServiceAttrs()
 	assert.Equal(t, "app", service.UID.Name)

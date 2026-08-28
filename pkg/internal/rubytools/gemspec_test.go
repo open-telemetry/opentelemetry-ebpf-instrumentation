@@ -797,7 +797,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "orders", service.UID.Name)
@@ -815,7 +815,7 @@ end
 			bundleGemfile: "/app/Gemfile.custom",
 		})
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "orders", service.UID.Name)
@@ -834,7 +834,7 @@ end
 			bundleGemfile: "../app/Gemfile.custom",
 		})
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "orders", service.UID.Name)
@@ -856,7 +856,7 @@ end
 			bundleGemfile: "/bundle/Gemfile",
 		})
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "server", service.UID.Name)
@@ -879,7 +879,7 @@ end
 			bundleGemfile: "/app/Gemfile.custom",
 		})
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "orders", service.UID.Name)
@@ -909,7 +909,7 @@ end
 			bundleGemfile: "/other/Gemfile",
 		})
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "orders", service.UID.Name)
@@ -927,7 +927,7 @@ end
 		})
 		fileInfo.SetUID(svc.UID{Name: "configured"})
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "configured", service.UID.Name)
@@ -944,7 +944,7 @@ true && Gem::Specification.new("other", "2.0.0")
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "app", service.UID.Name)
@@ -959,7 +959,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "app", service.UID.Name)
@@ -975,7 +975,7 @@ end
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "orders.gemspec"), 0o755))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "app", service.UID.Name)
@@ -994,7 +994,7 @@ end
 		}
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		require.NoError(t, ResolveServiceMetadata(t.Context(), fileInfo))
 
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "orders", service.UID.Name)

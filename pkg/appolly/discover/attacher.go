@@ -40,6 +40,9 @@ import (
 // Swappable in tests so attacher tests don't depend on memlock permissions.
 var removeMemlock = rlimit.RemoveMemlock
 
+// Ruby metadata is needed before attachment, so bound its synchronous filesystem discovery.
+const rubyServiceMetadataTimeout = 5 * time.Second
+
 // traceAttacher creates the available trace.Tracer implementations (Go HTTP tracer, GRPC tracer, Generic tracer...)
 // for each received Instrumentable process and forwards an ebpf.ProcessTracer instance ready to run and start
 // instrumenting the executable
@@ -144,7 +147,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 					"exec", instr.Obj.FileInfo.CmdExePath(), "pid", instr.Obj.FileInfo.Pid())
 				switch instr.Type {
 				case EventCreated:
-					ta.resolveServiceMetadata(&instr.Obj)
+					ta.resolveServiceMetadata(ctx, &instr.Obj)
 					ta.nodeInjector.NewExecutable(&instr.Obj)
 
 					var javaTarget *javaagent.InjectionTarget
@@ -183,7 +186,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	}, nil
 }
 
-func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
+func (ta *traceAttacher) resolveServiceMetadata(ctx context.Context, ie *ebpf.Instrumentable) {
 	switch ie.Type {
 	case svc.InstrumentableJava:
 		err := jvmtools.ResolveServiceMetadata(ie.FileInfo)
@@ -211,7 +214,10 @@ func (ta *traceAttacher) resolveServiceMetadata(ie *ebpf.Instrumentable) {
 			ta.log.Debug("unable to resolve Deno service metadata", "pid", ie.FileInfo.Pid(), "error", err)
 		}
 	case svc.InstrumentableRuby:
-		err := rubytools.ResolveServiceMetadata(ie.FileInfo)
+		ctx, cancel := context.WithTimeout(ctx, rubyServiceMetadataTimeout)
+		defer cancel()
+
+		err := rubytools.ResolveServiceMetadata(ctx, ie.FileInfo)
 		if err != nil {
 			ta.log.Debug("unable to resolve Ruby service metadata", "pid", ie.FileInfo.Pid(), "error", err)
 		}

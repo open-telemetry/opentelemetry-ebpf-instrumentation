@@ -4,11 +4,13 @@
 package rubytools
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +35,7 @@ end
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 		fileInfo.SetUID(svc.UID{Namespace: "production"})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -51,7 +53,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "billing-service", fileInfo.ServiceAttrs().UID.Name)
@@ -64,7 +66,7 @@ ApplicationClass = Class.new(Rails::Application)
 `))
 		fileInfo := mockRubyProcess(t, root, "/Orders-Service", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "Orders-Service", fileInfo.ServiceAttrs().UID.Name)
@@ -78,7 +80,7 @@ class Application < Rails::Application
 		writeRubyFile(t, filepath.Join(root, "app", "bin", "worker.rb"), nil)
 		fileInfo := mockRubyProcess(t, root, "/app", "ruby", []string{"/app/bin/worker.rb"}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "worker", fileInfo.ServiceAttrs().UID.Name)
@@ -100,7 +102,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -123,7 +125,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -143,7 +145,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -162,7 +164,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -181,7 +183,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -201,7 +203,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -222,7 +224,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -242,7 +244,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -262,7 +264,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -279,7 +281,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -297,7 +299,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -315,7 +317,7 @@ class DataApp < Rails::Application
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "real-app", fileInfo.ServiceAttrs().UID.Name)
@@ -331,7 +333,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -347,7 +349,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -363,7 +365,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -379,7 +381,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -395,7 +397,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -411,7 +413,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -430,7 +432,7 @@ end
 		require.NoError(t, os.Symlink(target, applicationPath))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -448,7 +450,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -465,7 +467,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "ruby", []string{"bin/server"}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -481,7 +483,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -499,7 +501,7 @@ end
 `))
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -518,7 +520,7 @@ end
 		writeRubyFile(t, filepath.Join(root, "services", "orders", "bin", "worker.rb"), nil)
 		fileInfo := mockRubyProcess(t, root, "/", "ruby", []string{"/services/orders/bin/worker.rb"}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -578,7 +580,7 @@ end
 			writeRubyFile(t, filepath.Join(root, "services", "orders", "bin", "worker.rb"), nil)
 			fileInfo := mockRubyProcess(t, root, "/", "ruby", []string{"/services/orders/bin/worker.rb"}, nil)
 
-			err := ResolveServiceMetadata(fileInfo)
+			err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 			require.NoError(t, err)
 			service := fileInfo.ServiceAttrs()
@@ -600,7 +602,7 @@ end
 		}
 		fileInfo := mockRubyProcess(t, root, "/", "ruby", []string{"/services/orders/server.rb"}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -619,7 +621,7 @@ end
 			writeRubyFile(t, filepath.Join(root, "app", "bin", "order_worker.rb"), nil)
 			fileInfo := mockRubyProcess(t, root, "/app", "ruby", []string{"bin/order_worker.rb"}, nil)
 
-			err := ResolveServiceMetadata(fileInfo)
+			err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 			require.NoError(t, err)
 			service := fileInfo.ServiceAttrs()
@@ -668,7 +670,7 @@ end
 			testCase.prepare(t, filepath.Join(project, testCase.marker))
 			fileInfo := mockRubyProcess(t, root, "/orders", "puma", nil, nil)
 
-			err := ResolveServiceMetadata(fileInfo)
+			err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 			require.NoError(t, err)
 			service := fileInfo.ServiceAttrs()
@@ -685,7 +687,7 @@ end
 			bundleGemfile: "/other/Gemfile",
 		})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -708,7 +710,7 @@ end
 			bundleGemfile: "/bundle/Gemfile",
 		})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "direct-service", fileInfo.ServiceAttrs().UID.Name)
@@ -722,7 +724,7 @@ end
 			"--config", "/etc/puma/orders.rb",
 		}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -733,7 +735,7 @@ end
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "srv", "orders"), 0o755))
 		fileInfo := mockRubyProcess(t, root, "/", "passenger", []string{"start", "/srv/orders"}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -746,7 +748,7 @@ end
 			"start", "/missing/orders",
 		}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
@@ -760,7 +762,7 @@ end
 			"start", "/bundle/orders",
 		}, map[string]string{gemHome: "/bundle"})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -777,7 +779,7 @@ end
 			bundleGemfile: "/app/Gemfile.custom",
 		})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -788,7 +790,7 @@ end
 		writeRubyFile(t, filepath.Join(root, "opt", "orders", "config.ru"), nil)
 		fileInfo := mockRubyProcess(t, root, "/", "rackup", []string{"/opt/orders/config.ru"}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -807,7 +809,7 @@ end
 			"--require", "/opt/orders/config/environment.rb",
 		}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -826,7 +828,7 @@ end
 			"--require", "/opt/orders/config/jobs.rb",
 		}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -845,7 +847,7 @@ end
 			"--require", "/bundle/gems/worker/environment.rb",
 		}, map[string]string{gemHome: "/bundle"})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -863,7 +865,7 @@ end
 			bundleGemfile: "/app/Gemfile.custom",
 		})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -882,7 +884,7 @@ end
 			bundleGemfile: "/app/Gemfile.custom",
 		})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -904,7 +906,7 @@ end
 				bundleGemfile: "/app/Gemfile.custom",
 			})
 
-			err := ResolveServiceMetadata(fileInfo)
+			err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 			require.NoError(t, err)
 			assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
@@ -916,7 +918,7 @@ end
 		writeRubyFile(t, filepath.Join(root, "opt", "orders", ".keep"), nil)
 		fileInfo := mockRubyProcess(t, root, "/", "ruby", []string{"/opt/orders/server.rb"}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "server", fileInfo.ServiceAttrs().UID.Name)
@@ -927,7 +929,7 @@ end
 		writeRubyFile(t, filepath.Join(root, "Gemfile"), nil)
 		fileInfo := mockRubyProcess(t, root, "/", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
@@ -942,7 +944,7 @@ end
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 		fileInfo.SetUID(svc.UID{Name: "configured", Namespace: "production"})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -961,7 +963,7 @@ end
 		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
 		fileInfo.SetMetadata(map[attr.Name]string{serviceVersion: "configured-version"})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -979,7 +981,7 @@ end
 		writeRubyFile(t, filepath.Join(root, "app", "server.rb"), nil)
 		fileInfo := mockRubyProcess(t, root, "/app", "ruby", []string{"server.rb"}, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "server", fileInfo.ServiceAttrs().UID.Name)
@@ -991,7 +993,7 @@ end
 		expectedErr := errors.New("process disappeared")
 		fileInfo := mockRubyProcessWithErrors(t, root, "/app", nil, nil, expectedErr, expectedErr)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.ErrorIs(t, err, expectedErr)
 	})
@@ -1001,7 +1003,7 @@ end
 		writeRubyFile(t, filepath.Join(root, "not-a-directory"), nil)
 		fileInfo := mockRubyProcess(t, root, "/not-a-directory", "puma", nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err := ResolveServiceMetadata(t.Context(), fileInfo)
 
 		require.Error(t, err)
 		require.ErrorContains(t, err, "reading Ruby project directory")
@@ -1031,7 +1033,7 @@ func TestPathEntryExistsDistinguishesFilesystemErrors(t *testing.T) {
 func TestRootGemspecsReturnsDirectoryErrors(t *testing.T) {
 	root := t.TempDir()
 	missing := filepath.Join(root, "missing")
-	paths, boundary, err := rootGemspecs(missing)
+	paths, boundary, err := rootGemspecs(t.Context(), missing)
 	assert.Empty(t, paths)
 	assert.False(t, boundary)
 	require.Error(t, err)
@@ -1040,12 +1042,45 @@ func TestRootGemspecsReturnsDirectoryErrors(t *testing.T) {
 
 	file := filepath.Join(root, "not-a-directory")
 	writeRubyFile(t, file, nil)
-	paths, boundary, err = rootGemspecs(file)
+	paths, boundary, err = rootGemspecs(t.Context(), file)
 	assert.Empty(t, paths)
 	assert.False(t, boundary)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "reading Ruby project directory")
 	require.ErrorContains(t, err, file)
+}
+
+func TestResolveServiceMetadataReturnsWhenContextIsCanceled(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	blockedCallDone := make(chan struct{})
+	oldCmdlineForPID := cmdlineForPID
+	cmdlineForPID = func(app.PID) (string, []string, error) {
+		close(started)
+		<-release
+		close(blockedCallDone)
+		return "ruby", []string{"app.rb"}, nil
+	}
+	t.Cleanup(func() {
+		close(release)
+		<-blockedCallDone
+		cmdlineForPID = oldCmdlineForPID
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() {
+		result <- ResolveServiceMetadata(ctx, exec.New(exec.Init{Pid: 42}))
+	}()
+
+	<-started
+	cancel()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Ruby metadata resolution did not return after its context was canceled")
+	}
 }
 
 func mockRubyProcess(
