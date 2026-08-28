@@ -713,6 +713,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
 			attrs = append(attrs, request.DBSystemName(span.Elasticsearch.DBSystemName))
+			// Semconv defines this as the HTTP code the cluster returned, and
+			// requires it only when a response was received.
+			if span.Status != 0 {
+				attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(span.Status)))
+			}
 			// error.type only applies to failed requests: omit it instead of
 			// emitting an empty string on successful spans.
 			if span.DBError.ErrorCode != "" {
