@@ -483,6 +483,36 @@ func TestParseRubyLaunchFindsFrameworkProjectHints(t *testing.T) {
 	}
 }
 
+func TestParseRubyLaunchRedispatchesBundlerExec(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{
+			name:    "bundle",
+			command: "/usr/local/bin/bundle",
+			args:    []string{"exec", "puma", "-C", "config/puma.rb"},
+		},
+		{
+			name:    "bundler",
+			command: "bundler",
+			args:    []string{"exec", "puma", "--config=config/puma.rb"},
+		},
+		{
+			name:    "Ruby bundle binstub",
+			command: "ruby",
+			args:    []string{"/usr/local/bin/bundle", "exec", "puma", "-Cconfig/puma.rb"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, RubyLaunch{ProjectPath: "config/puma.rb"}, ParseRubyLaunch(tt.command, tt.args))
+		})
+	}
+}
+
 func TestParseRubyLaunchFindsSidekiqEntryPoint(t *testing.T) {
 	for _, tt := range []struct {
 		name string
@@ -772,7 +802,7 @@ func TestParseToolLaunch(t *testing.T) {
 			want: RubyLaunch{},
 		},
 		{
-			name: "unknown tool without a path command yields nothing",
+			name: "Bundler exec of a tool without a project hint yields nothing",
 			tool: "bundle", command: "bundle", args: []string{"exec", "rails"},
 			want: RubyLaunch{},
 		},

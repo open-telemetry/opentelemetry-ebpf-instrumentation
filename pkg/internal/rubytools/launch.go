@@ -301,6 +301,10 @@ func parseToolLaunch(tool, command string, args []string) RubyLaunch {
 	}
 
 	switch tool {
+	case "bundle", "bundler":
+		if len(args) > 1 && args[0] == "exec" {
+			return ParseRubyLaunch(args[1], args[2:])
+		}
 	case "rackup":
 		parsed := parseLauncherArguments(args, rackupOptions, "", "")
 		if parsed.positionalsKnown && filepath.Base(parsed.lastPositional) == "config.ru" {
