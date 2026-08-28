@@ -110,7 +110,7 @@ func findPrivateCollectorProbe(file *elf.File, version pythonVersion) (GCComplet
 	}
 	target, err := privateCollectorSymbolAddress(file)
 	if err == nil {
-		fileOffset, err := strictELFFileOffset(file, target, true)
+		fileOffset, err := strictELFFileOffset(file, target)
 		if err != nil {
 			return GCCompletionProbe{}, err
 		}
@@ -160,7 +160,7 @@ func derivePrivateCollectorProbe(
 	if err != nil {
 		return GCCompletionProbe{}, err
 	}
-	fileOffset, err := strictELFFileOffset(file, target, true)
+	fileOffset, err := strictELFFileOffset(file, target)
 	if err != nil {
 		return GCCompletionProbe{}, err
 	}
@@ -566,7 +566,7 @@ func decodePythonInstruction(file *elf.File, address, end uint64) (decodedInstru
 	if address >= end {
 		return decodedInstruction{}, fmt.Errorf("%w: invalid CPython instruction bounds", errUnsupportedLayout)
 	}
-	if _, err := strictELFFileOffset(file, address, true); err != nil {
+	if _, err := strictELFFileOffset(file, address); err != nil {
 		return decodedInstruction{}, err
 	}
 	remaining := end - address
@@ -632,7 +632,7 @@ func validateCollectorTarget(file *elf.File, starts []uint64, target uint64) err
 	if !found || addressInPLT(file, target) {
 		return fmt.Errorf("%w: CPython collector is not a local function start", errUnsupportedLayout)
 	}
-	_, err := strictELFFileOffset(file, target, true)
+	_, err := strictELFFileOffset(file, target)
 	return err
 }
 
