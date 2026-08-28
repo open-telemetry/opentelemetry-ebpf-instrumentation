@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"sync"
 	"syscall"
@@ -23,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -50,6 +52,7 @@ type Tracer struct {
 	ingressFilters   map[ifaces.Interface]*netlink.BpfFilter
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
 	libsMux          sync.Mutex
+	jvmGenerations   sync.Map
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
@@ -150,6 +153,10 @@ func (p *Tracer) rebuildValidPids() error {
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	if generation := ensureJVMRuntimeMetricGeneration(fi); generation != 0 {
+		p.jvmGenerations.Store(pid, generation)
+	}
+
 	serviceSource := fi
 	if source := fi.RuntimeMetricServiceSource(); source != nil {
 		serviceSource = source
@@ -171,7 +178,18 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 }
 
+func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
+	if fi.ServiceAttrs().SDKLanguage != svc.InstrumentableJava {
+		return 0
+	}
+	if fi.RuntimeMetricGeneration(fi.Pid()) == 0 {
+		fi.SetRuntimeMetricGeneration(fi.Pid(), ebpfcommon.NewRuntimeMetricGeneration())
+	}
+	return fi.RuntimeMetricGeneration(fi.Pid())
+}
+
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
+	p.jvmGenerations.Delete(pid)
 	p.pidsFilter.BlockPID(pid, ns)
 
 	if err := p.rebuildValidPids(); err != nil {
@@ -811,11 +829,52 @@ func (p *Tracer) handleJVMRuntimeMetricsRecord(
 		if err != nil || ignore || len(events) == 0 {
 			return true, err
 		}
-		p.eventCtx.RuntimeMetrics.SendJVMRuntimeMetrics(ctx, events)
+		p.eventCtx.RuntimeMetrics.SendJVMGCMetrics(ctx, events)
+		return true, nil
+	case ebpfcommon.EventTypeJVMRuntimeMetrics:
+		if p.eventCtx == nil || p.eventCtx.RuntimeMetrics == nil {
+			return true, nil
+		}
+		event, ignore, err := p.parseJVMRuntimeRecord(record)
+		if err != nil || ignore {
+			return true, err
+		}
+		p.eventCtx.RuntimeMetrics.SendJVMRuntimeMetrics(ctx, []jvmruntime.JVMRuntimeEvent{event})
 		return true, nil
 	default:
 		return false, nil
 	}
+}
+
+func (p *Tracer) parseJVMRuntimeRecord(record *ringbuf.Record) (jvmruntime.JVMRuntimeEvent, bool, error) {
+	raw, err := ebpfcommon.ReinterpretCast[BpfJvmRuntimeMetricsEvent](record.RawSample)
+	if err != nil {
+		return jvmruntime.JVMRuntimeEvent{}, false, err
+	}
+
+	event := jvmruntime.JVMRuntimeEvent{
+		PID:            app.PID(raw.NsPid),
+		PIDNamespaceID: raw.PidNsId,
+		Time:           timing.KernelTime(raw.Timestamp),
+		Values: jvmruntime.JVMRuntimeValues{
+			LoadedClassCount:        raw.LoadedClassCount,
+			TotalLoadedClassCount:   raw.TotalLoadedClassCount,
+			UnloadedClassCount:      raw.UnloadedClassCount,
+			ThreadCount:             raw.ThreadCount,
+			DaemonThreadCount:       raw.DaemonThreadCount,
+			AvailableProcessorCount: raw.AvailableProcessorCount,
+			ProcessCPUTimeNS:        int64(raw.ProcessCpuTimeNs),
+			RecentCPUUtilization:    math.Float64frombits(raw.RecentCpuUtilizationBits),
+		},
+	}
+	if !ebpfcommon.DecorateJVMRuntimeEvent(p.pidsFilter, &event) {
+		return jvmruntime.JVMRuntimeEvent{}, true, nil
+	}
+	if generation, ok := p.jvmGenerations.Load(app.PID(raw.GlobalPid)); ok {
+		event.Generation = generation.(uint64)
+	}
+
+	return event, false, nil
 }
 
 func (p *Tracer) runtimeMetricsSender() ebpfcommon.RuntimeMetricSender {
@@ -825,7 +884,7 @@ func (p *Tracer) runtimeMetricsSender() ebpfcommon.RuntimeMetricSender {
 	return p.eventCtx.RuntimeMetrics
 }
 
-func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.JVMRuntimeEvent, bool, error) {
+func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.JVMGCEvent, bool, error) {
 	raw, err := ebpfcommon.ReinterpretCast[BpfJvmMemPoolGcEvent](record.RawSample)
 	if err != nil {
 		return nil, false, err
@@ -850,7 +909,7 @@ func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.
 	}
 
 	// All events are fanned out from one raw sample and share PID identity.
-	if !ebpfcommon.DecorateJVMRuntimeEvent(p.pidsFilter, &events[0]) {
+	if !ebpfcommon.DecorateJVMGCEvent(p.pidsFilter, &events[0]) {
 		return nil, true, nil
 	}
 	for i := 1; i < len(events); i++ {

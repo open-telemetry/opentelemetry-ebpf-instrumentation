@@ -682,6 +682,9 @@ type NodeJSConfig struct {
 }
 
 type JavaConfig struct {
+	// Enabled turns on the Java injector agent, used for TLS tracing, virtual thread
+	// correlation, and agent-backed runtime metrics. Setting it to false disables
+	// class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.
 	Enabled              bool          `yaml:"enabled" env:"OTEL_EBPF_JAVAAGENT_ENABLED"`
 	Debug                bool          `yaml:"debug" env:"OTEL_EBPF_JAVAAGENT_DEBUG"`
 	DebugInstrumentation bool          `yaml:"debug_instrumentation" env:"OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"`
@@ -689,6 +692,8 @@ type JavaConfig struct {
 }
 
 type JVMRuntimeMetricsConfig struct {
+	// SamplingInterval controls HotSpot memory event sampling and Java agent
+	// class, thread, and CPU snapshot collection.
 	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 

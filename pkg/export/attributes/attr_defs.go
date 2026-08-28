@@ -271,6 +271,15 @@ func getDefinitions(
 		nil,
 	)
 
+	jvmThreadAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.JVMThreadDaemon: true,
+		},
+		nil,
+	)
+
 	nodejsEventLoopTimeAttributes := NewAttrReportGroup(
 		false,
 		[]*AttrReportGroup{&appAttributes},
@@ -569,6 +578,34 @@ func getDefinitions(
 		},
 		JVMMemoryUsedAfterLastGC.Section: {
 			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMClassLoaded.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMClassUnloaded.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMClassCount.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMThreadCount.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmThreadAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMCPUTime.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMCPUCount.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMCPURecentUtilization.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 		NodejsEventLoopTime.Section: {

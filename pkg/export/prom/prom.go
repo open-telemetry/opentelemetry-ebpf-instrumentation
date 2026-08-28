@@ -1577,6 +1577,13 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 		if r.goRuntimeHistograms != nil {
 			r.goRuntimeHistograms.DeletePID(pid)
 		}
+		if origUID, exists := r.pidsTracker.TracksPID(pid); exists {
+			r.jvmRuntimeMetrics.deleteSource(
+				r.origService(origUID, &snap),
+				pid,
+				pe.File.RuntimeMetricGeneration(pid),
+			)
+		}
 		if deleted, origUID := r.disassociatePIDFromService(pid); deleted {
 			mlog().Debug("deleting infos for", "pid", pid, "attrs", uid)
 			r.deleteTargetInfos(origUID, &snap)
