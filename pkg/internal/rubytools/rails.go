@@ -6,27 +6,17 @@ package rubytools // import "go.opentelemetry.io/obi/pkg/internal/rubytools"
 import (
 	"io"
 	"regexp"
-	"slices"
 	"strings"
+
+	"github.com/odvcencio/gotreesitter"
 
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
 
 var (
-	rubyConstant        = `[A-Z][A-Za-z0-9_]*`
-	rubyConstantPath    = rubyConstant + `(?:::` + rubyConstant + `)*`
-	moduleDeclaration   = regexp.MustCompile(`^\s*module\s+(` + rubyConstantPath + `)\s*$`)
-	classDeclaration    = regexp.MustCompile(`^\s*class\s+((?:::)?` + rubyConstantPath + `)\s*<\s*(?:::)?Rails::Application\s*$`)
-	anyClassDeclaration = regexp.MustCompile(`^\s*class\b`)
-	blockDeclaration    = regexp.MustCompile(`^\s*(?:def|if|unless|case|begin|for|while|until)\b|(?:=|;|\(|\[|\{|,|&&|\|\||\?|:|\b(?:and|or)\b)\s*(?:if|unless|case|begin|for|while|until)\b|\bdo(?:\s*\|[^|]*\|)?\s*$|\{\s*(?:\|[^|]*\|)?\s*$`)
-	endDeclaration      = regexp.MustCompile(`^\s*end\b`)
-	acronymBoundary     = regexp.MustCompile(`([A-Z\d]+)([A-Z][a-z])`)
-	wordBoundary        = regexp.MustCompile(`([a-z\d])([A-Z])`)
+	acronymBoundary = regexp.MustCompile(`([A-Z\d]+)([A-Z][a-z])`)
+	wordBoundary    = regexp.MustCompile(`([a-z\d])([A-Z])`)
 )
-
-type rubyBlock struct {
-	module string
-}
 
 func readRailsApplicationName(path string) string {
 	file, _ := langtools.OpenMetadataFile(path, maxRubyMetadataBytes)
@@ -53,82 +43,82 @@ func readRailsApplicationName(path string) string {
 //	  end
 //	end
 func parseRailsApplicationName(data []byte) string {
-	var blocks []rubyBlock
-	var candidate string
-
-	for _, line := range parseRuby(data, true) {
-		if line == ambiguousRubyLine {
-			return ""
-		}
-
-		if match := classDeclaration.FindStringSubmatch(line); len(match) == 2 {
-			if candidate != "" || insideDynamicRubyBlock(blocks) {
-				return ""
-			}
-
-			enclosing := currentRubyModule(blocks)
-			if ambiguousQualifiedConstant(match[1], enclosing) {
-				return ""
-			}
-
-			candidate = qualifiedRubyConstant(match[1], enclosing)
-			blocks = append(blocks, rubyBlock{})
-			continue
-		}
-
-		if strings.Contains(line, "Rails::Application") && anyClassDeclaration.MatchString(line) {
-			return ""
-		}
-
-		if match := moduleDeclaration.FindStringSubmatch(line); len(match) == 2 {
-			enclosing := currentRubyModule(blocks)
-			if ambiguousQualifiedConstant(match[1], enclosing) {
-				return ""
-			}
-
-			name := qualifiedRubyConstant(match[1], enclosing)
-			blocks = append(blocks, rubyBlock{module: name})
-			continue
-		}
-
-		if anyClassDeclaration.MatchString(line) || blockDeclaration.MatchString(line) {
-			blocks = append(blocks, rubyBlock{})
-			continue
-		}
-
-		if endDeclaration.MatchString(line) || strings.TrimSpace(line) == "}" {
-			if len(blocks) == 0 {
-				return ""
-			}
-			blocks = blocks[:len(blocks)-1]
-		}
-	}
-	if len(blocks) != 0 {
+	tree := parseRubyTree(data)
+	if tree == nil {
 		return ""
 	}
-	return railsServiceName(candidate)
+	defer tree.release()
+
+	scan := railsApplicationScan{}
+	scanRailsApplication(tree, tree.root(), "", false, &scan)
+	if scan.ambiguous || len(scan.candidates) != 1 {
+		return ""
+	}
+	return railsServiceName(scan.candidates[0])
+}
+
+type railsApplicationScan struct {
+	candidates []string
+	ambiguous  bool
+}
+
+func scanRailsApplication(
+	tree *rubySyntaxTree,
+	node *gotreesitter.Node,
+	namespace string,
+	dynamic bool,
+	scan *railsApplicationScan,
+) {
+	if node == nil || scan.ambiguous {
+		return
+	}
+
+	switch tree.nodeType(node) {
+	case "program", "body_statement":
+		for _, child := range rubyNamedChildren(node) {
+			scanRailsApplication(tree, child, namespace, dynamic, scan)
+		}
+	case "module":
+		name, ok := tree.constant(tree.child(node, "name"))
+		if !ok || ambiguousQualifiedConstant(name, namespace) {
+			scan.ambiguous = true
+			return
+		}
+
+		qualified := qualifiedRubyConstant(name, namespace)
+		scanRailsApplication(tree, tree.child(node, "body"), qualified, dynamic, scan)
+	case "class":
+		name, nameOK := tree.constant(tree.child(node, "name"))
+		superclass, superclassOK := railsSuperclass(tree, tree.child(node, "superclass"))
+		if superclassOK && strings.TrimPrefix(superclass, "::") == "Rails::Application" {
+			if dynamic || !nameOK || ambiguousQualifiedConstant(name, namespace) {
+				scan.ambiguous = true
+				return
+			}
+			scan.candidates = append(scan.candidates, qualifiedRubyConstant(name, namespace))
+		} else if superclassOK && strings.Contains(superclass, "Rails::Application") {
+			scan.ambiguous = true
+			return
+		}
+
+		scanRailsApplication(tree, tree.child(node, "body"), namespace, true, scan)
+	default:
+		for _, child := range rubyNamedChildren(node) {
+			scanRailsApplication(tree, child, namespace, true, scan)
+		}
+	}
+}
+
+func railsSuperclass(tree *rubySyntaxTree, superclass *gotreesitter.Node) (string, bool) {
+	children := rubyNamedChildren(superclass)
+	if len(children) != 1 {
+		return "", false
+	}
+	return tree.constant(children[0])
 }
 
 func ambiguousQualifiedConstant(name, enclosing string) bool {
 	return enclosing != "" && !strings.HasPrefix(name, "::") && strings.Contains(name, "::")
-}
-
-func insideDynamicRubyBlock(blocks []rubyBlock) bool {
-	for _, block := range blocks {
-		if block.module == "" {
-			return true
-		}
-	}
-	return false
-}
-
-func currentRubyModule(blocks []rubyBlock) string {
-	for _, block := range slices.Backward(blocks) {
-		if block.module != "" {
-			return block.module
-		}
-	}
-	return ""
 }
 
 func qualifiedRubyConstant(name, enclosing string) string {

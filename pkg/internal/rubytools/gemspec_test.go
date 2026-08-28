@@ -124,6 +124,13 @@ end`,
 			want: serviceMetadata{Name: "orders", Version: "1.2.3"},
 		},
 		{
+			name: "end method references are not unmatched block terminators",
+			source: `lifecycle.end
+Gem::Specification.new("orders", "1.2.3") do |spec|
+end`,
+			want: serviceMetadata{Name: "orders", Version: "1.2.3"},
+		},
+		{
 			name: "unrelated similarly named fields",
 			source: `Gem::Specification.new do |spec|
   spec.name = "orders"
@@ -142,6 +149,35 @@ end`,
   description = %q{spec.name and spec.version}
   pattern = %r{spec.name|spec.version}
   other_pattern = /spec.name|spec.version/
+end`,
+			want: serviceMetadata{Name: "orders", Version: "1.2.3"},
+		},
+		{
+			name: "lowercase heredoc hides identity-looking text",
+			source: `Gem::Specification.new("orders", "1.2.3") do |spec|
+  items = []
+  item = "other"
+  items <<item
+  spec.name = item
+item
+end`,
+			want: serviceMetadata{Name: "orders", Version: "1.2.3"},
+		},
+		{
+			name: "puts heredoc hides identity-looking text",
+			source: `Gem::Specification.new("orders", "1.2.3") do |spec|
+  puts <<SOURCE
+  spec.name = "other"
+SOURCE
+end`,
+			want: serviceMetadata{Name: "orders", Version: "1.2.3"},
+		},
+		{
+			name: "custom command heredoc hides identity-looking text",
+			source: `Gem::Specification.new("orders", "1.2.3") do |spec|
+  render <<SOURCE
+  spec.name = "other"
+SOURCE
 end`,
 			want: serviceMetadata{Name: "orders", Version: "1.2.3"},
 		},
@@ -319,6 +355,10 @@ end`},
 end`},
 		{name: "freeze call with parentheses", source: `Gem::Specification.new do |spec|
   spec.name = "orders".freeze()
+  spec.version = "1.2.3"
+end`},
+		{name: "chained freeze calls", source: `Gem::Specification.new do |spec|
+  spec.name = "orders".freeze.freeze
   spec.version = "1.2.3"
 end`},
 		{name: "adjacent name strings", source: `Gem::Specification.new do |spec|
@@ -606,23 +646,6 @@ end`},
 item = 1
 items <<item
 Gem::Specification.new("orders", "1.2.3") do |spec|
-end`},
-		{name: "lowercase left shift cannot hide a field mutation", source: `Gem::Specification.new("orders", "1.2.3") do |spec|
-  items = []
-  item = "other"
-  items <<item
-  spec.name = item
-item
-end`},
-		{name: "bare puts heredoc is ambiguous", source: `Gem::Specification.new("orders", "1.2.3") do |spec|
-  puts <<SOURCE
-  spec.name = "other"
-SOURCE
-end`},
-		{name: "bare custom command heredoc is ambiguous", source: `Gem::Specification.new("orders", "1.2.3") do |spec|
-  render <<SOURCE
-  spec.name = "other"
-SOURCE
 end`},
 		{name: "version without name", source: `Gem::Specification.new do |spec|
   spec.version = "1.2.3"

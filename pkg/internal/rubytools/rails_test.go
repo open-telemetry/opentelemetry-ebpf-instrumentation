@@ -80,6 +80,15 @@ func TestParseRailsApplicationName(t *testing.T) {
 			expected: "my-app",
 		},
 		{
+			name: "end method references are not unmatched block terminators",
+			source: `lifecycle.end
+module StoreFront
+  class Application < Rails::Application
+  end
+end`,
+			expected: "store-front",
+		},
+		{
 			name: "two levels of nested modules",
 			source: `
 module Acme
@@ -282,42 +291,6 @@ func TestAmbiguousQualifiedConstant(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, ambiguousQualifiedConstant(tt.className, tt.enclosing))
-		})
-	}
-}
-
-func TestInsideDynamicRubyBlock(t *testing.T) {
-	tests := []struct {
-		name     string
-		blocks   []rubyBlock
-		expected bool
-	}{
-		{name: "no blocks at all", blocks: nil, expected: false},
-		{name: "only module blocks", blocks: []rubyBlock{{module: "A"}, {module: "B"}}, expected: false},
-		{name: "one dynamic block among module blocks", blocks: []rubyBlock{{module: "A"}, {}}, expected: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, insideDynamicRubyBlock(tt.blocks))
-		})
-	}
-}
-
-func TestCurrentRubyModule(t *testing.T) {
-	tests := []struct {
-		name     string
-		blocks   []rubyBlock
-		expected string
-	}{
-		{name: "no blocks yields no module", blocks: nil, expected: ""},
-		{name: "nearest module block wins", blocks: []rubyBlock{{module: "A"}, {module: "A::B"}}, expected: "A::B"},
-		{name: "a dynamic block on top does not hide the module below it", blocks: []rubyBlock{{module: "A"}, {}}, expected: "A"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, currentRubyModule(tt.blocks))
 		})
 	}
 }

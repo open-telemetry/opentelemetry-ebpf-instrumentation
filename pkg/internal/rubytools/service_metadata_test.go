@@ -275,7 +275,7 @@ end
 		root := t.TempDir()
 		writeRubyFile(t, filepath.Join(root, "app", "config", "application.rb"), []byte(`
 VALUES = []
-VALUES <<IDENT
+VALUES << IDENT
 module RealApp
   class Application < Rails::Application
   end

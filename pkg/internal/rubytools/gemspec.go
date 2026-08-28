@@ -4,9 +4,12 @@
 package rubytools // import "go.opentelemetry.io/obi/pkg/internal/rubytools"
 
 import (
+	"bytes"
 	"io"
 	"regexp"
 	"strings"
+
+	"github.com/odvcencio/gotreesitter"
 
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
@@ -14,7 +17,6 @@ import (
 var (
 	gemNamePattern    = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 	gemVersionPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9A-Za-z]+)*(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
-	doBlockSuffix     = regexp.MustCompile(`(?:^|\s)do\s+\|([a-z_][A-Za-z0-9_]*)\|\s*$`)
 )
 
 func readGemspec(path string) serviceMetadata {
@@ -38,95 +40,91 @@ func readGemspec(path string) serviceMetadata {
 //	  spec.version = "1.2.3"
 //	end
 func parseGemspec(data []byte) serviceMetadata {
-	lines := parseRuby(data, false)
-	structure := parseRuby(data, true)
-	var variable, name, version string
-	invocations := 0
-	headerIndex := -1
-	constructorName := false
-	constructorVersion := false
-
-	for index, line := range lines {
-		if structure[index] == ambiguousRubyLine {
-			return serviceMetadata{}
-		}
-		invocations += gemspecInvocationCount(structure[index])
-		parsedVariable, parsedName, parsedVersion, ok := parseGemspecHeader(line)
-		if !ok {
-			continue
-		}
-		headerIndex = index
-		variable = parsedVariable
-		name = parsedName
-		version = parsedVersion
-		constructorName = parsedName != ""
-		constructorVersion = parsedVersion != ""
+	tree := parseRubyTree(data)
+	if tree == nil {
+		return serviceMetadata{}
 	}
+	defer tree.release()
 
-	if invocations != 1 || headerIndex < 0 || variable == "" || !rubyTopLevelAt(structure, headerIndex) {
+	constructors := gemspecConstructors(tree)
+	if len(constructors) != 1 || !topLevelFinalExpression(tree, constructors[0]) {
 		return serviceMetadata{}
 	}
 
+	constructor := constructors[0]
+	block := tree.child(constructor, "block")
+	if tree.nodeType(block) != "do_block" {
+		return serviceMetadata{}
+	}
+	variable, ok := gemspecBlockVariable(tree, block)
+	if !ok {
+		return serviceMetadata{}
+	}
+
+	argumentsNode := tree.child(constructor, "arguments")
+	if argumentsNode != nil && argumentsNode.StartPoint().Row != argumentsNode.EndPoint().Row {
+		return serviceMetadata{}
+	}
+	arguments := rubyNamedChildren(argumentsNode)
+	if len(arguments) > 2 {
+		return serviceMetadata{}
+	}
+
+	var name, version string
+	constructorName := false
+	constructorVersion := false
+	if len(arguments) >= 1 {
+		name, ok = staticRubyString(tree, arguments[0])
+		if !ok {
+			return serviceMetadata{}
+		}
+		constructorName = true
+	}
+	if len(arguments) == 2 {
+		version, ok = staticRubyString(tree, arguments[1])
+		if !ok {
+			return serviceMetadata{}
+		}
+		constructorVersion = true
+	}
+
+	allowedReferences := map[*gotreesitter.Node]struct{}{}
 	nameAssignments := 0
 	versionAssignments := 0
-	depth := 0
-	closed := false
-
-	for index, line := range lines {
-		if index == headerIndex {
-			depth = 1
+	for _, statement := range rubyExecutableChildren(tree, tree.child(block, "body")) {
+		field, value, reference, assignment := directGemspecAssignment(tree, statement, variable)
+		if !assignment {
 			continue
 		}
-		if closed {
-			if strings.TrimSpace(line) != "" {
-				return serviceMetadata{}
-			}
-			continue
-		}
-
-		nameValue, nameAssigned := parseGemspecAssignment(line, variable, "name")
-		versionValue, versionAssigned := parseGemspecAssignment(line, variable, "version")
-		if gemspecFieldReference(structure[index], variable, "name") && !nameAssigned ||
-			gemspecFieldReference(structure[index], variable, "version") && !versionAssigned ||
-			continuedGemspecFieldReference(structure, index, variable, "name") ||
-			continuedGemspecFieldReference(structure, index, variable, "version") {
+		if !standaloneRubyStatement(tree.source, statement) {
 			return serviceMetadata{}
 		}
 
-		if nameAssigned {
-			if depth != 1 {
-				return serviceMetadata{}
-			}
+		allowedReferences[reference] = struct{}{}
+		static, staticValue := staticRubyString(tree, value)
+		switch field {
+		case "name":
 			nameAssignments++
-			if nameValue != "" {
-				name = nameValue
+			if staticValue {
+				name = static
 			}
-		}
-		if versionAssigned {
-			if depth != 1 {
-				return serviceMetadata{}
-			}
+		case "version":
 			versionAssignments++
-			if versionValue != "" {
-				version = versionValue
+			if staticValue {
+				version = static
 			}
-		}
-
-		if depth == 0 {
-			continue
-		}
-		if rubyBlockEnd(structure[index]) {
-			depth--
-			if depth == 0 {
-				closed = true
-			}
-			continue
-		}
-		if rubyBlockStart(structure[index]) {
-			depth++
 		}
 	}
-	if !closed || nameAssignments > 1 || versionAssignments > 1 ||
+
+	if hasUnexpectedGemspecIdentityReference(
+		tree,
+		tree.child(block, "body"),
+		variable,
+		allowedReferences,
+	) {
+		return serviceMetadata{}
+	}
+	if nameAssignments > 1 || versionAssignments > 1 ||
 		(constructorName && nameAssignments != 0) ||
 		(constructorVersion && versionAssignments != 0) ||
 		!validGemName(name) {
@@ -138,256 +136,165 @@ func parseGemspec(data []byte) serviceMetadata {
 	return serviceMetadata{Name: name, Version: version}
 }
 
-func rubyTopLevelAt(lines []string, end int) bool {
-	depth := 0
-	for _, line := range lines[:end] {
-		if rubyBlockEnd(line) {
-			if depth == 0 {
-				return false
-			}
-			depth--
-			continue
+func gemspecConstructors(tree *rubySyntaxTree) []*gotreesitter.Node {
+	var constructors []*gotreesitter.Node
+	var visit func(*gotreesitter.Node)
+	visit = func(node *gotreesitter.Node) {
+		if node == nil {
+			return
 		}
-		if rubyBlockStart(line) {
-			depth++
+		if isGemspecConstructor(tree, node) {
+			constructors = append(constructors, node)
+		}
+		for _, child := range rubyNamedChildren(node) {
+			visit(child)
 		}
 	}
-	return depth == 0
+	visit(tree.root())
+	return constructors
 }
 
-func rubyBlockStart(line string) bool {
-	line = strings.TrimSpace(line)
-	return strings.HasSuffix(line, "{") || moduleDeclaration.MatchString(line) ||
-		anyClassDeclaration.MatchString(line) || blockDeclaration.MatchString(line)
-}
-
-func rubyBlockEnd(line string) bool {
-	line = strings.TrimSpace(line)
-	return line == "}" || line == "end"
-}
-
-func parseGemspecHeader(line string) (string, string, string, bool) {
-	line = strings.TrimSpace(line)
-	line = strings.TrimPrefix(line, "::")
-	const prefix = "Gem::Specification.new"
-
-	if !strings.HasPrefix(line, prefix) {
-		return "", "", "", false
-	}
-
-	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-	match := doBlockSuffix.FindStringSubmatchIndex(rest)
-
-	if len(match) != 4 {
-		return "", "", "", false
-	}
-
-	arguments := strings.TrimSpace(rest[:match[0]])
-	variable := rest[match[2]:match[3]]
-
-	if arguments == "" || arguments == "()" {
-		return variable, "", "", true
-	}
-
-	if strings.HasPrefix(arguments, "(") && strings.HasSuffix(arguments, ")") {
-		arguments = strings.TrimSpace(arguments[1 : len(arguments)-1])
-	}
-
-	if arguments == "" {
-		return variable, "", "", true
-	}
-
-	name, rest, ok := consumeRubyLiteral(arguments)
-	if !ok {
-		return "", "", "", false
-	}
-
-	rest = strings.TrimSpace(rest)
-	if rest == "" {
-		return variable, name, "", true
-	}
-
-	if !strings.HasPrefix(rest, ",") {
-		return "", "", "", false
-	}
-
-	version, rest, ok := consumeRubyLiteral(strings.TrimSpace(strings.TrimPrefix(rest, ",")))
-
-	if !ok || strings.TrimSpace(rest) != "" {
-		return "", "", "", false
-	}
-
-	return variable, name, version, true
-}
-
-func gemspecInvocationCount(line string) int {
-	const prefix = "Gem::Specification.new"
-	count := 0
-
-	for index := 0; index < len(line); index++ {
-		if !strings.HasPrefix(line[index:], prefix) || !rubyConstantBoundary(line, index) {
-			continue
-		}
-
-		end := index + len(prefix)
-		if end < len(line) && (isRubyWordByte(line[end]) || strings.ContainsRune("!?=", rune(line[end]))) {
-			continue
-		}
-
-		count++
-		index = end - 1
-	}
-	return count
-}
-
-func rubyConstantBoundary(line string, index int) bool {
-	if index == 0 {
-		return true
-	}
-	if index >= 2 && line[index-2:index] == "::" {
-		return index == 2 || !isRubyWordByte(line[index-3])
-	}
-	return !isRubyWordByte(line[index-1]) && line[index-1] != ':'
-}
-
-func parseGemspecAssignment(line, variable, field string) (string, bool) {
-	line = strings.TrimSpace(line)
-	prefix := variable + "." + field
-
-	if !strings.HasPrefix(line, prefix) {
-		return "", false
-	}
-
-	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-	if rest != "" && isRubyWordByte(rest[0]) {
-		return "", false
-	}
-
-	if strings.HasPrefix(rest, "==") || strings.HasPrefix(rest, "=~") {
-		return "", false
-	}
-
-	if !strings.HasPrefix(rest, "=") {
-		return "", true
-	}
-
-	value, rest, ok := consumeRubyLiteral(strings.TrimSpace(strings.TrimPrefix(rest, "=")))
-	if !ok || strings.TrimSpace(rest) != "" {
-		return "", true
-	}
-
-	return value, true
-}
-
-func gemspecFieldReference(line, variable, field string) bool {
-	for index := 0; index < len(line); index++ {
-		if !strings.HasPrefix(line[index:], variable) ||
-			(index != 0 && isRubyWordByte(line[index-1])) {
-			continue
-		}
-		cursor := index + len(variable)
-		if cursor < len(line) && isRubyWordByte(line[cursor]) {
-			continue
-		}
-		for {
-			for cursor < len(line) && (line[cursor] == ' ' || line[cursor] == '\t') {
-				cursor++
-			}
-			if cursor >= len(line) || line[cursor] != ')' {
-				break
-			}
-			cursor++
-		}
-
-		switch {
-		case strings.HasPrefix(line[cursor:], "&."):
-			cursor += 2
-		case strings.HasPrefix(line[cursor:], "::"):
-			cursor += 2
-		case cursor < len(line) && line[cursor] == '.':
-			cursor++
-		default:
-			continue
-		}
-
-		for cursor < len(line) && (line[cursor] == ' ' || line[cursor] == '\t') {
-			cursor++
-		}
-
-		if strings.HasPrefix(line[cursor:], field) {
-			end := cursor + len(field)
-			if end == len(line) || !isRubyWordByte(line[end]) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func continuedGemspecFieldReference(lines []string, index int, variable, field string) bool {
-	if index == 0 {
+func isGemspecConstructor(tree *rubySyntaxTree, node *gotreesitter.Node) bool {
+	if tree.nodeType(node) != "call" || tree.text(tree.child(node, "method")) != "new" ||
+		tree.text(tree.child(node, "operator")) != "." {
 		return false
 	}
+	receiver, ok := tree.constant(tree.child(node, "receiver"))
+	return ok && strings.TrimPrefix(receiver, "::") == "Gem::Specification"
+}
 
-	previousIndex := index - 1
+func topLevelFinalExpression(tree *rubySyntaxTree, candidate *gotreesitter.Node) bool {
+	statements := rubyExecutableChildren(tree, tree.root())
+	return len(statements) != 0 && statements[len(statements)-1] == candidate
+}
 
-	for previousIndex >= 0 && strings.TrimSpace(lines[previousIndex]) == "" {
-		previousIndex--
+func rubyExecutableChildren(tree *rubySyntaxTree, node *gotreesitter.Node) []*gotreesitter.Node {
+	children := rubyNamedChildren(node)
+	result := children[:0]
+	for _, child := range children {
+		if tree.nodeType(child) != "comment" && tree.nodeType(child) != "uninterpreted" {
+			result = append(result, child)
+		}
 	}
+	return result
+}
 
-	if previousIndex < 0 {
+func gemspecBlockVariable(tree *rubySyntaxTree, block *gotreesitter.Node) (string, bool) {
+	parameters := tree.child(block, "parameters")
+	if tree.nodeType(parameters) != "block_parameters" {
+		return "", false
+	}
+	children := rubyNamedChildren(parameters)
+	if len(children) != 1 || tree.nodeType(children[0]) != "identifier" {
+		return "", false
+	}
+	return tree.text(children[0]), true
+}
+
+func directGemspecAssignment(
+	tree *rubySyntaxTree,
+	node *gotreesitter.Node,
+	variable string,
+) (string, *gotreesitter.Node, *gotreesitter.Node, bool) {
+	if tree.nodeType(node) != "assignment" {
+		return "", nil, nil, false
+	}
+	left := tree.child(node, "left")
+	field, ok := gemspecIdentityReference(tree, left, variable)
+	if !ok || tree.text(left) != variable+"."+field {
+		return "", nil, nil, false
+	}
+	right := tree.child(node, "right")
+	if right == nil {
+		return "", nil, nil, false
+	}
+	return field, right, left, true
+}
+
+func hasUnexpectedGemspecIdentityReference(
+	tree *rubySyntaxTree,
+	node *gotreesitter.Node,
+	variable string,
+	allowed map[*gotreesitter.Node]struct{},
+) bool {
+	if node == nil {
 		return false
 	}
-
-	withoutWhitespace := strings.NewReplacer(" ", "", "\t", "").Replace
-	previous := withoutWhitespace(strings.TrimSpace(lines[previousIndex]))
-	line := withoutWhitespace(strings.TrimSpace(lines[index]))
-
-	var prefixes []string
-
-	switch previous {
-	case variable, variable + "\\":
-		prefixes = []string{"." + field, "&." + field}
-	case variable + ".", variable + "&.", variable + ".\\", variable + "&.\\":
-		prefixes = []string{field}
-	default:
-		return false
-	}
-
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(line, prefix) &&
-			(len(line) == len(prefix) || !isRubyWordByte(line[len(prefix)])) {
+	if _, reference := gemspecIdentityReference(tree, node, variable); reference {
+		if _, ok := allowed[node]; !ok {
 			return true
 		}
 	}
-
+	for _, child := range rubyNamedChildren(node) {
+		if hasUnexpectedGemspecIdentityReference(tree, child, variable, allowed) {
+			return true
+		}
+	}
 	return false
 }
 
-func consumeRubyLiteral(value string) (string, string, bool) {
-	if len(value) < 2 || (value[0] != '\'' && value[0] != '"') {
-		return "", value, false
+func gemspecIdentityReference(
+	tree *rubySyntaxTree,
+	node *gotreesitter.Node,
+	variable string,
+) (string, bool) {
+	if tree.nodeType(node) != "call" || !rubyVariableReceiver(tree, tree.child(node, "receiver"), variable) {
+		return "", false
+	}
+	method := tree.text(tree.child(node, "method"))
+	return method, method == "name" || method == "version"
+}
+
+func rubyVariableReceiver(tree *rubySyntaxTree, node *gotreesitter.Node, variable string) bool {
+	if node == nil {
+		return false
+	}
+	if tree.nodeType(node) == "identifier" {
+		return tree.text(node) == variable
+	}
+	if tree.nodeType(node) != "parenthesized_statements" {
+		return false
+	}
+	children := rubyExecutableChildren(tree, node)
+	return len(children) == 1 && rubyVariableReceiver(tree, children[0], variable)
+}
+
+func staticRubyString(tree *rubySyntaxTree, node *gotreesitter.Node) (string, bool) {
+	if tree.nodeType(node) == "call" && tree.text(tree.child(node, "method")) == "freeze" &&
+		tree.text(tree.child(node, "operator")) == "." && tree.child(node, "arguments") == nil &&
+		tree.child(node, "block") == nil {
+		node = tree.child(node, "receiver")
+	}
+	if tree.nodeType(node) != "string" {
+		return "", false
 	}
 
-	quote := value[0]
-	end := strings.IndexByte(value[1:], quote)
-	if end < 0 {
-		return "", value, false
+	value := tree.text(node)
+	if len(value) < 2 || value[0] != value[len(value)-1] || value[0] != '\'' && value[0] != '"' {
+		return "", false
 	}
-	end++
+	value = value[1 : len(value)-1]
+	if strings.Contains(value, "\\") || strings.Contains(value, "#{") {
+		return "", false
+	}
+	return value, true
+}
 
-	literal := value[1:end]
-
-	if strings.Contains(literal, "\\") || strings.Contains(literal, "#{") {
-		return "", value, false
+func standaloneRubyStatement(source []byte, node *gotreesitter.Node) bool {
+	start := int(node.StartByte())
+	end := int(node.EndByte())
+	lineStart := bytes.LastIndexByte(source[:start], '\n') + 1
+	lineEndOffset := bytes.IndexByte(source[end:], '\n')
+	lineEnd := len(source)
+	if lineEndOffset >= 0 {
+		lineEnd = end + lineEndOffset
 	}
 
-	rest := strings.TrimSpace(value[end+1:])
-	if after, ok := strings.CutPrefix(rest, ".freeze"); ok {
-		rest = strings.TrimSpace(after)
+	if strings.TrimSpace(string(source[lineStart:start])) != "" {
+		return false
 	}
-
-	return literal, rest, true
+	remainder := strings.TrimSpace(string(source[end:lineEnd]))
+	return remainder == "" || strings.HasPrefix(remainder, "#")
 }
 
 func validGemName(value string) bool {
