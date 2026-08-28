@@ -84,28 +84,12 @@ func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
 	assert.NotZero(t, implementations["*errors.errorString"])
 }
 
-func TestGo127UncommonOffset(t *testing.T) {
-	tests := []struct {
-		name string
-		kind byte
-		want uint64
-	}{
-		{name: "array", kind: go127KindArray, want: 72},
-		{name: "chan", kind: go127KindChan, want: 64},
-		{name: "func", kind: go127KindFunc, want: 56},
-		{name: "interface", kind: go127KindInterface, want: 80},
-		{name: "map", kind: go127KindMap, want: 136},
-		{name: "pointer", kind: go127KindPointer, want: 56},
-		{name: "slice", kind: go127KindSlice, want: 56},
-		{name: "struct", kind: go127KindStruct, want: 80},
-		{name: "default", kind: 0, want: 48},
-	}
+func TestLoadGoTypeMetadataABI(t *testing.T) {
+	_, err := loadGoTypeMetadataABI("go1.27.999")
+	require.NoError(t, err)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, go127UncommonOffset(tt.kind))
-		})
-	}
+	_, err = loadGoTypeMetadataABI("go999.0.0")
+	require.ErrorContains(t, err, "runtime ABI is not generated")
 }
 
 func TestFindGRPCInterfaceImplsFromGo127Moduledata(t *testing.T) {
