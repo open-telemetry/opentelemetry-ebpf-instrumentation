@@ -283,12 +283,12 @@ func TestSetupRuntimeMetersUsesSharedRuntimeGate(t *testing.T) {
 	meter := provider.Meter(reporterName)
 
 	disabled := RuntimeMetrics{ctx: t.Context()}
-	require.NoError(t, setupRuntimeMeters(&disabled, meter, time.Minute, runtimemetrics.Enabled{}))
+	require.NoError(t, setupRuntimeMeters(&disabled, meter, time.Minute, runtimemetrics.Enabled{}, export.DefaultBuckets))
 	assert.Nil(t, disabled.goMetrics.memoryLimit)
 	assert.Nil(t, disabled.jvmMetrics.memoryUsed)
 
 	enabled := RuntimeMetrics{ctx: t.Context()}
-	require.NoError(t, setupRuntimeMeters(&enabled, meter, time.Minute, runtimemetrics.Enabled{Runtime: true}))
+	require.NoError(t, setupRuntimeMeters(&enabled, meter, time.Minute, runtimemetrics.Enabled{Runtime: true}, export.DefaultBuckets))
 	assert.NotNil(t, enabled.goMetrics.memoryLimit)
 	assert.NotNil(t, enabled.jvmMetrics.memoryUsed)
 }

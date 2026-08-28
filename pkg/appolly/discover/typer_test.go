@@ -35,21 +35,35 @@ type dummyCriterion struct {
 	features  export.Features
 }
 
-func (d dummyCriterion) GetName() string                                                { return d.name }
-func (d dummyCriterion) GetOpenPorts() *services.IntEnum                                { return nil }
-func (d dummyCriterion) GetPath() services.StringMatcher                                { return nil }
-func (d dummyCriterion) GetLanguages() services.StringMatcher                           { return nil }
-func (d dummyCriterion) RangeMetadata() iter.Seq2[string, services.StringMatcher]       { return nil }
+func (d dummyCriterion) GetName() string { return d.name }
+
+func (d dummyCriterion) GetOpenPorts() *services.IntEnum { return nil }
+
+func (d dummyCriterion) GetPath() services.StringMatcher { return nil }
+
+func (d dummyCriterion) GetLanguages() services.StringMatcher { return nil }
+
+func (d dummyCriterion) RangeMetadata() iter.Seq2[string, services.StringMatcher] { return nil }
+
 func (d dummyCriterion) RangePodAnnotations() iter.Seq2[string, services.StringMatcher] { return nil }
-func (d dummyCriterion) RangePodLabels() iter.Seq2[string, services.StringMatcher]      { return nil }
-func (d dummyCriterion) IsContainersOnly() bool                                         { return false }
-func (d dummyCriterion) GetPathRegexp() services.StringMatcher                          { return nil }
-func (d dummyCriterion) GetCmdArgs() services.StringMatcher                             { return nil }
-func (d dummyCriterion) GetPIDs() ([]app.PID, bool)                                     { return nil, false }
-func (d dummyCriterion) GetNamespace() string                                           { return d.namespace }
-func (d dummyCriterion) GetExportModes() services.ExportModes                           { return d.export }
-func (d dummyCriterion) GetSamplerConfig() *services.SamplerConfig                      { return d.sampler }
-func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig                  { return d.routes }
+
+func (d dummyCriterion) RangePodLabels() iter.Seq2[string, services.StringMatcher] { return nil }
+
+func (d dummyCriterion) IsContainersOnly() bool { return false }
+
+func (d dummyCriterion) GetPathRegexp() services.StringMatcher { return nil }
+
+func (d dummyCriterion) GetCmdArgs() services.StringMatcher { return nil }
+
+func (d dummyCriterion) GetPIDs() ([]app.PID, bool) { return nil, false }
+
+func (d dummyCriterion) GetNamespace() string { return d.namespace }
+
+func (d dummyCriterion) GetExportModes() services.ExportModes { return d.export }
+
+func (d dummyCriterion) GetSamplerConfig() *services.SamplerConfig { return d.sampler }
+
+func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig { return d.routes }
 
 func (d dummyCriterion) MetricsConfig() perapp.SvcMetricsConfig {
 	return perapp.SvcMetricsConfig{Features: d.features}
@@ -66,6 +80,9 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}
 	for _, symbol := range gotracer.GoAutoSDKActivationProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
+	for _, symbol := range gotracer.GoH2OwnershipProbeSymbols() {
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}
 }

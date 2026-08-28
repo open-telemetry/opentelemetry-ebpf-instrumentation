@@ -29,7 +29,6 @@ services:
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
-      OTEL_EBPF_OPEN_PORT: "${JAVA_OPEN_PORT}"
       OTEL_EBPF_EXECUTABLE_PATH: "${JAVA_EXECUTABLE_PATH}"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "1s"

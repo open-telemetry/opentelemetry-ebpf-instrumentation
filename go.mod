@@ -2,6 +2,8 @@ module go.opentelemetry.io/obi
 
 go 1.25.11
 
+toolchain go1.27.0
+
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
 	github.com/andybalholm/brotli v1.2.2
@@ -31,6 +33,7 @@ require (
 	github.com/ohler55/ojg v1.28.5
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang/v2 v2.5.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.70.1
@@ -190,7 +193,6 @@ require (
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect

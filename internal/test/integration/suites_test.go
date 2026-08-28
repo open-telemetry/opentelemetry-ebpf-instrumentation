@@ -352,7 +352,7 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
+	compose.Env = append(compose.Env, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 
@@ -842,6 +842,20 @@ func TestSuite_Aerospike(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8390:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Aerospike RED metrics and traces", testREDMetricsAerospikeOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_AerospikeServerSide(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-aerospike-server.yml", path.Join(pathOutput, "test-suite-aerospike-server.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3000`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8392:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Aerospike server-side traces", func(t *testing.T) {
+		waitForAerospikeServerTestComponents(t, "http://localhost:8392")
+		testREDTracesAerospikeServerSide(t)
+	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

@@ -30,7 +30,7 @@ func testREDMetricsNodeBullMQ(t *testing.T) {
 	const url = "http://localhost:8382"
 
 	// each job wakes the worker: bzpopmin reply + evalsha + get + set
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/job", 200)
 		time.Sleep(500 * time.Millisecond)
 	}

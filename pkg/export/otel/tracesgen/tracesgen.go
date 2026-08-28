@@ -170,6 +170,7 @@ func generateTracesWithAttributes(
 ) ptrace.Traces {
 	traces := ptrace.NewTraces()
 	rs := traces.ResourceSpans().AppendEmpty()
+	rs.SetSchemaUrl(attr.OBISchemaURL)
 	resourceAttrs := TraceAppResourceAttrs(cache, nodeMeta, svc)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
 	resourceAttrs = otelcfg.FilterResourceAttrs(resourceAttrs, attrSelector)
@@ -1498,7 +1499,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.DBNamespace != "" {
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 		}
-	case request.EventTypeAerospikeClient:
+	case request.EventTypeAerospikeClient, request.EventTypeAerospikeServer:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
@@ -1663,7 +1664,7 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	}
 
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
+	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer, request.EventTypeAerospikeServer:
 		return trace2.SpanKindServer
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient

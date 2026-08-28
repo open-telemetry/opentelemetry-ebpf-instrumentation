@@ -4,6 +4,8 @@
 package javaagent // import "go.opentelemetry.io/obi/pkg/internal/java"
 
 import (
+	"fmt"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
@@ -11,7 +13,7 @@ import (
 )
 
 // to be changed in tests
-var processStartTime = procs.StartTime
+var openProcessHandle = procs.OpenProcessHandle
 
 // InjectionTarget is everything the injector reads about a process. Callers
 // copy these values out of the Instrumentable up front, so injection can run
@@ -28,20 +30,32 @@ type InjectionTarget struct {
 	// meantime. Zero when the start time could not be read, in which case the
 	// target cannot be identified and injection refuses it.
 	StartTime uint64
+	Process   *procs.ProcessHandle
 }
 
-func InjectionTargetFrom(ie *ebpf.Instrumentable) InjectionTarget {
+// InjectionTargetFrom acquires a stable reference to the process incarnation
+// inspected by discovery. The caller owns the returned target and must close
+// it if it is not handed to the injection queue.
+func InjectionTargetFrom(ie *ebpf.Instrumentable) (InjectionTarget, error) {
 	pid := ie.FileInfo.Pid()
-
-	// A failure here means the process is already gone or /proc is unreadable.
-	// StartTime stays zero, which the injector treats as an unidentifiable
-	// target and refuses.
-	startTime, _ := processStartTime(pid)
+	startTime := ie.FileInfo.StartTime()
+	process, err := openProcessHandle(pid, startTime)
+	if err != nil {
+		return InjectionTarget{}, fmt.Errorf("capturing stable identity for process %d: %w", pid, err)
+	}
 
 	return InjectionTarget{
 		Type:       ie.Type,
 		Pid:        pid,
 		TempDirEnv: ie.FileInfo.ServiceAttrs().EnvVars["TMPDIR"],
 		StartTime:  startTime,
+		Process:    process,
+	}, nil
+}
+
+func (t InjectionTarget) Close() error {
+	if t.Process == nil {
+		return nil
 	}
+	return t.Process.Close()
 }

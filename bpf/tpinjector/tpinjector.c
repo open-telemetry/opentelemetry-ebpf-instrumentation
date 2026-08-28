@@ -33,6 +33,7 @@
 #include <logger/bpf_dbg.h>
 
 #include <maps/incoming_trace_map.h>
+#include <maps/go_h2_owned_streams.h>
 #include <maps/msg_buffers.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/sock_dir.h>
@@ -743,6 +744,24 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
 static __always_inline connection_info_t get_connection_info(struct sk_msg_md *msg) {
     return msg->family == AF_INET6 ? sk_msg_extract_key_ip6(msg) : sk_msg_extract_key_ip4(msg);
+}
+
+static __always_inline bool consume_go_h2_owned_stream(struct sk_msg_md *msg, u32 stream_id) {
+    go_h2_owned_stream_key_t key = {
+        .p_conn =
+            {
+                .conn = get_connection_info(msg),
+                .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
+            },
+        .stream_id = stream_id,
+    };
+    set_go_h2_owned_stream_process_identity(&key);
+
+    if (!fresh_go_h2_owned_stream(&key, bpf_ktime_get_ns())) {
+        return false;
+    }
+    bpf_map_delete_elem(&go_h2_owned_streams, &key);
+    return true;
 }
 
 // this "beauty" ensures we hold pkt in the same register being range
@@ -1469,6 +1488,11 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             facts.sk_server = h2_sk_flag(msg, k_h2_sk_server);
 
             if (h2_inject_verdict(&facts) != k_h2_inject_allow) {
+                h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
+                return SK_PASS;
+            }
+
+            if (consume_go_h2_owned_stream(msg, f.stream_id)) {
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
                 return SK_PASS;
             }

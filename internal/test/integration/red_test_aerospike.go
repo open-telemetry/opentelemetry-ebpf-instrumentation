@@ -27,7 +27,7 @@ func testREDMetricsForAerospikeLibrary(t *testing.T, testCase TestCase) {
 	namespace := testCase.Namespace
 
 	// Drive the instrumented service a few times so each Aerospike operation runs.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, baseURL+"/"+urlPath, 200)
 	}
 

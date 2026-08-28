@@ -59,7 +59,7 @@ Attributes configures the decoration of some extra attributes that will be added
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.extra_group_attributes` | [`ExtraGroupAttributesMap`](#extragroupattributesmap) |  |  |  |  | Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key. |
+| `attributes.extra_group_attributes` | [`ExtraGroupAttributesMap`](#extragroupattributesmap) |  |  |  |  | Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'. |
 | `attributes.metric_span_names_limit` | `integer` | `OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT` | `100` |  |  | Works PER SERVICE and only relates to span_metrics. When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED. If the value <= 0, it is disabled. |
 | `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  | Will replace HostName and PeerName attributes when they are empty or contain unresolved IP addresses to reduce cardinality. Set this value to the empty string to disable this feature. |
 | `attributes.rename_unresolved_hosts_incoming` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING` | `incoming` |  |  |  |
@@ -651,12 +651,13 @@ Buckets defines the histograms bucket boundaries, and allows users to redefine t
 | `request_size_histogram` | `number`[] |  |  |
 | `response_size_histogram` | `number`[] |  |  |
 | `stat_tcp_rtt_histogram` | `number`[] |  |  |
+| `v8js_gc_duration_histogram` | `number`[] |  |  |
 
 ### ExtraGroupAttributesMap
 
-Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key.
+Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'.
 
-**Known keys:** `k8s_app_meta`
+**Known keys:** `app`, `k8s_app_meta`
 
 **Value type:** `string[]`
 
