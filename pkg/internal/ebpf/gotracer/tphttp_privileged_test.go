@@ -286,16 +286,6 @@ func TestHTTP2ClientTraceparentWriteFailureContinuity(t *testing.T) {
 	}
 }
 
-func buildHTTP2ClientTarget(t *testing.T) string {
-	t.Helper()
-
-	bin := filepath.Join(t.TempDir(), "tphttp2client")
-	cmd := osexec.Command("go", "build", "-o", bin, "testdata/tphttp2client/main.go")
-	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "go build tphttp2client:\n%s", string(out))
-	return bin
-}
-
 func startHTTP2ClientTarget(t *testing.T, bin string, useTLS bool) func(t *testing.T) string {
 	t.Helper()
 
