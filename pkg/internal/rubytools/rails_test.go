@@ -275,6 +275,136 @@ end
 	}
 }
 
+func TestScanRailsApplication(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		namespace string
+		dynamic   bool
+		want      railsApplicationScan
+	}{
+		{
+			name:   "top-level application",
+			source: "class Orders < Rails::Application\nend",
+			want:   railsApplicationScan{candidates: []string{"Orders"}},
+		},
+		{
+			name:      "application inherits supplied namespace",
+			source:    "class Application < Rails::Application\nend",
+			namespace: "Orders",
+			want:      railsApplicationScan{candidates: []string{"Orders::Application"}},
+		},
+		{
+			name:   "module supplies namespace",
+			source: "module Orders\n  class Application < Rails::Application\n  end\nend",
+			want:   railsApplicationScan{candidates: []string{"Orders::Application"}},
+		},
+		{
+			name:    "dynamic context is ambiguous",
+			source:  "class Orders < Rails::Application\nend",
+			dynamic: true,
+			want:    railsApplicationScan{ambiguous: true},
+		},
+		{
+			name:   "conditional context is ambiguous",
+			source: "if enabled\n  class Orders < Rails::Application\n  end\nend",
+			want:   railsApplicationScan{ambiguous: true},
+		},
+		{
+			name:      "qualified module below a namespace is ambiguous",
+			source:    "module Existing::Orders\nend",
+			namespace: "Outer",
+			want:      railsApplicationScan{ambiguous: true},
+		},
+		{
+			name:   "similar superclass is ambiguous",
+			source: "class Orders < Other::Rails::Application\nend",
+			want:   railsApplicationScan{ambiguous: true},
+		},
+		{
+			name: "multiple applications are collected",
+			source: `class Orders < Rails::Application
+end
+class Billing < Rails::Application
+end`,
+			want: railsApplicationScan{candidates: []string{"Orders", "Billing"}},
+		},
+		{name: "unrelated Ruby", source: `puts "hello"`, want: railsApplicationScan{}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tree := parseRubyTestTree(t, test.source)
+			got := railsApplicationScan{}
+
+			scanRailsApplication(tree, tree.root(), test.namespace, test.dynamic, &got)
+
+			assert.Equal(t, test.want, got)
+		})
+	}
+
+	t.Run("nil node is ignored", func(t *testing.T) {
+		tree := parseRubyTestTree(t, "nil")
+		scan := railsApplicationScan{}
+
+		scanRailsApplication(tree, nil, "", false, &scan)
+
+		assert.Empty(t, scan.candidates)
+		assert.False(t, scan.ambiguous)
+	})
+
+	t.Run("ambiguous scan stops immediately", func(t *testing.T) {
+		tree := parseRubyTestTree(t, "class Billing < Rails::Application\nend")
+		scan := railsApplicationScan{candidates: []string{"Orders"}, ambiguous: true}
+
+		scanRailsApplication(tree, tree.root(), "", false, &scan)
+
+		assert.Equal(t, railsApplicationScan{candidates: []string{"Orders"}, ambiguous: true}, scan)
+	})
+}
+
+func TestRailsSuperclass(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   string
+		ok     bool
+	}{
+		{
+			name:   "qualified constant",
+			source: "class Orders < Rails::Application\nend",
+			want:   "Rails::Application",
+			ok:     true,
+		},
+		{
+			name:   "root-qualified constant",
+			source: "class Orders < ::Rails::Application\nend",
+			want:   "::Rails::Application",
+			ok:     true,
+		},
+		{
+			name:   "dynamic expression",
+			source: "class Orders < build_superclass\nend",
+		},
+		{
+			name:   "no superclass",
+			source: "class Orders\nend",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tree := parseRubyTestTree(t, test.source)
+			class := firstRubyTestNode(tree, tree.root(), "class")
+			require.NotNil(t, class)
+
+			got, ok := railsSuperclass(tree, tree.child(class, "superclass"))
+			assert.Equal(t, test.ok, ok)
+			assert.Equal(t, test.want, got)
+		})
+	}
+}
+
 func TestAmbiguousQualifiedConstant(t *testing.T) {
 	tests := []struct {
 		name      string

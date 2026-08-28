@@ -35,6 +35,7 @@ func parseRubyTree(source []byte) *rubySyntaxTree {
 		tree.Release()
 		return nil
 	}
+
 	return syntax
 }
 
@@ -50,6 +51,7 @@ func (tree *rubySyntaxTree) nodeType(node *gotreesitter.Node) string {
 	if node == nil {
 		return ""
 	}
+
 	return node.Type(tree.language)
 }
 
@@ -57,6 +59,7 @@ func (tree *rubySyntaxTree) text(node *gotreesitter.Node) string {
 	if node == nil {
 		return ""
 	}
+
 	return node.Text(tree.source)
 }
 
@@ -64,6 +67,7 @@ func (tree *rubySyntaxTree) child(node *gotreesitter.Node, field string) *gotree
 	if node == nil {
 		return nil
 	}
+
 	return node.ChildByFieldName(field, tree.language)
 }
 
@@ -76,6 +80,7 @@ func rubyNamedChildren(node *gotreesitter.Node) []*gotreesitter.Node {
 	for index := 0; index < node.NamedChildCount(); index++ {
 		children = append(children, node.NamedChild(index))
 	}
+
 	return children
 }
 
@@ -97,10 +102,12 @@ func (tree *rubySyntaxTree) constant(node *gotreesitter.Node) (string, bool) {
 		if scope == nil {
 			return "::" + tree.text(name), true
 		}
+
 		prefix, ok := tree.constant(scope)
 		if !ok {
 			return "", false
 		}
+
 		return prefix + "::" + tree.text(name), true
 	default:
 		return "", false
@@ -109,12 +116,16 @@ func (tree *rubySyntaxTree) constant(node *gotreesitter.Node) (string, bool) {
 
 // hasOrphanEnd is required for an edge case found in the gotreesitter grammar. we might be
 // able to remove it in the future if they fix the issue.
+// end # orphaned: no matching opening construct
+// Gem::Specification.new("orders", "1.2.3") do |spec|
+// end
 func (tree *rubySyntaxTree) hasOrphanEnd(node *gotreesitter.Node) bool {
 	for _, child := range rubyNamedChildren(node) {
 		if (tree.nodeType(node) == "program" || tree.nodeType(node) == "body_statement") &&
 			tree.nodeType(child) == "identifier" && tree.text(child) == "end" {
 			return true
 		}
+
 		if tree.hasOrphanEnd(child) {
 			return true
 		}

@@ -708,6 +708,74 @@ func TestParseRubyLaunchNoProgramFound(t *testing.T) {
 	assert.Equal(t, RubyLaunch{}, ParseRubyLaunch("ruby", []string{"--debug", "--verbose", "-w"}))
 }
 
+func TestParseRubyArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want RubyLaunch
+	}{
+		{name: "no arguments"},
+		{name: "program", args: []string{"app.rb"}, want: RubyLaunch{EntryPoint: "app.rb"}},
+		{
+			name: "program arguments are ignored",
+			args: []string{"app.rb", "--application-option"},
+			want: RubyLaunch{EntryPoint: "app.rb"},
+		},
+		{
+			name: "option terminator",
+			args: []string{"--", "app.rb", "argument"},
+			want: RubyLaunch{EntryPoint: "app.rb"},
+		},
+		{name: "option terminator before stdin", args: []string{"--", "-"}},
+		{name: "option terminator without program", args: []string{"--"}},
+		{name: "stdin", args: []string{"-"}},
+		{
+			name: "required long option",
+			args: []string{"--encoding", "UTF-8", "app.rb"},
+			want: RubyLaunch{EntryPoint: "app.rb"},
+		},
+		{name: "missing required long value", args: []string{"--encoding"}},
+		{
+			name: "attached no-value option",
+			args: []string{"--debug=verbose", "app.rb"},
+			want: RubyLaunch{EntryPoint: "app.rb"},
+		},
+		{name: "value attached to terminal option", args: []string{"--help=yes", "app.rb"}},
+		{name: "terminal long option", args: []string{"--version", "app.rb"}},
+		{
+			name: "non-terminal dump",
+			args: []string{"--dump=syntax", "app.rb"},
+			want: RubyLaunch{EntryPoint: "app.rb"},
+		},
+		{name: "terminal dump", args: []string{"--dump=version", "app.rb"}},
+		{name: "unknown long option", args: []string{"--future", "app.rb"}},
+		{
+			name: "separate short option value",
+			args: []string{"-I", "lib", "app.rb"},
+			want: RubyLaunch{EntryPoint: "app.rb"},
+		},
+		{
+			name: "attached short option value",
+			args: []string{"-Ilib", "app.rb"},
+			want: RubyLaunch{EntryPoint: "app.rb"},
+		},
+		{
+			name: "path search is not terminal",
+			args: []string{"-S", "app.rb"},
+			want: RubyLaunch{EntryPoint: "app.rb"},
+		},
+		{name: "terminal short option", args: []string{"-e", `puts "hello"`, "app.rb"}},
+		{name: "unknown short option", args: []string{"-q", "app.rb"}},
+		{name: "options without program", args: []string{"--debug", "-w"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, parseRubyArgs(test.args))
+		})
+	}
+}
+
 func TestIsCommandPath(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -981,6 +1049,92 @@ func TestParseLauncherArguments(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, parseLauncherArguments(tt.args, options, tt.configShort, tt.configLong))
+		})
+	}
+}
+
+func TestConsumeOptionValue(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		index         int
+		value         string
+		attached      bool
+		arity         optionArity
+		wantValue     string
+		wantIndex     int
+		wantAvailable bool
+	}{
+		{
+			name: "attached value",
+			args: []string{"--option=value"}, index: 0, value: "value", attached: true,
+			arity: requiredValue, wantValue: "value", wantIndex: 0, wantAvailable: true,
+		},
+		{
+			name: "attached empty value",
+			args: []string{"--option="}, index: 0, attached: true,
+			arity: requiredValue, wantIndex: 0, wantAvailable: true,
+		},
+		{
+			name: "required next value",
+			args: []string{"--option", "value"}, index: 0,
+			arity: requiredValue, wantValue: "value", wantIndex: 1, wantAvailable: true,
+		},
+		{
+			name: "dump next value",
+			args: []string{"--dump", "syntax"}, index: 0,
+			arity: dumpValue, wantValue: "syntax", wantIndex: 1, wantAvailable: true,
+		},
+		{
+			name: "missing required value",
+			args: []string{"--option"}, index: 0,
+			arity: requiredValue, wantIndex: 1,
+		},
+		{
+			name: "placed optional next value",
+			args: []string{"--option", "value"}, index: 0,
+			arity: placedOptionalValue, wantValue: "value", wantIndex: 1, wantAvailable: true,
+		},
+		{
+			name: "placed optional before another option",
+			args: []string{"--option", "--next"}, index: 0,
+			arity: placedOptionalValue, wantIndex: 0, wantAvailable: true,
+		},
+		{
+			name: "placed optional at end",
+			args: []string{"--option"}, index: 0,
+			arity: placedOptionalValue, wantIndex: 0, wantAvailable: true,
+		},
+		{
+			name: "attached optional without value",
+			args: []string{"--option", "positional"}, index: 0,
+			arity: attachedOptionalValue, wantIndex: 0, wantAvailable: true,
+		},
+		{
+			name: "no-value option",
+			args: []string{"--option", "positional"}, index: 0,
+			arity: noValue, wantIndex: 0, wantAvailable: true,
+		},
+		{
+			name: "terminal option",
+			args: []string{"--option", "positional"}, index: 0,
+			arity: terminalOption, wantIndex: 0, wantAvailable: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value, index, available := consumeOptionValue(
+				test.args,
+				test.index,
+				test.value,
+				test.attached,
+				test.arity,
+			)
+
+			assert.Equal(t, test.wantValue, value)
+			assert.Equal(t, test.wantIndex, index)
+			assert.Equal(t, test.wantAvailable, available)
 		})
 	}
 }

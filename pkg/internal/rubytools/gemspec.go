@@ -41,9 +41,11 @@ func readGemspec(path string) serviceMetadata {
 //	end
 func parseGemspec(data []byte) serviceMetadata {
 	tree := parseRubyTree(data)
+
 	if tree == nil {
 		return serviceMetadata{}
 	}
+
 	defer tree.release()
 
 	constructors := gemspecConstructors(tree)
@@ -56,6 +58,7 @@ func parseGemspec(data []byte) serviceMetadata {
 	if tree.nodeType(block) != "do_block" {
 		return serviceMetadata{}
 	}
+
 	variable, ok := gemspecBlockVariable(tree, block)
 	if !ok {
 		return serviceMetadata{}
@@ -65,6 +68,7 @@ func parseGemspec(data []byte) serviceMetadata {
 	if argumentsNode != nil && argumentsNode.StartPoint().Row != argumentsNode.EndPoint().Row {
 		return serviceMetadata{}
 	}
+
 	arguments := rubyNamedChildren(argumentsNode)
 	if len(arguments) > 2 {
 		return serviceMetadata{}
@@ -80,6 +84,7 @@ func parseGemspec(data []byte) serviceMetadata {
 		}
 		constructorName = true
 	}
+
 	if len(arguments) == 2 {
 		version, ok = staticRubyString(tree, arguments[1])
 		if !ok {
@@ -96,6 +101,7 @@ func parseGemspec(data []byte) serviceMetadata {
 		if !assignment {
 			continue
 		}
+
 		if !standaloneRubyStatement(tree.source, statement) {
 			return serviceMetadata{}
 		}
@@ -124,12 +130,14 @@ func parseGemspec(data []byte) serviceMetadata {
 	) {
 		return serviceMetadata{}
 	}
+
 	if nameAssignments > 1 || versionAssignments > 1 ||
 		(constructorName && nameAssignments != 0) ||
 		(constructorVersion && versionAssignments != 0) ||
 		!validGemName(name) {
 		return serviceMetadata{}
 	}
+
 	if !validGemVersion(version) {
 		version = ""
 	}
@@ -143,9 +151,11 @@ func gemspecConstructors(tree *rubySyntaxTree) []*gotreesitter.Node {
 		if node == nil {
 			return
 		}
+
 		if isGemspecConstructor(tree, node) {
 			constructors = append(constructors, node)
 		}
+
 		for _, child := range rubyNamedChildren(node) {
 			visit(child)
 		}
@@ -159,6 +169,7 @@ func isGemspecConstructor(tree *rubySyntaxTree, node *gotreesitter.Node) bool {
 		tree.text(tree.child(node, "operator")) != "." {
 		return false
 	}
+
 	receiver, ok := tree.constant(tree.child(node, "receiver"))
 	return ok && strings.TrimPrefix(receiver, "::") == "Gem::Specification"
 }
@@ -171,6 +182,7 @@ func topLevelFinalExpression(tree *rubySyntaxTree, candidate *gotreesitter.Node)
 func rubyExecutableChildren(tree *rubySyntaxTree, node *gotreesitter.Node) []*gotreesitter.Node {
 	children := rubyNamedChildren(node)
 	result := children[:0]
+
 	for _, child := range children {
 		if tree.nodeType(child) != "comment" && tree.nodeType(child) != "uninterpreted" {
 			result = append(result, child)
@@ -184,10 +196,12 @@ func gemspecBlockVariable(tree *rubySyntaxTree, block *gotreesitter.Node) (strin
 	if tree.nodeType(parameters) != "block_parameters" {
 		return "", false
 	}
+
 	children := rubyNamedChildren(parameters)
 	if len(children) != 1 || tree.nodeType(children[0]) != "identifier" {
 		return "", false
 	}
+
 	return tree.text(children[0]), true
 }
 
@@ -199,15 +213,18 @@ func directGemspecAssignment(
 	if tree.nodeType(node) != "assignment" {
 		return "", nil, nil, false
 	}
+
 	left := tree.child(node, "left")
 	field, ok := gemspecIdentityReference(tree, left, variable)
 	if !ok || tree.text(left) != variable+"."+field {
 		return "", nil, nil, false
 	}
+
 	right := tree.child(node, "right")
 	if right == nil {
 		return "", nil, nil, false
 	}
+
 	return field, right, left, true
 }
 
@@ -220,16 +237,19 @@ func hasUnexpectedGemspecIdentityReference(
 	if node == nil {
 		return false
 	}
+
 	if _, reference := gemspecIdentityReference(tree, node, variable); reference {
 		if _, ok := allowed[node]; !ok {
 			return true
 		}
 	}
+
 	for _, child := range rubyNamedChildren(node) {
 		if hasUnexpectedGemspecIdentityReference(tree, child, variable, allowed) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -241,6 +261,7 @@ func gemspecIdentityReference(
 	if tree.nodeType(node) != "call" || !rubyVariableReceiver(tree, tree.child(node, "receiver"), variable) {
 		return "", false
 	}
+
 	method := tree.text(tree.child(node, "method"))
 	return method, method == "name" || method == "version"
 }
@@ -249,12 +270,15 @@ func rubyVariableReceiver(tree *rubySyntaxTree, node *gotreesitter.Node, variabl
 	if node == nil {
 		return false
 	}
+
 	if tree.nodeType(node) == "identifier" {
 		return tree.text(node) == variable
 	}
+
 	if tree.nodeType(node) != "parenthesized_statements" {
 		return false
 	}
+
 	children := rubyExecutableChildren(tree, node)
 	return len(children) == 1 && rubyVariableReceiver(tree, children[0], variable)
 }
@@ -265,6 +289,7 @@ func staticRubyString(tree *rubySyntaxTree, node *gotreesitter.Node) (string, bo
 		tree.child(node, "block") == nil {
 		node = tree.child(node, "receiver")
 	}
+
 	if tree.nodeType(node) != "string" {
 		return "", false
 	}
@@ -273,10 +298,12 @@ func staticRubyString(tree *rubySyntaxTree, node *gotreesitter.Node) (string, bo
 	if len(value) < 2 || value[0] != value[len(value)-1] || value[0] != '\'' && value[0] != '"' {
 		return "", false
 	}
+
 	value = value[1 : len(value)-1]
 	if strings.Contains(value, "\\") || strings.Contains(value, "#{") {
 		return "", false
 	}
+
 	return value, true
 }
 
@@ -286,6 +313,7 @@ func standaloneRubyStatement(source []byte, node *gotreesitter.Node) bool {
 	lineStart := bytes.LastIndexByte(source[:start], '\n') + 1
 	lineEndOffset := bytes.IndexByte(source[end:], '\n')
 	lineEnd := len(source)
+
 	if lineEndOffset >= 0 {
 		lineEnd = end + lineEndOffset
 	}
@@ -293,6 +321,7 @@ func standaloneRubyStatement(source []byte, node *gotreesitter.Node) bool {
 	if strings.TrimSpace(string(source[lineStart:start])) != "" {
 		return false
 	}
+
 	remainder := strings.TrimSpace(string(source[end:lineEnd]))
 	return remainder == "" || strings.HasPrefix(remainder, "#")
 }
@@ -301,6 +330,7 @@ func validGemName(value string) bool {
 	if value == "" || strings.ContainsRune(".-_", rune(value[0])) || !gemNamePattern.MatchString(value) {
 		return false
 	}
+
 	return strings.IndexFunc(value, func(character rune) bool {
 		return character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z'
 	}) >= 0

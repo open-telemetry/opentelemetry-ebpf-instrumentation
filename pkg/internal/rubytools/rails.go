@@ -114,6 +114,7 @@ func railsSuperclass(tree *rubySyntaxTree, superclass *gotreesitter.Node) (strin
 	if len(children) != 1 {
 		return "", false
 	}
+
 	return tree.constant(children[0])
 }
 
@@ -125,9 +126,11 @@ func qualifiedRubyConstant(name, enclosing string) string {
 	if after, ok := strings.CutPrefix(name, "::"); ok {
 		return after
 	}
+
 	if enclosing == "" {
 		return name
 	}
+
 	return enclosing + "::" + name
 }
 
@@ -135,6 +138,7 @@ func railsServiceName(className string) string {
 	if className == "" {
 		return ""
 	}
+
 	className = strings.TrimSuffix(className, "::Application")
 	parts := strings.Split(className, "::")
 	for index, part := range parts {
@@ -143,5 +147,6 @@ func railsServiceName(className string) string {
 		part = strings.ReplaceAll(part, "_", "-")
 		parts[index] = strings.ToLower(part)
 	}
+
 	return strings.Join(parts, "/")
 }
