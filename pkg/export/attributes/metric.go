@@ -296,6 +296,24 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	CPythonGCCollections = metric(Name{
+		Section: "cpython.gc.collections",
+		OTEL:    "cpython.gc.collections",
+		Unit:    "{collection}",
+		Type:    InstrumentCounter,
+	})
+	CPythonGCCollectedObjects = metric(Name{
+		Section: "cpython.gc.collected_objects",
+		OTEL:    "cpython.gc.collected_objects",
+		Unit:    "{object}",
+		Type:    InstrumentCounter,
+	})
+	CPythonGCUncollectableObjects = metric(Name{
+		Section: "cpython.gc.uncollectable_objects",
+		OTEL:    "cpython.gc.uncollectable_objects",
+		Unit:    "{object}",
+		Type:    InstrumentCounter,
+	})
 	JVMMemoryUsed = metric(Name{
 		Section: "jvm.memory.used",
 		OTEL:    "jvm.memory.used",

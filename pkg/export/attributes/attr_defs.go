@@ -537,6 +537,24 @@ func getDefinitions(
 			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
+		CPythonGCCollections.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CPythonGCGeneration: true,
+			},
+		},
+		CPythonGCCollectedObjects.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CPythonGCGeneration: true,
+			},
+		},
+		CPythonGCUncollectableObjects.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CPythonGCGeneration: true,
+			},
+		},
 		JVMMemoryUsed.Section: {
 			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
 			Attributes: map[attr.Name]Default{},

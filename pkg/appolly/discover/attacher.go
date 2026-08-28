@@ -454,6 +454,10 @@ func (ta *traceAttacher) updateTracerProbes(tracer *ebpf.ProcessTracer, ie *ebpf
 
 func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instrumentable) {
 	ie.CopyToServiceAttributes()
+	serviceSource := runtimeMetricServiceSource(ie.FileInfo, ie.FileInfo)
+	if serviceSource != ie.FileInfo {
+		serviceSource.ApplyServiceDefaults(ie.Type)
+	}
 
 	if ta.DynamicPIDSelector != nil {
 		ta.registerDynamicFileInfo(ie)
@@ -495,6 +499,28 @@ func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 		}
 		ta.SpanSignalsShortcut.Send(spans)
 	}
+}
+
+func runtimeMetricServiceSource(lifecycle, fallback *exec.FileInfo) *exec.FileInfo {
+	if lifecycle != nil {
+		if source := lifecycle.RuntimeMetricServiceSource(); source != nil {
+			return source
+		}
+	}
+	return fallback
+}
+
+func blockPIDLifecycle(
+	tracer ebpf.Tracer,
+	pid app.PID,
+	ns uint32,
+	lifecycle *exec.FileInfo,
+) {
+	if lifecycleTracer, ok := tracer.(ebpf.LifecyclePIDBlocker); ok {
+		lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle)
+		return
+	}
+	tracer.BlockPID(pid, ns)
 }
 
 func (ta *traceAttacher) registerDynamicFileInfo(ie *ebpf.Instrumentable) {
@@ -541,9 +567,15 @@ func (ta *traceAttacher) notifyProcessDeletion(ie *ebpf.Instrumentable) {
 		// to avoid that a new process reusing this PID could send traces
 		// unless explicitly allowed
 		ta.Metrics.UninstrumentProcess(ie.FileInfo.ExecutableName())
-		tracer.BlockPID(ie.FileInfo.Pid(), ie.FileInfo.Ns())
+		tracer.BlockPIDLifecycle(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
+		for _, pid := range ie.ChildPids {
+			tracer.BlockPID(pid, ie.FileInfo.Ns())
+		}
 		for _, ct := range ta.commonTracers {
-			ct.BlockPID(ie.FileInfo.Pid(), ie.FileInfo.Ns())
+			blockPIDLifecycle(ct, ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
+			for _, pid := range ie.ChildPids {
+				ct.BlockPID(pid, ie.FileInfo.Ns())
+			}
 		}
 
 		// if there are no more trace instances for a program, we need to notify that

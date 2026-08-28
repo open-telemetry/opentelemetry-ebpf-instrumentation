@@ -217,6 +217,11 @@ update-offsets:
 	@echo "### Updating pkg/internal/goexec/offsets.json"
 	go tool $(TOOLS_MODFILE) go-offsets-tracker -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
 
+.PHONY: update-python-offsets
+update-python-offsets:
+	@echo "### Updating pkg/internal/cpython/runtime/offsets.json"
+	go run ./scripts/python-offsets
+
 ### eBPF Code Generation ###########################################################
 #
 # This section handles generation of Go code from eBPF C sources using bpf2go.

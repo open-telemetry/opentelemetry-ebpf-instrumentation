@@ -1296,7 +1296,7 @@ func (mr *MetricsReporter) deleteTargetMetrics(uid *svc.UID) {
 }
 
 func (mr *MetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
-	snap := pe.File.ServiceAttrs()
+	snap := pe.ServiceFile().ServiceAttrs()
 	pid := pe.File.Pid()
 	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "attrs", snap.UID)
 
