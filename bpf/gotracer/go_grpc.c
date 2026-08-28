@@ -55,11 +55,30 @@ static __always_inline void grpc_server_conn_info(void *tr, connection_info_t *c
     }
 
     off_table_t *ot = get_offsets_table();
+    void *conn_type = NULL;
     void *conn_ptr = NULL;
-    bpf_probe_read_user(&conn_ptr,
-                        sizeof(conn_ptr),
-                        (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}) +
-                                 k_go_iface_data_offset));
+    void *conn_iface = (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}));
+    bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+    bpf_probe_read_user(&conn_ptr, sizeof(conn_ptr), conn_iface + k_go_iface_data_offset);
+
+    const u64 syscall_conn_type = go_offset_of(ot, (go_offset){.v = _grpc_syscall_conn_type_off});
+    if (syscall_conn_type && conn_type == (void *)syscall_conn_type) {
+        conn_iface = conn_ptr;
+        conn_type = NULL;
+        conn_ptr = NULL;
+        bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+        bpf_probe_read_user(&conn_ptr, sizeof(conn_ptr), conn_iface + k_go_iface_data_offset);
+    }
+
+    const u64 tls_conn_type = go_offset_of(ot, (go_offset){.v = _tls_conn_type_off});
+    if (tls_conn_type && conn_type == (void *)tls_conn_type) {
+        conn_iface = conn_ptr;
+        conn_type = NULL;
+        conn_ptr = NULL;
+        bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+        bpf_probe_read_user(&conn_ptr, sizeof(conn_ptr), conn_iface + k_go_iface_data_offset);
+    }
+
     if (conn_ptr) {
         get_conn_info(conn_ptr, conn);
     }

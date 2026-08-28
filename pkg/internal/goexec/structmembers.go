@@ -234,6 +234,9 @@ const (
 	RuntimeSchedSTWTotalTimeGCPos
 	RuntimeTimeHistogramUnderflowPos
 	RuntimeTimeHistogramOverflowPos
+	// Go connection interface types
+	GrpcSyscallConnTypeOffset
+	TLSConnTypeOffset
 )
 
 //go:embed offsets.json
