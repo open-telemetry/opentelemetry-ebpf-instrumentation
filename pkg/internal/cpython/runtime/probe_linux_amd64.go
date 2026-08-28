@@ -110,7 +110,7 @@ func findPrivateCollectorProbe(file *elf.File, version pythonVersion) (GCComplet
 	}
 	target, err := privateCollectorSymbolAddress(file)
 	if err == nil {
-		fileOffset, err := strictELFFileOffset(file, target, true)
+		fileOffset, err := strictELFFileOffset(file, target)
 		if err != nil {
 			return GCCompletionProbe{}, err
 		}
@@ -160,7 +160,7 @@ func derivePrivateCollectorProbe(
 	if err != nil {
 		return GCCompletionProbe{}, err
 	}
-	fileOffset, err := strictELFFileOffset(file, target, true)
+	fileOffset, err := strictELFFileOffset(file, target)
 	if err != nil {
 		return GCCompletionProbe{}, err
 	}
@@ -515,14 +515,13 @@ func recognizedCollectorName(name string) bool {
 	return false
 }
 
-// strictELFFileOffset maps one virtual address to exactly one file-backed load segment.
-func strictELFFileOffset(file *elf.File, address uint64, executable bool) (uint64, error) {
+// strictELFFileOffset maps one virtual address to exactly one executable file-backed load segment.
+func strictELFFileOffset(file *elf.File, address uint64) (uint64, error) {
 	var offset uint64
 	matches := 0
 	for _, program := range file.Progs {
-		// Require a file-backed load segment. Probe locations must also belong to
-		// an executable segment, while semaphore locations can belong to data.
-		if program.Type != elf.PT_LOAD || executable && program.Flags&elf.PF_X == 0 ||
+		// Probe offsets must belong to an executable, file-backed load segment.
+		if program.Type != elf.PT_LOAD || program.Flags&elf.PF_X == 0 ||
 			address < program.Vaddr || address-program.Vaddr >= program.Filesz {
 			continue
 		}
@@ -590,7 +589,7 @@ func decodePythonInstruction(file *elf.File, address, end uint64) (decodedInstru
 	if address >= end {
 		return decodedInstruction{}, fmt.Errorf("%w: invalid CPython instruction bounds", errUnsupportedLayout)
 	}
-	if _, err := strictELFFileOffset(file, address, true); err != nil {
+	if _, err := strictELFFileOffset(file, address); err != nil {
 		return decodedInstruction{}, err
 	}
 	remaining := end - address
@@ -656,7 +655,7 @@ func validateCollectorTarget(file *elf.File, starts []uint64, target uint64) err
 	if !found || addressInPLT(file, target) {
 		return fmt.Errorf("%w: CPython collector is not a local function start", errUnsupportedLayout)
 	}
-	_, err := strictELFFileOffset(file, target, true)
+	_, err := strictELFFileOffset(file, target)
 	return err
 }
 
