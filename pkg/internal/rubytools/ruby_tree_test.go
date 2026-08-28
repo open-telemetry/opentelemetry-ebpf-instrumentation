@@ -43,7 +43,7 @@ func TestRubySyntaxTreeHelpers(t *testing.T) {
 	require.NotNil(t, moduleNode)
 	assert.Equal(t, "module", tree.nodeType(moduleNode))
 
-	scope := tree.child(moduleNode, "scope")
+	scope := tree.child(moduleNode, "name")
 	require.NotNil(t, scope)
 	assert.Equal(t, "scope_resolution", tree.nodeType(scope))
 	assert.Equal(t, "A::B", tree.text(scope))
@@ -60,7 +60,7 @@ func TestRubyNamedChildren(t *testing.T) {
 	})
 
 	t.Run("returns only named children", func(t *testing.T) {
-		tree := parseRubyTree([]byte("module A\nend\n"))
+		tree := parseRubyTree([]byte("module A::B\n  run\nend\n"))
 		require.NotNil(t, tree)
 		t.Cleanup(tree.release)
 
@@ -85,7 +85,7 @@ func TestRubySyntaxTreeConstant(t *testing.T) {
 	assert.Empty(t, name)
 	assert.False(t, ok)
 
-	scope := tree.child(moduleNode, "scope")
+	scope := tree.child(moduleNode, "name")
 	require.NotNil(t, scope)
 
 	resolved, ok := tree.constant(scope)
