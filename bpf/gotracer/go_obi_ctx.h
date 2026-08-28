@@ -71,12 +71,17 @@ static __always_inline u32 go_obi_ctx__stack_off(struct pt_regs *ctx) {
     return (u32)(stack_hi - PT_REGS_SP(ctx));
 }
 
+// The bounds are clamped in asm so that older verifiers see a single consistent
+// range for every frame index derived from the stored depth
 static __always_inline u32 obi_ctx__depth(const obi_ctx_stack_t *st) {
-    return st->depth < k_obi_ctx_max_depth ? st->depth : k_obi_ctx_max_depth;
+    u32 depth = st->depth;
+    bpf_clamp_umax(depth, k_obi_ctx_max_depth);
+    return depth;
 }
 
-static __always_inline u32 obi_ctx__top(const obi_ctx_stack_t *st) {
-    return (st->depth - 1) & (k_obi_ctx_max_depth - 1);
+static __always_inline u32 obi_ctx__slot(u32 idx) {
+    bpf_clamp_umax(idx, k_obi_ctx_max_depth - 1);
+    return idx;
 }
 
 static __always_inline u8 obi_ctx__same_span(const tp_info_t *a, const tp_info_t *b) {
@@ -89,17 +94,17 @@ static __always_inline u8 obi_ctx__is_server(u8 kind) {
 }
 
 // Newest frame of this span, or of this kind when tp is NULL. k_obi_ctx_max_depth if none
-static __always_inline u32 obi_ctx__find(const obi_ctx_stack_t *st, u8 kind, const tp_info_t *tp) {
-    const u32 depth = obi_ctx__depth(st);
-
+static __always_inline u32 obi_ctx__find(const obi_ctx_stack_t *st,
+                                         u32 depth,
+                                         u8 kind,
+                                         const tp_info_t *tp) {
     for (u32 i = 0; i < k_obi_ctx_max_depth; i++) {
         if (i >= depth) {
             break;
         }
-        const u32 idx = (depth - 1 - i) & (k_obi_ctx_max_depth - 1);
-        const obi_ctx_frame_t *frame = &st->frames[idx];
+        const obi_ctx_frame_t *frame = &st->frames[obi_ctx__slot(depth - 1 - i)];
         if (tp ? obi_ctx__same_span(&frame->tp, tp) : frame->kind == kind) {
-            return idx;
+            return depth - 1 - i;
         }
     }
 
@@ -107,23 +112,21 @@ static __always_inline u32 obi_ctx__find(const obi_ctx_stack_t *st, u8 kind, con
 }
 
 // Frame already created for this call, if any
-static __always_inline u32 obi_ctx__reentered(const obi_ctx_stack_t *st,
-                                              u8 kind,
-                                              const tp_info_t *tp,
-                                              u32 stack_off) {
-    u32 idx = obi_ctx__find(st, kind, tp);
+static __always_inline u32 obi_ctx__reentered(
+    const obi_ctx_stack_t *st, u32 depth, u8 kind, const tp_info_t *tp, u32 stack_off) {
+    u32 idx = obi_ctx__find(st, depth, kind, tp);
     if (idx < k_obi_ctx_max_depth) {
         return idx;
     }
 
     if (obi_ctx__is_server(kind)) {
-        return obi_ctx__find(st, kind, NULL);
+        return obi_ctx__find(st, depth, kind, NULL);
     }
 
-    if (st->depth > 0) {
-        const obi_ctx_frame_t *top = &st->frames[obi_ctx__top(st)];
+    if (depth > 0) {
+        const obi_ctx_frame_t *top = &st->frames[obi_ctx__slot(depth - 1)];
         if (top->kind == kind && top->stack_off == stack_off) {
-            return obi_ctx__top(st);
+            return depth - 1;
         }
     }
 
@@ -132,13 +135,14 @@ static __always_inline u32 obi_ctx__reentered(const obi_ctx_stack_t *st,
 
 static __always_inline void
 obi_ctx__publish_top(u64 pid_tgid, const go_addr_key_t *g_key, const obi_ctx_stack_t *st) {
-    if (st->depth == 0) {
+    const u32 depth = obi_ctx__depth(st);
+    if (depth == 0) {
         bpf_map_delete_elem(&obi_ctx_stacks, g_key);
         obi_ctx__del(pid_tgid);
         return;
     }
 
-    obi_ctx__set(pid_tgid, &st->frames[obi_ctx__top(st)].tp);
+    obi_ctx__set(pid_tgid, &st->frames[obi_ctx__slot(depth - 1)].tp);
 }
 
 // A span started: it becomes the goroutine's current context
@@ -161,18 +165,20 @@ go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 
         return;
     }
 
+    const u32 depth = obi_ctx__depth(st);
+
     // the call is already on the stack: it is the top of the real stack, so
     // anything above it has ended
-    const u32 idx = obi_ctx__reentered(st, kind, tp, stack_off);
+    const u32 idx = obi_ctx__reentered(st, depth, kind, tp, stack_off);
     if (idx < k_obi_ctx_max_depth) {
-        st->frames[idx].tp = *tp;
+        st->frames[obi_ctx__slot(idx)].tp = *tp;
         st->depth = idx + 1;
         st->overflow = 0;
         st->unstored_kind = k_obi_ctx_none;
         return;
     }
 
-    if (st->depth >= k_obi_ctx_max_depth) {
+    if (depth >= k_obi_ctx_max_depth) {
         const u8 restarted =
             st->overflow > 0 && st->unstored_kind == kind && st->unstored_stack_off == stack_off;
         if (!restarted) {
@@ -183,11 +189,11 @@ go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 
         return;
     }
 
-    obi_ctx_frame_t *frame = &st->frames[st->depth & (k_obi_ctx_max_depth - 1)];
+    obi_ctx_frame_t *frame = &st->frames[obi_ctx__slot(depth)];
     frame->tp = *tp;
     frame->stack_off = stack_off;
     frame->kind = kind;
-    st->depth++;
+    st->depth = depth + 1;
     st->unstored_kind = k_obi_ctx_none;
 }
 
@@ -204,7 +210,7 @@ go_obi_ctx__end(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp) {
         return;
     }
 
-    const u32 idx = obi_ctx__find(st, kind, tp);
+    const u32 idx = obi_ctx__find(st, obi_ctx__depth(st), kind, tp);
 
     if (idx < k_obi_ctx_max_depth && (tp || st->overflow == 0)) {
         st->depth = idx;
@@ -220,9 +226,12 @@ go_obi_ctx__end(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp) {
 // The goroutine got scheduled: put its current span on this thread, or clear the thread
 static __always_inline void go_obi_ctx__resume(u64 pid_tgid, const go_addr_key_t *g_key) {
     const obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, g_key);
-    if (st && st->depth > 0) {
-        obi_ctx__set(pid_tgid, &st->frames[obi_ctx__top(st)].tp);
-        return;
+    if (st) {
+        const u32 depth = obi_ctx__depth(st);
+        if (depth > 0) {
+            obi_ctx__set(pid_tgid, &st->frames[obi_ctx__slot(depth - 1)].tp);
+            return;
+        }
     }
     obi_ctx__del(pid_tgid);
 }
