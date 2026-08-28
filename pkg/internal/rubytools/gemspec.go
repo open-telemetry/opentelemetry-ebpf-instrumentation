@@ -18,7 +18,7 @@ var (
 )
 
 func readGemspec(path string) serviceMetadata {
-	file, _ := langtools.OpenServiceMetadataFile(path, maxRubyMetadataBytes)
+	file, _ := langtools.OpenMetadataFile(path, maxRubyMetadataBytes)
 	if file == nil {
 		return serviceMetadata{}
 	}

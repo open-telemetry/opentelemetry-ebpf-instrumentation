@@ -28,7 +28,7 @@ type rubyBlock struct {
 }
 
 func readRailsApplicationName(path string) string {
-	file, _ := langtools.OpenServiceMetadataFile(path, maxRubyMetadataBytes)
+	file, _ := langtools.OpenMetadataFile(path, maxRubyMetadataBytes)
 	if file == nil {
 		return ""
 	}
