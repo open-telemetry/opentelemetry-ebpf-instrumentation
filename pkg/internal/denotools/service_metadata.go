@@ -103,7 +103,6 @@ func findServiceMetadata(
 	requireName bool,
 ) (serviceMetadata, bool) {
 	_, packageJSONDisabled := env[denoNoPackageJSON]
-	allowPackageJSON := !packageJSONDisabled
 	boundary, ok := langtools.ResolveProcessPath(root, "/", "/")
 	if !ok {
 		return serviceMetadata{}, false
@@ -125,7 +124,7 @@ func findServiceMetadata(
 			if resolved, ok := langtools.ResolveProcessPath(root, cwd, configPath); ok {
 				if config, regular := readRegularMetadataFile(resolved, true); regular {
 					if metadata, found := findProjectMetadata(
-						filepath.Dir(resolved), boundary, false, allowPackageJSON, &config, requireName,
+						filepath.Dir(resolved), boundary, false, !packageJSONDisabled, &config, requireName,
 					); found {
 						return metadata, true
 					}
@@ -152,7 +151,7 @@ func findServiceMetadata(
 
 	allowDenoConfig := !launch.NoConfig && launch.ConfigPath == ""
 	if metadata, found := findProjectMetadata(
-		start, boundary, allowDenoConfig, allowPackageJSON, nil, requireName,
+		start, boundary, allowDenoConfig, !packageJSONDisabled, nil, requireName,
 	); found {
 		return metadata, true
 	}
@@ -250,20 +249,30 @@ func findProjectMetadata(
 
 	for dir := start; ; dir = filepath.Dir(dir) {
 		var denoMetadata serviceMetadata
+		var foundDenoMetadata bool
 		if firstConfig != nil {
 			denoMetadata = *firstConfig
 			firstConfig = nil
 		} else if allowDenoConfig {
-			denoMetadata = readDenoMetadata(dir)
+			denoMetadata, foundDenoMetadata = readDenoMetadata(dir)
 		}
 
 		var packageMetadata serviceMetadata
+		var foundMetadata bool
 		if allowPackageJSON {
-			packageMetadata, _ = readMetadataFile(filepath.Join(dir, "package.json"), false)
+			packageMetadata, foundMetadata = readMetadataFile(filepath.Join(dir, "package.json"), false)
 		}
 		metadata := mergeProjectMetadata(denoMetadata, packageMetadata)
 		if metadataMatches(metadata, requireName) {
 			return metadata, true
+		}
+
+		// if we found metadata, but the name was set by external env var, and this
+		// is the name carrying metadata, stop searching for version.
+		if (foundMetadata || foundDenoMetadata) && !requireName {
+			if _, _, ok := parseProjectName(metadata.Name); ok {
+				return serviceMetadata{}, false
+			}
 		}
 
 		if dir == boundary || filepath.Dir(dir) == dir {
@@ -272,13 +281,12 @@ func findProjectMetadata(
 	}
 }
 
-func readDenoMetadata(dir string) serviceMetadata {
+func readDenoMetadata(dir string) (serviceMetadata, bool) {
 	metadata, found := readMetadataFile(filepath.Join(dir, "deno.json"), true)
 	if found {
-		return metadata
+		return metadata, found
 	}
-	metadata, _ = readMetadataFile(filepath.Join(dir, "deno.jsonc"), true)
-	return metadata
+	return readMetadataFile(filepath.Join(dir, "deno.jsonc"), true)
 }
 
 func mergeProjectMetadata(denoMetadata, packageMetadata serviceMetadata) serviceMetadata {

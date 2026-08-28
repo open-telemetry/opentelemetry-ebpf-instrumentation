@@ -80,7 +80,26 @@ func TestResolveServiceMetadata(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "worker", fileInfo.ServiceAttrs().UID.Name)
-		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+		version, ok := fileInfo.ServiceAttrs().Metadata[serviceVersion]
+		assert.False(t, ok)
+		assert.Empty(t, version)
+	})
+
+	t.Run("nearer named config does not borrow an outer version 2", func(t *testing.T) {
+		root := t.TempDir()
+		writeDenoFile(t, filepath.Join(root, "app", "deno.json"), []byte(`{"name":"outer","version":"1.0.0"}`))
+		writeDenoFile(t, filepath.Join(root, "app", "src", "deno.json"), []byte(`{"name":"worker"}`))
+		writeDenoFile(t, filepath.Join(root, "app", "src", "main.ts"), nil)
+		fileInfo := mockDenoProcess(t, root, []string{"run", "src/main.ts"}, nil)
+		fileInfo.SetAutoServiceName("my-service")
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "my-service", fileInfo.ServiceAttrs().UID.Name)
+		version, ok := fileInfo.ServiceAttrs().Metadata[serviceVersion]
+		assert.False(t, ok)
+		assert.Empty(t, version)
 	})
 
 	t.Run("explicit config takes precedence over entrypoint project", func(t *testing.T) {
