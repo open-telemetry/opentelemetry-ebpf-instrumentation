@@ -16,21 +16,6 @@ typedef enum h2_socket_transaction_outcome {
     k_h2_socket_transaction_rollback_uncertain,
 } h2_socket_transaction_outcome_t;
 
-typedef enum h2_socket_transaction_boundary {
-    k_h2_socket_boundary_none,
-    k_h2_socket_boundary_preflight_pull,
-    k_h2_socket_boundary_push,
-    k_h2_socket_boundary_write_pull,
-    k_h2_socket_boundary_frame_pull,
-    k_h2_socket_boundary_rollback_pop,
-    k_h2_socket_boundary_rollback_pull,
-    k_h2_socket_boundary_rollback_readback,
-} h2_socket_transaction_boundary_t;
-
-#ifndef H2_SOCKET_TRANSACTION_FAULT
-#define H2_SOCKET_TRANSACTION_FAULT(boundary) false
-#endif
-
 static __always_inline bool h2_frame_len_bytes_are(const unsigned char *data, u32 expected) {
     return data[0] == ((expected >> 16) & 0xff) && data[1] == ((expected >> 8) & 0xff) &&
            data[2] == (expected & 0xff);
@@ -47,10 +32,7 @@ static __always_inline bool h2_restore_socket_message(struct sk_msg_md *msg,
                                                       u32 frame_offset,
                                                       u32 payload_len,
                                                       u32 inject_offset) {
-    bool popped = false;
-    if (!H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_pop)) {
-        popped = bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0;
-    }
+    bool popped = bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0;
     if (!popped) {
         popped = bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0;
     }
@@ -61,10 +43,7 @@ static __always_inline bool h2_restore_socket_message(struct sk_msg_md *msg,
         return false;
     }
 
-    bool pulled = false;
-    if (!H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_pull)) {
-        pulled = bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) == 0;
-    }
+    bool pulled = bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) == 0;
     if (!pulled) {
         pulled = bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) == 0;
     }
@@ -78,8 +57,7 @@ static __always_inline bool h2_restore_socket_message(struct sk_msg_md *msg,
     }
 
     h2_store_frame_len(data, payload_len);
-    return !H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_rollback_readback) &&
-           h2_frame_len_bytes_are(data, payload_len);
+    return h2_frame_len_bytes_are(data, payload_len);
 }
 
 // Inserts one complete HPACK field. The frame-length store is the socket-message commit point:
@@ -100,8 +78,7 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
         return k_h2_socket_transaction_no_mutation;
     }
 
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_preflight_pull) ||
-        bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
+    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
         return k_h2_socket_transaction_no_mutation;
     }
     const unsigned char *frame = msg->data;
@@ -110,13 +87,11 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
         return k_h2_socket_transaction_no_mutation;
     }
 
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_push) ||
-        bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
+    if (bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
         return k_h2_socket_transaction_no_mutation;
     }
 
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_write_pull) ||
-        bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
+    if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
         return h2_restore_socket_message(
                    msg, original_size, frame_offset, payload_len, inject_offset)
                    ? k_h2_socket_transaction_rollback_verified
@@ -133,8 +108,7 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
 
     __builtin_memcpy(data, expected, k_h2_tp_hpack_size);
 
-    if (H2_SOCKET_TRANSACTION_FAULT(k_h2_socket_boundary_frame_pull) ||
-        bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
+    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
         return h2_restore_socket_message(
                    msg, original_size, frame_offset, payload_len, inject_offset)
                    ? k_h2_socket_transaction_rollback_verified

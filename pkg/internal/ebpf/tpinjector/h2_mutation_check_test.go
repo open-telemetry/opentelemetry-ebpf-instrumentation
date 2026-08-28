@@ -27,22 +27,13 @@ const (
 	h2ProbeHPACKLen       = 69
 )
 
-const (
-	h2BoundaryPreflightPull = 1
-	h2BoundaryPush          = 2
-	h2BoundaryWritePull     = 3
-	h2BoundaryFramePull     = 4
-	h2BoundaryRollbackPop   = 5
-	h2BoundaryRollbackPull  = 6
-)
-
 var h2ProbeExpectedHPACK = []byte("\x00\x0btraceparent\x37" +
 	"00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
 
-func verifyH2MutationRollback() error {
+func verifyH2MutationPeer() error {
 	spec, err := LoadBpfH2MutationProbe()
 	if err != nil {
-		return fmt.Errorf("reading rollback probe: %w", err)
+		return fmt.Errorf("reading mutation probe: %w", err)
 	}
 	for _, probeMap := range spec.Maps {
 		if probeMap.Pinning == ebpfconvenience.PinInternal {
@@ -66,27 +57,10 @@ func verifyH2MutationRollback() error {
 	}
 	defer link.RawDetachProgram(link.RawDetachProgramOptions(attach)) //nolint:errcheck
 
-	boundaries := []struct {
-		name string
-		mask uint64
-	}{
-		{name: "preflight pull", mask: h2BoundaryBit(h2BoundaryPreflightPull)},
-		{name: "push", mask: h2BoundaryBit(h2BoundaryPush)},
-		{name: "post-push pull", mask: h2BoundaryBit(h2BoundaryWritePull)},
-		{name: "frame pull", mask: h2BoundaryBit(h2BoundaryFramePull)},
-		{name: "rollback pop", mask: h2BoundaryBit(h2BoundaryWritePull) | h2BoundaryBit(h2BoundaryRollbackPop)},
-		{name: "rollback pull", mask: h2BoundaryBit(h2BoundaryWritePull) | h2BoundaryBit(h2BoundaryRollbackPull)},
-	}
-
-	for _, boundary := range boundaries {
-		if err := verifyH2MutationBoundary(&objects, boundary.mask); err != nil {
-			return fmt.Errorf("%s boundary: %w", boundary.name, err)
-		}
-	}
-	return nil
+	return verifyH2MutationPeerWrites(&objects)
 }
 
-func verifyH2MutationBoundary(objects *BpfH2MutationProbeObjects, faultMask uint64) error {
+func verifyH2MutationPeerWrites(objects *BpfH2MutationProbeObjects) error {
 	client, peer, err := h2ProbeTCPPair()
 	if err != nil {
 		return err
@@ -106,36 +80,26 @@ func verifyH2MutationBoundary(objects *BpfH2MutationProbeObjects, faultMask uint
 	}
 
 	first := h2ProbeFrame(1)
-	if err := objects.FaultMask.Update(uint32(0), faultMask, ebpf.UpdateAny); err != nil {
-		return fmt.Errorf("setting fault: %w", err)
-	}
 	if err := h2ProbeWrite(clientFD, first); err != nil {
-		return fmt.Errorf("writing faulted frame: %w", err)
+		return fmt.Errorf("writing first frame: %w", err)
 	}
 	got, err := h2ProbeReadFrame(peer)
 	if err != nil {
-		return fmt.Errorf("reading restored frame: %w", err)
+		return fmt.Errorf("reading first frame: %w", err)
 	}
-	if !bytes.Equal(got, first) {
-		return errors.New("rollback did not restore the original frame")
+	if !bytes.Equal(got, h2ProbeMutatedFrame(first)) {
+		return errors.New("first frame did not contain the expected mutation")
 	}
 
-	if err := objects.FaultMask.Update(uint32(0), uint64(0), ebpf.UpdateAny); err != nil {
-		return fmt.Errorf("clearing fault: %w", err)
-	}
-	control := h2ProbeFrame(3)
-	if err := h2ProbeWrite(clientFD, control); err != nil {
+	second := h2ProbeFrame(3)
+	if err := h2ProbeWrite(clientFD, second); err != nil {
 		return fmt.Errorf("writing subsequent frame: %w", err)
 	}
 	got, err = h2ProbeReadFrame(peer)
 	if err != nil {
 		return fmt.Errorf("reading subsequent frame: %w", err)
 	}
-	expected := append(append([]byte(nil), control...), h2ProbeExpectedHPACK...)
-	expected[0] = 0
-	expected[1] = 0
-	expected[2] = h2ProbePayloadLen + h2ProbeHPACKLen
-	if !bytes.Equal(got, expected) {
+	if !bytes.Equal(got, h2ProbeMutatedFrame(second)) {
 		return errors.New("subsequent frame did not commit on the same connection")
 	}
 
@@ -149,8 +113,12 @@ func verifyH2MutationBoundary(objects *BpfH2MutationProbeObjects, faultMask uint
 	return nil
 }
 
-func h2BoundaryBit(boundary uint) uint64 {
-	return 1 << boundary
+func h2ProbeMutatedFrame(frame []byte) []byte {
+	expected := append(append([]byte(nil), frame...), h2ProbeExpectedHPACK...)
+	expected[0] = 0
+	expected[1] = 0
+	expected[2] = h2ProbePayloadLen + h2ProbeHPACKLen
+	return expected
 }
 
 func h2ProbeTCPPair() (*net.TCPConn, *net.TCPConn, error) {

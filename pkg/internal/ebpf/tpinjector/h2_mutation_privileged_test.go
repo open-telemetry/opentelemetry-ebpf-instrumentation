@@ -16,5 +16,5 @@ import (
 func TestH2MutationPeerContinuity(t *testing.T) {
 	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
 	require.NoError(t, rlimit.RemoveMemlock())
-	require.NoError(t, verifyH2MutationRollback())
+	require.NoError(t, verifyH2MutationPeer())
 }

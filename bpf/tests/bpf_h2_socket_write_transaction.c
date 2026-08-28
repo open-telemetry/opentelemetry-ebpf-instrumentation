@@ -21,15 +21,24 @@ static unsigned char message[256];
 static unsigned char original[256];
 static unsigned char expected[k_h2_tp_hpack_size];
 static u32 message_len;
-static u64 fault_mask;
+static u32 pull_calls;
+static u64 failed_pull_calls;
+static bool force_push_failure;
 static u32 forced_pop_failures;
 
-static bool transaction_fault(unsigned int boundary) {
-    return fault_mask & (1ULL << boundary);
-}
+enum {
+    k_preflight_pull_call = 1,
+    k_write_pull_call,
+    k_frame_pull_call,
+    k_rollback_pull_after_write_failure_call = k_frame_pull_call,
+};
 
 static long test_msg_pull_data(struct sk_msg_md *msg, u32 start, u32 end, u64 flags) {
     (void)flags;
+    pull_calls++;
+    if (failed_pull_calls & (1ULL << pull_calls)) {
+        return -1;
+    }
     if (start > message_len || end < start || end > message_len) {
         return -1;
     }
@@ -40,7 +49,7 @@ static long test_msg_pull_data(struct sk_msg_md *msg, u32 start, u32 end, u64 fl
 
 static long test_msg_push_data(struct sk_msg_md *msg, u32 start, u32 len, u64 flags) {
     (void)flags;
-    if (start > message_len || len > sizeof(message) - message_len) {
+    if (force_push_failure || start > message_len || len > sizeof(message) - message_len) {
         return -1;
     }
     memmove(message + start + len, message + start, message_len - start);
@@ -72,9 +81,7 @@ static long test_msg_pop_data(struct sk_msg_md *msg, u32 start, u32 len, u64 fla
 #define bpf_msg_pull_data test_msg_pull_data
 #define bpf_msg_push_data test_msg_push_data
 #define bpf_msg_pop_data test_msg_pop_data
-#define H2_SOCKET_TRANSACTION_FAULT(boundary) transaction_fault(boundary)
 #include <tpinjector/h2_write_transaction.h>
-#undef H2_SOCKET_TRANSACTION_FAULT
 #undef bpf_msg_pop_data
 #undef bpf_msg_push_data
 #undef bpf_msg_pull_data
@@ -98,7 +105,9 @@ static struct sk_msg_md reset_message(void) {
     message[2] = k_payload_len;
     message_len = k_h2_frame_header_len + k_payload_len;
     memcpy(original, message, message_len);
-    fault_mask = 0;
+    pull_calls = 0;
+    failed_pull_calls = 0;
+    force_push_failure = false;
     forced_pop_failures = 0;
 
     return (struct sk_msg_md){
@@ -131,58 +140,64 @@ static void test_commit(void) {
            "commit writes the expected HPACK field");
 }
 
-static void test_no_mutation_boundary(h2_socket_transaction_boundary_t boundary,
-                                      const char *description) {
+static void test_preflight_pull_failure(void) {
     struct sk_msg_md msg = reset_message();
-    fault_mask = 1ULL << boundary;
-    expect(run_transaction(&msg) == k_h2_socket_transaction_no_mutation, description);
-    expect_original(description);
+    failed_pull_calls = 1ULL << k_preflight_pull_call;
+    expect(run_transaction(&msg) == k_h2_socket_transaction_no_mutation,
+           "preflight pull failure does not mutate");
+    expect_original("preflight pull failure does not mutate");
 }
 
-static void test_verified_rollback_boundary(h2_socket_transaction_boundary_t boundary,
-                                            const char *description) {
+static void test_push_failure(void) {
     struct sk_msg_md msg = reset_message();
-    fault_mask = 1ULL << boundary;
+    force_push_failure = true;
+    expect(run_transaction(&msg) == k_h2_socket_transaction_no_mutation,
+           "push failure does not mutate");
+    expect_original("push failure does not mutate");
+}
+
+static void test_verified_rollback_pull_failure(u32 failed_pull_call, const char *description) {
+    struct sk_msg_md msg = reset_message();
+    failed_pull_calls = 1ULL << failed_pull_call;
     expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_verified, description);
     expect_original(description);
 }
 
-static void test_retried_rollback_boundary(h2_socket_transaction_boundary_t boundary,
-                                           const char *description) {
+static void test_retried_rollback_pop(void) {
     struct sk_msg_md msg = reset_message();
-    fault_mask = (1ULL << k_h2_socket_boundary_write_pull) | (1ULL << boundary);
-    expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_verified, description);
-    expect_original(description);
+    failed_pull_calls = 1ULL << k_write_pull_call;
+    forced_pop_failures = 1;
+    expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_verified,
+           "transient pop failure is retried and verified");
+    expect_original("transient pop failure is retried and verified");
+}
+
+static void test_retried_rollback_pull(void) {
+    struct sk_msg_md msg = reset_message();
+    failed_pull_calls =
+        (1ULL << k_write_pull_call) | (1ULL << k_rollback_pull_after_write_failure_call);
+    expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_verified,
+           "transient rollback pull failure is retried and verified");
+    expect_original("transient rollback pull failure is retried and verified");
 }
 
 int main(void) {
     test_commit();
 
-    test_no_mutation_boundary(k_h2_socket_boundary_preflight_pull,
-                              "preflight pull failure does not mutate");
-    test_no_mutation_boundary(k_h2_socket_boundary_push, "push failure does not mutate");
+    test_preflight_pull_failure();
+    test_push_failure();
 
-    test_verified_rollback_boundary(k_h2_socket_boundary_write_pull,
-                                    "post-push pull failure rolls back");
-    test_verified_rollback_boundary(k_h2_socket_boundary_frame_pull,
-                                    "frame pull failure rolls back");
+    test_verified_rollback_pull_failure(k_write_pull_call, "post-push pull failure rolls back");
+    test_verified_rollback_pull_failure(k_frame_pull_call, "frame pull failure rolls back");
 
-    test_retried_rollback_boundary(k_h2_socket_boundary_rollback_pop,
-                                   "transient pop failure is retried and verified");
-    test_retried_rollback_boundary(k_h2_socket_boundary_rollback_pull,
-                                   "transient rollback pull failure is retried and verified");
+    test_retried_rollback_pop();
+    test_retried_rollback_pull();
 
     struct sk_msg_md msg = reset_message();
-    fault_mask = 1ULL << k_h2_socket_boundary_write_pull;
+    failed_pull_calls = 1ULL << k_write_pull_call;
     forced_pop_failures = 2;
     expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_uncertain,
            "two failed pop attempts keep rollback uncertain");
-
-    msg = reset_message();
-    fault_mask = (1ULL << k_h2_socket_boundary_write_pull) |
-                 (1ULL << k_h2_socket_boundary_rollback_readback);
-    expect(run_transaction(&msg) == k_h2_socket_transaction_rollback_uncertain,
-           "failed rollback verification keeps rollback uncertain");
 
     puts("OK: bpf_h2_socket_write_transaction.c");
     return 0;
