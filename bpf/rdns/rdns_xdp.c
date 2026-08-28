@@ -60,8 +60,6 @@ enum ipv6_next_header {
     IPV6_DESTINATION_OPTIONS = 60,
 };
 
-enum { IPV4_FRAGMENT_MASK = 0x3fff };
-
 struct dns_record {
     __be16 len;
     unsigned char data[RB_RECORD_LEN];
@@ -94,108 +92,79 @@ static __always_inline void *ctx_xdp_data_end(struct xdp_md *ctx) {
     return data_end;
 }
 
-static __always_inline struct udphdr *validate_udp_header(unsigned char *cursor,
-                                                          const unsigned char *packet_end,
-                                                          const unsigned char *data_end) {
-    struct udphdr *udp = (void *)cursor;
+// Helper functions to parse network headers
+static __always_inline struct iphdr *ip4_header(struct xdp_md *ctx) {
+    void *data = ctx_xdp_data(ctx);
 
-    if ((void *)(udp + 1) > (void *)packet_end || (void *)(udp + 1) > (void *)data_end) {
-        return NULL;
-    }
+    data += sizeof(struct ethhdr);
 
-    const __u16 udp_len = bpf_ntohs(udp->len);
-    if (udp_len < sizeof(*udp) || cursor + udp_len > packet_end || cursor + udp_len > data_end) {
-        return NULL;
-    }
-
-    return udp;
+    return (data + sizeof(struct iphdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
 }
 
-static __always_inline struct udphdr *ipv4_udp_header(struct iphdr *iph,
-                                                      const unsigned char *data_end) {
-    if ((void *)(iph + 1) > (void *)data_end || iph->version != 4 || iph->ihl < 5 ||
-        iph->protocol != IPPROTO_UDP || (iph->frag_off & bpf_htons(IPV4_FRAGMENT_MASK)) != 0) {
+static __always_inline struct udphdr *udp_header_ipv4(struct xdp_md *ctx) {
+    struct iphdr *iph = ip4_header(ctx);
+
+    if (!iph) {
+        return NULL;
+    }
+
+    if (iph->protocol != IPPROTO_UDP) {
         return NULL;
     }
 
     const __u32 advance = iph->ihl * 4;
-    const __u16 total_len = bpf_ntohs(iph->tot_len);
-    if (total_len < advance + sizeof(struct udphdr)) {
-        return NULL;
-    }
 
-    unsigned char *ip_end = (void *)iph + total_len;
-    if (ip_end > data_end) {
-        return NULL;
-    }
+    void *data = (void *)iph + advance;
 
-    return validate_udp_header((void *)iph + advance, ip_end, data_end);
+    return (data + sizeof(struct udphdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
 }
 
-static __always_inline struct udphdr *ipv6_udp_header(struct ipv6hdr *iph,
-                                                      const unsigned char *data_end) {
-    if ((void *)(iph + 1) > (void *)data_end || iph->version != 6) {
-        return NULL;
-    }
+static __always_inline struct ipv6hdr *ip6_header(struct xdp_md *ctx) {
+    void *data = ctx_xdp_data(ctx);
 
-    const __u16 payload_len = bpf_ntohs(iph->payload_len);
-    // A zero payload length denotes an IPv6 jumbogram. UDP jumbograms use
-    // a zero UDP length and need separate option parsing, so skip them.
-    if (payload_len == 0) {
-        return NULL;
-    }
+    data += sizeof(struct ethhdr);
 
-    unsigned char *ip_end = (void *)(iph + 1) + payload_len;
-    if (ip_end > data_end) {
+    return (data + sizeof(struct ipv6hdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
+}
+
+static __always_inline struct udphdr *udp_header_ipv6(struct xdp_md *ctx) {
+    struct ipv6hdr *iph = ip6_header(ctx);
+
+    if (!iph) {
         return NULL;
     }
 
     __u8 next_header = iph->nexthdr;
-    unsigned char *cursor = (void *)(iph + 1);
+    void *data = (void *)(iph + 1);
+    void *data_end = ctx_xdp_data_end(ctx);
 
-    // IPv6 extension-header chains are finite in valid traffic. Keep the
-    // walk explicitly bounded so the BPF verifier can prove termination.
 #pragma unroll
     for (__u8 i = 0; i < 6; ++i) {
         if (next_header == IPPROTO_UDP) {
-            return validate_udp_header(cursor, ip_end, data_end);
+            return (data + sizeof(struct udphdr) > data_end) ? NULL : data;
         }
 
-        // DNS messages spanning IPv6 fragments require reassembly, which
-        // is intentionally outside the scope of this packet-level tracer.
-        if (next_header == IPV6_FRAGMENT) {
+        if (next_header == IPV6_FRAGMENT ||
+            (next_header != IPV6_HOP_BY_HOP && next_header != IPV6_ROUTING &&
+             next_header != IPV6_DESTINATION_OPTIONS && next_header != IPV6_AUTHENTICATION)) {
             return NULL;
         }
 
-        if (next_header != IPV6_HOP_BY_HOP && next_header != IPV6_ROUTING &&
-            next_header != IPV6_DESTINATION_OPTIONS && next_header != IPV6_AUTHENTICATION) {
-            return NULL;
-        }
-
-        struct ipv6_opt_hdr *extension = (void *)cursor;
-        unsigned char *extension_end = (void *)(extension + 1);
-        if (extension_end > ip_end || extension_end > data_end) {
+        struct ipv6_opt_hdr *extension = data;
+        if ((void *)(extension + 1) > data_end) {
             return NULL;
         }
 
         const __u8 extension_type = next_header;
         next_header = extension->nexthdr;
-        __u32 extension_len;
-        if (extension_type == IPV6_AUTHENTICATION) {
-            // Authentication Header length is measured in 32-bit words,
-            // excluding the first two words.
-            if (extension->hdrlen < 1) {
-                return NULL;
-            }
-            extension_len = ((__u32)extension->hdrlen + 2) * 4;
-        } else {
-            extension_len = ((__u32)extension->hdrlen + 1) * 8;
-        }
+        const __u32 extension_len = extension_type == IPV6_AUTHENTICATION
+                                        ? ((__u32)extension->hdrlen + 2) * 4
+                                        : ((__u32)extension->hdrlen + 1) * 8;
 
-        if (cursor + extension_len > ip_end || cursor + extension_len > data_end) {
+        if (data + extension_len > data_end) {
             return NULL;
         }
-        cursor += extension_len;
+        data += extension_len;
     }
 
     return NULL;
@@ -212,9 +181,9 @@ static __always_inline struct udphdr *udp_header(struct xdp_md *ctx) {
 
     switch (bpf_ntohs(eth->h_proto)) {
     case ETH_P_IP:
-        return ipv4_udp_header((void *)(eth + 1), data_end);
+        return udp_header_ipv4(ctx);
     case ETH_P_IPV6:
-        return ipv6_udp_header((void *)(eth + 1), data_end);
+        return udp_header_ipv6(ctx);
     default:
         return NULL;
     }
@@ -374,7 +343,8 @@ int dns_response_tracker(struct xdp_md *ctx) {
     }
 
     const unsigned char *udp_end = (void *)udp + udp_len;
-    if ((void *)udp + UDP_HDR_SIZE + DNS_HDR_SIZE >= (void *)udp_end) {
+    if ((void *)udp_end > ctx_xdp_data_end(ctx) ||
+        (void *)udp + UDP_HDR_SIZE + DNS_HDR_SIZE >= (void *)udp_end) {
         return XDP_PASS;
     }
 
