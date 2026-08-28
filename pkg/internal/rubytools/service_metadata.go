@@ -260,7 +260,6 @@ func inspectProjectDirectory(dir string) (projectKind, serviceMetadata, error) {
 
 func rootGemspecs(dir string) ([]string, bool, error) {
 	directory, err := os.Open(dir)
-
 	if err != nil {
 		return nil, false, fmt.Errorf("opening Ruby project directory %q: %w", dir, err)
 	}
