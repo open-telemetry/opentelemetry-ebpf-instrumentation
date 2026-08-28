@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -722,7 +723,7 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 			"net/http/internal/http2.(*ClientConn).writeHeader",
 		},
 	}
-	assert.Equal(t, append(expectedSymbols[0], expectedSymbols[1]...), GoH2OwnershipProbeSymbols())
+	assert.Equal(t, slices.Concat(expectedSymbols...), GoH2OwnershipProbeSymbols())
 
 	for i, group := range groups {
 		require.Len(t, group.Prerequisites, 1)
