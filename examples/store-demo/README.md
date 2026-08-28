@@ -55,6 +55,7 @@ services=(
   "loadgenerator:examples/store-demo/app/src/loadgenerator"
   "paymentservice:examples/store-demo/app/src/paymentservice"
   "productcatalogservice:examples/store-demo/app/src/productcatalogservice"
+  "recentlyviewed:examples/store-demo/services/recentlyviewed"
   "recommendationservice:examples/store-demo/app/src/recommendationservice"
   "shippingservice:examples/store-demo/app/src/shippingservice"
 )

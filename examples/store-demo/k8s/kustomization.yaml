@@ -27,5 +27,6 @@ resources:
 - loadgenerator.yaml
 - paymentservice.yaml
 - productcatalogservice.yaml
+- recentlyviewed.yaml
 - recommendationservice.yaml
 - shippingservice.yaml
