@@ -95,7 +95,17 @@ func handleDNSMessage(rd *ringbuf.Record) *store.DNSEntry {
 	}
 
 	for _, answer := range dnsMessage.answers {
-		if answer.typ != uint16(dnsparser.TypeA) {
+		expectedLength := 0
+		switch answer.typ {
+		case uint16(dnsparser.TypeA):
+			expectedLength = net.IPv4len
+		case uint16(dnsparser.TypeAAAA):
+			expectedLength = net.IPv6len
+		default:
+			continue
+		}
+
+		if len(answer.data) != expectedLength {
 			continue
 		}
 

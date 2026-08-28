@@ -9,6 +9,8 @@ import (
 	"math"
 	"runtime"
 	"testing"
+
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
 const (
@@ -106,6 +108,57 @@ func TestParseDNSMessageCompressedResponses(t *testing.T) {
 			if answer.name != "example.com" || answer.typ != response.recordType || answer.class != 1 ||
 				answer.ttl != 60 || !bytes.Equal(answer.data, response.recordData) {
 				t.Fatalf("unexpected answer: %#v", answer)
+			}
+		})
+	}
+}
+
+func TestHandleDNSMessageIPAnswers(t *testing.T) {
+	tests := map[string]struct {
+		message []byte
+		wantIP  string
+	}{
+		"IPv4 A record": {
+			message: compressedResponse(typeA, typeA, []byte{192, 0, 2, 1}),
+			wantIP:  "192.0.2.1",
+		},
+		"IPv6 AAAA record": {
+			message: compressedResponse(typeAAAA, typeAAAA, []byte{
+				0x20, 1, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+			}),
+			wantIP: "2001:db8::1",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := handleDNSMessage(&ringbuf.Record{RawSample: test.message})
+			if got == nil {
+				t.Fatal("handleDNSMessage() = nil")
+			}
+			if got.HostName != "example.com" {
+				t.Fatalf("HostName = %q, want example.com", got.HostName)
+			}
+			if len(got.IPs) != 1 || got.IPs[0] != test.wantIP {
+				t.Fatalf("IPs = %v, want [%s]", got.IPs, test.wantIP)
+			}
+		})
+	}
+}
+
+func TestHandleDNSMessageRejectsNonIPAndMalformedAddresses(t *testing.T) {
+	tests := map[string][]byte{
+		"CNAME":          compressedResponse(typeA, typeCNAME, []byte{0}),
+		"short A":        compressedResponse(typeA, typeA, []byte{192, 0, 2}),
+		"oversized A":    compressedResponse(typeA, typeA, []byte{192, 0, 2, 1, 1}),
+		"short AAAA":     compressedResponse(typeAAAA, typeAAAA, make([]byte, 15)),
+		"oversized AAAA": compressedResponse(typeAAAA, typeAAAA, make([]byte, 17)),
+	}
+
+	for name, message := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := handleDNSMessage(&ringbuf.Record{RawSample: message}); got != nil {
+				t.Fatalf("handleDNSMessage() = %#v, want nil", got)
 			}
 		})
 	}

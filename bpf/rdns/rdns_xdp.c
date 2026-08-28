@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/protocol_defs.h>
 #include <logger/bpf_dbg.h>
 
 // Reverse DNS implementation by means of XDP packet inspection.
@@ -51,6 +52,17 @@ enum { RB_RECORD_LEN = 256 };                        // Maximum record length fo
 enum { DNS_PORT = 53 };                              // Standard DNS port
 enum { UDP_HDR_SIZE = sizeof(struct udphdr), DNS_HDR_SIZE = 12 }; // Header sizes
 
+// IPv6 next-header values used while walking the extension-header chain.
+enum ipv6_next_header {
+    IPV6_HOP_BY_HOP = 0,
+    IPV6_ROUTING = 43,
+    IPV6_FRAGMENT = 44,
+    IPV6_AUTHENTICATION = 51,
+    IPV6_DESTINATION_OPTIONS = 60,
+};
+
+enum { IPV4_FRAGMENT_MASK = 0x3fff };
+
 static __always_inline __u8 get_bit(__u8 word, __u8 offset) {
     return (word >> offset) & 0x1;
 }
@@ -76,40 +88,140 @@ static __always_inline void *ctx_xdp_data_end(struct xdp_md *ctx) {
     return data_end;
 }
 
-// Helper functions to parse network headers
-static __always_inline struct iphdr *ip_header(struct xdp_md *ctx) {
-    void *data = ctx_xdp_data(ctx);
+static __always_inline struct udphdr *validate_udp_header(unsigned char *cursor,
+                                                          const unsigned char *packet_end,
+                                                          const unsigned char *data_end) {
+    struct udphdr *udp = (void *)cursor;
 
-    data += sizeof(struct ethhdr);
-
-    return (data + sizeof(struct iphdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
-}
-
-static __always_inline struct udphdr *udp_header(struct xdp_md *ctx) {
-    struct iphdr *iph = ip_header(ctx);
-
-    if (!iph) {
+    if ((void *)(udp + 1) > (void *)packet_end || (void *)(udp + 1) > (void *)data_end) {
         return NULL;
     }
 
-    if (iph->protocol != IPPROTO_UDP) {
+    const __u16 udp_len = bpf_ntohs(udp->len);
+    if (udp_len < sizeof(*udp) || cursor + udp_len > packet_end || cursor + udp_len > data_end) {
+        return NULL;
+    }
+
+    return udp;
+}
+
+static __always_inline struct udphdr *ipv4_udp_header(struct iphdr *iph,
+                                                      const unsigned char *data_end) {
+    if ((void *)(iph + 1) > (void *)data_end || iph->version != 4 || iph->ihl < 5 ||
+        iph->protocol != IPPROTO_UDP || (iph->frag_off & bpf_htons(IPV4_FRAGMENT_MASK)) != 0) {
         return NULL;
     }
 
     const __u32 advance = iph->ihl * 4;
+    const __u16 total_len = bpf_ntohs(iph->tot_len);
+    if (total_len < advance + sizeof(struct udphdr)) {
+        return NULL;
+    }
 
-    void *data = (void *)iph + advance;
+    unsigned char *ip_end = (void *)iph + total_len;
+    if (ip_end > data_end) {
+        return NULL;
+    }
 
-    return (data + sizeof(struct udphdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
+    return validate_udp_header((void *)iph + advance, ip_end, data_end);
+}
+
+static __always_inline struct udphdr *ipv6_udp_header(struct ipv6hdr *iph,
+                                                      const unsigned char *data_end) {
+    if ((void *)(iph + 1) > (void *)data_end || iph->version != 6) {
+        return NULL;
+    }
+
+    const __u16 payload_len = bpf_ntohs(iph->payload_len);
+    // A zero payload length denotes an IPv6 jumbogram. UDP jumbograms use
+    // a zero UDP length and need separate option parsing, so skip them.
+    if (payload_len == 0) {
+        return NULL;
+    }
+
+    unsigned char *ip_end = (void *)(iph + 1) + payload_len;
+    if (ip_end > data_end) {
+        return NULL;
+    }
+
+    __u8 next_header = iph->nexthdr;
+    unsigned char *cursor = (void *)(iph + 1);
+
+    // IPv6 extension-header chains are finite in valid traffic. Keep the
+    // walk explicitly bounded so the BPF verifier can prove termination.
+#pragma unroll
+    for (__u8 i = 0; i < 6; ++i) {
+        if (next_header == IPPROTO_UDP) {
+            return validate_udp_header(cursor, ip_end, data_end);
+        }
+
+        // DNS messages spanning IPv6 fragments require reassembly, which
+        // is intentionally outside the scope of this packet-level tracer.
+        if (next_header == IPV6_FRAGMENT) {
+            return NULL;
+        }
+
+        if (next_header != IPV6_HOP_BY_HOP && next_header != IPV6_ROUTING &&
+            next_header != IPV6_DESTINATION_OPTIONS && next_header != IPV6_AUTHENTICATION) {
+            return NULL;
+        }
+
+        struct ipv6_opt_hdr *extension = (void *)cursor;
+        unsigned char *extension_end = (void *)(extension + 1);
+        if (extension_end > ip_end || extension_end > data_end) {
+            return NULL;
+        }
+
+        const __u8 extension_type = next_header;
+        next_header = extension->nexthdr;
+        __u32 extension_len;
+        if (extension_type == IPV6_AUTHENTICATION) {
+            // Authentication Header length is measured in 32-bit words,
+            // excluding the first two words.
+            if (extension->hdrlen < 1) {
+                return NULL;
+            }
+            extension_len = ((__u32)extension->hdrlen + 2) * 4;
+        } else {
+            extension_len = ((__u32)extension->hdrlen + 1) * 8;
+        }
+
+        if (cursor + extension_len > ip_end || cursor + extension_len > data_end) {
+            return NULL;
+        }
+        cursor += extension_len;
+    }
+
+    return NULL;
+}
+
+static __always_inline struct udphdr *udp_header(struct xdp_md *ctx) {
+    void *data = ctx_xdp_data(ctx);
+    void *data_end = ctx_xdp_data_end(ctx);
+    struct ethhdr *eth = data;
+
+    if ((void *)(eth + 1) > data_end) {
+        return NULL;
+    }
+
+    switch (bpf_ntohs(eth->h_proto)) {
+    case ETH_P_IP:
+        return ipv4_udp_header((void *)(eth + 1), data_end);
+    case ETH_P_IPV6:
+        return ipv6_udp_header((void *)(eth + 1), data_end);
+    default:
+        return NULL;
+    }
 };
 
 // Validates and calculates the size of a DNS question section
-static __always_inline __u32 validate_qsection(struct xdp_md *ctx, const unsigned char *data) {
+static __always_inline __u32 validate_qsection(const unsigned char *data,
+                                               const unsigned char *data_end) {
     __u32 size = 0;
 
     // try at most 16 sections
     for (__u8 i = 0; i < 16; ++i) {
-        if ((void *)data >= ctx_xdp_data_end(ctx)) {
+        if (data >= data_end) {
             return 0;
         }
 
@@ -119,9 +231,10 @@ static __always_inline __u32 validate_qsection(struct xdp_md *ctx, const unsigne
         ++data;
 
         if (len == 0) {
-            size += sizeof(__u16); // account for QTYPE and QCLASS
+            const __u32 question_fields_size = 2 * sizeof(__u16); // QTYPE and QCLASS
+            size += question_fields_size;
 
-            if ((void *)(data + sizeof(__u16)) < ctx_xdp_data_end(ctx)) {
+            if (data + question_fields_size <= data_end) {
                 return size;
             } else {
                 return 0;
@@ -138,9 +251,8 @@ static __always_inline __u32 validate_qsection(struct xdp_md *ctx, const unsigne
 // Submits a DNS packet to the ring buffer for user space processing.
 // Uses a bounded loop with per-iteration packet bounds checks so the BPF verifier
 // can track each access, avoiding bpf_xdp_load_bytes which requires kernel 5.18+.
-static __always_inline void submit_dns_packet(struct xdp_md *ctx, const unsigned char *const data) {
-    const unsigned char *end = ctx_xdp_data_end(ctx);
-
+static __always_inline void submit_dns_packet(const unsigned char *const data,
+                                              const unsigned char *const end) {
     const __u32 data_len = (end - data) & 0xffff;
 
     if (data_len == 0 || data_len > RB_RECORD_LEN) {
@@ -169,8 +281,8 @@ static __always_inline void submit_dns_packet(struct xdp_md *ctx, const unsigned
 }
 
 // Parses a DNS response packet and validates its structure
-static __always_inline void parse_dns_response(struct xdp_md *ctx,
-                                               const unsigned char *const data) {
+static __always_inline void parse_dns_response(const unsigned char *const data,
+                                               const unsigned char *const data_end) {
     // Extract DNS header fields
     const __u8 flags0 = *(data + 2);
     const __u8 flags1 = *(data + 3);
@@ -210,7 +322,7 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
     const unsigned char *ptr = data + DNS_HEADER_SIZE;
 
     for (__u8 i = 0; i < 4 && i < qdcount; ++i) {
-        const __u32 qsection_size = validate_qsection(ctx, ptr);
+        const __u32 qsection_size = validate_qsection(ptr, data_end);
 
         if (qsection_size == 0) {
             bpf_d_printk("invalid qsection, bailing");
@@ -224,7 +336,7 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
     bpf_d_printk("found qsection, dns_packet_size=%u", dns_packet_size);
 
     // Submit valid DNS packet to ring buffer
-    submit_dns_packet(ctx, data);
+    submit_dns_packet(data, data_end);
 }
 
 // Main XDP program entry point
@@ -253,12 +365,13 @@ int dns_response_tracker(struct xdp_md *ctx) {
         return XDP_PASS;
     }
 
-    if ((void *)udp + UDP_HDR_SIZE + DNS_HDR_SIZE >= ctx_xdp_data_end(ctx)) {
+    const unsigned char *udp_end = (void *)udp + udp_len;
+    if ((void *)udp + UDP_HDR_SIZE + DNS_HDR_SIZE >= (void *)udp_end) {
         return XDP_PASS;
     }
 
     // Parse and process DNS response
-    parse_dns_response(ctx, (unsigned char *)(udp) + UDP_HDR_SIZE);
+    parse_dns_response((unsigned char *)(udp) + UDP_HDR_SIZE, udp_end);
 
     return XDP_PASS;
 }
