@@ -25,6 +25,8 @@ func TestGo127HTTP2BinaryMetadata(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, elfFile.Close()) })
 
 	symbols := []string{
+		"net/http/internal/http2.(*clientStream).encodeAndWriteHeaders",
+		"net/http/internal/http2.(*ClientConn).writeHeader",
 		"net/http/internal/http2.(*ClientConn).writeHeaders",
 		"net/http/internal/http2.(*Framer).WriteHeaders",
 		"net/http/internal/http2.(*responseWriter).handlerDone",

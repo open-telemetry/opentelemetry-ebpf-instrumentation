@@ -687,9 +687,10 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 
 			groups := tracer.GoProbeGroups()
 			if tt.writeProbesEnabled {
-				require.Len(t, groups, 2)
+				require.Len(t, groups, 3)
 				assert.Equal(t, "go_http2_xnet_current_ownership", groups[0].Name)
 				assert.Equal(t, "go_http2_stdlib_current_ownership", groups[1].Name)
+				assert.Equal(t, "go_http2_stdlib_go127_ownership", groups[2].Name)
 			} else {
 				assert.Empty(t, groups)
 			}
@@ -705,7 +706,7 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	groups := tracer.GoProbeGroups()
-	require.Len(t, groups, 2)
+	require.Len(t, groups, 3)
 
 	expectedSymbols := [][]string{
 		{
@@ -715,6 +716,10 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 		{
 			"net/http.(*http2clientStream).encodeAndWriteHeaders",
 			"net/http.(*http2ClientConn).writeHeader",
+		},
+		{
+			"net/http/internal/http2.(*clientStream).encodeAndWriteHeaders",
+			"net/http/internal/http2.(*ClientConn).writeHeader",
 		},
 	}
 	assert.Equal(t, append(expectedSymbols[0], expectedSymbols[1]...), GoH2OwnershipProbeSymbols())
