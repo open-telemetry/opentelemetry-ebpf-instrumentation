@@ -38,8 +38,8 @@ jobs:
         # not using secrets.GITHUB_TOKEN since pull requests from that token do not run workflows
         GH_TOKEN: ${{ steps.generate-token.outputs.token }}
       run: |
-        message="Automatic update of offsets.json"
-        body="The offsets have been updated by go-offsets-tracker"
+        message="Update generated Go offsets"
+        body="The generated Go field offsets and runtime ABI facts have been updated."
         branch="otelbot/offset-content-auto-update"
 
         git config user.name otelbot

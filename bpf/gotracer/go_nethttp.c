@@ -1798,14 +1798,25 @@ int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
     store_persist_conn_request(&g_key, (u64)pc_ptr);
 
     if (pc_ptr) {
-        void *conn_conn_ptr = pc_ptr + k_go_iface_data_offset +
-                              go_offset_of(ot, (go_offset){.v = _pc_conn_pos}); // embedded struct
+        const u64 conn_pos = go_offset_of(ot, (go_offset){.v = _pc_conn_pos});
+        void *conn_iface = pc_ptr + conn_pos;
+        void *conn_conn_ptr = conn_iface + k_go_iface_data_offset;
         void *tls_state = 0;
         bpf_probe_read(
             &tls_state,
             sizeof(tls_state),
             (void *)(pc_ptr + go_offset_of(ot, (go_offset){.v = _pc_tls_pos}))); // find tlsState
         bpf_dbg_printk("conn_conn_ptr=%llx, tls_state=%llx", conn_conn_ptr, tls_state);
+
+        if (tls_state) {
+            void *conn_type = NULL;
+            bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+            const u64 tls_conn_type_addr = go_offset_of(ot, (go_offset){.v = _tls_conn_type_addr});
+            if (tls_conn_type_addr && conn_type != (void *)tls_conn_type_addr) {
+                bpf_dbg_printk("wrapped TLS client connection, waiting for writer handoff");
+                return 0;
+            }
+        }
 
         conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
 

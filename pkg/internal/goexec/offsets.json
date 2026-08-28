@@ -1302,6 +1302,98 @@
         ]
       }
     },
+    "net/http/internal/http2.ClientConn": {
+      "fr": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 368,
+            "since": "1.27.0"
+          }
+        ]
+      },
+      "nextStreamID": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 184,
+            "since": "1.27.0"
+          }
+        ]
+      },
+      "tconn": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.27.0"
+          }
+        ]
+      },
+      "tlsState": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "1.27.0"
+          }
+        ]
+      }
+    },
+    "net/http/internal/http2.Framer": {
+      "w": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 120,
+            "since": "1.27.0"
+          }
+        ]
+      }
+    },
+    "net/http/internal/http2.MetaHeadersFrame": {
+      "Fields": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.27.0"
+          }
+        ]
+      }
+    },
+    "net/http/internal/http2.serverConn": {
+      "conn": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "1.27.0"
+          }
+        ]
+      }
+    },
     "net/http.persistConn": {
       "conn": {
         "versions": {
@@ -1739,6 +1831,30 @@
           }
         ]
       },
+      "itaboffset": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 320,
+            "since": "1.27.0"
+          }
+        ]
+      },
+      "itabsize": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 328,
+            "since": "1.27.0"
+          }
+        ]
+      },
       "maxpc": {
         "versions": {
           "oldest": "1.17.0",
@@ -1796,6 +1912,30 @@
           {
             "offset": 176,
             "since": "1.17.0"
+          }
+        ]
+      },
+      "typedesclen": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 304,
+            "since": "1.27.0"
+          }
+        ]
+      },
+      "types": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.0"
+        },
+        "offsets": [
+          {
+            "offset": 296,
+            "since": "1.27.0"
           }
         ]
       }
