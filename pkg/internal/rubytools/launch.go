@@ -320,8 +320,7 @@ func parseToolLaunch(tool, command string, args []string) RubyLaunch {
 		}
 	case "sidekiq":
 		if path := lastLauncherOption(args, "-r", "--require"); path != "" {
-			launch.ProjectPath = path
-			launch.projectPathAuthoritative = true
+			return RubyLaunch{EntryPoint: path}
 		}
 	case "passenger":
 		if len(args) > 1 && args[0] == "start" && !strings.HasPrefix(args[1], "-") {
@@ -569,9 +568,9 @@ func scanShortOption(option string) (bool, bool, bool) {
 	short := option[1:]
 	for i := 0; i < len(short); {
 		switch short[i] {
-		case 'a', 'c', 'd', 'l', 'n', 'p', 's', 'U', 'v', 'w', 'y':
+		case 'a', 'c', 'd', 'l', 'n', 'p', 's', 'S', 'U', 'v', 'w', 'y':
 			i++
-		case 'h', 'S', 'e':
+		case 'h', 'e':
 			return false, true, true
 		case 'C', 'E', 'I', 'X', 'r':
 			return i+1 == len(short), false, true

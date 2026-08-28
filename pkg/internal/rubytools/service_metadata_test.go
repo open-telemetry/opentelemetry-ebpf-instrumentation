@@ -799,6 +799,25 @@ end
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("Sidekiq require file searches ancestor projects", func(t *testing.T) {
+		root := t.TempDir()
+		writeRubyFile(t, filepath.Join(root, "opt", "orders", "config", "jobs.rb"), nil)
+		writeRubyFile(t, filepath.Join(root, "opt", "orders", "config", "application.rb"), []byte(`
+module Orders
+  class Application < Rails::Application
+  end
+end
+`))
+		fileInfo := mockRubyProcess(t, root, "/", "sidekiq", []string{
+			"--require", "/opt/orders/config/jobs.rb",
+		}, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("Sidekiq require inside GEM_HOME falls through to cwd Rails project", func(t *testing.T) {
 		root := t.TempDir()
 		writeRubyFile(t, filepath.Join(root, "bundle", "gems", "worker", "environment.rb"), nil)

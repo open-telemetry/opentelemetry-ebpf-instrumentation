@@ -351,13 +351,22 @@ func TestParseRubyLaunchIgnoresNoFileModes(t *testing.T) {
 		{"-e", "run_server()", "app.rb"},
 		{"-erun_server()", "app.rb"},
 		{"-pe", "run_server()", "app.rb"},
-		{"-S", "app.rb"},
-		{"-wS", "app.rb"},
 		{"-h", "app.rb"},
 		{"-", "app.rb"},
 	} {
 		t.Run(args[0], func(t *testing.T) {
 			assert.Equal(t, RubyLaunch{}, ParseRubyLaunch("ruby", args))
+		})
+	}
+}
+
+func TestParseRubyLaunchSupportsPathSearch(t *testing.T) {
+	for _, args := range [][]string{
+		{"-S", "app.rb"},
+		{"-wS", "app.rb"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			assert.Equal(t, "app.rb", ParseRubyLaunch("ruby", args).EntryPoint)
 		})
 	}
 }
@@ -464,16 +473,32 @@ func TestParseRubyLaunchFindsFrameworkProjectHints(t *testing.T) {
 		{name: "Unicorn rackup", command: "unicorn", args: []string{"-c", "/etc/unicorn/orders.rb", "/opt/orders/config.ru"}, path: "/opt/orders/config.ru", authoritative: true},
 		{name: "Unicorn Rails config", command: "unicorn_rails", args: []string{"-c", "/opt/orders/config/unicorn.rb"}, path: "/opt/orders/config/unicorn.rb"},
 		{name: "Ruby Unicorn Rails config", command: "/usr/bin/ruby", args: []string{"/usr/local/bin/unicorn_rails", "-c", "/opt/orders/config/unicorn.rb"}, path: "/opt/orders/config/unicorn.rb"},
-		{name: "Sidekiq short require", command: "sidekiq", args: []string{"-r", "/opt/orders/config/environment.rb"}, path: "/opt/orders/config/environment.rb", authoritative: true},
-		{name: "Sidekiq attached require", command: "sidekiq", args: []string{"--require=/opt/orders/config/environment.rb"}, path: "/opt/orders/config/environment.rb", authoritative: true},
-		{name: "Sidekiq last require", command: "sidekiq", args: []string{"-rfirst.rb", "--require", "second.rb"}, path: "second.rb", authoritative: true},
-		{name: "Sidekiq option terminator", command: "sidekiq", args: []string{"-r", "/srv/correct", "--", "--require", "/srv/wrong"}, path: "/srv/correct", authoritative: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			launch := ParseRubyLaunch(tt.command, tt.args)
 			assert.Equal(t, tt.path, launch.ProjectPath)
 			assert.Equal(t, tt.authoritative, launch.projectPathAuthoritative)
 			assert.Empty(t, launch.EntryPoint)
+		})
+	}
+}
+
+func TestParseRubyLaunchFindsSidekiqEntryPoint(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		path string
+	}{
+		{name: "short require", args: []string{"-r", "/opt/orders/config/environment.rb"}, path: "/opt/orders/config/environment.rb"},
+		{name: "attached require", args: []string{"--require=/opt/orders/config/environment.rb"}, path: "/opt/orders/config/environment.rb"},
+		{name: "last require", args: []string{"-rfirst.rb", "--require", "second.rb"}, path: "second.rb"},
+		{name: "option terminator", args: []string{"-r", "/srv/correct", "--", "--require", "/srv/wrong"}, path: "/srv/correct"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			launch := ParseRubyLaunch("sidekiq", tt.args)
+			assert.Equal(t, tt.path, launch.EntryPoint)
+			assert.Empty(t, launch.ProjectPath)
+			assert.False(t, launch.projectPathAuthoritative)
 		})
 	}
 }
@@ -712,9 +737,9 @@ func TestParseToolLaunch(t *testing.T) {
 			want: RubyLaunch{ProjectPath: "/etc/unicorn.rb"},
 		},
 		{
-			name: "sidekiq require path is authoritative",
+			name: "sidekiq require path is an entrypoint",
 			tool: "sidekiq", command: "sidekiq", args: []string{"-r", "/opt/env.rb"},
-			want: RubyLaunch{ProjectPath: "/opt/env.rb", projectPathAuthoritative: true},
+			want: RubyLaunch{EntryPoint: "/opt/env.rb"},
 		},
 		{
 			name: "sidekiq without require yields nothing",
@@ -1041,7 +1066,7 @@ func TestScanShortOption(t *testing.T) {
 		{name: "single no-value flag", option: "-a", wantValid: true},
 		{name: "all no-value flags clustered", option: "-acdlnpsUvwy", wantValid: true},
 		{name: "help is terminal", option: "-h", wantTerminal: true, wantValid: true},
-		{name: "capital S is terminal", option: "-S", wantTerminal: true, wantValid: true},
+		{name: "capital S is a no-value flag", option: "-S", wantValid: true},
 		{name: "e is terminal", option: "-e", wantTerminal: true, wantValid: true},
 		{name: "C as the last char in the cluster consumes the next argument", option: "-C", wantConsumeNext: true, wantValid: true},
 		{name: "C not last in the cluster does not consume the next argument", option: "-Cx", wantValid: true},

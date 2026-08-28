@@ -158,40 +158,40 @@ func findProjectMetadata(
 	start, boundary, directFallback string,
 	firstDirectoryIsProject bool,
 ) (serviceMetadata, bool) {
-	if !pathWithinBoundary(boundary, start) {
-		return serviceMetadata{}, false
-	}
-
+	var metadata serviceMetadata
+	found := false
 	first := true
-	for dir := start; ; dir = filepath.Dir(dir) {
-		kind, metadata := inspectProjectDirectory(dir)
+	_ = langtools.WalkParentDirectories(start, boundary, func(dir string) (bool, error) {
+		kind, candidate := inspectProjectDirectory(dir)
 		if kind != projectNone || (first && firstDirectoryIsProject) {
 			switch kind {
 			case projectRails:
-				if metadata.Name == "" {
-					metadata.Name = serviceNameFromProjectDirectory(dir, boundary)
+				if candidate.Name == "" {
+					candidate.Name = serviceNameFromProjectDirectory(dir, boundary)
 				}
 			case projectGemspec:
-				if metadata.Name == "" {
-					metadata.Name = firstValidName(
+				if candidate.Name == "" {
+					candidate.Name = firstValidName(
 						directFallback,
 						serviceNameFromProjectDirectory(dir, boundary),
 					)
 				}
 			default:
-				metadata.Name = firstValidName(
+				candidate.Name = firstValidName(
 					directFallback,
 					serviceNameFromProjectDirectory(dir, boundary),
 				)
 			}
-			return metadata, true
+
+			metadata = candidate
+			found = true
+			return true, nil
 		}
 
-		if dir == boundary || filepath.Dir(dir) == dir {
-			return serviceMetadata{}, false
-		}
 		first = false
-	}
+		return false, nil
+	})
+	return metadata, found
 }
 
 func inspectProjectDirectory(dir string) (projectKind, serviceMetadata) {
@@ -252,11 +252,7 @@ func rootGemspecs(dir string) ([]string, bool) {
 }
 
 func searchStart(root, cwd, path string, assumeFile bool) (string, bool) {
-	if resolved, ok := langtools.ResolveProcessPath(root, cwd, path); ok {
-		info, err := os.Stat(resolved)
-		if err != nil {
-			return "", false
-		}
+	if resolved, info, ok := langtools.StatProcessPath(root, cwd, path); ok {
 		if info.IsDir() {
 			return resolved, true
 		}

@@ -30,33 +30,41 @@ type rubyBlock struct {
 
 func readRailsApplicationName(path string) string {
 	file, _ := langtools.OpenMetadataFile(path, maxRubyMetadataBytes)
+
 	if file == nil {
 		return ""
 	}
+
 	defer file.Close()
 
 	data, err := io.ReadAll(io.LimitReader(file, maxRubyMetadataBytes+1))
+
 	if err != nil || int64(len(data)) > maxRubyMetadataBytes {
 		return ""
 	}
+
 	return parseRailsApplicationName(data)
 }
 
 func parseRailsApplicationName(data []byte) string {
 	var blocks []rubyBlock
 	var candidate string
+
 	for _, line := range rubyLines(data, true) {
 		if line == ambiguousRubyLine {
 			return ""
 		}
+
 		if match := classDeclaration.FindStringSubmatch(line); len(match) == 2 {
 			if candidate != "" || insideDynamicRubyBlock(blocks) {
 				return ""
 			}
+
 			enclosing := currentRubyModule(blocks)
 			if ambiguousQualifiedConstant(match[1], enclosing) {
 				return ""
 			}
+
 			candidate = qualifiedRubyConstant(match[1], enclosing)
 			blocks = append(blocks, rubyBlock{})
 			continue
@@ -65,19 +73,23 @@ func parseRailsApplicationName(data []byte) string {
 		if strings.Contains(line, "Rails::Application") && anyClassDeclaration.MatchString(line) {
 			return ""
 		}
+
 		if match := moduleDeclaration.FindStringSubmatch(line); len(match) == 2 {
 			enclosing := currentRubyModule(blocks)
 			if ambiguousQualifiedConstant(match[1], enclosing) {
 				return ""
 			}
+
 			name := qualifiedRubyConstant(match[1], enclosing)
 			blocks = append(blocks, rubyBlock{module: name})
 			continue
 		}
+
 		if anyClassDeclaration.MatchString(line) || blockDeclaration.MatchString(line) {
 			blocks = append(blocks, rubyBlock{})
 			continue
 		}
+
 		if endDeclaration.MatchString(line) || strings.TrimSpace(line) == "}" {
 			if len(blocks) == 0 {
 				return ""
