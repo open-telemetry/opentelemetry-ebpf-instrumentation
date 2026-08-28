@@ -467,7 +467,17 @@ func TestBlockPIDDrainByCaptureTime(t *testing.T) {
 		"spans captured after the block must be dropped")
 }
 
-func TestBlockPIDReuseSameType(t *testing.T) {
+func serviceNamed(name string) *exec.FileInfo {
+	return exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: name}}})
+}
+
+func spanOf(end int64) request.Span {
+	return request.Span{Pid: request.PidInfo{UserPID: 123, Namespace: 33}, End: end}
+}
+
+// a pid reused before the previous process's last spans arrived: every span
+// gets the attributes of the process that produced it
+func TestBlockPIDReuseKeepsPreviousGeneration(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid}, nil
 	}
@@ -476,36 +486,71 @@ func TestBlockPIDReuseSameType(t *testing.T) {
 	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
 
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
-	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(123, 33, serviceNamed("old"), PIDTypeKProbes)
+	preBlock := int64(now - time.Second)
 	pf.BlockPID(123, 33)
-	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
+	now += time.Second
+	pf.AllowPID(123, 33, serviceNamed("new"), PIDTypeKProbes)
+	postReuse := int64(now + time.Second)
 
-	now += pidRemovalRetention + time.Second
 	assert.True(t, pf.ValidPID(123, 33, PIDTypeKProbes), "re-allowed pid must not inherit the removal mark")
 
-	spans := pf.Filter([]request.Span{{Pid: request.PidInfo{UserPID: 123, Namespace: 33}, End: int64(now)}})
-	assert.Len(t, spans, 1, "spans of the new incarnation must pass")
+	spans := pf.Filter([]request.Span{spanOf(preBlock), spanOf(postReuse)})
+	require.Len(t, spans, 2)
+	assert.Equal(t, "old", spans[0].Service.UID.Name, "a span captured before the block belongs to the old process")
+	assert.Equal(t, "new", spans[1].Service.UID.Name, "a span captured after the reuse belongs to the new process")
+
+	// the old process keeps its attributes for as long as its spans may still arrive
+	now = time.Hour + pidRemovalRetention - time.Second
+	spans = pf.Filter([]request.Span{spanOf(preBlock)})
+	require.Len(t, spans, 1)
+	assert.Equal(t, "old", spans[0].Service.UID.Name, "a late span of the old process keeps its attributes")
+
+	// once the old generation expires only the new process is left
+	now += 2 * time.Second
+	pf.BlockPID(456, 33)
+	assert.Empty(t, pf.Filter([]request.Span{spanOf(preBlock)}), "expired generation no longer admits spans")
+	spans = pf.Filter([]request.Span{spanOf(postReuse)})
+	require.Len(t, spans, 1)
+	assert.Equal(t, "new", spans[0].Service.UID.Name)
 }
 
-// a pid reused by a process registered for a different tracer type must not
-// revive the previous process's types
+// a pid reused by a process registered for a different tracer type: the old
+// type stays valid only until the old spans have drained, and never re-enters
+// the BPF pid filter
 func TestBlockPIDReuseAcrossTypes(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		return []app.PID{pid}, nil
 	}
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
+
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
-	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(123, 33, serviceNamed("old"), PIDTypeKProbes)
+	preBlock := int64(now - time.Second)
 	pf.BlockPID(123, 33)
-	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
+	now += time.Second
+	pf.AllowPID(123, 33, serviceNamed("new"), PIDTypeGo)
+	postReuse := int64(now + time.Second)
 
 	assert.True(t, pf.ValidPID(123, 33, PIDTypeGo))
-	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes))
+	assert.True(t, pf.ValidPID(123, 33, PIDTypeKProbes), "the old process's type stays valid while its spans drain")
 
 	_, ok := pf.CurrentPIDs(PIDTypeKProbes)[33][123]
 	assert.False(t, ok, "the previous incarnation's tracer type must not re-enter the BPF filter")
-
 	_, ok = pf.CurrentPIDs(PIDTypeGo)[33][123]
 	assert.True(t, ok)
+
+	spans := pf.Filter([]request.Span{spanOf(preBlock), spanOf(postReuse)})
+	require.Len(t, spans, 2)
+	assert.Equal(t, "old", spans[0].Service.UID.Name)
+	assert.Equal(t, "new", spans[1].Service.UID.Name)
+
+	now = time.Hour + pidRemovalRetention + time.Second
+	pf.BlockPID(456, 33)
+	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes), "the old type goes away with the old generation")
+	assert.True(t, pf.ValidPID(123, 33, PIDTypeGo))
 }
 
 func TestBlockPIDExcludedFromCurrentPIDs(t *testing.T) {
