@@ -2,7 +2,9 @@ name: oats java amqp
 interval: 500ms
 fixture:
   compose:
-    file: docker-compose-obi-java-amqp.yml
+    files:
+      - docker-compose-obi-java-amqp.yml
+      - ../weaver/docker-compose-weaver.yml
 seed:
   type: app
 input:

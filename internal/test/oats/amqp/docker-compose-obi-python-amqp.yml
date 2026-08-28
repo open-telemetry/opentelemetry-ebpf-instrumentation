@@ -1,11 +1,6 @@
 services:
-  lgtm:
-    network_mode: host
-    ports: []
-
   artemis:
     image: apache/activemq-artemis:2.44.0@sha256:0305c26f19eda00c0506d0953cfe265600a72ac1b17f7934412120c01a595cff
-    network_mode: host
     environment:
       ARTEMIS_USER: artemis
       ARTEMIS_PASSWORD: artemis
@@ -21,11 +16,11 @@ services:
     build:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/pythonamqp/Dockerfile
-      network: host
     image: pythonamqp
-    network_mode: host
+    ports:
+      - "8080:8080"
     environment:
-      AMQP_URL: amqp://artemis:artemis@127.0.0.1:5672
+      AMQP_URL: amqp://artemis:artemis@artemis:5672
       AMQP_QUEUE: oats-python-amqp
     depends_on:
       artemis:
@@ -35,7 +30,6 @@ services:
     build:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/obi/Dockerfile
-      network: host
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
@@ -56,58 +50,7 @@ services:
       OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "disabled"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"
-      # Export through the weaver-tapping collector (host port 4319) instead of
-      # straight to lgtm (4318), so weaver validates the emitted telemetry.
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4319"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
     depends_on:
       testserver:
         condition: service_started
-
-  # Collector in front of lgtm (host networking): receives OBI's OTLP on 4319
-  # and fans out to lgtm (127.0.0.1:4317) and weaver (127.0.0.1:4327).
-  collector:
-    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
-    network_mode: host
-    volumes:
-      - ./configs:/configs
-    command: ["--config=/configs/otelcol-weaver-host.yaml"]
-    depends_on:
-      weaver:
-        condition: service_healthy
-
-  # Weaver semantic-convention live-check (host networking). lgtm owns 4317, so
-  # weaver's OTLP listener is moved to 4327; admin /stop stays on 4320. The OATS
-  # harness stops it after the checks and fails the test on any actionable advisory.
-  weaver:
-    image: otel/weaver:v0.25.1@sha256:9ad46ca9cd4fa5974b121f886aa3e9946a8ef8ea905001a96c018d21f9db87ca
-    network_mode: host
-    user: "0:0"
-    working_dir: /obi-registry
-    command:
-      - registry
-      - live-check
-      - --registry
-      - /obi-registry
-      - --include-unreferenced
-      - --inactivity-timeout
-      - "300"
-      - --otlp-grpc-port
-      - "4327"
-      - --admin-port
-      - "4320"
-      - --format
-      - compact
-      - --templates
-      - /obi-registry/.live_check_templates
-      - --diagnostic-format
-      - json
-      - --output
-      - http
-    volumes:
-      - ../../../../schemas/obi:/obi-registry:ro
-    healthcheck:
-      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4327/ 2>&1 | grep -qv refused"]
-      interval: 5s
-      timeout: 2s
-      retries: 60
-      start_period: 90s

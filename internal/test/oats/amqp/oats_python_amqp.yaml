@@ -2,7 +2,9 @@ name: oats python amqp
 interval: 500ms
 fixture:
   compose:
-    file: docker-compose-obi-python-amqp.yml
+    files:
+      - docker-compose-obi-python-amqp.yml
+      - ../weaver/docker-compose-weaver.yml
 seed:
   type: app
 input:
