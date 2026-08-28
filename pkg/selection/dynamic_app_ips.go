@@ -10,7 +10,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
-	"go.opentelemetry.io/obi/pkg/internal/netns"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/kube"
 )
@@ -134,39 +133,32 @@ var processIPs = func(pid app.PID) []string {
 	return ips
 }
 
-// injectable for tests
-var isIsolatedNetNS = netns.IsIsolated
-
 // ResolveContainerIPs returns the IPs associated with a dynamically selected PID.
-// Prefer Kubernetes pod IPs when a kube store is available; otherwise (and when
-// the store has no entry for the PID) fall back to addresses in an isolated
-// container network namespace (Docker/containerd bridge). Processes that share
-// the host or agent netns are not identified by interface address: those IPs
-// are shared with unselected traffic and CommonAttrs has no PID to recover
-// ownership.
+//
+// The two sources are mutually exclusive. With a Kubernetes store, pod IPs are the only
+// source of identity and a PID without pod metadata resolves to nothing. Without a store,
+// identity comes from the addresses of an isolated container network namespace
+// (Docker/containerd bridge); container.IPsForPID yields nothing for a process sharing
+// the host or agent namespace, whose addresses belong to the node rather than to it.
 //
 // When store is non-nil the PID is registered via AddProcess; callers that invoke
 // this outside DynamicAppIPs must call store.DeleteProcess when the PID is no
 // longer needed.
 func ResolveContainerIPs(store *kube.Store, pid app.PID) []string {
-	if store != nil {
-		store.AddProcess(pid)
-		info, err := container.InfoForPID(pid)
-		if err != nil {
-			selLog().Debug("can't read container info for PID", "pid", pid, "error", err)
-		} else if meta, _ := store.PodContainerByPIDNs(info.PIDNamespace, pid); meta != nil && len(meta.Meta.Ips) > 0 {
-			return append([]string(nil), meta.Meta.Ips...)
-		}
+	if store == nil {
+		return processIPs(pid)
 	}
-	isolated, err := isIsolatedNetNS(int(pid))
+	store.AddProcess(pid)
+	info, err := container.InfoForPID(pid)
 	if err != nil {
-		selLog().Debug("can't determine netns isolation for PID", "pid", pid, "error", err)
+		selLog().Debug("can't read container info for PID", "pid", pid, "error", err)
 		return nil
 	}
-	if !isolated {
+	meta, _ := store.PodContainerByPIDNs(info.PIDNamespace, pid)
+	if meta == nil {
 		return nil
 	}
-	return processIPs(pid)
+	return append([]string(nil), meta.Meta.Ips...)
 }
 
 // Allows returns whether a flow/stat record should be exported for the current dynamic selection.

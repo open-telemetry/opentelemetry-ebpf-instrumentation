@@ -4,8 +4,8 @@
 package selection
 
 import (
-	"errors"
 	"net"
+	"os"
 	"slices"
 	"testing"
 
@@ -13,7 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
+	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
 
 type stubPIDSelector struct {
@@ -40,29 +44,45 @@ func (s *stubPIDSelector) RemovedNotify() <-chan []app.PID   { return s.removed 
 
 func stubIsolatedProcessIPs(t *testing.T, ipsFor func(app.PID) []string) {
 	t.Helper()
-	origIso := isIsolatedNetNS
-	origIPs := processIPs
-	t.Cleanup(func() {
-		isIsolatedNetNS = origIso
-		processIPs = origIPs
-	})
-	isIsolatedNetNS = func(int) (bool, error) { return true, nil }
+	orig := processIPs
+	t.Cleanup(func() { processIPs = orig })
 	processIPs = ipsFor
 }
 
+// container.IPsForPID yields no addresses for a process sharing the host or agent
+// network namespace, whether because the namespace is not isolated or because the
+// isolation check itself failed.
 func stubSharedHostNetNS(t *testing.T) {
 	t.Helper()
-	origIso := isIsolatedNetNS
-	origIPs := processIPs
-	t.Cleanup(func() {
-		isIsolatedNetNS = origIso
-		processIPs = origIPs
-	})
-	isIsolatedNetNS = func(int) (bool, error) { return false, nil }
-	processIPs = func(app.PID) []string {
-		t.Error("processIPs must not run for a shared host netns")
-		return []string{"192.168.1.10"}
+	stubIsolatedProcessIPs(t, func(app.PID) []string { return nil })
+}
+
+// fakeInformer is a meta.Notifier that never publishes anything, so a store built on it
+// knows no pods.
+type fakeInformer struct {
+	observers map[string]meta.Observer
+}
+
+func (f *fakeInformer) Subscribe(observer meta.Observer) {
+	if f.observers == nil {
+		f.observers = map[string]meta.Observer{}
 	}
+	f.observers[observer.ID()] = observer
+}
+
+func (f *fakeInformer) Unsubscribe(observer meta.Observer) {
+	delete(f.observers, observer.ID())
+}
+
+func (f *fakeInformer) Notify(event *informer.Event) {
+	for _, observer := range f.observers {
+		_ = observer.On(event)
+	}
+}
+
+func newTestKubeStore(t *testing.T) *kube.Store {
+	t.Helper()
+	return kube.NewStore(&fakeInformer{}, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 }
 
 func TestResolveContainerIPs_netnsFallbackWithoutStore(t *testing.T) {
@@ -79,19 +99,32 @@ func TestResolveContainerIPs_sharedHostNetNSReturnsNoIPs(t *testing.T) {
 	assert.Empty(t, ResolveContainerIPs(nil, 7))
 }
 
-func TestResolveContainerIPs_isolationErrorReturnsNoIPs(t *testing.T) {
-	origIso := isIsolatedNetNS
-	origIPs := processIPs
-	t.Cleanup(func() {
-		isIsolatedNetNS = origIso
-		processIPs = origIPs
+// Host addresses are only usable as identity off Kubernetes. A Kubernetes deployment must
+// resolve identity from pod metadata alone, so a PID the store knows nothing about resolves
+// to no IPs rather than to whatever its namespace happens to expose.
+func TestResolveContainerIPs_withStoreNeverUsesNetNS(t *testing.T) {
+	stubIsolatedProcessIPs(t, func(app.PID) []string {
+		t.Error("processIPs must not run when a Kubernetes store is configured")
+		return []string{"192.168.1.10"}
 	})
-	isIsolatedNetNS = func(int) (bool, error) { return false, errors.New("stat netns") }
-	processIPs = func(app.PID) []string {
-		t.Error("processIPs must not run when isolation cannot be determined")
-		return []string{"172.17.0.2"}
-	}
-	assert.Empty(t, ResolveContainerIPs(nil, 7))
+
+	assert.Empty(t, ResolveContainerIPs(newTestKubeStore(t), app.PID(os.Getpid())))
+}
+
+func TestDynamicAppIPs_withStore_doesNotAdmitTrafficForUnknownPID(t *testing.T) {
+	stubIsolatedProcessIPs(t, func(app.PID) []string {
+		t.Error("processIPs must not run when a Kubernetes store is configured")
+		return []string{"192.168.1.10"}
+	})
+
+	pid := app.PID(os.Getpid())
+	sel := &stubPIDSelector{pids: []app.PID{pid}}
+	tracker := NewDynamicAppIPs(sel, newTestKubeStore(t))
+	tracker.addBatch([]app.PID{pid})
+
+	host := pipe.IPAddr(net.ParseIP("192.168.1.10"))
+	other := pipe.IPAddr(net.ParseIP("8.8.8.8"))
+	assert.False(t, tracker.Allows(&pipe.CommonAttrs{SrcAddr: host, DstAddr: other}))
 }
 
 func TestDynamicAppIPs_addBatch_usesResolvedIPs(t *testing.T) {
