@@ -661,6 +661,12 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		"net/http.(*http2Framer).WriteHeaders",
 		goexec.FramerPadLengthStackVendoredPos,
 	)
+	setFramerPaddingOffset(
+		&offTable,
+		offsets,
+		"net/http/internal/http2.(*Framer).WriteHeaders",
+		goexec.FramerPadLengthStackVendoredPos,
+	)
 	setGoAutoSDKSpanContextOffsets(&offTable, offsets)
 	for _, field := range goRuntimeMetricOffsetFields {
 		if val, ok := offsets.Field[field].(uint64); ok {
@@ -1605,6 +1611,8 @@ var goHTTP2FlushProbeSymbols = []string{
 	"golang.org/x/net/http2.(*Framer).endWrite",
 	"net/http.(*http2Framer).WriteHeaders",
 	"net/http.(*http2Framer).endWrite",
+	"net/http/internal/http2.(*Framer).WriteHeaders",
+	"net/http/internal/http2.(*Framer).endWrite",
 }
 
 var goH2OwnershipProbeSymbols = []string{
@@ -1612,6 +1620,8 @@ var goH2OwnershipProbeSymbols = []string{
 	"golang.org/x/net/http2.(*ClientConn).writeHeader",
 	"net/http.(*http2clientStream).encodeAndWriteHeaders",
 	"net/http.(*http2ClientConn).writeHeader",
+	"net/http/internal/http2.(*clientStream).encodeAndWriteHeaders",
+	"net/http/internal/http2.(*ClientConn).writeHeader",
 }
 
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
@@ -1687,6 +1697,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeHttp2RoundTrip,
 			End:   p.bpfObjects.ObiUprobeRoundTripReturn, // return is the same as for http 1.1
 		}},
+		"net/http/internal/http2.(*ClientConn).RoundTrip": {{
+			Start: p.bpfObjects.ObiUprobeHttp2RoundTrip,
+			End:   p.bpfObjects.ObiUprobeRoundTripReturn,
+		}},
 		"net/http.(*http2responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
@@ -1697,6 +1711,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders,
 		}},
 		"net/http.(*http2ClientConn).writeHeaders": {{ // http2 client vendored in Go, but used from http 1.1 transition
+			Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored,
+		}},
+		"net/http/internal/http2.(*ClientConn).writeHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored,
 		}},
 		"golang.org/x/net/http2.(*responseWriterState).writeHeader": {{ // http2 server request done, capture the response code
@@ -2087,6 +2104,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
 			End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
 		}}
+		m["net/http/internal/http2.(*Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
+			End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
+		}}
 	}
 
 	return m
@@ -2131,6 +2152,26 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 					{
 						Symbol:     goHTTP2FlushProbeSymbols[3],
 						CalledFrom: goHTTP2FlushProbeSymbols[2],
+						Probe: &ebpfcommon.ProbeDesc{
+							Start: p.bpfObjects.ObiUprobeHttp2FramerEndWrite,
+						},
+					},
+				},
+			},
+			ebpfcommon.GoProbeGroup{
+				Name:          "go_http2_internal_preflush",
+				Prerequisites: []string{goHTTP2FlushProbeSymbols[4]},
+				Probes: []ebpfcommon.GoProbe{
+					{
+						Symbol: goHTTP2FlushProbeSymbols[4],
+						Probe: &ebpfcommon.ProbeDesc{
+							Start:       p.bpfObjects.ObiUprobeHttp2FramerReservePaddingVendored,
+							UsePadStart: true,
+						},
+					},
+					{
+						Symbol:     goHTTP2FlushProbeSymbols[5],
+						CalledFrom: goHTTP2FlushProbeSymbols[4],
 						Probe: &ebpfcommon.ProbeDesc{
 							Start: p.bpfObjects.ObiUprobeHttp2FramerEndWrite,
 						},
@@ -2211,6 +2252,25 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 				},
 				{
 					Symbol: goH2OwnershipProbeSymbols[3],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
+				},
+			},
+		},
+		{
+			Name:          "go_http2_internal_current_ownership",
+			Prerequisites: []string{"net/http/internal/http2.(*ClientConn).writeHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[4],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeaders,
+						End:   p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeadersReturns,
+					},
+				},
+				{
+					Symbol: goH2OwnershipProbeSymbols[5],
 					Probe: &ebpfcommon.ProbeDesc{
 						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
 					},

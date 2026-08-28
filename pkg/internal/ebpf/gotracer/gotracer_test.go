@@ -733,11 +733,13 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 
 			groups := tracer.GoProbeGroups()
 			if tt.writeProbesEnabled {
-				require.Len(t, groups, 4)
+				require.Len(t, groups, 6)
 				assert.Equal(t, "go_http2_xnet_current_ownership", groups[0].Name)
 				assert.Equal(t, "go_http2_stdlib_current_ownership", groups[1].Name)
-				assert.Equal(t, "go_http2_xnet_preflush", groups[2].Name)
-				assert.Equal(t, "go_http2_stdlib_preflush", groups[3].Name)
+				assert.Equal(t, "go_http2_internal_current_ownership", groups[2].Name)
+				assert.Equal(t, "go_http2_xnet_preflush", groups[3].Name)
+				assert.Equal(t, "go_http2_stdlib_preflush", groups[4].Name)
+				assert.Equal(t, "go_http2_internal_preflush", groups[5].Name)
 			} else {
 				assert.Empty(t, groups)
 			}
@@ -753,10 +755,11 @@ func TestHTTP2PreflushProbeGroupsRespectPropagation(t *testing.T) {
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	groups := tracer.GoProbeGroups()
-	require.Len(t, groups, 4)
-	assert.Equal(t, "go_http2_xnet_preflush", groups[2].Name)
-	assert.Equal(t, "go_http2_stdlib_preflush", groups[3].Name)
-	for _, group := range groups[2:] {
+	require.Len(t, groups, 6)
+	assert.Equal(t, "go_http2_xnet_preflush", groups[3].Name)
+	assert.Equal(t, "go_http2_stdlib_preflush", groups[4].Name)
+	assert.Equal(t, "go_http2_internal_preflush", groups[5].Name)
+	for _, group := range groups[3:] {
 		require.Len(t, group.Probes, 2)
 		assert.True(t, group.Probes[0].Probe.UsePadStart)
 		assert.False(t, group.Probes[1].Probe.UsePadStart)
@@ -775,7 +778,7 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	groups := tracer.GoProbeGroups()
-	require.Len(t, groups, 4)
+	require.Len(t, groups, 6)
 
 	expectedSymbols := [][]string{
 		{
@@ -786,10 +789,14 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 			"net/http.(*http2clientStream).encodeAndWriteHeaders",
 			"net/http.(*http2ClientConn).writeHeader",
 		},
+		{
+			"net/http/internal/http2.(*clientStream).encodeAndWriteHeaders",
+			"net/http/internal/http2.(*ClientConn).writeHeader",
+		},
 	}
-	assert.Equal(t, append(expectedSymbols[0], expectedSymbols[1]...), GoH2OwnershipProbeSymbols())
+	assert.Equal(t, append(append(expectedSymbols[0], expectedSymbols[1]...), expectedSymbols[2]...), GoH2OwnershipProbeSymbols())
 
-	for i, group := range groups[:2] {
+	for i, group := range groups[:3] {
 		require.Len(t, group.Prerequisites, 1)
 		require.Len(t, group.Probes, 2)
 		assert.Contains(t, group.Prerequisites[0], "writeHeaders")

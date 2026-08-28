@@ -91,9 +91,9 @@ func TestHTTP2ClientTraceparentBeforeImmediateFlush(t *testing.T) {
 	}
 
 	t.Run("enabled", func(t *testing.T) {
-		send := startHTTPClientTargetWithMode(t, targetBin, config.ContextPropagationHeaders, "TP_RESULT=")
 		for _, mode := range modes {
 			t.Run(strings.ToLower(mode), func(t *testing.T) {
+				send := startHTTPClientTargetWithMode(t, targetBin, config.ContextPropagationHeaders, "TP_RESULT=")
 				require.EventuallyWithT(t, func(c *assert.CollectT) {
 					assert.Regexp(c,
 						`^1:00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$`,
@@ -105,9 +105,9 @@ func TestHTTP2ClientTraceparentBeforeImmediateFlush(t *testing.T) {
 	})
 
 	t.Run("disabled", func(t *testing.T) {
-		send := startHTTPClientTargetWithMode(t, targetBin, config.ContextPropagationDisabled, "TP_RESULT=")
 		for _, mode := range modes {
 			t.Run(strings.ToLower(mode), func(t *testing.T) {
+				send := startHTTPClientTargetWithMode(t, targetBin, config.ContextPropagationDisabled, "TP_RESULT=")
 				assert.Equal(t, "0:", send(t, mode),
 					"disabled header propagation must not inject a traceparent")
 			})
@@ -132,7 +132,7 @@ func buildHTTP2ClientTarget(t *testing.T) string {
 	t.Helper()
 
 	bin := filepath.Join(t.TempDir(), "tphttp2client")
-	cmd := osexec.Command("go", "build", "-o", bin, "testdata/tphttp2client/main.go")
+	cmd := osexec.Command("go", "build", "-tags=http2legacy", "-o", bin, "testdata/tphttp2client/main.go")
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "go build tphttp2client:\n%s", string(out))
 	return bin
