@@ -215,9 +215,8 @@ lint-markdown-fix:
 .PHONY: update-offsets
 update-offsets:
 	@echo "### Updating pkg/internal/goexec/offsets.json"
-	go tool $(TOOLS_MODFILE) go-offsets-tracker -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
-	@echo "### Updating pkg/internal/goexec/go_abi_offsets.json"
-	go run ./internal/goabioffsets -i configs/offsets/go_abi_input.json pkg/internal/goexec/go_abi_offsets.json
+	go run ./internal/gooffsets -i configs/offsets/tracker_input.json \
+		-abi configs/offsets/go_abi_input.json pkg/internal/goexec/offsets.json
 
 .PHONY: update-python-offsets
 update-python-offsets:
