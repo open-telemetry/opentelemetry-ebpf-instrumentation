@@ -4,7 +4,9 @@
 package rubytools
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -995,6 +997,50 @@ end
 
 		require.ErrorIs(t, err, expectedErr)
 	})
+}
+
+func TestPathEntryExistsDistinguishesFilesystemErrors(t *testing.T) {
+	var logs bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+
+	root := t.TempDir()
+	existing := filepath.Join(root, "Gemfile")
+	writeRubyFile(t, existing, nil)
+	assert.True(t, pathEntryExists(existing))
+	assert.False(t, pathEntryExists(filepath.Join(root, "missing")))
+	assert.Empty(t, logs.String())
+
+	logs.Reset()
+	invalid := filepath.Join(existing, "Gemfile.lock")
+	assert.False(t, pathEntryExists(invalid))
+	assert.Contains(t, logs.String(), "error checking Ruby project marker")
+	assert.Contains(t, logs.String(), invalid)
+}
+
+func TestRootGemspecsLogsDirectoryErrors(t *testing.T) {
+	var logs bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+
+	root := t.TempDir()
+	missing := filepath.Join(root, "missing")
+	paths, boundary := rootGemspecs(missing)
+	assert.Empty(t, paths)
+	assert.False(t, boundary)
+	assert.Contains(t, logs.String(), "error opening Ruby project directory")
+	assert.Contains(t, logs.String(), missing)
+
+	logs.Reset()
+	file := filepath.Join(root, "not-a-directory")
+	writeRubyFile(t, file, nil)
+	paths, boundary = rootGemspecs(file)
+	assert.Empty(t, paths)
+	assert.False(t, boundary)
+	assert.Contains(t, logs.String(), "error reading Ruby project directory")
+	assert.Contains(t, logs.String(), file)
 }
 
 func mockRubyProcess(

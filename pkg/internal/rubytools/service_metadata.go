@@ -6,6 +6,7 @@ package rubytools // import "go.opentelemetry.io/obi/pkg/internal/rubytools"
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -235,6 +236,7 @@ func rootGemspecs(dir string) ([]string, bool) {
 	directory, err := os.Open(dir)
 
 	if err != nil {
+		slog.Debug("error opening Ruby project directory", "path", dir, "error", err)
 		return nil, false
 	}
 
@@ -242,6 +244,7 @@ func rootGemspecs(dir string) ([]string, bool) {
 
 	entries, err := directory.ReadDir(maxProjectEntries + 1)
 	if err != nil && !errors.Is(err, io.EOF) {
+		slog.Debug("error reading Ruby project directory", "path", dir, "error", err)
 		return nil, false
 	}
 
