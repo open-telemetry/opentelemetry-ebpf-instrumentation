@@ -59,6 +59,28 @@ _Static_assert(sizeof(struct jvm_runtime_metrics_event) -
                    k_jvm_runtime_metrics_payload_len,
                "JVM runtime metrics payload layout changed");
 
+struct jvm_gc_duration_event {
+    u8 type;
+    u8 _pad[7];
+    u64 timestamp;
+    u32 global_pid;
+    u32 global_tid;
+    u32 ns_pid;
+    u32 ns_tid;
+    u32 pid_ns_id;
+    u32 _pad2;
+    u64 duration_ns;
+    unsigned char collector_name[k_jvm_raw_string_len];
+    unsigned char action[k_jvm_raw_string_len];
+};
+
+enum { k_jvm_gc_duration_payload_len = sizeof(u64) + 2 * k_jvm_raw_string_len };
+
+_Static_assert(sizeof(struct jvm_gc_duration_event) -
+                       __builtin_offsetof(struct jvm_gc_duration_event, duration_ns) ==
+                   k_jvm_gc_duration_payload_len,
+               "JVM GC duration payload layout changed");
+
 struct jvm_mem_pool_key {
     u32 pid;
     u32 gc_when_type;
