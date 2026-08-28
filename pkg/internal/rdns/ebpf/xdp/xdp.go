@@ -5,6 +5,7 @@ package xdp // import "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -83,7 +84,17 @@ func tracerLoop(ctx context.Context, storage storage, tracer *tracer) {
 }
 
 func handleDNSMessage(rd *ringbuf.Record) *store.DNSEntry {
-	dnsMessage := parseDNSMessage(rd.RawSample)
+	const recordHeaderLength = 2
+	if len(rd.RawSample) < recordHeaderLength {
+		return nil
+	}
+
+	payloadLength := int(binary.BigEndian.Uint16(rd.RawSample[:recordHeaderLength]))
+	if payloadLength == 0 || payloadLength > len(rd.RawSample)-recordHeaderLength {
+		return nil
+	}
+
+	dnsMessage := parseDNSMessage(rd.RawSample[recordHeaderLength : recordHeaderLength+payloadLength])
 
 	if dnsMessage == nil || len(dnsMessage.questions) == 0 {
 		return nil

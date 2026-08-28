@@ -59,6 +59,13 @@ func compressedRecord(offset uint16, recordData []byte) []byte {
 	return append(record, recordData...)
 }
 
+func ringBufferRecord(message []byte, trailing ...byte) *ringbuf.Record {
+	sample := binary.BigEndian.AppendUint16(nil, uint16(len(message)))
+	sample = append(sample, message...)
+	sample = append(sample, trailing...)
+	return &ringbuf.Record{RawSample: sample}
+}
+
 func validResponses() map[string]responseCase {
 	aData := []byte{192, 0, 2, 1}
 	aaaaData := []byte{0x20, 1, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
@@ -132,7 +139,7 @@ func TestHandleDNSMessageIPAnswers(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := handleDNSMessage(&ringbuf.Record{RawSample: test.message})
+			got := handleDNSMessage(ringBufferRecord(test.message))
 			if got == nil {
 				t.Fatal("handleDNSMessage() = nil")
 			}
@@ -157,10 +164,24 @@ func TestHandleDNSMessageRejectsNonIPAndMalformedAddresses(t *testing.T) {
 
 	for name, message := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := handleDNSMessage(&ringbuf.Record{RawSample: message}); got != nil {
+			if got := handleDNSMessage(ringBufferRecord(message)); got != nil {
 				t.Fatalf("handleDNSMessage() = %#v, want nil", got)
 			}
 		})
+	}
+}
+
+func TestHandleDNSMessageHonorsPayloadLength(t *testing.T) {
+	message := compressedResponse(typeA, typeA, []byte{192, 0, 2, 1})
+	payload := message[:len(message)-4]
+	staleTail := message[len(message)-4:]
+
+	if got := handleDNSMessage(ringBufferRecord(payload, staleTail...)); got != nil {
+		t.Fatalf("handleDNSMessage() = %#v, want nil", got)
+	}
+
+	if got := handleDNSMessage(&ringbuf.Record{RawSample: []byte{0, 4, 1, 2}}); got != nil {
+		t.Fatalf("handleDNSMessage() with invalid length = %#v, want nil", got)
 	}
 }
 

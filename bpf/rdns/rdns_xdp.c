@@ -52,7 +52,6 @@ enum { RB_RECORD_LEN = 256 };                        // Maximum record length fo
 enum { DNS_PORT = 53 };                              // Standard DNS port
 enum { UDP_HDR_SIZE = sizeof(struct udphdr), DNS_HDR_SIZE = 12 }; // Header sizes
 
-// IPv6 next-header values used while walking the extension-header chain.
 enum ipv6_next_header {
     IPV6_HOP_BY_HOP = 0,
     IPV6_ROUTING = 43,
@@ -62,6 +61,13 @@ enum ipv6_next_header {
 };
 
 enum { IPV4_FRAGMENT_MASK = 0x3fff };
+
+struct dns_record {
+    __be16 len;
+    unsigned char data[RB_RECORD_LEN];
+};
+
+enum { RB_RECORD_SIZE = sizeof(struct dns_record) };
 
 static __always_inline __u8 get_bit(__u8 word, __u8 offset) {
     return (word >> offset) & 0x1;
@@ -259,13 +265,15 @@ static __always_inline void submit_dns_packet(const unsigned char *const data,
         return;
     }
 
-    unsigned char *buf = bpf_ringbuf_reserve(&ring_buffer, RB_RECORD_LEN, 0);
+    struct dns_record *record = bpf_ringbuf_reserve(&ring_buffer, RB_RECORD_SIZE, 0);
 
-    if (!buf) {
-        bpf_d_printk("Failed to reserve %u bytes in the ring buffer", RB_RECORD_LEN);
+    if (!record) {
+        bpf_d_printk("Failed to reserve %u bytes in the ring buffer", RB_RECORD_SIZE);
 
         return;
     }
+
+    record->len = bpf_htons((__u16)data_len);
 
     for (__u32 i = 0; i < RB_RECORD_LEN; i++) {
         if (i >= data_len) {
@@ -274,10 +282,10 @@ static __always_inline void submit_dns_packet(const unsigned char *const data,
         if (data + i + 1 > end) {
             break;
         }
-        buf[i] = data[i];
+        record->data[i] = data[i];
     }
 
-    bpf_ringbuf_submit(buf, 0);
+    bpf_ringbuf_submit(record, 0);
 }
 
 // Parses a DNS response packet and validates its structure
