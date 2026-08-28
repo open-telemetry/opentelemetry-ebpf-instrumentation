@@ -40,16 +40,32 @@ var pythonRuntimeMetricsImages = []pythonRuntimeMetricsImage{
 		otelRepresentative: true,
 	},
 	{
+		version: "3.9.25-alpine",
+		image:   "python:3.9.25-alpine@sha256:c99b6eb43b3ac4d750db3d6e8b22268d5ea9a99deead7218ce3deda7f2ca029c",
+	},
+	{
 		version: "3.10.20",
 		image:   "python:3.10.20@sha256:db9dfbd4f3385e3d56790c8f3b811d8eb979e26a674c8032deb862f2e36b3d21",
+	},
+	{
+		version: "3.10.20-slim",
+		image:   "python:3.10.20-slim@sha256:34a2c9467a0231d8c29a5ecadc219733a9393b026882b44d91616b9dae6088b6",
 	},
 	{
 		version: "3.11.15",
 		image:   "python:3.11.15@sha256:d0199e2a90bf7a206a485b115323a75bc946f30b463d704c5435a454aca084dd",
 	},
 	{
+		version: "3.11.15-slim",
+		image:   "python:3.11.15-slim@sha256:90744cff8f32887f075c47d747a173ff333e9e98801667af93c357fa9f5e28ff",
+	},
+	{
 		version: "3.12.7",
 		image:   "python:3.12.7@sha256:8d97a0ab83113f8984517f14492f57186d943db7815682cab9d820c9c0a8c998",
+	},
+	{
+		version: "3.12.7-slim",
+		image:   "python:3.12.7-slim@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d",
 	},
 	{
 		version:            "3.12.12",
@@ -57,13 +73,33 @@ var pythonRuntimeMetricsImages = []pythonRuntimeMetricsImage{
 		otelRepresentative: true,
 	},
 	{
+		version: "3.12.13-slim",
+		image:   "python:3.12.13-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36",
+	},
+	{
 		version: "3.13.14",
 		image:   "python:3.13.14@sha256:36f5673ec01bd1001d7cbb8f12215101aa4ee5d70ddbbb72e01b2930d7c12f19",
+	},
+	{
+		version: "3.13.14-slim",
+		image:   "python:3.13.14-slim@sha256:bf503bb2243c5aad0aa951544dd60d165f992646441d35dea90893703fc26251",
+	},
+	{
+		version: "3.13.14-alpine",
+		image:   "python:3.13.14-alpine@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0",
+	},
+	{
+		version: "3.14.5-alpine",
+		image:   "python:3.14.5-alpine@sha256:5a824eb82cc75361f98611f3cfc5091ea33f10a6ccea4d4ebdabbc523b9a1614",
 	},
 	{
 		version:            "3.14.6",
 		image:              "python:3.14.6@sha256:51570a50616289f78f340811c34ca4384985f9e891819cbe7620f738d6ca8525",
 		otelRepresentative: true,
+	},
+	{
+		version: "3.14.7-slim",
+		image:   "python:3.14.7-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc",
 	},
 }
 
