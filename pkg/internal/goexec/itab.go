@@ -17,6 +17,14 @@ const (
 	prefixOld = "go.itab."
 	prefixLen = len(prefixNew)
 
+	// These constants describe the 64-bit Go 1.27 runtime type metadata ABI.
+	// Keep them synchronized with the version-pinned definitions in:
+	//   https://github.com/golang/go/blob/go1.27.0/src/internal/abi/type.go
+	//   https://github.com/golang/go/blob/go1.27.0/src/internal/abi/iface.go
+	//   https://github.com/golang/go/blob/go1.27.0/src/internal/abi/map.go
+	//
+	// The go127Uncommon* values are the sizes of the corresponding concrete
+	// type descriptors; abi.UncommonType immediately follows those descriptors.
 	go127TypeTFlagOffset = 20
 	go127TypeKindOffset  = 23
 	go127TypeNameOffset  = 40

@@ -68,9 +68,44 @@ func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
 
 	implementations, err := findInterfaceImpls(elfFile)
 	require.NoError(t, err)
-	assert.NotZero(t, implementations["*main.workerImpl"])
+	for _, typeName := range []string{
+		"*main.workerImpl",
+		"main.arrayWorker",
+		"main.chanWorker",
+		"main.funcWorker",
+		"main.mapWorker",
+		"main.scalarWorker",
+		"main.sliceWorker",
+		"main.structWorker",
+	} {
+		assert.NotZero(t, implementations[typeName], typeName)
+	}
 	assert.NotZero(t, implementations["go.opentelemetry.io/otel/trace.attributeOption"])
 	assert.NotZero(t, implementations["*errors.errorString"])
+}
+
+func TestGo127UncommonOffset(t *testing.T) {
+	tests := []struct {
+		name string
+		kind byte
+		want uint64
+	}{
+		{name: "array", kind: go127KindArray, want: 72},
+		{name: "chan", kind: go127KindChan, want: 64},
+		{name: "func", kind: go127KindFunc, want: 56},
+		{name: "interface", kind: go127KindInterface, want: 80},
+		{name: "map", kind: go127KindMap, want: 136},
+		{name: "pointer", kind: go127KindPointer, want: 56},
+		{name: "slice", kind: go127KindSlice, want: 56},
+		{name: "struct", kind: go127KindStruct, want: 80},
+		{name: "default", kind: 0, want: 48},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, go127UncommonOffset(tt.kind))
+		})
+	}
 }
 
 func TestFindGRPCInterfaceImplsFromGo127Moduledata(t *testing.T) {

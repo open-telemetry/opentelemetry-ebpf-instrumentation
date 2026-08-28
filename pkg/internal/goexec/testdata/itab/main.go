@@ -21,11 +21,38 @@ func (*workerImpl) work() string {
 	return "done"
 }
 
-var implementation worker = &workerImpl{}
+type arrayWorker [1]byte
+type chanWorker chan int
+type funcWorker func()
+type mapWorker map[string]int
+type scalarWorker int
+type sliceWorker []byte
+type structWorker struct{}
+
+func (arrayWorker) work() string  { return "array" }
+func (chanWorker) work() string   { return "chan" }
+func (funcWorker) work() string   { return "func" }
+func (mapWorker) work() string    { return "map" }
+func (scalarWorker) work() string { return "scalar" }
+func (sliceWorker) work() string  { return "slice" }
+func (structWorker) work() string { return "struct" }
+
+var implementations = []worker{
+	&workerImpl{},
+	arrayWorker{},
+	chanWorker(nil),
+	funcWorker(nil),
+	mapWorker(nil),
+	scalarWorker(0),
+	sliceWorker(nil),
+	structWorker{},
+}
 var spanOption trace.SpanStartOption = trace.WithAttributes(attribute.String("key", "value"))
 var stringError error = errors.New("test")
 
 func main() {
-	fmt.Println(implementation.work())
+	for _, implementation := range implementations {
+		fmt.Println(implementation.work())
+	}
 	_, _ = spanOption, stringError
 }
