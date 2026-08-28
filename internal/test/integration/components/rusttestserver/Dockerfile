@@ -1,4 +1,4 @@
-FROM rust:1.97.0-bookworm@sha256:a49aec4d4647c73d66a9684df1bd8a73a1eb4c0734b32b94df3f86361dd54ce7 AS rustbuilder
+FROM rust:1.98.0-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS rustbuilder
 
 # Set the working directory to /build
 WORKDIR /build

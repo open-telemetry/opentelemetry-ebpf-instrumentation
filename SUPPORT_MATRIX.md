@@ -44,9 +44,9 @@ repository automation today:
 |:-----|:------------------------------------|
 | Release artifacts | Linux `amd64` and Linux `arm64` archives and container images |
 | Cross-compilation | Full OBI support path compiled for Linux `amd64` and Linux `arm64` |
-| BPF verifier coverage (`x86_64`) | Kernel `5.15.152` (`x86_64`) and kernel `6.10.6` (`x86_64`) |
+| BPF verifier coverage (`x86_64`) | Kernels `5.10`, `5.15`, `6.1`, `6.6`, `6.12`, `6.18`, and RHEL `8.9` / `8.10` / `9.6` |
 | BPF verifier coverage (`arm64`) | `arm64` runner coverage |
-| VM integration tests | Kernel `5.15.152` (`x86_64`) and kernel `6.10.6` (`x86_64`) |
+| VM integration tests | Kernels `5.15` and `6.18` (`x86_64`) |
 
 This document should only claim support beyond these validation points when there is an explicit maintainer decision
 to do so.
@@ -60,9 +60,9 @@ through language-specific library instrumentation documented later in this file.
 
 | Protocol | Versions | Methods or operations | Secure | Context propagation | Limitations |
 |:---------|:---------|:----------------------|:------:|:-------------------:|:------------|
-| HTTP | `1.0/1.1` | All | Yes | Yes | None documented |
-| HTTP | `2.0` | All | Yes | No | Context propagation for HTTP/2 is only through Go library instrumentation |
-| gRPC | `1.0+` | All | Yes | No | Long-lived connections started before OBI may use `*` for method names |
+| HTTP | `1.0/1.1` | All | Yes | Yes | Generic TLS inject uses TCP option kind 25 only (OBI-to-OBI; L7 proxies may drop it). Header inject works for plaintext. |
+| HTTP | `2.0` | All | Yes | Yes | Network-level HPACK inject/extract on plaintext HTTP/2. Generic TLS cannot inject; extract still works if a peer injected. Huffman-encoded `traceparent` extract requires kernel `5.17+`. Go library instrumentation covers TLS inject via uprobes. See [devdocs/grpc-context-propagation.md](devdocs/grpc-context-propagation.md). |
+| gRPC | `1.0+` | All | Yes | Yes | Same HPACK path as HTTP/2. Long-lived connections started before OBI may use `*` for method names. Generic TLS cannot inject. Huffman extract requires kernel `5.17+`. Message body capture is not supported. |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
@@ -73,15 +73,18 @@ through language-specific library instrumentation documented later in this file.
 | Aerospike | All | `GET`, `EXISTS`, `PUT`, `TOUCH`, `OPERATE`, `DELETE`, `SCAN`, `QUERY`, `BATCH`, `UDF` | No | No | compressed (type-4) payloads are not parsed; only operation metadata (namespace, set, key) is captured, not record/bin values; scan/query duration measured to the first response frame |
 | Kafka | All | `produce`, `fetch` | Yes | No | Topic name lookup may fail for newer fetch API versions (`>= 13`) |
 | MQTT | `3.1.1/5.0` | `publish`, `subscribe` | No | No | Only the first topic filter is used for subscribe; payload not captured |
+| NATS | All | `publish`, `process` | No | No | Only `PUB`/`HPUB` and delivered `MSG`/`HMSG` frames are traced; control traffic is ignored; TLS is not parsed |
 | AMQP | `1.0` | `publish`, `process` | No | No | Userspace heuristic only; only transfer performatives create spans |
 | SunRPC (ONC RPC) | All | TCP CALL on common programs (portmapper, mount, nfs, …) | Yes | No | TCP only; kernel + userspace fallback; RPCSEC_GSS hides arguments; procedure names not mapped yet |
-| GraphQL | All | All | Yes | No | None documented |
-| Elasticsearch | `7.14+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
-| Opensearch | `3.0.0+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
-| AWS S3 | All | `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBuckets`, `ListObjects`, `GetObject` | Yes | No | None documented |
-| AWS SQS | All | All | Yes | No | None documented |
-| SQL++ | All | All | Yes | No | None documented |
-| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), and vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate) |
+| DNS | All | Lookups | No | No | Not enabled by default for traces; DNS-over-TLS/HTTPS is not parsed |
+| GraphQL | All | All | Yes | No | Requires HTTP payload capture |
+| JSON-RPC | `2.0` | All | Yes | No | Requires HTTP payload capture |
+| Elasticsearch | `7.14+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | Requires HTTP payload capture |
+| Opensearch | `3.0.0+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | Requires HTTP payload capture |
+| AWS S3 | All | `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBuckets`, `ListObjects`, `GetObject` | Yes | No | Requires HTTP payload capture |
+| AWS SQS | All | All | Yes | No | Requires HTTP payload capture |
+| SQL++ | All | All | Yes | No | Requires HTTP payload capture |
+| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), and MCP. Requires HTTP payload capture. |
 
 ## Runtime, Server, And Library Instrumentation
 
@@ -99,9 +102,10 @@ The following runtime and server baselines are currently documented or enforced 
 | Go applications | Go `1.17+` for library-level instrumentation |
 | Java applications | JDK `8+` |
 | Node.js async-hooks context propagation | Node.js `8.0+` |
+| Node.js manual span capture | Opt-in; Node.js inspector must be reachable; the application must not register an OpenTelemetry SDK. See [devdocs/nodejs-manual-spans.md](devdocs/nodejs-manual-spans.md) |
 | Python asyncio context propagation | Python `3.9+` with `uvloop` |
 | Ruby applications | Ruby `3.0.2+` when served by Puma `5.0+` |
-| nginx | HTTP server and reverse-proxy tracing validated on nginx `1.27.5` and `1.29.7` |
+| nginx | HTTP server and reverse-proxy tracing validated on nginx `>= 1.27.3` |
 
 Additional language families may be instrumented through network-level tracing, but are not listed here unless the
 repository documents a concrete runtime or library compatibility baseline.
@@ -140,9 +144,9 @@ All three canonical, unreplaced modules must be present in the inspected executa
 | `go.opentelemetry.io/otel` | `>= v1.33.0` |
 | `go.opentelemetry.io/otel/trace` | `>= v1.33.0` |
 
-Each OBI release recognizes module versions that were available and validated when that release was built. OBI
-v0.11.0 recognizes `go.opentelemetry.io/auto/sdk` `v1.1.0`, `v1.2.0`, and `v1.2.1`, plus the exact `.0` releases of
-`go.opentelemetry.io/otel` and `go.opentelemetry.io/otel/trace` from `v1.33.0` through `v1.44.0`. A module version
+Each OBI release recognizes module versions that were available and validated when that release was built. The current
+allowlist recognizes `go.opentelemetry.io/auto/sdk` `v1.1.0`, `v1.2.0`, and `v1.2.1`, plus the exact `.0` releases of
+`go.opentelemetry.io/otel` and `go.opentelemetry.io/otel/trace` from `v1.33.0` through `v1.45.0`. A module version
 released later requires a newer OBI release that recognizes its canonical checksum.
 
 OBI checks the modules independently. A missing module or checksum, a noncanonical checksum, any replacement of one
@@ -152,7 +156,7 @@ activation.
 Activation also requires all of the following:
 
 - A 64-bit Linux `amd64` (`ELF64`/`EM_X86_64`) or `arm64` (`ELF64`/`EM_AARCH64`) executable.
-- OpenTelemetry API and Auto SDK data layouts that OBI v0.11.0 recognizes.
+- OpenTelemetry API and Auto SDK data layouts that the running OBI release recognizes.
 - Every global Trace API and Auto SDK symbol that OBI needs to be present in the executable.
 - Permission for OBI to use `bpf_probe_write_user`.
 
@@ -168,10 +172,10 @@ On Linux 5.10 and later, OBI requires effective `CAP_SYS_ADMIN` and kernel lockd
 helper. These permission conditions are additional to the general OBI kernel, BTF, Linux, and architecture
 requirements above.
 
-In OBI v0.11.0, each application-authored span must fit within a 16 KiB encoded payload. Spans whose payloads exceed
-this limit are not exported, and v0.11.0 does not report this condition with a metric or warning.
+Each application-authored span must fit within a 16 KiB encoded payload. Spans whose payloads exceed this limit are
+not exported, and OBI does not currently report this condition with a metric or warning.
 
-The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this v0.11.0 Auto SDK
+The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this Auto SDK
 allowlist.
 
 ### Statistical Metrics
@@ -194,7 +198,8 @@ language-runtime metrics for the following environments:
 |:--------|:--------|:----------|:-------------|:------------|:-------|
 | Go | `go.memory.*`, `go.goroutine.*`, `go.processor.limit`, `go.config.gogc` | uretprobe on the Go runtime GC path, reading runtime structures | Go binaries with ELF symbols (or version-table fallback for struct offsets) | Values refresh once per GC cycle | Experimental |
 | Java (HotSpot) | `jvm.memory.used`, `jvm.memory.committed`, `jvm.memory.limit`, `jvm.memory.used_after_last_gc` | USDT probes on the HotSpot DTrace probes in `libjvm.so` | HotSpot-based JVM with compiled-in DTrace probes | Values refresh on GC events, throttled by `jvm_runtime_metrics.sampling_interval` | Experimental |
-| Node.js | `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `nodejs.eventloop.delay.*` | in-process readings (`perf_hooks`) from the injected OBI agent, delivered over a `uv_fs_access` side channel decoded in eBPF | `application_runtime` (traces not required); `nodejs.enabled: false` disables the injection entirely; Node.js `14.10+`, delay gauges `16.14+` | Main-thread event loop only; inspector must be reachable; details in [devdocs/runtimes/nodejs.md](devdocs/runtimes/nodejs.md) | Experimental |
+| Node.js | `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `nodejs.eventloop.delay.*`, `v8js.gc.duration`, `v8js.memory.heap.*` | in-process readings (`perf_hooks`, `v8`) from the injected OBI agent, delivered over a `uv_fs_access` side channel decoded in eBPF | `application_runtime` (traces not required); `nodejs.enabled: false` disables the injection entirely; Node.js `14.10+`, delay gauges `16.14+` | Main-thread event loop only; inspector must be reachable; heap spaces limited to the well-known semconv values; details in [devdocs/runtimes/nodejs.md](devdocs/runtimes/nodejs.md) | Experimental |
+| Python (CPython) | `cpython.gc.collections`, `cpython.gc.collected_objects`, `cpython.gc.uncollectable_objects` | PID-scoped eBPF probe on GC completion, reading cumulative runtime counters | Non-free-threaded CPython `3.9` through `3.14`; `amd64` requires USDT or the supported private-symbol fallback; `arm64` requires USDT | Main interpreter only; details in [devdocs/runtimes/python.md](devdocs/runtimes/python.md) | Experimental |
 
 ## Context Propagation Frameworks
 
@@ -202,13 +207,27 @@ OBI currently documents the following asynchronous or runtime-specific context p
 
 | Framework | Runtime | Baseline | Limitations | Status |
 |:----------|:--------|:---------|:------------|:-------|
-| Go goroutines | Go | Go `1.18+` | Up to 3 nested levels of goroutines | Stable |
+| Go goroutines | Go | Go `1.18+` | Up to 6 nested levels of goroutines | Stable |
 | Go channel span links | Go | Go `1.17+` | Receiver-side links only; supports `runtime.chansend1`, `runtime.chanrecv1`, and `runtime.chanrecv2`; `select` paths are not supported; requires `runtime.hchan` offsets | Experimental |
 | Node.js async hooks | Node.js | Node.js `8.0+` | Custom handling of `SIGUSR1` might interfere | Stable |
 | Ruby Puma server | Ruby | Ruby applications served by Puma | Only works with Puma server | Stable |
-| Java thread pool | Java | JDK `8+` | None documented | Stable |
+| Java thread pool | Java | JDK `8+` | Parent lookup walks up to 3 thread-nesting levels | Stable |
 | Java virtual threads | Java | JDK `21+` | Log enrichment is skipped for requests handled on virtual threads | Stable |
 | Python asyncio | Python | Python `3.9+` with `uvloop` | Only works with the `uvloop` event loop | Stable |
+
+## Payload Capture
+
+Payload capture is disabled by default (`OTEL_EBPF_BPF_BUFFER_SIZE_*=0`). When enabled, OBI streams request and
+response bytes to userspace for protocol enrichment (GenAI, GraphQL, JSON-RPC, SQL bodies, Kafka metadata).
+
+| Protocol | Generic tracer | Go tracer | Notes |
+|:---------|:--------------:|:---------:|:------|
+| HTTP/1 (plaintext and TLS) | Yes | Yes | Up to 256 KiB per direction |
+| HTTP/2 | No | Client only | Generic `protocol_http2` never emits large buffers. Go server I/O runs on a shared connection goroutine with no server-conn map. |
+| gRPC | No | No | Message bodies are protobuf; parsing would need a `.proto` OBI does not have |
+| MySQL, PostgreSQL, MSSQL, Kafka | Yes | N/A | Up to 64 KiB per direction |
+
+Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,mssql}`. Details are in [devdocs/features.md](devdocs/features.md#payload-capture).
 
 ## GPU Instrumentation
 

@@ -44,9 +44,9 @@ func sortConnectionInfo(info *BpfConnectionInfoT) {
 }
 
 func removeQuery(url string) string {
-	idx := strings.IndexByte(url, '?')
-	if idx >= 0 {
-		return url[:idx]
+	before, _, ok := strings.Cut(url, "?")
+	if ok {
+		return before
 	}
 	return url
 }

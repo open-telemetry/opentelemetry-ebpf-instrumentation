@@ -18,10 +18,10 @@ func TestParseDenoLaunch(t *testing.T) {
 		args []string
 		want DenoLaunch
 	}{
+		{name: "file URL shorthand", args: []string{"file:///opt/orders/main.ts"}, want: DenoLaunch{EntryPoint: "file:///opt/orders/main.ts", DiscoverProject: true, direct: true}},
 		{name: "default repl", want: projectOnly},
 		{name: "direct shorthand", args: []string{"main.ts"}, want: DenoLaunch{EntryPoint: "main.ts", DiscoverProject: true, direct: true}},
 		{name: "extensionless shorthand", args: []string{"server"}, want: DenoLaunch{EntryPoint: "server", DiscoverProject: true, direct: true}},
-		{name: "file URL shorthand", args: []string{"file:///opt/orders/main.ts"}, want: DenoLaunch{EntryPoint: "file:///opt/orders/main.ts", DiscoverProject: true, direct: true}},
 		{name: "JSR shorthand", args: []string{"jsr:@acme/orders/server"}, want: DenoLaunch{EntryPoint: "jsr:@acme/orders/server", DiscoverProject: true, direct: true}},
 		{name: "npm shorthand", args: []string{"npm:@acme/orders@1.2.3"}, want: DenoLaunch{EntryPoint: "npm:@acme/orders@1.2.3", DiscoverProject: true, direct: true}},
 		{name: "HTTP shorthand", args: []string{"https://example.com/main.ts"}, want: DenoLaunch{EntryPoint: "https://example.com/main.ts", DiscoverProject: true, direct: true}},

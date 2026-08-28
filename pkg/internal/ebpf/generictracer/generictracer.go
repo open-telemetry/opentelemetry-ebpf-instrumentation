@@ -53,6 +53,7 @@ type Tracer struct {
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
+	pythonRuntime    *pythonRuntimeController
 }
 
 func tlog() *slog.Logger {
@@ -60,7 +61,7 @@ func tlog() *slog.Logger {
 }
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
-	return &Tracer{
+	tracer := &Tracer{
 		log:              tlog(),
 		cfg:              cfg,
 		metrics:          metrics,
@@ -72,6 +73,8 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		libsMux:          sync.Mutex{},
 		iters:            []*ebpfcommon.Iter{},
 	}
+	tracer.pythonRuntime = newPythonRuntimeController(tracer)
+	return tracer
 }
 
 // Keep in sync with the BPF side, which asserts the relation between both
@@ -147,7 +150,14 @@ func (p *Tracer) rebuildValidPids() error {
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
-	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
+	serviceSource := fi
+	if source := fi.RuntimeMetricServiceSource(); source != nil {
+		serviceSource = source
+	}
+	p.pidsFilter.AllowPID(pid, ns, serviceSource, ebpfcommon.PIDTypeKProbes)
+	if p.pythonRuntime != nil {
+		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
+	}
 
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
@@ -174,6 +184,14 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 		pidU32 := uint32(pid)
 		_ = p.bpfObjects.PidCache.Delete(pidU32)
 	}
+}
+
+// BlockPIDLifecycle removes Python state only for the matching process lifecycle.
+func (p *Tracer) BlockPIDLifecycle(pid app.PID, ns uint32, lifecycle *exec.FileInfo) {
+	if p.pythonRuntime != nil {
+		p.pythonRuntime.block(pid, ns, lifecycle)
+	}
+	p.BlockPID(pid, ns)
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
@@ -271,6 +289,7 @@ func (p *Tracer) constants() map[string]any {
 	m["kafka_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Kafka
 	m["postgres_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Postgres
 	m["mssql_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.MSSQL
+	m["aerospike_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Aerospike
 
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
@@ -335,6 +354,14 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 		"udp_sendmsg": {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeUdpSendmsg,
+			End:      p.bpfObjects.ObiKretprobeUdpSendmsg,
+		},
+		// Not required: without it the unconnected DNS state still expires on its
+		// own, so a kernel where this symbol is unavailable loses the lifetime
+		// bound rather than the whole tracer.
+		"udp_destroy_sock": {
+			Required: false,
+			Start:    p.bpfObjects.ObiKprobeUdpDestroySock,
 		},
 		"tcp_close": {
 			Required: true,
@@ -442,6 +469,25 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			"SSL_shutdown": {{
 				Required: false,
 				Start:    p.bpfObjects.ObiUprobeSslShutdown,
+			}},
+			"SSL_set_bio": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslSetBio,
+			}},
+			"SSL_free": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeSslFree,
+			}},
+		},
+		// BIO_write is a libcrypto symbol. A process that links libssl and
+		// libcrypto separately, as CPython does, resolves it from its own
+		// object, so it gets its own key here. Statically linked runtimes such
+		// as node resolve both keys to the executable and are grouped into a
+		// single attachment by inode.
+		"libcrypto.so": {
+			"BIO_write": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeBioWrite,
 			}},
 		},
 		"libSystem.Security.Cryptography.Native.OpenSsl.so": {
@@ -668,6 +714,9 @@ func (p *Tracer) Run(
 	eventsChan *msg.Queue[[]request.Span],
 ) {
 	p.eventCtx = ebpfEventContext
+	if p.pythonRuntime != nil {
+		defer p.pythonRuntime.close()
+	}
 
 	// At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map

@@ -212,6 +212,36 @@ func TestInvalidSpanMetricsConfig(t *testing.T) {
 	}
 }
 
+func TestFeatureJSONSchemaFlagsDeprecatedNames(t *testing.T) {
+	items := Features(0).JSONSchema().Items
+	require.Len(t, items.OneOf, 2)
+
+	assert.False(t, items.OneOf[0].Deprecated)
+	assert.Contains(t, items.OneOf[0].Enum, "application_span_otel")
+	assert.Contains(t, items.OneOf[0].Enum, "*")
+	assert.NotContains(t, items.OneOf[0].Enum, "application_span")
+	assert.NotContains(t, items.OneOf[0].Enum, "application_span_sizes")
+
+	assert.True(t, items.OneOf[1].Deprecated)
+	assert.Equal(t, []any{"application_span", "application_span_sizes"}, items.OneOf[1].Enum)
+
+	// the schema names the migration target instead of pointing elsewhere for it
+	assert.Contains(t, items.OneOf[1].Description, "application_span (use application_span_otel)")
+	assert.Contains(t, items.OneOf[1].Description, "application_span_sizes (no direct replacement)")
+}
+
+func TestDeprecatedEnabled(t *testing.T) {
+	assert.Equal(t,
+		[]DeprecatedFeature{{Name: "application_span", Replacement: "application_span_otel"}},
+		mustLoadFeatures(t, "application", "application_span").DeprecatedEnabled())
+
+	assert.Equal(t,
+		[]DeprecatedFeature{{Name: "application_span_sizes"}},
+		mustLoadFeatures(t, "application_span_sizes").DeprecatedEnabled())
+
+	assert.Empty(t, mustLoadFeatures(t, "application", "application_span_otel").DeprecatedEnabled())
+}
+
 func TestFeatureUndefined(t *testing.T) {
 	t.Run("undefined YAML", func(t *testing.T) {
 		doc := struct {

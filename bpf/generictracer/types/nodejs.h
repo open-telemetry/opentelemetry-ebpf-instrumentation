@@ -38,3 +38,48 @@ struct nodejs_eventloop_event {
     u64 delay_p99_ns;
     u64 delay_count;
 };
+
+// One garbage-collection cycle reported by the injected agent. kind carries
+// the OBI wire code assigned in fdextractor.js (1=minor, 2=major,
+// 3=incremental, 4=weakcb) — deliberately NOT the Node constant values,
+// which differ across Node versions.
+// Mirrored in Go by nodejsGCRawEvent (pkg/ebpf/common/nodejs.go).
+struct nodejs_gc_event {
+    u8 type;
+    u8 kind;
+    u8 _pad[6];
+    u64 timestamp;
+    u32 global_pid;
+    u32 global_tid;
+    u32 ns_pid;
+    u32 ns_tid;
+    u32 pid_ns_id;
+    u32 _pad2;
+    u64 duration_ns;
+};
+
+enum {
+    k_nodejs_heap_space_name_max = 32,
+};
+
+// One V8 heap space sampled by the injected agent (one event per space per
+// sampling interval). The space name is engine-defined and version-dependent,
+// so it travels verbatim (name_len bytes, not NUL-terminated).
+// Mirrored in Go by nodejsHeapSpaceRawEvent (pkg/ebpf/common/nodejs.go).
+struct nodejs_heap_space_event {
+    u8 type;
+    u8 name_len;
+    u8 _pad[6];
+    u64 timestamp;
+    u32 global_pid;
+    u32 global_tid;
+    u32 ns_pid;
+    u32 ns_tid;
+    u32 pid_ns_id;
+    u32 _pad2;
+    u64 space_size;
+    u64 space_used_size;
+    u64 space_available_size;
+    u64 physical_space_size;
+    unsigned char space_name[k_nodejs_heap_space_name_max];
+};

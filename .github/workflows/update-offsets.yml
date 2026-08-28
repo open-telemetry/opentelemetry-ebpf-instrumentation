@@ -25,7 +25,7 @@ jobs:
         go-version: '>=1.25'
         check-latest: true
     - name: "Update offsets"
-      run: make update-offsets
+      run: make update-offsets update-python-offsets
     - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
       id: generate-token
       with:

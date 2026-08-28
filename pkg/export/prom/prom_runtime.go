@@ -5,7 +5,6 @@ package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -101,6 +100,12 @@ func (c *goRuntimeMetricsCollector) collectors() []prometheus.Collector {
 }
 
 func (r *metricsReporter) collectRuntimeMetrics(snapshots []runtimemetrics.RuntimeMetricSnapshot) {
+	r.runtimeMu.Lock()
+	defer r.runtimeMu.Unlock()
+	r.collectRuntimeMetricsLocked(snapshots)
+}
+
+func (r *metricsReporter) collectRuntimeMetricsLocked(snapshots []runtimemetrics.RuntimeMetricSnapshot) {
 	enabled := r.runtimeMetricsEnabled()
 	for _, snapshot := range snapshots {
 		if !enabled.ShouldReport(snapshot) {
@@ -110,17 +115,23 @@ func (r *metricsReporter) collectRuntimeMetrics(snapshots []runtimemetrics.Runti
 			r.collectGoRuntimeMetrics(snapshot)
 		}
 		if snapshot.Histogram != nil {
-			r.runtimeMu.Lock()
 			if r.runtimeSnapshotProcessLive(snapshot) {
 				r.collectGoRuntimeHistogram(snapshot)
 			}
-			r.runtimeMu.Unlock()
 		}
 		if snapshot.JVM != nil {
 			r.collectJVMRuntimeMetrics(snapshot)
 		}
 		if snapshot.Nodejs != nil {
 			r.collectNodejsRuntimeMetrics(snapshot)
+		}
+		if snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil {
+			r.collectNodejsV8Metrics(snapshot)
+		}
+		if snapshot.Python != nil {
+			if snapshot.Removed || r.runtimeSnapshotProcessLive(snapshot) {
+				r.collectPythonRuntimeMetrics(snapshot)
+			}
 		}
 	}
 }
@@ -136,9 +147,10 @@ func (r *metricsReporter) runtimeSnapshotProcessLive(
 
 func (r *metricsReporter) runtimeMetricsEnabled() runtimemetrics.Enabled {
 	return runtimemetrics.Enabled{
-		Runtime: r.goRuntimeMetrics.memoryLimit != nil &&
-			r.jvmRuntimeMetrics.memoryUsed != nil &&
-			r.nodejsRuntimeMetrics.eventLoopTime != nil,
+		Runtime: r.goRuntimeMetrics.memoryLimit != nil ||
+			r.jvmRuntimeMetrics.memoryUsed != nil ||
+			r.nodejsRuntimeMetrics.eventLoopTime != nil ||
+			r.pythonRuntimeMetrics.collections != nil,
 	}
 }
 
@@ -254,7 +266,7 @@ func (c *goRuntimeMetricsCollector) addCounter(
 	c.counterValuesMu.Lock()
 	defer c.counterValuesMu.Unlock()
 
-	key := runtimeMetricLabelsKey(append([]string{metric}, labels...))
+	key := runtimeMetricLabelTuple(append([]string{metric}, labels...))
 	if c.counterValues == nil {
 		c.counterValues = map[string]uint64{}
 	}
@@ -280,7 +292,7 @@ func (c *goRuntimeMetricsCollector) deleteCounter(counter *prometheus.CounterVec
 	c.counterValuesMu.Lock()
 	defer c.counterValuesMu.Unlock()
 
-	delete(c.counterValues, runtimeMetricLabelsKey(append([]string{metric}, labels...)))
+	delete(c.counterValues, runtimeMetricLabelTuple(append([]string{metric}, labels...)))
 	counter.DeleteLabelValues(labels...)
 }
 
@@ -319,39 +331,33 @@ func (c *goRuntimeMetricsCollector) deleteCPUTimeValue(labels []string, state st
 	c.deleteCounter(c.cpuTime, attributes.GoRuntimeCPUTime.Prom, cpuLabels)
 }
 
-func runtimeMetricLabelsKey(labels []string) string {
-	return strings.Join(labels, "\xff")
-}
-
 func (r *metricsReporter) deleteRuntimeMetrics(service *svc.Attrs) {
 	if service == nil {
 		return
 	}
 
 	labels := r.labelValuesTargetInfo(service)
-	if r.goRuntimeMetrics.memoryLimit == nil {
-		return
+	if r.goRuntimeMetrics.memoryLimit != nil {
+		r.goRuntimeMetrics.memoryLimit.DeleteLabelValues(labels...)
+		r.goRuntimeMetrics.memoryGCGoal.DeleteLabelValues(labels...)
+		r.goRuntimeMetrics.deleteGCCycles(labels)
+		r.goRuntimeMetrics.memoryUsed.DeleteLabelValues(append(append([]string{}, labels...), "stack")...)
+		r.goRuntimeMetrics.memoryUsed.DeleteLabelValues(append(append([]string{}, labels...), "other")...)
+		r.goRuntimeMetrics.deleteCounter(
+			r.goRuntimeMetrics.memoryAllocated,
+			attributes.GoRuntimeMemoryAllocated.Prom,
+			labels,
+		)
+		r.goRuntimeMetrics.deleteCounter(
+			r.goRuntimeMetrics.memoryAllocations,
+			attributes.GoRuntimeMemoryAllocations.Prom,
+			labels,
+		)
+		r.goRuntimeMetrics.deleteCPUTime(labels)
+		r.goRuntimeMetrics.goroutineCount.DeleteLabelValues(labels...)
+		r.goRuntimeMetrics.processorLimit.DeleteLabelValues(labels...)
+		r.goRuntimeMetrics.configGOGC.DeleteLabelValues(labels...)
 	}
-
-	r.goRuntimeMetrics.memoryLimit.DeleteLabelValues(labels...)
-	r.goRuntimeMetrics.memoryGCGoal.DeleteLabelValues(labels...)
-	r.goRuntimeMetrics.deleteGCCycles(labels)
-	r.goRuntimeMetrics.memoryUsed.DeleteLabelValues(append(append([]string{}, labels...), "stack")...)
-	r.goRuntimeMetrics.memoryUsed.DeleteLabelValues(append(append([]string{}, labels...), "other")...)
-	r.goRuntimeMetrics.deleteCounter(
-		r.goRuntimeMetrics.memoryAllocated,
-		attributes.GoRuntimeMemoryAllocated.Prom,
-		labels,
-	)
-	r.goRuntimeMetrics.deleteCounter(
-		r.goRuntimeMetrics.memoryAllocations,
-		attributes.GoRuntimeMemoryAllocations.Prom,
-		labels,
-	)
-	r.goRuntimeMetrics.deleteCPUTime(labels)
-	r.goRuntimeMetrics.goroutineCount.DeleteLabelValues(labels...)
-	r.goRuntimeMetrics.processorLimit.DeleteLabelValues(labels...)
-	r.goRuntimeMetrics.configGOGC.DeleteLabelValues(labels...)
 }
 
 func (r *metricsReporter) deleteRuntimeHistograms(service *svc.Attrs) {

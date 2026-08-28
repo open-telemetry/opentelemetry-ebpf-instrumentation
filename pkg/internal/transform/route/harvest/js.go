@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1585,17 +1586,26 @@ var (
 	cwdForPID     = ebpfcommon.CWDForPID
 )
 
+func normalizeFileEntry(path string) string {
+	if strings.HasPrefix(path, "file:///") {
+		_, path, _ = strings.Cut(path, "file://")
+	}
+	return path
+}
+
 // FindNodeJSAppDir locates the root directory of a Node.js application by
 // reading its command line and working directory from /proc.
 func FindNodeJSAppDir(pid app.PID) (string, error) {
 	return findJSAppDir(pid, func(args []string) string {
-		return nodejstools.ParseNodeLaunch(args).EntryPoint
+		entry := nodejstools.ParseNodeLaunch(args).EntryPoint
+		return normalizeFileEntry(entry)
 	})
 }
 
 func FindDenoAppDir(pid app.PID) (string, error) {
 	return findJSAppDir(pid, func(args []string) string {
-		return denotools.ParseDenoLaunch(args).EntryPoint
+		entry := denotools.ParseDenoLaunch(args).EntryPoint
+		return normalizeFileEntry(entry)
 	})
 }
 
@@ -1623,9 +1633,7 @@ func findJSAppDir(pid app.PID, parseEntryPoint func([]string) string) (string, e
 // JavaScript lives precisely in the directories the source scan skips.
 var compiledSkipDirs = func() map[string]string {
 	m := make(map[string]string, len(skipDirs))
-	for k, v := range skipDirs {
-		m[k] = v
-	}
+	maps.Copy(m, skipDirs)
 	delete(m, "dist")
 	delete(m, "build")
 	return m

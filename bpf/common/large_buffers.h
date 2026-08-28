@@ -11,6 +11,7 @@ volatile const u32 postgres_max_captured_bytes = 0;
 volatile const u32 kafka_max_captured_bytes = 0;
 volatile const u32 mssql_max_captured_bytes = 0;
 volatile const u32 tcp_max_captured_bytes = 0;
+volatile const u32 aerospike_max_captured_bytes = 0;
 
 enum {
     // Maximum payload size per ring buffer chunk.
@@ -33,6 +34,7 @@ enum {
     k_large_buf_max_kafka_captured_bytes = 1 << 16,
     k_large_buf_max_mssql_captured_bytes = 1 << 16,
     k_large_buf_max_tcp_captured_bytes = 1 << 16,
+    k_large_buf_max_aerospike_captured_bytes = 1 << 16,
 };
 
 enum { k_large_buffer_source_kprobes = 0, k_large_buffer_source_go = 1 };

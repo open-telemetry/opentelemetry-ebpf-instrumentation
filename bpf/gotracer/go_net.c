@@ -149,13 +149,12 @@ int GUARDED_PROG(obi_uprobe_netFdReadRet, struct pt_regs *, ctx) {
     net_args_t *net_ptr = bpf_map_lookup_elem(&ongoing_fd_reads, &g_key);
 
     if (!net_ptr || !net_ptr->byte_ptr || net_ptr->skip) {
-        if (http_large_buffer_skip(len)) {
-            return 0;
-        } else if (net_ptr && net_ptr->byte_ptr) {
+        if (!http_large_buffer_skip(len) && net_ptr && net_ptr->byte_ptr) {
             send_http_large_buffers_if_needed(
                 &g_key, &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
         }
 
+        bpf_map_delete_elem(&ongoing_fd_reads, &g_key);
         return 0;
     }
 

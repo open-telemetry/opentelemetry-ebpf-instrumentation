@@ -80,7 +80,7 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 	// Call 4 times the instrumented service, forcing it to:
 	// - process multiple calls in a row with, one more than we might need
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+path+"/1", 200)
 	}
 
@@ -141,7 +141,7 @@ func assertRubyPumaSupportVersion(t *testing.T, compose *docker.Compose, expecte
 	require.NoError(t, err, "bundle exec ruby output:\n%s", output)
 
 	var versionLines []string
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "time=") {
 			continue

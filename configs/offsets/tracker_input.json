@@ -19,7 +19,7 @@
       "net.netFD": ["laddr", "raddr"],
       "net/http.persistConn": ["conn", "tlsState"],
       "net/http.conn": ["rwc", "tlsState"],
-      "net/http.http2ClientConn": ["nextStreamID", "tconn", "fr"],
+      "net/http.http2ClientConn": ["nextStreamID", "tconn", "tlsState", "fr"],
       "net/http.http2serverConn": ["conn"],
       "net/http.http2Framer": ["w"],
       "net/http.http2MetaHeadersFrame": ["Fields"],
@@ -84,7 +84,7 @@
     "versions": ">= 0.12.0",
     "fields": {
       "golang.org/x/net/http2/hpack.Encoder": ["w"],
-      "golang.org/x/net/http2.ClientConn": ["nextStreamID", "tconn", "fr"],
+      "golang.org/x/net/http2.ClientConn": ["nextStreamID", "tconn", "tlsState", "fr"],
       "golang.org/x/net/http2.Framer": ["w"],
       "golang.org/x/net/http2.serverConn": ["conn"],
       "golang.org/x/net/http2.MetaHeadersFrame": ["Fields"]
