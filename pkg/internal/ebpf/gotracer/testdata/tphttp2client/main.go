@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,8 @@ import (
 	"golang.org/x/net/http2"
 )
 
+var useTLS = flag.Bool("tls", false, "use TLS for the loopback connection")
+
 type target struct {
 	plainAddress string
 	tlsAddress   string
@@ -28,6 +31,8 @@ type target struct {
 }
 
 func main() {
+	flag.Parse()
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		values := r.Header.Values("Traceparent")
 		fmt.Fprintf(w, "%d:%s", len(values), strings.Join(values, ","))
@@ -60,6 +65,8 @@ func main() {
 			report(fixture.request(true, false))
 		case "TLS_IMMEDIATE":
 			report(fixture.request(true, true))
+		case "REQUEST":
+			report(fixture.request(*useTLS, false))
 		case "EXIT":
 			return
 		}

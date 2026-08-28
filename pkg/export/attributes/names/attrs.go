@@ -205,10 +205,11 @@ const (
 	HostName    = Name(semconv.HostNameKey)
 	HostType    = Name(semconv.HostTypeKey)
 
-	ServiceInstanceID = Name(semconv.ServiceInstanceIDKey)
-	SkipSpanMetrics   = Name("span.metrics.skip")
-	JVMMemoryType     = Name("jvm.memory.type")
-	JVMMemoryPoolName = Name("jvm.memory.pool.name")
+	ServiceInstanceID   = Name(semconv.ServiceInstanceIDKey)
+	SkipSpanMetrics     = Name("span.metrics.skip")
+	JVMMemoryType       = Name("jvm.memory.type")
+	JVMMemoryPoolName   = Name("jvm.memory.pool.name")
+	CPythonGCGeneration = Name("cpython.gc.generation")
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")
 

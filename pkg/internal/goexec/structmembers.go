@@ -116,6 +116,8 @@ const (
 	NetConnPos
 	CcTconnPos
 	CcTconnVendoredPos
+	CcTLSPos
+	CcTLSVendoredPos
 	ScConnPos
 	CRwcPos
 	CTlsPos
@@ -375,6 +377,7 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"nextStreamID": CcNextStreamIDPos,
 			"tconn":        CcTconnPos,
+			"tlsState":     CcTLSPos,
 			"fr":           CcFramerPos,
 		},
 	},
@@ -413,6 +416,7 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"nextStreamID": CcNextStreamIDVendoredPos,
 			"tconn":        CcTconnVendoredPos,
+			"tlsState":     CcTLSVendoredPos,
 			"fr":           CcFramerVendoredPos,
 		},
 	},

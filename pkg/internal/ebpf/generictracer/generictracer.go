@@ -53,6 +53,7 @@ type Tracer struct {
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
+	pythonRuntime    *pythonRuntimeController
 }
 
 func tlog() *slog.Logger {
@@ -60,7 +61,7 @@ func tlog() *slog.Logger {
 }
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
-	return &Tracer{
+	tracer := &Tracer{
 		log:              tlog(),
 		cfg:              cfg,
 		metrics:          metrics,
@@ -72,6 +73,8 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		libsMux:          sync.Mutex{},
 		iters:            []*ebpfcommon.Iter{},
 	}
+	tracer.pythonRuntime = newPythonRuntimeController(tracer)
+	return tracer
 }
 
 // Keep in sync with the BPF side, which asserts the relation between both
@@ -147,7 +150,14 @@ func (p *Tracer) rebuildValidPids() error {
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
-	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
+	serviceSource := fi
+	if source := fi.RuntimeMetricServiceSource(); source != nil {
+		serviceSource = source
+	}
+	p.pidsFilter.AllowPID(pid, ns, serviceSource, ebpfcommon.PIDTypeKProbes)
+	if p.pythonRuntime != nil {
+		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
+	}
 
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
@@ -174,6 +184,14 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 		pidU32 := uint32(pid)
 		_ = p.bpfObjects.PidCache.Delete(pidU32)
 	}
+}
+
+// BlockPIDLifecycle removes Python state only for the matching process lifecycle.
+func (p *Tracer) BlockPIDLifecycle(pid app.PID, ns uint32, lifecycle *exec.FileInfo) {
+	if p.pythonRuntime != nil {
+		p.pythonRuntime.block(pid, ns, lifecycle)
+	}
+	p.BlockPID(pid, ns)
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
@@ -696,6 +714,9 @@ func (p *Tracer) Run(
 	eventsChan *msg.Queue[[]request.Span],
 ) {
 	p.eventCtx = ebpfEventContext
+	if p.pythonRuntime != nil {
+		defer p.pythonRuntime.close()
+	}
 
 	// At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map

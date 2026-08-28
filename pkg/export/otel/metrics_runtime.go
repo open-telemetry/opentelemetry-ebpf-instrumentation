@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -14,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
@@ -58,6 +60,26 @@ type RuntimeMetrics struct {
 	goMetrics     goRuntimeMetrics
 	jvmMetrics    jvmRuntimeMetrics
 	nodejsMetrics nodejsRuntimeMetrics
+	pythonMetrics pythonRuntimeMetrics
+}
+
+type pythonRuntimeMetrics struct {
+	collections          instrument.Int64Counter
+	collectedObjects     instrument.Int64Counter
+	uncollectableObjects instrument.Int64Counter
+
+	values map[app.PID]*pythonRuntimeMetricValues
+}
+
+type pythonRuntimeMetricValues struct {
+	collections          [runtimemetrics.CPythonGCGenerationCount]pythonRuntimeCounterValue
+	collectedObjects     [runtimemetrics.CPythonGCGenerationCount]pythonRuntimeCounterValue
+	uncollectableObjects [runtimemetrics.CPythonGCGenerationCount]pythonRuntimeCounterValue
+}
+
+type pythonRuntimeCounterValue struct {
+	value       uint64
+	initialized bool
 }
 
 type goRuntimeMetrics struct {
@@ -143,8 +165,8 @@ func newRuntimeMetricsReporter(
 	}
 
 	reporter.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
-		func(id svc.UID, v *RuntimeMetrics) {
-			llog := log.With("service", id)
+		func(_ svc.UID, v *RuntimeMetrics) {
+			llog := log.With("service", v.service.UID)
 			llog.Debug("evicting runtime metrics reporter from cache")
 
 			go func() {
@@ -161,13 +183,12 @@ func newRuntimeMetricsReporter(
 }
 
 func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeMetrics {
-	log := r.log
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
-		log = log.With("service", service)
 		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&r.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
 		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, r.selector)
 	}
+	log := r.log.With("service", service)
 	log.Debug("creating new runtime metrics reporter")
 
 	resources := resource.NewWithAttributes(attr.OBISchemaURL, resourceAttributes...)
@@ -216,6 +237,38 @@ func setupRuntimeMeters(
 	}
 	if err := setupNodejsRuntimeMeters(metrics.ctx, &metrics.nodejsMetrics, meter, ttl, buckets); err != nil {
 		return err
+	}
+	if err := setupPythonRuntimeMeters(&metrics.pythonMetrics, meter); err != nil {
+		return err
+	}
+	return nil
+}
+
+func setupPythonRuntimeMeters(metrics *pythonRuntimeMetrics, meter instrument.Meter) error {
+	var err error
+	metrics.collections, err = meter.Int64Counter(
+		attributes.CPythonGCCollections.OTEL,
+		instrument.WithUnit("{collection}"),
+		instrument.WithDescription("The number of times a generation was collected since interpreter start."),
+	)
+	if err != nil {
+		return fmt.Errorf("creating CPython GC collections: %w", err)
+	}
+	metrics.collectedObjects, err = meter.Int64Counter(
+		attributes.CPythonGCCollectedObjects.OTEL,
+		instrument.WithUnit("{object}"),
+		instrument.WithDescription("The total number of objects collected inside a generation since interpreter start."),
+	)
+	if err != nil {
+		return fmt.Errorf("creating CPython GC collected objects: %w", err)
+	}
+	metrics.uncollectableObjects, err = meter.Int64Counter(
+		attributes.CPythonGCUncollectableObjects.OTEL,
+		instrument.WithUnit("{object}"),
+		instrument.WithDescription("The total number of objects which were found to be uncollectable inside a generation since interpreter start."),
+	)
+	if err != nil {
+		return fmt.Errorf("creating CPython GC uncollectable objects: %w", err)
 	}
 	return nil
 }
@@ -294,13 +347,23 @@ func (r *RuntimeMetricsReporter) reportMetrics(ctx context.Context) {
 }
 
 func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
-	service := pe.File.ServiceAttrs()
+	if pe.Type == exec.ProcessEventTerminated {
+		r.reportRuntimeMetrics(runtimemetrics.PythonRuntimeMetricsFromProcessEvent(*pe))
+	}
+	service := pe.ServiceFile().ServiceAttrs()
 	pid := pe.File.Pid()
 
 	if pe.Type == exec.ProcessEventCreated {
-		if staleUID, exists := r.pidTracker.TracksPID(pid); exists && !staleUID.Equals(&service.UID) {
-			r.pidTracker.ReplaceUID(staleUID, service.UID)
-			r.reporters.Remove(staleUID)
+		if trackedUID, exists := r.pidTracker.TracksPID(pid); exists {
+			if !trackedUID.Equals(&service.UID) {
+				r.pidTracker.ReplaceUID(trackedUID, service.UID)
+				r.removeRuntimeReporter(trackedUID)
+				return
+			}
+			if metrics, exists := r.reporters.Lookup(trackedUID); exists &&
+				metrics.service != nil && !sameRuntimeMetricService(*metrics.service, service) {
+				r.removeRuntimeReporter(trackedUID)
+			}
 			return
 		}
 		r.pidTracker.AddPIDWithGeneration(pid, service.UID, pe.File.RuntimeMetricGeneration(pid))
@@ -314,9 +377,23 @@ func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 	if metrics, exists := r.reporters.Lookup(uid); exists && metrics.goHistogramProducer != nil {
 		metrics.goHistogramProducer.Delete(pid)
 	}
-	if removed, _ := r.pidTracker.RemovePID(pid); removed {
-		r.reporters.Remove(uid)
+	// Keep final Python counters available until the reporter cache expires them.
+	if removed, _ := r.pidTracker.RemovePID(pid); removed && service.SDKLanguage != svc.InstrumentablePython {
+		r.removeRuntimeReporter(uid)
 	}
+}
+
+func (r *RuntimeMetricsReporter) removeRuntimeReporter(uid svc.UID) {
+	r.reporters.Remove(uid)
+}
+
+func sameRuntimeMetricService(left, right svc.Attrs) bool {
+	return left.UID == right.UID &&
+		left.HostName == right.HostName &&
+		left.ExportModes == right.ExportModes &&
+		left.Features == right.Features &&
+		maps.Equal(left.Metadata, right.Metadata) &&
+		maps.Equal(left.EnvVars, right.EnvVars)
 }
 
 func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics.RuntimeMetricSnapshot) {
@@ -325,7 +402,7 @@ func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics
 			continue
 		}
 		// A snapshot may still be in flight after its process terminated.
-		if !r.snapshotProcessLive(snapshot) {
+		if !snapshot.Removed && !r.snapshotProcessLive(snapshot) {
 			r.log.Debug("skipping snapshot for terminated process",
 				"pid", snapshot.PID, "service", snapshot.Service.UID)
 			continue
@@ -385,6 +462,63 @@ func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot
 		}
 		metrics.nodejsMetrics.recordV8(snapshot)
 	}
+	if snapshot.Python != nil {
+		if snapshot.Service.SDKLanguage != svc.InstrumentablePython ||
+			!snapshot.Service.ExportModes.CanExportMetrics() ||
+			!snapshot.Service.Features.AppRuntime() {
+			return
+		}
+		recordPythonRuntimeMetrics(ctx, &metrics.pythonMetrics, snapshot)
+	}
+}
+
+func recordPythonRuntimeMetrics(
+	ctx context.Context,
+	metrics *pythonRuntimeMetrics,
+	snapshot runtimemetrics.RuntimeMetricSnapshot,
+) {
+	if metrics == nil || metrics.collections == nil {
+		return
+	}
+	if snapshot.Removed {
+		delete(metrics.values, snapshot.PID)
+		return
+	}
+	if metrics.values == nil {
+		metrics.values = map[app.PID]*pythonRuntimeMetricValues{}
+	}
+	previous := metrics.values[snapshot.PID]
+	if previous == nil {
+		previous = &pythonRuntimeMetricValues{}
+		metrics.values[snapshot.PID] = previous
+	}
+
+	for generation, values := range snapshot.Python.Generations {
+		generationAttr := attribute.KeyValue{Key: attr.CPythonGCGeneration.OTEL(), Value: attribute.IntValue(generation)}
+		recordRuntimeCounterWithAttributes(ctx, metrics.collections, &previous.collections[generation],
+			values.Collections, generationAttr)
+		recordRuntimeCounterWithAttributes(ctx, metrics.collectedObjects, &previous.collectedObjects[generation],
+			values.CollectedObjects, generationAttr)
+		recordRuntimeCounterWithAttributes(ctx, metrics.uncollectableObjects, &previous.uncollectableObjects[generation],
+			values.UncollectableObjects, generationAttr)
+	}
+}
+
+func recordRuntimeCounterWithAttributes(
+	ctx context.Context,
+	metric instrument.Int64Counter,
+	previous *pythonRuntimeCounterValue,
+	current uint64,
+	attrs ...attribute.KeyValue,
+) {
+	option := instrument.WithAttributes(attrs...)
+	if !previous.initialized || current < previous.value {
+		metric.Add(ctx, int64(current), option)
+	} else if delta := current - previous.value; delta > 0 {
+		metric.Add(ctx, int64(delta), option)
+	}
+	previous.value = current
+	previous.initialized = true
 }
 
 func recordGoRuntimeMetrics(ctx context.Context, metrics *goRuntimeMetrics, snapshot runtimemetrics.RuntimeMetricSnapshot) {

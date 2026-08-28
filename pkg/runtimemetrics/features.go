@@ -33,5 +33,11 @@ func (e Enabled) ShouldReport(snapshot RuntimeMetricSnapshot) bool {
 			snapshot.Service.ExportModes.CanExportMetrics() &&
 			snapshot.Service.Features.AppRuntime()
 	}
+	if snapshot.Python != nil {
+		return e.Runtime &&
+			snapshot.Service.SDKLanguage == svc.InstrumentablePython &&
+			snapshot.Service.ExportModes.CanExportMetrics() &&
+			snapshot.Service.Features.AppRuntime()
+	}
 	return false
 }

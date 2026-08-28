@@ -85,6 +85,9 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 	for _, symbol := range gotracer.GoHTTP2FlushProbeSymbols() {
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}
+	for _, symbol := range gotracer.GoH2OwnershipProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
 }
 
 func TestContextWithValueDoesNotQualifyGoProxy(t *testing.T) {
@@ -398,4 +401,30 @@ func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
 	_, cacheHit := instrumentableCache.Get(key)
 	assert.False(t, cacheHit,
 		"instrumentableCache should not contain a stale entry for dev:ino %v after the process owning it is deleted", key)
+}
+
+func TestAsInstrumentable_CachedPythonWorkerUsesParentServiceSource(t *testing.T) {
+	instrumentableCache, err := lru.New[cacheKey, instrumentedExecutable](100)
+	require.NoError(t, err)
+
+	parent := exec.New(exec.Init{
+		Pid: 100, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
+	})
+	worker := exec.New(exec.Init{
+		Pid: 101, Ppid: 100, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
+	})
+	instrumentableCache.Add(cacheKey{Dev: worker.Dev(), Ino: worker.Ino()}, instrumentedExecutable{
+		Type: svc.InstrumentablePython,
+	})
+	ty := typer{
+		log:                 slog.Default(),
+		currentPids:         map[app.PID]*exec.FileInfo{parent.Pid(): parent, worker.Pid(): worker},
+		instrumentableCache: instrumentableCache,
+	}
+
+	instrumentable := ty.asInstrumentable(worker)
+
+	assert.Same(t, worker, instrumentable.FileInfo)
+	assert.Same(t, parent, worker.RuntimeMetricServiceSource())
+	assert.Empty(t, instrumentable.ChildPids)
 }

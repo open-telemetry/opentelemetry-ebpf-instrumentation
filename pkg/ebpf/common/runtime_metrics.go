@@ -13,6 +13,7 @@ import (
 
 type RuntimeMetricSender interface {
 	SendGoRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
+	SendPythonRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
 	SendJVMRuntimeMetrics(context.Context, []appruntime.JVMRuntimeEvent)
 	SendNodejsRuntimeMetrics(context.Context, []appruntime.NodejsRuntimeEvent)
 	SendNodejsGCMetrics(context.Context, []appruntime.NodejsGCEvent)
@@ -49,6 +50,11 @@ func HandleRuntimeMetricsRecord(
 			return true, nil
 		}
 		return true, eventContext.RuntimeMetrics.SendGoRuntimeMetricRecord(ctx, record, filter)
+	case EventTypePythonRuntimeMetric:
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
+			return true, nil
+		}
+		return true, eventContext.RuntimeMetrics.SendPythonRuntimeMetricRecord(ctx, record, filter)
 	case EventTypeJVMMemoryPoolGC:
 		for _, handler := range handlers {
 			if handler == nil {

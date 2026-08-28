@@ -60,6 +60,8 @@ type executableIdentity = BpfGoExecutableKeyT
 // Linux's internal dev_t reserves its lower 20 bits for the minor number.
 const linuxMinorDeviceBits = 20
 
+var goH2WriteFailStepForTest uint8
+
 func kernelDeviceNumber(dev uint64) uint64 {
 	return uint64(unix.Major(dev))<<linuxMinorDeviceBits | uint64(unix.Minor(dev))
 }
@@ -193,6 +195,12 @@ var goAutoSDKSpanContextOffsetFields = [...]goexec.GoOffset{
 	goexec.AutoSDKActivationSupported,
 }
 
+var goGRPCBufWriterOffsetFields = [...]goexec.GoOffset{
+	goexec.GrpcTransportBufWriterBufPos,
+	goexec.GrpcTransportBufWriterOffsetPos,
+	goexec.GrpcTransportBufWriterConnPos,
+}
+
 var goRuntimeMetricOffsetFields = [...]goexec.GoOffset{
 	goexec.RuntimeMemstatsNumGCPos,
 	goexec.RuntimeGCControllerMemoryLimitPos,
@@ -300,6 +308,7 @@ type Tracer struct {
 	closers                           []io.Closer
 	disabledRouteHarvesting           bool
 	supportsBPFLoop                   bool
+	runtimeMetricsEnabled             bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
@@ -333,6 +342,7 @@ func New(
 		metrics:                           metrics,
 		disabledRouteHarvesting:           disabledRouteHarvesting,
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
+		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -451,6 +461,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_bpf_debug":                    p.cfg.BpfDebug,
 		"g_bpf_header_propagation":       p.cfg.ContextPropagation.HasHeaders(),
 		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
+		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
 		"wakeup_data_bytes":              uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
 		"disable_black_box_cp":           blackBoxCP,
 		"attr_type_invalid":              uint64(attribute.INVALID),
@@ -526,8 +537,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	p.recordGoChannelOffsetAvailability(fileInfo, offsets)
 
 	offTable := BpfOffTableT{}
-	initMissingGoChannelOffsets(&offTable)
-	initMissingGoAutoSDKSpanContextOffsets(&offTable)
+	initMissingGoOffsets(&offTable, goChannelOffsetFields[:])
+	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
+	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
 	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
 	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
 	// Set the field offsets and the logLevel for the Go BPF program in a map
@@ -561,6 +573,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.NetConnPos,
 		goexec.CcTconnPos,
 		goexec.CcTconnVendoredPos,
+		goexec.CcTLSPos,
+		goexec.CcTLSVendoredPos,
 		goexec.ScConnPos,
 		goexec.CRwcPos,
 		goexec.CTlsPos,
@@ -718,22 +732,12 @@ func setFramerPaddingOffset(
 	}
 }
 
-func initMissingGoChannelOffsets(offTable *BpfOffTableT) {
+func initMissingGoOffsets(offTable *BpfOffTableT, fields []goexec.GoOffset) {
 	if offTable == nil {
 		return
 	}
 
-	for _, field := range goChannelOffsetFields {
-		offTable.Table[field] = missingGoOffset
-	}
-}
-
-func initMissingGoAutoSDKSpanContextOffsets(offTable *BpfOffTableT) {
-	if offTable == nil {
-		return
-	}
-
-	for _, field := range goAutoSDKSpanContextOffsetFields {
+	for _, field := range fields {
 		offTable.Table[field] = missingGoOffset
 	}
 }
@@ -1254,7 +1258,7 @@ func (p *Tracer) recordGoChannelOffsetAvailability(fileInfo *exec.FileInfo, offs
 }
 
 func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
-	if p == nil || fileInfo == nil {
+	if p == nil || !p.runtimeMetricsEnabled || fileInfo == nil {
 		return
 	}
 
@@ -1416,7 +1420,7 @@ func hasBaseGoRuntimeMetrics(mask uint64) bool {
 // into BPF. Offsets stay inode-scoped in go_offsets_map, but these addresses
 // are process-scoped for PIE/ASLR and must follow the PID allow lifecycle.
 func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *exec.FileInfo) {
-	if fileInfo == nil || p.bpfObjects.GoRuntimeMetricTargets == nil {
+	if !p.runtimeMetricsEnabled || fileInfo == nil || p.bpfObjects.GoRuntimeMetricTargets == nil {
 		return
 	}
 	identity := goOffsetsMapKey(fileInfo)
@@ -1603,6 +1607,13 @@ var goHTTP2FlushProbeSymbols = []string{
 	"net/http.(*http2Framer).endWrite",
 }
 
+var goH2OwnershipProbeSymbols = []string{
+	"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders",
+	"golang.org/x/net/http2.(*ClientConn).writeHeader",
+	"net/http.(*http2clientStream).encodeAndWriteHeaders",
+	"net/http.(*http2ClientConn).writeHeader",
+}
+
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
 func GoChannelLinkProbeSymbols() []string {
 	return append([]string(nil), goChannelLinkProbeSymbols...)
@@ -1621,6 +1632,11 @@ func GoAutoSDKActivationProbeSymbols() []string {
 // GoHTTP2FlushProbeSymbols returns the symbols needed by the atomic pre-flush probe groups.
 func GoHTTP2FlushProbeSymbols() []string {
 	return append([]string(nil), goHTTP2FlushProbeSymbols...)
+}
+
+// GoH2OwnershipProbeSymbols returns the symbols used by current HTTP/2 ownership probes.
+func GoH2OwnershipProbeSymbols() []string {
+	return append([]string(nil), goH2OwnershipProbeSymbols...)
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -1979,24 +1995,26 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 	}
 
-	if p.goRuntimeHeapSnapshotProbeEnabled() {
-		// Go 1.23+ heap statistics use a rotating ring. Collect at nextGen after GC
-		// accounting and before the world restarts so the ring cannot rotate mid-read.
-		m[goRuntimeMetricHeapSnapshotSymbol] = []*ebpfcommon.ProbeDesc{{
-			Start: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
-		}}
-	} else {
-		// Older Go versions expose only the scalar metric set and may not contain
-		// nextGen. Keep the gcMarkDone return probe for backward compatibility.
-		m[goRuntimeMetricGCMarkDoneSymbol] = []*ebpfcommon.ProbeDesc{{
-			End: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
-		}}
-	}
+	if p.runtimeMetricsEnabled {
+		if p.goRuntimeHeapSnapshotProbeEnabled() {
+			// Go 1.23+ heap statistics use a rotating ring. Collect at nextGen after GC
+			// accounting and before the world restarts so the ring cannot rotate mid-read.
+			m[goRuntimeMetricHeapSnapshotSymbol] = []*ebpfcommon.ProbeDesc{{
+				Start: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
+			}}
+		} else {
+			// Older Go versions expose only the scalar metric set and may not contain
+			// nextGen. Keep the gcMarkDone return probe for backward compatibility.
+			m[goRuntimeMetricGCMarkDoneSymbol] = []*ebpfcommon.ProbeDesc{{
+				End: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
+			}}
+		}
 
-	if p.goRuntimeGCGoalSourceEnabled() {
-		m[goRuntimeMetricGCGoalSymbol] = []*ebpfcommon.ProbeDesc{{
-			Start: p.bpfObjects.ObiUprobeGoRuntimeGcGoal,
-		}}
+		if p.goRuntimeGCGoalSourceEnabled() {
+			m[goRuntimeMetricGCGoalSymbol] = []*ebpfcommon.ProbeDesc{{
+				Start: p.bpfObjects.ObiUprobeGoRuntimeGcGoal,
+			}}
+		}
 	}
 
 	if p.goChannelLinkProbesEnabled() {
@@ -2077,6 +2095,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 	var groups []ebpfcommon.GoProbeGroup
 	if p.headerPropagationEnabled() {
+		groups = append(groups, p.goH2OwnershipProbeGroups()...)
 		groups = append(groups,
 			ebpfcommon.GoProbeGroup{
 				Name:          "go_http2_xnet_preflush",
@@ -2156,6 +2175,49 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 	}
 
 	return groups
+}
+
+func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
+	return []ebpfcommon.GoProbeGroup{
+		{
+			Name:          "go_http2_xnet_current_ownership",
+			Prerequisites: []string{"golang.org/x/net/http2.(*ClientConn).writeHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[0],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeaders,
+						End:   p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeadersReturns,
+					},
+				},
+				{
+					Symbol: goH2OwnershipProbeSymbols[1],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
+				},
+			},
+		},
+		{
+			Name:          "go_http2_stdlib_current_ownership",
+			Prerequisites: []string{"net/http.(*http2ClientConn).writeHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[2],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeaders,
+						End:   p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeadersReturns,
+					},
+				},
+				{
+					Symbol: goH2OwnershipProbeSymbols[3],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
+				},
+			},
+		},
+	}
 }
 
 func (p *Tracer) goAutoSDKActivationProbesEnabled() bool {
