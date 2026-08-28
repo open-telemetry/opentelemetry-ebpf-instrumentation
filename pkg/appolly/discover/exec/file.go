@@ -155,7 +155,7 @@ func (fi *FileInfo) ServiceAttrs() svc.Attrs {
 	return out
 }
 
-// Do not use this function anywhere but when dealing with span events
+// UnsafeServiceAttrs should be used only when dealing with span events
 func (fi *FileInfo) UnsafeServiceAttrs() svc.Attrs {
 	return fi.service
 }
