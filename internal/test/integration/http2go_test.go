@@ -209,12 +209,12 @@ func parseHTTP2OwnershipResults(logs string) []http2OwnershipResult {
 	const prefix = "HTTP2_OWNERSHIP_RESULT "
 	var results []http2OwnershipResult
 	for line := range strings.SplitSeq(logs, "\n") {
-		start := strings.Index(line, prefix)
-		if start < 0 {
+		_, payload, found := strings.Cut(line, prefix)
+		if !found {
 			continue
 		}
 		var result http2OwnershipResult
-		if json.Unmarshal([]byte(line[start+len(prefix):]), &result) == nil {
+		if json.Unmarshal([]byte(payload), &result) == nil {
 			results = append(results, result)
 		}
 	}
