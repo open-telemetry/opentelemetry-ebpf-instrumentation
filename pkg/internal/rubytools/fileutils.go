@@ -5,7 +5,7 @@ package rubytools // import "go.opentelemetry.io/obi/pkg/internal/rubytools"
 
 import (
 	"errors"
-	"log/slog"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,12 +79,15 @@ func regularFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-func pathEntryExists(path string) bool {
+func pathEntryExists(path string) (bool, error) {
 	_, err := os.Lstat(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Debug("error checking Ruby project marker", "path", path, "error", err)
+	if err == nil {
+		return true, nil
 	}
-	return err == nil
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("checking Ruby project marker %q: %w", path, err)
 }
 
 func serviceNameFromEntryPoint(path string) string {

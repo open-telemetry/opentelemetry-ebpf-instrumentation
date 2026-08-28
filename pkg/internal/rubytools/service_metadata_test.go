@@ -4,9 +4,7 @@
 package rubytools
 
 import (
-	"bytes"
 	"errors"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -997,50 +995,57 @@ end
 
 		require.ErrorIs(t, err, expectedErr)
 	})
+
+	t.Run("project directory read errors are returned", func(t *testing.T) {
+		root := t.TempDir()
+		writeRubyFile(t, filepath.Join(root, "not-a-directory"), nil)
+		fileInfo := mockRubyProcess(t, root, "/not-a-directory", "puma", nil, nil)
+
+		err := ResolveServiceMetadata(fileInfo)
+
+		require.Error(t, err)
+		require.ErrorContains(t, err, "reading Ruby project directory")
+	})
 }
 
 func TestPathEntryExistsDistinguishesFilesystemErrors(t *testing.T) {
-	var logs bytes.Buffer
-	oldLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(oldLogger) })
-
 	root := t.TempDir()
 	existing := filepath.Join(root, "Gemfile")
 	writeRubyFile(t, existing, nil)
-	assert.True(t, pathEntryExists(existing))
-	assert.False(t, pathEntryExists(filepath.Join(root, "missing")))
-	assert.Empty(t, logs.String())
+	exists, err := pathEntryExists(existing)
+	require.NoError(t, err)
+	assert.True(t, exists)
 
-	logs.Reset()
+	exists, err = pathEntryExists(filepath.Join(root, "missing"))
+	require.NoError(t, err)
+	assert.False(t, exists)
+
 	invalid := filepath.Join(existing, "Gemfile.lock")
-	assert.False(t, pathEntryExists(invalid))
-	assert.Contains(t, logs.String(), "error checking Ruby project marker")
-	assert.Contains(t, logs.String(), invalid)
+	exists, err = pathEntryExists(invalid)
+	assert.False(t, exists)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "checking Ruby project marker")
+	require.ErrorContains(t, err, invalid)
 }
 
-func TestRootGemspecsLogsDirectoryErrors(t *testing.T) {
-	var logs bytes.Buffer
-	oldLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(oldLogger) })
-
+func TestRootGemspecsReturnsDirectoryErrors(t *testing.T) {
 	root := t.TempDir()
 	missing := filepath.Join(root, "missing")
-	paths, boundary := rootGemspecs(missing)
+	paths, boundary, err := rootGemspecs(missing)
 	assert.Empty(t, paths)
 	assert.False(t, boundary)
-	assert.Contains(t, logs.String(), "error opening Ruby project directory")
-	assert.Contains(t, logs.String(), missing)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "opening Ruby project directory")
+	require.ErrorContains(t, err, missing)
 
-	logs.Reset()
 	file := filepath.Join(root, "not-a-directory")
 	writeRubyFile(t, file, nil)
-	paths, boundary = rootGemspecs(file)
+	paths, boundary, err = rootGemspecs(file)
 	assert.Empty(t, paths)
 	assert.False(t, boundary)
-	assert.Contains(t, logs.String(), "error reading Ruby project directory")
-	assert.Contains(t, logs.String(), file)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "reading Ruby project directory")
+	require.ErrorContains(t, err, file)
 }
 
 func mockRubyProcess(

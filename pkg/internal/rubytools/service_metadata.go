@@ -5,8 +5,8 @@ package rubytools // import "go.opentelemetry.io/obi/pkg/internal/rubytools"
 
 import (
 	"errors"
+	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,9 +72,9 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	}
 
 	launch := ParseRubyLaunch(command, args)
-	metadata, found := findRubyMetadata(root, boundary, cwd, launch, service.EnvVars)
+	metadata, found, resolutionErr := findRubyMetadata(root, boundary, cwd, launch, service.EnvVars)
 	if !found {
-		return nil
+		return resolutionErr
 	}
 
 	if resolveName && validServiceName(metadata.Name) {
@@ -87,25 +87,29 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		service.Metadata[serviceVersion] = metadata.Version
 		fileInfo.SetMetadata(service.Metadata)
 	}
-	return nil
+	return resolutionErr
 }
 
 func findRubyMetadata(
 	root, boundary, cwd string,
 	launch RubyLaunch,
 	env map[string]string,
-) (serviceMetadata, bool) {
+) (serviceMetadata, bool, error) {
 	dependencyRoots := gemDependencyRoots(cwd, env)
 
 	if launch.EntryPoint != "" && !pathInDependencyRoot(cwd, launch.EntryPoint, dependencyRoots) {
 		fallback := serviceNameFromEntryPoint(launch.EntryPoint)
 		if start, ok := searchStart(root, cwd, launch.EntryPoint, true); ok {
-			if metadata, found := findProjectMetadata(start, boundary, fallback, false); found {
-				return metadata, true
+			metadata, found, err := findProjectMetadata(start, boundary, fallback, false)
+			if err != nil {
+				return serviceMetadata{Name: fallback}, fallback != "", err
+			}
+			if found {
+				return metadata, true, nil
 			}
 		}
 		if fallback != "" {
-			return serviceMetadata{Name: fallback}, true
+			return serviceMetadata{Name: fallback}, true, nil
 		}
 	}
 
@@ -115,22 +119,30 @@ func findRubyMetadata(
 			if start, ok := searchStart(
 				root, cwd, launch.ProjectPath, projectPathLooksLikeFile(launch.ProjectPath),
 			); ok {
-				if metadata, found := findProjectMetadata(
+				metadata, found, err := findProjectMetadata(
 					start, boundary, "", launch.projectPathAuthoritative,
-				); found {
-					return metadata, true
+				)
+				if err != nil {
+					return serviceMetadata{}, false, err
+				}
+				if found {
+					return metadata, true, nil
 				}
 			}
 			if launch.projectPathAuthoritative {
-				return serviceMetadata{}, false
+				return serviceMetadata{}, false, nil
 			}
 		}
 	}
 
 	if !pathInDependencyRoot("/", cwd, dependencyRoots) {
 		if start, ok := langtools.ResolveProcessPath(root, "/", cwd); ok {
-			if metadata, found := findProjectMetadata(start, boundary, "", false); found {
-				return metadata, true
+			metadata, found, err := findProjectMetadata(start, boundary, "", false)
+			if err != nil {
+				return serviceMetadata{}, false, err
+			}
+			if found {
+				return metadata, true, nil
 			}
 		}
 	}
@@ -142,27 +154,34 @@ func findBundlerMetadata(
 	root, boundary, cwd string,
 	env map[string]string,
 	dependencyRoots []string,
-) (serviceMetadata, bool) {
+) (serviceMetadata, bool, error) {
 	if path := env[bundleGemfile]; path != "" && !pathInDependencyRoot(cwd, path, dependencyRoots) {
 		if resolved, ok := langtools.ResolveProcessPath(root, cwd, path); ok && regularFile(resolved) {
-			if metadata, found := findProjectMetadata(filepath.Dir(resolved), boundary, "", true); found {
-				return metadata, true
+			metadata, found, err := findProjectMetadata(filepath.Dir(resolved), boundary, "", true)
+			if err != nil {
+				return serviceMetadata{}, false, err
+			}
+			if found {
+				return metadata, true, nil
 			}
 		}
 	}
 
-	return serviceMetadata{}, false
+	return serviceMetadata{}, false, nil
 }
 
 func findProjectMetadata(
 	start, boundary, directFallback string,
 	firstDirectoryIsProject bool,
-) (serviceMetadata, bool) {
+) (serviceMetadata, bool, error) {
 	var metadata serviceMetadata
 	found := false
 	first := true
-	_ = langtools.WalkParentDirectories(start, boundary, func(dir string) (bool, error) {
-		kind, candidate := inspectProjectDirectory(dir)
+	err := langtools.WalkParentDirectories(start, boundary, func(dir string) (bool, error) {
+		kind, candidate, err := inspectProjectDirectory(dir)
+		if err != nil {
+			return false, err
+		}
 		if kind != projectNone || (first && firstDirectoryIsProject) {
 			switch kind {
 			case projectRails:
@@ -194,62 +213,67 @@ func findProjectMetadata(
 		first = false
 		return false, nil
 	})
-	return metadata, found
+	return metadata, found, err
 }
 
-func inspectProjectDirectory(dir string) (projectKind, serviceMetadata) {
+func inspectProjectDirectory(dir string) (projectKind, serviceMetadata, error) {
 	configPath := filepath.Join(dir, "config")
 	if configInfo, err := os.Lstat(configPath); err == nil {
 		if configInfo.Mode()&os.ModeSymlink != 0 {
-			return projectRails, serviceMetadata{}
+			return projectRails, serviceMetadata{}, nil
 		}
 
 		if configInfo.IsDir() {
 			applicationPath := filepath.Join(configPath, "application.rb")
 			if applicationInfo, err := os.Lstat(applicationPath); err == nil {
 				if applicationInfo.Mode().IsRegular() {
-					return projectRails, serviceMetadata{Name: readRailsApplicationName(applicationPath)}
+					return projectRails, serviceMetadata{Name: readRailsApplicationName(applicationPath)}, nil
 				}
-				return projectRails, serviceMetadata{}
+				return projectRails, serviceMetadata{}, nil
 			}
 		}
 	}
 
-	gemspecs, boundary := rootGemspecs(dir)
+	gemspecs, boundary, err := rootGemspecs(dir)
+	if err != nil {
+		return projectNone, serviceMetadata{}, err
+	}
 	if boundary {
 		if len(gemspecs) == 1 {
-			return projectGemspec, readGemspec(gemspecs[0])
+			return projectGemspec, readGemspec(gemspecs[0]), nil
 		}
 
-		return projectGemspec, serviceMetadata{}
+		return projectGemspec, serviceMetadata{}, nil
 	}
 
 	for _, name := range [...]string{"Gemfile", "Gemfile.lock", "config.ru"} {
-		if pathEntryExists(filepath.Join(dir, name)) {
-			return projectMarker, serviceMetadata{}
+		exists, err := pathEntryExists(filepath.Join(dir, name))
+		if err != nil {
+			return projectNone, serviceMetadata{}, err
+		}
+		if exists {
+			return projectMarker, serviceMetadata{}, nil
 		}
 	}
-	return projectNone, serviceMetadata{}
+	return projectNone, serviceMetadata{}, nil
 }
 
-func rootGemspecs(dir string) ([]string, bool) {
+func rootGemspecs(dir string) ([]string, bool, error) {
 	directory, err := os.Open(dir)
 
 	if err != nil {
-		slog.Debug("error opening Ruby project directory", "path", dir, "error", err)
-		return nil, false
+		return nil, false, fmt.Errorf("opening Ruby project directory %q: %w", dir, err)
 	}
 
 	defer directory.Close()
 
 	entries, err := directory.ReadDir(maxProjectEntries + 1)
 	if err != nil && !errors.Is(err, io.EOF) {
-		slog.Debug("error reading Ruby project directory", "path", dir, "error", err)
-		return nil, false
+		return nil, false, fmt.Errorf("reading Ruby project directory %q: %w", dir, err)
 	}
 
 	if len(entries) > maxProjectEntries {
-		return nil, true
+		return nil, true, nil
 	}
 
 	var paths []string
@@ -258,7 +282,7 @@ func rootGemspecs(dir string) ([]string, bool) {
 			paths = append(paths, filepath.Join(dir, entry.Name()))
 		}
 	}
-	return paths, len(paths) != 0
+	return paths, len(paths) != 0, nil
 }
 
 func searchStart(root, cwd, path string, assumeFile bool) (string, bool) {
