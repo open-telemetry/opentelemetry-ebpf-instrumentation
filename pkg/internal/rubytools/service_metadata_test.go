@@ -581,7 +581,7 @@ end
 `))
 		project := filepath.Join(root, "services", "orders")
 		writeRubyFile(t, filepath.Join(project, "server.rb"), nil)
-		for index := 0; index < maxProjectEntries; index++ {
+		for index := range maxProjectEntries {
 			writeRubyFile(t, filepath.Join(project, "entry-"+strconv.Itoa(index)), nil)
 		}
 		fileInfo := mockRubyProcess(t, root, "/", "ruby", []string{"/services/orders/server.rb"}, nil)

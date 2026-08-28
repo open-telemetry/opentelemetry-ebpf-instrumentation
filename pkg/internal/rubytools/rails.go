@@ -6,6 +6,7 @@ package rubytools // import "go.opentelemetry.io/obi/pkg/internal/rubytools"
 import (
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
@@ -104,17 +105,17 @@ func insideDynamicRubyBlock(blocks []rubyBlock) bool {
 }
 
 func currentRubyModule(blocks []rubyBlock) string {
-	for index := len(blocks) - 1; index >= 0; index-- {
-		if blocks[index].module != "" {
-			return blocks[index].module
+	for _, block := range slices.Backward(blocks) {
+		if block.module != "" {
+			return block.module
 		}
 	}
 	return ""
 }
 
 func qualifiedRubyConstant(name, enclosing string) string {
-	if strings.HasPrefix(name, "::") {
-		return strings.TrimPrefix(name, "::")
+	if after, ok := strings.CutPrefix(name, "::"); ok {
+		return after
 	}
 	if enclosing == "" {
 		return name

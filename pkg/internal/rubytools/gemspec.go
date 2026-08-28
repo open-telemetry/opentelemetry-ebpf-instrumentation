@@ -337,8 +337,8 @@ func consumeRubyLiteral(value string) (string, string, bool) {
 		return "", value, false
 	}
 	rest := strings.TrimSpace(value[end+1:])
-	if strings.HasPrefix(rest, ".freeze") {
-		rest = strings.TrimSpace(strings.TrimPrefix(rest, ".freeze"))
+	if after, ok := strings.CutPrefix(rest, ".freeze"); ok {
+		rest = strings.TrimSpace(after)
 	}
 	return literal, rest, true
 }
