@@ -317,7 +317,8 @@ func TestGoRuntimeGCGoalProbeAttachedOnlyForPaceScavengerSource(t *testing.T) {
 	disableContextPropagationForTest(t)
 	firstIdentity := executableIdentity{Ino: 1}
 	tracer := &Tracer{
-		currentBinary: firstIdentity,
+		runtimeMetricsEnabled: true,
+		currentBinary:         firstIdentity,
 		goRuntimeMetricMaskByExecutable: map[executableIdentity]uint64{
 			firstIdentity: goRuntimeMetricBaseMask | goRuntimeMetricMemoryGCGoalMask,
 		},
@@ -366,7 +367,8 @@ func TestGoRuntimeMetricsUseHeapSnapshotProbe(t *testing.T) {
 	disableContextPropagationForTest(t)
 
 	tracer := &Tracer{
-		currentBinary: executableIdentity{Ino: 1},
+		runtimeMetricsEnabled: true,
+		currentBinary:         executableIdentity{Ino: 1},
 		goRuntimeMetricMaskByExecutable: map[executableIdentity]uint64{
 			{Ino: 1}: goRuntimeMetricBaseMask,
 			{Ino: 2}: goRuntimeMetricBaseMask | goRuntimeMetricCPUTimeMask,
@@ -389,6 +391,26 @@ func TestGoRuntimeMetricsUseHeapSnapshotProbe(t *testing.T) {
 	assert.NotContains(t, probes, "runtime.gcMarkDone")
 }
 
+func TestGoRuntimeMetricProbesRequireRuntimeMetricsFeature(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	identity := executableIdentity{Ino: 1}
+	tracer := &Tracer{
+		currentBinary: identity,
+		goRuntimeMetricMaskByExecutable: map[executableIdentity]uint64{
+			identity: goRuntimeMetricBaseMask | goRuntimeMetricMemoryUsedMask,
+		},
+		goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{
+			identity: goRuntimeGCGoalSourcePaceScavengerArgument,
+		},
+	}
+
+	probes := tracer.GoProbes()
+	for _, symbol := range GoRuntimeMetricProbeSymbols() {
+		assert.NotContains(t, probes, symbol)
+	}
+}
+
 func TestGoRuntimeMetricsFallBackWhenHeapProbeIsMissing(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux-only test")
@@ -396,7 +418,10 @@ func TestGoRuntimeMetricsFallBackWhenHeapProbeIsMissing(t *testing.T) {
 	disableContextPropagationForTest(t)
 
 	var logs bytes.Buffer
-	tracer := &Tracer{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	tracer := &Tracer{
+		log:                   slog.New(slog.NewTextHandler(&logs, nil)),
+		runtimeMetricsEnabled: true,
+	}
 	fileInfo := exec.New(exec.Init{
 		ELF:        currentExecutableELF(t),
 		Ino:        1,
@@ -428,10 +453,13 @@ func TestGoRuntimeMetricsUseResolvedHeapProbe(t *testing.T) {
 	disableContextPropagationForTest(t)
 
 	var logs bytes.Buffer
-	tracer := &Tracer{log: slog.New(slog.NewTextHandler(
-		&logs,
-		&slog.HandlerOptions{Level: slog.LevelDebug},
-	))}
+	tracer := &Tracer{
+		log: slog.New(slog.NewTextHandler(
+			&logs,
+			&slog.HandlerOptions{Level: slog.LevelDebug},
+		)),
+		runtimeMetricsEnabled: true,
+	}
 	fileInfo := exec.New(exec.Init{ELF: currentExecutableELF(t), Ino: 1})
 	offsets := goRuntimeMetricOffsets()
 	offsets.Funcs[goRuntimeMetricProbeSymbols[1]] = []goexec.FuncOffsets{{}}
