@@ -25,6 +25,8 @@ const (
 	h2ProbeFrameHeaderLen = 9
 	h2ProbePayloadLen     = 8
 	h2ProbeHPACKLen       = 69
+	h2ProbePushFaultBit   = 16
+	h2ProbePopFaultOffset = 32
 )
 
 var h2ProbeExpectedHPACK = []byte("\x00\x0btraceparent\x37" +
@@ -57,10 +59,27 @@ func verifyH2MutationPeer() error {
 	}
 	defer link.RawDetachProgram(link.RawDetachProgramOptions(attach)) //nolint:errcheck
 
-	return verifyH2MutationPeerWrites(&objects)
+	faults := []struct {
+		name string
+		mask uint64
+	}{
+		{name: "preflight pull", mask: h2ProbePullFault(1)},
+		{name: "push", mask: h2ProbePushFault()},
+		{name: "post-push pull", mask: h2ProbePullFault(2)},
+		{name: "frame pull", mask: h2ProbePullFault(3)},
+		{name: "rollback pop", mask: h2ProbePullFault(2) | h2ProbePopFault(1)},
+		{name: "rollback pull", mask: h2ProbePullFault(2) | h2ProbePullFault(3)},
+	}
+
+	for _, fault := range faults {
+		if err := verifyH2MutationPeerWrites(&objects, fault.mask); err != nil {
+			return fmt.Errorf("%s failure: %w", fault.name, err)
+		}
+	}
+	return nil
 }
 
-func verifyH2MutationPeerWrites(objects *BpfH2MutationProbeObjects) error {
+func verifyH2MutationPeerWrites(objects *BpfH2MutationProbeObjects, faultMask uint64) error {
 	client, peer, err := h2ProbeTCPPair()
 	if err != nil {
 		return err
@@ -78,17 +97,24 @@ func verifyH2MutationPeerWrites(objects *BpfH2MutationProbeObjects) error {
 	if err := objects.Invocations.Update(uint32(0), uint32(0), ebpf.UpdateAny); err != nil {
 		return fmt.Errorf("resetting invocation count: %w", err)
 	}
+	if err := objects.FaultMask.Update(uint32(0), faultMask, ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("setting fault mask: %w", err)
+	}
 
 	first := h2ProbeFrame(1)
 	if err := h2ProbeWrite(clientFD, first); err != nil {
-		return fmt.Errorf("writing first frame: %w", err)
+		return fmt.Errorf("writing faulted frame: %w", err)
 	}
 	got, err := h2ProbeReadFrame(peer)
 	if err != nil {
-		return fmt.Errorf("reading first frame: %w", err)
+		return fmt.Errorf("reading restored frame: %w", err)
 	}
-	if !bytes.Equal(got, h2ProbeMutatedFrame(first)) {
-		return errors.New("first frame did not contain the expected mutation")
+	if !bytes.Equal(got, first) {
+		return errors.New("faulted frame was not restored exactly")
+	}
+
+	if err := objects.FaultMask.Update(uint32(0), uint64(0), ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("clearing fault mask: %w", err)
 	}
 
 	second := h2ProbeFrame(3)
@@ -111,6 +137,18 @@ func verifyH2MutationPeerWrites(objects *BpfH2MutationProbeObjects) error {
 		return fmt.Errorf("SK_MSG ran %d times for two writes", invocations)
 	}
 	return nil
+}
+
+func h2ProbePullFault(call uint) uint64 {
+	return 1 << call
+}
+
+func h2ProbePushFault() uint64 {
+	return 1 << h2ProbePushFaultBit
+}
+
+func h2ProbePopFault(call uint) uint64 {
+	return 1 << (h2ProbePopFaultOffset + call)
 }
 
 func h2ProbeMutatedFrame(frame []byte) []byte {

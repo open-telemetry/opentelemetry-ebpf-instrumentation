@@ -17,6 +17,18 @@ struct sk_msg_md {
     u32 size;
 };
 
+static long test_msg_pull_data(struct sk_msg_md *msg, u32 start, u32 end, u64 flags);
+static long test_msg_push_data(struct sk_msg_md *msg, u32 start, u32 len, u64 flags);
+static long test_msg_pop_data(struct sk_msg_md *msg, u32 start, u32 len, u64 flags);
+
+#define bpf_msg_pull_data test_msg_pull_data
+#define bpf_msg_push_data test_msg_push_data
+#define bpf_msg_pop_data test_msg_pop_data
+#include <tpinjector/h2_write_transaction.h>
+#undef bpf_msg_pop_data
+#undef bpf_msg_push_data
+#undef bpf_msg_pull_data
+
 static unsigned char message[256];
 static unsigned char original[256];
 static unsigned char expected[k_h2_tp_hpack_size];
@@ -77,14 +89,6 @@ static long test_msg_pop_data(struct sk_msg_md *msg, u32 start, u32 len, u64 fla
     msg->data_end = message + message_len;
     return 0;
 }
-
-#define bpf_msg_pull_data test_msg_pull_data
-#define bpf_msg_push_data test_msg_push_data
-#define bpf_msg_pop_data test_msg_pop_data
-#include <tpinjector/h2_write_transaction.h>
-#undef bpf_msg_pop_data
-#undef bpf_msg_push_data
-#undef bpf_msg_pull_data
 
 static void expect(bool condition, const char *description) {
     if (!condition) {
