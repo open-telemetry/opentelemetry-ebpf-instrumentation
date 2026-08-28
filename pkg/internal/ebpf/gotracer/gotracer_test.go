@@ -683,7 +683,49 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 			for _, symbol := range tracingProbeSymbols {
 				assert.Contains(t, probes, symbol)
 			}
+
+			groups := tracer.GoProbeGroups()
+			if tt.writeProbesEnabled {
+				require.Len(t, groups, 2)
+				assert.Equal(t, "go_http2_xnet_current_ownership", groups[0].Name)
+				assert.Equal(t, "go_http2_stdlib_current_ownership", groups[1].Name)
+			} else {
+				assert.Empty(t, groups)
+			}
 		})
+	}
+}
+
+func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
+	setContextPropagationSupportForTest(t, true)
+
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{ContextPropagation: config.ContextPropagationHeaders},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	groups := tracer.GoProbeGroups()
+	require.Len(t, groups, 2)
+
+	expectedSymbols := [][]string{
+		{
+			"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders",
+			"golang.org/x/net/http2.(*ClientConn).writeHeader",
+		},
+		{
+			"net/http.(*http2clientStream).encodeAndWriteHeaders",
+			"net/http.(*http2ClientConn).writeHeader",
+		},
+	}
+	assert.Equal(t, append(expectedSymbols[0], expectedSymbols[1]...), GoH2OwnershipProbeSymbols())
+
+	for i, group := range groups {
+		require.Len(t, group.Prerequisites, 1)
+		require.Len(t, group.Probes, 2)
+		assert.Contains(t, group.Prerequisites[0], "writeHeaders")
+		assert.Equal(t, expectedSymbols[i][0], group.Probes[0].Symbol)
+		assert.Equal(t, expectedSymbols[i][1], group.Probes[1].Symbol)
+		assert.NotNil(t, group.Probes[0].Probe)
+		assert.NotNil(t, group.Probes[1].Probe)
 	}
 }
 

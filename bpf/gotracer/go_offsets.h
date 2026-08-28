@@ -41,6 +41,8 @@ typedef enum {
     _net_conn_pos,
     _cc_tconn_pos,
     _cc_tconn_vendored_pos,
+    _cc_tls_pos,
+    _cc_tls_vendored_pos,
     _sc_conn_pos,
     _c_rwc_pos,
     _c_tls_pos,

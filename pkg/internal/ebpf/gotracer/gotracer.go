@@ -569,6 +569,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.NetConnPos,
 		goexec.CcTconnPos,
 		goexec.CcTconnVendoredPos,
+		goexec.CcTLSPos,
+		goexec.CcTLSVendoredPos,
 		goexec.ScConnPos,
 		goexec.CRwcPos,
 		goexec.CTlsPos,
@@ -1565,6 +1567,13 @@ var goAutoSDKActivationPrerequisiteSymbols = []string{
 	"go.opentelemetry.io/auto/sdk.(*span).End",
 }
 
+var goH2OwnershipProbeSymbols = []string{
+	"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders",
+	"golang.org/x/net/http2.(*ClientConn).writeHeader",
+	"net/http.(*http2clientStream).encodeAndWriteHeaders",
+	"net/http.(*http2ClientConn).writeHeader",
+}
+
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
 func GoChannelLinkProbeSymbols() []string {
 	return append([]string(nil), goChannelLinkProbeSymbols...)
@@ -1578,6 +1587,11 @@ func GoRuntimeMetricProbeSymbols() []string {
 // GoAutoSDKActivationProbeSymbols returns the symbols in activation-safe attachment order.
 func GoAutoSDKActivationProbeSymbols() []string {
 	return append([]string(nil), goAutoSDKActivationProbeSymbols...)
+}
+
+// GoH2OwnershipProbeSymbols returns the symbols used by current HTTP/2 ownership probes.
+func GoH2OwnershipProbeSymbols() []string {
+	return append([]string(nil), goH2OwnershipProbeSymbols...)
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -2032,41 +2046,89 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 }
 
 func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
-	if !p.goAutoSDKActivationProbesEnabled() {
-		return nil
+	var groups []ebpfcommon.GoProbeGroup
+	if p.headerPropagationEnabled() {
+		groups = append(groups, p.goH2OwnershipProbeGroups()...)
 	}
 
-	return []ebpfcommon.GoProbeGroup{{
-		Name:          "go_auto_sdk_activation",
-		Prerequisites: append([]string(nil), goAutoSDKActivationPrerequisiteSymbols...),
-		Probes: []ebpfcommon.GoProbe{
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[0],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkTracerStart,
+	if p.goAutoSDKActivationProbesEnabled() {
+		groups = append(groups, ebpfcommon.GoProbeGroup{
+			Name:          "go_auto_sdk_activation",
+			Prerequisites: append([]string(nil), goAutoSDKActivationPrerequisiteSymbols...),
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[0],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkTracerStart,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[1],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkContextWithValue,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[2],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
+					},
+				},
+				{
+					Symbol: goAutoSDKActivationProbeSymbols[3],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeTracerNewSpan,
+					},
+					ProcessScoped: true,
 				},
 			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[1],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkContextWithValue,
+		})
+	}
+
+	return groups
+}
+
+func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
+	return []ebpfcommon.GoProbeGroup{
+		{
+			Name:          "go_http2_xnet_current_ownership",
+			Prerequisites: []string{"golang.org/x/net/http2.(*ClientConn).writeHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[0],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeaders,
+						End:   p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeadersReturns,
+					},
 				},
-			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[2],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
+				{
+					Symbol: goH2OwnershipProbeSymbols[1],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
 				},
-			},
-			{
-				Symbol: goAutoSDKActivationProbeSymbols[3],
-				Probe: &ebpfcommon.ProbeDesc{
-					Start: p.bpfObjects.ObiUprobeTracerNewSpan,
-				},
-				ProcessScoped: true,
 			},
 		},
-	}}
+		{
+			Name:          "go_http2_stdlib_current_ownership",
+			Prerequisites: []string{"net/http.(*http2ClientConn).writeHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[2],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeaders,
+						End:   p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeadersReturns,
+					},
+				},
+				{
+					Symbol: goH2OwnershipProbeSymbols[3],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
+				},
+			},
+		},
+	}
 }
 
 func (p *Tracer) goAutoSDKActivationProbesEnabled() bool {

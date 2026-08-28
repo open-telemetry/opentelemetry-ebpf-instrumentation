@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +20,28 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
+
+const (
+	http2OwnedTraceparent = "00-11111111111111111111111111111111-2222222222222222-01"
+	http2MuxTraceparent   = "00-33333333333333333333333333333333-4444444444444444-01"
+)
+
+var http2TraceparentPattern = regexp.MustCompile(`^00-[[:xdigit:]]{32}-[[:xdigit:]]{16}-[[:xdigit:]]{2}$`)
+
+type http2HeaderObservation struct {
+	Traceparents []string `json:"traceparents"`
+	RemoteAddr   string   `json:"remote_addr"`
+	Protocol     string   `json:"protocol"`
+}
+
+type http2OwnershipResult struct {
+	Transport string                   `json:"transport"`
+	Repeated  []http2HeaderObservation `json:"repeated"`
+	Controls  []http2HeaderObservation `json:"controls"`
+	MuxOwned  http2HeaderObservation   `json:"mux_owned"`
+	MuxPlain  http2HeaderObservation   `json:"mux_plain"`
+	Error     string                   `json:"error"`
+}
 
 func testREDMetricsForHTTP2Library(t *testing.T, route, svcNs string) {
 	// Eventually, Prometheus would make this query visible
@@ -142,7 +166,129 @@ func testHTTP2GO(t *testing.T, compose *docker.Compose, useHTTPProtocols bool) {
 	}
 
 	runWeaverValidation(t)
+
+	if !lockdown {
+		t.Run("Go HTTP/2 application traceparent ownership", func(t *testing.T) {
+			testHTTP2TraceparentOwnership(t, compose)
+		})
+	}
+
 	require.NoError(t, compose.Close())
+}
+
+func testHTTP2TraceparentOwnership(t *testing.T, compose *docker.Compose) {
+	resp, err := http.Get("http://localhost:7575/run")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+
+	for _, transport := range []string{"tls", "plaintext"} {
+		t.Run(transport, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				logs, err := compose.LogsTail(1000, "testclient")
+				require.NoError(ct, err)
+
+				lastErr := fmt.Errorf("no %s ownership result logged", transport)
+				for _, result := range parseHTTP2OwnershipResults(logs) {
+					if result.Transport != transport {
+						continue
+					}
+					if err := validateHTTP2OwnershipResult(result); err == nil {
+						return
+					} else {
+						lastErr = err
+					}
+				}
+				require.NoError(ct, lastErr, "no valid %s ownership result", transport)
+			}, time.Minute, time.Second)
+		})
+	}
+}
+
+func parseHTTP2OwnershipResults(logs string) []http2OwnershipResult {
+	const prefix = "HTTP2_OWNERSHIP_RESULT "
+	var results []http2OwnershipResult
+	for line := range strings.SplitSeq(logs, "\n") {
+		start := strings.Index(line, prefix)
+		if start < 0 {
+			continue
+		}
+		var result http2OwnershipResult
+		if json.Unmarshal([]byte(line[start+len(prefix):]), &result) == nil {
+			results = append(results, result)
+		}
+	}
+	return results
+}
+
+func validateHTTP2OwnershipResult(result http2OwnershipResult) error {
+	if result.Error != "" {
+		return fmt.Errorf("client error: %s", result.Error)
+	}
+	if len(result.Repeated) != 4 {
+		return fmt.Errorf("repeated request count: got %d, want 4", len(result.Repeated))
+	}
+
+	remoteAddr := result.Repeated[0].RemoteAddr
+	for i, observation := range result.Repeated {
+		if err := validateHTTP2Observation(observation, http2OwnedTraceparent); err != nil {
+			return fmt.Errorf("repeated request %d: %w", i, err)
+		}
+		if observation.RemoteAddr != remoteAddr {
+			return fmt.Errorf("repeated request %d used %q, want persistent connection %q",
+				i, observation.RemoteAddr, remoteAddr)
+		}
+	}
+
+	if len(result.Controls) != 2 {
+		return fmt.Errorf("control request count: got %d, want 2", len(result.Controls))
+	}
+	for i, observation := range result.Controls {
+		if err := validateHTTP2InjectedObservation(observation); err != nil {
+			return fmt.Errorf("control request %d: %w", i, err)
+		}
+	}
+
+	if err := validateHTTP2Observation(result.MuxOwned, http2MuxTraceparent); err != nil {
+		return fmt.Errorf("owned multiplexed request: %w", err)
+	}
+	if err := validateHTTP2InjectedObservation(result.MuxPlain); err != nil {
+		return fmt.Errorf("plain multiplexed request: %w", err)
+	}
+	if result.MuxOwned.RemoteAddr != result.MuxPlain.RemoteAddr ||
+		result.MuxOwned.RemoteAddr != remoteAddr {
+		return fmt.Errorf("multiplexed requests did not share persistent connection %q: owned=%q plain=%q",
+			remoteAddr, result.MuxOwned.RemoteAddr, result.MuxPlain.RemoteAddr)
+	}
+	return nil
+}
+
+func validateHTTP2Observation(observation http2HeaderObservation, want string) error {
+	if observation.Protocol != "HTTP/2.0" {
+		return fmt.Errorf("protocol: got %q, want HTTP/2.0", observation.Protocol)
+	}
+	if len(observation.Traceparents) != 1 || observation.Traceparents[0] != want {
+		return fmt.Errorf("traceparents: got %q, want [%s]", observation.Traceparents, want)
+	}
+	return nil
+}
+
+func validateHTTP2InjectedObservation(observation http2HeaderObservation) error {
+	if observation.Protocol != "HTTP/2.0" {
+		return fmt.Errorf("protocol: got %q, want HTTP/2.0", observation.Protocol)
+	}
+	if len(observation.Traceparents) != 1 {
+		return fmt.Errorf("traceparent count: got %d, want 1 (%q)",
+			len(observation.Traceparents), observation.Traceparents)
+	}
+	traceparent := observation.Traceparents[0]
+	if !http2TraceparentPattern.MatchString(traceparent) {
+		return fmt.Errorf("invalid injected traceparent %q", traceparent)
+	}
+	if traceparent == http2OwnedTraceparent || traceparent == http2MuxTraceparent {
+		return fmt.Errorf("owned traceparent leaked into unowned stream: %q", traceparent)
+	}
+	return nil
 }
 
 func TestHTTP2GoWithHTTPProtocols(t *testing.T) {
