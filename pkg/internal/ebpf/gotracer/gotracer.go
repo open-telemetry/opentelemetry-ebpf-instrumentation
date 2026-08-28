@@ -674,15 +674,15 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		},
 		{
 			symbol: "*google.golang.org/grpc/internal/credentials.syscallConn",
-			field:  goexec.GrpcSyscallConnTypeOffset,
+			field:  goexec.GrpcSyscallConnTypeAddress,
 		},
 		{
 			symbol: "*crypto/tls.Conn",
-			field:  goexec.TLSConnTypeOffset,
+			field:  goexec.TLSConnTypeAddress,
 		},
 	} {
-		if offset, ok := offsets.ITypes[iType.symbol]; ok {
-			offTable.Table[iType.field] = offset
+		if address, ok := offsets.ITypes[iType.symbol]; ok {
+			offTable.Table[iType.field] = address
 		}
 	}
 

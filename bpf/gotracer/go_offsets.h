@@ -160,8 +160,8 @@ typedef enum {
     _runtime_time_histogram_underflow_pos,
     _runtime_time_histogram_overflow_pos,
     // Go connection interface types
-    _grpc_syscall_conn_type_off,
-    _tls_conn_type_off,
+    _grpc_syscall_conn_type_addr,
+    _tls_conn_type_addr,
     _last_go_offset,
 } go_offset_const;
 

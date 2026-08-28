@@ -1811,8 +1811,8 @@ int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
         if (tls_state) {
             void *conn_type = NULL;
             bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
-            const u64 tls_conn_type = go_offset_of(ot, (go_offset){.v = _tls_conn_type_off});
-            if (tls_conn_type && conn_type != (void *)tls_conn_type) {
+            const u64 tls_conn_type_addr = go_offset_of(ot, (go_offset){.v = _tls_conn_type_addr});
+            if (tls_conn_type_addr && conn_type != (void *)tls_conn_type_addr) {
                 bpf_dbg_printk("wrapped TLS client connection, waiting for writer handoff");
                 return 0;
             }

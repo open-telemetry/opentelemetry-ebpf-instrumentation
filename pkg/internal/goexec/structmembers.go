@@ -235,8 +235,8 @@ const (
 	RuntimeTimeHistogramUnderflowPos
 	RuntimeTimeHistogramOverflowPos
 	// Go connection interface types
-	GrpcSyscallConnTypeOffset
-	TLSConnTypeOffset
+	GrpcSyscallConnTypeAddress
+	TLSConnTypeAddress
 )
 
 //go:embed offsets.json
