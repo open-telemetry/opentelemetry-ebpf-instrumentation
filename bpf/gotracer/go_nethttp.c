@@ -1534,7 +1534,7 @@ cleanup:
 
 SEC("uprobe/golang_http2FramerWriteHeaders")
 int GUARDED_PROG(obi_uprobe_golang_http2FramerWriteHeaders, struct pt_regs *, ctx) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_header_propagation || g_go_h2_write_fail_step) {
         return 0;
     }
 
@@ -1553,7 +1553,7 @@ int GUARDED_PROG(obi_uprobe_golang_http2FramerWriteHeaders, struct pt_regs *, ct
 
 SEC("uprobe/net_http2FramerWriteHeaders")
 int GUARDED_PROG(obi_uprobe_net_http2FramerWriteHeaders, struct pt_regs *, ctx) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_header_propagation || g_go_h2_write_fail_step) {
         return 0;
     }
 
