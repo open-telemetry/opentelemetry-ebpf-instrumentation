@@ -112,7 +112,7 @@ func main() {
 	mustMapEnv(&svc.shippingSvcAddr, "SHIPPING_SERVICE_ADDR")
 	mustMapEnv(&svc.adSvcAddr, "AD_SERVICE_ADDR")
 	mapOptionalEnv(&svc.shoppingAssistantSvcAddr, "SHOPPING_ASSISTANT_SERVICE_ADDR")
-	mapOptionalEnv(&svc.recentlyViewedSvcAddr, "RECENTLYVIEWED_SERVICE_ADDR")
+	mapOptionalEnv(&svc.recentlyViewedSvcAddr, "RECENTLY_VIEWED_SERVICE_ADDR")
 
 	mustConnGRPC(ctx, &svc.currencySvcConn, svc.currencySvcAddr)
 	mustConnGRPC(ctx, &svc.productCatalogSvcConn, svc.productCatalogSvcAddr)

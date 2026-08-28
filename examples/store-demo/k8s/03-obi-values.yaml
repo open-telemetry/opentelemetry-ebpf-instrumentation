@@ -3,8 +3,6 @@ namespaceOverride: obi-store-demo
 image:
   registry: docker.io
   repository: otel/ebpf-instrument
-  # Aerospike instrumentation shipped in v0.11.0 (#2545); v0.9.0 predates it.
-  # Digest matches the one used by the other examples in this repo.
   tag: v0.12.2
   digest: sha256:750df53abff8d104f757b7f9a42ee88808db69d43cc338ab1819c00273b9422b
 
