@@ -14,7 +14,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("block comment lines are blanked", func(t *testing.T) {
 		data := []byte("line1\n=begin\ninside comment\n=end\nafter\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{"line1", "", "", "", "after", ""}, result)
 	})
@@ -22,7 +22,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("=end with trailing text still closes the block comment", func(t *testing.T) {
 		data := []byte("=begin\ncomment\n=end extra\nafter\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{"", "", "", "after", ""}, result)
 	})
@@ -30,7 +30,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("__END__ blanks every subsequent line including non-blank ones", func(t *testing.T) {
 		data := []byte("before\n__END__\ndata line\nmore data\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{"before", "", "", "", ""}, result)
 	})
@@ -38,7 +38,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("carriage returns are stripped from ordinary output", func(t *testing.T) {
 		data := []byte("puts 1\r\nputs 2\r\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{"puts 1", "puts 2", ""}, result)
 	})
@@ -46,7 +46,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("plain heredoc terminator must match exactly", func(t *testing.T) {
 		data := []byte("EXAMPLE = <<DELIM\n  DELIM\nreal content\nDELIM\nafter\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{"EXAMPLE = <<DELIM", "", "", "", "after", ""}, result)
 	})
@@ -54,7 +54,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("dash heredoc allows an indented terminator", func(t *testing.T) {
 		data := []byte("EXAMPLE = <<-DELIM\ncontent\n  DELIM\nafter\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{"EXAMPLE = <<-DELIM", "", "", "after", ""}, result)
 	})
@@ -62,7 +62,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("squiggly heredoc allows an indented terminator", func(t *testing.T) {
 		data := []byte("EXAMPLE = <<~DELIM\n  content\n  DELIM\nafter\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{"EXAMPLE = <<~DELIM", "", "", "after", ""}, result)
 	})
@@ -78,7 +78,7 @@ func TestRubyLines(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				data := []byte("EXAMPLE = " + tt.open + "\ncontent\nALPHA\nafter\n")
 
-				result := rubyLines(data, false)
+				result := parseRuby(data, false)
 
 				assert.Equal(t, []string{"EXAMPLE = " + tt.open, "", "", "after", ""}, result)
 			})
@@ -88,7 +88,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("two heredocs on one line close in the order they were opened", func(t *testing.T) {
 		data := []byte("FIRST, SECOND = <<~ONE, <<~TWO\ncontent one\nONE\ncontent two\nTWO\nafter\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{
 			"FIRST, SECOND = <<~ONE, <<~TWO",
@@ -104,7 +104,7 @@ func TestRubyLines(t *testing.T) {
 	t.Run("a hash inside a string literal does not start a comment", func(t *testing.T) {
 		data := []byte(`EXAMPLE = "text # not a comment"` + "\n")
 
-		result := rubyLines(data, false)
+		result := parseRuby(data, false)
 
 		assert.Equal(t, []string{`EXAMPLE = "text # not a comment"`, ""}, result)
 	})
@@ -112,8 +112,8 @@ func TestRubyLines(t *testing.T) {
 	t.Run("eraseStrings toggles only the string-literal portion of the line", func(t *testing.T) {
 		data := []byte(`EXAMPLE = "secret"` + "\n")
 
-		preserved := rubyLines(data, false)
-		erased := rubyLines(data, true)
+		preserved := parseRuby(data, false)
+		erased := parseRuby(data, true)
 
 		assert.Equal(t, `EXAMPLE = "secret"`, preserved[0])
 		assert.Equal(t, "EXAMPLE = "+strings.Repeat(" ", len(`"secret"`)), erased[0])

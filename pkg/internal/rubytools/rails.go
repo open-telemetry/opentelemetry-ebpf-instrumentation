@@ -46,11 +46,17 @@ func readRailsApplicationName(path string) string {
 	return parseRailsApplicationName(data)
 }
 
+// parseRailsApplicationName extracts "orders" from a declaration such as:
+//
+//	module Orders
+//	  class Application < Rails::Application
+//	  end
+//	end
 func parseRailsApplicationName(data []byte) string {
 	var blocks []rubyBlock
 	var candidate string
 
-	for _, line := range rubyLines(data, true) {
+	for _, line := range parseRuby(data, true) {
 		if line == ambiguousRubyLine {
 			return ""
 		}

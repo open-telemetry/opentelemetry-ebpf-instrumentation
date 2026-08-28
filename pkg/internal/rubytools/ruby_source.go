@@ -9,7 +9,7 @@ import (
 
 const ambiguousRubyLine = "\x00"
 
-func rubyLines(data []byte, eraseStrings bool) []string {
+func parseRuby(data []byte, eraseStrings bool) []string {
 	lines := strings.Split(string(data), "\n")
 	result := make([]string, 0, len(lines))
 	var heredocs []rubyHeredoc
@@ -20,10 +20,12 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 	sourceEnded := false
 	for _, rawLine := range lines {
 		line := strings.TrimSuffix(rawLine, "\r")
+
 		if sourceEnded {
 			result = append(result, "")
 			continue
 		}
+
 		if len(heredocs) != 0 {
 			terminator := line
 			if heredocs[0].allowIndent {
@@ -35,6 +37,7 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 			result = append(result, "")
 			continue
 		}
+
 		if percentLiteral != nil {
 			literal, end, closed := scanRubyPercentLiteralRange(line, 0, *percentLiteral)
 			if !closed {
@@ -45,6 +48,7 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 			percentLiteral = nil
 			line = strings.Repeat(" ", end+1) + line[end+1:]
 		}
+
 		if slashLiteral != nil {
 			literal, end, closed := scanRubySlashLiteral(line, 0, *slashLiteral)
 			if !closed {
@@ -55,6 +59,7 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 			slashLiteral = nil
 			line = strings.Repeat(" ", end+1) + line[end+1:]
 		}
+
 		if blockComment {
 			if line == "=end" || strings.HasPrefix(line, "=end ") {
 				blockComment = false
@@ -62,16 +67,19 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 			result = append(result, "")
 			continue
 		}
+
 		if quote == 0 && (line == "=begin" || strings.HasPrefix(line, "=begin ")) {
 			blockComment = true
 			result = append(result, "")
 			continue
 		}
+
 		if quote == 0 && line == "__END__" {
 			sourceEnded = true
 			result = append(result, "")
 			continue
 		}
+
 		if ambiguousRubyStringSyntax(line, quote) || ambiguousRubyPercentLiteral(line, quote) ||
 			ambiguousRubySlashCommand(line, quote) {
 			result = append(result, ambiguousRubyLine)
@@ -83,6 +91,7 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 			result = append(result, ambiguousRubyLine)
 			continue
 		}
+
 		percentStarted := false
 		literalStart := 0
 		if literal, start, ok := findMultilineRubyPercentLiteral(line, quote); ok {
@@ -90,6 +99,7 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 			percentStarted = true
 			literalStart = start
 		}
+
 		slashStarted := false
 		if !percentStarted {
 			literal, start, ok := findMultilineRubySlashLiteral(line, quote)
@@ -99,9 +109,11 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 				literalStart = start
 			}
 		}
+
 		if len(lineHeredocs) != 0 {
 			heredocs = lineHeredocs
 		}
+
 		if percentStarted || slashStarted {
 			preserved, erased, nextQuote := cleanRubyLine(line[:literalStart], quote)
 			quote = nextQuote
@@ -112,6 +124,7 @@ func rubyLines(data []byte, eraseStrings bool) []string {
 			}
 			continue
 		}
+
 		preserved, erased, nextQuote := cleanRubyLine(line, quote)
 		quote = nextQuote
 		switch {
@@ -149,10 +162,12 @@ func findMultilineRubySlashLiteral(line string, quote byte) (rubySlashLiteral, i
 		if char == '#' {
 			return rubySlashLiteral{}, 0, false
 		}
+
 		if char == '\'' || char == '"' || char == '`' {
 			quote = char
 			continue
 		}
+
 		if char == '%' {
 			literal, start, ok := rubyPercentLiteralAt(line, index)
 			if ok {
@@ -164,6 +179,7 @@ func findMultilineRubySlashLiteral(line string, quote byte) (rubySlashLiteral, i
 				continue
 			}
 		}
+
 		if char != '/' || !rubyRegexCanStart(line[:index]) {
 			continue
 		}
@@ -208,10 +224,12 @@ func rubyRegexExpressionCanStart(prefix string) bool {
 	if prefix == "" {
 		return true
 	}
+
 	if strings.ContainsRune("=([{,:;!&|?~<>+-*/%^", rune(prefix[len(prefix)-1])) ||
 		strings.HasSuffix(prefix, "..") {
 		return true
 	}
+
 	for _, keyword := range [...]string{"return", "when", "if", "unless", "and", "or", "then"} {
 		if strings.HasSuffix(prefix, keyword) {
 			index := len(prefix) - len(keyword)
@@ -220,6 +238,7 @@ func rubyRegexExpressionCanStart(prefix string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -247,13 +266,16 @@ func findMultilineRubyPercentLiteral(line string, quote byte) (rubyPercentLitera
 			}
 			continue
 		}
+
 		if char == '#' {
 			return rubyPercentLiteral{}, 0, false
 		}
+
 		if char == '\'' || char == '"' || char == '`' {
 			quote = char
 			continue
 		}
+
 		if char == '/' && rubyRegexCanStart(line[:index]) {
 			_, end, closed := scanRubySlashLiteral(line, index+1, rubySlashLiteral{})
 			if !closed {
@@ -262,6 +284,7 @@ func findMultilineRubyPercentLiteral(line string, quote byte) (rubyPercentLitera
 			index = end
 			continue
 		}
+
 		if char != '%' {
 			continue
 		}
@@ -270,10 +293,12 @@ func findMultilineRubyPercentLiteral(line string, quote byte) (rubyPercentLitera
 		if !ok {
 			continue
 		}
+
 		literal, end, closed := scanRubyPercentLiteralRange(line, start, literal)
 		if !closed {
 			return literal, index, true
 		}
+
 		index = end
 	}
 	return rubyPercentLiteral{}, 0, false
@@ -281,13 +306,16 @@ func findMultilineRubyPercentLiteral(line string, quote byte) (rubyPercentLitera
 
 func rubyPercentLiteralAt(line string, index int) (rubyPercentLiteral, int, bool) {
 	delimiterIndex := index + 1
+
 	if delimiterIndex < len(line) && strings.ContainsRune("qQwWiIxrs", rune(line[delimiterIndex])) {
 		delimiterIndex++
 	}
+
 	if delimiterIndex >= len(line) || isRubyWordByte(line[delimiterIndex]) ||
 		line[delimiterIndex] == ' ' || line[delimiterIndex] == '\t' {
 		return rubyPercentLiteral{}, 0, false
 	}
+
 	return newRubyPercentLiteral(line[delimiterIndex]), delimiterIndex + 1, true
 }
 
@@ -295,13 +323,16 @@ func rubyPercentLiteralCanStart(prefix string) bool {
 	if rubyRegexCanStart(prefix) {
 		return true
 	}
+
 	trimmed := strings.TrimRight(prefix, " \t")
 	if trimmed == "" {
 		return true
 	}
+
 	if strings.ContainsRune("<>+-*/%^", rune(trimmed[len(trimmed)-1])) {
 		return true
 	}
+
 	return rubyCommandArgumentCanStart(prefix)
 }
 
@@ -312,15 +343,18 @@ func rubyCommandArgumentCanStart(prefix string) bool {
 			return true
 		}
 	}
+
 	dot := strings.LastIndexByte(trimmed, '.')
 	if dot <= 0 || dot == len(trimmed)-1 || strings.ContainsAny(trimmed, " \t") {
 		return false
 	}
+
 	method := trimmed[dot+1:]
 	if method[0] != '_' && (method[0] < 'A' || method[0] > 'Z') &&
 		(method[0] < 'a' || method[0] > 'z') {
 		return false
 	}
+
 	for index := range len(method) {
 		if !isRubyWordByte(method[index]) && (index != len(method)-1 || method[index] != '!' && method[index] != '?') {
 			return false
@@ -334,12 +368,14 @@ func rubyBareCommandArgumentCanStart(prefix string) bool {
 	if argument == "" || argument[0] < 'a' || argument[0] > 'z' {
 		return false
 	}
+
 	for index := 1; index < len(argument); index++ {
 		if !isRubyWordByte(argument[index]) &&
 			(index != len(argument)-1 || argument[index] != '!' && argument[index] != '?') {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -348,10 +384,12 @@ func rubyCommandArgument(prefix string) string {
 	if rightTrimmed == "" || len(rightTrimmed) == len(prefix) {
 		return ""
 	}
+
 	argument := strings.TrimSpace(rightTrimmed)
 	if separator := strings.LastIndexAny(argument, "=,;([{"); separator >= 0 {
 		argument = strings.TrimSpace(argument[separator+1:])
 	}
+
 	return argument
 }
 
@@ -363,6 +401,7 @@ func ambiguousRubyStringSyntax(line string, quote byte) bool {
 				index++
 				continue
 			}
+
 			if quote != '\'' && char == '#' && index+1 < len(line) && line[index+1] == '{' {
 				end, ambiguous := rubyInterpolationEnd(line, index)
 				if ambiguous {
@@ -371,6 +410,7 @@ func ambiguousRubyStringSyntax(line string, quote byte) bool {
 				index = end
 				continue
 			}
+
 			if char == quote {
 				quote = 0
 			}
@@ -385,12 +425,15 @@ func ambiguousRubyStringSyntax(line string, quote byte) bool {
 				index = end
 				continue
 			}
+
 			return false
 		}
+
 		if char == '\'' || char == '"' || char == '`' {
 			quote = char
 			continue
 		}
+
 		if char == '?' && index+1 < len(line) && line[index+1] != ' ' && line[index+1] != '\t' &&
 			(rubyRegexCanStart(line[:index]) || rubyBareCommandArgumentCanStart(line[:index]) ||
 				strings.HasSuffix(line[:index], " ") || strings.HasSuffix(line[:index], "\t")) {
@@ -405,6 +448,7 @@ func rubyInterpolationEnd(line string, start int) (int, bool) {
 	if end < 0 {
 		return len(line), true
 	}
+
 	end += start + 2
 	expression := line[start+2 : end]
 	return end, strings.ContainsAny(expression, "'\"`/%{}")
@@ -423,13 +467,16 @@ func ambiguousRubyPercentLiteral(line string, quote byte) bool {
 			}
 			continue
 		}
+
 		if char == '#' {
 			return false
 		}
+
 		if char == '\'' || char == '"' || char == '`' {
 			quote = char
 			continue
 		}
+
 		if char == '/' && rubyRegexCanStart(line[:index]) {
 			_, end, closed := scanRubySlashLiteral(line, index+1, rubySlashLiteral{})
 			if !closed {
@@ -438,20 +485,25 @@ func ambiguousRubyPercentLiteral(line string, quote byte) bool {
 			index = end
 			continue
 		}
+
 		if char != '%' {
 			continue
 		}
+
 		literal, start, ok := rubyPercentLiteralAt(line, index)
 		if !ok {
 			continue
 		}
+
 		if !rubyPercentLiteralCanStart(line[:index]) {
 			return true
 		}
+
 		_, end, closed := scanRubyPercentLiteralRange(line, start, literal)
 		if !closed {
 			return false
 		}
+
 		index = end
 	}
 	return false
@@ -470,13 +522,16 @@ func ambiguousRubySlashCommand(line string, quote byte) bool {
 			}
 			continue
 		}
+
 		if char == '#' {
 			return false
 		}
+
 		if char == '\'' || char == '"' || char == '`' {
 			quote = char
 			continue
 		}
+
 		if char == '%' {
 			literal, start, ok := rubyPercentLiteralAt(line, index)
 			if ok {
@@ -488,9 +543,11 @@ func ambiguousRubySlashCommand(line string, quote byte) bool {
 				continue
 			}
 		}
+
 		if char != '/' {
 			continue
 		}
+
 		if rubyRegexCanStart(line[:index]) {
 			_, end, closed := scanRubySlashLiteral(line, index+1, rubySlashLiteral{})
 			if !closed {
@@ -499,9 +556,11 @@ func ambiguousRubySlashCommand(line string, quote byte) bool {
 			index = end
 			continue
 		}
+
 		if _, _, closed := scanRubySlashLiteral(line, index+1, rubySlashLiteral{}); closed {
 			return true
 		}
+
 		if rubyBareCommandArgumentCanStart(line[:index]) {
 			return true
 		}
@@ -539,10 +598,12 @@ func scanRubyPercentLiteralRange(
 			index++
 			continue
 		}
+
 		if literal.open != literal.close && line[index] == literal.open {
 			literal.depth++
 			continue
 		}
+
 		if line[index] == literal.close {
 			literal.depth--
 			if literal.depth == 0 {
@@ -587,13 +648,16 @@ func rubyHeredocs(line string, quote byte) []rubyHeredoc {
 			}
 			continue
 		}
+
 		if char == '#' {
 			return heredocs
 		}
+
 		if char == '\'' || char == '"' || char == '`' {
 			quote = char
 			continue
 		}
+
 		if char == '%' {
 			literal, start, ok := rubyPercentLiteralAt(line, index)
 			if ok {
@@ -605,6 +669,7 @@ func rubyHeredocs(line string, quote byte) []rubyHeredoc {
 				continue
 			}
 		}
+
 		if char == '/' && rubyRegexCanStart(line[:index]) {
 			_, end, closed := scanRubySlashLiteral(line, index+1, rubySlashLiteral{})
 			if !closed {
@@ -613,6 +678,7 @@ func rubyHeredocs(line string, quote byte) []rubyHeredoc {
 			index = end
 			continue
 		}
+
 		if char != '<' || index+1 >= len(line) || line[index+1] != '<' {
 			continue
 		}
@@ -621,6 +687,7 @@ func rubyHeredocs(line string, quote byte) []rubyHeredoc {
 		if index+2 < len(line) && (line[index+2] == '-' || line[index+2] == '~') {
 			allowIndent = true
 		}
+
 		canStart, ambiguous := rubyHeredocStart(line[:index])
 		if !canStart {
 			continue
@@ -630,11 +697,13 @@ func rubyHeredocs(line string, quote byte) []rubyHeredoc {
 		if allowIndent {
 			index++
 		}
+
 		var delimiterQuote byte
 		if index < len(line) && (line[index] == '\'' || line[index] == '"' || line[index] == '`') {
 			delimiterQuote = line[index]
 			index++
 		}
+
 		start := index
 		if delimiterQuote != 0 {
 			for index < len(line) && line[index] != delimiterQuote {
@@ -653,6 +722,7 @@ func rubyHeredocs(line string, quote byte) []rubyHeredoc {
 				continue
 			}
 		}
+
 		heredocs = append(heredocs, rubyHeredoc{
 			delimiter:   line[start:index],
 			allowIndent: allowIndent,
@@ -671,10 +741,12 @@ func rubyHeredocStart(prefix string) (bool, bool) {
 	if rubyCommandArgumentCanStart(prefix) {
 		return true, true
 	}
+
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" || strings.ContainsRune("=([{,:;", rune(prefix[len(prefix)-1])) {
 		return true, false
 	}
+
 	for _, keyword := range [...]string{"return", "when", "then", "and", "or"} {
 		if strings.HasSuffix(prefix, keyword) {
 			index := len(prefix) - len(keyword)
@@ -683,6 +755,7 @@ func rubyHeredocStart(prefix string) (bool, bool) {
 			}
 		}
 	}
+
 	if prefix[0] >= 'a' && prefix[0] <= 'z' || prefix[0] == '_' {
 		for index := 1; index < len(prefix); index++ {
 			if !isRubyWordByte(prefix[index]) && prefix[index] != '!' && prefix[index] != '?' {
@@ -712,6 +785,7 @@ func cleanRubyLine(line string, quote byte) (string, string, byte) {
 					}
 				}
 			}
+
 			if char == '/' && rubyRegexCanStart(string(preserved[:index])) {
 				_, end, closed := scanRubySlashLiteral(line, index+1, rubySlashLiteral{})
 				if closed {
@@ -720,6 +794,7 @@ func cleanRubyLine(line string, quote byte) (string, string, byte) {
 					continue
 				}
 			}
+
 			switch char {
 			case '#':
 				return string(preserved[:index]), string(erased[:index]), quote

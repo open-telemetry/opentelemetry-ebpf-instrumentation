@@ -200,6 +200,7 @@ func inspectProjectDirectory(dir string) (projectKind, serviceMetadata) {
 		if configInfo.Mode()&os.ModeSymlink != 0 {
 			return projectRails, serviceMetadata{}
 		}
+
 		if configInfo.IsDir() {
 			applicationPath := filepath.Join(configPath, "application.rb")
 			if applicationInfo, err := os.Lstat(applicationPath); err == nil {
@@ -216,6 +217,7 @@ func inspectProjectDirectory(dir string) (projectKind, serviceMetadata) {
 		if len(gemspecs) == 1 {
 			return projectGemspec, readGemspec(gemspecs[0])
 		}
+
 		return projectGemspec, serviceMetadata{}
 	}
 
@@ -229,15 +231,18 @@ func inspectProjectDirectory(dir string) (projectKind, serviceMetadata) {
 
 func rootGemspecs(dir string) ([]string, bool) {
 	directory, err := os.Open(dir)
+
 	if err != nil {
 		return nil, false
 	}
+
 	defer directory.Close()
 
 	entries, err := directory.ReadDir(maxProjectEntries + 1)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, false
 	}
+
 	if len(entries) > maxProjectEntries {
 		return nil, true
 	}
@@ -268,9 +273,11 @@ func searchStart(root, cwd, path string, assumeFile bool) (string, bool) {
 
 func projectDirectoryForFile(path string) string {
 	dir := filepath.Dir(path)
+
 	if filepath.Base(path) == "environment.rb" && filepath.Base(dir) == "config" {
 		return filepath.Dir(dir)
 	}
+
 	return dir
 }
 
@@ -284,11 +291,13 @@ func gemDependencyRoots(cwd string, env map[string]string) []string {
 	if root := cleanDependencyRoot(cwd, env[gemHome]); root != "" {
 		roots = append(roots, root)
 	}
+
 	for _, root := range filepath.SplitList(env[gemPath]) {
 		if root = cleanDependencyRoot(cwd, root); root != "" {
 			roots = append(roots, root)
 		}
 	}
+
 	return roots
 }
 
@@ -299,6 +308,7 @@ func pathInDependencyRoot(cwd, path string, roots []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -306,10 +316,12 @@ func cleanDependencyRoot(cwd, path string) string {
 	if path == "" {
 		return ""
 	}
+
 	path = absoluteProcessPath(cwd, path)
 	if !filepath.IsAbs(path) {
 		return ""
 	}
+
 	return path
 }
 
@@ -317,6 +329,7 @@ func absoluteProcessPath(cwd, path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
+
 	return filepath.Clean(filepath.Join(cwd, path))
 }
 
@@ -336,6 +349,7 @@ func serviceNameFromEntryPoint(path string) string {
 	if _, tooling := rubyTooling[name]; tooling {
 		return ""
 	}
+
 	if !validServiceName(name) || name == "config.ru" {
 		return ""
 	}
@@ -346,10 +360,12 @@ func serviceNameFromProjectDirectory(dir, boundary string) string {
 	if dir == boundary {
 		return ""
 	}
+
 	name := filepath.Base(dir)
 	if !validServiceName(name) {
 		return ""
 	}
+
 	return name
 }
 
@@ -364,13 +380,16 @@ func firstValidName(values ...string) string {
 			return value
 		}
 	}
+
 	return ""
 }
 
 func pathWithinBoundary(boundary, path string) bool {
 	relative, err := filepath.Rel(boundary, path)
+
 	if err != nil {
 		return false
 	}
+
 	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }

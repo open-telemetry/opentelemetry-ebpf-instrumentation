@@ -4,10 +4,13 @@
 package rubytools
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadRailsApplicationName(t *testing.T) {
@@ -15,6 +18,39 @@ func TestReadRailsApplicationName(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "application.rb")
 
 		assert.Empty(t, readRailsApplicationName(path))
+	})
+
+	t.Run("empty file yields empty result", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "application.rb")
+		writeRubyFile(t, path, nil)
+
+		assert.Empty(t, readRailsApplicationName(path))
+	})
+
+	t.Run("directory yields empty result", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "application.rb")
+		require.NoError(t, os.Mkdir(path, 0o755))
+
+		assert.Empty(t, readRailsApplicationName(path))
+	})
+
+	t.Run("symlink yields empty result", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "target.rb")
+		writeRubyFile(t, target, []byte("class WrongApp < Rails::Application\nend\n"))
+		path := filepath.Join(dir, "application.rb")
+		require.NoError(t, os.Symlink(target, path))
+
+		assert.Empty(t, readRailsApplicationName(path))
+	})
+
+	t.Run("file at size limit is read", func(t *testing.T) {
+		data := []byte("class MyApp < Rails::Application\nend\n#")
+		data = append(data, bytes.Repeat([]byte("x"), int(maxRubyMetadataBytes)-len(data))...)
+		path := filepath.Join(t.TempDir(), "application.rb")
+		writeRubyFile(t, path, data)
+
+		assert.Equal(t, "my-app", readRailsApplicationName(path))
 	})
 
 	t.Run("oversized file yields empty result", func(t *testing.T) {
@@ -209,6 +245,16 @@ end
 		{
 			name:     "empty input",
 			source:   "",
+			expected: "",
+		},
+		{
+			name: "ambiguous Ruby syntax fails closed",
+			source: `items = []
+item = 1
+items <<item
+class MyApp < Rails::Application
+end
+`,
 			expected: "",
 		},
 	}

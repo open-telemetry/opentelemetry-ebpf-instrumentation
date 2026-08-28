@@ -31,9 +31,15 @@ func readGemspec(path string) serviceMetadata {
 	return parseGemspec(data)
 }
 
+// parseGemspec extracts static identity fields from a specification such as:
+//
+//	Gem::Specification.new do |spec|
+//	  spec.name = "orders"
+//	  spec.version = "1.2.3"
+//	end
 func parseGemspec(data []byte) serviceMetadata {
-	lines := rubyLines(data, false)
-	structure := rubyLines(data, true)
+	lines := parseRuby(data, false)
+	structure := parseRuby(data, true)
 	var variable, name, version string
 	invocations := 0
 	headerIndex := -1

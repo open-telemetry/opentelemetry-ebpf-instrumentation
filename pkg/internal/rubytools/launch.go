@@ -263,14 +263,18 @@ func ParseRubyLaunch(command string, args []string) RubyLaunch {
 		if base == "jruby" || base == "truffleruby" {
 			return RubyLaunch{}
 		}
+
 		if _, tool := rubyTooling[base]; tool {
 			return parseToolLaunch(base, command, args)
 		}
+
 		if isCommandPath(command) {
 			return RubyLaunch{EntryPoint: command}
 		}
+
 		return RubyLaunch{}
 	}
+
 	if len(args) == 0 {
 		return RubyLaunch{}
 	}
@@ -281,14 +285,17 @@ func isCommandPath(command string) bool {
 	if strings.Contains(command, "://") {
 		return false
 	}
+
 	if strings.ContainsFunc(command, unicode.IsSpace) {
 		return false
 	}
+
 	return strings.Contains(command, string(filepath.Separator)) || strings.HasSuffix(command, ".rb")
 }
 
 func parseToolLaunch(tool, command string, args []string) RubyLaunch {
 	launch := RubyLaunch{}
+
 	if strings.Contains(command, string(filepath.Separator)) {
 		launch.ProjectPath = command
 	}
@@ -335,9 +342,11 @@ func parseToolLaunch(tool, command string, args []string) RubyLaunch {
 				}
 				continue
 			}
+
 			if name != "--rackup" && name != "--startup-file" {
 				continue
 			}
+
 			if !attached {
 				i++
 				if i >= len(args) {
@@ -345,6 +354,7 @@ func parseToolLaunch(tool, command string, args []string) RubyLaunch {
 				}
 				value = args[i]
 			}
+
 			if value != "" {
 				launch.ProjectPath = value
 				launch.projectPathAuthoritative = true
@@ -361,6 +371,7 @@ func lastLauncherOption(args []string, short, long string) string {
 		if arg == "--" {
 			break
 		}
+
 		switch {
 		case arg == short || arg == long:
 			i++
@@ -398,10 +409,12 @@ func parseLauncherArguments(
 			}
 			return parsed
 		}
+
 		if arg == "-" || !strings.HasPrefix(arg, "-") {
 			parsed.addPositional(arg)
 			continue
 		}
+
 		if strings.HasPrefix(arg, "--") {
 			name, value, attached := strings.Cut(arg, "=")
 			arity, ok := options[name]
@@ -431,11 +444,13 @@ func parseLauncherArguments(
 		for offset := 1; offset < len(arg); offset++ {
 			name := "-" + arg[offset:offset+1]
 			arity, ok := options[name]
+
 			if !ok {
 				logUnknownOption(name)
 				parsed.positionalsKnown = false
 				return parsed
 			}
+
 			if arity == launcherNoValue {
 				continue
 			}
@@ -449,13 +464,16 @@ func parseLauncherArguments(
 				}
 				value = args[i]
 			}
+
 			if value == "" && arity == launcherPlacedOptionalValue && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				i++
 				value = args[i]
 			}
+
 			if name == configShort && value != "" {
 				parsed.configPath = value
 			}
+
 			break
 		}
 	}
@@ -466,6 +484,7 @@ func (args *launcherArguments) addPositional(value string) {
 	if args.firstPositional == "" {
 		args.firstPositional = value
 	}
+
 	args.lastPositional = value
 }
 
@@ -478,9 +497,11 @@ func parseRubyArgs(args []string) RubyLaunch {
 			}
 			return RubyLaunch{}
 		}
+
 		if arg == "-" {
 			return RubyLaunch{}
 		}
+
 		if strings.HasPrefix(arg, "--") {
 			name, value, attached := splitLongOption(arg)
 			arity, ok := longOptions[name]
@@ -488,13 +509,16 @@ func parseRubyArgs(args []string) RubyLaunch {
 				logUnknownOption(arg)
 				return RubyLaunch{}
 			}
+
 			if attached && (arity == terminalOption || arity == noValue && !allowsAttachedLongValue(name)) {
 				logUnknownOption(arg)
 				return RubyLaunch{}
 			}
+
 			if arity == terminalOption {
 				return RubyLaunch{}
 			}
+
 			if (arity == requiredValue || arity == dumpValue) && !attached {
 				i++
 				if i >= len(args) {
@@ -502,6 +526,7 @@ func parseRubyArgs(args []string) RubyLaunch {
 				}
 				value = args[i]
 			}
+
 			if arity == dumpValue {
 				terminal, known := classifyDumpValue(value)
 				if terminal {
@@ -511,20 +536,25 @@ func parseRubyArgs(args []string) RubyLaunch {
 					slog.Debug("unknown dump target while discovering Ruby entrypoint", "option", "--dump")
 				}
 			}
+
 			continue
 		}
+
 		if strings.HasPrefix(arg, "-") {
 			consumeNext, terminal, valid := scanShortOption(arg)
 			if !valid {
 				logUnknownOption(arg)
 				return RubyLaunch{}
 			}
+
 			if terminal {
 				return RubyLaunch{}
 			}
+
 			if consumeNext {
 				i++
 			}
+
 			continue
 		}
 		return launchFromProgram(arg, args[i+1:])
@@ -546,9 +576,11 @@ func launchFromProgram(program string, args []string) RubyLaunch {
 	if base == "config.ru" {
 		return RubyLaunch{ProjectPath: program, projectPathAuthoritative: true}
 	}
+
 	if _, tool := rubyTooling[base]; tool {
 		return parseToolLaunch(base, program, args)
 	}
+
 	return RubyLaunch{EntryPoint: program}
 }
 
@@ -556,6 +588,7 @@ func splitLongOption(option string) (string, string, bool) {
 	if name, value, attached := strings.Cut(option, "="); attached {
 		return name, value, true
 	}
+
 	for _, name := range []string{"--crash-report", "--debug", "--disable", "--enable"} {
 		if value, attached := strings.CutPrefix(option, name+"-"); attached {
 			return name, value, true
@@ -609,9 +642,11 @@ func sanitizedOptionName(option string) string {
 	if name, _, ok := strings.Cut(option, "="); ok {
 		return name
 	}
+
 	if strings.HasPrefix(option, "-") && !strings.HasPrefix(option, "--") && len(option) > 2 {
 		return option[:2]
 	}
+
 	return option
 }
 
@@ -631,9 +666,11 @@ func classifyDumpValue(value string) (bool, bool) {
 		{name: "insns"},
 		{name: "insns_without_opt"},
 	}
+
 	items := strings.FieldsFunc(value, func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)
 	})
+
 	known := len(items) != 0
 	terminal := false
 	for _, item := range items {
@@ -647,5 +684,6 @@ func classifyDumpValue(value string) (bool, bool) {
 		}
 		known = known && matched
 	}
+
 	return terminal, known
 }
