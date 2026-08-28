@@ -53,7 +53,7 @@ int GUARDED_PROG(obi_uprobe_writer_write_messages, struct pt_regs *, ctx) {
     bpf_map_update_elem(&produce_traceparents, &p_key, &tp, BPF_ANY);
     bpf_map_update_elem(&produce_traceparents_by_goroutine, &g_key, &tp, BPF_ANY);
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_kafka_produce, &tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_kafka_produce, &tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }

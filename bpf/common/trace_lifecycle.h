@@ -35,15 +35,20 @@ static __always_inline void delete_server_trace(pid_connection_info_t *pid_conn,
     }
 }
 
-// Hands traces_ctx_v1 back to the ended client span's parent server span
+// A client span ended: point the thread's context back at its parent server span
 static __always_inline void obi_ctx__restore_server(const tp_info_t *client_tp) {
     if (!client_tp) {
+        return;
+    }
+    // only when the thread still points at this client span
+    const obi_ctx_info_t *current = obi_ctx__get(bpf_get_current_pid_tgid());
+    if (!current || *(const u64 *)current->span_id != *(const u64 *)client_tp->span_id) {
         return;
     }
     trace_key_t t_key = {0};
     task_tid(&t_key.p_key);
     if (java_vt_translate_tid(&t_key.p_key)) {
-        return; // VT requests never own the thread-keyed ctx
+        return; // virtual thread requests do not use the thread context
     }
     t_key.extra_id = extra_runtime_id();
     tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, &t_key);

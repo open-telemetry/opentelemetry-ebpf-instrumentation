@@ -1262,38 +1262,7 @@ enum gstatus {
 // }
 enum offsets : u8 {
     k_g_m_off = 0x30,
-    k_m_procid_off = 0x40,
 };
-
-SEC("uprobe/runtime.mstart1")
-int GUARDED_PROG(obi_uprobe_runtime_mstart1, struct pt_regs *, ctx) {
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-
-    void *g = (void *)GOROUTINE_PTR(ctx);
-    void *m = NULL;
-
-    bpf_probe_read_user(&m, sizeof(m), (void *)((char *)g + k_g_m_off));
-    if (!m) {
-        return 0;
-    }
-
-    bpf_map_update_elem(&mptr_to_root_tid, &m, &(u32){pid_tgid}, BPF_ANY);
-    return 0;
-}
-
-SEC("uprobe/runtime.mexit")
-int GUARDED_PROG(obi_uprobe_runtime_mexit, struct pt_regs *, ctx) {
-    void *g = (void *)GOROUTINE_PTR(ctx);
-    void *m = NULL;
-
-    bpf_probe_read_user(&m, sizeof(m), (void *)((char *)g + k_g_m_off));
-    if (!m) {
-        return 0;
-    }
-
-    bpf_map_delete_elem(&mptr_to_root_tid, &m);
-    return 0;
-}
 
 // gp *g, oldval, newval uint32
 SEC("uprobe/runtime.casgstatus")
@@ -1308,14 +1277,7 @@ int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
         return 0;
     }
 
-    u64 procid = 0;
-    bpf_probe_read_user(&procid, sizeof(procid), (void *)((char *)m + k_m_procid_off));
-    if (procid == 0) {
-        return 0;
-    }
-
     const u32 pid = pid_tgid >> 32;
-    // key by the current thread: m->procid is pid-namespace relative
     const u64 g_pid_tgid = pid_tgid;
     go_addr_key_t g_key = {
         .addr = (u64)g,
@@ -1325,11 +1287,13 @@ int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
     const u32 newval = (u32)(uintptr_t)GO_PARAM3(ctx);
     switch (newval) {
     case g_running:
-    case g_syscall:
         go_obi_ctx__resume(g_pid_tgid, &g_key);
         break;
+    case g_syscall:
+        // same goroutine, same thread: the context is already right
+        break;
     case g_dead:
-        // g objects are recycled: drop the stack before reuse
+        // Go reuses g objects: drop the stack before the next goroutine gets it
         bpf_map_delete_elem(&obi_ctx_stacks, &g_key);
         obi_ctx__del(g_pid_tgid);
         break;

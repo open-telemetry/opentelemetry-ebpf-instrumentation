@@ -62,7 +62,7 @@ int GUARDED_PROG(obi_uprobe_redis_process, struct pt_regs *, ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
     redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
     if (req) {
-        go_obi_ctx__begin(&g_key, k_obi_ctx_redis, &req->tp);
+        go_obi_ctx__begin(&g_key, k_obi_ctx_redis, &req->tp, go_obi_ctx__stack_off(ctx));
     }
 
     return 0;

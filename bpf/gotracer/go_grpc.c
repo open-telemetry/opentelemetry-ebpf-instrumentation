@@ -140,7 +140,7 @@ int GUARDED_PROG(obi_uprobe_server_handleStream, struct pt_regs *, ctx) {
         bpf_dbg_printk("can't update grpc map element");
     }
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_server, &invocation.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_server, &invocation.tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -364,8 +364,12 @@ int GUARDED_PROG(obi_uprobe_transport_writeStatus, struct pt_regs *, ctx) {
 }
 
 /* GRPC client */
-static __always_inline void clientConnStart(
-    void *goroutine_addr, void *cc_ptr, void *ctx_ptr, void *method_ptr, void *method_len) {
+static __always_inline void clientConnStart(void *goroutine_addr,
+                                            void *cc_ptr,
+                                            void *ctx_ptr,
+                                            void *method_ptr,
+                                            void *method_len,
+                                            u64 stack_off) {
     grpc_client_func_invocation_t invocation = {
         .start_monotime_ns = bpf_ktime_get_ns(),
         .cc = (u64)cc_ptr,
@@ -398,7 +402,7 @@ static __always_inline void clientConnStart(
         bpf_dbg_printk("can't update grpc client map element");
     }
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, stack_off);
 }
 
 SEC("uprobe/ClientConn_Invoke")
@@ -413,7 +417,8 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke, struct pt_regs *, ctx) {
     void *method_ptr = GO_PARAM4(ctx);
     void *method_len = GO_PARAM5(ctx);
 
-    clientConnStart(goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len);
+    clientConnStart(
+        goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -431,7 +436,8 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     void *method_ptr = GO_PARAM5(ctx);
     void *method_len = GO_PARAM6(ctx);
 
-    clientConnStart(goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len);
+    clientConnStart(
+        goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }

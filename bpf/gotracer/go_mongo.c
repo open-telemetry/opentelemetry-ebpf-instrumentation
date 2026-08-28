@@ -77,7 +77,7 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, &req, BPF_ANY);
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req.tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -188,7 +188,7 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, req, BPF_ANY);
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req->tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req->tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }

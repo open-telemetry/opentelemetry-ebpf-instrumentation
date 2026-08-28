@@ -26,6 +26,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -73,7 +75,11 @@ var (
 	deepLog      func(string)
 	deepGRPCCall func(string) error
 	nestInnerDB  *sql.DB
+	nestDB       *sql.DB
 )
+
+// more nested SQL spans than the BPF context stack can hold
+const nestLevels = 5
 
 // ---- deep driver: its Query logs and calls gRPC, so one goroutine nests
 // server, SQL and gRPC spans. The query text is the request id ----
@@ -102,8 +108,9 @@ func (s deepStmt) Query([]driver.Value) (driver.Rows, error) {
 	return &fakeRows{}, nil
 }
 
-// ---- nesting driver: its Query runs another database/sql query, nesting
-// two SQL spans of the same kind ----
+// ---- nesting driver: its Query runs another database/sql query, so SQL spans
+// nest. The query text is "<levels>:<id>": each level calls nestDB again, the
+// last one queries the fake driver ----
 
 type nestDriver struct{}
 
@@ -121,13 +128,22 @@ func (nestStmt) Close() error                                 { return nil }
 func (nestStmt) NumInput() int                                { return 0 }
 func (s nestStmt) Exec([]driver.Value) (driver.Result, error) { return driver.RowsAffected(1), nil }
 func (s nestStmt) Query([]driver.Value) (driver.Rows, error) {
-	rows, err := nestInnerDB.Query("SELECT n FROM fake")
+	levels, id, _ := strings.Cut(s.id, ":")
+	n, _ := strconv.Atoi(levels)
+
+	var rows *sql.Rows
+	var err error
+	if n > 0 {
+		rows, err = nestDB.Query(fmt.Sprintf("%d:%s", n-1, id))
+	} else {
+		rows, err = nestInnerDB.Query("SELECT n FROM fake")
+	}
 	if err != nil {
 		return nil, err
 	}
 	rows.Close()
-	// still inside the outer SQL span
-	deepLog("samekind: driver after inner " + s.id)
+	// still inside this level's SQL span
+	deepLog(fmt.Sprintf("samekind: driver after inner L%d %s", n, id))
 	return &fakeRows{}, nil
 }
 
@@ -345,8 +361,8 @@ func main() {
 
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	// nested spans: HTTP server -> gRPC client -> gRPC server, plus SQL under
-	// the HTTP server; logs after each return must keep the server span context
+	// nested spans: the HTTP handler calls a gRPC client, which hits the gRPC
+	// server, then runs SQL. Logs after each call must keep the server span
 	sql.Register("fake", fakeDriver{})
 	db, err := sql.Open("fake", "")
 	if err != nil {
@@ -361,7 +377,7 @@ func main() {
 		fmt.Println(string(b))
 	}
 	http.HandleFunc("/nested_logger", func(w http.ResponseWriter, r *http.Request) {
-		// per-request id keeps the test's log-line pairing race-free
+		// the id lets the test pair log lines per request
 		id := r.URL.Query().Get("id")
 		jsonLog("nested: before grpc " + id)
 
@@ -429,7 +445,7 @@ func main() {
 
 		sqlDone := make(chan error, 1)
 		go func() {
-			// a fresh goroutine owns no span yet: this line must stay unenriched
+			// a new goroutine has no span yet, so this line must not be enriched
 			jsonLog("nestedg: child before sql " + id)
 			rows, err := db.Query("SELECT n FROM fake")
 			if err != nil {
@@ -488,7 +504,7 @@ func main() {
 	})
 	sql.Register("nestfake", nestDriver{})
 	nestInnerDB = db
-	nestDB, err := sql.Open("nestfake", "")
+	nestDB, err = sql.Open("nestfake", "")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -496,7 +512,7 @@ func main() {
 		id := r.URL.Query().Get("id")
 		jsonLog("samekind: before sql " + id)
 
-		rows, err := nestDB.Query(id)
+		rows, err := nestDB.Query(fmt.Sprintf("%d:%s", nestLevels, id))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

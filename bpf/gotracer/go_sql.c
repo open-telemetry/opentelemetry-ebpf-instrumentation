@@ -299,8 +299,8 @@ static __always_inline void extract_sql_hostname(sql_request_trace_t *trace,
     }
 }
 
-static __always_inline void
-set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *query_len) {
+static __always_inline void set_sql_info(
+    void *goroutine_addr, void *driver_conn, void *sql_param, void *query_len, u64 stack_off) {
     sql_func_invocation_t invocation = {.start_monotime_ns = bpf_ktime_get_ns(),
                                         .sql_param = (u64)sql_param,
                                         .query_len = (u64)query_len,
@@ -317,7 +317,7 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
         bpf_dbg_printk("can't update map element");
     }
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_sql, &invocation.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_sql, &invocation.tp, stack_off);
 }
 
 // Common SQL query return handler.
@@ -329,7 +329,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
     sql_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
     if (invocation == NULL) {
         bpf_dbg_printk("Request not found for this goroutine");
-        // an inner query of a nested pair took the map slot: still pop ours
+        // an inner query overwrote our map entry, but our frame still has to be popped
         go_obi_ctx__end(&g_key, k_obi_ctx_sql, NULL);
         return 0;
     }
@@ -382,7 +382,7 @@ int GUARDED_PROG(obi_uprobe_queryDC, struct pt_regs *, ctx) {
     void *sql_param = GO_PARAM8(ctx);
     void *query_len = GO_PARAM9(ctx);
 
-    set_sql_info(goroutine_addr, driver_conn, sql_param, query_len);
+    set_sql_info(goroutine_addr, driver_conn, sql_param, query_len, go_obi_ctx__stack_off(ctx));
     return 0;
 }
 
@@ -396,7 +396,7 @@ int GUARDED_PROG(obi_uprobe_pgx_Query, struct pt_regs *, ctx) {
     void *sql_param = GO_PARAM4(ctx);
     void *query_len = GO_PARAM5(ctx);
 
-    set_sql_info(goroutine_addr, pgx_conn, sql_param, query_len);
+    set_sql_info(goroutine_addr, pgx_conn, sql_param, query_len, go_obi_ctx__stack_off(ctx));
     return 0;
 }
 
@@ -410,7 +410,7 @@ int GUARDED_PROG(obi_uprobe_pgx_Exec, struct pt_regs *, ctx) {
     void *sql_param = GO_PARAM4(ctx);
     void *query_len = GO_PARAM5(ctx);
 
-    set_sql_info(goroutine_addr, pgx_conn, sql_param, query_len);
+    set_sql_info(goroutine_addr, pgx_conn, sql_param, query_len, go_obi_ctx__stack_off(ctx));
     return 0;
 }
 
@@ -424,7 +424,7 @@ int GUARDED_PROG(obi_uprobe_execDC, struct pt_regs *, ctx) {
     void *sql_param = GO_PARAM6(ctx);
     void *query_len = GO_PARAM7(ctx);
 
-    set_sql_info(goroutine_addr, driver_conn, sql_param, query_len);
+    set_sql_info(goroutine_addr, driver_conn, sql_param, query_len, go_obi_ctx__stack_off(ctx));
     return 0;
 }
 

@@ -352,9 +352,9 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
         if (!found_trace_id) {
             urand_bytes(tp_i->trace_id, TRACE_ID_SIZE_BYTES);
         }
-
-        urand_bytes(tp_i->span_id, SPAN_ID_SIZE_BYTES);
     }
+
+    urand_bytes(tp_i->span_id, SPAN_ID_SIZE_BYTES);
 
     return found_trace_id;
 }

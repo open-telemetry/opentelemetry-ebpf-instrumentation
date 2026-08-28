@@ -156,7 +156,7 @@ int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
         bpf_dbg_printk("can't update map element");
     }
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_http_server, &invocation->tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_http_server, &invocation->tp, go_obi_ctx__stack_off(ctx));
 
 done:
     return 0;
@@ -393,7 +393,7 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
         bpf_memset(minimal_inv, 0, sizeof(*minimal_inv));
         update_traceparent(minimal_inv, traceparent_start);
         bpf_map_update_elem(&ongoing_http_server_requests, g_key, minimal_inv, BPF_ANY);
-        go_obi_ctx__begin(g_key, k_obi_ctx_http_server, &minimal_inv->tp);
+        go_obi_ctx__begin(g_key, k_obi_ctx_http_server, &minimal_inv->tp, 0);
     }
 }
 
@@ -1218,7 +1218,8 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
                 __builtin_memcpy(&inv->tp, tp, sizeof(tp_info_t));
                 bpf_dbg_printk("Found traceparent in HTTP2 headers");
                 bpf_map_update_elem(&ongoing_http_server_requests, &g_key, inv, BPF_ANY);
-                go_obi_ctx__begin(&g_key, k_obi_ctx_http_server, &inv->tp);
+                go_obi_ctx__begin(
+                    &g_key, k_obi_ctx_http_server, &inv->tp, go_obi_ctx__stack_off(ctx));
                 bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
             }
         }

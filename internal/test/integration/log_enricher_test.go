@@ -1072,7 +1072,7 @@ func testLogEnricherNestedSpans(t *testing.T, constants testServerConstants) {
 			return
 		}
 
-		// log fetch can lag the current request: pair by the newest settled id
+		// log fetching can lag behind the current request: pair by the newest complete id
 		afterSQL := newestLogFields(logs, func(m string) bool {
 			return strings.HasPrefix(m, "nested: after sql req-")
 		})
@@ -1106,8 +1106,8 @@ func testLogEnricherNestedSpans(t *testing.T, constants testServerConstants) {
 		assert.Equal(ct, before["trace_id"], afterSQL["trace_id"])
 		assert.Equal(ct, before["span_id"], afterGRPC["span_id"])
 		assert.Equal(ct, before["span_id"], afterSQL["span_id"])
-		// the gRPC handler runs under its own server span (trace linkage
-		// across the loopback hop is context propagation's concern, not ours)
+		// the gRPC handler runs under its own server span; linking the two
+		// traces is context propagation's job, not this test's
 		assert.NotEqual(ct, before["span_id"], inGRPC["span_id"])
 
 		// a finished request's context must not leak into the next one
@@ -1121,7 +1121,7 @@ func testLogEnricherNestedSpans(t *testing.T, constants testServerConstants) {
 	}, 2*testTimeout, time.Second)
 }
 
-// Fan-out variant: SQL on a child goroutine must not strand the handler's context
+// Fan-out variant: SQL on a child goroutine must not lose the handler's context
 func testLogEnricherNestedSpansGoroutine(t *testing.T, constants testServerConstants) {
 	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
 
@@ -1144,7 +1144,7 @@ func testLogEnricherNestedSpansGoroutine(t *testing.T, constants testServerConst
 			return
 		}
 
-		// log fetch can lag the current request: pair by the newest settled id
+		// log fetching can lag behind the current request: pair by the newest complete id
 		afterSQL := newestLogFields(logs, func(m string) bool {
 			return strings.HasPrefix(m, "nestedg: after sql greq-")
 		})
@@ -1173,7 +1173,7 @@ func testLogEnricherNestedSpansGoroutine(t *testing.T, constants testServerConst
 			assertEnrichedCtx(ct, name, fields)
 		}
 
-		// the handler resumes after the fan-out join with its own span context
+		// after waiting for the child, the handler gets its own span back
 		assert.Equal(ct, before["trace_id"], afterGRPC["trace_id"])
 		assert.Equal(ct, before["trace_id"], afterSQL["trace_id"])
 		assert.Equal(ct, before["span_id"], afterGRPC["span_id"])
@@ -1181,7 +1181,7 @@ func testLogEnricherNestedSpansGoroutine(t *testing.T, constants testServerConst
 		// the gRPC handler runs under its own server span
 		assert.NotEqual(ct, before["span_id"], inGRPC["span_id"])
 
-		// a fresh goroutine owns no span, so its first log stays unenriched
+		// a new goroutine has no span, so its first log is not enriched
 		childBefore := get("nestedg: child before sql")
 		if childBefore != nil {
 			assert.Empty(ct, childBefore["trace_id"],
@@ -1223,7 +1223,7 @@ func testLogEnricherNestedSpansDeep(t *testing.T, constants testServerConstants)
 			return
 		}
 
-		// log fetch can lag the current request: pair by the newest settled id
+		// log fetching can lag behind the current request: pair by the newest complete id
 		afterSQL := newestLogFields(logs, func(m string) bool {
 			return strings.HasPrefix(m, "deep: after sql dreq-")
 		})
@@ -1270,8 +1270,8 @@ func testLogEnricherNestedSpansDeep(t *testing.T, constants testServerConstants)
 	}, 2*testTimeout, time.Second)
 }
 
-// Two nested SQL spans: the handler must get its own context back once both
-// return
+// Several nested SQL spans: the handler must get its own context back once
+// they all return
 func testLogEnricherNestedSpansSameKind(t *testing.T, constants testServerConstants) {
 	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
 
@@ -1294,7 +1294,7 @@ func testLogEnricherNestedSpansSameKind(t *testing.T, constants testServerConsta
 			return
 		}
 
-		// log fetch can lag the current request: pair by the newest settled id
+		// log fetching can lag behind the current request: pair by the newest complete id
 		after := newestLogFields(logs, func(m string) bool {
 			return strings.HasPrefix(m, "samekind: after sql sreq-")
 		})
@@ -1313,21 +1313,32 @@ func testLogEnricherNestedSpansSameKind(t *testing.T, constants testServerConsta
 		assertEnrichedCtx(ct, "before sql", before)
 		assertEnrichedCtx(ct, "after sql", after)
 
-		// nested same-kind spans must not strand or corrupt the handler context
+		// nested same-kind spans must not lose or corrupt the handler context
 		assert.Equal(ct, before["trace_id"], after["trace_id"])
 		assert.Equal(ct, before["span_id"], after["span_id"])
 
-		driverAfter := newestLogFields(logs, func(m string) bool {
-			return m == "samekind: driver after inner "+pairID
-		})
-		if !assert.NotNil(ct, driverAfter, "no 'samekind: driver after inner' line found") {
-			return
+		// every level logs after its inner query returned: the line belongs
+		// to that level's own SQL span, never to the server span
+		const nestLevels = 5
+		levelSpans := map[string]int{}
+		for level := nestLevels; level >= 0; level-- {
+			name := fmt.Sprintf("driver after inner L%d", level)
+			driverAfter := newestLogFields(logs, func(m string) bool {
+				return m == "samekind: "+name+" "+pairID
+			})
+			if !assert.NotNil(ct, driverAfter, "no 'samekind: %s' line found", name) {
+				return
+			}
+			assertEnrichedCtx(ct, name, driverAfter)
+			assert.Equal(ct, before["trace_id"], driverAfter["trace_id"], name)
+			assert.NotEqual(ct, before["span_id"], driverAfter["span_id"], name)
+			levelSpans[driverAfter["span_id"]]++
 		}
-		assertEnrichedCtx(ct, "driver after inner", driverAfter)
-		// one frame per kind: the inner query's end falls back to the server
-		// span, and must never resurrect a stale context
-		assert.Equal(ct, before["trace_id"], driverAfter["trace_id"])
-		assert.Equal(ct, before["span_id"], driverAfter["span_id"])
+		// the outer levels fit in the context stack and keep distinct spans; the
+		// deeper ones fall back to the deepest stored SQL span. The stack holds
+		// k_obi_ctx_max_depth (4) frames and the HTTP server span takes one
+		const retainedLevels = 3
+		assert.GreaterOrEqual(ct, len(levelSpans), retainedLevels, "same-kind spans collapsed: %v", levelSpans)
 
 		// a finished request's context must not leak into the next one
 		prev := newestLogFields(logs, func(m string) bool {
@@ -1364,7 +1375,7 @@ func testLogEnricherNestedSpansCloseGoroutine(t *testing.T, constants testServer
 			return
 		}
 
-		// log fetch can lag the current request: pair by the newest settled id
+		// log fetching can lag behind the current request: pair by the newest complete id
 		after := newestLogFields(logs, func(m string) bool {
 			return strings.HasPrefix(m, "closeg: after close creq-")
 		})
@@ -1396,7 +1407,7 @@ func testLogEnricherNestedSpansCloseGoroutine(t *testing.T, constants testServer
 	}, 2*testTimeout, time.Second)
 }
 
-// Kprobe-world variant: sync python handler with a nested HTTP client call
+// Generic-tracer variant: a sync Python handler with a nested HTTP client call
 func testLogEnricherNestedSpansPython(t *testing.T, constants testServerConstants) {
 	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
 
@@ -1464,9 +1475,9 @@ func assertEnrichedCtx(ct *assert.CollectT, name string, fields map[string]strin
 
 // newestLogFields parses the newest JSON log line whose message matches, or nil
 func newestLogFields(logs []string, match func(string) bool) map[string]string {
-	for i := len(logs) - 1; i >= 0; i-- {
+	for _, line := range slices.Backward(logs) {
 		var fields map[string]string
-		if json.Unmarshal([]byte(logs[i]), &fields) != nil {
+		if json.Unmarshal([]byte(line), &fields) != nil {
 			continue
 		}
 		if match(fields["message"]) {
