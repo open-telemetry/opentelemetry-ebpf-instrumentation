@@ -327,9 +327,13 @@ func TestFindScriptDirectory(t *testing.T) {
 	//   workdir/
 
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app", "nested", "deep"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "outside"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "src"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "server.js"), []byte(""), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "nested", "deep", "file.js"), []byte(""), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "outside", "server.js"), []byte(""), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "src", "index.js"), []byte(""), 0o644))
 
 	tests := []struct {
@@ -396,6 +400,13 @@ func TestFindScriptDirectory(t *testing.T) {
 			expected: filepath.Join(tempDir, "/app/nested/deep") + "/",
 		},
 		{
+			name:     "parent traversal stays inside process root",
+			root:     tempDir,
+			firstArg: "/../../../outside/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "outside") + "/",
+		},
+		{
 			name:     "cwd is root",
 			root:     tempDir,
 			firstArg: "index.js",
@@ -414,6 +425,8 @@ func TestFindScriptDirectory(t *testing.T) {
 
 func TestFindScriptDirectory_EdgeCases(t *testing.T) {
 	tempDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "some", "deep", "path"), 0o755))
 
 	isDirFunc = func(path string) bool {
 		return !strings.HasSuffix(path, ".js")
@@ -427,11 +440,11 @@ func TestFindScriptDirectory_EdgeCases(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "empty root with absolute firstArg",
+			name:     "empty root is rejected",
 			root:     "",
 			firstArg: "/app/server.js",
 			cwd:      "/workdir",
-			expected: "/app/",
+			expected: "",
 		},
 		{
 			name:     "all parameters empty",

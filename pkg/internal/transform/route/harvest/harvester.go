@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/internal/langtools"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 )
 
@@ -196,25 +197,28 @@ var isDirFunc = isDir
 
 func FindScriptDirectory(root, firstArg, cwd string) string {
 	if strings.HasPrefix(firstArg, "/") {
-		path := filepath.Join(root, firstArg)
-		if isDirFunc(path) {
-			return path + string(filepath.Separator)
+		if dir := resolveProcessDirectory(root, firstArg); dir != "" {
+			return dir
 		}
 
 		lastSlashPos := strings.LastIndex(firstArg, "/")
 		if lastSlashPos > 1 {
-			path := filepath.Join(root, firstArg[:lastSlashPos])
-
-			if isDirFunc(path) {
-				return path + string(filepath.Separator)
+			if dir := resolveProcessDirectory(root, firstArg[:lastSlashPos]); dir != "" {
+				return dir
 			}
 		}
 	}
 
-	result := filepath.Join(root, cwd)
-	if result != "" && result[len(result)-1] != filepath.Separator {
+	return resolveProcessDirectory(root, cwd)
+}
+
+func resolveProcessDirectory(root, path string) string {
+	result, ok := langtools.ResolveProcessPath(root, "/", path)
+	if !ok || !isDirFunc(result) {
+		return ""
+	}
+	if result[len(result)-1] != filepath.Separator {
 		result += string(filepath.Separator)
 	}
-
 	return result
 }
