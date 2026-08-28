@@ -209,6 +209,7 @@ const (
 	SkipSpanMetrics     = Name("span.metrics.skip")
 	JVMMemoryType       = Name("jvm.memory.type")
 	JVMMemoryPoolName   = Name("jvm.memory.pool.name")
+	JVMThreadDaemon     = Name("jvm.thread.daemon")
 	CPythonGCGeneration = Name("cpython.gc.generation")
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")

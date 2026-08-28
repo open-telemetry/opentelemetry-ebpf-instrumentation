@@ -23,7 +23,6 @@ import (
 	"os"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -132,16 +131,6 @@ type goAutoSDKActivationEvent struct {
 const missingGoOffset = ^uint64(0)
 
 const goAutoSDKActivationMaxAttempts = 3
-
-var nextRuntimeMetricGeneration atomic.Uint64
-
-func newRuntimeMetricGeneration() uint64 {
-	for {
-		if generation := nextRuntimeMetricGeneration.Add(1); generation != 0 {
-			return generation
-		}
-	}
-}
 
 // Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h. Scalar
 // bits also mirror the raw snapshot masks in pkg/runtimemetrics/reader.go.
@@ -694,9 +683,17 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			symbol: "*github.com/lib/pq.conn",
 			field:  goexec.PqConnTypeOffset,
 		},
+		{
+			symbol: "*google.golang.org/grpc/internal/credentials.syscallConn",
+			field:  goexec.GrpcSyscallConnTypeAddress,
+		},
+		{
+			symbol: "*crypto/tls.Conn",
+			field:  goexec.TLSConnTypeAddress,
+		},
 	} {
-		if offset, ok := offsets.ITypes[iType.symbol]; ok {
-			offTable.Table[iType.field] = offset
+		if address, ok := offsets.ITypes[iType.symbol]; ok {
+			offTable.Table[iType.field] = address
 		}
 	}
 
@@ -1450,7 +1447,7 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 	p.goRuntimeMetricMaskByExecutable[identity] = availableMask
 	generation := fileInfo.RuntimeMetricGeneration(pid)
 	if generation == 0 {
-		generation = newRuntimeMetricGeneration()
+		generation = ebpfcommon.NewRuntimeMetricGeneration()
 	}
 
 	value := BpfGoRuntimeMetricTargetT{
@@ -1704,6 +1701,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
+		"net/http/internal/http2.(*responseWriter).handlerDone": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
+		}},
 		"golang.org/x/net/http2.(*responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
@@ -1722,6 +1722,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2responseWriterState).writeHeader": {{ // same as above, vendored in go
 			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
 		}},
+		"net/http/internal/http2.(*responseWriterState).writeHeader": {{
+			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
+		}},
 		"net/http.(*response).WriteHeader": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader, // http response code capture
 		}},
@@ -1731,11 +1734,17 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2serverConn).runHandler": {{
 			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler, // http2 server connection tracking, vendored in go
 		}},
+		"net/http/internal/http2.(*serverConn).runHandler": {{
+			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler,
+		}},
 		"golang.org/x/net/http2.(*serverConn).processHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing
 		}},
 		"net/http.(*http2serverConn).processHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing, vendored in go
+		}},
+		"net/http/internal/http2.(*serverConn).processHeaders": {{
+			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders,
 		}},
 		// tracking of tcp connections for black-box propagation
 		"net/http.(*conn).serve": {{ // http server
@@ -2259,7 +2268,7 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 			},
 		},
 		{
-			Name:          "go_http2_internal_current_ownership",
+			Name:          "go_http2_stdlib_go127_ownership",
 			Prerequisites: []string{"net/http/internal/http2.(*ClientConn).writeHeaders"},
 			Probes: []ebpfcommon.GoProbe{
 				{

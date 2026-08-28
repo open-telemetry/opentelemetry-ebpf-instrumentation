@@ -236,6 +236,9 @@ const (
 	RuntimeTimeHistogramOverflowPos
 	FramerPadLengthStackPos
 	FramerPadLengthStackVendoredPos
+	// Go connection interface types
+	GrpcSyscallConnTypeAddress
+	TLSConnTypeAddress
 )
 
 //go:embed offsets.json

@@ -433,7 +433,7 @@ func TestSnapshotFromRingbufRejectsTruncatedHistogram(t *testing.T) {
 	require.True(t, ignore)
 }
 
-func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
+func TestSnapshotFromJVMGCEvent(t *testing.T) {
 	timestamp := time.Unix(123, 456)
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "orders", Namespace: "prod"},
@@ -441,7 +441,7 @@ func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
 		Features:    export.FeatureApplicationRuntime,
 	}
 
-	snapshot := SnapshotFromJVMRuntimeEvent(appruntime.JVMRuntimeEvent{
+	snapshot := SnapshotFromJVMGCEvent(appruntime.JVMGCEvent{
 		PID:        app.PID(123),
 		Service:    service,
 		Time:       timestamp,
@@ -464,6 +464,30 @@ func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
 	require.Equal(t, uint64(2048), snapshot.JVM.ValueBytes)
 }
 
+func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
+	values := appruntime.JVMRuntimeValues{
+		LoadedClassCount:     11,
+		ProcessCPUTimeNS:     12,
+		RecentCPUUtilization: 0.25,
+	}
+	event := appruntime.JVMRuntimeEvent{
+		PID:        app.PID(123),
+		Generation: 17,
+		Service:    svc.Attrs{UID: svc.UID{Name: "orders"}},
+		Time:       time.Unix(123, 456),
+		Values:     values,
+	}
+
+	snapshot := SnapshotFromJVMRuntimeEvent(event)
+
+	require.Equal(t, event.Service, snapshot.Service)
+	require.Equal(t, event.PID, snapshot.PID)
+	require.Equal(t, event.Generation, snapshot.Generation)
+	require.Equal(t, event.Time, snapshot.Time)
+	require.NotNil(t, snapshot.JVM)
+	require.Equal(t, values, *snapshot.JVM.RuntimeValues)
+}
+
 func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "orders", Namespace: "prod"},
@@ -473,7 +497,7 @@ func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	queue := msg.NewQueue[[]RuntimeMetricSnapshot](msg.ChannelBufferLen(1))
 	received := queue.Subscribe(msg.SubscriberName("runtimemetrics-test"))
 
-	NewQueueSender(queue).SendJVMRuntimeMetrics(t.Context(), []appruntime.JVMRuntimeEvent{{
+	NewQueueSender(queue).SendJVMGCMetrics(t.Context(), []appruntime.JVMGCEvent{{
 		PID:        app.PID(123),
 		Service:    service,
 		Kind:       appruntime.JVMMetricMemoryUsed,
@@ -487,6 +511,23 @@ func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	require.NotNil(t, batch[0].JVM)
 	require.Equal(t, appruntime.JVMMetricMemoryUsed, batch[0].JVM.Kind)
 	require.Equal(t, uint64(4096), batch[0].JVM.ValueBytes)
+}
+
+func TestQueueSenderSendsJVMRuntimeMetrics(t *testing.T) {
+	queue := msg.NewQueue[[]RuntimeMetricSnapshot](msg.ChannelBufferLen(1))
+	received := queue.Subscribe(msg.SubscriberName("jvm-runtime-metrics-test"))
+	values := appruntime.JVMRuntimeValues{LoadedClassCount: 11}
+
+	NewQueueSender(queue).SendJVMRuntimeMetrics(t.Context(), []appruntime.JVMRuntimeEvent{{
+		PID:        app.PID(123),
+		Generation: 17,
+		Values:     values,
+	}})
+
+	batch := <-received
+	require.Len(t, batch, 1)
+	require.Equal(t, uint64(17), batch[0].Generation)
+	require.Equal(t, values, *batch[0].JVM.RuntimeValues)
 }
 
 func TestQueueSenderSendsGoRuntimeSnapshots(t *testing.T) {

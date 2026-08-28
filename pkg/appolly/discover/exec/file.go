@@ -155,6 +155,13 @@ func (fi *FileInfo) ServiceAttrs() svc.Attrs {
 	return out
 }
 
+// UnsafeServiceAttrs should be used only when dealing with span events
+func (fi *FileInfo) UnsafeServiceAttrs() svc.Attrs {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+	return fi.service
+}
+
 func (fi *FileInfo) SDKLanguage() svc.InstrumentableType {
 	fi.mu.RLock()
 	defer fi.mu.RUnlock()

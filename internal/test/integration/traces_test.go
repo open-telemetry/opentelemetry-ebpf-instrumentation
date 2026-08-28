@@ -334,9 +334,11 @@ func testGRPCKProbeTraces(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 }
 
-func testHTTPTracesKProbes(t *testing.T) {
+func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID bool) {
 	var traceID string
 	var parentID string
+
+	waitForTestComponents(t, "http://localhost:3031")
 
 	// Add and check for specific trace ID
 	traceID = createTraceID()
@@ -346,7 +348,7 @@ func testHTTPTracesKProbes(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fbye")
+		resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName + "&operation=GET%20%2Fbye")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -385,11 +387,13 @@ func testHTTPTracesKProbes(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 
 	process := trace.Processes[parent.ProcessID]
-	assert.Equal(t, "testserver", process.ServiceName)
+	assert.Equal(t, serviceName, process.ServiceName)
 
 	serviceInstance, ok := jaeger.FindIn(process.Tags, "service.instance.id")
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
-	assert.Regexp(t, `^integration-test\.testserver\.`, serviceInstance.Value)
+	if validateInstanceID {
+		assert.Regexp(t, `^integration-test\.`+serviceName+`\.`, serviceInstance.Value)
+	}
 
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},

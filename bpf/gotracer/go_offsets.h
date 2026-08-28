@@ -161,6 +161,9 @@ typedef enum {
     _runtime_time_histogram_overflow_pos,
     _framer_pad_length_stack_pos,
     _framer_pad_length_stack_vendored_pos,
+    // Go connection interface types
+    _grpc_syscall_conn_type_addr,
+    _tls_conn_type_addr,
     _last_go_offset,
 } go_offset_const;
 

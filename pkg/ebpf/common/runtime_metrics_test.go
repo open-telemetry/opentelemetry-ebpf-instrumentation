@@ -24,6 +24,7 @@ func TestRuntimeMetricEventTypeABI(t *testing.T) {
 	assert.Equal(t, byte(19), byte(EventTypeJVMMemoryPoolGC))
 	assert.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
 	assert.Equal(t, byte(29), byte(EventTypePythonRuntimeMetric))
+	assert.Equal(t, byte(30), byte(EventTypeJVMRuntimeMetrics))
 }
 
 func TestIsGoRuntimeMetricRecordRecognizesGoRuntimeEvents(t *testing.T) {
@@ -76,6 +77,7 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		EventTypeGoRuntimeHistogram,
 		EventTypeJVMMemoryPoolGC,
 		EventTypePythonRuntimeMetric,
+		EventTypeJVMRuntimeMetrics,
 	} {
 		runtimeMetrics := &fakeRuntimeMetricsSender{}
 		ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
@@ -146,7 +148,8 @@ func (f fakeRuntimeServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]sv
 }
 
 type fakeRuntimeMetricsSender struct {
-	events                []appruntime.JVMRuntimeEvent
+	events                []appruntime.JVMGCEvent
+	runtimeEvents         []appruntime.JVMRuntimeEvent
 	nodejsEvents          []appruntime.NodejsRuntimeEvent
 	nodejsGCEvents        []appruntime.NodejsGCEvent
 	nodejsHeapSpaceEvents []appruntime.NodejsHeapSpaceEvent
@@ -178,6 +181,10 @@ func (s *fakeRuntimeMetricsSender) SendPythonRuntimeMetricRecord(_ context.Conte
 	return nil
 }
 
-func (s *fakeRuntimeMetricsSender) SendJVMRuntimeMetrics(_ context.Context, events []appruntime.JVMRuntimeEvent) {
+func (s *fakeRuntimeMetricsSender) SendJVMGCMetrics(_ context.Context, events []appruntime.JVMGCEvent) {
 	s.events = append(s.events, events...)
+}
+
+func (s *fakeRuntimeMetricsSender) SendJVMRuntimeMetrics(_ context.Context, events []appruntime.JVMRuntimeEvent) {
+	s.runtimeEvents = append(s.runtimeEvents, events...)
 }
