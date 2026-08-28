@@ -41,6 +41,7 @@ require (
 	github.com/prometheus/procfs v0.21.1
 	github.com/shirou/gopsutil/v4 v4.26.7
 	github.com/stretchr/testify v1.11.1
+	github.com/tidwall/jsonc v0.3.3
 	github.com/vektah/gqlparser/v2 v2.5.36
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vladimirvivien/gexe v0.5.0
