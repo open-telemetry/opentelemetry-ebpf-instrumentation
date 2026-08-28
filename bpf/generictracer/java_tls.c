@@ -184,7 +184,6 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
             return 0;
         }
 
-        // Event identity
         event->type = EVENT_JVM_RUNTIME_METRICS;
         event->timestamp = bpf_ktime_get_ns();
         event->global_pid = pid_from_pid_tgid(id);
