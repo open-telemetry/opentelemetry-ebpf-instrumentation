@@ -81,6 +81,26 @@ func testJVMRuntimeCurrentValues(t *testing.T) {
 		RecentCPUUtilization:    0.25,
 	}
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: service,
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			Kind:       jvmruntime.JVMMetricGCDuration,
+			GCName:     "G1 Young Generation",
+			GCAction:   "end of minor GC",
+			DurationNS: 25_000_000,
+		},
+	}})
+	gcDuration := gatheredMetric(t, registry, "jvm_gc_duration_seconds", map[string]string{
+		"service_name":        "orders",
+		"service_namespace":   "prod",
+		"service_instance_id": "orders-1",
+		"jvm_gc_name":         "G1 Young Generation",
+		"jvm_gc_action":       "end of minor GC",
+	})
+	require.NotNil(t, gcDuration)
+	assert.Equal(t, uint64(1), gcDuration.GetHistogram().GetSampleCount())
+	assert.InEpsilon(t, 0.025, gcDuration.GetHistogram().GetSampleSum(), 0)
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service:    service,
 		Generation: 1,
 		JVM:        &runtimemetrics.JVMRuntimeMetricSnapshot{RuntimeValues: &values},

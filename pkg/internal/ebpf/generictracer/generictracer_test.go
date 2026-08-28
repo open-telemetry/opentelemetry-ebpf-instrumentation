@@ -318,6 +318,36 @@ func TestJVMRuntimeMetricsConstantOverridesUseApplicationRuntimeAsFeatureGate(t 
 func TestRawJVMEventLayoutsUseGeneratedBPFStructs(t *testing.T) {
 	assert.Equal(t, 200, int(unsafe.Sizeof(BpfJvmMemPoolGcEvent{})))
 	assert.Equal(t, 104, int(unsafe.Sizeof(BpfJvmRuntimeMetricsEvent{})))
+	assert.Equal(t, 176, int(unsafe.Sizeof(BpfJvmGcDurationEvent{})))
+}
+
+func TestParseJVMGCDurationRecord(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
+	tracer := &Tracer{pidsFilter: fakeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}}
+
+	event, ignore, err := tracer.parseJVMGCDurationRecord(&ringbuf.Record{RawSample: rawPayload(
+		BpfJvmGcDurationEvent{
+			Timestamp:     12345,
+			NsPid:         55,
+			PidNsId:       99,
+			DurationNs:    25_000_000,
+			CollectorName: rawJVMString("G1 Young Generation"),
+			Action:        rawJVMString("end of minor GC"),
+		},
+	)})
+
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, service, event.Service)
+	assert.Equal(t, app.PID(55), event.PID)
+	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, jvmruntime.JVMMetricGCDuration, event.Kind)
+	assert.Equal(t, "G1 Young Generation", event.GCName)
+	assert.Equal(t, "end of minor GC", event.GCAction)
+	assert.Equal(t, uint64(25_000_000), event.DurationNS)
+	assert.False(t, event.Time.IsZero())
 }
 
 func TestParseJVMRuntimeRecordUsesGeneratedBPFStruct(t *testing.T) {

@@ -68,7 +68,7 @@ func HandleRuntimeMetricsRecord(
 			return true, nil
 		}
 		return true, eventContext.RuntimeMetrics.SendPythonRuntimeMetricRecord(ctx, record, filter)
-	case EventTypeJVMMemoryPoolGC, EventTypeJVMRuntimeMetrics:
+	case EventTypeJVMMemoryPoolGC, EventTypeJVMRuntimeMetrics, EventTypeJVMGCDuration:
 		for _, handler := range handlers {
 			if handler == nil {
 				continue

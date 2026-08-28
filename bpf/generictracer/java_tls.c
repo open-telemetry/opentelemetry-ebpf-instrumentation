@@ -38,6 +38,7 @@ enum {
     k_ioctl_java_vt_mount = 4,   // virtual thread mounted on this carrier
     k_ioctl_java_vt_unmount = 5, // virtual thread unmounted from this carrier
     k_ioctl_java_runtime_metrics = 6,
+    k_ioctl_java_gc_duration = 7,
 };
 
 enum { k_ioctl_invalid_op = 0xff };
@@ -185,6 +186,38 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
         }
 
         event->type = EVENT_JVM_RUNTIME_METRICS;
+        event->timestamp = bpf_ktime_get_ns();
+        event->global_pid = pid_from_pid_tgid(id);
+        event->global_tid = tid_from_pid_tgid(id);
+
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+        int ns_pid = 0;
+        int ns_ppid = 0;
+        ns_pid_ppid(task, &ns_pid, &ns_ppid, &event->pid_ns_id);
+        event->ns_pid = (u32)ns_pid;
+        event->ns_tid = get_task_tid();
+
+        bpf_ringbuf_submit(event, get_flags());
+        return 0;
+    }
+    case k_ioctl_java_gc_duration: {
+        if (!jvm_runtime_metrics_are_enabled()) {
+            return 0;
+        }
+
+        struct jvm_gc_duration_event *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
+        if (!event) {
+            return 0;
+        }
+
+        bpf_memset(event, 0, sizeof(*event));
+        if (bpf_probe_read_user(&event->duration_ns, k_jvm_gc_duration_payload_len, uarg + 1) !=
+            0) {
+            bpf_ringbuf_discard(event, 0);
+            return 0;
+        }
+
+        event->type = EVENT_JVM_GC_DURATION;
         event->timestamp = bpf_ktime_get_ns();
         event->global_pid = pid_from_pid_tgid(id);
         event->global_tid = tid_from_pid_tgid(id);
