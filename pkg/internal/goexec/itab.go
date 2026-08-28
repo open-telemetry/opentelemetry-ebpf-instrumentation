@@ -18,12 +18,29 @@ const (
 	prefixLen = len(prefixNew)
 
 	go127TypeTFlagOffset = 20
+	go127TypeKindOffset  = 23
 	go127TypeNameOffset  = 40
 	go127InterfaceLenOff = 64
 	go127ITabTypeOffset  = 8
 	go127ITabFunOffset   = 24
 	go127ITabBaseSize    = 32
+	go127TFlagUncommon   = 1 << 0
 	go127TFlagExtraStar  = 1 << 1
+	go127KindMask        = 1<<5 - 1
+	go127KindArray       = 17
+	go127KindChan        = 18
+	go127KindFunc        = 19
+	go127KindInterface   = 20
+	go127KindMap         = 21
+	go127KindPointer     = 22
+	go127KindSlice       = 23
+	go127KindStruct      = 25
+	go127UncommonArray   = 72
+	go127UncommonChan    = 64
+	go127UncommonDefault = 48
+	go127UncommonMap     = 136
+	go127UncommonOneWord = 56
+	go127UncommonWithPkg = 80
 	maxGoTypeNameLen     = 4096
 )
 
@@ -168,25 +185,93 @@ func go127TypeName(ef *elf.File, types, typeAddr uint64) (string, error) {
 	if nameOffset < 0 || uint64(nameOffset) > ^uint64(0)-types {
 		return "", errors.New("invalid Go 1.27 type name offset")
 	}
-	nameAddr := types + uint64(nameOffset)
-	nameHeader, err := readVirtualMemory(ef, nameAddr, 1+binary.MaxVarintLen64)
-	if err != nil {
-		return "", fmt.Errorf("reading Go 1.27 type name header: %w", err)
-	}
-	nameLen, varintLen := binary.Uvarint(nameHeader[1:])
-	if varintLen <= 0 || nameLen > maxGoTypeNameLen {
-		return "", errors.New("invalid Go 1.27 type name length")
-	}
-	nameBytes, err := readVirtualMemory(ef, nameAddr+1+uint64(varintLen), nameLen)
+	name, err := go127Name(ef, types, nameOffset)
 	if err != nil {
 		return "", fmt.Errorf("reading Go 1.27 type name: %w", err)
 	}
-
-	name := string(nameBytes)
 	if typeHeader[go127TypeTFlagOffset]&go127TFlagExtraStar != 0 {
 		name = strings.TrimPrefix(name, "*")
 	}
+
+	pkgPath, err := go127TypePackagePath(ef, types, typeAddr, typeHeader)
+	if err != nil {
+		return "", err
+	}
+	if pkgPath != "" {
+		pointerPrefix := ""
+		shortName := name
+		if strings.HasPrefix(shortName, "*") {
+			pointerPrefix = "*"
+			shortName = strings.TrimPrefix(shortName, "*")
+		}
+		if dot := strings.IndexByte(shortName, '.'); dot >= 0 {
+			shortName = shortName[dot+1:]
+		}
+		name = pointerPrefix + pkgPath + "." + shortName
+	}
 	return name, nil
+}
+
+func go127TypePackagePath(
+	ef *elf.File,
+	types, typeAddr uint64,
+	typeHeader []byte,
+) (string, error) {
+	if typeHeader[go127TypeTFlagOffset]&go127TFlagUncommon == 0 {
+		return "", nil
+	}
+
+	uncommonOffset := go127UncommonOffset(typeHeader[go127TypeKindOffset] & go127KindMask)
+	pkgPathBytes, err := readVirtualMemory(ef, typeAddr+uncommonOffset, 4)
+	if err != nil {
+		return "", fmt.Errorf("reading Go 1.27 type package path offset: %w", err)
+	}
+	pkgPathOffset := int32(ef.ByteOrder.Uint32(pkgPathBytes))
+	if pkgPathOffset == 0 {
+		return "", nil
+	}
+	pkgPath, err := go127Name(ef, types, pkgPathOffset)
+	if err != nil {
+		return "", fmt.Errorf("reading Go 1.27 type package path: %w", err)
+	}
+	return pkgPath, nil
+}
+
+func go127UncommonOffset(kind byte) uint64 {
+	switch kind {
+	case go127KindArray:
+		return go127UncommonArray
+	case go127KindChan:
+		return go127UncommonChan
+	case go127KindFunc, go127KindPointer, go127KindSlice:
+		return go127UncommonOneWord
+	case go127KindInterface, go127KindStruct:
+		return go127UncommonWithPkg
+	case go127KindMap:
+		return go127UncommonMap
+	default:
+		return go127UncommonDefault
+	}
+}
+
+func go127Name(ef *elf.File, types uint64, nameOffset int32) (string, error) {
+	if nameOffset < 0 || uint64(nameOffset) > ^uint64(0)-types {
+		return "", errors.New("invalid Go 1.27 name offset")
+	}
+	nameAddr := types + uint64(nameOffset)
+	nameHeader, err := readVirtualMemory(ef, nameAddr, 1+binary.MaxVarintLen64)
+	if err != nil {
+		return "", err
+	}
+	nameLen, varintLen := binary.Uvarint(nameHeader[1:])
+	if varintLen <= 0 || nameLen > maxGoTypeNameLen {
+		return "", errors.New("invalid Go 1.27 name length")
+	}
+	nameBytes, err := readVirtualMemory(ef, nameAddr+1+uint64(varintLen), nameLen)
+	if err != nil {
+		return "", err
+	}
+	return string(nameBytes), nil
 }
 
 func readVirtualMemory(ef *elf.File, addr, size uint64) ([]byte, error) {

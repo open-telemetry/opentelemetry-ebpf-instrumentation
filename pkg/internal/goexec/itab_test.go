@@ -69,4 +69,19 @@ func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
 	implementations, err := findInterfaceImpls(elfFile)
 	require.NoError(t, err)
 	assert.NotZero(t, implementations["*main.workerImpl"])
+	assert.NotZero(t, implementations["go.opentelemetry.io/otel/trace.attributeOption"])
+	assert.NotZero(t, implementations["*errors.errorString"])
+}
+
+func TestFindGRPCInterfaceImplsFromGo127Moduledata(t *testing.T) {
+	goVersion, _, err := getGoDetails(smallGRPCElf)
+	require.NoError(t, err)
+	if !goVersionAtLeast(goVersion, "1.27.0") {
+		t.Skip("Go 1.27 moduledata is not available")
+	}
+
+	implementations, err := findInterfaceImpls(smallGRPCElf)
+	require.NoError(t, err)
+	assert.NotZero(t, implementations["*google.golang.org/grpc/internal/credentials.syscallConn"])
+	assert.NotZero(t, implementations["*crypto/tls.Conn"])
 }

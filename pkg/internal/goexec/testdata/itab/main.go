@@ -3,7 +3,13 @@
 
 package main
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+)
 
 type worker interface {
 	work() string
@@ -16,7 +22,10 @@ func (*workerImpl) work() string {
 }
 
 var implementation worker = &workerImpl{}
+var spanOption trace.SpanStartOption = trace.WithAttributes(attribute.String("key", "value"))
+var stringError error = errors.New("test")
 
 func main() {
 	fmt.Println(implementation.work())
+	_, _ = spanOption, stringError
 }
