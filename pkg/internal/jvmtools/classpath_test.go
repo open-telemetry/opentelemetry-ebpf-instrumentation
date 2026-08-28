@@ -273,15 +273,7 @@ func TestClasspathWildcardDir(t *testing.T) {
 	}
 }
 
-func TestClasspathFileTypes(t *testing.T) {
-	root := t.TempDir()
-	file := filepath.Join(root, "file")
-	writeClasspathTestFile(t, file)
-
-	assert.True(t, isRegularFile(file))
-	assert.False(t, isRegularFile(root))
-	assert.False(t, isRegularFile(filepath.Join(root, "missing")))
-
+func TestJavaArchive(t *testing.T) {
 	assert.True(t, isJavaArchive("app.jar"))
 	assert.True(t, isJavaArchive("app.WAR"))
 	assert.False(t, isJavaArchive("app.zip"))

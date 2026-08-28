@@ -3,7 +3,10 @@
 
 package gorillamid // import "go.opentelemetry.io/obi/internal/test/integration/components/testserver/gorillamid"
 
-import "net/http"
+import (
+	"net/http"
+	"slices"
+)
 
 // Interface is the shared contract for all middleware, and allows middlewares
 // to wrap handlers.
@@ -23,8 +26,8 @@ func (m Func) Wrap(next http.Handler) http.Handler {
 // ie Merge(f,g,h).Wrap(handler) == f.Wrap(g.Wrap(h.Wrap(handler)))
 func Merge(middlewares ...Interface) Interface {
 	return Func(func(next http.Handler) http.Handler {
-		for i := len(middlewares) - 1; i >= 0; i-- {
-			next = middlewares[i].Wrap(next)
+		for _, middleware := range slices.Backward(middlewares) {
+			next = middleware.Wrap(next)
 		}
 		return next
 	})

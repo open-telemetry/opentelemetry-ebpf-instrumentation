@@ -21,7 +21,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
@@ -81,7 +81,7 @@ func testREDMetricsForNetHTTPSLibrary(t *testing.T, url string, comm string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
 	// - returning a 204 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+path, 200)
 	}
 

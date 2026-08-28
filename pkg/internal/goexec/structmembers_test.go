@@ -185,6 +185,45 @@ func TestGoOffsetsWithoutDwarf(t *testing.T) {
 	}, offsets)
 }
 
+func TestHTTP2ClientConnTLSStateOffsets(t *testing.T) {
+	offs, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name       string
+		structName string
+		version    string
+		want       uint64
+	}{
+		{
+			name:       "x/net before tconnClosed removal",
+			structName: "golang.org/x/net/http2.ClientConn",
+			version:    "0.12.0",
+			want:       32,
+		},
+		{
+			name:       "x/net after tconnClosed removal",
+			structName: "golang.org/x/net/http2.ClientConn",
+			version:    "0.15.0",
+			want:       24,
+		},
+		{
+			name:       "vendored standard library",
+			structName: "net/http.http2ClientConn",
+			version:    "1.26.4",
+			want:       24,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := offs.Find(tc.structName, "tlsState", tc.version)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestGoRuntimeGCGoalFieldUnavailableAfterTrackedRange(t *testing.T) {
 	offsets, err := structMemberOffsets(smallELF)
 	require.NoError(t, err)

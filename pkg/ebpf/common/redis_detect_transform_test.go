@@ -164,7 +164,7 @@ func redisBenchmarkCommand(args ...string) []byte {
 func redisBenchmarkMGet(keys int) []byte {
 	args := make([]string, 0, keys+1)
 	args = append(args, "MGET")
-	for i := 0; i < keys; i++ {
+	for i := range keys {
 		args = append(args, fmt.Sprintf("session-key:%02d", i))
 	}
 
@@ -173,7 +173,7 @@ func redisBenchmarkMGet(keys int) []byte {
 
 func redisBenchmarkPipeline(commands int, args ...string) []byte {
 	buf := bytes.Buffer{}
-	for i := 0; i < commands; i++ {
+	for range commands {
 		buf.Write(redisBenchmarkCommand(args...))
 	}
 

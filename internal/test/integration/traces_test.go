@@ -414,7 +414,7 @@ func testHTTPTracesNestedCalls(t *testing.T) {
 	traceparent := createTraceparent(traceID, parentID)
 	doHTTPGetWithTraceparent(t, "http://localhost:8082/echo", 203, traceparent)
 	// Do some requests to make sure we see all events
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:8082/metrics", 200)
 	}
 
@@ -545,7 +545,7 @@ func testHTTP2GRPCTracesNestedCalls(t *testing.T, contextPropagation bool) {
 	traceparent := createTraceparent(traceID, parentID)
 	doHTTPGetWithTraceparent(t, "http://localhost:8080/echoCall", 204, traceparent)
 	// Do some requests to make sure we see all events
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:8080/metrics", 200)
 	}
 
@@ -696,7 +696,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:8091/dist", 200)
 	}
 
@@ -866,7 +866,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 	}, 3*testTimeout, 100*time.Millisecond)
 
 	// test now with a different version of Java thread pool
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:8086/jtraceA", 200)
 	}
 
@@ -1314,7 +1314,7 @@ func testHTTPTracesNestedNodeJSDistCalls(t *testing.T) {
 	seenR := false
 	seenQ := false
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		child := children[i]
 
 		sd = child.Diff(
@@ -1360,7 +1360,7 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 
 	ti.DoHTTPGet(t, "http://localhost:8080/manual", 200)
 	// Do some requests to make sure we see all events
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:8082/metrics", 200)
 	}
 
@@ -1689,7 +1689,7 @@ func testGoGenericHTTPTraces(t *testing.T) {
 	// 2. HTTP client call nested within Go Generic Server (Fiber)
 	// 3. HTTP non-Go library call nested within Go HTTP Server
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		ti.DoHTTPGet(t, "http://localhost:8080/produce", 200)
 		ti.DoHTTPGet(t, "http://localhost:8080/ping", 200)
 		ti.DoHTTPGet(t, "http://localhost:8081/ping1", 200)
@@ -1808,7 +1808,7 @@ func testGoGenericHTTPSTraces(t *testing.T) {
 	// 1. Go Generic client TLS (Kafka) call nested within Go Generic Server TLS (Fiber)
 	// 2. HTTPS non-Go library call nested within Go Generic Server TLS (Fiber)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		ti.DoHTTPGet(t, "https://localhost:8443/produce/tls", 200)
 		ti.DoHTTPGet(t, "https://localhost:8443/api/pingssl", 200)
 	}
@@ -1895,7 +1895,7 @@ func testHTTPTracesNoNestedCalls(t *testing.T) {
 	traceparent := createTraceparent(traceID, parentID)
 	doHTTPGetWithTraceparent(t, "http://localhost:8080/delay", 203, traceparent)
 	// Do some requests to make sure we see all events
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:8080/metrics", 200)
 	}
 
