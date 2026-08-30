@@ -34,14 +34,13 @@ func findPythonGCDoneUSDT(file *elf.File) (*GCCompletionProbe, error) {
 	}
 }
 
-// strictELFFileOffset maps one virtual address to exactly one file-backed load segment.
-func strictELFFileOffset(file *elf.File, address uint64, executable bool) (uint64, error) {
+// strictELFFileOffset maps one virtual address to exactly one executable file-backed load segment.
+func strictELFFileOffset(file *elf.File, address uint64) (uint64, error) {
 	var offset uint64
 	matches := 0
 	for _, program := range file.Progs {
-		// Require a file-backed load segment. Probe locations must also belong to
-		// an executable segment, while semaphore locations can belong to data.
-		if program.Type != elf.PT_LOAD || executable && program.Flags&elf.PF_X == 0 ||
+		// Probe offsets must belong to an executable, file-backed load segment.
+		if program.Type != elf.PT_LOAD || program.Flags&elf.PF_X == 0 ||
 			address < program.Vaddr || address-program.Vaddr >= program.Filesz {
 			continue
 		}

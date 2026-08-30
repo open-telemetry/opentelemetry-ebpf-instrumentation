@@ -11,6 +11,6 @@ import (
 )
 
 // findPrivateCollectorProbe fails closed because private collector probes support amd64 only.
-func findPrivateCollectorProbe(*elf.File) (GCCompletionProbe, error) {
+func findPrivateCollectorProbe(*elf.File, pythonVersion) (GCCompletionProbe, error) {
 	return GCCompletionProbe{}, fmt.Errorf("%w: private CPython collector probes require amd64", errUnsupportedLayout)
 }

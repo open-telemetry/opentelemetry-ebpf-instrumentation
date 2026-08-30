@@ -72,16 +72,23 @@ OBI attaches each probe to one PID:
 Python runtime metric activation requires a supported layout and one probe
 from this table. Builds outside this table continue with OBI application tracing.
 
-### Private collector symbols
+### Internal GC fallback
 
-When `python:gc__done` is unavailable, Linux `amd64` requires a recognized
-private collector symbol in the mapped CPython ELF. The resolver validates the
-symbol and its file offset. The controller attaches a PID-scoped uretprobe at
-that offset.
+When `python:gc__done` is unavailable, Linux `amd64` resolves CPython's internal
+`collect` or `gc_collect_main` function. The resolver uses a recognized symbol
+when the ELF provides one. For stripped builds, it starts at the exported
+`PyGC_Collect` symbol and derives the internal function from validated machine
+code. The controller attaches a PID-scoped uretprobe at the resolved file offset.
 
 Some full Docker Official Images omit SystemTap notes but retain private
 collector symbols with link-time optimization (LTO) suffixes. The resolver
 accepts suffixed symbols when all recognized variants identify one address.
+
+For stripped CPython 3.9 through 3.12, the resolver matches the internal GC
+call between two calls to the same callback. For CPython 3.13 and 3.14, it
+matches the current thread-state lookup and the internal GC call with generation
+2 and the manual-collection reason. Function starts from `.eh_frame_hdr` bound
+each instruction scan and validate the resolved local call target.
 
 Application tracing continues when the mapped ELF has no safe GC completion probe.
 
@@ -116,7 +123,8 @@ set. They keep a separate source-counter baseline for each PID before aggregatio
 Python runtime metrics support validated, non-free-threaded CPython 3.9 through
 3.14 final releases on Linux `amd64` and `arm64`. The embedded offset data records
 the latest validated patch in each series. The offset update check extends each
-series after validating a newer patch.
+series after validating a newer patch. Linux `amd64` validation includes full,
+`slim`, and `alpine` Docker Official Python images.
 
 CPython 3.9 through 3.12 use validated per-minor layouts. CPython 3.13 and 3.14
 use the runtime's `_Py_DebugOffsets` table for build-dependent structure sizes
