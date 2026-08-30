@@ -100,6 +100,7 @@ const (
 	EventTypeNodejsHeapSpace       = uint8(BpfEventTypeK_eventTypeNodejsHeapSpace)        // Node.js/V8 heap-space sample
 	EventTypePythonRuntimeMetric   = uint8(BpfEventTypeK_eventTypePythonRuntimeMetrics)   // Python GC counters
 	EventTypeJVMRuntimeMetrics     = uint8(BpfEventTypeK_eventTypeJvmRuntimeMetrics)      // JVM runtime metrics
+	EventTypeNodejsResource        = uint8(BpfEventTypeK_eventTypeNodejsResource)
 )
 
 // Kernel-side classification. These alias the bpf2go-generated constants

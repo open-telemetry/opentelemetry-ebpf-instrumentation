@@ -76,6 +76,8 @@ func TestPrometheusNames(t *testing.T) {
 		{V8JSMemoryHeapUsed, "v8js_memory_heap_used_bytes"},
 		{V8JSMemoryHeapSpaceAvailableSize, "v8js_memory_heap_space_available_size_bytes"},
 		{V8JSMemoryHeapSpacePhysicalSize, "v8js_memory_heap_space_physical_size_bytes"},
+		// the {resource} annotation unit adds no suffix
+		{V8JSResourceActive, "v8js_resource_active"},
 	}
 
 	for _, test := range tests {

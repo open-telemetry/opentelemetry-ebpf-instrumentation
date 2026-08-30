@@ -37,4 +37,5 @@ enum event_type : u8 {
     k_event_type_nodejs_heap_space = 28,
     k_event_type_python_runtime_metrics = 29,
     k_event_type_jvm_runtime_metrics = 30,
+    k_event_type_nodejs_resource = 31,
 };

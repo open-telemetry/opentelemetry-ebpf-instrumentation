@@ -55,15 +55,23 @@ enum {
     // record kind chars at k_v8_kind_offset, emitted by fdextractor.js
     k_v8_record_gc = 'g',
     k_v8_record_heap_space = 'h',
+    k_v8_record_resource = 'a',
     k_v8_kind_offset = 17,    // record kind char after "/dev/null/obi-v8/"
     k_v8_payload_offset = 18, // record payload starts here
     // g payload: 1 kind char + 16 hex duration chars (+ NUL when read)
     k_v8_gc_payload_len = 1 + k_rt_field_hex_len,
     k_v8_heap_num_fields = 4,
     k_v8_heap_numbers_len = k_v8_heap_num_fields * k_rt_field_hex_len,
-    // h payload upper bound: numbers + name + NUL
+    k_v8_resource_num_fields = 1,
+    k_v8_resource_numbers_len = k_v8_resource_num_fields * k_rt_field_hex_len,
+    // shared trailing-name cap of the numbers+name records ('h', 'a')
+    k_v8_name_max = k_nodejs_heap_space_name_max,
+    // h payload upper bound: numbers + name + NUL (the longest v8 record)
     k_v8_heap_payload_read_len = k_v8_heap_numbers_len + k_nodejs_heap_space_name_max + 1,
 };
+
+_Static_assert(k_nodejs_heap_space_name_max == k_nodejs_resource_type_max,
+               "v8 records with a trailing name share one parser and one name cap");
 
 SCRATCH_MEM_SIZED(nodejs_rt_payload, k_rt_payload_read_len)
 SCRATCH_MEM_SIZED(nodejs_v8_payload, k_v8_heap_payload_read_len)
@@ -107,18 +115,22 @@ nodejs_v8_parse_gc(const unsigned char *payload, u64 len, u8 *kind, u64 *duratio
     return nodejs_parse_hex_u64(payload + 1, duration_ns);
 }
 
-static __always_inline int
-nodejs_v8_parse_heap(const unsigned char *payload, u64 len, u64 *vals, u8 *name_len) {
+// Parses the numbers+name records ('h': 4 numbers, 'a': 1): num_fields
+// fixed-width u64s at fixed offsets, then a 1..k_v8_name_max byte name ended
+// by the NUL that len counts.
+static __always_inline int nodejs_v8_parse_numbers_name(
+    const unsigned char *payload, u64 len, u64 *vals, u8 num_fields, u8 *name_len) {
+    const u32 numbers_len = (u32)num_fields * k_rt_field_hex_len;
     // len counts the NUL: at least one name byte, at most the name cap
-    if (len < k_v8_heap_numbers_len + 1 + 1 || len > k_v8_heap_payload_read_len) {
+    if (len < numbers_len + 1 + 1 || len > numbers_len + k_v8_name_max + 1) {
         return -1;
     }
-    for (u8 f = 0; f < k_v8_heap_num_fields; ++f) {
+    for (u8 f = 0; f < num_fields; ++f) {
         if (nodejs_parse_hex_u64(payload + (u32)f * k_rt_field_hex_len, &vals[f]) != 0) {
             return -1;
         }
     }
-    *name_len = (u8)(len - 1 - k_v8_heap_numbers_len);
+    *name_len = (u8)(len - 1 - numbers_len);
     return 0;
 }
 
@@ -355,7 +367,8 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
     if (kind_char == k_v8_record_heap_space) {
         u64 vals[k_v8_heap_num_fields];
         u8 name_len = 0;
-        if (nodejs_v8_parse_heap(payload, (u64)len, vals, &name_len) != 0) {
+        if (nodejs_v8_parse_numbers_name(
+                payload, (u64)len, vals, k_v8_heap_num_fields, &name_len) != 0) {
             return 0;
         }
 
@@ -383,6 +396,40 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
         bpf_dbg_printk("nodejs_v8_heap: pid_tgid=%llx used=%llu name_len=%u",
                        pid_tgid,
                        e->space_used_size,
+                       e->name_len);
+        bpf_ringbuf_submit(e, get_flags());
+        return 0;
+    }
+
+    if (kind_char == k_v8_record_resource) {
+        u64 count = 0;
+        u8 name_len = 0;
+        if (nodejs_v8_parse_numbers_name(
+                payload, (u64)len, &count, k_v8_resource_num_fields, &name_len) != 0) {
+            return 0;
+        }
+
+        struct nodejs_resource_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        if (!e) {
+            return 0;
+        }
+        bpf_memset(e, 0, sizeof(*e));
+        e->type = k_event_type_nodejs_resource;
+        e->timestamp = bpf_ktime_get_ns();
+        nodejs_fill_event_pids(
+            pid_tgid, &e->global_pid, &e->global_tid, &e->ns_pid, &e->ns_tid, &e->pid_ns_id);
+        e->name_len = name_len;
+        e->count = count;
+        for (u8 i = 0; i < k_nodejs_resource_type_max; ++i) {
+            if (i >= name_len) {
+                break;
+            }
+            e->resource_type[i] = payload[k_v8_resource_numbers_len + i];
+        }
+
+        bpf_dbg_printk("nodejs_v8_resource: pid_tgid=%llx count=%llu name_len=%u",
+                       pid_tgid,
+                       e->count,
                        e->name_len);
         bpf_ringbuf_submit(e, get_flags());
         return 0;
@@ -436,8 +483,8 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     // 5. runtime metrics (1s sampling interval in the agent):
     //    /dev/null/obi-rt/<10 x 16 hex chars> — eventloop metrics payload
     //
-    // 6. v8js metrics (gc cycles and heap-space samples):
-    //    /dev/null/obi-v8/<'g'|'h'><payload> — record layouts in types/nodejs.h
+    // 6. v8js metrics (gc cycles, heap-space samples, active-resource census):
+    //    /dev/null/obi-v8/<'g'|'h'|'a'><payload> — record layouts in types/nodejs.h
     //
     // All paths share the prefix "/dev/null/obi" (13 chars). The characters at
     // positions 13-14 distinguish the formats:
@@ -490,7 +537,7 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
         if (buf[k_variant_offset] == 'r') {
             return handle_runtime_metrics(path, pid_tgid);
         }
-        // v8js metrics: /dev/null/obi-v8/<'g'|'h'><payload> — same re-read
+        // v8js metrics: /dev/null/obi-v8/<'g'|'h'|'a'><payload> — same re-read
         // from the original user pointer as the runtime metrics.
         if (buf[k_variant_offset] == 'v') {
             return handle_v8_metrics(path, pid_tgid);

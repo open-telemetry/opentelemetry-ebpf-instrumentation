@@ -72,10 +72,16 @@ func TestEnabledShouldReportNodejsV8Metrics(t *testing.T) {
 	require.True(t, Enabled{Runtime: true}.ShouldReport(heap))
 	require.False(t, Enabled{Runtime: false}.ShouldReport(heap))
 
+	resource := RuntimeMetricSnapshot{Service: service, NodejsResource: &NodejsResourceSnapshot{}}
+	require.True(t, Enabled{Runtime: true}.ShouldReport(resource))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(resource))
+
 	gc.Service.Features = export.FeatureApplicationRED
 	require.False(t, Enabled{Runtime: true}.ShouldReport(gc))
 	heap.Service.Features = export.FeatureApplicationRED
 	require.False(t, Enabled{Runtime: true}.ShouldReport(heap))
+	resource.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(resource))
 }
 
 func TestEnabledShouldReportJVMRuntimeMetrics(t *testing.T) {

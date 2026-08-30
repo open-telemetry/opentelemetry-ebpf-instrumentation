@@ -78,6 +78,45 @@ func TestIsSemconvHeapSpace(t *testing.T) {
 	}
 }
 
+// Only the well-known members of the semconv v8js.resource.type enum are
+// exported; Node reports one name per live wrap class — far more than the
+// documented set (FSReqCallback, MessagePort, ...) — and those are dropped
+// before export, same policy as heap spaces. Values are CamelCase verbatim.
+func TestIsSemconvResourceType(t *testing.T) {
+	for _, name := range []string{"Immediate", "TCPServerWrap", "TCPWrap", "Timeout", "TTYWrap"} {
+		assert.True(t, IsSemconvResourceType(name), name)
+	}
+	for _, name := range []string{"FSReqCallback", "MessagePort", "TCPSocketWrap", "timeout", ""} {
+		assert.False(t, IsSemconvResourceType(name), name)
+	}
+}
+
+func TestSemconvResourceTypes(t *testing.T) {
+	types := SemconvResourceTypes()
+	assert.Equal(t, []string{"Immediate", "TCPServerWrap", "TCPWrap", "TTYWrap", "Timeout"}, types)
+	for _, name := range types {
+		assert.True(t, IsSemconvResourceType(name), name)
+	}
+}
+
+func TestParseNodejsResourceEvent(t *testing.T) {
+	const ktime = 2 * 3600 * 1_000_000_000
+
+	event := ParseNodejsResourceEvent(ktime, 55, 99, "Timeout", 5)
+
+	assert.Equal(t, app.PID(55), event.PID)
+	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, "Timeout", event.ResourceType)
+	assert.Equal(t, uint64(5), event.Count)
+	require.WithinDuration(t, timing.KernelTime(ktime), event.Time, 100*time.Millisecond)
+
+	// Node has reported TCP connections as "TCPSocketWrap" since before
+	// getActiveResourcesInfo existed, so the semconv member value "TCPWrap"
+	// never occurs verbatim: the runtime spelling is canonicalized at parse
+	// time or the member could never be populated.
+	assert.Equal(t, "TCPWrap", ParseNodejsResourceEvent(ktime, 55, 99, "TCPSocketWrap", 2).ResourceType)
+}
+
 func TestParseNodejsHeapSpaceEvent(t *testing.T) {
 	const ktime = 2 * 3600 * 1_000_000_000
 
