@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -558,11 +559,11 @@ func (c *Config) Log() {
 func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
 		// Check if target implements TextUnmarshaler
-		if to.Kind() == reflect.Ptr {
+		if to.Kind() == reflect.Pointer {
 			to = to.Elem()
 		}
 		toPtr := reflect.New(to)
-		if _, ok := toPtr.Interface().(encoding.TextUnmarshaler); !ok {
+		if _, ok := reflect.TypeAssert[encoding.TextUnmarshaler](toPtr); !ok {
 			return data, nil
 		}
 
@@ -602,7 +603,7 @@ func inlineMetadataHookFunc() mapstructure.DecodeHookFunc {
 
 		// Check if target type is GlobAttributes or RegexSelector
 		switch to {
-		case reflect.TypeOf(services.GlobAttributes{}), reflect.TypeOf(services.RegexSelector{}):
+		case reflect.TypeFor[services.GlobAttributes](), reflect.TypeFor[services.RegexSelector]():
 			// continue processing
 		default:
 			return data, nil
@@ -681,6 +682,9 @@ type NodeJSConfig struct {
 }
 
 type JavaConfig struct {
+	// Enabled turns on the Java injector agent, used for TLS tracing, virtual thread
+	// correlation, and agent-backed runtime metrics. Setting it to false disables
+	// class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.
 	Enabled              bool          `yaml:"enabled" env:"OTEL_EBPF_JAVAAGENT_ENABLED"`
 	Debug                bool          `yaml:"debug" env:"OTEL_EBPF_JAVAAGENT_DEBUG"`
 	DebugInstrumentation bool          `yaml:"debug_instrumentation" env:"OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"`
@@ -688,6 +692,8 @@ type JavaConfig struct {
 }
 
 type JVMRuntimeMetricsConfig struct {
+	// SamplingInterval controls HotSpot memory event sampling and Java agent
+	// class, thread, and CPU snapshot collection.
 	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 
@@ -754,7 +760,6 @@ func (c *Config) validate(context validationContext) error {
 	if c.JVMRuntimeMetrics.SamplingInterval <= 0 {
 		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0")
 	}
-
 	if err := c.Discovery.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}
@@ -973,6 +978,7 @@ func (c *Config) SpanMetricsEnabledForTraces() bool {
 // TODO: maybe this method has too many responsibilities, as it affects the global logger.
 func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	slog.SetDefault(slog.New(handler))
+	klogbridge.Install()
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
 		c.EBPF.BpfDebug = true

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -76,13 +77,7 @@ func requireConsistency(t *testing.T, s *ContainerStore) {
 		entry, ok := s.byContainerID[meta.FullID]
 		require.Truef(t, ok,
 			"byPID[%d] references fullID %q but byContainerID has no entry for it", pid, meta.FullID)
-		found := false
-		for _, p := range entry.pids {
-			if p == pid {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(entry.pids, pid)
 		require.Truef(t, found,
 			"byPID[%d] references fullID %q but that pid is not listed in byContainerID[%q].pids", pid, meta.FullID, meta.FullID)
 	}
@@ -332,8 +327,7 @@ func TestContainerMetadata(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	t.Run("starts_watcher_goroutine_and_processes_events", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		const fullID = "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
 		pid := app.PID(99)
@@ -375,8 +369,7 @@ func TestStart(t *testing.T) {
 // arrive during the 1-second backoff gap are not silently dropped.
 func TestStartSinceCheckpoint(t *testing.T) {
 	t.Run("initial_since_covers_gap_between_start_and_first_events_call", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		before := time.Now().Unix()
 

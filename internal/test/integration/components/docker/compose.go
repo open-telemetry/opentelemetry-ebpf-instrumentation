@@ -185,6 +185,19 @@ func (c *Compose) LogsTail(n int, services ...string) (string, error) {
 	return strings.TrimSpace(string(output)), err
 }
 
+// ServiceRunning reports whether Compose currently lists a service as running.
+func (c *Compose) ServiceRunning(service string) (bool, error) {
+	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "ps", "--status", "running", "--services", service}
+	cmd := exec.Command("docker", cmdArgs...)
+	cmd.Env = c.Env
+
+	output, err := cmd.Output()
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(output)) == service, nil
+}
+
 func (c *Compose) Stop() error {
 	return c.command("stop", "--timeout", stopTimeout)
 }

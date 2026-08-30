@@ -858,7 +858,7 @@ func unsupportedFeaturePathsFromYAML(data []byte) []string {
 
 func rawValueAtPath(root map[string]any, path string) (any, bool) {
 	var current any = root
-	for _, part := range strings.Split(path, ".") {
+	for part := range strings.SplitSeq(path, ".") {
 		mapping, ok := current.(map[string]any)
 		if !ok {
 			return nil, false
@@ -1072,7 +1072,7 @@ func hasAnyPath(root map[string]any, paths ...string) bool {
 	for _, path := range paths {
 		var current any = root
 		found := true
-		for _, part := range strings.Split(path, ".") {
+		for part := range strings.SplitSeq(path, ".") {
 			mapping, ok := current.(map[string]any)
 			if !ok {
 				found = false

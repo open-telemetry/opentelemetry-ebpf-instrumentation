@@ -227,6 +227,25 @@ func TestLoadModuledataOffsets(t *testing.T) {
 	require.Equal(t, testMDOffsets, actual)
 }
 
+func TestLoadGo127ModuledataOffsets(t *testing.T) {
+	elfF := buildTestELF(t, testGopclntabVMA, "go1.27.0")
+
+	actual, err := loadModuledataOffsets(elfF)
+	require.NoError(t, err)
+	require.Equal(t, moduledataOffsets{
+		pcHeader:    testMDPcHeader,
+		pclntable:   testMDPclntable,
+		minpc:       testMDMinpc,
+		maxpc:       testMDMaxpc,
+		text:        testMDText,
+		etext:       testMDEtext,
+		types:       296,
+		typedesclen: 304,
+		itaboffset:  320,
+		itabsize:    328,
+	}, actual)
+}
+
 func TestLoadModuledataOffsetsRejectsInvalidGoVersion(t *testing.T) {
 	elfF := buildTestELF(t, testGopclntabVMA, "unknown")
 

@@ -19,6 +19,8 @@ import (
 
 const jvmRuntimeMetricsHostPort = "8386"
 
+const jvmRuntimeServiceLabels = `service_name="jvm-runtime",service_namespace="integration-test"`
+
 func TestJVMRuntimeMetrics(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-jvm-runtime-metrics.yml", path.Join(pathOutput, "test-suite-jvm-runtime-metrics.log"))
 	require.NoError(t, err)
@@ -35,6 +37,9 @@ func TestJVMRuntimeMetrics(t *testing.T) {
 	})
 	t.Run("HotSpot memory pool metric", func(t *testing.T) {
 		testJVMRuntimeMemoryPoolMetric(t, pq)
+	})
+	t.Run("Java agent runtime metrics", func(t *testing.T) {
+		testJVMRuntimeAgentMetrics(t, pq)
 	})
 	runWeaverValidation(t)
 }
@@ -66,6 +71,40 @@ func testJVMRuntimeMemoryPoolMetric(t *testing.T, pq promtest.Client) {
 		require.NotEmpty(ct, results)
 		assertJVMRuntimeMetricService(ct, results)
 	}, testTimeout, 250*time.Millisecond)
+}
+
+func testJVMRuntimeAgentMetrics(t *testing.T, pq promtest.Client) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		loaded := queryJVMRuntimeMetric(ct, pq, `jvm_class_loaded_total{`+jvmRuntimeServiceLabels+`}`)
+		require.Positive(ct, loaded)
+		unloaded := queryJVMRuntimeMetric(ct, pq, `jvm_class_unloaded_total{`+jvmRuntimeServiceLabels+`}`)
+		require.GreaterOrEqual(ct, unloaded, 0.0)
+		classCount := queryJVMRuntimeMetric(ct, pq, `jvm_class_count{`+jvmRuntimeServiceLabels+`}`)
+		require.Positive(ct, classCount)
+
+		for _, daemon := range []string{"true", "false"} {
+			threadCount := queryJVMRuntimeMetric(ct, pq,
+				`jvm_thread_count{`+jvmRuntimeServiceLabels+`,jvm_thread_daemon="`+daemon+`"}`)
+			require.GreaterOrEqual(ct, threadCount, 0.0)
+		}
+
+		cpuTime := queryJVMRuntimeMetric(ct, pq, `jvm_cpu_time_seconds_total{`+jvmRuntimeServiceLabels+`}`)
+		require.Positive(ct, cpuTime)
+		cpuCount := queryJVMRuntimeMetric(ct, pq, `jvm_cpu_count{`+jvmRuntimeServiceLabels+`}`)
+		require.Positive(ct, cpuCount)
+		cpuUtilization := queryJVMRuntimeMetric(ct, pq,
+			`jvm_cpu_recent_utilization_ratio{`+jvmRuntimeServiceLabels+`}`)
+		require.GreaterOrEqual(ct, cpuUtilization, 0.0)
+		require.LessOrEqual(ct, cpuUtilization, 1.0)
+	}, testTimeout, time.Second)
+}
+
+func queryJVMRuntimeMetric(t require.TestingT, pq promtest.Client, query string) float64 {
+	results, err := pq.Query(query)
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	assertJVMRuntimeMetricService(t, results)
+	return promResultValue(t, results[0])
 }
 
 func assertJVMRuntimeMetricService(t require.TestingT, results []promtest.Result) {

@@ -208,7 +208,6 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	if err != nil {
 		return nil, err
 	}
-
 	return &InternalMetricsReporter{
 		ctx:                              ctx,
 		tracerFlushes:                    tracerFlushes,

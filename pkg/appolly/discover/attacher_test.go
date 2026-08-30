@@ -31,17 +31,37 @@ type blockedPID struct {
 	ns  uint32
 }
 
-type recordingTracer struct {
-	allowed []blockedPID
-	blocked []blockedPID
+type recordedPIDLifecycle struct {
+	pid       app.PID
+	ns        uint32
+	lifecycle *execpkg.FileInfo
 }
 
-func (r *recordingTracer) AllowPID(pid app.PID, ns uint32, _ *execpkg.FileInfo) {
+type recordingTracer struct {
+	allowed           []blockedPID
+	blocked           []blockedPID
+	allowedFileInfos  []*execpkg.FileInfo
+	blockedLifecycles []recordedPIDLifecycle
+}
+
+func (r *recordingTracer) AllowPID(pid app.PID, ns uint32, fileInfo *execpkg.FileInfo) {
 	r.allowed = append(r.allowed, blockedPID{pid: pid, ns: ns})
+	r.allowedFileInfos = append(r.allowedFileInfos, fileInfo)
 }
 
 func (r *recordingTracer) BlockPID(pid app.PID, ns uint32) {
 	r.blocked = append(r.blocked, blockedPID{pid: pid, ns: ns})
+}
+
+func (r *recordingTracer) BlockPIDLifecycle(
+	pid app.PID,
+	ns uint32,
+	lifecycle *execpkg.FileInfo,
+) {
+	r.BlockPID(pid, ns)
+	r.blockedLifecycles = append(r.blockedLifecycles, recordedPIDLifecycle{
+		pid: pid, ns: ns, lifecycle: lifecycle,
+	})
 }
 
 func (r *recordingTracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)           { return nil, nil }
@@ -67,6 +87,23 @@ func (r *recordingTracer) Required() bool                                       
 func (r *recordingTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
 func (r *recordingTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
 func (r *recordingTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
+}
+
+func TestMonitorPIDsAllowsPythonWorkerOnce(t *testing.T) {
+	parent := execpkg.New(execpkg.Init{Pid: 100})
+	worker := execpkg.New(execpkg.Init{Pid: 101, Ppid: 100, Ns: 17})
+	worker.SetRuntimeMetricServiceSource(parent)
+	program := &recordingTracer{}
+	tracer := &ebpf.ProcessTracer{Programs: []ebpf.Tracer{program}}
+
+	(&traceAttacher{}).monitorPIDs(tracer, &ebpf.Instrumentable{
+		Type: svc.InstrumentablePython, FileInfo: worker,
+	})
+
+	assert.Equal(t, []blockedPID{{pid: 101, ns: 17}}, program.allowed)
+	require.Len(t, program.allowedFileInfos, 1)
+	assert.Same(t, worker, program.allowedFileInfos[0])
+	assert.Equal(t, svc.InstrumentablePython, parent.SDKLanguage())
 }
 
 func TestExecutableKeySeparatesFilesystems(t *testing.T) {
@@ -105,6 +142,8 @@ func TestSyntheticDeletePath_TraceAttacherDeletesTracer(t *testing.T) {
 		Ino:        1234,
 		Ns:         17,
 	})
+	serviceSource := execpkg.New(execpkg.Init{Pid: 41})
+	fileInfo.SetRuntimeMetricServiceSource(serviceSource)
 	startDeletedTyperPipeline(ctx, &typer{
 		currentPids: map[app.PID]*execpkg.FileInfo{42: fileInfo},
 	}, processMatches, instrumentables)
@@ -141,6 +180,8 @@ func TestSyntheticDeletePath_TraceAttacherDeletesTracer(t *testing.T) {
 	assert.Same(t, tracer, ev.Obj.Tracer)
 	assert.Equal(t, uint64(1), ev.Obj.ExecutableGeneration)
 	assert.Equal(t, []blockedPID{{pid: 42, ns: 17}}, prog.blocked)
+	require.Len(t, prog.blockedLifecycles, 1)
+	assert.Same(t, fileInfo, prog.blockedLifecycles[0].lifecycle)
 	_, exists := ta.existingTracers[key]
 	assert.False(t, exists)
 }

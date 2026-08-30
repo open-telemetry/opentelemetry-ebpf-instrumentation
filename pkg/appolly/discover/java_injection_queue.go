@@ -6,6 +6,7 @@ package discover // import "go.opentelemetry.io/obi/pkg/appolly/discover"
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
@@ -28,6 +29,8 @@ type javaInjectionQueue struct {
 	inject  func(context.Context, javaagent.InjectionTarget) error
 	targets chan javaagent.InjectionTarget
 	done    chan struct{}
+	mu      sync.Mutex
+	stopped bool
 }
 
 func newJavaInjectionQueue(
@@ -47,26 +50,56 @@ func newJavaInjectionQueue(
 func (q *javaInjectionQueue) start(ctx context.Context) {
 	go func() {
 		defer close(q.done)
+		defer q.stopAndClosePending()
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case target := <-q.targets:
-				// A ready target and a cancelled context make both cases above
-				// eligible, and select would pick either. No new attach may
-				// start once shutdown has begun.
-				if ctx.Err() != nil {
+				if !q.injectTarget(ctx, target) {
 					return
-				}
-
-				if err := q.inject(ctx, target); err != nil {
-					q.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work",
-						"pid", target.Pid, "error", err)
 				}
 			}
 		}
 	}()
+}
+
+func (q *javaInjectionQueue) injectTarget(ctx context.Context, target javaagent.InjectionTarget) bool {
+	defer func() {
+		if err := target.Close(); err != nil {
+			q.log.Warn("unable to close java injection target", "pid", target.Pid, "error", err)
+		}
+	}()
+
+	// A ready target and a cancelled context make both worker select cases
+	// eligible. No new attach may start once shutdown has begun.
+	if ctx.Err() != nil {
+		return false
+	}
+
+	if err := q.inject(ctx, target); err != nil {
+		q.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work",
+			"pid", target.Pid, "error", err)
+	}
+	return true
+}
+
+func (q *javaInjectionQueue) stopAndClosePending() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	q.stopped = true
+	for {
+		select {
+		case target := <-q.targets:
+			if err := target.Close(); err != nil {
+				q.log.Warn("unable to close pending java injection target", "pid", target.Pid, "error", err)
+			}
+		default:
+			return
+		}
+	}
 }
 
 // enqueue never blocks. A stuck attach holds the worker for up to the Java
@@ -77,14 +110,23 @@ func (q *javaInjectionQueue) start(ctx context.Context) {
 // evict a real JVM while an attach is stuck.
 func (q *javaInjectionQueue) enqueue(target javaagent.InjectionTarget) {
 	if target.Type != svc.InstrumentableJava {
+		_ = target.Close()
+		return
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.stopped {
+		_ = target.Close()
+		q.log.Debug("java injection queue stopped, skipping java agent injection", "pid", target.Pid)
 		return
 	}
 
 	select {
 	case q.targets <- target:
-	case <-q.done:
-		q.log.Debug("java injection queue stopped, skipping java agent injection", "pid", target.Pid)
 	default:
+		_ = target.Close()
 		q.log.Warn("java injection queue is full, skipping java agent injection", "pid", target.Pid)
 	}
 }
