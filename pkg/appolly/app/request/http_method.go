@@ -53,7 +53,7 @@ func parseKnownHTTPMethods(env string) map[string]struct{} {
 	}
 
 	methods := map[string]struct{}{}
-	for _, m := range strings.Split(env, ",") {
+	for m := range strings.SplitSeq(env, ",") {
 		if m = strings.TrimSpace(m); m != "" {
 			methods[m] = struct{}{}
 		}

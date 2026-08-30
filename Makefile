@@ -164,6 +164,16 @@ lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
+.PHONY: check-schema-files
+check-schema-files:
+	@echo "### Checking published OBI telemetry schema files"
+	@./scripts/check-schema-files.sh "$(CURDIR)/site/schemas/obi"
+
+.PHONY: generate-schema-next
+generate-schema-next:
+	@echo "### Cutting the OBI telemetry schema for the versions.yaml version"
+	@./scripts/generate-schema-next.sh
+
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
 	@echo "### Linting dependency integrity policy"
@@ -206,6 +216,13 @@ lint-markdown-fix:
 update-offsets:
 	@echo "### Updating pkg/internal/goexec/offsets.json"
 	go tool $(TOOLS_MODFILE) go-offsets-tracker -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
+	@echo "### Updating pkg/internal/goexec/go_abi_offsets.json"
+	go run ./internal/goabioffsets -i configs/offsets/go_abi_input.json pkg/internal/goexec/go_abi_offsets.json
+
+.PHONY: update-python-offsets
+update-python-offsets:
+	@echo "### Updating pkg/internal/cpython/runtime/offsets.json"
+	go run ./scripts/python-offsets
 
 ### eBPF Code Generation ###########################################################
 #
@@ -896,6 +913,7 @@ verify-mods:
 .PHONY: prerelease
 prerelease: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
+	@$(MAKE) generate-schema-next
 	go tool $(TOOLS_MODFILE) multimod prerelease -m ${MODSET}
 
 COMMIT ?= "HEAD"

@@ -28,7 +28,7 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 	namespace := testCase.Namespace
 
 	// Call 4 times the instrumented service
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, uri+"/"+urlPath, 200)
 	}
 
@@ -426,7 +426,7 @@ func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
 	namespace := testCase.Namespace
 
 	// Call 4 times the instrumented service
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, uri+"/"+urlPath, 200)
 	}
 

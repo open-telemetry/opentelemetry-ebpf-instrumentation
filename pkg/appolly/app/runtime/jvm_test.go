@@ -28,7 +28,7 @@ func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
 		rawJVMString("G1 Eden Space"),
 	)
 	require.NoError(t, err)
-	requireJVMEvents(t, ktime, events, []JVMRuntimeEvent{
+	requireJVMEvents(t, ktime, events, []JVMGCEvent{
 		{
 			PID:            app.PID(4321),
 			PIDNamespaceID: 9001,
@@ -73,7 +73,7 @@ func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 		rawJVMString("Metaspace"),
 	)
 	require.NoError(t, err)
-	requireJVMEvents(t, ktime, events, []JVMRuntimeEvent{
+	requireJVMEvents(t, ktime, events, []JVMGCEvent{
 		{
 			PID:            app.PID(2),
 			PIDNamespaceID: 43,
@@ -150,7 +150,7 @@ func rawJVMString(value string) [JVMRawStringLen]byte {
 // requireJVMEvents compares the parsed events, checking Time separately: the
 // parser stamps it from the current clocks, so it cannot equal a value the
 // test computes microseconds later.
-func requireJVMEvents(t *testing.T, ktime uint64, got, want []JVMRuntimeEvent) {
+func requireJVMEvents(t *testing.T, ktime uint64, got, want []JVMGCEvent) {
 	t.Helper()
 	require.Len(t, got, len(want))
 

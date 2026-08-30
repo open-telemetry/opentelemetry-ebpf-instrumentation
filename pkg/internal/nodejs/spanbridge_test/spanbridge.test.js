@@ -124,6 +124,44 @@ test('multibyte strings truncate on a valid UTF-8 byte boundary', () => {
   assert.ok(r.nameOK, 'name must be whole characters (42 x €), no split sequence');
 });
 
+test('explicit span.end(t) rides as endWallNs; absent otherwise', () => {
+  // A valid TimeInput (Date, epoch millis, hrtime tuple) must be carried in
+  // the payload as epoch nanoseconds; no argument or an unusable one must
+  // omit the field so user space keeps the kernel-side sentinel anchor.
+  const r = runScript('scenario_end_time.js');
+  assert.deepStrictEqual(r.names, [
+    'end-bogus',
+    'end-date',
+    'end-frac',
+    'end-hrtime',
+    'end-huge',
+    'end-millis',
+    'end-near-origin',
+    'end-none',
+    'end-perf',
+  ]);
+  assert.strictEqual(r.date, r.dateExpected, 'Date end time must convert to epoch ns');
+  assert.strictEqual(r.millis, r.millisExpected, 'epoch-millis end time must convert to epoch ns');
+  assert.strictEqual(r.hrtime, r.hrtimeExpected, 'hrtime tuple must convert to epoch ns');
+  assert.strictEqual(r.none, undefined, 'no explicit end -> no endWallNs');
+  assert.strictEqual(r.bogus, undefined, 'unusable explicit end -> no endWallNs');
+  assert.ok(
+    r.perf !== undefined && BigInt(r.perf) >= BigInt(r.perfLowerBoundNs),
+    'performance.now()-style end must resolve against timeOrigin, not 1970'
+  );
+  const fracRemainderNs = Number(BigInt(r.frac) - BigInt(r.fracWholeMsNs));
+  assert.ok(
+    Math.abs(fracRemainderNs - 456000) < 1000,
+    `fractional epoch millis keep sub-ms precision (got remainder ${fracRemainderNs}ns)`
+  );
+  assert.strictEqual(r.huge, undefined, 'int64-unrepresentable end -> no endWallNs');
+  assert.strictEqual(
+    r.nearOrigin,
+    r.nearOriginExpected,
+    'an epoch-millis end just below timeOrigin is still an epoch timestamp'
+  );
+});
+
 test('versioned pre-acquired tracer keeps name/version/options through the handoff', () => {
   const r = runScript('scenario_versioned_tracer.js');
   assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-registration span');

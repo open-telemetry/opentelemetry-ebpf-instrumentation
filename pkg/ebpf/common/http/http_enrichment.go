@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/ohler55/ojg/oj"
@@ -356,10 +357,5 @@ func methodMatches(methods []config.HTTPMethod, method string) bool {
 		return true
 	}
 	upper := config.HTTPMethod(strings.ToUpper(method))
-	for _, m := range methods {
-		if m == upper {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(methods, upper)
 }

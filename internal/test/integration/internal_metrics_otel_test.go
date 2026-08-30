@@ -32,6 +32,7 @@ var internalMetricsExpected = []string{
 	"obi_bpf_map_entries",                 // gauge, per eBPF map
 	"obi_bpf_map_max_entries",             // gauge, per eBPF map
 	"obi_bpf_probe_latency_seconds_count", // histogram, needs BPF run-stats + traffic
+	"obi_queue_capacity_ratio",            // gauge, per pipeline queue subscriber
 }
 
 // TestInternalOTelMetrics brings up OBI with internal_metrics.exporter=otel so

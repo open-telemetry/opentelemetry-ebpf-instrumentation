@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -451,13 +452,7 @@ func mustMapPayloadExtractionMembershipAt(
 	enabledValues := toStringSlice(enabledValue)
 
 	wantEnabled := fmt.Sprintf("%v", currentValue) == "true"
-	found := false
-	for _, item := range enabledValues {
-		if item == extractor {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(enabledValues, extractor)
 
 	if found != wantEnabled {
 		return fmt.Errorf("payload extraction mismatch for %s: current=%v example list=%v", extractor, wantEnabled, enabledValues)

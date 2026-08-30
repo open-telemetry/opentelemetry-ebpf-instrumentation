@@ -6,13 +6,16 @@ groups:
       Attributes used by OBI's span-metrics emission. The metric names match
       the output of the OTel collector-contrib `spanmetricsconnector` so the
       same dashboards consume both OBI-emitted and connector-emitted data.
-      Emitted when OBI's `application_span_otel` metrics feature is enabled.
+      Emitted when OBI's `application_span_otel` metrics feature is enabled,
+      except the `traces_spanmetrics_*_size_total` counters, which are gated
+      separately on the deprecated `application_span_sizes` feature.
 
-      Per-metric resource attributes (`service.name`, `service.namespace`,
-      `service.instance.id`, `host.id`, `telemetry.sdk.language`, etc.) come
-      from upstream OpenTelemetry semantic conventions and are not
-      redeclared here. The OBI-specific `source` attribute is declared in
-      `obi_internal.yaml`.
+      `service.name`, `service.namespace`, `service.instance.id`, `host.id`
+      and `telemetry.sdk.language` are referenced from upstream OpenTelemetry
+      semantic conventions rather than redeclared here, and appear on the
+      metric groups below because `spanMetricAttributes` puts them on the data
+      point rather than on the resource. The OBI-specific `source` attribute is
+      declared in `obi_internal.yaml`.
 
       See:
       https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/spanmetricsconnector
@@ -82,6 +85,11 @@ groups:
       - ref: span.kind
       - ref: status.code
       - ref: source
+      - ref: service.name
+      - ref: service.instance.id
+      - ref: service.namespace
+      - ref: telemetry.sdk.language
+      - ref: host.id
 
   - id: metric.traces.span.metrics.duration
     type: metric
@@ -97,6 +105,11 @@ groups:
       - ref: span.kind
       - ref: status.code
       - ref: source
+      - ref: service.name
+      - ref: service.instance.id
+      - ref: service.namespace
+      - ref: telemetry.sdk.language
+      - ref: host.id
 
   # Legacy Grafana-style names for the same two metrics, matching the older
   # spanmetrics processor output. Emitted by the deprecated `application_span`
@@ -119,6 +132,11 @@ groups:
       - ref: span.kind
       - ref: status.code
       - ref: source
+      - ref: service.name
+      - ref: service.instance.id
+      - ref: service.namespace
+      - ref: telemetry.sdk.language
+      - ref: host.id
 
   - id: metric.traces_spanmetrics_latency
     type: metric
@@ -137,3 +155,60 @@ groups:
       - ref: span.kind
       - ref: status.code
       - ref: source
+      - ref: service.name
+      - ref: service.instance.id
+      - ref: service.namespace
+      - ref: telemetry.sdk.language
+      - ref: host.id
+
+  - id: metric.traces_spanmetrics_size_total
+    type: metric
+    metric_name: traces_spanmetrics_size_total
+    instrument: counter
+    unit: ""
+    stability: development
+    deprecated:
+      reason: obsoleted
+      note: >
+        The `application_span_sizes` metrics feature that emits this counter is
+        deprecated with no replacement.
+    brief: >
+      Total request size observed for spans, grouped by span name / kind /
+      status (legacy naming). Emitted with the `application_span_sizes`
+      metrics feature enabled.
+    attributes:
+      - ref: span.name
+      - ref: span.kind
+      - ref: status.code
+      - ref: source
+      - ref: service.name
+      - ref: service.instance.id
+      - ref: service.namespace
+      - ref: telemetry.sdk.language
+      - ref: host.id
+
+  - id: metric.traces_spanmetrics_response_size_total
+    type: metric
+    metric_name: traces_spanmetrics_response_size_total
+    instrument: counter
+    unit: ""
+    stability: development
+    deprecated:
+      reason: obsoleted
+      note: >
+        The `application_span_sizes` metrics feature that emits this counter is
+        deprecated with no replacement.
+    brief: >
+      Total response size observed for spans, grouped by span name / kind /
+      status (legacy naming). Emitted with the `application_span_sizes`
+      metrics feature enabled.
+    attributes:
+      - ref: span.name
+      - ref: span.kind
+      - ref: status.code
+      - ref: source
+      - ref: service.name
+      - ref: service.instance.id
+      - ref: service.namespace
+      - ref: telemetry.sdk.language
+      - ref: host.id

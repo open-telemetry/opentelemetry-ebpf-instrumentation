@@ -197,7 +197,14 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return attribute.KeyValue{}
 		}
 	case attr.DBNamespace:
-		getter = func(span *Span) attribute.KeyValue { return DBNamespace(span.DBNamespace) }
+		getter = func(span *Span) attribute.KeyValue {
+			// db.namespace is Conditionally Required "if available": omit it
+			// instead of emitting an empty value
+			if span.DBNamespace == "" {
+				return attribute.KeyValue{}
+			}
+			return DBNamespace(span.DBNamespace)
+		}
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
 			if span.Type == EventTypeDNS && span.Status != int(dnsparser.RCodeSuccess) {
@@ -332,7 +339,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				} else if s.SubType == HTTPSubtypeSQLPP {
 					return DBCollectionName(s.Route)
 				}
-			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient:
+			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient, EventTypeAerospikeServer:
 				return DBCollectionName(s.Path)
 			}
 			return DBCollectionName("")
@@ -614,7 +621,7 @@ func dbSystemNameForSpan(span *Span) string {
 		return semconv.DBSystemNameMongoDB.Value.AsString()
 	case EventTypeCouchbaseClient:
 		return semconv.DBSystemNameCouchbase.Value.AsString()
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return "aerospike"
 	case EventTypeHTTPClient:
 		if span.SubType == HTTPSubtypeElasticsearch && span.Elasticsearch != nil {

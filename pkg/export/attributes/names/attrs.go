@@ -68,6 +68,9 @@ const (
 	DBQuerySummary         = Name(semconv.DBQuerySummaryKey)
 	UserAgentOriginal      = Name(semconv.UserAgentOriginalKey)
 	HTTPRequestMethodOrig  = Name(semconv.HTTPRequestMethodOriginalKey)
+	NetworkPeerAddress     = Name(semconv.NetworkPeerAddressKey)
+	NetworkPeerPort        = Name(semconv.NetworkPeerPortKey)
+	NetworkProtocolVersion = Name(semconv.NetworkProtocolVersionKey)
 	TelemetrySDKLanguage   = Name(semconv.TelemetrySDKLanguageKey)
 
 	K8sNamespaceName   = Name(semconv.K8SNamespaceNameKey)
@@ -208,12 +211,17 @@ const (
 	HostName    = Name(semconv.HostNameKey)
 	HostType    = Name(semconv.HostTypeKey)
 
-	ServiceInstanceID = Name(semconv.ServiceInstanceIDKey)
-	SkipSpanMetrics   = Name("span.metrics.skip")
-	JVMMemoryType     = Name("jvm.memory.type")
-	JVMMemoryPoolName = Name("jvm.memory.pool.name")
+	ServiceInstanceID   = Name(semconv.ServiceInstanceIDKey)
+	SkipSpanMetrics     = Name("span.metrics.skip")
+	JVMMemoryType       = Name("jvm.memory.type")
+	JVMMemoryPoolName   = Name("jvm.memory.pool.name")
+	JVMThreadDaemon     = Name("jvm.thread.daemon")
+	CPythonGCGeneration = Name("cpython.gc.generation")
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")
+
+	V8JSGCType        = Name("v8js.gc.type")
+	V8JSHeapSpaceName = Name("v8js.heap.space.name")
 
 	VendorVersionSuffix  = Name(".version")
 	VendorRevisionSuffix = Name(".revision")

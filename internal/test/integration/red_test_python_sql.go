@@ -324,7 +324,7 @@ func testPythonPostgres(t *testing.T) {
 }
 
 func testPythonPostgresAfterHeaders(t *testing.T, testCaseURL string) {
-	comm := "python3.14"
+	comm := "main_sync"
 	table := "accounting.contacts"
 	db := "postgresql"
 
@@ -408,7 +408,7 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
@@ -464,7 +464,7 @@ func testREDMetricsPythonSQLSSL(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponentsSub(t, testCaseURL, "/query")
-			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
+			testREDMetricsForPythonSQLSSL(t, testCaseURL, "main_ssl", "integration-test")
 		})
 	}
 }
