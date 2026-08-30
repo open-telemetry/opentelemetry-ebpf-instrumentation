@@ -1,8 +1,8 @@
 # Node.js runtime metrics
 
-With `application_runtime` enabled, OBI collects event-loop, garbage-collection
-and heap metrics from instrumented Node.js services and exports the following
-metric set.
+With `application_runtime` enabled, OBI collects event-loop, garbage-collection,
+heap and active-resource metrics from instrumented Node.js services and exports
+the following metric set.
 
 The values are the runtime's own `perf_hooks` and `v8` readings, reported by a
 small JavaScript agent that OBI injects through the Node.js inspector — the
@@ -26,6 +26,7 @@ exported numbers match what the application itself would measure.
 | `v8js.memory.heap.used` | `v8js_memory_heap_used_bytes` | `v8.getHeapSpaceStatistics()` `space_used_size` | UpDownCounter (Prometheus gauge), attribute `v8js.heap.space.name`. |
 | `v8js.memory.heap.space.available_size` | `v8js_memory_heap_space_available_size_bytes` | `v8.getHeapSpaceStatistics()` `space_available_size` | UpDownCounter (Prometheus gauge), attribute `v8js.heap.space.name`. |
 | `v8js.memory.heap.space.physical_size` | `v8js_memory_heap_space_physical_size_bytes` | `v8.getHeapSpaceStatistics()` `physical_space_size` | UpDownCounter (Prometheus gauge), attribute `v8js.heap.space.name`. |
+| `v8js.resource.active` | `v8js_resource_active` | `process.getActiveResourcesInfo()` | Gauge of live resources keeping the event loop alive, attribute `v8js.resource.type`; a type that vanishes between samples is reported once with 0 so the series drops instead of going stale. |
 
 Enable Node.js runtime metrics through the shared runtime metrics feature:
 
@@ -65,15 +66,19 @@ The injected agent reports in-process readings over an eBPF side channel:
    `fs.accessSync("/dev/null/obi-rt/<10 × 16 hex chars>")`. On the same tick
    it walks `v8.getHeapSpaceStatistics()` and emits one
    `/dev/null/obi-v8/h...` record per heap space (four fixed-width values,
-   the engine-defined space name last). GC cycles are pushed as they are
-   observed: a `PerformanceObserver` emits one `/dev/null/obi-v8/g...` record
-   per collection (kind and duration).
+   the engine-defined space name last), and folds
+   `process.getActiveResourcesInfo()` into per-type counts, emitting one
+   `/dev/null/obi-v8/a...` record per type (count first, the type name
+   last); a type present on the previous tick but absent now is emitted
+   once with count 0. GC cycles are pushed as they are observed: a
+   `PerformanceObserver` emits one `/dev/null/obi-v8/g...` record per
+   collection (kind and duration).
 3. The generic tracer's `uv_fs_access` uprobe decodes the payloads
    (rejecting any malformed record — exact-length, hex and name-length
    validation), stamps kernel time and the calling thread's namespaced pid,
-   and submits `EVENT_NODEJS_EVENTLOOP`, `EVENT_NODEJS_GC` and
-   `EVENT_NODEJS_HEAP_SPACE` events through the shared BPF event ring
-   buffer.
+   and submits `EVENT_NODEJS_EVENTLOOP`, `EVENT_NODEJS_GC`,
+   `EVENT_NODEJS_HEAP_SPACE` and `EVENT_NODEJS_RESOURCE` events through the
+   shared BPF event ring buffer.
 4. Userspace converts raw events into `RuntimeMetricSnapshot` values and
    forwards them through the runtime metrics queue.
 5. OTEL and Prometheus exporters consume queued snapshots, apply per-service
@@ -83,9 +88,10 @@ The injected agent reports in-process readings over an eBPF side channel:
 ## Requirements and limitations
 
 - Node.js 14.10+ (`eventLoopUtilization` API) for the event-loop time and
-  utilization metrics; the delay gauges additionally need Node.js 16.14+
-  (`Histogram.count`). On 14.10–16.13 the agent reports a zero sample count,
-  so the delay gauges are absent while ELU metrics keep working.
+  utilization metrics; the delay gauges (`Histogram.count`) and the
+  active-resource gauge (`getActiveResourcesInfo`) additionally need
+  Node.js 16.14+. On 14.10–16.13 those metrics are absent while ELU metrics
+  keep working.
 - The GC kind is read from `PerformanceNodeEntry.detail` (Node.js 16+), with a
   fallback to the pre-16 `entry.kind` accessor, so `v8js.gc.duration` works
   from the same 14.10 floor as the rest.
@@ -95,6 +101,12 @@ The injected agent reports in-process readings over an eBPF side channel:
   V8 reports (`read_only_space`, `shared_space`, ...) are
   engine-version-dependent, so they are dropped before export
   (debug-logged) to keep the series set stable.
+- The same policy applies to `v8js.resource.type`: only the well-known
+  values are exported (`Immediate`, `TCPServerWrap`, `TCPWrap`, `Timeout`,
+  `TTYWrap`); the many other types Node reports (`FSReqCallback`,
+  `MessagePort`, ...) are dropped before export (debug-logged). Node
+  reports TCP connections as `TCPSocketWrap`; they are exported under the
+  semconv member that documents them, `TCPWrap`.
 - The inspector must be reachable: injection is skipped when the application
   registers its own `SIGUSR1` handler, and fails when the environment blocks
   the inspector (e.g. seccomp) — in both cases the metrics are silently
