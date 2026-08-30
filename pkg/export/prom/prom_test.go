@@ -1510,3 +1510,282 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 		assert.Regexp(ct, containsTracesHostInfo, exported)
 	}, timeout, 10*time.Millisecond)
 }
+
+// A span with no measured duration stays out of the RED series, whose buckets are only
+// meaningful next to a duration. otelSpanFiltered still passes it, so the service graph
+// can count the call.
+func TestREDMetricsWithholdDurationsFromUnmeasuredSpans(t *testing.T) {
+	mr := metricsReporter{cfg: &PrometheusConfig{}}
+
+	svcRED := svc.Attrs{Features: export.FeatureApplicationRED}
+
+	unmeasured := request.Span{
+		Service: svcRED, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/r",
+		RequestStart: 100, End: 6_000_000_000, ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	// The control differs only in having been observed.
+	measured := request.Span{
+		Service: svcRED, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/r",
+		RequestStart: 100, End: 200, Status: 200,
+	}
+
+	assert.True(t, mr.otelMetricsObserved(&measured),
+		"an observed call is in the RED series")
+	assert.True(t, mr.otelMetricsObserved(&unmeasured),
+		"a call with no measured duration is still in the RED family: the request it sent "+
+			"has a known size even though its duration says more than the request")
+	assert.False(t, mr.otelSpanFiltered(&unmeasured),
+		"it is withheld from durations, not filtered out of every metric")
+}
+
+// A call whose response was never observed still sent a request, and the size of that
+// request is known. Withholding the duration must not withhold what the request itself
+// carried. The response size stays out: an unmeasured record carries a zeroed response
+// length, and publishing it would report an empty response for a call whose response was
+// never seen.
+func TestREDMetricsUnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
+	ctx := t.Context()
+	openPort := testutil.FreeTCPPort(t)
+	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{
+			Port:                        openPort,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+
+	go exporter(ctx)
+
+	svcAttrs := svc.Attrs{
+		Features: export.FeatureApplicationRED,
+		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+	}
+
+	unmeasured := request.Span{
+		Service:             svcAttrs,
+		Type:                request.EventTypeHTTPClient,
+		Method:              "GET",
+		Route:               "/unmeasured",
+		RequestStart:        100,
+		End:                 6 * time.Second.Nanoseconds(),
+		ContentLength:       512,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	promInput.Send([]request.Span{unmeasured})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, "http_client_request_body_size_bytes_count",
+			"the size of the request that was sent is known and must be reported")
+		assert.NotContains(ct, exported, "http_client_request_duration_seconds_count",
+			"a duration that runs past the request it describes was published")
+		assert.NotContains(ct, exported, "http_client_response_body_size_bytes_count",
+			"a response nobody saw was reported as having a size")
+	}, timeout, 100*time.Millisecond)
+}
+
+// promBodySizeCase is one response outcome and what the size series owe it.
+type promBodySizeCase struct {
+	name        string
+	observation request.ResponseObservation
+	// unmeasured mirrors the span's ignoreDurations flag, which is set independently
+	// of the observation and must not decide the response size either way.
+	unmeasured   bool
+	wantResponse bool
+}
+
+// The Prometheus counterpart of TestAppMetrics_BodySizesFollowTheResponse. The two
+// exporters decide this separately, so a fix to one leaves the other reporting an empty
+// response for a call nobody read.
+func TestREDMetricsBodySizesFollowTheResponse(t *testing.T) {
+	kinds := []struct {
+		eventType    request.EventType
+		requestSize  string
+		responseSize string
+	}{
+		{request.EventTypeHTTP, "http_server_request_body_size_bytes_count", "http_server_response_body_size_bytes_count"},
+		{request.EventTypeHTTPClient, "http_client_request_body_size_bytes_count", "http_client_response_body_size_bytes_count"},
+	}
+
+	cases := []promBodySizeCase{
+		{"parsed", request.ResponseParsed, false, true},
+		// What keepParsedResponse produces: read in userspace, timed at teardown.
+		{"parsed but unmeasured", request.ResponseParsed, true, true},
+		{"received", request.ResponseReceived, true, false},
+		{"silent", request.ResponseSilent, false, false},
+		{"unread", request.ResponseUnread, false, false},
+	}
+
+	for _, kind := range kinds {
+		for _, tc := range cases {
+			t.Run(kind.eventType.String()+"/"+tc.name, func(t *testing.T) {
+				promURL, promInput := startBodySizeReporter(t)
+
+				span := request.Span{
+					Service: svc.Attrs{
+						Features: export.FeatureApplicationRED,
+						UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+					},
+					Type:                kind.eventType,
+					Method:              "GET",
+					Route:               "/sized",
+					RequestStart:        100,
+					End:                 6 * time.Second.Nanoseconds(),
+					ContentLength:       512,
+					ResponseLength:      1024,
+					Status:              200,
+					ResponseObservation: tc.observation,
+				}
+				if tc.unmeasured {
+					request.SetIgnoreDurations(&span)
+				}
+
+				promInput.Send([]request.Span{span})
+
+				// The request size is the control: once it is present the span has been
+				// through the exporter, so an absent response size is a decision rather
+				// than a scrape that arrived too early.
+				require.EventuallyWithT(t, func(ct *assert.CollectT) {
+					assert.Contains(ct, getMetrics(ct, promURL), kind.requestSize,
+						"the request size is known whatever came of the response")
+				}, timeout, 100*time.Millisecond)
+
+				exported := getMetrics(t, promURL)
+
+				if tc.wantResponse {
+					assert.Contains(t, exported, kind.responseSize,
+						"a parsed response has a length worth publishing")
+					return
+				}
+
+				assert.NotContains(t, exported, kind.responseSize,
+					"a response nobody parsed was reported as having a size")
+			})
+		}
+	}
+}
+
+// startBodySizeReporter brings up a Prometheus exporter on a free port and returns its
+// scrape URL alongside the queue that feeds it.
+func startBodySizeReporter(t *testing.T) (string, *msg.Queue[[]request.Span]) {
+	t.Helper()
+
+	ctx := t.Context()
+	openPort := testutil.FreeTCPPort(t)
+
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{
+			Port:                        openPort,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+
+	go exporter(ctx)
+
+	return fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort), promInput
+}
+
+// The Prometheus counterpart of TestAppMetrics_SpanSizesDoNotStandOnTheDuration.
+func TestREDMetricsSpanSizesDoNotStandOnTheDuration(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		observation request.ResponseObservation
+		unmeasured  bool
+	}{
+		{"received and unmeasured", request.ResponseReceived, true},
+		{"silent but measured", request.ResponseSilent, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			openPort := testutil.FreeTCPPort(t)
+			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+
+			// Sizes only: no latency, no calls.
+			feats := export.FeatureSpanSizes
+
+			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			exporter, err := PrometheusEndpoint(
+				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+				&PrometheusConfig{
+					Port:                        openPort,
+					Path:                        "/metrics",
+					TTL:                         3 * time.Minute,
+					SpanMetricsServiceCacheSize: 10,
+					Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				},
+				&perapp.GlobalMetricsConfig{Features: feats},
+				&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
+				request.UnresolvedNames{},
+				promInput,
+				processEvents,
+				nil,
+			)(ctx)
+			require.NoError(t, err)
+
+			go exporter(ctx)
+
+			span := request.Span{
+				Service: svc.Attrs{
+					Features: feats,
+					UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+				},
+				Type:                request.EventTypeHTTPClient,
+				Method:              "GET",
+				Route:               "/sized",
+				RequestStart:        100,
+				End:                 6 * time.Second.Nanoseconds(),
+				ContentLength:       512,
+				ResponseLength:      1024,
+				Status:              200,
+				ResponseObservation: tc.observation,
+			}
+			if tc.unmeasured {
+				request.SetIgnoreDurations(&span)
+			}
+
+			promInput.Send([]request.Span{span})
+
+			// The request counter is the control: once it is present the span has been
+			// through the exporter, so an absent response counter is a decision.
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				assert.Contains(ct, getMetrics(ct, promURL), SpanMetricsRequestSizes,
+					"the request size is known whatever came of the response or the clock")
+			}, timeout, 100*time.Millisecond)
+
+			assert.NotContains(t, getMetrics(t, promURL), SpanMetricsResponseSizes,
+				"a response nobody parsed was counted as having a size")
+		})
+	}
+}

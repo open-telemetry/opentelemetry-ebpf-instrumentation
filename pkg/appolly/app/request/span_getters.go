@@ -59,7 +59,14 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return HTTPRequestMethod(s.Method)
 		}
 	case attr.HTTPResponseStatusCode:
-		getter = func(s *Span) attribute.KeyValue { return HTTPResponseStatusCode(s.Status) }
+		getter = func(s *Span) attribute.KeyValue {
+			// A status nobody parsed is not a status. Status holds 0 in that case, which
+			// would label the series as if the response had said so.
+			if s.ResponseObservation != ResponseParsed {
+				return attribute.KeyValue{}
+			}
+			return HTTPResponseStatusCode(s.Status)
+		}
 	case attr.HTTPRoute:
 		getter = func(s *Span) attribute.KeyValue { return semconv.HTTPRoute(s.Route) }
 	case attr.HTTPUrlPath:

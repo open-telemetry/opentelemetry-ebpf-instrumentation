@@ -1,0 +1,210 @@
+version: "3.8"
+
+services:
+  # Every role runs the same binary, chosen by ROLE. Each service builds the same context
+  # under its own tag: sharing one tag makes concurrent builds race for it, and a service
+  # that only references the tag tries to pull it.
+  peer:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-peer
+    environment:
+      ROLE: "peer"
+      PEER_PORT: "9000"
+
+  relay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-relay
+    environment:
+      ROLE: "relay"
+      RELAY_PORT: "9100"
+      PEER: "peer:9000"
+      RESEGMENT_DELAY_MS: "5"
+    depends_on:
+      peer:
+        condition: service_started
+
+  # A second relay, for the calls that share one connection. It is separate only so the
+  # spans of the two cases are told apart by the port they went to.
+  reuserelay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-reuserelay
+    environment:
+      ROLE: "relay"
+      RELAY_PORT: "9300"
+      PEER: "peer:9000"
+      RESEGMENT_DELAY_MS: "5"
+    depends_on:
+      peer:
+        condition: service_started
+
+  # A third relay, for the calls made from inside an inbound request. Separate so its
+  # spans are told apart from the detached pooled traffic by the port they went to.
+  parentrelay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-parentrelay
+    environment:
+      ROLE: "relay"
+      RELAY_PORT: "9600"
+      PEER: "peer:9000"
+      RESEGMENT_DELAY_MS: "5"
+    depends_on:
+      peer:
+        condition: service_started
+
+  # The control for the reuse case: the same pooled traffic, responses parsed normally.
+  reusepeer:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-reusepeer
+    environment:
+      ROLE: "peer"
+      PEER_PORT: "9400"
+
+  resetter:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-resetter
+    environment:
+      ROLE: "resetter"
+      RESETTER_PORT: "9200"
+
+  # Answers normally. It is a separate peer only so the calls the workload abandons
+  # are told apart from the ones it reads, which is the port the spans carry.
+  abandonpeer:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-ro-abandonpeer
+    environment:
+      ROLE: "peer"
+      PEER_PORT: "9500"
+
+  responseobservationclient:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/responseobservationclient/Dockerfile
+    image: hatest-responseobservationclient
+    ports:
+      - "8080:8080"
+      # OBI shares this container's network namespace, so its metrics endpoint is
+      # reachable here and Prometheus scrapes it by this service's name.
+      - "8999:8999"
+    environment:
+      # The response comes back re-segmented, so instrumentation never sees it.
+      RELAY: "relay:9100"
+      # The same peer, called directly: the control.
+      PEER: "peer:9000"
+      # A peer that never answers and resets instead: the failure path.
+      RESETTER: "resetter:9200"
+      # A peer that answers into a socket the workload never reads.
+      ABANDON_PEER: "abandonpeer:9500"
+      # The same unparsed responses, over one connection that is never closed.
+      REUSE_RELAY: "reuserelay:9300"
+      REUSE_PEER: "reusepeer:9400"
+      REUSE_CALLS: "60"
+      # Unparsed responses on a kept-alive socket, called from inside a request so each
+      # call has its own inbound parent.
+      PARENT_RELAY: "parentrelay:9600"
+    depends_on:
+      relay:
+        condition: service_started
+      reuserelay:
+        condition: service_started
+      parentrelay:
+        condition: service_started
+      reusepeer:
+        condition: service_started
+      resetter:
+        condition: service_started
+      abandonpeer:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-response-observation.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-unobserved-response:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    network_mode: "service:responseobservationclient"
+    pid: "service:responseobservationclient"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+    depends_on:
+      responseobservationclient:
+        condition: service_started
+      otelcol:
+        condition: service_started
+
+  # The spans this suite produces are the only ones carrying
+  # obi.http.response.observation, so the live check has to run here or that
+  # attribute is validated nowhere.
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
+    container_name: otel-col
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317"
+      - "4318"
+    depends_on:
+      jaeger:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
+
+  # The metrics side of the same calls. What a span reports and what a metric reports
+  # are decided in different code, so the suite has to read both.
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    command:
+      - --config.file=/etc/prometheus/prometheus-config-response-observation.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      responseobservationclient:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317" # OTEL GRPC traces collector
+      - "4318" # OTEL HTTP traces collector
+    command:
+      - "--set=service.telemetry.logs.level=debug"

@@ -130,7 +130,9 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
                                        bytes_len,
                                        WITH_SSL,
                                        direction,
-                                       conn->orig_dport);
+                                       conn->orig_dport,
+                                       // A TLS uprobe holds no socket.
+                                       0);
         } else {
             bpf_dbg_printk("No connection info! This is a bug.");
         }

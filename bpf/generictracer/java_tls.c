@@ -269,7 +269,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
 
         const u64 zero = 0;
         bpf_map_update_elem(&active_ssl_connections, &p_conn, &zero, BPF_ANY);
-        handle_buf_with_connection(ctx, &p_conn, buf, max_len, WITH_SSL, op, orig_dport);
+        handle_buf_with_connection(ctx, &p_conn, buf, max_len, WITH_SSL, op, orig_dport, 0);
     }
 
     return 0;

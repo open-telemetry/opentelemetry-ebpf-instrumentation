@@ -89,6 +89,7 @@ int test_last_parser_bytes_len;
 u8 test_last_ssl;
 u8 test_last_direction;
 u16 test_last_orig_dport;
+void *test_last_sock;
 int test_finish_http_count;
 u8 test_http_will_complete;
 

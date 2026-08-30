@@ -546,6 +546,28 @@ func messagingOperationAttrs(method string) []attribute.KeyValue {
 	}
 }
 
+// appendHTTPResponseAttrs reports what the response was, and reports nothing about it
+// when no probe parsed one. Both fields have the same precondition, so both are decided
+// here rather than beside the request fields that are known either way.
+//
+// Semconv conditions http.response.status_code on a response being received or sent,
+// which a response OBI failed to parse may well have been; publishing a status we never
+// read would be an invention either way. The length is the same: a record finished
+// without a parsed response carries a zeroed one, which would report an empty response.
+// The observation attribute says which case this is, so a consumer can tell an unparsed
+// response from a request that never got one.
+func appendHTTPResponseAttrs(attrs []attribute.KeyValue, span *request.Span) []attribute.KeyValue {
+	if span.ResponseObservation != request.ResponseParsed {
+		return append(attrs, attribute.String(
+			string(attr.OBIHTTPResponseObservation), span.ResponseObservation.String()))
+	}
+
+	return append(attrs,
+		request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		request.HTTPResponseStatusCode(span.Status),
+	)
+}
+
 //nolint:cyclop
 func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
@@ -553,13 +575,12 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 	switch span.Type {
 	case request.EventTypeHTTP:
 		attrs = []attribute.KeyValue{
-			request.HTTPResponseStatusCode(span.Status),
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
-			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
+		attrs = appendHTTPResponseAttrs(attrs, span)
 		if span.Method != "" {
 			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
 		}
@@ -658,15 +679,14 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 
 		attrs = []attribute.KeyValue{
-			request.HTTPResponseStatusCode(span.Status),
 			request.HTTPUrlFull(url),
 			semconv.URLScheme(scheme),
 			request.ServerAddr(host),
 			request.PeerService(request.PeerServiceFromSpan(span)),
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
-			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
+		attrs = appendHTTPResponseAttrs(attrs, span)
 		if span.Method != "" {
 			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
 		}
