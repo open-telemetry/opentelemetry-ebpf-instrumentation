@@ -332,6 +332,69 @@ func TestRuntimeMetricsReporterRecordsV8HeapSpaces(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetricsReporterRecordsV8ResourceActive(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	records := make(chan nodejsMetricRecord, 100)
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          20 * time.Millisecond,
+		TTL:               time.Minute,
+		ReportersCacheLen: 10,
+		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+	}
+	reporter, err := newRuntimeMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		cfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+	)
+	require.NoError(t, err)
+	defer reporter.close()
+
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders-node", Namespace: "prod", Instance: "orders-node-1"},
+		Features: export.FeatureApplicationRuntime,
+	}
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: service,
+		PID:     55,
+		NodejsResource: &runtimemetrics.NodejsResourceSnapshot{
+			ResourceType: "Timeout",
+			Count:        5,
+		},
+	}})
+
+	timeout := readNodejsMetricRecord(t, records, attributes.V8JSResourceActive.OTEL, "")
+	assert.Equal(t, pmetric.MetricTypeGauge, timeout.Type)
+	assert.InDelta(t, 5.0, timeout.Value, 1e-9)
+	assert.Equal(t, "Timeout", timeout.Attrs["v8js.resource.type"])
+	assert.Equal(t, "orders-node", timeout.ResourceAttrs["service.name"])
+
+	// the vanished-type explicit zero must be recorded as a real zero, not
+	// skipped: a skipped record would leave the gauge frozen at 5
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: service,
+		PID:     55,
+		NodejsResource: &runtimemetrics.NodejsResourceSnapshot{
+			ResourceType: "Timeout",
+			Count:        0,
+		},
+	}})
+
+	for {
+		record := readNodejsMetricRecord(t, records, attributes.V8JSResourceActive.OTEL, "")
+		if record.Value == 5.0 {
+			continue // earlier export cycle, keep draining
+		}
+		assert.InDelta(t, 0.0, record.Value, 1e-9)
+		break
+	}
+}
+
 func TestRuntimeMetricsReporterDropsV8ServiceWithoutRuntimeFeature(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -365,6 +428,9 @@ func TestRuntimeMetricsReporterDropsV8ServiceWithoutRuntimeFeature(t *testing.T)
 		}},
 		{Service: service, PID: 55, NodejsHeapSpace: &runtimemetrics.NodejsHeapSpaceSnapshot{
 			SpaceName: "old_space",
+		}},
+		{Service: service, PID: 55, NodejsResource: &runtimemetrics.NodejsResourceSnapshot{
+			ResourceType: "Timeout", Count: 5,
 		}},
 	})
 

@@ -142,6 +142,55 @@ func TestV8GCEmissionFieldOrder(t *testing.T) {
 		"gc kind must fall back to the pre-16 entry.kind accessor")
 }
 
+// TestV8ResourceEmissionFieldOrder pins the a-record wire layout: the
+// fixed-width count first, the variable-length resource type name LAST (the
+// path NUL terminates it), mirroring the h-record framing.
+func TestV8ResourceEmissionFieldOrder(t *testing.T) {
+	src := _extractorCode
+
+	require.Equal(t, 1, strings.Count(src, "/dev/null/obi-v8/a"),
+		"resource emission missing or duplicated in fdextractor.js")
+
+	start := strings.Index(src, "/dev/null/obi-v8/a")
+	end := strings.Index(src[start:], "`")
+	require.NotEqual(t, -1, end, "resource template literal not terminated")
+	block := src[start : start+end]
+
+	countIdx := strings.Index(block, "rtHex(count)")
+	typeIdx := strings.Index(block, "${type}")
+	require.NotEqual(t, -1, countIdx, "count missing from the resource record")
+	require.NotEqual(t, -1, typeIdx, "type name missing from the resource record")
+	require.Greater(t, typeIdx, countIdx, "count must precede the type name on the wire")
+
+	// getActiveResourcesInfo needs Node 16.14+ (17.3 backport); an unguarded
+	// call would throw inside the interval and terminate the application
+	require.Contains(t, src, "typeof process.getActiveResourcesInfo === 'function'",
+		"resource emission must be guarded for pre-16.14 runtimes")
+}
+
+// TestV8ResourceVanishedTypeZero pins the disappearing-type contract: the
+// previous tick's type set is kept on the shared store and a type absent
+// from the current fold is emitted once with count 0 — without it the
+// exporters would serve the stale last value until the staleness TTL
+// retires the series.
+func TestV8ResourceVanishedTypeZero(t *testing.T) {
+	src := _extractorCode
+
+	require.Contains(t, src, "orig.rtPrevResources || []",
+		"the diff must iterate the previous tick's type set")
+	require.Contains(t, src, "counts.set(type, 0)",
+		"a vanished type must be emitted with an explicit zero count")
+	require.Contains(t, src, "orig.rtPrevResources = present",
+		"the previous-tick set must hold only the types actually present")
+
+	// teardown must sit in the cleanup section that runs before the RT gate,
+	// like the histogram and gc observer teardowns
+	gateStart := strings.Index(src, "if (RT_ENABLED &&")
+	require.NotEqual(t, -1, gateStart, "RT gate not found in fdextractor.js")
+	require.Contains(t, src[:gateStart], "orig.rtPrevResources = undefined",
+		"rtPrevResources teardown must run outside the RT gate")
+}
+
 // TestV8MachineryFollowsRuntimeGate pins that the v8 collection lives and
 // dies with the runtime-metrics gate: created once per injection, torn down
 // on re-injection like the delay histogram, so a metrics-disabled

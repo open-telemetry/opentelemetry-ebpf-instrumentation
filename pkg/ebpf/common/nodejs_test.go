@@ -319,6 +319,144 @@ func TestHandleRuntimeMetricsRecordDropsUnmatchedV8Events(t *testing.T) {
 	assert.Empty(t, sender.nodejsHeapSpaceEvents)
 }
 
+// Guards the manual mirror of struct nodejs_resource_event in
+// bpf/generictracer/types/nodejs.h.
+func TestNodejsResourceRawABI(t *testing.T) {
+	var raw nodejsResourceRawEvent
+	assert.Equal(t, uintptr(80), unsafe.Sizeof(raw))
+	assert.Equal(t, uintptr(0), unsafe.Offsetof(raw.Type))
+	assert.Equal(t, uintptr(1), unsafe.Offsetof(raw.NameLen))
+	assert.Equal(t, uintptr(8), unsafe.Offsetof(raw.Timestamp))
+	assert.Equal(t, uintptr(16), unsafe.Offsetof(raw.GlobalPid))
+	assert.Equal(t, uintptr(32), unsafe.Offsetof(raw.PidNsID))
+	assert.Equal(t, uintptr(40), unsafe.Offsetof(raw.Count))
+	assert.Equal(t, uintptr(48), unsafe.Offsetof(raw.ResourceType))
+}
+
+func nodejsResourceRawSample(resourceType string, count uint64) []byte {
+	raw := nodejsResourceRawEvent{
+		Type:      EventTypeNodejsResource,
+		NameLen:   uint8(len(resourceType)),
+		Timestamp: 12345,
+		GlobalPid: 10,
+		GlobalTid: 11,
+		NsPid:     55,
+		NsTid:     56,
+		PidNsID:   99,
+		Count:     count,
+	}
+	copy(raw.ResourceType[:], resourceType)
+	size := int(unsafe.Sizeof(raw))
+	sample := make([]byte, size)
+	copy(sample, unsafe.Slice((*byte)(unsafe.Pointer(&raw)), size))
+	return sample
+}
+
+func TestParseNodejsResourceRecord(t *testing.T) {
+	event, err := ParseNodejsResourceRecord(&ringbuf.Record{RawSample: nodejsResourceRawSample("Timeout", 5)})
+	require.NoError(t, err)
+
+	assert.Equal(t, app.PID(55), event.PID)
+	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, "Timeout", event.ResourceType)
+	assert.Equal(t, uint64(5), event.Count)
+	assert.False(t, event.Time.IsZero())
+
+	// count 0 is a valid record: the explicit zero for a type that vanished
+	// since the previous sampling interval
+	event, err = ParseNodejsResourceRecord(&ringbuf.Record{RawSample: nodejsResourceRawSample("Timeout", 0)})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0), event.Count)
+
+	_, err = ParseNodejsResourceRecord(&ringbuf.Record{RawSample: []byte{EventTypeNodejsResource}})
+	require.Error(t, err, "short sample must be rejected")
+}
+
+func TestParseNodejsResourceRecordRejectsBadNameLength(t *testing.T) {
+	sample := nodejsResourceRawSample("Timeout", 1)
+	sample[1] = 0 // NameLen: an empty type name never comes from the agent
+	_, err := ParseNodejsResourceRecord(&ringbuf.Record{RawSample: sample})
+	require.Error(t, err)
+
+	sample = nodejsResourceRawSample("Timeout", 1)
+	sample[1] = 33 // NameLen beyond the 32-byte buffer
+	_, err = ParseNodejsResourceRecord(&ringbuf.Record{RawSample: sample})
+	require.Error(t, err)
+}
+
+func TestHandleRuntimeMetricsRecordSendsDecoratedResourceEvent(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
+	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}
+	sender := &fakeRuntimeMetricsSender{}
+	eventCtx := &EBPFEventContext{RuntimeMetrics: sender}
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsResourceRawSample("Timeout", 5),
+	}, filter, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	require.Len(t, sender.nodejsResourceEvents, 1)
+	assert.Equal(t, "node-svc", sender.nodejsResourceEvents[0].Service.UID.Name)
+	assert.Equal(t, "Timeout", sender.nodejsResourceEvents[0].ResourceType)
+	assert.Equal(t, uint64(5), sender.nodejsResourceEvents[0].Count)
+
+	// the runtime spelling for TCP connections is canonicalized to the
+	// semconv member and must survive the well-known filter
+	handled, err = HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsResourceRawSample("TCPSocketWrap", 2),
+	}, filter, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	require.Len(t, sender.nodejsResourceEvents, 2)
+	assert.Equal(t, "TCPWrap", sender.nodejsResourceEvents[1].ResourceType)
+	assert.Equal(t, uint64(2), sender.nodejsResourceEvents[1].Count)
+}
+
+// resource types outside the well-known semconv v8js.resource.type members
+// (e.g. FSReqCallback) must be dropped at dispatch, never exported
+func TestHandleRuntimeMetricsRecordDropsNonSemconvResourceType(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
+	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}
+	sender := &fakeRuntimeMetricsSender{}
+	eventCtx := &EBPFEventContext{RuntimeMetrics: sender}
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsResourceRawSample("FSReqCallback", 3),
+	}, filter, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Empty(t, sender.nodejsResourceEvents)
+}
+
+func TestHandleRuntimeMetricsRecordDropsUnmatchedResourceEvent(t *testing.T) {
+	sender := &fakeRuntimeMetricsSender{}
+	eventCtx := &EBPFEventContext{RuntimeMetrics: sender}
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
+		RawSample: nodejsResourceRawSample("Timeout", 5),
+	}, fakeRuntimeServiceFilter{}, nil)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Empty(t, sender.nodejsResourceEvents)
+}
+
+func TestDecorateNodejsResourceEvent(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
+	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}
+
+	event, err := ParseNodejsResourceRecord(&ringbuf.Record{RawSample: nodejsResourceRawSample("Timeout", 5)})
+	require.NoError(t, err)
+	require.True(t, DecorateNodejsResourceEvent(filter, &event))
+	assert.Equal(t, "node-svc", event.Service.UID.Name)
+	require.False(t, DecorateNodejsResourceEvent(fakeRuntimeServiceFilter{}, &event))
+}
+
 func TestDecorateNodejsV8Events(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
 	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{

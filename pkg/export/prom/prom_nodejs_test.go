@@ -152,6 +152,26 @@ func nodejsV8HeapSnapshot(features export.Features, space string, values nodejsr
 	}
 }
 
+func nodejsV8ResourceSnapshot(features export.Features, resourceType string, count uint64) runtimemetrics.RuntimeMetricSnapshot {
+	return runtimemetrics.RuntimeMetricSnapshot{
+		Service: svc.Attrs{
+			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+			Features: features,
+		},
+		PID: app.PID(55),
+		NodejsResource: &runtimemetrics.NodejsResourceSnapshot{
+			ResourceType: resourceType,
+			Count:        count,
+		},
+	}
+}
+
+func nodejsResourceLabels(resourceType string) map[string]string {
+	labels := nodejsServiceLabels()
+	labels["v8js_resource_type"] = resourceType
+	return labels
+}
+
 func nodejsGCLabels(gcType string) map[string]string {
 	labels := nodejsServiceLabels()
 	labels["v8js_gc_type"] = gcType
@@ -218,6 +238,33 @@ func TestRuntimeMetricsReporterRecordsV8HeapSpaces(t *testing.T) {
 	assert.InEpsilon(t, float64(uint64(1<<20)), newSpace.GetGauge().GetValue(), 1e-9)
 }
 
+func TestRuntimeMetricsReporterRecordsV8ResourceActive(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	reporter := newNodejsTestReporter(t, registry)
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
+		nodejsV8ResourceSnapshot(export.FeatureApplicationRuntime, "Timeout", 5),
+		nodejsV8ResourceSnapshot(export.FeatureApplicationRuntime, "TCPServerWrap", 1),
+	})
+
+	timeout := gatheredMetric(t, registry, "v8js_resource_active", nodejsResourceLabels("Timeout"))
+	require.NotNil(t, timeout)
+	assert.InEpsilon(t, 5.0, timeout.GetGauge().GetValue(), 1e-9)
+
+	server := gatheredMetric(t, registry, "v8js_resource_active", nodejsResourceLabels("TCPServerWrap"))
+	require.NotNil(t, server)
+	assert.InEpsilon(t, 1.0, server.GetGauge().GetValue(), 1e-9)
+
+	// the vanished-type explicit zero must overwrite the gauge, not be
+	// skipped: a skipped record would keep serving the stale 5
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
+		nodejsV8ResourceSnapshot(export.FeatureApplicationRuntime, "Timeout", 0),
+	})
+	timeout = gatheredMetric(t, registry, "v8js_resource_active", nodejsResourceLabels("Timeout"))
+	require.NotNil(t, timeout)
+	assert.InDelta(t, 0.0, timeout.GetGauge().GetValue(), 1e-9)
+}
+
 func TestRuntimeMetricsReporterDropsV8WithoutRuntimeFeature(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	reporter := newNodejsTestReporter(t, registry)
@@ -225,10 +272,12 @@ func TestRuntimeMetricsReporterDropsV8WithoutRuntimeFeature(t *testing.T) {
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
 		nodejsV8GCSnapshot(export.FeatureApplicationRED, nodejsruntime.NodejsGCTypeMajor, 1000),
 		nodejsV8HeapSnapshot(export.FeatureApplicationRED, "old_space", nodejsruntime.NodejsHeapSpaceValues{SpaceUsedSize: 1}),
+		nodejsV8ResourceSnapshot(export.FeatureApplicationRED, "Timeout", 5),
 	})
 
 	assert.Nil(t, gatheredMetric(t, registry, "v8js_gc_duration_seconds", nodejsGCLabels("major")))
 	assert.Nil(t, gatheredMetric(t, registry, "v8js_memory_heap_used_bytes", nodejsHeapSpaceLabels("old_space")))
+	assert.Nil(t, gatheredMetric(t, registry, "v8js_resource_active", nodejsResourceLabels("Timeout")))
 }
 
 func TestRuntimeMetricsReporterDropsNodejsServiceWithoutRuntimeFeature(t *testing.T) {

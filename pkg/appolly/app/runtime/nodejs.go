@@ -4,6 +4,7 @@
 package runtime // import "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 
 import (
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -169,5 +170,84 @@ func ParseNodejsHeapSpaceEvent(
 		Time:                  timing.KernelTime(timestamp),
 		SpaceName:             spaceName,
 		NodejsHeapSpaceValues: values,
+	}
+}
+
+// semconvResourceTypes are the well-known members of the semconv
+// v8js.resource.type enum. The enum is open (custom values are allowed by
+// the spec), but Node reports one name per live wrap class — far more than
+// the documented set (FSReqCallback, MessagePort, ...); exporting only the
+// well-known members keeps the series bounded across Node versions and the
+// repo's weaver validation — which grades undocumented enum values as
+// violations — at zero.
+var semconvResourceTypes = map[string]struct{}{
+	"Immediate":     {},
+	"TCPServerWrap": {},
+	"TCPWrap":       {},
+	"Timeout":       {},
+	"TTYWrap":       {},
+}
+
+func IsSemconvResourceType(name string) bool {
+	_, ok := semconvResourceTypes[name]
+	return ok
+}
+
+// SemconvResourceTypes lists the documented members of the semconv
+// v8js.resource.type enum, sorted, for exporters that pre-build per-member
+// attribute sets: the dispatch layer only lets these values through.
+func SemconvResourceTypes() []string {
+	types := make([]string, 0, len(semconvResourceTypes))
+	for name := range semconvResourceTypes {
+		types = append(types, name)
+	}
+	slices.Sort(types)
+	return types
+}
+
+// nodejsResourceTypeAliases maps runtime-internal spellings onto the semconv
+// member documenting the same resource. Node has reported TCP connections as
+// "TCPSocketWrap" since 2018 — before getActiveResourcesInfo existed — so
+// the semconv member value "TCPWrap" ("Active TCP connections") never occurs
+// verbatim in real output and could never be populated without this mapping.
+var nodejsResourceTypeAliases = map[string]string{
+	"TCPSocketWrap": "TCPWrap",
+}
+
+// NodejsResourceEvent is one active-resource census entry: how many
+// resources of one type keep the event loop alive right now. Count 0 marks
+// a type that vanished since the previous sampling interval — the explicit
+// zero the exporters record so the series drops instead of staying frozen
+// at its last value.
+type NodejsResourceEvent struct {
+	PID            app.PID
+	PIDNamespaceID uint32
+	Service        svc.Attrs
+	Time           time.Time
+
+	// ResourceType is the Node-reported resource class name (e.g. Timeout,
+	// TCPServerWrap), canonicalized to its semconv member spelling when the
+	// two differ (TCPSocketWrap -> TCPWrap).
+	ResourceType string
+
+	Count uint64
+}
+
+func ParseNodejsResourceEvent(
+	timestamp uint64,
+	nsPID uint32,
+	pidNamespaceID uint32,
+	resourceType string,
+	count uint64,
+) NodejsResourceEvent {
+	if canonical, ok := nodejsResourceTypeAliases[resourceType]; ok {
+		resourceType = canonical
+	}
+	return NodejsResourceEvent{
+		PID:            app.PID(nsPID),
+		PIDNamespaceID: pidNamespaceID,
+		Time:           timing.KernelTime(timestamp),
+		ResourceType:   resourceType,
+		Count:          count,
 	}
 }
