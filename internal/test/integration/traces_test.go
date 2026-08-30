@@ -88,6 +88,15 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	)
 	assert.Empty(t, sd, sd.String())
 
+	// Assigned by the compose network, so only presence can be asserted.
+	peerAddr, ok := jaeger.FindIn(parent.Tags, "network.peer.address")
+	require.True(t, ok, "expected network.peer.address on the server span")
+	assert.NotEmpty(t, peerAddr.Value)
+
+	peerPort, ok := jaeger.FindIn(parent.Tags, "network.peer.port")
+	require.True(t, ok, "expected network.peer.port on the server span")
+	assert.Positive(t, peerPort.Value)
+
 	if httpCode >= 500 {
 		sd := parent.Diff(
 			jaeger.Tag{Key: "otel.status_code", Type: "string", Value: "ERROR"},
