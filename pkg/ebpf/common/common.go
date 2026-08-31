@@ -97,6 +97,7 @@ const (
 	EventTypeNodejsHeapSpace       = 28 // EVENT_NODEJS_HEAP_SPACE - Node.js/V8 heap-space sample
 	EventTypePythonRuntimeMetric   = 29 // EVENT_PYTHON_RUNTIME_METRICS - Python GC counters
 	EventTypeJVMRuntimeMetrics     = 30 // EVENT_JVM_RUNTIME_METRICS - JVM runtime metrics
+	EventTypeJVMGCDuration         = 31 // EVENT_JVM_GC_DURATION - JVM garbage-collection duration
 )
 
 // Kernel-side classification. These alias the bpf2go-generated constants

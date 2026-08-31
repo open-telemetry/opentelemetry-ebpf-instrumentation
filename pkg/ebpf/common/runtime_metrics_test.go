@@ -25,6 +25,7 @@ func TestRuntimeMetricEventTypeABI(t *testing.T) {
 	assert.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
 	assert.Equal(t, byte(29), byte(EventTypePythonRuntimeMetric))
 	assert.Equal(t, byte(30), byte(EventTypeJVMRuntimeMetrics))
+	assert.Equal(t, byte(31), byte(EventTypeJVMGCDuration))
 }
 
 func TestIsGoRuntimeMetricRecordRecognizesGoRuntimeEvents(t *testing.T) {
@@ -78,6 +79,7 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		EventTypeJVMMemoryPoolGC,
 		EventTypePythonRuntimeMetric,
 		EventTypeJVMRuntimeMetrics,
+		EventTypeJVMGCDuration,
 	} {
 		runtimeMetrics := &fakeRuntimeMetricsSender{}
 		ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}

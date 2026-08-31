@@ -280,6 +280,16 @@ func getDefinitions(
 		nil,
 	)
 
+	jvmGCAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.JVMGCName:   true,
+			attr.JVMGCAction: true,
+		},
+		nil,
+	)
+
 	nodejsEventLoopTimeAttributes := NewAttrReportGroup(
 		false,
 		[]*AttrReportGroup{&appAttributes},
@@ -611,6 +621,10 @@ func getDefinitions(
 		},
 		JVMCPURecentUtilization.Section: {
 			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMGCDuration.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmGCAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 		NodejsEventLoopTime.Section: {

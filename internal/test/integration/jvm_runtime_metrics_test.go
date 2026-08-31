@@ -41,7 +41,20 @@ func TestJVMRuntimeMetrics(t *testing.T) {
 	t.Run("Java agent runtime metrics", func(t *testing.T) {
 		testJVMRuntimeAgentMetrics(t, pq)
 	})
+	t.Run("Java agent GC duration", func(t *testing.T) {
+		testJVMGCDurationMetric(t, pq)
+	})
 	runWeaverValidation(t)
+}
+
+func testJVMGCDurationMetric(t *testing.T, pq promtest.Client) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, "http://localhost:"+jvmRuntimeMetricsHostPort+"/gc", http.StatusOK)
+
+		count := queryJVMRuntimeMetric(ct, pq,
+			`jvm_gc_duration_seconds_count{`+jvmRuntimeServiceLabels+`,jvm_gc_name!="",jvm_gc_action!=""}`)
+		require.Positive(ct, count)
+	}, testTimeout, 250*time.Millisecond)
 }
 
 func waitForJVMRuntimeService(t *testing.T) {

@@ -21,6 +21,7 @@ enum { k_jvm_task_comm_len = 16 };
 
 struct jvm_mem_pool_gc_event _jvm_mem_pool_gc_event = {};
 struct jvm_runtime_metrics_event _jvm_runtime_metrics_event = {};
+struct jvm_gc_duration_event _jvm_gc_duration_event = {};
 
 struct jvm_pid_fields {
     u32 global_pid;

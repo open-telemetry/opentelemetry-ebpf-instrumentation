@@ -213,6 +213,8 @@ const (
 	JVMMemoryType       = Name("jvm.memory.type")
 	JVMMemoryPoolName   = Name("jvm.memory.pool.name")
 	JVMThreadDaemon     = Name("jvm.thread.daemon")
+	JVMGCName           = Name("jvm.gc.name")
+	JVMGCAction         = Name("jvm.gc.action")
 	CPythonGCGeneration = Name("cpython.gc.generation")
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")
