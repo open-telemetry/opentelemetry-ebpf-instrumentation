@@ -603,6 +603,48 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
+func TestConfigValidate_ApplicationSizes(t *testing.T) {
+	validateFeatures := func(t *testing.T, features string) error {
+		t.Helper()
+		return loadConfig(t, envMap{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234",
+			"OTEL_EBPF_EXECUTABLE_PATH":           "foo",
+			"OTEL_EBPF_METRICS_FEATURES":          features,
+		}).Validate()
+	}
+
+	t.Run("application without sizes", func(t *testing.T) {
+		require.NoError(t, validateFeatures(t, "application"))
+	})
+
+	t.Run("application with sizes", func(t *testing.T) {
+		require.NoError(t, validateFeatures(t, "application,application_sizes"))
+	})
+
+	// on their own the body size histograms have no HTTP metric pipeline to be emitted
+	// from, so the configuration is rejected instead of silently emitting nothing
+	t.Run("sizes alone is rejected", func(t *testing.T) {
+		require.ErrorContains(t, validateFeatures(t, "application_sizes"),
+			"application_sizes needs the application RED metrics")
+	})
+
+	// a per-service list is joined with the top-level one before it reaches the exporters
+	t.Run("sizes per service with top-level application", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_sizes"]
+`))
+		require.NoError(t, err)
+		require.NoError(t, cfg.Validate())
+	})
+}
+
 func TestConfigValidate_DeprecatedMetricsFeatureWarning(t *testing.T) {
 	captureWarnings := func(t *testing.T, validate func(t *testing.T)) string {
 		t.Helper()

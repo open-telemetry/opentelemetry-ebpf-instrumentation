@@ -50,7 +50,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "redis"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "redis"
-      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes"
     depends_on:
       testserver:
         condition: service_started

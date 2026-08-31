@@ -55,7 +55,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "redis"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "redis"
-      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes"
       # route capture through the TCP large-buffer path
       OTEL_EBPF_BPF_BUFFER_SIZE_TCP: "4096"
     depends_on:

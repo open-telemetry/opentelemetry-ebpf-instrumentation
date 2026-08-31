@@ -830,6 +830,9 @@ func (c *Config) validate(context validationContext) error {
 		if err := c.resolveSpanMetricsFormats(); err != nil {
 			return err
 		}
+		if err := c.validateAppSizeMetrics(); err != nil {
+			return err
+		}
 		// Per-service sections can enable features the top-level list does not, and they
 		// drive the exporters through JoinMetricsConfig, so report against the same set.
 		c.warnDeprecatedMetricsFeatures()
@@ -842,6 +845,18 @@ func (c *Config) validate(context validationContext) error {
 		return ConfigError("you can't enable OTEL internal metrics without enabling OTEL metrics")
 	}
 
+	return nil
+}
+
+// validateAppSizeMetrics rejects application_sizes without the application RED metrics.
+// The body size histograms are emitted from the same HTTP metric pipeline, so on their own
+// they would produce no telemetry at all.
+func (c *Config) validateAppSizeMetrics() error {
+	features := c.JoinMetricsConfig().Features
+	if features.AppSizes() && !features.AppRED() {
+		return ConfigError("application_sizes needs the application RED metrics to be enabled:" +
+			" add the 'application' feature next to 'application_sizes'")
+	}
 	return nil
 }
 
