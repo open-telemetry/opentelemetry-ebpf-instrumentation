@@ -69,3 +69,40 @@ func TestServicesToBuildFallsBackOnUnreadableFile(t *testing.T) {
 	_, ok := c.servicesToBuild()
 	assert.False(t, ok, "unparseable compose file must fall back to building everything")
 }
+
+func TestComposeArgsIncludeOverrides(t *testing.T) {
+	c := &Compose{
+		Path:          "compose.yml",
+		OverridePaths: []string{"first.yml", "second.yml"},
+	}
+
+	assert.Equal(t, []string{
+		"compose", "--ansi", "never",
+		"-f", "compose.yml",
+		"-f", "first.yml",
+		"-f", "second.yml",
+		"up", "--detach",
+	}, c.composeArgs("up", "--detach"))
+}
+
+func TestComposeSuiteWithConfigMigration(t *testing.T) {
+	compose, err := ComposeSuiteWithConfigMigration(
+		"compose.yml",
+		filepath.Join(t.TempDir(), "compose.log"),
+		ConfigMigration{
+			Source: "obi-config.yml",
+			Output: "obi-config-v2.yml",
+			Image:  "hatest-obi",
+		},
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, compose.Logger.Close())
+	})
+
+	require.Len(t, compose.OverridePaths, 1)
+	assert.Equal(t, configMigrationOverride, filepath.Base(compose.OverridePaths[0]))
+	assert.Contains(t, compose.Env, "OBI_CONFIG_MIGRATION_SOURCE=obi-config.yml")
+	assert.Contains(t, compose.Env, "OBI_CONFIG_MIGRATION_OUTPUT=obi-config-v2.yml")
+	assert.Contains(t, compose.Env, "OBI_CONFIG_MIGRATION_IMAGE=hatest-obi")
+}

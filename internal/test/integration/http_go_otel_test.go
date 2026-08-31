@@ -95,11 +95,13 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 		pq     = promtest.Client{HostPort: prometheusHostPort}
 		labels = `http_request_method="GET",` +
 			`http_response_status_code="200",` +
-			`service_namespace="` + svcNs + `",` +
 			`service_name="rolldice",` +
 			`http_route="` + route + `",` +
 			`url_path="` + route + `"`
 	)
+	if svcNs != "" {
+		labels += `,service_namespace="` + svcNs + `"`
+	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_server_request_duration_seconds_count{%s}", labels)
@@ -318,7 +320,15 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 }
 
 func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-grpc.log"))
+	compose, err := docker.ComposeSuiteWithConfigMigration(
+		"docker-compose-go-otel-grpc.yml",
+		path.Join(pathOutput, "test-suite-go-otel-grpc.log"),
+		docker.ConfigMigration{
+			Source: "obi-config-go-otel-grpc.yml",
+			Output: "obi-config-go-otel-grpc-v2.yml",
+			Image:  "hatest-obi",
+		},
+	)
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
@@ -330,13 +340,16 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 	}
 
 	require.NoError(t, compose.Up())
+	t.Cleanup(func() {
+		require.NoError(t, compose.Close())
+	})
+
+	requireOBIConfigV2(t, compose, "/rolldice")
 
 	t.Run("Go RED metrics: http service instrumented with OTel - GRPC", func(t *testing.T) {
 		waitForTestComponents(t, "http://localhost:8080")
-		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
+		testForHTTPGoOTelLibrary(t, "/rolldice", "")
 	})
-
-	require.NoError(t, compose.Close())
 }
 
 func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {

@@ -370,5 +370,6 @@ jobs:
           name: vm-logs-${{ matrix.kernel.id }}-${{ matrix.test.id }}-${{ github.run_number }}
           path: |
             testoutput/*.log
+            testoutput/*-v2.yml
             testoutput/kind
 

@@ -32,11 +32,20 @@ const stopTimeout = "15"
 // exit. A stuck container would otherwise burn the shard's job timeout.
 const waitTimeout = 30 * time.Second
 
+const configMigrationOverride = "docker-compose-config-migration.yml"
+
+type ConfigMigration struct {
+	Source string
+	Output string
+	Image  string
+}
+
 type Compose struct {
-	Path     string
-	Logger   io.WriteCloser
-	Env      []string
-	skipWait bool
+	Path          string
+	OverridePaths []string
+	Logger        io.WriteCloser
+	Env           []string
+	skipWait      bool
 }
 
 func defaultEnv() []string {
@@ -47,6 +56,28 @@ func defaultEnv() []string {
 }
 
 func ComposeSuite(composeFile, logFile string) (*Compose, error) {
+	return ComposeSuiteWithOverrides(composeFile, logFile)
+}
+
+func ComposeSuiteWithConfigMigration(
+	composeFile, logFile string,
+	migration ConfigMigration,
+) (*Compose, error) {
+	compose, err := ComposeSuiteWithOverrides(composeFile, logFile, configMigrationOverride)
+	if err != nil {
+		return nil, err
+	}
+
+	compose.Env = append(
+		compose.Env,
+		"OBI_CONFIG_MIGRATION_SOURCE="+migration.Source,
+		"OBI_CONFIG_MIGRATION_OUTPUT="+migration.Output,
+		"OBI_CONFIG_MIGRATION_IMAGE="+migration.Image,
+	)
+	return compose, nil
+}
+
+func ComposeSuiteWithOverrides(composeFile, logFile string, overrideFiles ...string) (*Compose, error) {
 	logs, err := os.OpenFile(logFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o666)
 	if err != nil {
 		return nil, err
@@ -54,12 +85,18 @@ func ComposeSuite(composeFile, logFile string) (*Compose, error) {
 
 	// Construct the full path to the Docker Compose file
 	projectRoot := tools.ProjectDir()
-	composePath := filepath.Join(projectRoot, "internal", "test", "integration", composeFile)
+	integrationPath := filepath.Join(projectRoot, "internal", "test", "integration")
+	composePath := filepath.Join(integrationPath, composeFile)
+	overridePaths := make([]string, 0, len(overrideFiles))
+	for _, overrideFile := range overrideFiles {
+		overridePaths = append(overridePaths, filepath.Join(integrationPath, overrideFile))
+	}
 
 	return &Compose{
-		Path:   composePath,
-		Logger: logs,
-		Env:    defaultEnv(),
+		Path:          composePath,
+		OverridePaths: overridePaths,
+		Logger:        logs,
+		Env:           defaultEnv(),
 	}, nil
 }
 
@@ -100,34 +137,52 @@ func (c *Compose) servicesToBuild() ([]string, bool) {
 		prebuilt[i] = strings.TrimSpace(prebuilt[i])
 	}
 
-	data, err := os.ReadFile(c.Path)
-	if err != nil {
-		return nil, false
-	}
-
-	var doc struct {
+	type composeDocument struct {
 		Services map[string]struct {
 			Image string    `yaml:"image"`
 			Build yaml.Node `yaml:"build"`
 		} `yaml:"services"`
 	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, false
+
+	services := map[string]struct {
+		Image string
+		Build yaml.Node
+	}{}
+	for _, composePath := range c.composePaths() {
+		data, err := os.ReadFile(composePath)
+		if err != nil {
+			return nil, false
+		}
+
+		var doc composeDocument
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, false
+		}
+		for name, overlay := range doc.Services {
+			service := services[name]
+			if overlay.Image != "" {
+				service.Image = overlay.Image
+			}
+			if !overlay.Build.IsZero() {
+				service.Build = overlay.Build
+			}
+			services[name] = service
+		}
 	}
 
-	var services []string
-	for name, svc := range doc.Services {
+	var servicesToBuild []string
+	for name, svc := range services {
 		if svc.Build.IsZero() {
 			continue
 		}
 		if svc.Image != "" && slices.Contains(prebuilt, svc.Image) {
 			continue
 		}
-		services = append(services, name)
+		servicesToBuild = append(servicesToBuild, name)
 	}
-	slices.Sort(services)
+	slices.Sort(servicesToBuild)
 
-	return services, true
+	return servicesToBuild, true
 }
 
 func (c *Compose) Run(service string) error {
@@ -153,7 +208,7 @@ func (c *Compose) Logs() error {
 }
 
 func (c *Compose) LogsOutput(services ...string) (string, error) {
-	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "logs"}
+	cmdArgs := c.composeArgs("logs")
 	cmdArgs = append(cmdArgs, services...)
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Env = c.Env
@@ -172,10 +227,7 @@ func (c *Compose) LogsOutput(services ...string) (string, error) {
 // LogsTail returns the last n lines without echoing them into the suite log: callers that
 // poll would otherwise append the whole container log on every attempt.
 func (c *Compose) LogsTail(n int, services ...string) (string, error) {
-	cmdArgs := []string{
-		"compose", "--ansi", "never", "-f", c.Path, "logs", "--no-log-prefix",
-		"--tail", strconv.Itoa(n),
-	}
+	cmdArgs := c.composeArgs("logs", "--no-log-prefix", "--tail", strconv.Itoa(n))
 	cmdArgs = append(cmdArgs, services...)
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Env = c.Env
@@ -203,7 +255,7 @@ func (c *Compose) Stop() error {
 }
 
 func (c *Compose) Remove() error {
-	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "rm", "-f", "-s", "-v"}
+	cmdArgs := c.composeArgs("rm", "-f", "-s", "-v")
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Env = c.Env
 
@@ -226,8 +278,7 @@ func (c *Compose) command(args ...string) error {
 }
 
 func (c *Compose) commandContext(ctx context.Context, args ...string) error {
-	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path}
-	cmdArgs = append(cmdArgs, args...)
+	cmdArgs := c.composeArgs(args...)
 	cmd := exec.CommandContext(ctx, "docker", cmdArgs...)
 	cmd.Env = c.Env
 	if c.Logger != nil {
@@ -249,7 +300,7 @@ func Exec(ctx context.Context, container string, args ...string) (string, error)
 }
 
 func (c *Compose) ExecOutput(service string, args ...string) (string, error) {
-	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "exec", "-T", service}
+	cmdArgs := c.composeArgs("exec", "-T", service)
 	cmdArgs = append(cmdArgs, args...)
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Env = c.Env
@@ -262,6 +313,18 @@ func (c *Compose) ExecOutput(service string, args ...string) (string, error) {
 		}
 	}
 	return strings.TrimSpace(string(output)), err
+}
+
+func (c *Compose) composePaths() []string {
+	return append([]string{c.Path}, c.OverridePaths...)
+}
+
+func (c *Compose) composeArgs(args ...string) []string {
+	cmdArgs := []string{"compose", "--ansi", "never"}
+	for _, composePath := range c.composePaths() {
+		cmdArgs = append(cmdArgs, "-f", composePath)
+	}
+	return append(cmdArgs, args...)
 }
 
 func (c *Compose) Close() error {

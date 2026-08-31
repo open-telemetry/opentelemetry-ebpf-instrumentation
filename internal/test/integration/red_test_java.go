@@ -20,7 +20,7 @@ func waitForJavaTestComponents(t *testing.T, url string) {
 	waitForTestComponentsSub(t, url, "/greeting")
 }
 
-func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) {
+func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm, namespace string) {
 	path := "/greeting"
 
 	// Call 3 times the instrumented service, forcing it to:
@@ -33,9 +33,11 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 	}
 
 	commMatch := `service_name="` + comm + `",`
-	namespaceMatch := `service_namespace="integration-test",`
 	if comm == "" {
 		commMatch = ""
+	}
+	namespaceMatch := `service_namespace="` + namespace + `",`
+	if namespace == "" {
 		namespaceMatch = ""
 	}
 
@@ -49,6 +51,7 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 			`http_response_status_code="204",` +
 			namespaceMatch +
 			commMatch +
+			`http_route="` + path + `",` +
 			`url_path="` + path + `"}`)
 		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
@@ -64,9 +67,9 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsJavaHTTP(t *testing.T, serviceName string) {
+func testREDMetricsJavaHTTP(t *testing.T, serviceName, namespace string) {
 	t.Run("http://localhost:8086", func(t *testing.T) {
 		waitForJavaTestComponents(t, "http://localhost:8086")
-		testREDMetricsForJavaHTTPLibrary(t, []string{"http://localhost:8086"}, serviceName)
+		testREDMetricsForJavaHTTPLibrary(t, []string{"http://localhost:8086"}, serviceName, namespace)
 	})
 }
