@@ -3,7 +3,7 @@ routes:
     - /basic/:rnd
   unmatched: path
 metrics:
-  features: ["application_span_otel"]
+  features: ["application_span_otel", "application_span_sizes"]
 otel_metrics_export:
   endpoint: http://otelcol:4018
 prometheus_export:
@@ -11,10 +11,10 @@ prometheus_export:
 discovery:
   instrument:
     - open_ports: 3030,3040
-      metrics: { features: ["application", "application_span_otel"] }
+      metrics: { features: ["application", "application_span_otel", "application_span_sizes"] }
     - name: pytestserver
       open_ports: 7773
-      metrics: { features: ["application", "application_span_otel"] }
+      metrics: { features: ["application", "application_span_otel", "application_span_sizes"] }
     - name: testserver
       open_ports: 8080
     - name: jtestserver
@@ -26,3 +26,6 @@ discovery:
       metrics: { features: [ "application", "application_span_otel" ] }
     - name: rtestserver
       open_ports: 8090
+attributes:
+  extra_group_attributes:
+    app: [service.name, service.namespace]

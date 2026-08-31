@@ -40,7 +40,7 @@ func testREDMetricsForPHPHTTPLibrary(t *testing.T, url string, nginx, php string
 	// Call 4 times the instrumented service, forcing it to:
 	// - process multiple calls in a row with, one more than we might need
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, fmt.Sprintf("%s%s", url, path), 200)
 	}
 
@@ -128,7 +128,7 @@ func TestPHPFM(t *testing.T) {
 }
 
 func testHTTPTracesPHP(t *testing.T) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, "http://localhost:8080/", 200)
 	}
 

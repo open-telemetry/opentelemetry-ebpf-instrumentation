@@ -134,6 +134,42 @@ func TestSuiteGoGeneric(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// Alpine workload, so name resolution goes through musl's unconnected UDP socket
+func TestSuite_DNSUnconnectedResolver(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-dns-unconnected.yml", path.Join(pathOutput, "test-suite-dns-unconnected.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=python`,
+		`OTEL_EBPF_OPEN_PORT=`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-dns`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("DNS RED metrics over an unconnected resolver socket", testDNSUnconnectedResolver)
+	t.Run("every DNS lookup is counted", testDNSEveryLookupCounted)
+	t.Run("non-DNS UDP is not reported as DNS", testDNSNoFalsePositive)
+	t.Run("unrelated traffic does not lose an outstanding lookup", testDNSInterleavedTraffic)
+	t.Run("DNS spans report every resolved address", testDNSSpanAnswers)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// A JVM that cannot be attached to must not delay capture of its own traffic
+func TestSuite_JavaDiscoveryEarlyTraffic(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-discovery.yml", path.Join(pathOutput, "test-suite-java-discovery.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=java`,
+		`OTEL_EBPF_OPEN_PORT=`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("early JVM traffic is captured", testJavaDiscoveryEarlyTraffic)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuiteClientPromScrape(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client-promscrape.log"))
 	require.NoError(t, err)
@@ -316,7 +352,7 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
+	compose.Env = append(compose.Env, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 
@@ -379,8 +415,8 @@ func TestSuite_NodeJS(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
-	t.Run("NodeJS RED metrics", testREDMetricsJSHTTP)
-	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("NodeJS RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "testserver") })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver", true) })
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
 	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	t.Run("HTTP manual spans (background span isolation)", testHTTPTracesNodeManualBackgroundSpan)
@@ -394,8 +430,8 @@ func TestSuite_Deno(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
 	require.NoError(t, compose.Up())
-	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
-	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("Deno RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "denoserver") })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver", false) })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -810,6 +846,20 @@ func TestSuite_Aerospike(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_AerospikeServerSide(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-aerospike-server.yml", path.Join(pathOutput, "test-suite-aerospike-server.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3000`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8392:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Aerospike server-side traces", func(t *testing.T) {
+		waitForAerospikeServerTestComponents(t, "http://localhost:8392")
+		testREDTracesAerospikeServerSide(t)
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonMongo(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-mongo.yml", path.Join(pathOutput, "test-suite-python-mongo.log"))
 	require.NoError(t, err)
@@ -817,6 +867,19 @@ func TestSuite_PythonMongo(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Mongo metrics", testREDMetricsPythonMongoOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// mongo shares the client's network namespace, so the client sees a local
+// listener on the server port
+func TestSuite_PythonMongoSameNetNS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mongo-samenet.yml", path.Join(pathOutput, "test-suite-python-mongo-samenet.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Mongo same-netns metrics", testREDMetricsPythonMongoOnly)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

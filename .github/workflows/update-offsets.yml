@@ -25,7 +25,7 @@ jobs:
         go-version: '>=1.25'
         check-latest: true
     - name: "Update offsets"
-      run: make update-offsets
+      run: make update-offsets update-python-offsets
     - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
       id: generate-token
       with:
@@ -38,8 +38,8 @@ jobs:
         # not using secrets.GITHUB_TOKEN since pull requests from that token do not run workflows
         GH_TOKEN: ${{ steps.generate-token.outputs.token }}
       run: |
-        message="Automatic update of offsets.json"
-        body="The offsets have been updated by go-offsets-tracker"
+        message="Update generated Go offsets"
+        body="The generated Go field offsets and runtime ABI facts have been updated."
         branch="otelbot/offset-content-auto-update"
 
         git config user.name otelbot

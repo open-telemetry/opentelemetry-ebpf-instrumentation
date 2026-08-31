@@ -74,14 +74,14 @@ func newGraphBuilder(
 	// Second, we register instancers for each pipe node, as well as communication queues between them
 	// TODO: consider moving the queues to a public structure so when OBI is used as library, other components can
 	// listen to the messages and expanding the Pipeline
-	tracesReaderToRouter := msg2.QueueFromConfig[[]request.Span](config, "tracesReaderToRouter")
+	tracesReaderToRouter := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "tracesReaderToRouter")
 	swi.Add(traces.ReadFromChannel(&traces.ReadDecorator{
 		InstanceID:      config.Attributes.InstanceID,
 		TracesInput:     tracesCh,
 		DecoratedTraces: tracesReaderToRouter,
 	}), swarm.WithID("ReadFromChannel"))
 
-	routerToKubeDecorator := msg2.QueueFromConfig[[]request.Span](config, "routerToKubeDecorator",
+	routerToKubeDecorator := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "routerToKubeDecorator",
 		// make sure that we are able to wait for the informer sync timeout before failing the pipeline
 		// if a message gets bocked while the Kube decorator starts
 		msg.SendTimeout(max(config.Attributes.Kubernetes.InformersSyncTimeout, config.ChannelSendTimeout)))
@@ -93,19 +93,19 @@ func newGraphBuilder(
 
 	// We connect the Kube and Docker metadata decorators in series, but only
 	// one of them will be active at the same time and bypass the other's queues
-	kubeToContainerDecorator := msg2.QueueFromConfig[[]request.Span](config, "kubeToContainerDecorator")
+	kubeToContainerDecorator := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "kubeToContainerDecorator")
 	swi.Add(transform.KubeDecoratorProvider(
 		ctxInfo, &config.Attributes.Kubernetes,
 		routerToKubeDecorator, kubeToContainerDecorator,
 	), swarm.WithID("KubeDecorator"))
 
-	containerDecoratorToNameResolver := msg2.QueueFromConfig[[]request.Span](config, "containerDecoratorToNameResolver")
+	containerDecoratorToNameResolver := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "containerDecoratorToNameResolver")
 	swi.Add(transform.DockerDecoratorProvider(
 		ctxInfo,
 		kubeToContainerDecorator, containerDecoratorToNameResolver,
 	), swarm.WithID("DockerDecorator"))
 
-	nameResolverToParentSettler := msg2.QueueFromConfig[[]request.Span](config, "nameResolverToParentSettler")
+	nameResolverToParentSettler := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "nameResolverToParentSettler")
 	swi.Add(transform.NameResolutionProvider(ctxInfo, config.NameResolver,
 		containerDecoratorToNameResolver, nameResolverToParentSettler),
 		swarm.WithID("NameResolution"))
@@ -114,13 +114,13 @@ func newGraphBuilder(
 	// own exporters, otherwise we create a new queue
 	exportableSpans := ctxInfo.OverrideAppExportQueue
 	if exportableSpans == nil {
-		exportableSpans = msg2.QueueFromConfig[[]request.Span](config, "exportableSpans")
+		exportableSpans = msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "exportableSpans")
 	}
-	nameResolverToAttrFilter := msg2.QueueFromConfig[[]request.Span](config, "nameResolverToAttrFilter")
+	nameResolverToAttrFilter := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "nameResolverToAttrFilter")
 	swi.Add(SettleConditionalParents(config.EBPF.MaxTransactionTime,
 		nameResolverToParentSettler, nameResolverToAttrFilter),
 		swarm.WithID("SettleConditionalParents"))
-	attrFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, "attrFilteredSpans")
+	attrFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "attrFilteredSpans")
 	swi.Add(filter.ByAttribute(config.Filters.Application,
 		nil,
 		selectorCfg.ExtraGroupAttributesCfg,
@@ -128,7 +128,7 @@ func newGraphBuilder(
 		nameResolverToAttrFilter,
 		attrFilteredSpans),
 		swarm.WithID("AttributesFilter"))
-	instrumentationFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, "instrumentationFilteredSpans")
+	instrumentationFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "instrumentationFilteredSpans")
 	swi.Add(InstrumentationFilterSpanGate(
 		config.Filters.ApplicationByInstrumentation,
 		selectorCfg.ExtraGroupAttributesCfg,
@@ -175,7 +175,7 @@ func setupMetricsSubPipeline(
 	jointMetricsConfig *perapp.GlobalMetricsConfig,
 	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) {
-	metricsProcessEvents := msg2.QueueFromConfig[exec.ProcessEvent](config, "metricsProcessEvents")
+	metricsProcessEvents := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "metricsProcessEvents")
 	swi.Add(DynamicSignalProcessEventGate(ctxInfo.DynamicPIDSelector, processEventsCh, metricsProcessEvents),
 		swarm.WithID("DynamicSignalProcessEventGate"))
 
@@ -187,7 +187,7 @@ func setupMetricsSubPipeline(
 
 	var spanNameAggregatedMetrics *msg.Queue[[]request.Span]
 	if jointMetricsConfig.Features.AppOrSpan() || jointMetricsConfig.Features.ServiceGraph() {
-		spanNameAggregatedMetrics = msg2.QueueFromConfig[[]request.Span](config, "spanNameAggregatedMetrics")
+		spanNameAggregatedMetrics = msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "spanNameAggregatedMetrics")
 
 		swi.Add(transform.SpanNameLimiter(transform.SpanNameLimiterConfig{
 			Limit:      config.Attributes.MetricSpanNameAggregationLimit,
@@ -221,7 +221,7 @@ func setupMetricsSubPipeline(
 
 	runtimeMetricsInput := runtimeMetrics
 	if runtimeMetrics != nil {
-		gatedRuntimeMetrics := msg2.QueueFromConfig[[]runtimemetrics.RuntimeMetricSnapshot](config, "gatedRuntimeMetrics")
+		gatedRuntimeMetrics := msg2.QueueFromConfig[[]runtimemetrics.RuntimeMetricSnapshot](config, ctxInfo.Metrics, "gatedRuntimeMetrics")
 		swi.Add(DynamicSignalRuntimeMetricsGate(ctxInfo.DynamicPIDSelector, runtimeMetrics, gatedRuntimeMetrics),
 			swarm.WithID("DynamicSignalRuntimeMetricsGate"))
 		runtimeMetricsInput = gatedRuntimeMetrics

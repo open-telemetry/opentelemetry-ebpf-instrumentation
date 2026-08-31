@@ -21,7 +21,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
@@ -35,6 +35,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
+			`service_version="2.3.4-beta.1",` +
 			`url_path="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
@@ -54,7 +55,8 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 			`http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
-			`service_name="` + comm + `"}`)
+			`service_name="` + comm + `",` +
+			`service_version="2.3.4-beta.1"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -81,7 +83,7 @@ func testREDMetricsForNetHTTPSLibrary(t *testing.T, url string, comm string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
 	// - returning a 204 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+path, 200)
 	}
 
@@ -95,6 +97,7 @@ func testREDMetricsForNetHTTPSLibrary(t *testing.T, url string, comm string) {
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
+			`service_version="2.3.4-beta.1",` +
 			`url_path="` + path + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)

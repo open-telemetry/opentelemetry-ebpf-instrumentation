@@ -205,11 +205,11 @@ func TestGoRuntimeHistogramCollectorKeepsStateWhenRetirementOverflows(t *testing
 			assert.Contains(t, collector.histogramSnapshots, goRuntimeHistogramKey{
 				kind:       runtimemetrics.GoHistogramKindGCPause,
 				pid:        202,
-				labelTuple: runtimeHistogramLabelTuple(labels),
+				labelTuple: runtimeMetricLabelTuple(labels),
 			})
 			retired, ok := collector.retiredSnapshots[goRuntimeHistogramSeriesKey{
 				kind:       runtimemetrics.GoHistogramKindGCPause,
-				labelTuple: runtimeHistogramLabelTuple(labels),
+				labelTuple: runtimeMetricLabelTuple(labels),
 			}]
 			require.True(t, ok)
 			assert.Zero(t, retired.histogram.Underflow)
@@ -532,7 +532,7 @@ func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *
 
 	go func() {
 		defer waitGroup.Done()
-		for i := 0; i < iterations; i++ {
+		for i := range iterations {
 			counts := testPromRuntimeHistogramCounts()
 			counts[i%len(counts)] = uint64(i)
 			collector.Update(101, []string{"orders"}, &runtimemetrics.GoRuntimeHistogramSnapshot{
@@ -553,7 +553,7 @@ func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *
 				_ = metric
 			}
 		}()
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			collector.Collect(metrics)
 		}
 		close(metrics)
@@ -561,7 +561,7 @@ func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *
 	}()
 	go func() {
 		defer waitGroup.Done()
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			collector.Delete([]string{"orders"})
 		}
 	}()

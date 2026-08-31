@@ -86,6 +86,9 @@ jobs:
       - name: Lint OBI semantic-convention registry
         run: make lint-schema
 
+      - name: Check published OBI telemetry schema files
+        run: make check-schema-files
+
   lint-darwin:
     name: Lint on macOS
     needs: generate-bpf

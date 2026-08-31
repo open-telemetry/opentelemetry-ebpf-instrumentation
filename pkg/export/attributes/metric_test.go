@@ -59,11 +59,23 @@ func TestPrometheusNames(t *testing.T) {
 		{JVMMemoryCommitted, "jvm_memory_committed_bytes"},
 		{JVMMemoryLimit, "jvm_memory_limit_bytes"},
 		{JVMMemoryUsedAfterLastGC, "jvm_memory_used_after_last_gc_bytes"},
+		{JVMClassLoaded, "jvm_class_loaded_total"},
+		{JVMClassUnloaded, "jvm_class_unloaded_total"},
+		{JVMClassCount, "jvm_class_count"},
+		{JVMThreadCount, "jvm_thread_count"},
+		{JVMCPUTime, "jvm_cpu_time_seconds_total"},
+		{JVMCPUCount, "jvm_cpu_count"},
+		{JVMCPURecentUtilization, "jvm_cpu_recent_utilization_ratio"},
 		{Resource, "resource"},
 		{StatTCPRtt, "obi_stat_tcp_rtt_seconds"},
 		{StatTCPFailedConnections, "obi_stat_tcp_failed_connections_total"},
 		{StatTCPRetransmits, "obi_stat_tcp_retransmits_total"},
 		{StatTCPIo, "obi_stat_tcp_io_bytes_total"},
+		{V8JSGCDuration, "v8js_gc_duration_seconds"},
+		{V8JSMemoryHeapLimit, "v8js_memory_heap_limit_bytes"},
+		{V8JSMemoryHeapUsed, "v8js_memory_heap_used_bytes"},
+		{V8JSMemoryHeapSpaceAvailableSize, "v8js_memory_heap_space_available_size_bytes"},
+		{V8JSMemoryHeapSpacePhysicalSize, "v8js_memory_heap_space_physical_size_bytes"},
 	}
 
 	for _, test := range tests {

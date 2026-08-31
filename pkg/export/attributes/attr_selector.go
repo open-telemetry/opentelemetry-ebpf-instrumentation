@@ -74,6 +74,8 @@ func NewGroupAttributes(groupAttrsCfg map[string][]attr.Name) GroupAttributes {
 
 func parseExtraAttrGroup(group string) (AttrGroups, error) {
 	switch group {
+	case "app":
+		return GroupApp, nil
 	case "k8s_app_meta":
 		return GroupAppKube, nil
 	default:

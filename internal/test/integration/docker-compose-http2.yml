@@ -9,6 +9,8 @@ services:
     environment:
       TARGET_URL: "https://testserver:7373"
       TEST_HTTP2_PROTOCOLS: ${TEST_HTTP2_PROTOCOLS}
+    ports:
+      - "7575:7575"
     depends_on:
       testserver:
         condition: service_started

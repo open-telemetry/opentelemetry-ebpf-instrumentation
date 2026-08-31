@@ -215,7 +215,7 @@ func TestSettleFlushReleasesEverything(t *testing.T) {
 func TestSettleHeldOverflowSettlesOldest(t *testing.T) {
 	s, out := testSettler(t, time.Minute)
 
-	for i := 0; i < maxHeldSpans+10; i++ {
+	for i := range maxHeldSpans + 10 {
 		child := conditionalChild(int64(100 + i))
 		child.SpanID[7] = byte(i)
 		child.ParentSpanID[7] = byte(i % 251)
