@@ -119,9 +119,9 @@ static __always_inline __u32 validate_qsection(struct xdp_md *ctx, const unsigne
         ++data;
 
         if (len == 0) {
-            size += sizeof(__u16); // account for QTYPE and QCLASS
+            size += sizeof(__u32); // account for QTYPE and QCLASS
 
-            if ((void *)(data + sizeof(__u16)) < ctx_xdp_data_end(ctx)) {
+            if ((void *)(data + sizeof(__u32)) < ctx_xdp_data_end(ctx)) {
                 return size;
             } else {
                 return 0;
