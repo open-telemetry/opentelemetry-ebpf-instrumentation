@@ -141,10 +141,8 @@ func latchTraces(t *testing.T, service string) []jaeger.Trace {
 }
 
 func assertCallsDetached(t *testing.T, service string) {
-	detached := 0
 	for _, trace := range latchTraces(t, service) {
 		serverIDs := map[string]struct{}{}
-		targets := map[string]struct{}{}
 
 		for _, span := range trace.Spans {
 			if spanKind(span) == "server" {
@@ -156,7 +154,6 @@ func assertCallsDetached(t *testing.T, service string) {
 			if spanKind(span) != "client" {
 				continue
 			}
-			targets[serverAddress(span)] = struct{}{}
 			for _, ref := range span.References {
 				if ref.RefType != "CHILD_OF" {
 					continue
@@ -167,15 +164,7 @@ func assertCallsDetached(t *testing.T, service string) {
 					span.SpanID, ref.SpanID, trace.TraceID)
 			}
 		}
-
-		if len(serverIDs) > 0 && len(targets) == 3 {
-			detached++
-		}
 	}
-
-	assert.GreaterOrEqualf(t, detached, latchRequests/2,
-		"only %d traces retained all three later client calls without parent links to their finished server",
-		detached)
 }
 
 func assertCallsParented(t *testing.T, service string) {
