@@ -736,9 +736,9 @@ pytest==9.1.1 \
     --hash=sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313 \
     --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
     # via locust
-python-engineio==4.13.5 \
-    --hash=sha256:05c9f4951d242ad33d613b4245299562e5f64e4199f00e5390f9888505831704 \
-    --hash=sha256:b5764d62243e3ffbc4c76dda3d7897c329dc52294c80c27105f9faa054e76897
+python-engineio==4.14.0 \
+    --hash=sha256:9f0fe275fb7d67bfc1a632421adf22949fd4843bd9c458c004b0a89cede302a2 \
+    --hash=sha256:eaa1e386baf9c2c7959eef7f9d9165c5ea910c5b392f5316e78d29ed073cb43d
     # via
     #   locust
     #   python-socketio
