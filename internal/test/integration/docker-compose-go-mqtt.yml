@@ -64,7 +64,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "*"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "*"
-      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes"
       OTEL_EBPF_PROTOCOL_DEBUG_PRINT: "true"
     depends_on:
       testserver:

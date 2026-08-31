@@ -105,7 +105,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "http,couchbase"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "http,couchbase"
-      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes"
       OTEL_EBPF_PROTOCOL_DEBUG_PRINT: "true"
       # SQL++ settings
       OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 2048

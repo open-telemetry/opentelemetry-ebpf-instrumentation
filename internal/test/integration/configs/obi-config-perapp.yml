@@ -11,10 +11,10 @@ prometheus_export:
 discovery:
   instrument:
     - open_ports: 3030,3040
-      metrics: { features: ["application", "application_span_otel", "application_span_sizes"] }
+      metrics: { features: ["application", "application_sizes", "application_span_otel", "application_span_sizes"] }
     - name: pytestserver
       open_ports: 7773
-      metrics: { features: ["application", "application_span_otel", "application_span_sizes"] }
+      metrics: { features: ["application", "application_sizes", "application_span_otel", "application_span_sizes"] }
     - name: testserver
       open_ports: 8080
     - name: jtestserver
@@ -23,7 +23,7 @@ discovery:
     # with the global metrics features
     - name: to-be-ignored
       open_ports: 8090
-      metrics: { features: [ "application", "application_span_otel" ] }
+      metrics: { features: [ "application", "application_sizes", "application_span_otel" ] }
     - name: rtestserver
       open_ports: 8090
 attributes:

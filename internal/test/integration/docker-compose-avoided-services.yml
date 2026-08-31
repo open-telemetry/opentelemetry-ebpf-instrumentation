@@ -51,7 +51,7 @@ services:
       OTEL_EBPF_HOSTNAME: "obi"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_OPEN_PORT: "8080"
-      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes,application_span_otel"
     depends_on:
       testserver:
         condition: service_started

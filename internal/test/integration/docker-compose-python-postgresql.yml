@@ -55,7 +55,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "sql"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "sql"
-      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes"
       OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES: 1024
     depends_on:
       testserver:

@@ -48,7 +48,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "redis"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "redis"
-      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes"
       OTEL_EBPF_JAVAAGENT_ENABLED: "true"
       # Much longer than the assertion window. This JVM disables the attach
       # mechanism, so the injection can never succeed and blocks for the whole

@@ -61,7 +61,7 @@ services:
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_EXECUTABLE_PATH: testserver
-      OTEL_EBPF_METRICS_FEATURES: application
+      OTEL_EBPF_METRICS_FEATURES: application,application_sizes
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: 1ms
       OTEL_EBPF_BPF_BATCH_TIMEOUT: 10ms

@@ -33,6 +33,11 @@ const (
 	FeatureStatsTCPIo
 	FeatureNetworkInterZone
 	FeatureApplicationRED
+	// FeatureApplicationSizes emits the HTTP request and response body size histograms.
+	// The semantic conventions mark them Opt-In while the RED duration histograms are
+	// Recommended, so they are a feature of their own rather than part of
+	// FeatureApplicationRED.
+	FeatureApplicationSizes
 	// FeatureSpanLegacy emits span metrics under the Grafana-convention
 	// traces_spanmetrics_* names.
 	//
@@ -72,6 +77,7 @@ var FeatureMapper = map[string]Features{
 	"network_inter_zone":           FeatureNetworkInterZone,
 	"network_flow_packets":         FeatureNetworkFlowPackets,
 	"application":                  FeatureApplicationRED,
+	"application_sizes":            FeatureApplicationSizes,
 	"application_span":             FeatureSpanLegacy,
 	"application_span_otel":        FeatureSpanOTel,
 	"application_span_sizes":       FeatureSpanSizes,
@@ -170,6 +176,7 @@ func (Features) JSONSchema() *jsonschema.Schema {
 // AppO11yFeatures is a bitmask of all metrics that are enabled by default for Application RED
 // It can be overridden by extension packages
 var AppO11yFeatures = FeatureApplicationRED |
+	FeatureApplicationSizes |
 	FeatureSpanLegacy |
 	FeatureSpanOTel |
 	FeatureSpanSizes |
@@ -322,6 +329,7 @@ func (f Features) AnyNetwork() bool {
 
 func (f Features) AppOrSpan() bool {
 	return f.any(FeatureApplicationRED |
+		FeatureApplicationSizes |
 		FeatureSpanSizes |
 		FeatureApplicationHost |
 		FeatureApplicationRuntime |
@@ -351,6 +359,12 @@ func (f Features) AppRuntime() bool {
 
 func (f Features) AppRED() bool {
 	return f.any(FeatureApplicationRED)
+}
+
+// AppSizes reports whether the HTTP body size histograms are enabled. They are emitted
+// from the HTTP application metrics pipeline, so AppRED must be enabled as well.
+func (f Features) AppSizes() bool {
+	return f.any(FeatureApplicationSizes)
 }
 
 func (f Features) SpanSizes() bool {

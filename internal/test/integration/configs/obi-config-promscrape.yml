@@ -6,6 +6,7 @@ prometheus_export:
   port: 8999
   features:
     - application
+    - application_sizes
   extra_resource_attributes: ["deployment_environment_name"]
   exemplar_filter: "always_on"
 attributes:

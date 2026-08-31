@@ -69,6 +69,26 @@ func TestFeatureEnv_Separator(t *testing.T) {
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
+func TestFeatureApplicationSizes(t *testing.T) {
+	// the body size histograms are Opt-In in the semantic conventions, so they are no
+	// longer part of "application" and have to be requested explicitly
+	redOnly := mustLoadFeatures(t, "application")
+	assert.True(t, redOnly.AppRED())
+	assert.False(t, redOnly.AppSizes())
+
+	sizesOnly := mustLoadFeatures(t, "application_sizes")
+	assert.False(t, sizesOnly.AppRED())
+	assert.True(t, sizesOnly.AppSizes())
+
+	both := mustLoadFeatures(t, "application", "application_sizes")
+	assert.True(t, both.AppRED())
+	assert.True(t, both.AppSizes())
+
+	assert.True(t, FeatureAll.AppSizes())
+	assert.True(t, sizesOnly.AnyAppO11yMetric())
+	assert.True(t, sizesOnly.AppOrSpan())
+}
+
 func TestFeatureApplicationAliasDoesNotIncludeRuntime(t *testing.T) {
 	features := mustLoadFeatures(t, "application")
 
