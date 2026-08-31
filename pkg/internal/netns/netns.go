@@ -21,16 +21,19 @@ func netNSPath(hostPid int) string {
 	return fmt.Sprintf("/proc/%d/ns/net", hostPid)
 }
 
+// statNetNSInode is injectable for tests.
+var statNetNSInode = netNSInode
+
 // IsIsolated reports whether pid's network namespace is distinct from both the
 // calling process and PID 1. Isolated namespaces are Docker/containerd bridge
 // nets; host-network and bare-host processes share the agent or host netns.
 func IsIsolated(pid int) (bool, error) {
-	pidIno, err := netNSInode(netNSPath(pid))
+	pidIno, err := statNetNSInode(netNSPath(pid))
 	if err != nil {
 		return false, fmt.Errorf("stat pid netns: %w", err)
 	}
 
-	selfIno, err := netNSInode(netNSPath(os.Getpid()))
+	selfIno, err := statNetNSInode(netNSPath(os.Getpid()))
 	if err != nil {
 		return false, fmt.Errorf("stat self netns: %w", err)
 	}
@@ -39,10 +42,9 @@ func IsIsolated(pid int) (bool, error) {
 		return false, nil
 	}
 
-	hostIno, err := netNSInode(netNSPath(1))
+	hostIno, err := statNetNSInode(netNSPath(1))
 	if err != nil {
-		// Host PID 1 is not visible; agent vs pid is the only check.
-		return true, nil
+		return false, fmt.Errorf("stat host netns: %w", err)
 	}
 
 	return pidIno != hostIno, nil
