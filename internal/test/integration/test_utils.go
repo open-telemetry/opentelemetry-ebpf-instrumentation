@@ -72,13 +72,25 @@ func setHTTPClientDisableKeepAlives(disableKeepAlives bool) {
 }
 
 func doHTTPPost(t *testing.T, path string, status int, jsonBody []byte) {
+	doHTTPPostReturnBody(t, path, status, jsonBody)
+}
+
+// doHTTPPostReturnBody is doHTTPPost for a caller that needs to read what came
+// back rather than only the status.
+func doHTTPPostReturnBody(t *testing.T, path string, status int, jsonBody []byte) []byte {
 	req, err := http.NewRequest(http.MethodPost, path, bytes.NewReader(jsonBody))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
 	r, err := testHTTPClient.Do(req)
 	require.NoError(t, err)
+	defer r.Body.Close()
+
+	body, err := io.ReadAll(r.Body)
+	require.NoError(t, err)
 	require.Equal(t, status, r.StatusCode)
+
+	return body
 }
 
 //nolint:errcheck

@@ -14,6 +14,19 @@ services:
       otelcol:
         condition: service_started
 
+  # Uninstrumented peer. OBI shares httpproxyserver's network and pid
+  # namespaces only, so a request the proxy sends here is a real egress hop with
+  # nothing instrumenting the far side — which is what makes the sending side's
+  # client span the only span the hop can produce. A request the proxy sends to
+  # itself over loopback yields a server span and no client span at all.
+  httpechoserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/http_proxy_server/Dockerfile
+    image: hatest-httpproxyserver
+    environment:
+      OTEL_SERVICE_NAME: "httpechoserver"
+
   obi:
     build:
       context: ../../..
@@ -50,6 +63,8 @@ services:
       OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "all"
     depends_on:
       httpproxyserver:
+        condition: service_started
+      httpechoserver:
         condition: service_started
 
   # OpenTelemetry Collector

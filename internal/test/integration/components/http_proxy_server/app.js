@@ -54,7 +54,11 @@ app.post("/dial", jsonParser, async (req, res, next) => {
     console.log("sending nested call: ", req.body.rawRequest);
     const response = await send({ host: host, port: parseInt(port), rawRequest: req.body.rawRequest });
     const status = response.split("\r\n")[0];
-    res.send({ status: status });
+    // The body is returned so a caller can read what the far side actually
+    // received — the only way to observe a header this process never wrote,
+    // such as the traceparent an eBPF program injects on the way out.
+    const body = response.split("\r\n\r\n").slice(1).join("\r\n\r\n");
+    res.send({ status: status, body: body });
   } catch (err) {
     res.status(500).send({ error: err.message });
   }
@@ -62,6 +66,12 @@ app.post("/dial", jsonParser, async (req, res, next) => {
 
 app.get(/^\/arbitrary.{1}$/, (req, res) => {
   res.send(req.path);
+});
+
+// Reports the headers this server received, so a test can assert on a header
+// that was added to the request after the sender wrote it.
+app.get(/^\/echoheaders.{0,1}$/, (req, res) => {
+  res.json(req.headers);
 });
 
 app.listen(port, () => {

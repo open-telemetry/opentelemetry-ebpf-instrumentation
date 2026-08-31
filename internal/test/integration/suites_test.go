@@ -1350,6 +1350,14 @@ func TestSuite_LargeHTTPRequest(t *testing.T) {
 		testLargeHTTPRequestIngressArbitrarySize(t)
 	})
 
+	t.Run("Large HTTP Request egress flow at the msg buffer boundary (kprobe: tpinjector[sk_msg])", func(t *testing.T) {
+		testLargeHTTPRequestEgressAtMsgBufferBoundary(t)
+	})
+
+	t.Run("Large HTTP Request egress flow traceparent injection at the msg buffer boundary (kprobe: tpinjector[sk_msg])", func(t *testing.T) {
+		testLargeHTTPRequestEgressInjectionAtMsgBufferBoundary(t)
+	})
+
 	require.NoError(t, compose.Close())
 }
 

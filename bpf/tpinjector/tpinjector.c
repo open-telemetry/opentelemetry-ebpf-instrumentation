@@ -675,16 +675,6 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
         return false;
     }
 
-    msg_buffer_t msg_buf = {
-        .pos = 0,
-        .real_size = min(msg->size, k_msg_buffer_size_max),
-        .cpu_id = bpf_get_smp_processor_id(),
-    };
-
-    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
-
-    const u16 copy_bytes = max(msg_buf.real_size, k_kprobes_http2_buf_size);
-
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
     if (!msg_ptr) {
@@ -693,8 +683,25 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
     }
 
     msg_ptr[0] = 0;
-    bpf_probe_read_kernel(msg_ptr, copy_bytes & k_msg_buffer_size_max_mask, msg->data);
+
+    const u16 copied = msg_buffer_copy((unsigned char *)msg_ptr, msg->data, msg->size);
+
+    if (copied == 0) {
+        bpf_d_printk("failed to read msg data [%s]", __FUNCTION__);
+        return false;
+    }
+
     bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
+
+    msg_buffer_t msg_buf = {
+        .pos = 0,
+        // Only ever the bytes msg_buffer_copy() wrote. The kprobe on
+        // tcp_sendmsg hands this length straight to the protocol parsers.
+        .real_size = copied,
+        .cpu_id = bpf_get_smp_processor_id(),
+    };
+
+    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
 
     // We setup any call that looks like HTTP request to be extended.
     // This must match exactly to what the decision will be for

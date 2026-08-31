@@ -160,7 +160,7 @@ func createRawHTTPRequest(t *testing.T, method, path, host string, headers ...st
 	return rawReq.String()
 }
 
-func getHTTPRequestSize(t *testing.T, host, method, path string, headers ...string) httpRequestSize { //nolint:unparam // the linter complains about "method" being always "GET"
+func getHTTPRequestSize(t *testing.T, host, method, path string, headers ...string) httpRequestSize {
 	t.Helper()
 
 	rawReq := createRawHTTPRequest(t, host, method, path, headers...)
@@ -230,4 +230,162 @@ func assertRequestTraceID(t *testing.T, method, path, traceID string) { //nolint
 	parent := res[0]
 	require.NotEmpty(t, parent.TraceID)
 	require.Equal(t, traceID, parent.TraceID)
+}
+
+// k_msg_buffer_size_max in bpf/common/msg_buffer.h — the size of msg_buffer_mem,
+// the per-CPU buffer the sk_msg program fills for the tcp_sendmsg kprobe.
+const msgBufferSizeMax = 8192
+
+// The uninstrumented peer the proxy sends to. OBI shares only
+// httpproxyserver's namespaces, so a request sent here is a genuine egress hop
+// whose only span is the sending side's client span. A request the proxy sends
+// to itself over loopback produces a server span and no client span at all, so
+// it cannot show this defect.
+const echoServerHost = "httpechoserver:3030"
+
+// An outgoing message at or above the size of msg_buffer_mem is where a length
+// bounded by a power-of-two mask rather than by a clamp collapses to zero:
+// 8192 & 8191 is 0, so the copy writes nothing while the recorded length still
+// says 8192. The tcp_sendmsg kprobe is then handed bytes this call never wrote,
+// protocol detection fails, and the request produces no client span at all. The
+// receiving side parses the request normally throughout, which is why this
+// needs an assertion on the sending side.
+//
+// The sizes are exact and they bracket the boundary. The two arbitrary-size
+// subtests above pad by rand.IntN(4096) on top of a 1 KB floor, so their
+// largest request is around 5 KB and neither has ever reached this boundary; a
+// randomized size that only sometimes crossed it would report a deterministic
+// defect as a flake. The small size is the control: it fails with the rest if
+// the fixture itself is broken, and passes alone if the boundary is.
+func testLargeHTTPRequestEgressAtMsgBufferBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		size int
+	}{
+		{name: "well below the msg buffer size", path: "/arbitrary3", size: 700},
+		{name: "one byte below the msg buffer size", path: "/arbitrary4", size: msgBufferSizeMax - 1},
+		{name: "exactly the msg buffer size", path: "/arbitrary5", size: msgBufferSizeMax},
+		{name: "above the msg buffer size", path: "/arbitrary6", size: msgBufferSizeMax + 512},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := []string{
+				"Accept: */*",
+				"User-Agent: user_agent",
+				"Connection: close",
+				"Traceparent: " + createTraceparent(createTraceID(), createParentID()),
+			}
+			dialRawRequest(t, "GET", tc.path, headers, tc.size)
+
+			// The client span is what the boundary removes. The request carries
+			// a traceparent of its own so that the subtest exercises the
+			// existing-traceparent path through fill_msg_buffers(), which is
+			// the one a real caller with an upstream context takes.
+			awaitEgressClientSpan(t, "GET", tc.path)
+		})
+	}
+}
+
+// The same boundary for a request carrying no traceparent of its own, read off
+// the wire at the far end. fill_msg_buffers() feeds the decision to extend the
+// packet as well as the kprobe's buffer, so a fix that restored client spans by
+// suppressing injection would pass the test above and fail this one.
+func testLargeHTTPRequestEgressInjectionAtMsgBufferBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		size int
+	}{
+		{name: "well below the msg buffer size", path: "/echoheaders1", size: 700},
+		{name: "above the msg buffer size", path: "/echoheaders2", size: msgBufferSizeMax + 512},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := []string{
+				"Accept: */*",
+				"User-Agent: user_agent",
+				"Connection: close",
+			}
+			received := dialRawRequest(t, "GET", tc.path, headers, tc.size)
+
+			var echoed map[string]string
+			require.NoError(t, json.Unmarshal([]byte(received), &echoed))
+
+			tp, ok := echoed["traceparent"]
+			require.True(t, ok, "no traceparent was injected into the outgoing request: %v", echoed)
+
+			client := awaitEgressClientSpan(t, "GET", tc.path)
+			require.Equal(t, "00-"+client.TraceID+"-"+client.SpanID+"-01", tp)
+		})
+	}
+}
+
+// Sends a raw request of exactly totalSize bytes from httpproxyserver to the
+// uninstrumented echo server, and returns the response body the echo server
+// sent back. totalSize is the length of the single write the proxy makes, and
+// therefore the sk_msg size the BPF program sees.
+func dialRawRequest(t *testing.T, method, path string, headers []string, totalSize int) string {
+	t.Helper()
+
+	const padHeader = "pad: "
+
+	reqSize := getHTTPRequestSize(t, echoServerHost, method, path, headers...)
+	padSize := totalSize - (reqSize.size + len(padHeader) + len("\r\n"))
+	require.Positive(t, padSize, "the request is already at least as large as the requested size")
+
+	headers = append(headers, padHeader+strings.Repeat("A", padSize))
+	rawReq := createRawHTTPRequest(t, method, path, echoServerHost, headers...)
+	require.Len(t, rawReq, totalSize, "the request must be exactly the size under test")
+
+	body, err := json.Marshal(map[string]string{"rawRequest": rawReq, "host": echoServerHost})
+	require.NoError(t, err)
+
+	resp := doHTTPPostReturnBody(t, "http://localhost:3035/dial", 200, body)
+
+	var dialResp struct {
+		Status string `json:"status"`
+		Body   string `json:"body"`
+	}
+	require.NoError(t, json.Unmarshal(resp, &dialResp))
+	require.Contains(t, dialResp.Status, "200")
+
+	return dialResp.Body
+}
+
+// Waits for the client span of the egress hop identified by path. Nothing
+// instruments the echo server, so this span is the only one the hop can
+// produce and its absence is exactly the defect under test. Each subtest uses a
+// path of its own, so the operation name identifies the hop on its own — a
+// client span carries the target as url.full rather than url.path, which is
+// asserted here rather than used to select the span.
+func awaitEgressClientSpan(t *testing.T, method, path string) jaeger.Span {
+	t.Helper()
+
+	operationName := fmt.Sprintf("%s %s", strings.ToUpper(method), path)
+
+	var span jaeger.Span
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=httpproxyserver&operation=" + url.QueryEscape(operationName))
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		var spans []jaeger.Span
+		for i := range tq.Data {
+			spans = append(spans,
+				tq.Data[i].FindByOperationNameServiceAndKind(operationName, "httpproxyserver", "client")...)
+		}
+		require.Len(ct, spans, 1, "no client span was produced for the outgoing request")
+		span = spans[0]
+	}, testTimeout, 100*time.Millisecond)
+
+	full, ok := jaeger.FindIn(span.Tags, "url.full")
+	require.True(t, ok, "the client span carries no url.full")
+	require.Equal(t, "http://"+strings.Split(echoServerHost, ":")[0]+path, full.Value)
+
+	return span
 }
