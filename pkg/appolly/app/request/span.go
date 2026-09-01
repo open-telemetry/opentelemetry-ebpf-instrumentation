@@ -30,7 +30,8 @@ import (
 type EventType uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	// EventTypeProcessAlive is an internal signal. It will be ignored by the metrics exporters.
 	EventTypeProcessAlive EventType = iota

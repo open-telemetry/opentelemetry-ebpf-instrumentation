@@ -10,7 +10,7 @@
 
 #include <common/connection_info.h>
 
-enum { EVENT_HTTP_REQUEST = 1 };
+enum { k_event_type_http_request = 1 };
 
 typedef struct http_info {
     u8 type;

@@ -382,7 +382,7 @@ static __always_inline void populate_dns_record(dns_req_t *req,
                                                 const conn_pid_t *conn_pid) {
     __builtin_memcpy(&req->conn, &p_conn->conn, sizeof(connection_info_t));
 
-    req->flags = EVENT_DNS_REQUEST;
+    req->flags = k_event_type_dns_request;
     req->len = size;
     req->dns_q = qr;
     req->id = bpf_ntohs(id);

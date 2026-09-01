@@ -487,7 +487,7 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->pid = t_ctx->p_conn.pid;
-    tp_p->req_type = EVENT_HTTP_CLIENT;
+    tp_p->req_type = k_event_type_http_client;
 
     if (t_ctx->has_parent_tp) {
         bpf_dbg_printk("found existing tp info");
@@ -1324,7 +1324,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
             tp_p->valid = 1;
             tp_p->written = 1;
             tp_p->pid = t_ctx->p_conn.pid;
-            tp_p->req_type = EVENT_HTTP_CLIENT;
+            tp_p->req_type = k_event_type_http_client;
 
             print_tp("found TP in headers", &tp_p->tp);
 
@@ -1734,7 +1734,7 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
         tp_p->valid = 1;
         tp_p->written = 1;
         tp_p->pid = t_ctx->p_conn.pid;
-        tp_p->req_type = EVENT_HTTP_CLIENT;
+        tp_p->req_type = k_event_type_http_client;
         set_tp_info_pid(&t_ctx->e_key, tp_p);
         h2_resume_after(
             msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);

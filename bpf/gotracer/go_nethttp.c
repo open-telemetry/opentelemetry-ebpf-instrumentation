@@ -579,7 +579,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     }
 
     task_pid(&trace->pid);
-    trace->type = EVENT_HTTP_REQUEST;
+    trace->type = k_event_type_http_request;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
@@ -784,7 +784,7 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     }
 
     task_pid(&trace->pid);
-    trace->type = EVENT_HTTP_CLIENT;
+    trace->type = k_event_type_http_client;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
@@ -1511,7 +1511,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
                             .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
                             .valid = 1,
                             .written = 0,
-                            .req_type = EVENT_HTTP_CLIENT,
+                            .req_type = k_event_type_http_client,
                         };
                         egress_key_t e_key = {
                             .d_port = conn_info->d_port,
@@ -1844,7 +1844,7 @@ int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
                     .pid = pid,
                     .valid = 1,
                     .written = 0,
-                    .req_type = EVENT_HTTP_CLIENT,
+                    .req_type = k_event_type_http_client,
                 };
 
                 tp_clone(&tp_p.tp, &invocation->tp);
