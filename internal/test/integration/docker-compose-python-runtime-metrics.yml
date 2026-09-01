@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
     command:
       - --config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml
-      - --set=exporters.prometheus.metric_expiration=250ms
+      - --set=exporters.prometheus.metric_expiration=2s
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
