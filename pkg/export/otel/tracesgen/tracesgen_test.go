@@ -590,7 +590,7 @@ func TestGenAIResponseErrorStatusMessage(t *testing.T) {
 				GenAI:   tt.genAI,
 			}
 
-			defaultSpan := generateSingleTraceSpan(t, span, nil)
+			defaultSpan := generateSingleTraceSpan(t, span, defaultTraceAttrs(t))
 			assert.Equal(t, ptrace.StatusCodeError, defaultSpan.Status().Code())
 			assert.Empty(t, defaultSpan.Status().Message())
 			assertSpanStringAttribute(t, defaultSpan, semconv.ErrorTypeKey, tt.errorType)
@@ -599,6 +599,7 @@ func TestGenAIResponseErrorStatusMessage(t *testing.T) {
 
 			selectedSpan := generateSingleTraceSpan(t, span, map[attr.Name]struct{}{
 				attr.GenAIResponseError: {},
+				attr.ErrorType:          {},
 			})
 			assert.Equal(t, ptrace.StatusCodeError, selectedSpan.Status().Code())
 			assert.Equal(t, rawMessage, selectedSpan.Status().Message())
@@ -789,6 +790,7 @@ func TestGenAIResponseErrorPreservesProtocolStatusMessages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			exported := generateSingleTraceSpan(t, tt.span, map[attr.Name]struct{}{
 				attr.GenAIResponseError: {},
+				attr.ErrorType:          {},
 			})
 			assert.Equal(t, ptrace.StatusCodeError, exported.Status().Code())
 			assert.Equal(t, tt.message, exported.Status().Message())
@@ -1404,6 +1406,15 @@ func defaultTraceAttrs(t *testing.T) map[attr.Name]struct{} {
 	return selected
 }
 
+func errorTypeValue(attrs []attribute.KeyValue) (attribute.Value, bool) {
+	for _, kv := range attrs {
+		if kv.Key == semconv.ErrorTypeKey {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
+}
+
 func attrValue(attrs []attribute.KeyValue, key string) (attribute.Value, bool) {
 	for _, kv := range attrs {
 		if string(kv.Key) == key {
@@ -1411,6 +1422,115 @@ func attrValue(attrs []attribute.KeyValue, key string) (attribute.Value, bool) {
 		}
 	}
 	return attribute.Value{}, false
+}
+
+func countAttr(attrs []attribute.KeyValue, key string) int {
+	n := 0
+	for _, kv := range attrs {
+		if string(kv.Key) == key {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTraceAttributesSelector_ErrorType(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("omitted when the span did not fail", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
+		_, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		assert.False(t, ok)
+	})
+
+	t.Run("http carries the status code", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 503}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "503", v.AsString())
+	})
+
+	t.Run("grpc carries the status code name", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeGRPC, Path: "/pkg.Svc/M", Status: 14}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "UNAVAILABLE", v.AsString())
+	})
+
+	t.Run("db carries the server error code", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeRedisClient,
+			Method:  "GET",
+			Status:  1,
+			DBError: request.DBError{ErrorCode: "WRONGTYPE"},
+		}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "WRONGTYPE", v.AsString())
+	})
+
+	t.Run("falls back to _OTHER with no classification", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeRedisClient, Method: "GET", Status: 1}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "_OTHER", v.AsString())
+	})
+
+	// A subtype is a different protocol over HTTP, so the HTTP status is not
+	// its error. With nothing parsed, it reports nothing.
+	// These subtypes keep the full HTTP attribute set, so they are HTTP spans and
+	// the status code classifies a failure semconv requires a value for.
+	t.Run("http subtypes fall back to the status code", func(t *testing.T) {
+		for _, sub := range []int{
+			request.HTTPSubtypeAWSSQS,
+			request.HTTPSubtypeAWSS3,
+			request.HTTPSubtypeGraphQL,
+			request.HTTPSubtypeMCP,
+			request.HTTPSubtypeElasticsearch,
+		} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: sub,
+				Method: "POST", Path: "/", Status: 503,
+			}
+			v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+			require.True(t, ok, "subtype %d reported no error.type", sub)
+			assert.Equal(t, "503", v.AsString(), "subtype %d", sub)
+		}
+	})
+
+	// A parsed error is reported wherever it was parsed into DBError, without
+	// SpanErrorType needing a case for the subtype.
+	t.Run("http subtype reports its parsed error", func(t *testing.T) {
+		for _, sub := range []int{
+			request.HTTPSubtypeSQLPP,
+			request.HTTPSubtypeElasticsearch,
+			request.HTTPSubtypeAWSSQS,
+		} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: sub,
+				Method: "POST", Path: "/", Status: 503,
+				DBError: request.DBError{ErrorCode: "index_not_found_exception"},
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			v, ok := errorTypeValue(attrs)
+			require.True(t, ok, "subtype %d", sub)
+			assert.Equal(t, "index_not_found_exception", v.AsString())
+			assert.Equal(t, 1, countAttr(attrs, "error.type"))
+		}
+	})
+
+	t.Run("not duplicated when the protocol branch already set it", func(t *testing.T) {
+		span := &request.Span{
+			Type:     request.EventTypeSQLClient,
+			Method:   "SELECT",
+			Status:   1,
+			SQLError: &request.SQLError{Code: 1064, SQLState: "42000"},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		assert.Equal(t, 1, countAttr(attrs, "error.type"))
+		v, _ := errorTypeValue(attrs)
+		assert.Equal(t, "42000", v.AsString())
+	})
 }
 
 func TestTraceAttributesSelector_NetworkPeer(t *testing.T) {
