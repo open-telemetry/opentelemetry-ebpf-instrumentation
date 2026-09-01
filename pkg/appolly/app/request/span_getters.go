@@ -204,8 +204,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.DBResponseStatusCode:
 		getter = func(span *Span) attribute.KeyValue {
 			// db.response.status_code is Conditionally Required "if the
-			// operation failed and status code is available": omit it on
-			// success or when no code was captured
+			// operation failed and status code is available": omit it when no
+			// code was captured (for Elasticsearch semconv defines it as the
+			// HTTP response code, reported also on success)
 			if code := dbResponseStatusCode(span); code != "" {
 				return DBResponseStatusCode(code)
 			}
@@ -608,6 +609,14 @@ func spanPromGetters(attrName attr.Name) attributes.Getter[*Span, string] {
 }
 
 func dbResponseStatusCode(span *Span) string {
+	// semconv defines db.response.status_code for Elasticsearch as the HTTP
+	// response code, reported whenever a response was received
+	if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeElasticsearch {
+		if span.Status != 0 {
+			return strconv.Itoa(span.Status)
+		}
+		return ""
+	}
 	if span.DBError.ErrorCode != "" {
 		return span.DBError.ErrorCode
 	}

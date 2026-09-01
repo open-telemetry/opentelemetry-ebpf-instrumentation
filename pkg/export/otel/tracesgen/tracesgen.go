@@ -680,6 +680,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = append(attrs, request.DBCollectionName(span.Elasticsearch.DBCollectionName))
 			attrs = append(attrs, request.ElasticsearchNodeName(span.Elasticsearch.NodeName))
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+			// semconv: for Elasticsearch, db.response.status_code is the HTTP
+			// response code, reported whenever a response was received
+			if span.Status != 0 {
+				attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(span.Status)))
+			}
 			if _, ok := optionalAttrs[attr.DBQueryText]; ok {
 				attrs = append(attrs, request.DBQueryText(span.Elasticsearch.DBQueryText))
 			}

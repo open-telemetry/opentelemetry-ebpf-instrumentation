@@ -1370,6 +1370,20 @@ func TestSpanOTELGetters_DBResponseStatusCode(t *testing.T) {
 			expected: "WRONGTYPE",
 		},
 		{
+			name:     "failed elasticsearch operation reports the HTTP status code",
+			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, Status: 404},
+			expected: "404",
+		},
+		{
+			name:     "successful elasticsearch operation also reports the HTTP status code",
+			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, Status: 200},
+			expected: "200",
+		},
+		{
+			name: "elasticsearch operation without a response omits the attribute",
+			span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch},
+		},
+		{
 			name: "successful operation omits the attribute",
 			span: &Span{Type: EventTypeSQLClient},
 		},

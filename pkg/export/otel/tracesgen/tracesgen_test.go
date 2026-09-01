@@ -6,6 +6,7 @@ package tracesgen
 import (
 	"encoding/json"
 	"math"
+	"strconv"
 	"testing"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -1657,6 +1658,20 @@ func TestTraceAttributesSelector_DBResponseStatusCode(t *testing.T) {
 		v, ok := attrValue(attrs, "db.response.status_code")
 		require.True(t, ok)
 		assert.Equal(t, "1146", v.AsString())
+	})
+
+	t.Run("elasticsearch reports the HTTP status code whenever a response was received", func(t *testing.T) {
+		for _, status := range []int{200, 404} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+				Method: "GET", Path: "/products/_search", Status: status,
+				Elasticsearch: &request.Elasticsearch{DBSystemName: "elasticsearch"},
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			v, ok := attrValue(attrs, "db.response.status_code")
+			require.True(t, ok, "status %d", status)
+			assert.Equal(t, strconv.Itoa(status), v.AsString())
+		}
 	})
 
 	t.Run("postgres failure reports the SQLSTATE (protocol has no vendor code)", func(t *testing.T) {

@@ -107,6 +107,12 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 			assert.True(ct, found)
 			assert.Equal(ct, dbSystemName, tag.Value)
 
+			// for Elasticsearch, db.response.status_code is the HTTP response
+			// code, reported whenever a response was received
+			tag, found = jaeger.FindIn(span.Tags, "db.response.status_code")
+			assert.True(ct, found)
+			assert.NotEmpty(ct, tag.Value)
+
 			tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
 			assert.True(ct, found)
 			assert.Empty(ct, tag.Value)
