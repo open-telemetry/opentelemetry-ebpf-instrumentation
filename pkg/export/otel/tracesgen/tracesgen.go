@@ -1338,7 +1338,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 		}
 		if span.Status == 1 && span.SQLError != nil {
-			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
+			attrs = append(attrs, request.DBResponseStatusCode(span.SQLError.ResponseStatusCode()))
 			attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.SQLErrorDescription())...)
 		}
 		if span.DBNamespace != "" {

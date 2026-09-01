@@ -121,7 +121,9 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=1049 sql_state=#42000 message=Unknown database 'obi'",
 		},
 		"postgresql": {
-			"db.response.status_code": "0",
+			// the postgres protocol carries no vendor error code, so the
+			// SQLSTATE is reported (matching error.type, per semconv)
+			"db.response.status_code": "42P01",
 			"error.type":              "42P01",
 			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=NA sql_state=42P01 message=relation \"obi.nonexisting\" does not exist",
 		},

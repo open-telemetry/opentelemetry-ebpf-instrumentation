@@ -1360,6 +1360,11 @@ func TestSpanOTELGetters_DBResponseStatusCode(t *testing.T) {
 			expected: "1146",
 		},
 		{
+			name:     "failed postgres operation reports the SQLSTATE (no vendor code in the protocol)",
+			span:     &Span{Type: EventTypeSQLClient, Status: 1, SQLError: &SQLError{SQLState: "08P01"}},
+			expected: "08P01",
+		},
+		{
 			name:     "failed redis operation reports the protocol error code",
 			span:     &Span{Type: EventTypeRedisClient, DBError: DBError{ErrorCode: "WRONGTYPE"}},
 			expected: "WRONGTYPE",

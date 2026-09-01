@@ -612,7 +612,7 @@ func dbResponseStatusCode(span *Span) string {
 		return span.DBError.ErrorCode
 	}
 	if span.Status == 1 && span.SQLError != nil {
-		return strconv.Itoa(int(span.SQLError.Code))
+		return span.SQLError.ResponseStatusCode()
 	}
 	return ""
 }
