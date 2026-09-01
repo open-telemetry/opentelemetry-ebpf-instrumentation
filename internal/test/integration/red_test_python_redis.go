@@ -6,6 +6,7 @@ package integration // import "go.opentelemetry.io/obi/internal/test/integration
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,12 +37,15 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	var results []promtest.Result
 	var err error
 	for _, span := range testCase.Spans {
-		// spans expected to carry db.namespace must also split the metric
-		// series by that label
-		dbNamespaceMatcher := ""
+		// spans expected to carry db.namespace or db.response.status_code
+		// must also split the metric series by those labels
+		var extraMatchers strings.Builder
 		for _, a := range span.Attributes {
-			if string(a.Key) == "db.namespace" {
-				dbNamespaceMatcher = `db_namespace="` + a.Value.AsString() + `",`
+			switch string(a.Key) {
+			case "db.namespace":
+				extraMatchers.WriteString(`db_namespace="` + a.Value.AsString() + `",`)
+			case "db.response.status_code":
+				extraMatchers.WriteString(`db_response_status_code="` + a.Value.AsString() + `",`)
 			}
 		}
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -50,7 +54,7 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 			// the suite config explicitly includes all attributes (include: ["*"])
 			results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
 				`db_operation_name="` + span.Name + `",` +
-				dbNamespaceMatcher +
+				extraMatchers.String() +
 				`server_port="6379",` +
 				`service_namespace="` + namespace + `"}`)
 			require.NoError(ct, err, "failed to query prometheus for %s", span.Name)
