@@ -138,3 +138,20 @@ func TestServiceAttributesAreNotMetricDefaults(t *testing.T) {
 		assert.Contains(t, definition.Default(), attr.ServiceNamespace)
 	})
 }
+
+func TestCPythonRuntimeDefinitions(t *testing.T) {
+	tests := []Name{
+		CPythonGCCollections,
+		CPythonGCCollectedObjects,
+		CPythonGCUncollectableObjects,
+	}
+
+	definitions := getDefinitions(0, NewGroupAttributes(nil))
+	for _, metric := range tests {
+		definition, ok := definitions[metric.Section]
+		require.True(t, ok)
+		assert.Contains(t, definition.All(), attr.ServiceName)
+		assert.Contains(t, definition.All(), attr.ServiceNamespace)
+		assert.Contains(t, definition.All(), attr.CPythonGCGeneration)
+	}
+}

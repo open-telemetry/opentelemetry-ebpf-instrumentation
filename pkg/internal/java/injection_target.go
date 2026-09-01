@@ -20,8 +20,9 @@ var openProcessHandle = procs.OpenProcessHandle
 // concurrently with the rest of the discovery pipeline without sharing that
 // object.
 type InjectionTarget struct {
-	Type svc.InstrumentableType
-	Pid  app.PID
+	Type                  svc.InstrumentableType
+	Pid                   app.PID
+	RuntimeMetricsEnabled bool
 	// TempDirEnv is the process' TMPDIR, empty when it does not set one.
 	TempDirEnv string
 	// StartTime pins the target to one incarnation of Pid. Injection is queued
@@ -45,11 +46,12 @@ func InjectionTargetFrom(ie *ebpf.Instrumentable) (InjectionTarget, error) {
 	}
 
 	return InjectionTarget{
-		Type:       ie.Type,
-		Pid:        pid,
-		TempDirEnv: ie.FileInfo.ServiceAttrs().EnvVars["TMPDIR"],
-		StartTime:  startTime,
-		Process:    process,
+		Type:                  ie.Type,
+		Pid:                   pid,
+		RuntimeMetricsEnabled: ie.FileInfo.ServiceAttrs().Features.AppRuntime(),
+		TempDirEnv:            ie.FileInfo.ServiceAttrs().EnvVars["TMPDIR"],
+		StartTime:             startTime,
+		Process:               process,
 	}, nil
 }
 

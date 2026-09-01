@@ -445,7 +445,7 @@ func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 }
 
 func (mr *SvcGraphMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
-	snap := pe.File.ServiceAttrs()
+	snap := pe.ServiceFile().ServiceAttrs()
 	pid := pe.File.Pid()
 	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "uid", snap.UID)
 

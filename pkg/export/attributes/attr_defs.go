@@ -271,6 +271,15 @@ func getDefinitions(
 		nil,
 	)
 
+	jvmThreadAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.JVMThreadDaemon: true,
+		},
+		nil,
+	)
+
 	nodejsEventLoopTimeAttributes := NewAttrReportGroup(
 		false,
 		[]*AttrReportGroup{&appAttributes},
@@ -450,9 +459,12 @@ func getDefinitions(
 				attr.GenAIToolCallResult:    false,
 				attr.GenAIResponseError:     false,
 				attr.DBResponseError:        false,
-				// Conditionally Required by OTel semconv when the request failed.
-				// Opt out via attributes.select.traces.exclude.
-				attr.ErrorType: true,
+				// Conditionally Required or Recommended by OTel semconv, so emitted
+				// by default. Opt out via attributes.select.traces.exclude.
+				attr.ErrorType:              true,
+				attr.NetworkPeerAddress:     true,
+				attr.NetworkPeerPort:        true,
+				attr.NetworkProtocolVersion: true,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {
@@ -540,6 +552,24 @@ func getDefinitions(
 			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
+		CPythonGCCollections.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CPythonGCGeneration: true,
+			},
+		},
+		CPythonGCCollectedObjects.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CPythonGCGeneration: true,
+			},
+		},
+		CPythonGCUncollectableObjects.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CPythonGCGeneration: true,
+			},
+		},
 		JVMMemoryUsed.Section: {
 			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
 			Attributes: map[attr.Name]Default{},
@@ -554,6 +584,34 @@ func getDefinitions(
 		},
 		JVMMemoryUsedAfterLastGC.Section: {
 			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMClassLoaded.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMClassUnloaded.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMClassCount.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMThreadCount.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmThreadAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMCPUTime.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMCPUCount.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMCPURecentUtilization.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 		NodejsEventLoopTime.Section: {

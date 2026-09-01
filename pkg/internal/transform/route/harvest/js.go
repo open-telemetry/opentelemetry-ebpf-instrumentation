@@ -20,6 +20,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/internal/denotools"
 	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
 )
 
@@ -1585,9 +1586,30 @@ var (
 	cwdForPID     = ebpfcommon.CWDForPID
 )
 
+func normalizeFileEntry(path string) string {
+	if strings.HasPrefix(path, "file:///") {
+		_, path, _ = strings.Cut(path, "file://")
+	}
+	return path
+}
+
 // FindNodeJSAppDir locates the root directory of a Node.js application by
 // reading its command line and working directory from /proc.
 func FindNodeJSAppDir(pid app.PID) (string, error) {
+	return findJSAppDir(pid, func(args []string) string {
+		entry := nodejstools.ParseNodeLaunch(args).EntryPoint
+		return normalizeFileEntry(entry)
+	})
+}
+
+func FindDenoAppDir(pid app.PID) (string, error) {
+	return findJSAppDir(pid, func(args []string) string {
+		entry := denotools.ParseDenoLaunch(args).EntryPoint
+		return normalizeFileEntry(entry)
+	})
+}
+
+func findJSAppDir(pid app.PID, parseEntryPoint func([]string) string) (string, error) {
 	rootDir := rootDirForPID(pid)
 	_, args, err := cmdlineForPID(pid)
 	if err != nil {
@@ -1598,7 +1620,7 @@ func FindNodeJSAppDir(pid app.PID) (string, error) {
 		return "", fmt.Errorf("error finding cwd: %w", err)
 	}
 
-	entryPoint := nodejstools.ParseNodeLaunch(args).EntryPoint
+	entryPoint := parseEntryPoint(args)
 
 	dir := FindScriptDirectory(rootDir, entryPoint, workdir)
 	if dir == "" {
@@ -1672,7 +1694,18 @@ func ExtractNodejsRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	return extractJSRoutes(dir)
+}
 
+func ExtractDenoRoutes(pid app.PID) (*RouteHarvesterResult, error) {
+	dir, err := FindDenoAppDir(pid)
+	if err != nil {
+		return nil, err
+	}
+	return extractJSRoutes(dir)
+}
+
+func extractJSRoutes(dir string) (*RouteHarvesterResult, error) {
 	jsExtractor := NewRouteExtractor()
 
 	if err := jsExtractor.extractNextJSRoutesFromManifest(dir); err != nil {
@@ -1681,7 +1714,7 @@ func ExtractNodejsRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 			"error", err)
 	}
 
-	err = jsExtractor.ScanDirectory(dir)
+	err := jsExtractor.ScanDirectory(dir)
 	if err != nil {
 		return nil, fmt.Errorf("error scanning directory, error %w", err)
 	}

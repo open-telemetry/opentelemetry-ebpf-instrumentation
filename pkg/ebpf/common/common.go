@@ -95,7 +95,8 @@ const (
 	EventTypeKHTTP2ResponseHeaders = 26 // Internal response HPACK observation
 	EventTypeNodejsGC              = 27 // EVENT_NODEJS_GC - Node.js/V8 garbage-collection cycle
 	EventTypeNodejsHeapSpace       = 28 // EVENT_NODEJS_HEAP_SPACE - Node.js/V8 heap-space sample
-
+	EventTypePythonRuntimeMetric   = 29 // EVENT_PYTHON_RUNTIME_METRICS - Python GC counters
+	EventTypeJVMRuntimeMetrics     = 30 // EVENT_JVM_RUNTIME_METRICS - JVM runtime metrics
 )
 
 // Kernel-side classification. These alias the bpf2go-generated constants

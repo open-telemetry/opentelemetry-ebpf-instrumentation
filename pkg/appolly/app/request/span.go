@@ -1317,6 +1317,7 @@ type Span struct {
 	Type           EventType      `json:"type"`
 	SpanKind       trace.SpanKind `json:"-"`
 	Flags          uint8          `json:"-"`
+	ProtoVersion   ProtoVersion   `json:"-"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	FullPath       string         `json:"-"`

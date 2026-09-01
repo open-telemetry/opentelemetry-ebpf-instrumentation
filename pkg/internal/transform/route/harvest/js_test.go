@@ -1579,7 +1579,7 @@ app.get('/api/health', (req, res) => {
 			mockRootDir: tempDir,
 			mockCmdline: []string{"/nonexistent/script.js"},
 			mockCwd:     "/nonexistent",
-			expectedErr: "error scanning directory, error lstat",
+			expectedErr: "failed to find script directory",
 		},
 		{
 			name:        "relative path in args",
@@ -1686,6 +1686,67 @@ app.get('/api/health', (req, res) => {
 			}
 		})
 	}
+}
+
+func TestNormalizeFileEntry(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "file URL", path: "file:///opt/app/main.ts", want: "/opt/app/main.ts"},
+		{name: "file URL root", path: "file:///", want: "/"},
+		{name: "absolute path", path: "/opt/app/main.ts", want: "/opt/app/main.ts"},
+		{name: "relative path", path: "src/main.ts", want: "src/main.ts"},
+		{name: "HTTP URL", path: "https://example.com/main.ts", want: "https://example.com/main.ts"},
+		{name: "empty path", path: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, normalizeFileEntry(tt.path))
+		})
+	}
+}
+
+func TestFindDenoAppDir(t *testing.T) {
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+	origIsDir := isDirFunc
+	t.Cleanup(func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+		isDirFunc = origIsDir
+	})
+
+	tempDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
+
+	rootDirForPID = func(app.PID) string { return tempDir }
+	cmdlineForPID = func(app.PID) (string, []string, error) {
+		return "deno", []string{"run", "-A", "/app/server.ts"}, nil
+	}
+	cwdForPID = func(app.PID) (string, error) { return "/workdir", nil }
+	isDirFunc = isDir
+
+	dir, err := FindDenoAppDir(12345)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tempDir, "app")+string(filepath.Separator), dir)
+
+	t.Run("file URL", func(t *testing.T) {
+		cmdlineForPID = func(app.PID) (string, []string, error) {
+			return "deno", []string{"run", "-A", "file:///app/server.ts"}, nil
+		}
+
+		dir, err := FindDenoAppDir(12345)
+
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(tempDir, "app")+string(filepath.Separator), dir)
+	})
 }
 
 func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {

@@ -1546,6 +1546,7 @@
         "sampling_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Controls HotSpot memory event sampling and Java agent class, thread, and CPU snapshot collection.",
           "default": "1s",
           "examples": [
             "30s",
@@ -1582,6 +1583,7 @@
         },
         "enabled": {
           "type": "boolean",
+          "description": "Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.",
           "default": true,
           "x-env-var": "OTEL_EBPF_JAVAAGENT_ENABLED"
         }

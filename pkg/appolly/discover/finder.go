@@ -146,7 +146,6 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	storedExecutableTypes := msgh.QueueFromConfig[[]Event[ebpf.Instrumentable]](pf.cfg, pf.ctxInfo.Metrics, "storedExecutableTypes")
 	swi.Add(ContainerStoreUpdaterProvider(pf.ctxInfo.K8sInformer, processContextEnrichedTypes, storedExecutableTypes),
 		swarm.WithID("ContainerStoreUpdater"))
-
 	swi.Add(traceAttacherProvider(&traceAttacher{
 		Cfg:                 pf.cfg,
 		OutputTracerEvents:  tracerEvents,

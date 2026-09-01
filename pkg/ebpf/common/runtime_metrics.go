@@ -6,13 +6,27 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 
 	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
+var nextRuntimeMetricGeneration atomic.Uint64
+
+// NewRuntimeMetricGeneration returns a process-lifetime identifier shared by runtime tracers.
+func NewRuntimeMetricGeneration() uint64 {
+	for {
+		if generation := nextRuntimeMetricGeneration.Add(1); generation != 0 {
+			return generation
+		}
+	}
+}
+
 type RuntimeMetricSender interface {
 	SendGoRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
+	SendPythonRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
+	SendJVMGCMetrics(context.Context, []appruntime.JVMGCEvent)
 	SendJVMRuntimeMetrics(context.Context, []appruntime.JVMRuntimeEvent)
 	SendNodejsRuntimeMetrics(context.Context, []appruntime.NodejsRuntimeEvent)
 	SendNodejsGCMetrics(context.Context, []appruntime.NodejsGCEvent)
@@ -49,7 +63,12 @@ func HandleRuntimeMetricsRecord(
 			return true, nil
 		}
 		return true, eventContext.RuntimeMetrics.SendGoRuntimeMetricRecord(ctx, record, filter)
-	case EventTypeJVMMemoryPoolGC:
+	case EventTypePythonRuntimeMetric:
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
+			return true, nil
+		}
+		return true, eventContext.RuntimeMetrics.SendPythonRuntimeMetricRecord(ctx, record, filter)
+	case EventTypeJVMMemoryPoolGC, EventTypeJVMRuntimeMetrics:
 		for _, handler := range handlers {
 			if handler == nil {
 				continue

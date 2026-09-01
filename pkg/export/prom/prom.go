@@ -241,6 +241,7 @@ type metricsReporter struct {
 	goRuntimeHistograms  *goRuntimeHistogramCollector
 	jvmRuntimeMetrics    jvmRuntimeMetricsCollector
 	nodejsRuntimeMetrics nodejsRuntimeMetricsCollector
+	pythonRuntimeMetrics pythonRuntimeMetricsCollector
 
 	promConnect *connector.PrometheusManager
 
@@ -796,6 +797,7 @@ func newReporter(
 		mr.goRuntimeHistograms = newGoRuntimeHistogramCollector(runtimeLabelNames)
 		mr.jvmRuntimeMetrics = newJVMRuntimeMetricsCollector(cfg)
 		mr.nodejsRuntimeMetrics = newNodejsRuntimeMetricsCollector(cfg)
+		mr.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(runtimeLabelNames, timeNow, cfg.TTL)
 	}
 
 	// testing aid
@@ -888,6 +890,7 @@ func newReporter(
 		registeredMetrics = append(registeredMetrics, mr.goRuntimeHistograms)
 		registeredMetrics = append(registeredMetrics, mr.jvmRuntimeMetrics.collectors()...)
 		registeredMetrics = append(registeredMetrics, mr.nodejsRuntimeMetrics.collectors()...)
+		registeredMetrics = append(registeredMetrics, mr.pythonRuntimeMetrics.collectors()...)
 	}
 
 	if is.GPUEnabled() {
@@ -1510,12 +1513,13 @@ func (r *metricsReporter) deleteMetricsForServicePreservingRuntimeHistograms(ser
 }
 
 func (r *metricsReporter) deleteMetricsForAttributeUpdate(previous, current *svc.Attrs) {
-	previousLabels := runtimeHistogramLabelTuple(r.labelValuesTargetInfo(previous))
-	currentLabels := runtimeHistogramLabelTuple(r.labelValuesTargetInfo(current))
+	previousLabels := runtimeMetricLabelTuple(r.labelValuesTargetInfo(previous))
+	currentLabels := runtimeMetricLabelTuple(r.labelValuesTargetInfo(current))
 	if previousLabels == currentLabels && r.deleteEventMetricsPreservingHistograms != nil {
 		r.deleteEventMetricsPreservingHistograms(previous)
 		return
 	}
+	r.pythonRuntimeMetrics.delete(r.labelValuesTargetInfo(previous))
 	r.deleteEventMetrics(previous)
 }
 
@@ -1531,22 +1535,26 @@ func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
 func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Logger) {
 	r.runtimeMu.Lock()
 	defer r.runtimeMu.Unlock()
+	if pe.Type == exec.ProcessEventTerminated {
+		r.collectRuntimeMetricsLocked(runtimemetrics.PythonRuntimeMetricsFromProcessEvent(pe))
+	}
 
-	snap := pe.File.ServiceAttrs()
+	snap := pe.ServiceFile().ServiceAttrs()
 	pid := pe.File.Pid()
 	log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "attrs", snap.UID)
 	uid := snap.UID
 
 	if pe.Type == exec.ProcessEventCreated {
+		trackedUID, pidTracked := r.pidsTracker.TracksPID(pid)
 		// Handle the case when the PID changed its feathers, e.g. got new metadata impacting the service name.
 		// There's no new PID, just an update to the metadata.
-		if staleUID, exists := r.pidsTracker.TracksPID(pid); exists && !staleUID.Equals(&uid) {
-			log.Debug("updating older service definition", "from", staleUID, "new", uid)
-			r.pidsTracker.ReplaceUID(staleUID, uid)
-			if origAttrs, ok := r.serviceMap[staleUID]; ok {
+		if pidTracked && !trackedUID.Equals(&uid) {
+			log.Debug("updating older service definition", "from", trackedUID, "new", uid)
+			r.pidsTracker.ReplaceUID(trackedUID, uid)
+			if origAttrs, ok := r.serviceMap[trackedUID]; ok {
 				log.Debug("updating service attributes for", "service", uid)
 				r.deleteMetricsForAttributeUpdate(&origAttrs, &snap)
-				delete(r.serviceMap, staleUID)
+				delete(r.serviceMap, trackedUID)
 				r.serviceMap[uid] = snap
 				r.createEventMetrics(&snap)
 				// we don't setup the pid again, we just replaced the metrics it's associated with
@@ -1568,6 +1576,13 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 	} else {
 		if r.goRuntimeHistograms != nil {
 			r.goRuntimeHistograms.DeletePID(pid)
+		}
+		if origUID, exists := r.pidsTracker.TracksPID(pid); exists {
+			r.jvmRuntimeMetrics.deleteSource(
+				r.origService(origUID, &snap),
+				pid,
+				pe.File.RuntimeMetricGeneration(pid),
+			)
 		}
 		if deleted, origUID := r.disassociatePIDFromService(pid); deleted {
 			mlog().Debug("deleting infos for", "pid", pid, "attrs", uid)
