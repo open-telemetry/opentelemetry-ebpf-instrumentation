@@ -2,8 +2,10 @@
 # https://docs.zizmor.sh/configuration/
 
 rules:
-  # NOTICES/{amd64,arm64} contains unmodified third-party license snapshots,
-  # including upstream GitHub metadata that this repository does not execute.
+  # zizmor matches configuration ignores by base name; path-qualified ignore
+  # rules are not supported. NOTICES/{amd64,arm64} contains unmodified
+  # third-party license snapshots, including upstream GitHub metadata that this
+  # repository does not execute.
   # These are the only files with these base names in this repository.
   artipacked:
     ignore:
