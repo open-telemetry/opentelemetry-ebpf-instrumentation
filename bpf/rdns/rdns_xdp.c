@@ -7,6 +7,9 @@
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/protocol_defs.h>
+#include <common/scratch_mem.h>
+
 #include <logger/bpf_dbg.h>
 
 // Reverse DNS implementation by means of XDP packet inspection.
@@ -55,6 +58,31 @@ static __always_inline __u8 get_bit(__u8 word, __u8 offset) {
     return (word >> offset) & 0x1;
 }
 
+// IPv6 constants
+enum {
+    IPPROTO_HOPOPTS = 0,
+    IPPROTO_ROUTING = 43,
+    IPPROTO_FRAGMENT = 44,
+    IPPROTO_DSTOPTS = 60,
+};
+
+SCRATCH_MEM_TYPED(data_off, __u32)
+
+enum {
+    TAIL_PARSE_DNS_RESPONSE,
+};
+
+int parse_dns_response(struct xdp_md *ctx);
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 1);
+    __uint(key_size, sizeof(u32));
+    __array(values, int(void *));
+} rdns_xdp_progs SEC(".maps") = {
+    .values = {[TAIL_PARSE_DNS_RESPONSE] = (void *)&parse_dns_response},
+};
+
 // Helper functions to access packet data safely
 static __always_inline void *ctx_xdp_data(struct xdp_md *ctx) {
     void *data;
@@ -76,8 +104,14 @@ static __always_inline void *ctx_xdp_data_end(struct xdp_md *ctx) {
     return data_end;
 }
 
+static __always_inline struct ethhdr *eth_header(struct xdp_md *ctx) {
+    void *data = ctx_xdp_data(ctx);
+
+    return (data + sizeof(struct ethhdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
+}
+
 // Helper functions to parse network headers
-static __always_inline struct iphdr *ip_header(struct xdp_md *ctx) {
+static __always_inline struct iphdr *ip4_header(struct xdp_md *ctx) {
     void *data = ctx_xdp_data(ctx);
 
     data += sizeof(struct ethhdr);
@@ -85,8 +119,16 @@ static __always_inline struct iphdr *ip_header(struct xdp_md *ctx) {
     return (data + sizeof(struct iphdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
 }
 
-static __always_inline struct udphdr *udp_header(struct xdp_md *ctx) {
-    struct iphdr *iph = ip_header(ctx);
+static __always_inline struct ipv6hdr *ip6_header(struct xdp_md *ctx) {
+    void *data = ctx_xdp_data(ctx);
+
+    data += sizeof(struct ethhdr);
+
+    return (data + sizeof(struct ipv6hdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
+}
+
+static __always_inline struct udphdr *udp4_header(struct xdp_md *ctx) {
+    struct iphdr *iph = ip4_header(ctx);
 
     if (!iph) {
         return NULL;
@@ -101,6 +143,75 @@ static __always_inline struct udphdr *udp_header(struct xdp_md *ctx) {
     void *data = (void *)iph + advance;
 
     return (data + sizeof(struct udphdr) > ctx_xdp_data_end(ctx)) ? NULL : data;
+};
+
+static __always_inline struct udphdr *udp6_header(struct xdp_md *ctx) {
+    struct ipv6hdr *iph = ip6_header(ctx);
+
+    if (!iph) {
+        return NULL;
+    }
+
+    if (iph->version != 6) {
+        return NULL;
+    }
+
+    void *ptr = (void *)(iph + 1);
+    u8 curr_hdr = iph->nexthdr;
+
+    for (u8 i = 0; i < 4; i++) {
+        if (curr_hdr == IPPROTO_UDP) {
+            break;
+        }
+
+        const struct ipv6_opt_hdr *opt_hdr = ptr;
+
+        if ((const void *)(opt_hdr + 1) > ctx_xdp_data_end(ctx)) {
+            return 0;
+        }
+
+        switch (curr_hdr) {
+        case IPPROTO_HOPOPTS:
+        case IPPROTO_ROUTING:
+        case IPPROTO_DSTOPTS:
+            ptr += ((u32)opt_hdr->hdrlen + 1) * 8;
+            break;
+        case IPPROTO_FRAGMENT:
+            ptr += 8;
+            break;
+        default:
+            return 0;
+        }
+
+        curr_hdr = opt_hdr->nexthdr;
+    }
+
+    if (curr_hdr != IPPROTO_UDP) {
+        return NULL;
+    }
+
+    return (ptr + sizeof(struct udphdr) > ctx_xdp_data_end(ctx)) ? NULL : ptr;
+}
+
+static __always_inline struct udphdr *udp_header(struct xdp_md *ctx) {
+    struct ethhdr *eth = eth_header(ctx);
+
+    if (!eth) {
+        return NULL;
+    }
+
+    const __u16 h_proto = bpf_ntohs(eth->h_proto);
+
+    switch (h_proto) {
+    case ETH_P_IP:
+        return udp4_header(ctx);
+    case ETH_P_IPV6:
+        return udp6_header(ctx);
+    default:
+        break;
+    }
+
+    return NULL;
 };
 
 // Validates and calculates the size of a DNS question section
@@ -119,9 +230,9 @@ static __always_inline __u32 validate_qsection(struct xdp_md *ctx, const unsigne
         ++data;
 
         if (len == 0) {
-            size += sizeof(__u16); // account for QTYPE and QCLASS
+            size += sizeof(__u32); // account for QTYPE and QCLASS
 
-            if ((void *)(data + sizeof(__u16)) < ctx_xdp_data_end(ctx)) {
+            if ((void *)(data + sizeof(__u32)) < ctx_xdp_data_end(ctx)) {
                 return size;
             } else {
                 return 0;
@@ -169,8 +280,28 @@ static __always_inline void submit_dns_packet(struct xdp_md *ctx, const unsigned
 }
 
 // Parses a DNS response packet and validates its structure
-static __always_inline void parse_dns_response(struct xdp_md *ctx,
-                                               const unsigned char *const data) {
+// TAIL_PARSE_DNS_RESPONSE
+SEC("xdp")
+int parse_dns_response(struct xdp_md *ctx) {
+    const __u32 *offset = data_off_mem();
+
+    if (!offset) {
+        return XDP_PASS;
+    }
+
+    const __u32 off = *offset;
+
+    if (off >= 0x7fff) {
+        return XDP_PASS;
+    }
+
+    const unsigned char *data = ctx_xdp_data(ctx);
+    data += off + UDP_HDR_SIZE;
+
+    if (data + DNS_HDR_SIZE > (const unsigned char *)ctx_xdp_data_end(ctx)) {
+        return XDP_PASS;
+    }
+
     // Extract DNS header fields
     const __u8 flags0 = *(data + 2);
     const __u8 flags1 = *(data + 3);
@@ -185,7 +316,7 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
     // heuristic check to see if this is a DNS response
     if (qr != QR_RESPONSE || opcode != OP_QUERY || z != 0 || rcode != 0 || qdcount == 0 ||
         ancount == 0) {
-        return;
+        return XDP_PASS;
     }
 
     if (g_bpf_debug) {
@@ -214,7 +345,7 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
 
         if (qsection_size == 0) {
             bpf_d_printk("invalid qsection, bailing");
-            return;
+            return XDP_PASS;
         }
 
         dns_packet_size += qsection_size;
@@ -225,6 +356,8 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
 
     // Submit valid DNS packet to ring buffer
     submit_dns_packet(ctx, data);
+
+    return XDP_PASS;
 }
 
 // Main XDP program entry point
@@ -257,8 +390,14 @@ int dns_response_tracker(struct xdp_md *ctx) {
         return XDP_PASS;
     }
 
-    // Parse and process DNS response
-    parse_dns_response(ctx, (unsigned char *)(udp) + UDP_HDR_SIZE);
+    __u32 *offset = data_off_mem();
+
+    if (!offset) {
+        return XDP_PASS;
+    }
+
+    *offset = (void *)udp - ctx_xdp_data(ctx);
+    bpf_tail_call_static(ctx, &rdns_xdp_progs, TAIL_PARSE_DNS_RESPONSE);
 
     return XDP_PASS;
 }

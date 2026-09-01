@@ -839,11 +839,11 @@ func TestSpanOTELGetters_ErrorTypeOmitted(t *testing.T) {
 	kv := getter(&Span{Type: EventTypeHTTP, Status: 200})
 	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
 
-	// failed HTTP request: generic error.type
+	// failed HTTP request: the status code classifies the failure
 	kv = getter(&Span{Type: EventTypeHTTP, Status: 500})
 	require.True(t, kv.Valid())
 	assert.Equal(t, string(attr.ErrorType), string(kv.Key))
-	assert.Equal(t, "error", kv.Value.AsString())
+	assert.Equal(t, "500", kv.Value.AsString())
 
 	// failed Memcached request keeps its specific error code
 	kv = getter(&Span{
