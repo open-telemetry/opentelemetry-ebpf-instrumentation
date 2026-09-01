@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
-	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -194,19 +193,18 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return attribute.KeyValue{}
 		}
 	case attr.DBNamespace:
-		getter = func(span *Span) attribute.KeyValue { return DBNamespace(span.DBNamespace) }
+		getter = func(span *Span) attribute.KeyValue {
+			// db.namespace is Conditionally Required "if available": omit it
+			// instead of emitting an empty value
+			if span.DBNamespace == "" {
+				return attribute.KeyValue{}
+			}
+			return DBNamespace(span.DBNamespace)
+		}
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
-			if span.Type == EventTypeDNS && span.Status != int(dnsparser.RCodeSuccess) {
-				return ErrorType(dnsparser.RCode(span.Status).String())
-			} else if SpanStatusCode(span) == StatusCodeError {
-				switch span.Type {
-				case EventTypeMemcachedClient, EventTypeMemcachedServer:
-					if span.DBError.ErrorCode != "" {
-						return ErrorType(span.DBError.ErrorCode)
-					}
-				}
-				return ErrorType("error")
+			if errType := SpanErrorType(span); errType != "" {
+				return ErrorType(errType)
 			}
 			// error.type only applies to failed requests: return an invalid
 			// KeyValue so the attribute is omitted instead of emitted empty.
@@ -329,7 +327,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				} else if s.SubType == HTTPSubtypeSQLPP {
 					return DBCollectionName(s.Route)
 				}
-			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient:
+			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient, EventTypeAerospikeServer:
 				return DBCollectionName(s.Path)
 			}
 			return DBCollectionName("")
@@ -611,7 +609,7 @@ func dbSystemNameForSpan(span *Span) string {
 		return semconv.DBSystemNameMongoDB.Value.AsString()
 	case EventTypeCouchbaseClient:
 		return semconv.DBSystemNameCouchbase.Value.AsString()
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return "aerospike"
 	case EventTypeHTTPClient:
 		if span.SubType == HTTPSubtypeElasticsearch && span.Elasticsearch != nil {

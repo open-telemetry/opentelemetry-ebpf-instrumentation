@@ -6,7 +6,7 @@ metrics:
   features:
     - application_runtime
 jvm_runtime_metrics:
-  sampling_interval: 10ms
+  sampling_interval: 100ms
 attributes:
   select:
     "*":

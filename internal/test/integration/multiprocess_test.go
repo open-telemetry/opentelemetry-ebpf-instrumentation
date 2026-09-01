@@ -172,7 +172,7 @@ func TestMultiProcessAppCPTCPOnly(t *testing.T) {
 // Prevents that two instances of the same process report traces or metrics by duplicate
 func checkReportedOnlyOnce(t *testing.T, baseURL, serviceName string) {
 	const path = "/check-only-once"
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		resp, err := http.Get(baseURL + path)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -223,7 +223,7 @@ func checkInstrumentedProcessesMetric(t *testing.T) {
 func testPartialLanguageHTTPProbes(t *testing.T) {
 	waitForTestComponentsSub(t, "http://localhost:8091", "/dist") // rust
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		ti.DoHTTPGet(t, "http://localhost:8091/dist", 200)
 	}
 

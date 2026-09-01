@@ -27,7 +27,7 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/"+urlPath, 200)
 	}
 
@@ -36,12 +36,21 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	var results []promtest.Result
 	var err error
 	for _, span := range testCase.Spans {
+		// spans expected to carry db.namespace must also split the metric
+		// series by that label
+		dbNamespaceMatcher := ""
+		for _, a := range span.Attributes {
+			if string(a.Key) == "db.namespace" {
+				dbNamespaceMatcher = `db_namespace="` + a.Value.AsString() + `",`
+			}
+		}
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			// server_port is present despite being the redis default port because
 			// the suite config explicitly includes all attributes (include: ["*"])
 			results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
 				`db_operation_name="` + span.Name + `",` +
+				dbNamespaceMatcher +
 				`server_port="6379",` +
 				`service_namespace="` + namespace + `"}`)
 			require.NoError(ct, err, "failed to query prometheus for %s", span.Name)
@@ -144,6 +153,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 						attribute.String("db.query.text", "INVALID_COMMAND"),
 						attribute.Bool("error", true),
 						attribute.String("db.response.status_code", "ERR"),
+						attribute.String("error.type", "ERR"),
 						attribute.String("otel.status_description", "ERR unknown command 'INVALID_COMMAND', with args beginning with: "),
 					},
 				},
@@ -161,6 +171,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 						attribute.String("db.query.text", "LPUSH obi-error rocks more"),
 						attribute.Bool("error", true),
 						attribute.String("db.response.status_code", "WRONGTYPE"),
+						attribute.String("error.type", "WRONGTYPE"),
 						attribute.String("otel.status_description", "WRONGTYPE Operation against a key holding the wrong kind of value"),
 					},
 				},
@@ -171,6 +182,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 						attribute.String("db.query.text", "EVALSHA INVALID_SHA 0"),
 						attribute.Bool("error", true),
 						attribute.String("db.response.status_code", "NOSCRIPT"),
+						attribute.String("error.type", "NOSCRIPT"),
 						attribute.String("otel.status_description", "NOSCRIPT No matching script. Please use EVAL."),
 					},
 				},

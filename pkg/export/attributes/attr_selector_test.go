@@ -200,12 +200,26 @@ func TestDefault_DBClientDuration(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)
 	assert.Equal(t, []attr.Name{
+		attr.DBNamespace,
 		attr.DBOperation,
 		attr.DBSystemName,
 		attr.ErrorType,
 		attr.ServerAddr,
 		attr.ServerPort,
 	}, p.For(DBClientDuration))
+}
+
+func TestDefault_DBServerDuration(t *testing.T) {
+	p, err := NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{
+		attr.DBNamespace,
+		attr.DBOperation,
+		attr.DBSystemName,
+		attr.ErrorType,
+		attr.ServerAddr,
+		attr.ServerPort,
+	}, p.For(DBServerDuration))
 }
 
 func TestExplicitlyIncluded(t *testing.T) {

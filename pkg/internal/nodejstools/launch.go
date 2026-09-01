@@ -35,6 +35,7 @@ var optionsWithValues = map[string]struct{}{
 	"--dns-result-order":                  {},
 	"--env-file":                          {},
 	"--env-file-if-exists":                {},
+	"--experimental-config-file":          {},
 	"--experimental-default-type":         {},
 	"--experimental-loader":               {},
 	"--experimental-package-map":          {},

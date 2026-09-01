@@ -23,7 +23,7 @@ services:
   obi:
     build:
       context: ../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile-with-javaagent
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
@@ -46,7 +46,7 @@ services:
       OTEL_EBPF_EXECUTABLE_PATH: "java"
       OTEL_SERVICE_NAME: "jvm-runtime"
       OTEL_EBPF_PROMETHEUS_PORT: "8999"
-      OTEL_EBPF_PROMETHEUS_TTL: "250ms"
+      OTEL_EBPF_PROMETHEUS_TTL: "30s"
     depends_on:
       testserver:
         condition: service_started

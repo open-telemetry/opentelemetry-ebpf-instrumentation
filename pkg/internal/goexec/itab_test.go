@@ -3,7 +3,14 @@
 
 package goexec
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/test/tools"
+)
 
 func TestIsITabEntry(t *testing.T) {
 	cases := []struct {
@@ -44,4 +51,56 @@ func TestITabType(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
+	goVersion, _, err := getGoDetails(smallELF)
+	require.NoError(t, err)
+	if !goVersionAtLeast(goVersion, "1.27.0") {
+		t.Skip("Go 1.27 moduledata is not available")
+	}
+
+	elfFile := compileELF(
+		tools.ProjectDir()+"/pkg/internal/goexec/testdata/itab/main.go",
+		"-ldflags", "-s -w",
+	)
+	t.Cleanup(func() { require.NoError(t, elfFile.Close()) })
+
+	implementations, err := findInterfaceImpls(elfFile)
+	require.NoError(t, err)
+	for _, typeName := range []string{
+		"*main.workerImpl",
+		"main.arrayWorker",
+		"main.chanWorker",
+		"main.funcWorker",
+		"main.mapWorker",
+		"main.scalarWorker",
+		"main.sliceWorker",
+		"main.structWorker",
+	} {
+		assert.NotZero(t, implementations[typeName], typeName)
+	}
+	assert.NotZero(t, implementations["go.opentelemetry.io/otel/trace.attributeOption"])
+	assert.NotZero(t, implementations["*errors.errorString"])
+}
+
+func TestLoadGoTypeMetadataABI(t *testing.T) {
+	_, err := loadGoTypeMetadataABI("go1.27.999")
+	require.NoError(t, err)
+
+	_, err = loadGoTypeMetadataABI("go999.0.0")
+	require.ErrorContains(t, err, "runtime ABI is not generated")
+}
+
+func TestFindGRPCInterfaceImplsFromGo127Moduledata(t *testing.T) {
+	goVersion, _, err := getGoDetails(smallGRPCElf)
+	require.NoError(t, err)
+	if !goVersionAtLeast(goVersion, "1.27.0") {
+		t.Skip("Go 1.27 moduledata is not available")
+	}
+
+	implementations, err := findInterfaceImpls(smallGRPCElf)
+	require.NoError(t, err)
+	assert.NotZero(t, implementations["*google.golang.org/grpc/internal/credentials.syscallConn"])
+	assert.NotZero(t, implementations["*crypto/tls.Conn"])
 }

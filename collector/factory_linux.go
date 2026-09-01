@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/collector/receiver"
 
 	"go.opentelemetry.io/obi/collector/internal"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -25,6 +26,7 @@ var loggerOnce sync.Once
 func initLogger(rs receiver.Settings) {
 	loggerOnce.Do(func() {
 		slog.SetDefault(slog.New(zapslog.NewHandler(rs.Logger.Core())))
+		klogbridge.Install()
 	})
 }
 

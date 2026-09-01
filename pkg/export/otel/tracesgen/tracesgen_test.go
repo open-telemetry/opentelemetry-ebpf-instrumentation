@@ -590,7 +590,7 @@ func TestGenAIResponseErrorStatusMessage(t *testing.T) {
 				GenAI:   tt.genAI,
 			}
 
-			defaultSpan := generateSingleTraceSpan(t, span, nil)
+			defaultSpan := generateSingleTraceSpan(t, span, defaultTraceAttrs(t))
 			assert.Equal(t, ptrace.StatusCodeError, defaultSpan.Status().Code())
 			assert.Empty(t, defaultSpan.Status().Message())
 			assertSpanStringAttribute(t, defaultSpan, semconv.ErrorTypeKey, tt.errorType)
@@ -599,6 +599,7 @@ func TestGenAIResponseErrorStatusMessage(t *testing.T) {
 
 			selectedSpan := generateSingleTraceSpan(t, span, map[attr.Name]struct{}{
 				attr.GenAIResponseError: {},
+				attr.ErrorType:          {},
 			})
 			assert.Equal(t, ptrace.StatusCodeError, selectedSpan.Status().Code())
 			assert.Equal(t, rawMessage, selectedSpan.Status().Message())
@@ -789,6 +790,7 @@ func TestGenAIResponseErrorPreservesProtocolStatusMessages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			exported := generateSingleTraceSpan(t, tt.span, map[attr.Name]struct{}{
 				attr.GenAIResponseError: {},
+				attr.ErrorType:          {},
 			})
 			assert.Equal(t, ptrace.StatusCodeError, exported.Status().Code())
 			assert.Equal(t, tt.message, exported.Status().Message())
@@ -1395,4 +1397,250 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 			}
 		})
 	}
+}
+
+func defaultTraceAttrs(t *testing.T) map[attr.Name]struct{} {
+	t.Helper()
+	selected, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+	return selected
+}
+
+func errorTypeValue(attrs []attribute.KeyValue) (attribute.Value, bool) {
+	for _, kv := range attrs {
+		if kv.Key == semconv.ErrorTypeKey {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
+}
+
+func attrValue(attrs []attribute.KeyValue, key string) (attribute.Value, bool) {
+	for _, kv := range attrs {
+		if string(kv.Key) == key {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
+}
+
+func countAttr(attrs []attribute.KeyValue, key string) int {
+	n := 0
+	for _, kv := range attrs {
+		if string(kv.Key) == key {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTraceAttributesSelector_ErrorType(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("omitted when the span did not fail", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
+		_, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		assert.False(t, ok)
+	})
+
+	t.Run("http carries the status code", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 503}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "503", v.AsString())
+	})
+
+	t.Run("grpc carries the status code name", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeGRPC, Path: "/pkg.Svc/M", Status: 14}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "UNAVAILABLE", v.AsString())
+	})
+
+	t.Run("db carries the server error code", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeRedisClient,
+			Method:  "GET",
+			Status:  1,
+			DBError: request.DBError{ErrorCode: "WRONGTYPE"},
+		}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "WRONGTYPE", v.AsString())
+	})
+
+	t.Run("falls back to _OTHER with no classification", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeRedisClient, Method: "GET", Status: 1}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "_OTHER", v.AsString())
+	})
+
+	// A subtype is a different protocol over HTTP, so the HTTP status is not
+	// its error. With nothing parsed, it reports nothing.
+	// These subtypes keep the full HTTP attribute set, so they are HTTP spans and
+	// the status code classifies a failure semconv requires a value for.
+	t.Run("http subtypes fall back to the status code", func(t *testing.T) {
+		for _, sub := range []int{
+			request.HTTPSubtypeAWSSQS,
+			request.HTTPSubtypeAWSS3,
+			request.HTTPSubtypeGraphQL,
+			request.HTTPSubtypeMCP,
+			request.HTTPSubtypeElasticsearch,
+		} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: sub,
+				Method: "POST", Path: "/", Status: 503,
+			}
+			v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+			require.True(t, ok, "subtype %d reported no error.type", sub)
+			assert.Equal(t, "503", v.AsString(), "subtype %d", sub)
+		}
+	})
+
+	// A parsed error is reported wherever it was parsed into DBError, without
+	// SpanErrorType needing a case for the subtype.
+	t.Run("http subtype reports its parsed error", func(t *testing.T) {
+		for _, sub := range []int{
+			request.HTTPSubtypeSQLPP,
+			request.HTTPSubtypeElasticsearch,
+			request.HTTPSubtypeAWSSQS,
+		} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: sub,
+				Method: "POST", Path: "/", Status: 503,
+				DBError: request.DBError{ErrorCode: "index_not_found_exception"},
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			v, ok := errorTypeValue(attrs)
+			require.True(t, ok, "subtype %d", sub)
+			assert.Equal(t, "index_not_found_exception", v.AsString())
+			assert.Equal(t, 1, countAttr(attrs, "error.type"))
+		}
+	})
+
+	t.Run("not duplicated when the protocol branch already set it", func(t *testing.T) {
+		span := &request.Span{
+			Type:     request.EventTypeSQLClient,
+			Method:   "SELECT",
+			Status:   1,
+			SQLError: &request.SQLError{Code: 1064, SQLState: "42000"},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		assert.Equal(t, 1, countAttr(attrs, "error.type"))
+		v, _ := errorTypeValue(attrs)
+		assert.Equal(t, "42000", v.AsString())
+	})
+}
+
+func TestTraceAttributesSelector_NetworkPeer(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("server span reports the client socket", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200,
+			Peer: "10.0.0.5", PeerPort: 54321,
+			Host: "10.0.0.9", HostPort: 8080,
+			PeerName: "frontend",
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		addr, ok := attrValue(attrs, "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.5", addr.AsString())
+		port, ok := attrValue(attrs, "network.peer.port")
+		require.True(t, ok)
+		assert.Equal(t, int64(54321), port.AsInt64())
+	})
+
+	t.Run("client span reports the server socket", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+			Peer: "10.0.0.5", PeerPort: 54321,
+			Host: "10.0.0.9", HostPort: 8080,
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		addr, ok := attrValue(attrs, "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.9", addr.AsString())
+		port, ok := attrValue(attrs, "network.peer.port")
+		require.True(t, ok)
+		assert.Equal(t, int64(8080), port.AsInt64())
+	})
+
+	// semconv defines the attribute as an IP or Unix socket address, but some
+	// paths fall back to the Host header, which is a name.
+	t.Run("omitted when the address is not an IP", func(t *testing.T) {
+		for _, addr := range []string{"localhost", "api.example.com", "svc.default.svc.cluster.local"} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+				Host: addr, HostPort: 8443,
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			_, ok := attrValue(attrs, "network.peer.address")
+			assert.False(t, ok, "addr %q", addr)
+			_, ok = attrValue(attrs, "network.peer.port")
+			assert.False(t, ok, "port must not survive without the address (addr %q)", addr)
+		}
+	})
+
+	t.Run("reported for IPv6", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+			Host: "2001:db8::1", HostPort: 443,
+		}
+		v, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "2001:db8::1", v.AsString())
+	})
+
+	t.Run("omitted where the client/server mapping is ambiguous", func(t *testing.T) {
+		for _, et := range []request.EventType{request.EventTypeDNS, request.EventTypeFailedConnect} {
+			span := &request.Span{Type: et, Peer: "10.0.0.5", PeerPort: 5, Host: "10.0.0.9", HostPort: 53}
+			_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+			assert.False(t, ok, "event type %v", et)
+		}
+	})
+
+	t.Run("omitted with no socket address", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+		assert.False(t, ok)
+	})
+}
+
+func TestTraceAttributesSelector_NetworkProtocolVersion(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("reported for every protocol that carries a version", func(t *testing.T) {
+		cases := []struct {
+			et      request.EventType
+			version request.ProtoVersion
+			want    string
+		}{
+			{request.EventTypeHTTP, request.ProtoVersionHTTP11, "1.1"},
+			{request.EventTypeHTTP, request.ProtoVersionHTTP10, "1.0"},
+			{request.EventTypeHTTP, request.ProtoVersionHTTP2, "2"},
+			{request.EventTypeHTTPClient, request.ProtoVersionHTTP11, "1.1"},
+			{request.EventTypeGRPC, request.ProtoVersionHTTP2, "2"},
+			{request.EventTypeGRPCClient, request.ProtoVersionHTTP2, "2"},
+		}
+		for _, c := range cases {
+			span := &request.Span{Type: c.et, ProtoVersion: c.version, Method: "GET", Path: "/x", Status: 200}
+			v, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.version")
+			require.True(t, ok, "event type %v", c.et)
+			assert.Equal(t, c.want, v.AsString())
+		}
+	})
+
+	t.Run("omitted when the version was never determined", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.version")
+		assert.False(t, ok)
+	})
+
+	t.Run("protocol name is not reported", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, ProtoVersion: request.ProtoVersionHTTP11, Method: "GET", Path: "/x", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.name")
+		assert.False(t, ok)
+	})
 }

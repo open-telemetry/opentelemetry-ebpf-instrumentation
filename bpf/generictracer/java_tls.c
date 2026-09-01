@@ -9,11 +9,14 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/connection_info.h>
+#include <common/event_defs.h>
 #include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
+#include <common/ringbuf.h>
 #include <common/trace_key.h>
 #include <common/trace_parent.h>
 
+#include <generictracer/jvm.h>
 #include <generictracer/k_tracer_defs.h>
 #include <generictracer/maps/pid_tid_to_conn.h>
 
@@ -34,6 +37,7 @@ enum {
     k_ioctl_java_threads = 3,
     k_ioctl_java_vt_mount = 4,   // virtual thread mounted on this carrier
     k_ioctl_java_vt_unmount = 5, // virtual thread unmounted from this carrier
+    k_ioctl_java_runtime_metrics = 6,
 };
 
 enum { k_ioctl_invalid_op = 0xff };
@@ -161,6 +165,38 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
             obi_ctx__del(id);
         }
 
+        return 0;
+    }
+    case k_ioctl_java_runtime_metrics: {
+        if (!jvm_runtime_metrics_are_enabled()) {
+            return 0;
+        }
+
+        struct jvm_runtime_metrics_event *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
+        if (!event) {
+            return 0;
+        }
+
+        bpf_memset(event, 0, sizeof(*event));
+        if (bpf_probe_read_user(
+                &event->loaded_class_count, k_jvm_runtime_metrics_payload_len, uarg + 1) != 0) {
+            bpf_ringbuf_discard(event, 0);
+            return 0;
+        }
+
+        event->type = k_event_type_jvm_runtime_metrics;
+        event->timestamp = bpf_ktime_get_ns();
+        event->global_pid = pid_from_pid_tgid(id);
+        event->global_tid = tid_from_pid_tgid(id);
+
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+        int ns_pid = 0;
+        int ns_ppid = 0;
+        ns_pid_ppid(task, &ns_pid, &ns_ppid, &event->pid_ns_id);
+        event->ns_pid = (u32)ns_pid;
+        event->ns_tid = get_task_tid();
+
+        bpf_ringbuf_submit(event, get_flags());
         return 0;
     }
     default:

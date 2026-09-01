@@ -120,9 +120,7 @@ func driveMemoryBIOLoad(_ *testing.T) {
 	close(requests)
 
 	for range memoryBIOConcurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			client := &http.Client{Timeout: 10 * time.Second}
 			for range requests {
 				resp, err := client.Get(memoryBIOAppURL)
@@ -132,7 +130,7 @@ func driveMemoryBIOLoad(_ *testing.T) {
 				_, _ = io.Copy(io.Discard, resp.Body)
 				resp.Body.Close()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

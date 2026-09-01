@@ -148,6 +148,20 @@ plus, for writes, the per-op type bytes:
 The span name follows the OTel database convention `{operation} {target}`, e.g.
 `GET test.users` (`{db.operation.name} {db.namespace}.{db.collection.name}`).
 
+### Client- and server-side spans
+
+The span type follows the observed role: instrumenting an application that uses
+an Aerospike client produces `client` spans, while instrumenting the Aerospike
+server process (`asd`) produces `server` spans. Both roles share the span name
+convention and the attribute set above. When both peers are instrumented, one
+operation yields one client span and one server span with distinct kinds — the
+server span nests under the client span in the same trace.
+
+Server-side error status does not require the capture buffer size: the server
+writes each response in a single send, so the `result_code` is always captured
+on that side. (The client-side split-read consideration below does not apply
+to the server role.)
+
 ### User key (opt-in)
 
 Capturing `db.query.text` **requires the client to enable the send-key write
@@ -252,7 +266,7 @@ observability tooling is metrics-only:
   latency histograms per command type, but emit no spans and have no out-of-the-box
   OTel exporter.
 
-So OBI's client-side span generation here is novel — it is the only source that
+So OBI's client- and server-side span generation here is novel — it is the only source that
 produces per-operation traces for Aerospike.
 
 ## References

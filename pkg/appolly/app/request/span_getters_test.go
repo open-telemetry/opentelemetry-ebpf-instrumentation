@@ -117,8 +117,13 @@ func TestSpanOTELGetters_DBCollectionName(t *testing.T) {
 			expected: "orders",
 		},
 		{
-			name:     "Aerospike collection",
+			name:     "Aerospike client collection",
 			span:     &Span{Type: EventTypeAerospikeClient, Path: "sessions"},
+			expected: "sessions",
+		},
+		{
+			name:     "Aerospike server collection",
+			span:     &Span{Type: EventTypeAerospikeServer, Path: "sessions"},
 			expected: "sessions",
 		},
 		{
@@ -834,11 +839,11 @@ func TestSpanOTELGetters_ErrorTypeOmitted(t *testing.T) {
 	kv := getter(&Span{Type: EventTypeHTTP, Status: 200})
 	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
 
-	// failed HTTP request: generic error.type
+	// failed HTTP request: the status code classifies the failure
 	kv = getter(&Span{Type: EventTypeHTTP, Status: 500})
 	require.True(t, kv.Valid())
 	assert.Equal(t, string(attr.ErrorType), string(kv.Key))
-	assert.Equal(t, "error", kv.Value.AsString())
+	assert.Equal(t, "500", kv.Value.AsString())
 
 	// failed Memcached request keeps its specific error code
 	kv = getter(&Span{
@@ -1323,4 +1328,19 @@ func TestDBClientServerPortGetter(t *testing.T) {
 			assert.Equal(t, int64(tt.expected), kv.Value.AsInt64())
 		})
 	}
+}
+
+func TestSpanOTELGetters_DBNamespace(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.DBNamespace)
+	require.True(t, ok, "getter should be found for DBNamespace")
+
+	kv := getter(&Span{Type: EventTypeRedisClient, DBNamespace: "1"})
+	require.True(t, kv.Valid())
+	assert.Equal(t, string(attr.DBNamespace), string(kv.Key))
+	assert.Equal(t, "1", kv.Value.AsString())
+
+	// spans without an available namespace must omit the attribute
+	// instead of emitting an empty value
+	kv = getter(&Span{Type: EventTypeSQLClient, SubType: int(DBMySQL)})
+	assert.False(t, kv.Valid(), "expected db.namespace to be omitted, got %v", kv)
 }

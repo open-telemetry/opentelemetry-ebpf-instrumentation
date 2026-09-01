@@ -30,7 +30,8 @@ import (
 type EventType uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	// EventTypeProcessAlive is an internal signal. It will be ignored by the metrics exporters.
 	EventTypeProcessAlive EventType = iota
@@ -63,6 +64,7 @@ const (
 	EventTypeSunRPCClient
 	EventTypeSunRPCServer
 	EventTypeAerospikeClient
+	EventTypeAerospikeServer
 )
 
 const (
@@ -193,6 +195,8 @@ func (t EventType) String() string {
 		return "MemcachedServer"
 	case EventTypeAerospikeClient:
 		return "AerospikeClient"
+	case EventTypeAerospikeServer:
+		return "AerospikeServer"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -315,9 +319,9 @@ type GenAI struct {
 }
 
 type OpenAIInputTokensDetails struct {
-	CachedTokens        TokenCount `json:"cached_tokens,omitempty"`
-	CacheCreationTokens TokenCount `json:"cache_creation_tokens,omitempty"`
-	AudioTokens         TokenCount `json:"audio_tokens,omitempty"`
+	CachedTokens        TokenCount `json:"cached_tokens"`
+	CacheCreationTokens TokenCount `json:"cache_creation_tokens"`
+	AudioTokens         TokenCount `json:"audio_tokens"`
 }
 
 type OpenAIUsage struct {
@@ -331,10 +335,10 @@ type OpenAIUsage struct {
 }
 
 type OpenAIOutputTokensDetails struct {
-	ReasoningTokens          TokenCount `json:"reasoning_tokens,omitempty"`
-	AudioTokens              TokenCount `json:"audio_tokens,omitempty"`
-	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens,omitempty"`
-	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens,omitempty"`
+	ReasoningTokens          TokenCount `json:"reasoning_tokens"`
+	AudioTokens              TokenCount `json:"audio_tokens"`
+	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens"`
+	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens"`
 }
 
 type OpenAIError struct {
@@ -617,17 +621,17 @@ type AnthropicResponse struct {
 type AnthropicUsage struct {
 	InputTokens              TokenCount              `json:"input_tokens"`
 	OutputTokens             TokenCount              `json:"output_tokens"`
-	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens,omitempty"`
-	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens,omitempty"`
+	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens"`
+	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens"`
 	CacheCreation            *AnthropicCacheCreation `json:"cache_creation,omitempty"`
 	ServiceTier              string                  `json:"service_tier"`
 	InferenceGeo             string                  `json:"inference_geo"`
 }
 
 type AnthropicCacheCreation struct {
-	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens,omitempty"`
-	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens,omitempty"`
+	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens"`
 }
 
 type AnthropicError struct {
@@ -693,9 +697,9 @@ type GeminiUsage struct {
 	PromptTokenCount           TokenCount                 `json:"promptTokenCount"`
 	CandidatesTokenCount       TokenCount                 `json:"candidatesTokenCount"`
 	TotalTokenCount            TokenCount                 `json:"totalTokenCount"`
-	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount,omitempty"`
-	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount,omitempty"`
-	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount,omitempty"`
+	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount"`
+	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount"`
+	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount"`
 	PromptTokensDetails        []GeminiModalityTokenCount `json:"promptTokensDetails,omitempty"`
 	CacheTokensDetails         []GeminiModalityTokenCount `json:"cacheTokensDetails,omitempty"`
 	CandidatesTokensDetails    []GeminiModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
@@ -792,14 +796,14 @@ type BedrockResponse struct {
 	// Anthropic Claude format
 	Content    json.RawMessage `json:"content,omitempty"`
 	StopReason string          `json:"stop_reason,omitempty"`
-	Usage      BedrockUsage    `json:"usage,omitempty"`
+	Usage      BedrockUsage    `json:"usage"`
 	// Amazon Nova format
 	Output         *NovaOutput `json:"output,omitempty"`
 	StopReasonNova string      `json:"stopReason,omitempty"`
 	// Meta Llama format
 	Generation           string     `json:"generation,omitempty"`
-	PromptTokenCount     TokenCount `json:"prompt_token_count,omitempty"`
-	GenerationTokenCount TokenCount `json:"generation_token_count,omitempty"`
+	PromptTokenCount     TokenCount `json:"prompt_token_count"`
+	GenerationTokenCount TokenCount `json:"generation_token_count"`
 	// Amazon Titan format
 	Results []TitanResult `json:"results,omitempty"`
 	// Error fields appear at the top level of the Bedrock error response body
@@ -811,11 +815,11 @@ type BedrockResponse struct {
 }
 
 type BedrockUsage struct {
-	InputTokens           TokenCount              `json:"inputTokens,omitempty"`
-	OutputTokens          TokenCount              `json:"outputTokens,omitempty"`
-	TotalTokens           TokenCount              `json:"totalTokens,omitempty"`
-	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens,omitempty"`
-	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens,omitempty"`
+	InputTokens           TokenCount              `json:"inputTokens"`
+	OutputTokens          TokenCount              `json:"outputTokens"`
+	TotalTokens           TokenCount              `json:"totalTokens"`
+	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens"`
+	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens"`
 	CacheDetails          []BedrockCacheDetail    `json:"cacheDetails,omitempty"`
 	CacheCreation         *AnthropicCacheCreation `json:"cache_creation,omitempty"`
 }
@@ -1289,14 +1293,14 @@ func (r *RetrievalRequest) GetTopK() int {
 type RetrievalResponse struct {
 	ID    string         `json:"id,omitempty"`
 	Model string         `json:"model,omitempty"`
-	Usage RetrievalUsage `json:"usage,omitempty"`
+	Usage RetrievalUsage `json:"usage"`
 }
 
 // RetrievalUsage captures optional token usage information returned by
 // embedding-aware vector stores.
 type RetrievalUsage struct {
-	TotalTokens  TokenCount `json:"total_tokens,omitempty"`
-	PromptTokens TokenCount `json:"prompt_tokens,omitempty"`
+	TotalTokens  TokenCount `json:"total_tokens"`
+	PromptTokens TokenCount `json:"prompt_tokens"`
 }
 
 type SpanLink struct {
@@ -1314,6 +1318,7 @@ type Span struct {
 	Type           EventType      `json:"type"`
 	SpanKind       trace.SpanKind `json:"-"`
 	Flags          uint8          `json:"-"`
+	ProtoVersion   ProtoVersion   `json:"-"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	FullPath       string         `json:"-"`
@@ -1577,7 +1582,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"operation":  s.Method,
 			"table":      s.Path,
 		}
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		attrs := SpanAttributes{
 			"serverAddr":      SpanHost(s),
 			"serverPort":      strconv.Itoa(s.HostPort),
@@ -1730,7 +1735,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient:
+	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient, EventTypeAerospikeServer:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -1758,7 +1763,7 @@ func SpanDBStatusMessage(span *Span, dbError string) string {
 
 func (s *Span) IsDBSpan() bool {
 	switch s.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient:
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return true
 	case EventTypeHTTPClient:
 		if s.SubType == HTTPSubtypeSQLPP {
@@ -1806,28 +1811,10 @@ func HTTPSpanStatusCode(span *Span) string {
 
 	if span.Type == EventTypeHTTPClient {
 		if span.Status < 400 {
-			// this is possibly not needed, because in my experiments they
-			// respond with 429, but just to be correct according to the OTel
+			// A provider can report a failure inside a 2xx response, per the OTel
 			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
-			if span.GenAI != nil {
-				if span.GenAI.OpenAI != nil && span.GenAI.OpenAI.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Qwen != nil && span.GenAI.Qwen.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil && span.GenAI.Rerank.Output.Error.Type != "" {
-					return StatusCodeError
-				}
+			if span.GenAIFailed() {
+				return StatusCodeError
 			}
 
 			return StatusCodeUnset
@@ -1899,9 +1886,9 @@ func (s *Span) ServiceGraphKind() string {
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
 		switch MessagingOperationTypeOf(s.Method) {
@@ -2192,7 +2179,7 @@ func (s *Span) TraceName() string {
 			return s.Method + " " + s.Path
 		}
 		return s.Method
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		if s.Method == "" {
 			return "AEROSPIKE"
 		}
@@ -2540,6 +2527,40 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Retrieval != nil {
 		return s.GenAI.Retrieval.Provider
 	}
+	return ""
+}
+
+// GenAIFailed reports whether a GenAI provider returned an error in its
+// response payload, which can happen inside a 2xx.
+func (s *Span) GenAIFailed() bool {
+	return s.GenAIErrorType() != ""
+}
+
+// GenAIErrorType returns the provider-reported error, mirroring the per-provider
+// shapes the trace exporter reads. Providers that carry no error field yield "".
+func (s *Span) GenAIErrorType() string {
+	if s.GenAI == nil {
+		return ""
+	}
+
+	for _, ai := range []*VendorOpenAI{s.GenAI.OpenAI, s.GenAI.Qwen, s.GenAI.OpenAICompatible} {
+		if ai != nil && ai.Error.Type != "" {
+			return ai.Error.Type
+		}
+	}
+	if ai := s.GenAI.Anthropic; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+	if ai := s.GenAI.Gemini; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Status
+	}
+	if ai := s.GenAI.Bedrock; ai != nil && ai.Output.ErrorType != "" {
+		return ai.Output.ErrorType
+	}
+	if ai := s.GenAI.Rerank; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+
 	return ""
 }
 

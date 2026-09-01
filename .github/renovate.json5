@@ -205,14 +205,14 @@
       "enabled": false
     },
     {
-      "description": "Block golang Docker image major upgrades (these require coordinated manual changes)",
+      "description": "Block golang Docker image minor and major upgrades (these require coordinated manual changes)",
       "matchDatasources": ["docker"],
       "matchPackageNames": [
         "golang",
         "docker.io/library/golang",
         "library/golang"
       ],
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": ["minor", "major"],
       "enabled": false
     },
     {
@@ -302,9 +302,13 @@
       "schedule": ["before 6am on Thursday"]
     },
     {
-      "description": "Disable raw pip_requirements handling for integration component requirements files",
+      "description": "Disable raw pip_requirements handling for pip-compile lockfiles",
       "matchManagers": ["pip_requirements"],
-      "matchFileNames": ["internal/test/integration/components/**"],
+      "matchFileNames": [
+        "internal/test/integration/components/**",
+        ".github/*-requirements.txt",
+        "examples/store-demo/app/src/**/requirements.txt"
+      ],
       "enabled": false
     },
     {
