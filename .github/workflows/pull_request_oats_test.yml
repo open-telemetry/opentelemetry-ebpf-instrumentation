@@ -45,7 +45,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/generate-bpf
+      - uses: $/.github/actions/generate-bpf
         with:
           cache-key-prefix: go-build-oats
 
@@ -84,7 +84,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/free-disk
+      - uses: $/.github/actions/free-disk
 
       - name: Check for Docker Hub token
         id: check-docker-token
