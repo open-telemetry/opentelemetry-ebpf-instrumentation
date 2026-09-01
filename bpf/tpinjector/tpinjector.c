@@ -1008,9 +1008,11 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    fill_msg_buffers(msg, p_conn, e_key);
 
-    const bool is_http = protocol_detector(msg, id, &p_conn->conn);
+    // reads msg_buffer_mem only when the fill that precedes it refreshed the
+    // buffer from this message; on a bail it still holds whichever message this
+    // CPU filled last, and injecting on that match corrupts this connection
+    const bool is_http = msg_buffer_holds_http_request(msg, id, p_conn, e_key);
     if (is_http) {
         if (inject_flags & k_inject_http_headers) {
             write_http_traceparent(msg, tp_pid);

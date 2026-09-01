@@ -162,6 +162,20 @@ struct __sk_buff {
     u32 len;
     u32 protocol;
 };
+// Only the fields the sk_msg programs read. data/data_end are void * in the
+// kernel UAPI; a host test points them at a plain buffer.
+struct sk_msg_md {
+    void *data;
+    void *data_end;
+    u32 family;
+    u32 remote_ip4;
+    u32 local_ip4;
+    u32 remote_ip6[4];
+    u32 local_ip6[4];
+    u32 remote_port;
+    u32 local_port;
+    u32 size;
+};
 // 16 bytes, as in bpfcore/vmlinux_*.h; obi_msg_name_port length-checks
 // msg_namelen against sizeof(struct sockaddr_in)
 struct sockaddr_in {

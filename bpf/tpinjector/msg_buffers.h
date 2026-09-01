@@ -39,6 +39,11 @@ static __always_inline u8 already_tracked(const pid_connection_info_t *p_conn) {
 // limit when we eventually add HTTP2/gRPC support.
 // Populates msg_buffers / msg_buffer_mem for the kprobe on tcp_sendmsg,
 // which runs after sk_msg. Bails on size=0, SSL, or allocation failure.
+//
+// On a bail the per-CPU msg_buffer_mem is left untouched, so it still holds
+// whichever message this CPU last filled it from. Nothing clears it between
+// messages, so a caller that reads it after a bail is reading a different
+// connection's traffic — see msg_buffer_holds_http_request below.
 static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
                                              const pid_connection_info_t *p_conn,
                                              const egress_key_t *e_key) {
@@ -111,4 +116,24 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     }
 
     return 0;
+}
+
+// True only when msg_buffer_mem was refreshed from THIS message and that
+// message is an HTTP/1 request that may be extended.
+//
+// protocol_detector reads a per-CPU buffer that nothing clears between
+// messages, so its answer describes this message only when the fill that
+// precedes it succeeded. Reading it after a bail (SSL, size 0, allocation
+// failure) matches whatever plaintext request this CPU handled last and
+// injects a Traceparent into an unrelated connection - into the middle of a
+// TLS record, on the SSL bail. obi_packet_extender enforces the same rule
+// with an early return on fill_msg_buffers' result, because it needs that
+// result before its HTTP/2 branch.
+static __always_inline bool msg_buffer_holds_http_request(struct sk_msg_md *msg,
+                                                          u64 id,
+                                                          const pid_connection_info_t *p_conn,
+                                                          const egress_key_t *e_key) {
+    const bool msg_buffers_ready = fill_msg_buffers(msg, p_conn, e_key);
+
+    return msg_buffers_ready && protocol_detector(msg, id, &p_conn->conn);
 }

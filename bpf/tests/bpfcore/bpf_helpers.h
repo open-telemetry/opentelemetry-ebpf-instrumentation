@@ -86,3 +86,8 @@ static inline long bpf_get_current_comm(void *buf, unsigned int sz) {
 static inline int bpf_printk(const char *fmt, ...) {
     return 0;
 }
+// Tests that exercise per-CPU state set this to choose which CPU they are on.
+static unsigned int bpf_smp_processor_id_value;
+static inline unsigned int bpf_get_smp_processor_id(void) {
+    return bpf_smp_processor_id_value;
+}
