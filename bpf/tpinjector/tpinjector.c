@@ -1163,14 +1163,16 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+    const bool msg_buffers_ready = fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
 
     if (is_h2_socket(msg)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return SK_PASS;
     }
 
-    if (msg->size <= MIN_HTTP_SIZE) {
+    // on a bail (SSL, etc.) msg_buffer_mem is stale — the HTTP detector would
+    // match a prior request and inject into this connection
+    if (!msg_buffers_ready || msg->size <= MIN_HTTP_SIZE) {
         return SK_PASS;
     }
 
