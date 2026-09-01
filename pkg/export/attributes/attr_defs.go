@@ -461,6 +461,7 @@ func getDefinitions(
 				attr.DBResponseError:        false,
 				// Conditionally Required or Recommended by OTel semconv, so emitted
 				// by default. Opt out via attributes.select.traces.exclude.
+				attr.ErrorType:              true,
 				attr.HTTPRequestMethodOrig:  true,
 				attr.DBQuerySummary:         true,
 				attr.UserAgentOriginal:      true,

@@ -73,3 +73,27 @@ func recognizedCollectorName(name string) bool {
 	}
 	return false
 }
+
+// strictELFFileOffset maps one virtual address to exactly one file-backed load segment.
+func strictELFFileOffset(file *elf.File, address uint64, executable bool) (uint64, error) {
+	var offset uint64
+	matches := 0
+	for _, program := range file.Progs {
+		// Require a file-backed load segment. Probe locations must also belong to
+		// an executable segment, while semaphore locations can belong to data.
+		if program.Type != elf.PT_LOAD || executable && program.Flags&elf.PF_X == 0 ||
+			address < program.Vaddr || address-program.Vaddr >= program.Filesz {
+			continue
+		}
+		candidate := program.Off + address - program.Vaddr
+		if candidate < program.Off || candidate == 0 {
+			return 0, fmt.Errorf("%w: invalid CPython probe file offset", errUnsupportedLayout)
+		}
+		offset = candidate
+		matches++
+	}
+	if matches != 1 {
+		return 0, fmt.Errorf("%w: CPython probe address maps to %d file segments", errUnsupportedLayout, matches)
+	}
+	return offset, nil
+}
