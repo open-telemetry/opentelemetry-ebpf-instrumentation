@@ -162,7 +162,7 @@ jobs:
       - name: Pre-compile Go integration tests and gotestsum
         run: |
           mkdir compiled-tests
-          ( CGO_ENABLED=0 go test -c -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration ) &
+          ( CGO_ENABLED=0 go test -c -tags=grammar_subset,grammar_subset_ruby -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration ) &
           ( CGO_ENABLED=0 go build -C internal/tools -o ../../compiled-tests/gotestsum -ldflags="-s -w" gotest.tools/gotestsum ) &
           wait
 

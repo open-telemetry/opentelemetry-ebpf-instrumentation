@@ -16,6 +16,10 @@ RELEASE_REVISION ?= $(shell git rev-parse --short HEAD )
 BUILDINFO_PKG ?= go.opentelemetry.io/obi/pkg/buildinfo
 TEST_OUTPUT ?= ./testoutput
 RELEASE_DIR ?= ./dist
+# RUBY_GRAMMAR_TAGS are needed to reduce the gotreesitter dependency we have for parsing Ruby files.
+# We can use gotreesitter for other languages in the future, so we can expand these here. ATM, we use
+# the Ruby parser for determining the application name, but we can use it for route harvesting as well.
+RUBY_GRAMMAR_TAGS := grammar_subset,grammar_subset_ruby
 
 IMG_REGISTRY ?= docker.io
 # Set your registry username. CI will set 'otel' but you mustn't use it for manual pushing.
@@ -156,7 +160,7 @@ lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix l
 .NOTPARALLEL: lint-fix-run
 lint-run lint-fix-run:
 	@echo "### Linting code"
-	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	go tool $(TOOLS_MODFILE) golangci-lint run ./... --build-tags=$(RUBY_GRAMMAR_TAGS) --timeout=6m $(LINT_EXTRA_ARGS)
 
 WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema
@@ -322,14 +326,14 @@ all: docker-generate notices-update build
 .PHONY: compile compile-cache
 compile:
 	@echo "### Compiling OpenTelemetry eBPF Instrumentation"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags=$(RUBY_GRAMMAR_TAGS) -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
 compile-cache:
 	@echo "### Compiling OpenTelemetry eBPF Instrumentation K8s cache"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: debug
 debug:
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -gcflags "-N -l" -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags=$(RUBY_GRAMMAR_TAGS) -gcflags "-N -l" -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
 
 .PHONY: dev
 dev: prereqs generate compile-for-coverage
@@ -338,7 +342,7 @@ dev: prereqs generate compile-for-coverage
 .PHONY: compile-for-coverage compile-cache-for-coverage
 compile-for-coverage:
 	@echo "### Compiling project to generate coverage profiles"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags=$(RUBY_GRAMMAR_TAGS) -cover -a -o bin/$(CMD) $(MAIN_GO_FILE)
 compile-cache-for-coverage:
 	@echo "### Compiling K8s cache service to generate coverage profiles"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
@@ -346,7 +350,7 @@ compile-cache-for-coverage:
 .PHONY: test test-rerun-flaky
 test: testoutput
 	@echo "### Testing code"
-	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -tags=$(RUBY_GRAMMAR_TAGS) -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-nodejs
 test-nodejs:
@@ -359,7 +363,7 @@ test-rerun-flaky:
 .PHONY: test-privileged
 test-privileged: $(ENVTEST) testoutput
 	@echo "### Testing only privileged-tagged tests"
-	go test -short -race -tags=privileged_tests -a \
+	go test -short -race -tags=privileged_tests,$(RUBY_GRAMMAR_TAGS) -a \
 	$$(grep -rl '//go:build.*privileged_tests' . --include='*.go' | xargs -I{} dirname {} | sort -u | tr '\n' ' ') \
 	-coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
@@ -481,13 +485,13 @@ cleanup-integration-test:
 run-integration-test:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration
+	go test -tags=$(RUBY_GRAMMAR_TAGS) -p 1 -failfast -v -timeout 60m -a ./internal/test/integration
 
 .PHONY: run-integration-test-k8s
 run-integration-test-k8s:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/...
+	go test -tags=$(RUBY_GRAMMAR_TAGS) -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/...
 
 PRECOMPILED_TESTS_DIR ?= /precompiled-tests
 
@@ -524,7 +528,7 @@ run-integration-test-vm:
 			-ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
 			-p $$TEST_PARALLEL \
 			-timeout $$TEST_TIMEOUT \
-			-v -a \
+			-v -a -tags=$(RUBY_GRAMMAR_TAGS) \
 			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
 
@@ -532,7 +536,7 @@ run-integration-test-vm:
 run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
+	go test -tags=$(RUBY_GRAMMAR_TAGS) -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
 .PHONY: unit-test-matrix-json
 unit-test-matrix-json:
@@ -544,7 +548,7 @@ run-unit-test-shard:
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" \
 	go tool $(TOOLS_MODFILE) gotestsum \
 		--jsonfile=$(TEST_OUTPUT)/unit-test-shard-$(SHARD_ID).log \
-		-- -short -race -a -coverpkg=./... \
+		-- -short -race -a -tags=$(RUBY_GRAMMAR_TAGS) -coverpkg=./... \
 		-coverprofile $(TEST_OUTPUT)/cover.all.txt \
 		$(UNIT_TEST_PACKAGES)
 

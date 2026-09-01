@@ -453,7 +453,7 @@ func TestSuite_Rails(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`, `TESTSERVER_IMAGE=`+obiTestImgRails)
 	require.NoError(t, compose.Up())
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "testapi") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -473,7 +473,7 @@ func TestSuite_RailsNginxSupportFloor(t *testing.T) {
 	)
 	require.NoError(t, compose.Up())
 
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "testapi") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -488,7 +488,7 @@ func TestSuite_RailsRuby302Puma5(t *testing.T) {
 	t.Run("Ruby/Puma support contract", func(t *testing.T) {
 		assertRubyPumaSupportVersion(t, compose, "3.0.2", "5.6.6")
 	})
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -500,7 +500,7 @@ func TestSuite_RailsNginxSQL(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, compose.Up())
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX SQL traces nested", testHTTPTracesNestedNginxSQL)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -512,7 +512,7 @@ func TestSuite_RailsTLS(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgRailsSSL, `TEST_SERVICE_PORTS=3044:3043`)
 	require.NoError(t, compose.Up())
-	t.Run("Rails SSL RED metrics", testREDMetricsRailsHTTPS)
+	t.Run("Rails SSL RED metrics", func(t *testing.T) { testREDMetricsRailsHTTPS(t, "testapi") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
