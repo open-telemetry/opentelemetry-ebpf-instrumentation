@@ -144,7 +144,7 @@ func TestPrometheusReporterExportErrorType(t *testing.T) {
 	}
 
 	assert.Equal(t, map[string]string{
-		"obi_otel_metric_export_errors_total": "DeadlineExceeded",
+		"obi_otel_metric_export_errors_total": "DEADLINE_EXCEEDED",
 		"obi_otel_trace_export_errors_total":  "*errors.errorString",
 	}, found)
 }

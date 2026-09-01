@@ -1,5 +1,5 @@
 'use strict';
-// Mixed reachable + unreachable @opentelemetry/api copies (Tyler / MrAlias):
+// Mixed reachable + unreachable @opentelemetry/api copies:
 // the bridge wires and captures through a REACHABLE copy, while the app
 // registers its SDK through a SECOND, bundled/unreachable copy whose
 // setGlobalTracerProvider the bridge never wrapped. That registration writes

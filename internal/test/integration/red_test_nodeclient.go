@@ -18,14 +18,14 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
-func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCode, port int, traceIDLookup string) {
+func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCode, port int, traceIDLookup, serviceName string) {
 	// Eventually, Prometheus would make this query visible
 	var (
 		pq     = promtest.Client{HostPort: prometheusHostPort}
 		labels = fmt.Sprintf(`http_request_method="%s",`, method) +
 			fmt.Sprintf(`http_response_status_code="%d",`, statusCode) +
 			`service_namespace="integration-test",` +
-			`service_name="node"`
+			fmt.Sprintf(`service_name="%s"`, serviceName)
 	)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -45,7 +45,7 @@ func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCo
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=node")
+		resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName)
 		require.NoError(ct, err)
 		if resp == nil {
 			return

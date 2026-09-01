@@ -56,7 +56,7 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 }
 
 func testREDMetricsPythonMQTT(t *testing.T) {
-	testREDMetricsMQTTPublish(t, "python3.14", true)
+	testREDMetricsMQTTPublish(t, "pythonmqtt", true)
 }
 
 func testREDMetricsGoMQTT(t *testing.T) {
@@ -79,7 +79,7 @@ func testREDMetricsMQTTPublish(t *testing.T, comm string, warmupConnect bool) {
 					Name: "publish test/topic",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
-						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.operation.type", "send"),
 						attribute.String("messaging.destination.name", "test/topic"),
 					},
 				},
@@ -113,7 +113,7 @@ func testREDMetricsPythonMQTTSubscribe(t *testing.T) {
 		{
 			Route:   "http://localhost:8381",
 			Subpath: "mqtt/subscribe",
-			Comm:    "python3.14",
+			Comm:    "pythonmqtt",
 			Spans: []TestCaseSpan{
 				{
 					Name: "process test/topic",

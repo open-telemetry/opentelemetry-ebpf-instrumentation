@@ -265,6 +265,28 @@
             0.5,
             1
           ]
+        },
+        "v8js_gc_duration_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array",
+          "default": [
+            0.005,
+            0.01,
+            0.025,
+            0.05,
+            0.075,
+            0.1,
+            0.25,
+            0.5,
+            0.75,
+            1,
+            2.5,
+            5,
+            7.5,
+            10
+          ]
         }
       },
       "type": "object",
@@ -575,6 +597,11 @@
     },
     "EBPFBufferSizes": {
       "properties": {
+        "aerospike": {
+          "type": "integer",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE"
+        },
         "http": {
           "type": "integer",
           "default": 0,
@@ -913,34 +940,46 @@
       },
       "propertyNames": {
         "enum": [
+          "app",
           "k8s_app_meta"
         ]
       },
       "type": "object",
-      "description": "Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key."
+      "description": "Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'."
     },
     "Features": {
       "items": {
-        "type": "string",
-        "enum": [
-          "*",
-          "all",
-          "application",
-          "application_host",
-          "application_runtime",
-          "application_service_graph",
-          "application_span",
-          "application_span_otel",
-          "application_span_sizes",
-          "ebpf",
-          "network",
-          "network_flow_packets",
-          "network_inter_zone",
-          "stats",
-          "stats_tcp_failed_connections",
-          "stats_tcp_io",
-          "stats_tcp_retransmits",
-          "stats_tcp_rtt"
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "*",
+              "all",
+              "application",
+              "application_host",
+              "application_runtime",
+              "application_service_graph",
+              "application_span_otel",
+              "ebpf",
+              "network",
+              "network_flow_packets",
+              "network_inter_zone",
+              "stats",
+              "stats_tcp_failed_connections",
+              "stats_tcp_io",
+              "stats_tcp_retransmits",
+              "stats_tcp_rtt"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "application_span",
+              "application_span_sizes"
+            ],
+            "description": "Deprecated feature names, kept for backwards compatibility: application_span (use application_span_otel), application_span_sizes (no direct replacement).",
+            "deprecated": true
+          }
         ]
       },
       "type": "array",
@@ -1507,6 +1546,7 @@
         "sampling_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Controls HotSpot memory event sampling and Java agent class, thread, and CPU snapshot collection.",
           "default": "1s",
           "examples": [
             "30s",
@@ -1543,6 +1583,7 @@
         },
         "enabled": {
           "type": "boolean",
+          "description": "Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.",
           "default": true,
           "x-env-var": "OTEL_EBPF_JAVAAGENT_ENABLED"
         }

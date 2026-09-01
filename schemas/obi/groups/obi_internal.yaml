@@ -182,6 +182,14 @@ groups:
         stability: development
         brief: Name of the eBPF map.
         examples: ["events", "ongoing_http"]
+      - id: subscriber
+        type: string
+        stability: development
+        brief: >
+          Name of the pipeline stage consuming the internal queue, as given to
+          msg.SubscriberName when the stage subscribed. Subscribers that do not
+          provide a name fall back to the name of the queue they subscribed to.
+        examples: ["discover.CriteriaMatcher", "traceAttacher"]
       - id: telemetry.type
         type: string
         stability: development
@@ -372,3 +380,16 @@ groups:
       How long, in seconds, it takes from a Kubernetes event happening until
       it is forwarded to the subscribers.
 
+  # --- Pipeline queues ----------------------------------------------------
+  - id: metric.obi.queue.capacity.ratio
+    type: metric
+    metric_name: obi.queue.capacity.ratio
+    instrument: gauge
+    unit: "1"
+    stability: development
+    brief: >
+      Ratio [0-1] between the unread messages of an internal Go channel and its
+      total capacity, sampled on every send to each subscriber. A sustained
+      value near 1 means the consuming stage cannot keep up with the producer.
+    attributes:
+      - ref: subscriber

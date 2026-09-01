@@ -266,7 +266,7 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	urlPath := "/jsonrpc"
 	expectedMethod := "Arith.Multiply"
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPPost(t, url+urlPath, 200, jsonBody)
 	}
 
@@ -305,7 +305,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
 	// - returning a 404 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/metrics", 200)
 		ti.DoHTTPGet(t, url+path+"?delay=30ms&status=404", 404)
 		if url == instrumentedServiceGorillaURL {
@@ -560,7 +560,7 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 	// Call 300 times the instrumented service, an overkill to make sure
 	// we get some of the metrics to be visible in Prometheus. This test is
 	// currently the last one that runs.
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		err := grpcclient.Ping(opts...)
 		require.NoError(t, err)
 	}
@@ -597,7 +597,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
 	// - returning a 404 code
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		ti.DoHTTPGet(t, url+"/metrics", 200)
 		ti.DoHTTPGet(t, url+path+"?delay=30ms&status=404", 404)
 		ti.DoHTTPGet(t, url+"/echo", 203)
@@ -839,7 +839,7 @@ func testREDMetricsForHTTPLibraryNoRouteLowCardinality(t *testing.T, url, svcNam
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
 	// - returning a 404 code
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		for _, s := range validNames {
 			ti.DoHTTPGet(t, url+"/api/"+s+"?delay=30ms&status=404", 404)
 		}
@@ -947,7 +947,7 @@ func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, rou
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	path := "/rolldice/4"
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+path, 200)
 	}
 

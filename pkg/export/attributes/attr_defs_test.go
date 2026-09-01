@@ -95,3 +95,63 @@ func TestGoRuntimeDefinitions(t *testing.T) {
 		})
 	}
 }
+
+// service.name and service.namespace are resource attributes per the semantic
+// conventions, so they are not reported as metric attributes by default. The
+// `app` extra-attribute group restores them for backends that read service
+// identity off the series rather than joining through target_info.
+func TestServiceAttributesAreNotMetricDefaults(t *testing.T) {
+	section := HTTPServerDuration.Section
+
+	// GroupPrometheus pulls in the prometheusAttributes subgroup, which used to
+	// re-enable service.namespace and made the default inconsistent between the
+	// two exporters.
+	for _, tc := range []struct {
+		name   string
+		groups AttrGroups
+	}{
+		{name: "otel", groups: 0},
+		{name: "prometheus", groups: GroupPrometheus},
+	} {
+		t.Run("off by default: "+tc.name, func(t *testing.T) {
+			definitions := getDefinitions(tc.groups, NewGroupAttributes(nil))
+			definition, ok := definitions[section]
+			require.True(t, ok)
+
+			// still selectable, just not part of the default set
+			assert.Contains(t, definition.All(), attr.ServiceName)
+			assert.Contains(t, definition.All(), attr.ServiceNamespace)
+
+			assert.NotContains(t, definition.Default(), attr.ServiceName)
+			assert.NotContains(t, definition.Default(), attr.ServiceNamespace)
+		})
+	}
+
+	t.Run("restored by the app extra-attribute group", func(t *testing.T) {
+		definitions := getDefinitions(0, NewGroupAttributes(map[string][]attr.Name{
+			"app": {attr.ServiceName, attr.ServiceNamespace},
+		}))
+		definition, ok := definitions[section]
+		require.True(t, ok)
+
+		assert.Contains(t, definition.Default(), attr.ServiceName)
+		assert.Contains(t, definition.Default(), attr.ServiceNamespace)
+	})
+}
+
+func TestCPythonRuntimeDefinitions(t *testing.T) {
+	tests := []Name{
+		CPythonGCCollections,
+		CPythonGCCollectedObjects,
+		CPythonGCUncollectableObjects,
+	}
+
+	definitions := getDefinitions(0, NewGroupAttributes(nil))
+	for _, metric := range tests {
+		definition, ok := definitions[metric.Section]
+		require.True(t, ok)
+		assert.Contains(t, definition.All(), attr.ServiceName)
+		assert.Contains(t, definition.All(), attr.ServiceNamespace)
+		assert.Contains(t, definition.All(), attr.CPythonGCGeneration)
+	}
+}

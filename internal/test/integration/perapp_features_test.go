@@ -38,15 +38,23 @@ func TestPerAppFeatures(t *testing.T) {
 
 func testPerAppFeatures(t *testing.T, exportedSource string) {
 	t.Run("all the services have span metrics", func(t *testing.T) {
-		checkSpanMetric(t, 3*time.Minute, exportedSource, "node", 3031, "/testing-node")
+		checkSpanMetric(t, 3*time.Minute, exportedSource, "nodejsserver", 3031, "/testing-node")
 		checkSpanMetric(t, time.Minute, exportedSource, "ruby", 3041, "/testing-rails")
 		checkSpanMetric(t, time.Minute, exportedSource, "pytestserver", 7773, "/testing-python")
 		checkSpanMetric(t, time.Minute, exportedSource, "testserver", 8080, "/testing-go")
 		checkSpanMetric(t, time.Minute, exportedSource, "jtestserver", 8086, "/testing-java")
 		checkSpanMetric(t, time.Minute, exportedSource, "rtestserver", 8091, "/testing-rust")
 	})
+	t.Run("all the services have span size metrics", func(t *testing.T) {
+		checkSpanSizeMetrics(t, exportedSource, "nodejsserver")
+		checkSpanSizeMetrics(t, exportedSource, "ruby")
+		checkSpanSizeMetrics(t, exportedSource, "pytestserver")
+		checkSpanSizeMetrics(t, exportedSource, "testserver")
+		checkSpanSizeMetrics(t, exportedSource, "jtestserver")
+		checkSpanSizeMetrics(t, exportedSource, "rtestserver")
+	})
 	t.Run("node, rails and python have RED metrics", func(t *testing.T) {
-		hasREDMetrics(t, exportedSource, "node", "/testing-node")
+		hasREDMetrics(t, exportedSource, "nodejsserver", "/testing-node")
 		hasREDMetrics(t, exportedSource, "ruby", "/testing-rails")
 		hasREDMetrics(t, exportedSource, "pytestserver", "/testing-python")
 	})
@@ -58,6 +66,22 @@ func testPerAppFeatures(t *testing.T, exportedSource string) {
 }
 
 var pq = promtest.Client{HostPort: prometheusHostPort}
+
+// checkSpanSizeMetrics asserts the legacy span-size counters the
+// application_span_sizes feature emits. Both keep their underscore names on the
+// OTLP side, so the Prometheus series name matches the emitted metric name.
+// The exported label pins which exporter produced the series, so the OTEL and
+// Prometheus subtests cannot pass on each other's output.
+func checkSpanSizeMetrics(t *testing.T, exportedSource, serviceName string) {
+	for _, metric := range []string{"traces_spanmetrics_size_total", "traces_spanmetrics_response_size_total"} {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			results, err := pq.Query(metric + `{exported="` + exportedSource +
+				`",service_name="` + serviceName + `"}`)
+			require.NoError(ct, err)
+			require.NotEmpty(ct, results)
+		}, time.Minute, time.Second)
+	}
+}
 
 func checkSpanMetric(t *testing.T, timeout time.Duration, exportedSource, serviceName string, port int, path string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {

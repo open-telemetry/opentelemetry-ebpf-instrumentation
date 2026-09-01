@@ -49,6 +49,16 @@ static __always_inline u8 should_be_in_same_transaction(const tp_info_t *parent_
     return diff < max_transaction_time;
 }
 
+// Tells apart the two reasons should_be_in_same_transaction() rejects a
+// candidate parent. A parent left behind by a transaction that ended long ago
+// is stale and the caller retires it. A parent that started after the child
+// did is simply not this child's parent: it belongs to a transaction still in
+// flight, and retiring it would drop the trace of the requests it is serving.
+static __always_inline u8 parent_trace_is_stale(const tp_info_t *parent_tp,
+                                                const tp_info_t *child_tp) {
+    return child_tp->ts >= parent_tp->ts;
+}
+
 static __always_inline void init_new_trace(tp_info_t *tp) {
     bpf_d_printk("Generating new traceparent id [%s]", __FUNCTION__);
     new_trace_id(tp);

@@ -31,10 +31,11 @@ For trace-log correlation (log enricher / `traces_ctx_v1` map), see [trace-log-c
 
 ## Overview
 
-Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports two injection methods:
+Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports three injection methods:
 
-1. **HTTP headers** (L7) - `Traceparent:` header in plaintext HTTP requests
-2. **TCP options** (L4) - Custom TCP option (kind 25) for any TCP traffic
+1. **HTTP/1 headers** (L7) - `Traceparent:` header in plaintext HTTP requests
+2. **HTTP/2 / gRPC HPACK** (L7) - per-stream `traceparent` field in HEADERS frames. This is the only network mechanism for multiplexed HTTP/2. See [gRPC/HTTP2 Context Propagation](grpc-context-propagation.md).
+3. **TCP options** (L4) - Custom TCP option (kind 25) for HTTP/1 and non-multiplexed TCP. **Not used for HTTP/2 or gRPC** — a connection-scoped option cannot represent N concurrent stream contexts.
 
 ## Configuration
 
@@ -302,10 +303,11 @@ Sockets are added to `sock_dir` in two ways:
    - Later layers overwrite earlier layers
    - Result: Most reliable method takes precedence
 
-3. **SSL/TLS uses TCP options, not HTTP headers**:
+3. **HTTP/1 TLS uses TCP options, not HTTP headers**:
    - Can't inject into encrypted payload
    - TCP options work before TLS handshake
    - tpinjector deletes entry early to skip HTTP detection
+   - HTTP/2 / gRPC TLS never uses TCP options (multiplexing). Generic TLS HTTP/2 cannot splice HPACK into ciphertext. Go TLS injects via uprobe before encrypt.
 
 4. **Execution order varies by scenario**:
    - Go/SSL: uprobes → tpinjector → kprobe

@@ -1,0 +1,86 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/python-runtime-metrics/Dockerfile
+      args:
+        PYTHON_RUNTIME_METRICS_IMAGE: ${PYTHON_RUNTIME_METRICS_IMAGE}
+    image: ${PYTHON_RUNTIME_METRICS_TESTSERVER_IMAGE}
+    ports:
+      - "${TEST_SERVICE_PORTS}"
+
+  queryclient:
+    image: ${PYTHON_RUNTIME_METRICS_TESTSERVER_IMAGE}
+    command: ["sleep", "infinity"]
+
+  obi:
+    image: hatest-obi
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-python-runtime-metrics:/var/run/obi
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+    privileged: true
+    pid: "host"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-python-runtime-metrics${INSTRUMENTER_CONFIG_SUFFIX}.yml
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 100ms
+      OTEL_EBPF_SERVICE_NAME: "python-runtime-metrics"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_OPEN_PORT: "8080"
+      OTEL_EBPF_METRICS_FEATURES: "application_runtime"
+      OTEL_EBPF_PROMETHEUS_TTL: "1m"
+    depends_on:
+      testserver:
+        condition: service_started
+    ports:
+      - "8999:8999"
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config-promscrape${PROM_CONFIG_SUFFIX}.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command:
+      - --config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml
+      - --set=exporters.prometheus.metric_expiration=250ms
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317"
+      - "4318:4318"
+      - "9464"
+      - "8888"
+    depends_on:
+      prometheus:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro

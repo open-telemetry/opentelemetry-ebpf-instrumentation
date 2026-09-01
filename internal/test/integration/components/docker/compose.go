@@ -13,9 +13,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/internal/test/tools"
 )
@@ -68,14 +71,78 @@ func (c *Compose) Up() error {
 	if os.Getenv("SKIP_DOCKER_BUILD") != "" {
 		return c.command("up", "--detach", "--quiet-pull")
 	}
+
+	if services, ok := c.servicesToBuild(); ok {
+		if len(services) > 0 {
+			if err := c.command(append([]string{"build"}, services...)...); err != nil {
+				return err
+			}
+		}
+		return c.command("up", "--detach", "--quiet-pull")
+	}
+
 	return c.command("up", "--build", "--detach", "--quiet-pull")
+}
+
+// servicesToBuild lists the services to rebuild when PREBUILT_IMAGES names
+// image tags that were docker-loaded before the run: everything with a build
+// section except the prebuilt ones. Image tags are not unique per Dockerfile
+// across compose files, so all other services must keep rebuilding per suite.
+// Returns ok=false (build everything) when the mechanism is off or the file
+// can't be parsed
+func (c *Compose) servicesToBuild() ([]string, bool) {
+	prebuiltEnv := os.Getenv("PREBUILT_IMAGES")
+	if prebuiltEnv == "" {
+		return nil, false
+	}
+	prebuilt := strings.Split(prebuiltEnv, ",")
+	for i := range prebuilt {
+		prebuilt[i] = strings.TrimSpace(prebuilt[i])
+	}
+
+	data, err := os.ReadFile(c.Path)
+	if err != nil {
+		return nil, false
+	}
+
+	var doc struct {
+		Services map[string]struct {
+			Image string    `yaml:"image"`
+			Build yaml.Node `yaml:"build"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, false
+	}
+
+	var services []string
+	for name, svc := range doc.Services {
+		if svc.Build.IsZero() {
+			continue
+		}
+		if svc.Image != "" && slices.Contains(prebuilt, svc.Image) {
+			continue
+		}
+		services = append(services, name)
+	}
+	slices.Sort(services)
+
+	return services, true
 }
 
 func (c *Compose) Run(service string) error {
 	c.skipWait = true
 	args := []string{"up"}
 	if os.Getenv("SKIP_DOCKER_BUILD") == "" {
-		args = append(args, "--build")
+		if services, ok := c.servicesToBuild(); ok {
+			if len(services) > 0 {
+				if err := c.command(append([]string{"build"}, services...)...); err != nil {
+					return err
+				}
+			}
+		} else {
+			args = append(args, "--build")
+		}
 	}
 	args = append(args, "--quiet-pull", "--abort-on-container-exit", "--exit-code-from", service)
 	return c.command(args...)
@@ -116,6 +183,19 @@ func (c *Compose) LogsTail(n int, services ...string) (string, error) {
 	output, err := cmd.Output()
 
 	return strings.TrimSpace(string(output)), err
+}
+
+// ServiceRunning reports whether Compose currently lists a service as running.
+func (c *Compose) ServiceRunning(service string) (bool, error) {
+	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "ps", "--status", "running", "--services", service}
+	cmd := exec.Command("docker", cmdArgs...)
+	cmd.Env = c.Env
+
+	output, err := cmd.Output()
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(output)) == service, nil
 }
 
 func (c *Compose) Stop() error {

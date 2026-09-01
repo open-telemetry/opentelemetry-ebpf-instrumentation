@@ -476,7 +476,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, error", func(t *testing.T) {
 		span := makeSQLRequestErroredSpan("SELECT * FROM obi.nonexisting")
-		traceAttrs := map[attr.Name]struct{}{attr.DBQueryText: {}}
+		traceAttrs := map[attr.Name]struct{}{attr.DBQueryText: {}, attr.ErrorType: {}}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, traceAttrs)
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -509,6 +509,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traceAttrs := map[attr.Name]struct{}{
 			attr.DBQueryText:     {},
 			attr.DBResponseError: {},
+			attr.ErrorType:       {},
 		}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, traceAttrs)
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
@@ -540,6 +541,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "process")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpName), "process")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "important-topic")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "test")
 	})
@@ -558,7 +560,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.NotEmpty(t, spans.At(0).TraceID().String())
 
 		attrs := spans.At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "publish")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "send")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpName), "publish")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "sensors/temperature")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "mqtt-client-1")
 	})
@@ -583,11 +586,47 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.NotEmpty(t, spans.At(0).TraceID().String())
 
 		attrs := spans.At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "publish")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "send")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpName), "publish")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "updates.orders")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "nats")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "nats-client-1")
 		ensureTraceIntAttr(t, attrs, semconv.MessagingMessageEnvelopeSizeKey, 42)
+	})
+
+	t.Run("test Kafka producer trace generation", func(t *testing.T) {
+		span := request.Span{
+			Type:      request.EventTypeKafkaClient,
+			Method:    request.MessagingSend,
+			Path:      "important-topic",
+			Statement: "test",
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		assert.Equal(t, "send important-topic", spans.At(0).Name())
+		assert.Equal(t, ptrace.SpanKindProducer, spans.At(0).Kind())
+
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpName), "send")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "send")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "kafka")
+	})
+
+	t.Run("test AMQP trace generation", func(t *testing.T) {
+		span := request.Span{
+			Type:   request.EventTypeAMQPClient,
+			Method: "publish",
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "send")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpName), "publish")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "amqp")
 	})
 
 	t.Run("test Kafka trace generation omits unknown operation type", func(t *testing.T) {
@@ -600,6 +639,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.MessagingOpType))
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.MessagingOpName))
 		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "important-topic")
 	})
 
@@ -929,7 +969,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Status:      200,
 		}
 		// Without db.query.text in optional attributes
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.ErrorType: {}})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
@@ -961,7 +1001,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 				Description: "Keyspace not found in CB datastore: default:travel-sample._default.nonexistent",
 			},
 		}
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.DBQueryText: {}, attr.ErrorType: {}})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
@@ -1007,6 +1047,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traceAttrs := map[attr.Name]struct{}{
 			attr.DBQueryText:     {},
 			attr.DBResponseError: {},
+			attr.ErrorType:       {},
 		}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, traceAttrs)
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
@@ -1299,7 +1340,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Metadata:      []byte(`{"session_id":"sess_42"}`),
 		})
 
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{}) // GenAIMetadata NOT in optional set
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.ErrorType: {}}) // GenAIMetadata NOT in optional set
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
@@ -1316,7 +1357,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			},
 		})
 
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.ErrorType: {}})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		topSpan := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
@@ -1537,6 +1578,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIOutput:       {},
 			attr.GenAIInstructions: {},
 			attr.GenAITools:        {},
+			attr.ErrorType:         {},
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -1567,6 +1609,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIOutput:       {},
 			attr.GenAIInstructions: {},
 			attr.GenAITools:        {},
+			attr.ErrorType:         {},
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -1679,6 +1722,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIOutput:       {},
 			attr.GenAIInstructions: {},
 			attr.GenAITools:        {},
+			attr.ErrorType:         {},
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -1710,6 +1754,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIOutput:       {},
 			attr.GenAIInstructions: {},
 			attr.GenAITools:        {},
+			attr.ErrorType:         {},
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -1832,7 +1877,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			},
 		})
 
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.ErrorType: {}})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
@@ -1871,6 +1916,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIOutput:       {},
 			attr.GenAIInstructions: {},
 			attr.GenAITools:        {},
+			attr.ErrorType:         {},
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -1901,6 +1947,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIOutput:       {},
 			attr.GenAIInstructions: {},
 			attr.GenAITools:        {},
+			attr.ErrorType:         {},
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -2564,7 +2611,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "portmapper/0", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
+			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "send important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "portmapper/0", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
 		},
 		{
 			name:     "http only",
@@ -2589,7 +2636,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "kafka only",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationKafka},
-			expected: []string{"publish important-topic", "process important-topic"},
+			expected: []string{"send important-topic", "process important-topic"},
 		},
 		{
 			name:     "mqtt only",
@@ -2619,7 +2666,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "kafka and grpc",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
-			expected: []string{"/grpcFoo", "/grpcGoo", "publish important-topic", "process important-topic"},
+			expected: []string{"/grpcFoo", "/grpcGoo", "send important-topic", "process important-topic"},
 		},
 		{
 			name:     "mongo",
@@ -2646,8 +2693,8 @@ func TestTracesInstrumentations(t *testing.T) {
 		makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\""),
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", Path: "redis_db", RequestStart: 150, End: 175},
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", Path: "redis_db", RequestStart: 150, End: 175},
-		{Type: request.EventTypeKafkaClient, Method: "process", Path: "important-topic", Statement: "test"},
-		{Type: request.EventTypeKafkaServer, Method: "publish", Path: "important-topic", Statement: "test"},
+		{Type: request.EventTypeKafkaClient, Method: request.MessagingSend, Path: "important-topic", Statement: "test"},
+		{Type: request.EventTypeKafkaServer, Method: "process", Path: "important-topic", Statement: "test"},
 		{Type: request.EventTypeMQTTClient, Method: "publish", Path: "sensors/temperature", Statement: "mqtt-client"},
 		{Type: request.EventTypeMQTTServer, Method: "process", Path: "sensors/#", Statement: "mqtt-server"},
 		{Type: request.EventTypeNATSClient, Method: "publish", Path: "updates.orders"},

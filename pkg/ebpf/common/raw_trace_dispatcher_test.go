@@ -50,6 +50,8 @@ func traceRecordBoundaries() []traceRecordBoundary {
 		{"sql", EventTypeSQL, int(unsafe.Sizeof(SQLRequestTrace{}))},
 		{"kernel-http", EventTypeKHTTP, int(unsafe.Sizeof(BPFHTTPInfo{}))},
 		{"kernel-http2", EventTypeKHTTP2, int(unsafe.Sizeof(BPFHTTP2Info{}))},
+		{"kernel-http2-request-headers", EventTypeKHTTP2RequestHeaders, int(unsafe.Sizeof(BPFHTTP2Info{}))},
+		{"kernel-http2-response-headers", EventTypeKHTTP2ResponseHeaders, int(unsafe.Sizeof(BPFHTTP2Info{}))},
 		{"tcp", EventTypeTCP, int(unsafe.Sizeof(TCPRequestInfo{}))},
 		{"go-sarama", EventTypeGoSarama, int(unsafe.Sizeof(GoSaramaClientInfo{}))},
 		{"go-redis", EventTypeGoRedis, int(unsafe.Sizeof(GoRedisClientInfo{}))},

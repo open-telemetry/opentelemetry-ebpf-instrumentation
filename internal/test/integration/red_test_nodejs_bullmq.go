@@ -30,7 +30,7 @@ func testREDMetricsNodeBullMQ(t *testing.T) {
 	const url = "http://localhost:8382"
 
 	// each job wakes the worker: bzpopmin reply + evalsha + get + set
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/job", 200)
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -67,6 +67,7 @@ func testREDMetricsNodeBullMQ(t *testing.T) {
 				attribute.String("db.operation.name", "evalsha"),
 				attribute.Bool("error", true),
 				attribute.String("db.response.status_code", "NOSCRIPT"),
+				attribute.String("error.type", "NOSCRIPT"),
 			},
 		},
 		{
@@ -86,7 +87,7 @@ func testREDMetricsNodeBullMQ(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range spans {
-			resp, err := http.Get(jaegerQueryURL + "?service=node&operation=" + span.Name)
+			resp, err := http.Get(jaegerQueryURL + "?service=nodebullmq&operation=" + span.Name)
 			require.NoError(ct, err, "failed to query jaeger for %s", span.Name)
 			if resp == nil {
 				return
@@ -106,7 +107,7 @@ func testREDMetricsNodeBullMQ(t *testing.T) {
 	// the worker sets a ~3.8KB value per job; the payload tail can only reach
 	// db.query.text through the TCP large-buffer path (inline capture is 256B)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=node&operation=set")
+		resp, err := http.Get(jaegerQueryURL + "?service=nodebullmq&operation=set")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

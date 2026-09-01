@@ -1,5 +1,5 @@
 'use strict';
-// Multibyte truncation boundary (Tyler / MrAlias): attribute keys/values (and
+// Multibyte truncation boundary: attribute keys/values (and
 // name/status message) are truncated to UTF-8 BYTE budgets because the Go side
 // copies them into fixed byte arrays (key[32], value[128], NUL-terminated).
 // A UTF-16 code-unit budget would let e.g. sixteen 'é' (16 units, 32 bytes)

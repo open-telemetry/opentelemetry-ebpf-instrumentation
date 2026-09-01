@@ -211,7 +211,6 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	if err != nil {
 		return nil, err
 	}
-
 	return &InternalMetricsReporter{
 		ctx:                              ctx,
 		tracerFlushes:                    tracerFlushes,
@@ -251,9 +250,9 @@ func newInternalMeterProvider(
 }
 
 // sanitizedAttributes is the attribute boundary for the internal metrics, which build their
-// datapoint attributes directly rather than through Expirer.recordAttributes. Values such as
-// a process basename or an error string can carry invalid UTF-8, which protobuf rejects for
-// the whole export request, so every one of them passes through here.
+// datapoint attributes directly rather than through Expirer.recordAttributes. A value such as
+// a process basename can carry invalid UTF-8, which protobuf rejects for the whole export
+// request, so every one of them passes through here.
 func sanitizedAttributes(kvs ...attribute.KeyValue) instrument.MeasurementOption {
 	sanitized := make([]attribute.KeyValue, len(kvs))
 	for i, kv := range kvs {
@@ -327,7 +326,7 @@ func newResourceInternal(nodeMeta *meta.NodeMeta) *resource.Resource {
 		attrs = append(attrs, event.Key.OTEL().String(event.Value))
 	}
 
-	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
+	return resource.NewWithAttributes(attr.OBISchemaURL, attrs...)
 }
 
 func (p *InternalMetricsReporter) recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, telemetryType string) {
