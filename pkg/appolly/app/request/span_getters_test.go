@@ -1344,3 +1344,46 @@ func TestSpanOTELGetters_DBNamespace(t *testing.T) {
 	kv = getter(&Span{Type: EventTypeSQLClient, SubType: int(DBMySQL)})
 	assert.False(t, kv.Valid(), "expected db.namespace to be omitted, got %v", kv)
 }
+
+func TestSpanOTELGetters_DBResponseStatusCode(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.DBResponseStatusCode)
+	require.True(t, ok, "getter should be found for DBResponseStatusCode")
+
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name:     "failed SQL operation reports the vendor error code",
+			span:     &Span{Type: EventTypeSQLClient, Status: 1, SQLError: &SQLError{Code: 1146}},
+			expected: "1146",
+		},
+		{
+			name:     "failed redis operation reports the protocol error code",
+			span:     &Span{Type: EventTypeRedisClient, DBError: DBError{ErrorCode: "WRONGTYPE"}},
+			expected: "WRONGTYPE",
+		},
+		{
+			name: "successful operation omits the attribute",
+			span: &Span{Type: EventTypeSQLClient},
+		},
+		{
+			name: "SQL error data without failure status omits the attribute",
+			span: &Span{Type: EventTypeSQLClient, SQLError: &SQLError{Code: 1146}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kv := getter(tt.span)
+			if tt.expected == "" {
+				assert.False(t, kv.Valid(), "expected db.response.status_code to be omitted, got %v", kv)
+				return
+			}
+			require.True(t, kv.Valid(), "expected db.response.status_code to be reported")
+			assert.Equal(t, string(attr.DBResponseStatusCode), string(kv.Key))
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
+}

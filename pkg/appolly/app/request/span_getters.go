@@ -201,6 +201,16 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return DBNamespace(span.DBNamespace)
 		}
+	case attr.DBResponseStatusCode:
+		getter = func(span *Span) attribute.KeyValue {
+			// db.response.status_code is Conditionally Required "if the
+			// operation failed and status code is available": omit it on
+			// success or when no code was captured
+			if code := dbResponseStatusCode(span); code != "" {
+				return DBResponseStatusCode(code)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
 			if errType := SpanErrorType(span); errType != "" {
@@ -595,6 +605,16 @@ func spanPromGetters(attrName attr.Name) attributes.Getter[*Span, string] {
 	// unlike the OTEL getters, when the attribute is not found, we need to look for it
 	// in the metadata section
 	return func(s *Span) string { return s.Service.Metadata[attrName] }
+}
+
+func dbResponseStatusCode(span *Span) string {
+	if span.DBError.ErrorCode != "" {
+		return span.DBError.ErrorCode
+	}
+	if span.Status == 1 && span.SQLError != nil {
+		return strconv.Itoa(int(span.SQLError.Code))
+	}
+	return ""
 }
 
 func dbSystemNameForSpan(span *Span) string {
