@@ -528,12 +528,6 @@ run-integration-test-vm:
 			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
 
-.PHONY: run-integration-test-arm
-run-integration-test-arm:
-	@echo "### Running integration tests"
-	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
-
 .PHONY: unit-test-matrix-json
 unit-test-matrix-json:
 	@go list ./... | go tool $(TOOLS_MODFILE) gotestsum tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
@@ -576,12 +570,6 @@ integration-test: prereqs prepare-integration-test
 .PHONY: integration-test-k8s
 integration-test-k8s: prereqs prepare-integration-test
 	$(MAKE) run-integration-test-k8s || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
-	$(MAKE) itest-coverage-data
-	$(MAKE) cleanup-integration-test
-
-.PHONY: integration-test-arm
-integration-test-arm: prereqs prepare-integration-test
-	$(MAKE) run-integration-test-arm || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
 
