@@ -33,9 +33,17 @@ permissions:
 
 jobs:
   unit-test-privileged:
-    name: "Unit tests (privileged)"
-    runs-on: ubuntu-latest
+    name: "Unit tests (privileged ${{ matrix.platform.arch }})"
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,4 +80,4 @@ jobs:
         with:
           files: ./testoutput/cover.txt
           flags: unittests
-          name: unit-privileged-coverage
+          name: unit-privileged-coverage-${{ matrix.platform.arch }}
