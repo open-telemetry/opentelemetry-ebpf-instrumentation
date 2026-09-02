@@ -25,8 +25,8 @@ import (
 )
 
 // The OTLP exporters wrap every send error, so the shapes below are the ones that actually
-// reach the reporter. A classifier that reads only the outermost error reports the wrapper
-// type for all of them.
+// reach the reporter. A classifier that inspects only the outermost error reports the same
+// wrapper for all of them.
 func TestExportErrorType(t *testing.T) {
 	refused := &net.OpError{
 		Op:  "dial",
@@ -66,11 +66,11 @@ func TestExportErrorType(t *testing.T) {
 			fmt.Errorf("failed to upload metrics: %w", context.Canceled),
 			"CANCELLED",
 		},
-		{"plain error", errors.New("plain failure"), "*errors.errorString"},
+		{"unrecognized error", errors.New("plain failure"), errtype.Other},
 		{
 			"status outside the grpc enum is never reported as a made-up value",
 			status.New(codes.Code(42), "bogus").Err(),
-			"*status.Error",
+			errtype.Other,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -80,8 +80,8 @@ func TestExportErrorType(t *testing.T) {
 }
 
 // Drives a real OTLP/HTTP exporter, the default metrics protocol, against a port nothing
-// listens on. Guards against the classifier degrading to a single wrapper type for every
-// transport failure.
+// listens on. Guards against the classifier reporting a wrapper type, or giving up and
+// bucketing every transport failure as _OTHER.
 func TestExportErrorTypeFromRealOTLPExporter(t *testing.T) {
 	port := testutil.FreeTCPPort(t)
 
@@ -99,4 +99,5 @@ func TestExportErrorTypeFromRealOTLPExporter(t *testing.T) {
 	errorType := ExportErrorType(exportErr)
 	assert.NotEqual(t, "*fmt.wrapError", errorType)
 	assert.NotEqual(t, "*errors.joinError", errorType)
+	assert.NotEqual(t, errtype.Other, errorType, "a transport failure must be classified, not bucketed")
 }

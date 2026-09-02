@@ -18,6 +18,10 @@ import (
 // ExportErrorType classifies an export failure into a low-cardinality error.type value.
 // The error message is unsuitable as an attribute: it embeds endpoints and deadlines, so
 // it mints a new series per distinct failure.
+//
+// Each check uses errors.Is or errors.As, so it sees through the wrapping the OTLP
+// exporters add. A failure matching none of them is reported as _OTHER rather than by Go
+// type, because the type of an unrecognized error names the wrapper that carried it.
 func ExportErrorType(err error) string {
 	if err == nil {
 		return errtype.Other
@@ -37,35 +41,13 @@ func ExportErrorType(err error) string {
 	}
 
 	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return errtype.GRPCCode(int(codes.DeadlineExceeded))
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return errtype.GRPCCode(int(codes.DeadlineExceeded))
+		}
+
+		return fmt.Sprintf("%T", netErr)
 	}
 
-	return fmt.Sprintf("%T", unwrapCombinators(err))
-}
-
-// unwrapCombinators strips the wrappers fmt.Errorf and errors.Join add. Their types name
-// the combinator rather than the failure, so the OTLP exporters — which wrap every send
-// error at least once — would otherwise report a single type for every possible cause.
-func unwrapCombinators(err error) error {
-	for {
-		if joined, ok := err.(interface{ Unwrap() []error }); ok {
-			errs := joined.Unwrap()
-			if len(errs) == 0 || errs[0] == nil {
-				return err
-			}
-			err = errs[0]
-			continue
-		}
-
-		if fmt.Sprintf("%T", err) != "*fmt.wrapError" {
-			return err
-		}
-
-		next := errors.Unwrap(err)
-		if next == nil {
-			return err
-		}
-		err = next
-	}
+	return errtype.Other
 }

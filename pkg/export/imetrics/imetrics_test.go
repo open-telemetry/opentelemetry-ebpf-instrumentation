@@ -16,6 +16,7 @@ import (
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
+	"go.opentelemetry.io/obi/pkg/internal/errtype"
 )
 
 func TestIsBuiltinNoopReporter(t *testing.T) {
@@ -145,7 +146,7 @@ func TestPrometheusReporterExportErrorType(t *testing.T) {
 
 	assert.Equal(t, map[string]string{
 		"obi_otel_metric_export_errors_total": "DEADLINE_EXCEEDED",
-		"obi_otel_trace_export_errors_total":  "*errors.errorString",
+		"obi_otel_trace_export_errors_total":  errtype.Other,
 	}, found)
 }
 
