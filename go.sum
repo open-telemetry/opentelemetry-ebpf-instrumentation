@@ -361,8 +361,6 @@ go.mongodb.org/mongo-driver/v2 v2.6.0 h1:b9sJOYrkmt4l8bY43ZenFBcPlhYIjaOfYHLtbB/
 go.mongodb.org/mongo-driver/v2 v2.6.0/go.mod h1:yOI9kBsufol30iFsl1slpdq1I0eHPzybRWdyYUs8K/0=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
-go.opentelemetry.io/collector v0.158.0 h1:Y6O3795ZteSA60Ak+m7WSzLpwtq/Ea/CPfqJ44VcAnk=
-go.opentelemetry.io/collector v0.158.0/go.mod h1:mHFIfs11GAfPkvE+gDtq9K+pI5YlfaS0XmAtiizeYP4=
 go.opentelemetry.io/collector v0.159.0 h1:gOWL2DGKrPSEdDJ++4NfNhx77A409SNrrZW18hE8dKY=
 go.opentelemetry.io/collector v0.159.0/go.mod h1:yEUB5frsgatUzPmfvEkuJp+iA6zHJ0wKwQZFceAD7VI=
 go.opentelemetry.io/collector/client v1.64.0 h1:+55Y6GKU63ywmaA7yYyiJcf2n9WPafvLnhMX1N9jHWk=
