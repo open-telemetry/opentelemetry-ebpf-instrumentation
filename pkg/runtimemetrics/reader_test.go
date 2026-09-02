@@ -58,7 +58,7 @@ func TestPythonRuntimeMetricRawABI(t *testing.T) {
 	var event pythonRuntimeMetricRawEvent
 	var snapshot pythonRuntimeMetricRawSnapshot
 
-	require.Equal(t, byte(29), byte(EventTypePythonRuntimeMetric))
+	require.Equal(t, EventTypePythonRuntimeMetric, byte(29))
 	require.Equal(t, uintptr(96), unsafe.Sizeof(event))
 	require.Equal(t, uintptr(4), unsafe.Offsetof(event.PID))
 	require.Equal(t, uintptr(16), unsafe.Offsetof(event.Snapshot))
@@ -69,7 +69,7 @@ func TestPythonRuntimeMetricRawABI(t *testing.T) {
 func TestGoRuntimeHistogramRawABI(t *testing.T) {
 	var event goRuntimeHistogramRawEvent
 
-	require.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
+	require.Equal(t, EventTypeGoRuntimeHistogram, byte(21))
 	require.Equal(t, GoHistogramKindGCPause, GoHistogramKind(0))
 	require.Equal(t, GoHistogramKindSchedLatency, GoHistogramKind(1))
 	require.Equal(t, uintptr(1328), unsafe.Sizeof(event))

@@ -20,11 +20,11 @@ import (
 )
 
 func TestRuntimeMetricEventTypeABI(t *testing.T) {
-	assert.Equal(t, byte(17), byte(EventTypeGoRuntimeMetric))
-	assert.Equal(t, byte(19), byte(EventTypeJVMMemoryPoolGC))
-	assert.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
-	assert.Equal(t, byte(29), byte(EventTypePythonRuntimeMetric))
-	assert.Equal(t, byte(30), byte(EventTypeJVMRuntimeMetrics))
+	assert.Equal(t, EventTypeGoRuntimeMetric, byte(17))
+	assert.Equal(t, EventTypeJVMMemoryPoolGC, byte(19))
+	assert.Equal(t, EventTypeGoRuntimeHistogram, byte(21))
+	assert.Equal(t, EventTypePythonRuntimeMetric, byte(29))
+	assert.Equal(t, EventTypeJVMRuntimeMetrics, byte(30))
 }
 
 func TestIsGoRuntimeMetricRecordRecognizesGoRuntimeEvents(t *testing.T) {
@@ -115,7 +115,7 @@ func TestHandleRuntimeMetricsRecordUsesCustomRuntimeMetricHandler(t *testing.T) 
 		RawSample: []byte{EventTypeJVMMemoryPoolGC},
 	}, nil, nil, func(_ context.Context, record *ringbuf.Record) (bool, error) {
 		called++
-		assert.Equal(t, byte(EventTypeJVMMemoryPoolGC), record.RawSample[0])
+		assert.Equal(t, EventTypeJVMMemoryPoolGC, record.RawSample[0])
 		return true, expectedErr
 	})
 

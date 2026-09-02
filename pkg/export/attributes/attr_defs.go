@@ -417,23 +417,25 @@ func getDefinitions(
 		DBClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.ServerAddr:       true,
-				attr.ServerPort:       true,
-				attr.DBOperation:      true,
-				attr.DBSystemName:     true,
-				attr.ErrorType:        true,
-				attr.DBCollectionName: false,
-				attr.DBNamespace:      true,
+				attr.ServerAddr:           true,
+				attr.ServerPort:           true,
+				attr.DBOperation:          true,
+				attr.DBSystemName:         true,
+				attr.ErrorType:            true,
+				attr.DBCollectionName:     false,
+				attr.DBNamespace:          true,
+				attr.DBResponseStatusCode: true,
 			},
 		},
 		DBServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
-				attr.DBOperation:      true,
-				attr.DBSystemName:     true,
-				attr.ErrorType:        true,
-				attr.DBCollectionName: false,
-				attr.DBNamespace:      true,
+				attr.DBOperation:          true,
+				attr.DBSystemName:         true,
+				attr.ErrorType:            true,
+				attr.DBCollectionName:     false,
+				attr.DBNamespace:          true,
+				attr.DBResponseStatusCode: true,
 			},
 		},
 		MessagingPublishDuration.Section: {
@@ -459,8 +461,9 @@ func getDefinitions(
 				attr.GenAIToolCallResult:    false,
 				attr.GenAIResponseError:     false,
 				attr.DBResponseError:        false,
-				// Recommended by OTel semconv, so emitted by default.
-				// Opt out via attributes.select.traces.exclude.
+				// Conditionally Required or Recommended by OTel semconv, so emitted
+				// by default. Opt out via attributes.select.traces.exclude.
+				attr.ErrorType:              true,
 				attr.NetworkPeerAddress:     true,
 				attr.NetworkPeerPort:        true,
 				attr.NetworkProtocolVersion: true,

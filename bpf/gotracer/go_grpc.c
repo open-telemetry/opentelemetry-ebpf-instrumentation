@@ -289,7 +289,7 @@ int GUARDED_PROG(obi_uprobe_server_handleStream_return, struct pt_regs *, ctx) {
         goto done;
     }
     task_pid(&trace->pid);
-    trace->type = EVENT_GRPC_REQUEST;
+    trace->type = k_event_type_grpc_request;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->status = status;
     trace->content_length = 0;
@@ -477,7 +477,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     }
 
     task_pid(&trace->pid);
-    trace->type = EVENT_GRPC_CLIENT;
+    trace->type = k_event_type_grpc_client;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
@@ -825,7 +825,7 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
             tp_p.valid = 1;
             tp_p.written = 0;
             tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
-            tp_p.req_type = EVENT_HTTP_CLIENT;
+            tp_p.req_type = k_event_type_http_client;
 
             egress_key_t e_key = {
                 .d_port = conn_info->d_port,
@@ -1033,7 +1033,7 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_originateStream, struct pt_regs *, 
         tp_p.valid = 1;
         tp_p.written = 0;
         tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
-        tp_p.req_type = EVENT_HTTP_CLIENT;
+        tp_p.req_type = k_event_type_http_client;
 
         egress_key_t e_key = {
             .d_port = conn_info->d_port,

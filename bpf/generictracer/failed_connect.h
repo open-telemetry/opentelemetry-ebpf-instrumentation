@@ -19,7 +19,7 @@ static __always_inline void init_failed_connect_tcp_req(tcp_req_t *req,
                                                         const pid_info *pid) {
     __builtin_memset(req, 0, sizeof(*req));
 
-    req->flags = EVENT_FAILED_CONNECT;
+    req->flags = k_event_type_failed_connect;
     req->conn_info = pid_conn->conn;
     fixup_connection_info(&req->conn_info, TCP_SEND, orig_dport);
     req->ssl = 0;

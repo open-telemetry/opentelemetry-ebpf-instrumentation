@@ -112,7 +112,7 @@ static __always_inline int jvm_hotspot_mem_pool_gc(enum jvm_gc_when_type when,
     }
 
     bpf_memset(e, 0, sizeof(*e));
-    e->type = EVENT_JVM_MEM_POOL_GC;
+    e->type = k_event_type_jvm_mem_pool_gc;
     e->timestamp = ts;
     jvm_fill_mem_pool_pid_fields(pid_tgid, e);
     e->gc_when_type = when;

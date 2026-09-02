@@ -839,11 +839,11 @@ func TestSpanOTELGetters_ErrorTypeOmitted(t *testing.T) {
 	kv := getter(&Span{Type: EventTypeHTTP, Status: 200})
 	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
 
-	// failed HTTP request: generic error.type
+	// failed HTTP request: the status code classifies the failure
 	kv = getter(&Span{Type: EventTypeHTTP, Status: 500})
 	require.True(t, kv.Valid())
 	assert.Equal(t, string(attr.ErrorType), string(kv.Key))
-	assert.Equal(t, "error", kv.Value.AsString())
+	assert.Equal(t, "500", kv.Value.AsString())
 
 	// failed Memcached request keeps its specific error code
 	kv = getter(&Span{
@@ -1343,4 +1343,66 @@ func TestSpanOTELGetters_DBNamespace(t *testing.T) {
 	// instead of emitting an empty value
 	kv = getter(&Span{Type: EventTypeSQLClient, SubType: int(DBMySQL)})
 	assert.False(t, kv.Valid(), "expected db.namespace to be omitted, got %v", kv)
+}
+
+func TestSpanOTELGetters_DBResponseStatusCode(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.DBResponseStatusCode)
+	require.True(t, ok, "getter should be found for DBResponseStatusCode")
+
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name:     "failed SQL operation reports the vendor error code",
+			span:     &Span{Type: EventTypeSQLClient, Status: 1, SQLError: &SQLError{Code: 1146}},
+			expected: "1146",
+		},
+		{
+			name:     "failed postgres operation reports the SQLSTATE (no vendor code in the protocol)",
+			span:     &Span{Type: EventTypeSQLClient, Status: 1, SQLError: &SQLError{SQLState: "08P01"}},
+			expected: "08P01",
+		},
+		{
+			name:     "failed redis operation reports the protocol error code",
+			span:     &Span{Type: EventTypeRedisClient, DBError: DBError{ErrorCode: "WRONGTYPE"}},
+			expected: "WRONGTYPE",
+		},
+		{
+			name:     "failed elasticsearch operation reports the HTTP status code",
+			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, Status: 404},
+			expected: "404",
+		},
+		{
+			name:     "successful elasticsearch operation also reports the HTTP status code",
+			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, Status: 200},
+			expected: "200",
+		},
+		{
+			name: "elasticsearch operation without a response omits the attribute",
+			span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch},
+		},
+		{
+			name: "successful operation omits the attribute",
+			span: &Span{Type: EventTypeSQLClient},
+		},
+		{
+			name: "SQL error data without failure status omits the attribute",
+			span: &Span{Type: EventTypeSQLClient, SQLError: &SQLError{Code: 1146}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kv := getter(tt.span)
+			if tt.expected == "" {
+				assert.False(t, kv.Valid(), "expected db.response.status_code to be omitted, got %v", kv)
+				return
+			}
+			require.True(t, kv.Valid(), "expected db.response.status_code to be reported")
+			assert.Equal(t, string(attr.DBResponseStatusCode), string(kv.Key))
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
 }
