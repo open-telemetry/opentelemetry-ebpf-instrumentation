@@ -16,6 +16,8 @@ typedef enum h2_socket_transaction_outcome {
     k_h2_socket_transaction_rollback_uncertain,
 } h2_socket_transaction_outcome_t;
 
+enum { k_h2_frame_len_field_size = 3 };
+
 static __always_inline bool h2_frame_len_bytes_are(const unsigned char *data, u32 expected) {
     return data[0] == ((expected >> 16) & 0xff) && data[1] == ((expected >> 8) & 0xff) &&
            data[2] == (expected & 0xff);
@@ -32,6 +34,7 @@ static __always_inline bool h2_restore_socket_message(struct sk_msg_md *msg,
                                                       u32 frame_offset,
                                                       u32 payload_len,
                                                       u32 inject_offset) {
+    // Retry once before an uncertain rollback forces the caller to reject the write.
     bool popped = bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0;
     if (!popped) {
         popped = bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0;
@@ -43,16 +46,18 @@ static __always_inline bool h2_restore_socket_message(struct sk_msg_md *msg,
         return false;
     }
 
-    bool pulled = bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) == 0;
+    bool pulled =
+        bpf_msg_pull_data(msg, frame_offset, frame_offset + k_h2_frame_len_field_size, 0) == 0;
     if (!pulled) {
-        pulled = bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) == 0;
+        pulled =
+            bpf_msg_pull_data(msg, frame_offset, frame_offset + k_h2_frame_len_field_size, 0) == 0;
     }
     if (!pulled) {
         return false;
     }
 
     unsigned char *data = msg->data;
-    if (!data || (void *)data + 3 > msg->data_end) {
+    if (!data || (void *)data + k_h2_frame_len_field_size > msg->data_end) {
         return false;
     }
 
@@ -78,11 +83,11 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
         return k_h2_socket_transaction_no_mutation;
     }
 
-    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
+    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + k_h2_frame_len_field_size, 0) != 0) {
         return k_h2_socket_transaction_no_mutation;
     }
     const unsigned char *frame = msg->data;
-    if (!frame || (void *)frame + 3 > msg->data_end ||
+    if (!frame || (void *)frame + k_h2_frame_len_field_size > msg->data_end ||
         !h2_frame_len_bytes_are(frame, payload_len)) {
         return k_h2_socket_transaction_no_mutation;
     }
@@ -106,9 +111,9 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
                    : k_h2_socket_transaction_rollback_uncertain;
     }
 
-    __builtin_memcpy(data, expected, k_h2_tp_hpack_size);
+    bpf_memcpy(data, expected, k_h2_tp_hpack_size);
 
-    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + 3, 0) != 0) {
+    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + k_h2_frame_len_field_size, 0) != 0) {
         return h2_restore_socket_message(
                    msg, original_size, frame_offset, payload_len, inject_offset)
                    ? k_h2_socket_transaction_rollback_verified
@@ -116,7 +121,7 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
     }
 
     data = msg->data;
-    if (!data || (void *)data + 3 > msg->data_end) {
+    if (!data || (void *)data + k_h2_frame_len_field_size > msg->data_end) {
         return h2_restore_socket_message(
                    msg, original_size, frame_offset, payload_len, inject_offset)
                    ? k_h2_socket_transaction_rollback_verified
