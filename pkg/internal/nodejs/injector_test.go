@@ -5,17 +5,24 @@ package nodejs
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -469,5 +476,451 @@ func TestInjectionPayloadIsNeverFragmented(t *testing.T) {
 	if unsized.fin {
 		t.Fatal("expected the default write buffer to fragment the payload; " +
 			"if gorilla no longer fragments, this test and the sizing rationale should be revisited")
+	}
+}
+
+// evalRequest reads back the expression a Runtime.evaluate request carries.
+type evalRequest struct {
+	ID     int        `json:"id"`
+	Method string     `json:"method"`
+	Params evalParams `json:"params"`
+}
+
+// The inspector is a debugging interface, so OBI closes the one it opened
+// itself with SIGUSR1 and leaves an inspector the process asked for alone.
+func TestInjectionClosesOnlyAnInspectorOBIOpened(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		mayClose     bool
+		wantDebugEnd bool
+	}{
+		{name: "opened by OBI", mayClose: true, wantDebugEnd: true},
+		{name: "opened by the process", mayClose: false, wantDebugEnd: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			expressions := make(chan string, 2)
+			wsConn := newTestInspectorConn(t, func(conn *websocket.Conn) {
+				defer conn.Close()
+
+				for {
+					_, msg, err := conn.ReadMessage()
+					if err != nil {
+						return
+					}
+
+					var req evalRequest
+					if err := json.Unmarshal(msg, &req); err != nil {
+						return
+					}
+					expressions <- req.Params.Expression
+
+					if err := conn.WriteJSON(cdpResponse{ID: req.ID}); err != nil {
+						return
+					}
+				}
+			})
+
+			injector := newTestInjector()
+			payload, err := evaluateRequest("void 0;", agentRequestID)
+			if err != nil {
+				t.Fatalf("marshaling evaluate request: %v", err)
+			}
+
+			if err := injector.injectFileWS(1, wsConn, payload, tc.mayClose); err != nil {
+				t.Fatalf("injecting: %v", err)
+			}
+
+			// injectFileWS closes the inspector from a defer, so by the time it
+			// returns every message it sends has already been answered
+			if got := <-expressions; got != "void 0;" {
+				t.Fatalf("expected the agent payload first, got %q", got)
+			}
+
+			select {
+			case got := <-expressions:
+				if !tc.wantDebugEnd {
+					t.Fatalf("expected no further evaluation, got %q", got)
+				}
+				if got != debugEndExpression {
+					t.Fatalf("expected %q, got %q", debugEndExpression, got)
+				}
+			case <-time.After(testInspectorOperationTimeout):
+				if tc.wantDebugEnd {
+					t.Fatalf("timeout waiting for %q", debugEndExpression)
+				}
+			}
+		})
+	}
+}
+
+// A failed injection leaves the inspector listening, so the cleanup path has
+// to reach it over a connection of its own and evaluate process._debugEnd().
+func TestSendDebugEndEvaluatesDebugEnd(t *testing.T) {
+	expressions := make(chan string, 1)
+	srv := newScriptedInspectorServer(t, inspectorScript{expressions: expressions})
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial test inspector: %v", err)
+	}
+	defer conn.Close()
+
+	if err := newTestInjector().sendDebugEnd(conn); err != nil {
+		t.Fatalf("sending debug end: %v", err)
+	}
+
+	select {
+	case got := <-expressions:
+		if got != debugEndExpression {
+			t.Fatalf("expected %q, got %q", debugEndExpression, got)
+		}
+	case <-time.After(testInspectorOperationTimeout):
+		t.Fatal("timeout waiting for the evaluated expression")
+	}
+}
+
+// inspectorScript configures the stand-in inspector: how many initial
+// /json/list requests report no debugging targets, which is how an injection
+// attempt is made to fail after the inspector is already open.
+type inspectorScript struct {
+	emptyLists  int
+	expressions chan<- string
+	// notAnInspector answers /json/version with something the injector will
+	// not accept, so injectFile falls through to SIGUSR1 instead of injecting
+	// into an inspector it found already open
+	notAnInspector bool
+	// refuseUpgrade rejects the WebSocket upgrade, the way an inspector that
+	// has stopped serving its debugger session would
+	refuseUpgrade bool
+	// hangUpAfterFirstEvaluate answers one evaluation and then drops the
+	// session, so a following process._debugEnd() cannot be delivered
+	hangUpAfterFirstEvaluate bool
+}
+
+// newScriptedInspectorServer serves /json/version, /json/list and the debugger
+// WebSocket on one connection, the way the real inspector does, reporting
+// every expression it is asked to evaluate.
+func newScriptedInspectorServer(t *testing.T, script inspectorScript) *httptest.Server {
+	t.Helper()
+
+	upgrader := websocket.Upgrader{}
+	remainingEmptyLists := &atomic.Int64{}
+	remainingEmptyLists.Store(int64(script.emptyLists))
+
+	var srv *httptest.Server
+
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/json/version":
+			if script.notAnInspector {
+				_, _ = w.Write([]byte("not an inspector"))
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"Browser":"node.js/v22.0.0"}`))
+
+			return
+		case "/json/list":
+			targets := []inspectorTarget{{
+				WebSocketDebuggerURL: "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws",
+			}}
+			if remainingEmptyLists.Add(-1) >= 0 {
+				targets = nil
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(targets)
+
+			return
+		}
+
+		if script.refuseUpgrade {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			var req evalRequest
+			if err := json.Unmarshal(msg, &req); err != nil {
+				return
+			}
+			script.expressions <- req.Params.Expression
+
+			if err := conn.WriteJSON(cdpResponse{ID: req.ID}); err != nil {
+				return
+			}
+
+			if script.hangUpAfterFirstEvaluate {
+				return
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	return srv
+}
+
+// pointInjectorAtServer makes the injector dial srv instead of the real
+// inspector port, and keeps the connect budgets short enough that a failing
+// attempt does not stall the test.
+func pointInjectorAtServer(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+
+	_, port, err := net.SplitHostPort(srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("splitting test inspector address: %v", err)
+	}
+
+	parsed, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatalf("parsing test inspector port: %v", err)
+	}
+
+	setInspectorDialTarget(t, parsed)
+}
+
+// setInspectorDialTarget points the injector at port and shortens the connect
+// budgets, restoring both when the test ends.
+func setInspectorDialTarget(t *testing.T, port int) {
+	t.Helper()
+
+	oldPort, oldConnect, oldClose := inspectorPort, inspectorConnectWait, inspectorCloseWait
+	inspectorPort = port
+	inspectorConnectWait = testInspectorTimeout
+	inspectorCloseWait = testInspectorTimeout
+
+	t.Cleanup(func() {
+		inspectorPort = oldPort
+		inspectorConnectWait = oldConnect
+		inspectorCloseWait = oldClose
+	})
+}
+
+func awaitExpression(t *testing.T, expressions <-chan string) string {
+	t.Helper()
+
+	select {
+	case got := <-expressions:
+		return got
+	case <-time.After(testInspectorOperationTimeout):
+		t.Fatal("timeout waiting for an evaluated expression")
+		return ""
+	}
+}
+
+// closeInspector reaches the inspector over a connection of its own, because
+// the one the failed injection used is gone by the time it runs.
+func TestCloseInspectorEvaluatesDebugEnd(t *testing.T) {
+	expressions := make(chan string, 1)
+	srv := newScriptedInspectorServer(t, inspectorScript{expressions: expressions})
+	pointInjectorAtServer(t, srv)
+
+	newTestInjector().closeInspector(1)
+
+	if got := awaitExpression(t, expressions); got != debugEndExpression {
+		t.Fatalf("expected %q, got %q", debugEndExpression, got)
+	}
+}
+
+// A failure after the inspector is open must not leave the debugging
+// interface listening.
+func TestFailedInjectionClosesTheInspector(t *testing.T) {
+	expressions := make(chan string, 1)
+	// the first /json/list reports no targets, failing the injection
+	srv := newScriptedInspectorServer(t, inspectorScript{emptyLists: 1, expressions: expressions})
+	pointInjectorAtServer(t, srv)
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial test inspector: %v", err)
+	}
+
+	if err := newTestInjector().injectViaConn(1, conn, true); err == nil {
+		t.Fatal("expected the injection to fail")
+	}
+
+	if got := awaitExpression(t, expressions); got != debugEndExpression {
+		t.Fatalf("expected %q, got %q", debugEndExpression, got)
+	}
+}
+
+// An inspector the process asked for stays open even when the injection fails.
+func TestFailedInjectionLeavesAProcessOwnedInspectorOpen(t *testing.T) {
+	expressions := make(chan string, 1)
+	srv := newScriptedInspectorServer(t, inspectorScript{emptyLists: 1, expressions: expressions})
+	pointInjectorAtServer(t, srv)
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial test inspector: %v", err)
+	}
+
+	if err := newTestInjector().injectViaConn(1, conn, false); err == nil {
+		t.Fatal("expected the injection to fail")
+	}
+
+	select {
+	case got := <-expressions:
+		t.Fatalf("expected no evaluation, got %q", got)
+	case <-time.After(testInspectorTimeout):
+	}
+}
+
+// injectFile reaches the inspector two ways - finding it already open, or
+// opening it with SIGUSR1 - and a failed injection has to close it in both.
+func TestInjectFileClosesTheInspectorAfterAFailedInjection(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		notAnInspector bool
+	}{
+		{name: "inspector already open"},
+		{name: "inspector opened by SIGUSR1", notAnInspector: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubProcessWithoutInspectorFlag(t)
+			catchSIGUSR1(t)
+
+			expressions := make(chan string, 1)
+			// the first /json/list reports no targets, failing the injection
+			srv := newScriptedInspectorServer(t, inspectorScript{
+				emptyLists:     1,
+				expressions:    expressions,
+				notAnInspector: tc.notAnInspector,
+			})
+			pointInjectorAtServer(t, srv)
+
+			if err := newTestInjector().injectFile(os.Getpid(), nil); err == nil {
+				t.Fatal("expected the injection to fail")
+			}
+
+			if got := awaitExpression(t, expressions); got != debugEndExpression {
+				t.Fatalf("expected %q, got %q", debugEndExpression, got)
+			}
+		})
+	}
+}
+
+// When the inspector never answers after SIGUSR1 there is nothing to close,
+// and the cleanup attempt must not turn that into a hang or a panic.
+func TestInjectFileReportsAnInspectorThatNeverOpens(t *testing.T) {
+	stubProcessWithoutInspectorFlag(t)
+	catchSIGUSR1(t)
+
+	// a port nothing listens on: closed by the time the injector dials it
+	srv := newScriptedInspectorServer(t, inspectorScript{})
+	pointInjectorAtServer(t, srv)
+	srv.Close()
+
+	err := newTestInjector().injectFile(os.Getpid(), nil)
+	if err == nil {
+		t.Fatal("expected an error when the inspector never opens")
+	}
+
+	if !strings.Contains(err.Error(), "failed to connect to inspector after SIGUSR1") {
+		t.Fatalf("expected the SIGUSR1 connect failure, got %v", err)
+	}
+}
+
+// catchSIGUSR1 keeps the default disposition, which terminates the process,
+// from killing the test run when the injector signals it.
+func catchSIGUSR1(t *testing.T) {
+	t.Helper()
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGUSR1)
+	t.Cleanup(func() {
+		signal.Stop(signals)
+	})
+}
+
+// captureInjectorLogs returns an injector that logs into the returned buffer,
+// so tests can assert on what an operator would see.
+func captureInjectorLogs(t *testing.T) (*NodeInjector, *bytes.Buffer) {
+	t.Helper()
+
+	logs := &bytes.Buffer{}
+	injector := newTestInjector()
+	injector.log = slog.New(slog.NewTextHandler(logs, nil))
+
+	return injector, logs
+}
+
+// A successful injection closes the inspector OBI opened, over the same
+// session it injected through.
+func TestInjectViaConnInjectsThenClosesTheInspector(t *testing.T) {
+	expressions := make(chan string, 2)
+	srv := newScriptedInspectorServer(t, inspectorScript{expressions: expressions})
+	pointInjectorAtServer(t, srv)
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial test inspector: %v", err)
+	}
+
+	if err := newTestInjector().injectViaConn(1, conn, true); err != nil {
+		t.Fatalf("injecting: %v", err)
+	}
+
+	if got := awaitExpression(t, expressions); got == debugEndExpression {
+		t.Fatal("expected the agent payload before the close")
+	}
+
+	if got := awaitExpression(t, expressions); got != debugEndExpression {
+		t.Fatalf("expected %q, got %q", debugEndExpression, got)
+	}
+}
+
+// The one outcome an operator has to act on: OBI could not close the
+// inspector, so it says so instead of failing silently.
+func TestCloseInspectorReportsAnInspectorItCannotClose(t *testing.T) {
+	expressions := make(chan string, 1)
+	srv := newScriptedInspectorServer(t, inspectorScript{
+		expressions:   expressions,
+		refuseUpgrade: true,
+	})
+	pointInjectorAtServer(t, srv)
+
+	injector, logs := captureInjectorLogs(t)
+	injector.closeInspector(1)
+
+	if !strings.Contains(logs.String(), "could not close the Node.js inspector") {
+		t.Fatalf("expected a warning about the inspector staying open, got: %s", logs.String())
+	}
+}
+
+// The same warning is due when the injection itself succeeded and only the
+// close failed: the agent is in, but the debugging interface is still open.
+func TestInjectionReportsACloseItCouldNotComplete(t *testing.T) {
+	expressions := make(chan string, 1)
+	srv := newScriptedInspectorServer(t, inspectorScript{
+		expressions:              expressions,
+		hangUpAfterFirstEvaluate: true,
+	})
+	pointInjectorAtServer(t, srv)
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial test inspector: %v", err)
+	}
+
+	injector, logs := captureInjectorLogs(t)
+	if err := injector.injectViaConn(1, conn, true); err != nil {
+		t.Fatalf("injecting: %v", err)
+	}
+
+	if !strings.Contains(logs.String(), "could not close the Node.js inspector") {
+		t.Fatalf("expected a warning about the inspector staying open, got: %s", logs.String())
 	}
 }
