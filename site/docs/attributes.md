@@ -27,7 +27,7 @@ Attributes carried on OBI's CUDA GPU metrics.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. |  |
+| `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
 
 ## `registry.obi.internal_metrics`
 
@@ -64,7 +64,7 @@ Attributes carried on OBI's network-flow metrics. Emitted when the `network`, `n
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. |  |
+| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
 | `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
 | `dst.asn` | string | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
 | `dst.cidr` | string | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
@@ -72,7 +72,7 @@ Attributes carried on OBI's network-flow metrics. Emitted when the `network`, `n
 | `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `iface.direction` | enum | development | Direction of the flow relative to the interface. |  |
+| `iface.direction` | enum | development | Direction of the flow relative to the interface. | ingress; egress |
 | `iface` | string | development | Network interface the flow was observed on. | eth0 |
 | `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
 | `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
@@ -108,7 +108,7 @@ Attributes used by OBI's service-graph emission. The metric names and label set 
 | `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
 | `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
 | `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. |  |
+| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
 | `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
 | `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
 | `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
@@ -116,14 +116,14 @@ Attributes used by OBI's service-graph emission. The metric names and label set 
 
 ## `registry.obi.spanmetrics`
 
-Attributes used by OBI's span-metrics emission. The metric names match the output of the OTel collector-contrib `spanmetricsconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_span_otel` metrics feature is enabled. Per-metric resource attributes (`service.name`, `service.namespace`, `service.instance.id`, `host.id`, `telemetry.sdk.language`, etc.) come from upstream OpenTelemetry semantic conventions and are not redeclared here. The OBI-specific `source` attribute is declared in `obi_internal.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/spanmetricsconnector
+Attributes used by OBI's span-metrics emission. The metric names match the output of the OTel collector-contrib `spanmetricsconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_span_otel` metrics feature is enabled, except the `traces_spanmetrics_*_size_total` counters, which are gated separately on the deprecated `application_span_sizes` feature. `service.name`, `service.namespace`, `service.instance.id`, `host.id` and `telemetry.sdk.language` are referenced from upstream OpenTelemetry semantic conventions rather than redeclared here, and appear on the metric groups below because `spanMetricAttributes` puts them on the data point rather than on the resource. The OBI-specific `source` attribute is declared in `obi_internal.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/spanmetricsconnector
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. |  |
+| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 | `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. |  |
+| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
 
 ## `registry.obi.stats`
 
@@ -131,8 +131,8 @@ Attributes carried on OBI's per-connection TCP statistics. Emitted when the `sta
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). |  |
-| `reason` | enum | development | Classification of why a TCP connection failed. |  |
+| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 
 ## `registry.obi.traces`
 
@@ -151,7 +151,7 @@ OBI override of `db.system.name` extending the upstream enum with the database s
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. |  |
+| `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
 
 ## `x.obi.error`
 
@@ -168,7 +168,7 @@ OBI overrides of `gen_ai.provider.name` (upstream enum extended with the provide
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; tools/call |
-| `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. |  |
+| `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 
 ## `x.obi.messaging`
 
@@ -176,7 +176,7 @@ OBI override of `messaging.system` extending the upstream enum with the messagin
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `messaging.system` | enum | development | The messaging system as identified by the client instrumentation. |  |
+| `messaging.system` | enum | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
 
 ## `x.obi.network`
 
@@ -192,7 +192,7 @@ OBI override of `openai.api.type` extending the upstream enum with the embedding
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `openai.api.type` | enum | development | The type of OpenAI API being used. |  |
+| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; embeddings |
 
 ## `x.obi.rpc`
 
@@ -200,7 +200,7 @@ OBI override of `rpc.system.name` extending the upstream enum with the RPC syste
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. |  |
+| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 
 ## `x.obi.telemetry`
 
@@ -208,4 +208,4 @@ OBI override of `telemetry.sdk.language` extending the upstream enum with the `g
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. |  |
+| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |

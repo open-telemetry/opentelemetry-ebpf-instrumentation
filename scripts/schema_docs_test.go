@@ -49,7 +49,10 @@ const resolvedRegistry = `{
       "brief": "An upstream namespace OBI extends.",
       "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
       "attributes": [
-        {"name": "error.type", "type": {"members": []}, "stability": "stable", "brief": "Error class | with a pipe."}
+        {"name": "error.type", "type": {"members": []}, "stability": "stable", "brief": "Error class | with a pipe."},
+        {"name": "obi.small.enum", "type": {"members": [{"id": "a", "value": "a"}, {"id": "b", "value": "b"}]}, "stability": "development", "brief": "A short enum."},
+        {"name": "obi.long.enum", "type": {"members": [{"value": "v1"}, {"value": "v2"}, {"value": "v3"}, {"value": "v4"}, {"value": "v5"}, {"value": "v6"}, {"value": "v7"}, {"value": "v8"}, {"value": "v9"}, {"value": "v10"}]}, "stability": "development", "brief": "A long enum."},
+        {"name": "obi.enum.with.examples", "type": {"members": [{"value": "m1"}, {"value": "m2"}]}, "stability": "development", "brief": "Enum that declares examples.", "examples": ["chosen"]}
       ]
     },
     {
@@ -69,6 +72,18 @@ const resolvedRegistry = `{
       "stability": "development",
       "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
       "attributes": [{"name": "span.name", "type": "string", "stability": "development", "brief": "Span name."}]
+    },
+    {
+      "id": "metric.obi_renamed_metric",
+      "type": "metric",
+      "metric_name": "obi.renamed.metric",
+      "brief": "A metric that was renamed.",
+      "instrument": "counter",
+      "unit": "1",
+      "stability": "development",
+      "deprecated": {"reason": "renamed", "renamed_to": "obi.new.metric"},
+      "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
+      "attributes": []
     },
     {
       "id": "metric.http.server.request.duration",
@@ -123,7 +138,40 @@ func TestSchemaDocsEscapesPipesAndCountsGroups(t *testing.T) {
 	}
 
 	readme := renderSchemaDocs(t, "readme")
-	if !strings.Contains(readme, "2 attribute groups") || !strings.Contains(readme, "1 metrics") {
+	if !strings.Contains(readme, "2 attribute groups") || !strings.Contains(readme, "2 metrics") {
 		t.Errorf("readme counts do not match the fixture\n%s", readme)
+	}
+}
+
+func TestSchemaDocsRendersEnumMembersCapped(t *testing.T) {
+	page := renderSchemaDocs(t, "attributes")
+
+	// A short enum lists every member, so the value space is documented.
+	if !strings.Contains(page, "| `obi.small.enum` | enum | development | A short enum. | a; b |") {
+		t.Errorf("short enum did not list its members\n%s", page)
+	}
+	// A long enum is truncated, otherwise upstream enums (db.system.name has 42
+	// members) would make the table unreadable.
+	if !strings.Contains(page, "v1; v2; v3; v4; v5; v6; v7; v8; …") {
+		t.Errorf("long enum was not capped\n%s", page)
+	}
+	if strings.Contains(page, "v9") || strings.Contains(page, "v10") {
+		t.Errorf("capped enum leaked members past the limit\n%s", page)
+	}
+	// Declared examples win over the member list.
+	if !strings.Contains(page, "| `obi.enum.with.examples` | enum | development | Enum that declares examples. | chosen |") {
+		t.Errorf("declared examples did not take precedence over enum members\n%s", page)
+	}
+}
+
+func TestSchemaDocsMarksDeprecatedMetrics(t *testing.T) {
+	page := renderSchemaDocs(t, "metrics")
+
+	if !strings.Contains(page, "> **renamed** — use `obi.new.metric` instead") {
+		t.Errorf("a renamed metric was not marked deprecated, so it reads as current\n%s", page)
+	}
+	// A metric with no deprecation gets no callout.
+	if strings.Contains(page, "## `traces.span.metrics.calls`\n\n> **") {
+		t.Errorf("a non-deprecated metric got a deprecation callout\n%s", page)
 	}
 }

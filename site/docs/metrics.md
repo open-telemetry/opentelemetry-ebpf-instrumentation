@@ -20,8 +20,9 @@ Duration of database operations observed from the server side.
 | `db.collection.name` | string | stable | The name of a collection (table, container) within the database. | public.users; customers |
 | `db.namespace` | string | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
-| `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. |  |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `db.response.status_code` | string | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
+| `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
+| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 
@@ -98,7 +99,7 @@ Distribution of CUDA memory copy sizes (cudaMemcpy / cudaMemcpyAsync), broken do
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. |  |
+| `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
 
 ## `obi.avoided.services`
 
@@ -197,7 +198,7 @@ Total number of instrumentation errors, by process name and error type.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | enum | stable | Describes the error the DNS lookup failed with. | host_not_found; no_recovery; java.net.UnknownHostException |
 | `process.executable.name` | string | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
 
 ## `obi.instrumented.processes`
@@ -249,7 +250,7 @@ Total bytes observed per network flow, grouped by the configured attribute selec
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `client.port` | int | stable | Client port number. | 65123 |
-| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. |  |
+| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
 | `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
 | `dst.asn` | string | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
 | `dst.cidr` | string | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
@@ -257,7 +258,7 @@ Total bytes observed per network flow, grouped by the configured attribute selec
 | `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `iface.direction` | enum | development | Direction of the flow relative to the interface. |  |
+| `iface.direction` | enum | development | Direction of the flow relative to the interface. | ingress; egress |
 | `iface` | string | development | Network interface the flow was observed on. | eth0 |
 | `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
 | `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
@@ -297,7 +298,7 @@ Total packets observed per network flow, grouped by the configured attribute sel
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `client.port` | int | stable | Client port number. | 65123 |
-| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. |  |
+| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
 | `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
 | `dst.asn` | string | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
 | `dst.cidr` | string | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
@@ -305,7 +306,7 @@ Total packets observed per network flow, grouped by the configured attribute sel
 | `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `iface.direction` | enum | development | Direction of the flow relative to the interface. |  |
+| `iface.direction` | enum | development | Direction of the flow relative to the interface. | ingress; egress |
 | `iface` | string | development | Network interface the flow was observed on. | eth0 |
 | `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
 | `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
@@ -426,9 +427,9 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | development | Destination TCP/UDP port. |  |
 | `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). |  |
+| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
-| `reason` | enum | development | Classification of why a TCP connection failed. |  |
+| `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 | `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
 | `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | development | Source TCP/UDP port. |  |
@@ -530,10 +531,15 @@ Total number of spans observed, grouped by span name / kind / status.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
+| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
 | `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. |  |
+| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
 | `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. |  |
+| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 
 ## `traces.span.metrics.duration`
 
@@ -545,10 +551,15 @@ Duration distribution for observed spans, grouped by span name / kind / status.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
+| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
 | `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. |  |
+| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
 | `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. |  |
+| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 
 ## `traces.target.info`
 
@@ -576,7 +587,7 @@ Client-side request duration distribution per service-graph edge.
 | `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
 | `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
 | `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. |  |
+| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
 | `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
 | `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
 | `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
@@ -597,7 +608,7 @@ Total number of failed edges in the service graph, grouped by client / server.
 | `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
 | `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
 | `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. |  |
+| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
 | `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
 | `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
 | `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
@@ -618,7 +629,7 @@ Server-side request duration distribution per service-graph edge.
 | `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
 | `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
 | `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. |  |
+| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
 | `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
 | `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
 | `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
@@ -639,7 +650,7 @@ Total number of edges in the service graph, grouped by client / server.
 | `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
 | `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
 | `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. |  |
+| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
 | `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
 | `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
 | `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
@@ -647,6 +658,8 @@ Total number of edges in the service graph, grouped by client / server.
 | `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
 ## `traces_spanmetrics_calls_total`
+
+> **renamed** — use `traces.span.metrics.calls` instead
 
 Total number of spans observed, grouped by span name / kind / status (legacy naming).
 
@@ -656,12 +669,19 @@ Total number of spans observed, grouped by span name / kind / status (legacy nam
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
+| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
 | `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. |  |
+| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
 | `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. |  |
+| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 
 ## `traces_spanmetrics_latency`
+
+> **renamed** — use `traces.span.metrics.duration` instead
 
 Duration distribution for observed spans, grouped by span name / kind / status (legacy naming).
 
@@ -671,7 +691,56 @@ Duration distribution for observed spans, grouped by span name / kind / status (
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
+| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
 | `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. |  |
+| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
 | `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. |  |
+| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+
+## `traces_spanmetrics_response_size_total`
+
+> **obsoleted** — The `application_span_sizes` metrics feature that emits this counter is deprecated with no replacement.
+
+Total response size observed for spans, grouped by span name / kind / status (legacy naming). Emitted with the `application_span_sizes` metrics feature enabled.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
+| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
+| `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
+| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+
+## `traces_spanmetrics_size_total`
+
+> **obsoleted** — The `application_span_sizes` metrics feature that emits this counter is deprecated with no replacement.
+
+Total request size observed for spans, grouped by span name / kind / status (legacy naming). Emitted with the `application_span_sizes` metrics feature enabled.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
+| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
+| `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
+| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |

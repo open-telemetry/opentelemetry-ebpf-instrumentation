@@ -14,12 +14,40 @@ def is_obi: (.lineage.provenance.schema_url // "") | test("opentelemetry-ebpf-in
 def cell: (. // "") | tostring | gsub("\n"; " ") | gsub("\\|"; "\\|") | sub("^ +"; "") | sub(" +$"; "");
 def attr_type: if (.type | type) == "string" then .type else "enum" end;
 
+# An enum's value space is the documentation, so surface its members. Upstream
+# enums run long (db.system.name has 42), which would make the table unreadable,
+# so the list is capped. Declared examples win when present.
+def enum_members_shown: 8;
+def values:
+  if ((.examples // []) | length) > 0 then ((.examples // []) | map(tostring) | join("; "))
+  elif (.type | type) == "object" then
+    ((.type.members // []) | map(.value // .id | tostring)) as $m
+    | if ($m | length) == 0 then ""
+      elif ($m | length) > enum_members_shown then (($m[0:enum_members_shown] | join("; ")) + "; …")
+      else ($m | join("; "))
+      end
+  else "" end;
+
+# Deprecations are declared in the registry but were invisible here, so a reader
+# could pick a renamed metric as if it were current.
+def deprecation:
+  if (.deprecated // null) == null then ""
+  else
+    (.deprecated.reason // "deprecated") as $reason
+    | if (.deprecated.renamed_to // "") != "" then "**\($reason)** — use `\(.deprecated.renamed_to)` instead"
+      else "**\($reason)**" + (if (.deprecated.note // "") != "" then " — \(.deprecated.note)" else "" end)
+      end
+  end;
+
 def obi_groups($type): [.groups[] | select(.type == $type) | select(is_obi)];
 def attr_groups: obi_groups("attribute_group") | sort_by(.id);
 def metrics: obi_groups("metric") | sort_by(.metric_name);
 
 def attr_rows:
-  [.attributes[]? | "| `\(.name)` | \(attr_type) | \(.stability | cell) | \(.brief | cell) | \((.examples // []) | map(tostring) | join("; ") | cell) |"]
+  [.attributes[]?
+   | ((deprecation | cell) as $dep
+      | (if $dep == "" then (.brief | cell) else "\($dep). \(.brief | cell)" end) as $desc
+      | "| `\(.name)` | \(attr_type) | \(.stability | cell) | \($desc) | \(values | cell) |")]
   | sort;
 
 def attr_table:
@@ -50,7 +78,9 @@ def metrics_page:
   page("OBI metrics";
     ["Metrics that OpenTelemetry eBPF Instrumentation defines and emits itself. Which of these",
      "are produced depends on the enabled metrics features."];
-    [metrics[] | ["", "## `\(.metric_name)`", "", (.brief | cell), "",
+    [metrics[] | ["", "## `\(.metric_name)`", ""]
+                 + (if (deprecation | cell) == "" then [] else ["> \(deprecation | cell)", ""] end)
+                 + [(.brief | cell), "",
                   "| Instrument | Unit | Stability |", "| --- | --- | --- |",
                   "| \(.instrument | cell) | \(if (.unit // "") == "" then "1" else .unit end | cell) | \(.stability | cell) |",
                   ""] + attr_table]);
