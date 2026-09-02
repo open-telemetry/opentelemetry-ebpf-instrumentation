@@ -6,6 +6,7 @@ package tracesgen
 import (
 	"encoding/json"
 	"math"
+	"strconv"
 	"testing"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -1642,5 +1643,45 @@ func TestTraceAttributesSelector_NetworkProtocolVersion(t *testing.T) {
 		span := &request.Span{Type: request.EventTypeHTTP, ProtoVersion: request.ProtoVersionHTTP11, Method: "GET", Path: "/x", Status: 200}
 		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.name")
 		assert.False(t, ok)
+	})
+}
+
+func TestTraceAttributesSelector_DBResponseStatusCode(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("mysql failure reports the vendor error code", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeSQLClient, Method: "SELECT", Status: 1,
+			SQLError: &request.SQLError{Code: 1146, SQLState: "#42S02"},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		v, ok := attrValue(attrs, "db.response.status_code")
+		require.True(t, ok)
+		assert.Equal(t, "1146", v.AsString())
+	})
+
+	t.Run("elasticsearch reports the HTTP status code whenever a response was received", func(t *testing.T) {
+		for _, status := range []int{200, 404} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+				Method: "GET", Path: "/products/_search", Status: status,
+				Elasticsearch: &request.Elasticsearch{DBSystemName: "elasticsearch"},
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			v, ok := attrValue(attrs, "db.response.status_code")
+			require.True(t, ok, "status %d", status)
+			assert.Equal(t, strconv.Itoa(status), v.AsString())
+		}
+	})
+
+	t.Run("postgres failure reports the SQLSTATE (protocol has no vendor code)", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeSQLClient, Method: "SELECT", Status: 1,
+			SQLError: &request.SQLError{SQLState: "42P01"},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		v, ok := attrValue(attrs, "db.response.status_code")
+		require.True(t, ok)
+		assert.Equal(t, "42P01", v.AsString())
 	})
 }

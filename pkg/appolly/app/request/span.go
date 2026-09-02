@@ -249,6 +249,16 @@ type SQLError struct {
 	Message  string `json:"message"`
 }
 
+// ResponseStatusCode returns the db.response.status_code value for the error:
+// the vendor error code when the protocol provides one (MySQL, SQL Server),
+// else the SQLSTATE (PostgreSQL, whose protocol carries no vendor code).
+func (e *SQLError) ResponseStatusCode() string {
+	if e.Code != 0 {
+		return strconv.Itoa(int(e.Code))
+	}
+	return e.SQLState
+}
+
 type MessagingInfo struct {
 	Offset    int64 `json:"offset"`
 	Partition int   `json:"partition"`
