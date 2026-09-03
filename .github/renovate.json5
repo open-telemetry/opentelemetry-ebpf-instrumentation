@@ -346,6 +346,17 @@
       "schedule": ["before 6am on Tuesday"]
     },
     {
+      "description": "Re-enable digest/patch bumps for digest-pinned obi-testimg references in compose files so multi-arch republishes are picked up",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "ghcr.io/open-telemetry/obi-testimg",
+        "open-telemetry/obi-testimg"
+      ],
+      "enabled": true,
+      "groupName": "obi-testimg pinned images",
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
       "description": "Disable Go 1.17 testserver updates",
       "matchFileNames": ["internal/test/integration/components/testserver_1.17"],
       "matchDatasources": ["docker"],

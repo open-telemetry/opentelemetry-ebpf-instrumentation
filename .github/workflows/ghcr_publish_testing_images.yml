@@ -154,6 +154,30 @@ jobs:
           tag-id: java-native
           file: internal/test/integration/components/javatestserver/Dockerfile
 
+      - name: java-tls
+        uses: $/.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: java-tls
+          file: internal/test/integration/components/java_tls/sync_async_tls/Dockerfile
+
+      - name: java-tls-jdk8
+        uses: $/.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: java-tls-jdk8
+          file: internal/test/integration/components/java_tls/jdk8/Dockerfile
+
+      - name: netty-tls
+        uses: $/.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: netty-tls
+          file: internal/test/integration/components/java_tls/netty_tls/Dockerfile
+
       - name: node
         uses: $/.github/actions/integration-test-image-build
         with:
