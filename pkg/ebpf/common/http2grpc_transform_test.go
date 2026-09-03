@@ -26,7 +26,7 @@ import (
 func TestHTTP2InfoToSpanSetsFullPath(t *testing.T) {
 	var info BPFHTTP2Info
 	info.Type = uint8(request.EventTypeHTTP)
-	span := http2InfoToSpan(&info, "GET", "/users", "/users?x=1", "peer", "host", 200, HTTP2)
+	span := http2InfoToSpan(&info, "GET", "/users", "/users?x=1", "peer", "host", 8080, 200, HTTP2)
 	assert.Equal(t, "/users", span.Path)
 	assert.Equal(t, "/users?x=1", span.FullPath)
 }
@@ -1046,8 +1046,9 @@ func TestSequentialRequestsKeepResolvingMethods(t *testing.T) {
 }
 
 // When the connection tuple can't be resolved (both ports zero), the span should still
-// get a peer address by recovering it from the :authority pseudo-header, the HTTP/2
-// equivalent of the HTTP/1.x Host: header fallback.
+// get a peer address and port by recovering them from the :authority pseudo-header, the
+// HTTP/2 equivalent of the HTTP/1.x Host: header fallback. Unlike Host:, gRPC clients
+// (e.g. grpc-go) typically set :authority to host:port, so the port is recovered too.
 func TestUnresolvedConnFallsBackToAuthority(t *testing.T) {
 	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}
@@ -1060,6 +1061,7 @@ func TestUnresolvedConnFallsBackToAuthority(t *testing.T) {
 	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
 	span := completeH2(t, parseContext, event)
 	require.Equal(t, "ipservice.ipservice.svc.cluster.local", span.Host)
+	require.Equal(t, 9090, span.HostPort)
 }
 
 func TestCoalescedDataDoesNotPoisonHeaderState(t *testing.T) {

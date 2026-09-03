@@ -90,6 +90,7 @@ type h2RequestMeta struct {
 	path     string
 	fullPath string
 	host     string
+	hostPort int
 	grpc     bool
 }
 
@@ -425,17 +426,19 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 	return status, grpc, ok
 }
 
-// authorityHost strips the port from an :authority pseudo-header, mirroring how the
-// HTTP/1.x Host: header is handled. :authority usually omits the port, so this
-// recovers the address alone.
-func authorityHost(authority string) string {
-	if host, _, err := net.SplitHostPort(authority); err == nil {
-		return host
+// splitAuthority parses host and, when present, port out of an :authority
+// pseudo-header, mirroring how the HTTP/1.x Host: header is handled. Unlike
+// Host:, gRPC clients (e.g. grpc-go) typically set :authority to host:port.
+func splitAuthority(authority string) (host string, port int) {
+	h, p, err := net.SplitHostPort(authority)
+	if err != nil {
+		return authority, 0
 	}
-	return authority
+	port, _ = strconv.Atoi(p)
+	return h, port
 }
 
-func http2InfoToSpan(info *BPFHTTP2Info, method, path, fullPath, peer, host string, status int, protocol Protocol) request.Span {
+func http2InfoToSpan(info *BPFHTTP2Info, method, path, fullPath, peer, host string, hostPort int, status int, protocol Protocol) request.Span {
 	return request.Span{
 		Type:              info.eventType(protocol),
 		ProtoVersion:      request.ProtoVersionHTTP2,
@@ -445,7 +448,7 @@ func http2InfoToSpan(info *BPFHTTP2Info, method, path, fullPath, peer, host stri
 		Peer:              peer,
 		PeerPort:          int(info.ConnInfo.S_port),
 		Host:              host,
-		HostPort:          int(info.ConnInfo.D_port),
+		HostPort:          hostPort,
 		ContentLength:     int64(info.Len),
 		RequestStart:      int64(info.StartMonotimeNs),
 		Start:             int64(info.StartMonotimeNs),
@@ -633,15 +636,16 @@ func http2EventToSpan(parseContext *EBPFParseContext, pending *pendingH2Event) (
 
 			peer := ""
 			host := ""
+			hostPort := int(event.ConnInfo.D_port)
 			if event.ConnInfo.S_port != 0 || event.ConnInfo.D_port != 0 {
 				source, target := (*BPFConnInfo)(unsafe.Pointer(&event.ConnInfo)).reqHostInfo()
 				host = target
 				peer = source
 			} else {
-				host = authorityHost(authority)
+				host, hostPort = splitAuthority(authority)
 			}
 
-			return http2InfoToSpan(event, method, path, fullPath, peer, host, status, eventType), false, nil
+			return http2InfoToSpan(event, method, path, fullPath, peer, host, hostPort, status, eventType), false, nil
 		}
 	}
 
@@ -724,6 +728,7 @@ func readHTTP2HeaderEvent(parseContext *EBPFParseContext, event *BPFHTTP2Info) e
 				path:     span.Path,
 				fullPath: span.FullPath,
 				host:     span.Host,
+				hostPort: span.HostPort,
 				grpc:     h2SpanIsGRPC(span),
 			}
 			stream.requestOK = true
@@ -800,15 +805,17 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 
 	peer := ""
 	host := ""
+	hostPort := int(event.ConnInfo.D_port)
 	if event.ConnInfo.S_port != 0 || event.ConnInfo.D_port != 0 {
 		source, target := (*BPFConnInfo)(unsafe.Pointer(&event.ConnInfo)).reqHostInfo()
 		host = target
 		peer = source
 	} else {
 		host = cached.host
+		hostPort = cached.hostPort
 	}
 	span := http2InfoToSpan(
-		event, cached.method, cached.path, cached.fullPath, peer, host, status, protocol,
+		event, cached.method, cached.path, cached.fullPath, peer, host, hostPort, status, protocol,
 	)
 	return span, false, nil
 }
