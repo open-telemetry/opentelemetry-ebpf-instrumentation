@@ -39,16 +39,12 @@ sample_names = [
 #   - deployment.environment.name: set by the workload via
 #     OTEL_RESOURCE_ATTRIBUTES and forwarded on the resource. Unlike
 #     service.version, OBI never derives it from a Kubernetes label.
-#   - network.protocol.version: emitted by an already-instrumented application
-#     whose own telemetry flows through the same weaver tap (OBI sets
-#     network.protocol.name, not .version).
 # Anything OBI actually sets is declared in the registry, so a new violation
 # here still means a real gap unless it is genuine passthrough added to this list.
 [[live-check.finding_filters]]
 exclude = ["missing_attribute", "extends_namespace"]
 sample_names = [
   "deployment.environment.name",
-  "network.protocol.version",
 ]
 
 # The legacy span metrics stay declared and marked deprecated in spanmetrics/metrics.yaml while

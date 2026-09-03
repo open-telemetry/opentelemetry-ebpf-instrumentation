@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -38,9 +39,13 @@ type Init struct {
 }
 
 type FileInfo struct {
-	mu             sync.RWMutex
-	service        svc.Attrs
-	runtimeGen     map[app.PID]uint64
+	mu          sync.RWMutex
+	service     svc.Attrs
+	runtimeGen  map[app.PID]uint64
+	pythonFinal map[app.PID]appruntime.PythonRuntimeMetricFinal
+
+	runtimeMetricServiceSource *FileInfo
+
 	cmdExePath     string
 	proExeLinkPath string
 	elfFile        *elf.File
@@ -56,6 +61,7 @@ func New(init Init) *FileInfo {
 	return &FileInfo{
 		service:        init.Service,
 		runtimeGen:     map[app.PID]uint64{},
+		pythonFinal:    map[app.PID]appruntime.PythonRuntimeMetricFinal{},
 		cmdExePath:     init.CmdExePath,
 		proExeLinkPath: init.ProExeLinkPath,
 		elfFile:        init.ELF,
@@ -66,6 +72,26 @@ func New(init Init) *FileInfo {
 		ino:            init.Ino,
 		ns:             init.Ns,
 	}
+}
+
+// SetPythonRuntimeMetricFinal stages one PID's termination data on the service FileInfo.
+// The process event drains it before exporters remove the PID baseline.
+func (fi *FileInfo) SetPythonRuntimeMetricFinal(value appruntime.PythonRuntimeMetricFinal) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	if fi.pythonFinal == nil {
+		fi.pythonFinal = map[app.PID]appruntime.PythonRuntimeMetricFinal{}
+	}
+	fi.pythonFinal[value.PID] = value
+}
+
+// TakePythonRuntimeMetricFinal drains one PID's staged Python termination data.
+func (fi *FileInfo) TakePythonRuntimeMetricFinal(pid app.PID) (appruntime.PythonRuntimeMetricFinal, bool) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	value, ok := fi.pythonFinal[pid]
+	delete(fi.pythonFinal, pid)
+	return value, ok
 }
 
 func (fi *FileInfo) RuntimeMetricGeneration(pid app.PID) uint64 {
@@ -83,6 +109,20 @@ func (fi *FileInfo) SetRuntimeMetricGeneration(pid app.PID, generation uint64) {
 		fi.runtimeGen = map[app.PID]uint64{}
 	}
 	fi.runtimeGen[pid] = generation
+}
+
+func (fi *FileInfo) SetRuntimeMetricServiceSource(source *FileInfo) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+
+	fi.runtimeMetricServiceSource = source
+}
+
+func (fi *FileInfo) RuntimeMetricServiceSource() *FileInfo {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+
+	return fi.runtimeMetricServiceSource
 }
 
 // Identity getters. Fields are set at construction and never mutated, so
@@ -113,6 +153,13 @@ func (fi *FileInfo) ServiceAttrs() svc.Attrs {
 
 	// no need to clone the other fields as they are immutable
 	return out
+}
+
+// UnsafeServiceAttrs should be used only when dealing with span events
+func (fi *FileInfo) UnsafeServiceAttrs() svc.Attrs {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+	return fi.service
 }
 
 func (fi *FileInfo) SDKLanguage() svc.InstrumentableType {

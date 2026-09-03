@@ -20,7 +20,9 @@ groups:
       - ref: onc_rpc.version
       - ref: onc_rpc.auth.flavor
       - ref: span.metrics.skip
-
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
   - id: span.obi.rpc.client
     type: span
     span_kind: client
@@ -39,3 +41,6 @@ groups:
       - ref: onc_rpc.version
       - ref: onc_rpc.auth.flavor
       - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version

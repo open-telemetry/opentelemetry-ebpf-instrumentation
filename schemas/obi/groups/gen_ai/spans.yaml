@@ -71,3 +71,6 @@ groups:
       - ref: jsonrpc.request.id
       - ref: rpc.response.status_code
       - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version

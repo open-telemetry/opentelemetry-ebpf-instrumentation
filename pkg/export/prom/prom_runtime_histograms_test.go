@@ -205,11 +205,11 @@ func TestGoRuntimeHistogramCollectorKeepsStateWhenRetirementOverflows(t *testing
 			assert.Contains(t, collector.histogramSnapshots, goRuntimeHistogramKey{
 				kind:       runtimemetrics.GoHistogramKindGCPause,
 				pid:        202,
-				labelTuple: runtimeHistogramLabelTuple(labels),
+				labelTuple: runtimeMetricLabelTuple(labels),
 			})
 			retired, ok := collector.retiredSnapshots[goRuntimeHistogramSeriesKey{
 				kind:       runtimemetrics.GoHistogramKindGCPause,
-				labelTuple: runtimeHistogramLabelTuple(labels),
+				labelTuple: runtimeMetricLabelTuple(labels),
 			}]
 			require.True(t, ok)
 			assert.Zero(t, retired.histogram.Underflow)

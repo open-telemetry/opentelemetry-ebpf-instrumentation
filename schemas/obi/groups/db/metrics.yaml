@@ -45,3 +45,4 @@ groups:
       - ref: server.port
       - ref: client.address
         requirement_level: opt_in
+      - ref: db.response.status_code

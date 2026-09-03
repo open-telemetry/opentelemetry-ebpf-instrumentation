@@ -153,8 +153,7 @@ func runOwnershipSuite(name, target string, transport http.RoundTripper) {
 	go func() {
 		defer wg.Done()
 		<-start
-		result.MuxOwned, ownedErr =
-			observeHeaders(client, target+"/ownership/multiplex", muxTraceparent)
+		result.MuxOwned, ownedErr = observeHeaders(client, target+"/ownership/multiplex", muxTraceparent)
 	}()
 	go func() {
 		defer wg.Done()

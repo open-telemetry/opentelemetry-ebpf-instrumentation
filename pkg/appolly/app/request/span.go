@@ -30,7 +30,8 @@ import (
 type EventType uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	// EventTypeProcessAlive is an internal signal. It will be ignored by the metrics exporters.
 	EventTypeProcessAlive EventType = iota
@@ -246,6 +247,16 @@ type SQLError struct {
 	Code     uint16 `json:"code"`
 	SQLState string `json:"sqlState"`
 	Message  string `json:"message"`
+}
+
+// ResponseStatusCode returns the db.response.status_code value for the error:
+// the vendor error code when the protocol provides one (MySQL, SQL Server),
+// else the SQLSTATE (PostgreSQL, whose protocol carries no vendor code).
+func (e *SQLError) ResponseStatusCode() string {
+	if e.Code != 0 {
+		return strconv.Itoa(int(e.Code))
+	}
+	return e.SQLState
 }
 
 type MessagingInfo struct {
@@ -1317,6 +1328,7 @@ type Span struct {
 	Type           EventType      `json:"type"`
 	SpanKind       trace.SpanKind `json:"-"`
 	Flags          uint8          `json:"-"`
+	ProtoVersion   ProtoVersion   `json:"-"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	FullPath       string         `json:"-"`
@@ -1809,28 +1821,10 @@ func HTTPSpanStatusCode(span *Span) string {
 
 	if span.Type == EventTypeHTTPClient {
 		if span.Status < 400 {
-			// this is possibly not needed, because in my experiments they
-			// respond with 429, but just to be correct according to the OTel
+			// A provider can report a failure inside a 2xx response, per the OTel
 			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
-			if span.GenAI != nil {
-				if span.GenAI.OpenAI != nil && span.GenAI.OpenAI.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Qwen != nil && span.GenAI.Qwen.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil && span.GenAI.Rerank.Output.Error.Type != "" {
-					return StatusCodeError
-				}
+			if span.GenAIFailed() {
+				return StatusCodeError
 			}
 
 			return StatusCodeUnset
@@ -2543,6 +2537,40 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Retrieval != nil {
 		return s.GenAI.Retrieval.Provider
 	}
+	return ""
+}
+
+// GenAIFailed reports whether a GenAI provider returned an error in its
+// response payload, which can happen inside a 2xx.
+func (s *Span) GenAIFailed() bool {
+	return s.GenAIErrorType() != ""
+}
+
+// GenAIErrorType returns the provider-reported error, mirroring the per-provider
+// shapes the trace exporter reads. Providers that carry no error field yield "".
+func (s *Span) GenAIErrorType() string {
+	if s.GenAI == nil {
+		return ""
+	}
+
+	for _, ai := range []*VendorOpenAI{s.GenAI.OpenAI, s.GenAI.Qwen, s.GenAI.OpenAICompatible} {
+		if ai != nil && ai.Error.Type != "" {
+			return ai.Error.Type
+		}
+	}
+	if ai := s.GenAI.Anthropic; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+	if ai := s.GenAI.Gemini; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Status
+	}
+	if ai := s.GenAI.Bedrock; ai != nil && ai.Output.ErrorType != "" {
+		return ai.Output.ErrorType
+	}
+	if ai := s.GenAI.Rerank; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+
 	return ""
 }
 

@@ -18,7 +18,9 @@ groups:
       - ref: server.port
       - ref: service.peer.name
       - ref: span.metrics.skip
-
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
   - id: span.obi.messaging.consumer
     type: span
     span_kind: consumer
@@ -36,3 +38,6 @@ groups:
       - ref: server.port
       - ref: service.peer.name
       - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version

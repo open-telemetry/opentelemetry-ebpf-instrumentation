@@ -198,7 +198,7 @@ static __always_inline void ship_large_request(void *buf,
 
     bpf_d_printk("event_type %d, packet_type %d, is_http %d", event_type, packet_type, is_http);
 
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
+    large_buf->type = k_event_type_tcp_large_buffer;
     large_buf->packet_type = packet_type;
     large_buf->direction = direction;
     large_buf->action = (!prev_event || is_http != k_http_not) ? k_large_buf_action_init

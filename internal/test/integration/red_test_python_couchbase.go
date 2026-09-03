@@ -254,6 +254,7 @@ func testREDMetricsPythonCouchbaseError(t *testing.T) {
 						attribute.String("db.namespace", "test-bucket"),
 						attribute.String("db.collection.name", "test-scope.test-collection"),
 						attribute.String("db.response.status_code", "1"), // KEY_NOT_FOUND
+						attribute.String("error.type", "1"),
 					},
 				},
 			},
@@ -364,6 +365,7 @@ func testREDMetricsPythonCouchbaseSQLPPError(t *testing.T) {
 						attribute.String("db.namespace", "nonexistent-bucket"),
 						attribute.String("db.collection.name", "nonexistent-scope.nonexistent-collection"),
 						attribute.String("db.response.status_code", "12003"), // Keyspace not found
+						attribute.String("error.type", "12003"),
 					},
 				},
 			},

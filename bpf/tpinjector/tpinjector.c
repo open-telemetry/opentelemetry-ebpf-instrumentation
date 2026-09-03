@@ -487,7 +487,7 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->pid = t_ctx->p_conn.pid;
-    tp_p->req_type = EVENT_HTTP_CLIENT;
+    tp_p->req_type = k_event_type_http_client;
 
     if (t_ctx->has_parent_tp) {
         bpf_dbg_printk("found existing tp info");
@@ -1163,14 +1163,16 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+    const bool msg_buffers_ready = fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
 
     if (is_h2_socket(msg)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return SK_PASS;
     }
 
-    if (msg->size <= MIN_HTTP_SIZE) {
+    // on a bail (SSL, etc.) msg_buffer_mem is stale — the HTTP detector would
+    // match a prior request and inject into this connection
+    if (!msg_buffers_ready || msg->size <= MIN_HTTP_SIZE) {
         return SK_PASS;
     }
 
@@ -1324,7 +1326,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
             tp_p->valid = 1;
             tp_p->written = 1;
             tp_p->pid = t_ctx->p_conn.pid;
-            tp_p->req_type = EVENT_HTTP_CLIENT;
+            tp_p->req_type = k_event_type_http_client;
 
             print_tp("found TP in headers", &tp_p->tp);
 
@@ -1734,7 +1736,7 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
         tp_p->valid = 1;
         tp_p->written = 1;
         tp_p->pid = t_ctx->p_conn.pid;
-        tp_p->req_type = EVENT_HTTP_CLIENT;
+        tp_p->req_type = k_event_type_http_client;
         set_tp_info_pid(&t_ctx->e_key, tp_p);
         h2_resume_after(
             msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);

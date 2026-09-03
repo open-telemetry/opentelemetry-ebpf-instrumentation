@@ -44,7 +44,9 @@ groups:
       - ref: rpc.system.name
       - ref: rpc.method
       - ref: rpc.response.status_code
-
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
   - id: span.obi.http.client
     type: span
     span_kind: client
@@ -71,3 +73,6 @@ groups:
       - ref: jsonrpc.protocol.version
       - ref: jsonrpc.request.id
       - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version

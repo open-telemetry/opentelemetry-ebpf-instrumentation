@@ -83,14 +83,14 @@ func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace s
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsJSHTTP(t *testing.T) {
+func testREDMetricsJSHTTP(t *testing.T, serviceName string) {
 	for _, testCaseURL := range []string{
 		"http://localhost:3031",
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForNodeHTTPLibrary(t, testCaseURL, "/greeting", "testserver", "integration-test")
-			testREDMetricsForNodeHTTPLibraryRoutes(t, testCaseURL, "testserver", "integration-test")
+			testREDMetricsForNodeHTTPLibrary(t, testCaseURL, "/greeting", serviceName, "integration-test")
+			testREDMetricsForNodeHTTPLibraryRoutes(t, testCaseURL, serviceName, "integration-test")
 		})
 	}
 }

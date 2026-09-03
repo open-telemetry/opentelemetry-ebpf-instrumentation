@@ -56,3 +56,81 @@ groups:
     attributes:
       - ref: jvm.memory.pool.name
       - ref: jvm.memory.type
+  - id: metric.obi.jvm.class.loaded
+    type: metric
+    metric_name: jvm.class.loaded
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.class.loaded
+    instrument: counter
+    unit: "{class}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.class.unloaded
+    type: metric
+    metric_name: jvm.class.unloaded
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.class.unloaded
+    instrument: counter
+    unit: "{class}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.class.count
+    type: metric
+    metric_name: jvm.class.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.class.count
+    instrument: updowncounter
+    unit: "{class}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.thread.count
+    type: metric
+    metric_name: jvm.thread.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.thread.count
+    instrument: updowncounter
+    unit: "{thread}"
+    stability: stable
+    attributes:
+      - ref: jvm.thread.daemon
+  - id: metric.obi.jvm.cpu.time
+    type: metric
+    metric_name: jvm.cpu.time
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.cpu.time
+    instrument: counter
+    unit: "s"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.cpu.count
+    type: metric
+    metric_name: jvm.cpu.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.cpu.count
+    instrument: updowncounter
+    unit: "{cpu}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.cpu.recent_utilization
+    type: metric
+    metric_name: jvm.cpu.recent_utilization
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.cpu.recent_utilization
+    instrument: gauge
+    unit: "1"
+    stability: stable
+    attributes: []

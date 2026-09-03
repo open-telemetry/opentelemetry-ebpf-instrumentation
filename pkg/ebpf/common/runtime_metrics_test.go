@@ -20,9 +20,11 @@ import (
 )
 
 func TestRuntimeMetricEventTypeABI(t *testing.T) {
-	assert.Equal(t, byte(17), byte(EventTypeGoRuntimeMetric))
-	assert.Equal(t, byte(19), byte(EventTypeJVMMemoryPoolGC))
-	assert.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
+	assert.Equal(t, EventTypeGoRuntimeMetric, byte(17))
+	assert.Equal(t, EventTypeJVMMemoryPoolGC, byte(19))
+	assert.Equal(t, EventTypeGoRuntimeHistogram, byte(21))
+	assert.Equal(t, EventTypePythonRuntimeMetric, byte(29))
+	assert.Equal(t, EventTypeJVMRuntimeMetrics, byte(30))
 }
 
 func TestIsGoRuntimeMetricRecordRecognizesGoRuntimeEvents(t *testing.T) {
@@ -74,6 +76,8 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		EventTypeGoRuntimeMetric,
 		EventTypeGoRuntimeHistogram,
 		EventTypeJVMMemoryPoolGC,
+		EventTypePythonRuntimeMetric,
+		EventTypeJVMRuntimeMetrics,
 	} {
 		runtimeMetrics := &fakeRuntimeMetricsSender{}
 		ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
@@ -91,9 +95,12 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		require.NoError(t, err)
 		assert.True(t, handled)
 
-		if eventType == EventTypeGoRuntimeMetric || eventType == EventTypeGoRuntimeHistogram {
+		switch eventType {
+		case EventTypeGoRuntimeMetric, EventTypeGoRuntimeHistogram:
 			assert.Equal(t, 1, runtimeMetrics.goRecords)
-		} else {
+		case EventTypePythonRuntimeMetric:
+			assert.Equal(t, 1, runtimeMetrics.pythonRecords)
+		default:
 			assert.Zero(t, runtimeMetrics.goRecords)
 		}
 		assert.Empty(t, runtimeMetrics.events)
@@ -108,7 +115,7 @@ func TestHandleRuntimeMetricsRecordUsesCustomRuntimeMetricHandler(t *testing.T) 
 		RawSample: []byte{EventTypeJVMMemoryPoolGC},
 	}, nil, nil, func(_ context.Context, record *ringbuf.Record) (bool, error) {
 		called++
-		assert.Equal(t, byte(EventTypeJVMMemoryPoolGC), record.RawSample[0])
+		assert.Equal(t, EventTypeJVMMemoryPoolGC, record.RawSample[0])
 		return true, expectedErr
 	})
 
@@ -141,11 +148,13 @@ func (f fakeRuntimeServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]sv
 }
 
 type fakeRuntimeMetricsSender struct {
-	events                []appruntime.JVMRuntimeEvent
+	events                []appruntime.JVMGCEvent
+	runtimeEvents         []appruntime.JVMRuntimeEvent
 	nodejsEvents          []appruntime.NodejsRuntimeEvent
 	nodejsGCEvents        []appruntime.NodejsGCEvent
 	nodejsHeapSpaceEvents []appruntime.NodejsHeapSpaceEvent
 	goRecords             int
+	pythonRecords         int
 	goFilter              ServiceFilter
 }
 
@@ -167,6 +176,15 @@ func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, 
 	return nil
 }
 
-func (s *fakeRuntimeMetricsSender) SendJVMRuntimeMetrics(_ context.Context, events []appruntime.JVMRuntimeEvent) {
+func (s *fakeRuntimeMetricsSender) SendPythonRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, _ ServiceFilter) error {
+	s.pythonRecords++
+	return nil
+}
+
+func (s *fakeRuntimeMetricsSender) SendJVMGCMetrics(_ context.Context, events []appruntime.JVMGCEvent) {
 	s.events = append(s.events, events...)
+}
+
+func (s *fakeRuntimeMetricsSender) SendJVMRuntimeMetrics(_ context.Context, events []appruntime.JVMRuntimeEvent) {
+	s.runtimeEvents = append(s.runtimeEvents, events...)
 }

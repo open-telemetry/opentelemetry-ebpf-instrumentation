@@ -22,4 +22,4 @@ EXPOSE 7033
 EXPOSE 5266
 
 # Run the .net app
-CMD [ "/dotnetserver"]
+CMD [ "dotnet", "/dotnetserver.dll"]

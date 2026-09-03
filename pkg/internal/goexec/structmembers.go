@@ -234,6 +234,9 @@ const (
 	RuntimeSchedSTWTotalTimeGCPos
 	RuntimeTimeHistogramUnderflowPos
 	RuntimeTimeHistogramOverflowPos
+	// Go connection interface types
+	GrpcSyscallConnTypeAddress
+	TLSConnTypeAddress
 )
 
 //go:embed offsets.json
@@ -419,6 +422,33 @@ var structMembers = map[string]structInfo{
 		},
 	},
 	"net/http.http2serverConn": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"conn": ScConnPos,
+		},
+	},
+	"net/http/internal/http2.ClientConn": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"nextStreamID": CcNextStreamIDVendoredPos,
+			"tconn":        CcTconnVendoredPos,
+			"tlsState":     CcTLSVendoredPos,
+			"fr":           CcFramerVendoredPos,
+		},
+	},
+	"net/http/internal/http2.Framer": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"w": FramerWPos,
+		},
+	},
+	"net/http/internal/http2.MetaHeadersFrame": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"Fields": MetaHeadersFrameFieldsPtrPos,
+		},
+	},
+	"net/http/internal/http2.serverConn": {
 		lib: "go",
 		fields: map[string]GoOffset{
 			"conn": ScConnPos,

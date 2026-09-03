@@ -55,11 +55,31 @@ static __always_inline void grpc_server_conn_info(void *tr, connection_info_t *c
     }
 
     off_table_t *ot = get_offsets_table();
+    void *conn_type = NULL;
     void *conn_ptr = NULL;
-    bpf_probe_read_user(&conn_ptr,
-                        sizeof(conn_ptr),
-                        (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}) +
-                                 k_go_iface_data_offset));
+    void *conn_iface = (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}));
+    bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+    bpf_probe_read_user(&conn_ptr, sizeof(conn_ptr), conn_iface + k_go_iface_data_offset);
+
+    const u64 syscall_conn_type_addr =
+        go_offset_of(ot, (go_offset){.v = _grpc_syscall_conn_type_addr});
+    if (syscall_conn_type_addr && conn_type == (void *)syscall_conn_type_addr) {
+        conn_iface = conn_ptr;
+        conn_type = NULL;
+        conn_ptr = NULL;
+        bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+        bpf_probe_read_user(&conn_ptr, sizeof(conn_ptr), conn_iface + k_go_iface_data_offset);
+    }
+
+    const u64 tls_conn_type_addr = go_offset_of(ot, (go_offset){.v = _tls_conn_type_addr});
+    if (tls_conn_type_addr && conn_type == (void *)tls_conn_type_addr) {
+        conn_iface = conn_ptr;
+        conn_type = NULL;
+        conn_ptr = NULL;
+        bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+        bpf_probe_read_user(&conn_ptr, sizeof(conn_ptr), conn_iface + k_go_iface_data_offset);
+    }
+
     if (conn_ptr) {
         get_conn_info(conn_ptr, conn);
     }
@@ -269,7 +289,7 @@ int GUARDED_PROG(obi_uprobe_server_handleStream_return, struct pt_regs *, ctx) {
         goto done;
     }
     task_pid(&trace->pid);
-    trace->type = EVENT_GRPC_REQUEST;
+    trace->type = k_event_type_grpc_request;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->status = status;
     trace->content_length = 0;
@@ -457,7 +477,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     }
 
     task_pid(&trace->pid);
-    trace->type = EVENT_GRPC_CLIENT;
+    trace->type = k_event_type_grpc_client;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
@@ -805,7 +825,7 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
             tp_p.valid = 1;
             tp_p.written = 0;
             tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
-            tp_p.req_type = EVENT_HTTP_CLIENT;
+            tp_p.req_type = k_event_type_http_client;
 
             egress_key_t e_key = {
                 .d_port = conn_info->d_port,
@@ -1013,7 +1033,7 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_originateStream, struct pt_regs *, 
         tp_p.valid = 1;
         tp_p.written = 0;
         tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
-        tp_p.req_type = EVENT_HTTP_CLIENT;
+        tp_p.req_type = k_event_type_http_client;
 
         egress_key_t e_key = {
             .d_port = conn_info->d_port,
