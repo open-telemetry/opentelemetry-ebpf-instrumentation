@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   # macOS runners lack Docker so they can't run `make docker-generate`. Run it
-  # once on Linux, share artifact with both lint jobs.
+  # once on Linux, share artifact with all lint jobs.
   generate-bpf:
     name: Generate BPF
     runs-on: ubuntu-latest
@@ -52,9 +52,17 @@ jobs:
       - uses: $/.github/actions/generate-bpf
 
   lint-linux:
-    name: Lint on linux
+    name: Lint on linux (${{ matrix.platform.arch }})
     needs: generate-bpf
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,10 +91,13 @@ jobs:
       - name: Lint
         run: make lint
 
+      # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
+        if: matrix.platform.arch == 'amd64'
         run: make lint-schema
 
       - name: Check published OBI telemetry schema files
+        if: matrix.platform.arch == 'amd64'
         run: make check-schema-files
 
   lint-darwin:
