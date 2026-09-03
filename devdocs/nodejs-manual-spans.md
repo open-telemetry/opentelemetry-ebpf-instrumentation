@@ -174,13 +174,21 @@ Mechanism:
   restores it; the per-callback `-ctx` / `-noreqctx` refresh clears it (each
   callback re-derives the base and the bridge re-applies the override right
   after).
-- **Client-span parenting** (`nodejs_manual_reparent_client` in
+- **Client-span parenting** (`nodejs_manual_parent_span_id` in
   `trace_parent.h`): after the fd-correlation map resolves the outgoing call's
   server parent, if the shadow slot exists and the live `traces_ctx_v1` entry
-  shares the resolved trace id, the client span's parent is swapped to the live
-  (manual) span id. Downstream traceparent propagation follows transitively: the
+  shares the resolved trace id, the parent is swapped to the live (manual) span
+  id. Two call sites, because the two resolvers hand back different shapes:
+  `find_trace_for_client_request_with_t_key` builds the client's own tp and
+  passes `parent_id`, while the tpinjector's
+  `find_parent_trace_for_client_request_with_t_key` holds the *parent's* tp and
+  passes `span_id` — `create_trace_info` copies `parent_tp.span_id` into the
+  client's `parent_id`. Both return `k_parent_status_live` rather than
+  `parent_kind`'s possibly-conditional verdict: a conditional parent would be
+  rerooted out of the trace, and a manual-span parent may legitimately never be
+  exported. Downstream traceparent propagation then follows transitively — the
   injected header carries the client span's own id, whose parent is now the
-  manual span. Nothing in the tpinjector path reads `traces_ctx_v1` itself.
+  manual span.
 - **Root vs. client parenting differ.** The manual span-end handler
   (`handle_node_span`) parents from the **shadow slot** (the server context),
   not the live entry — otherwise a root manual span, whose own override is live
@@ -333,15 +341,28 @@ would otherwise leave two providers active in one process.
   whichever request last populated `traces_ctx_v1`. The clear is emitted only on
   the request→no-request transition (not on every background callback) to keep
   the syscall off the hot path.
+
+  Client-span nesting adds one case to this: an eBPF client span is parented on
+  the *outgoing call*, but the manual span it points at is exported when it
+  *ends*. If the connection is gone by then (`-ctx/<fd>` finds no entry and the
+  override records the all-zero "no base existed" marker), the manual span falls
+  back to the bridge trace id, so the client span keeps a valid parent id that
+  now lives in a different trace. The alternative — withholding the client
+  span's parent until its parent's fate is known — costs correct nesting in
+  every normal case, so the dangling reference is the deliberate trade.
 - **Payload budgets** (above). Span events, instrumentation scope, links,
   non-primitive attribute values and `traceState` are not forwarded in v1.
 - **Span kind** is exported from the payload (`spanKind()` in tracesgen
   consumes `request.Span.SpanKind` for manual spans, as on the Go Auto path).
-- **One bridge per process.** A `globalThis` marker makes re-injection a
-  no-op.
-- **Never breaks the app.** All bridge failure paths are swallowed; the
-  sentinel syscall cost is ~1–2 µs per finished span, zero when the feature
-  is off. The one thing the bridge wraps is the CommonJS module loader
+- **One bridge per process.** A `globalThis` marker keeps re-injection from
+  installing a second bridge; it re-runs only `rehook()`, which moves the
+  override hook back after fdextractor's re-enabled context hook.
+- **Never breaks the app.** All bridge failure paths are swallowed. The
+  sentinel syscall costs ~1–2 µs each: one per finished span, plus — only while
+  a manual span is active — an override/pop pair per `with()` scope and another
+  per async callback that runs inside it. Zero when the feature is off, and zero
+  per callback when no manual span is active.
+  The one thing the bridge wraps is the CommonJS module loader
   (`Module._load`), used only to wire `@opentelemetry/api` copies loaded after
   injection; the wrapper always calls the original loader first and guards its
   own work, so it composes with other loader patches and can never break a

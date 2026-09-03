@@ -45,6 +45,8 @@ enum {
     k_span_payload_offset = 19,
     // strlen("/dev/null/obi-mspan/") — the manual-span override payload starts here
     k_mspan_payload_offset = 20,
+    // hex chars in an override payload: trace id + span id, two chars per byte
+    k_mspan_hex_len = 2 * (TRACE_ID_SIZE_BYTES + SPAN_ID_SIZE_BYTES),
 };
 
 enum {
@@ -175,8 +177,12 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
 // The log enricher (logenricher.c) also reads traces_ctx_v1, so while a manual
 // span is active, log lines correlate to it rather than to the server span.
 static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgid) {
-    // 48 hex chars + NUL for an override, or the single-char '-' pop marker.
-    unsigned char hexbuf[2 * (TRACE_ID_SIZE_BYTES + SPAN_ID_SIZE_BYTES) + 1] = {};
+    // One byte longer than the longest valid payload, so an over-long path is
+    // distinguishable: bpf_probe_read_user_str returns the same count for an
+    // exact-length payload and for a longer one it truncated, and a foreign
+    // process could otherwise have residual bytes decoded as a plausible
+    // override attributed to itself. Same reasoning as handle_runtime_metrics.
+    unsigned char hexbuf[k_mspan_hex_len + 2] = {};
     const long n = bpf_probe_read_user_str(hexbuf, sizeof(hexbuf), path + k_mspan_payload_offset);
     if (n <= 0) {
         return 0;
@@ -184,7 +190,8 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
 
     // Pop: the innermost manual span ended in this sync block. Restore the base
     // context if there was a real one, otherwise clear the (bridge-only) entry.
-    if (hexbuf[0] == '-') {
+    // The marker is the whole payload, so n counts it plus the NUL.
+    if (hexbuf[0] == '-' && n == 2) {
         obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
         if (shadow) {
             if (valid_trace(shadow->trace_id)) {
@@ -198,8 +205,8 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
         return 0;
     }
 
-    // Override needs exactly 48 hex chars (49 incl. the NUL terminator).
-    if (n < (long)sizeof(hexbuf)) {
+    // Override is exactly the hex payload; n counts the NUL terminator.
+    if (n != k_mspan_hex_len + 1) {
         return 0;
     }
 

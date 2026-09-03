@@ -367,10 +367,12 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
 // The returned parent may legitimately never be exported (payload over budget,
 // SDK handoff mid-span, span outliving the transaction window). Callers ship it
 // as live rather than conditional anyway: a conditional parent would be rerooted
-// out of the trace, and the worst case here is a dangling parent id inside the
-// correct trace.
-static __always_inline u8
-nodejs_manual_parent_span_id(u64 pid_tgid, const unsigned char *trace_id, unsigned char *span_id_out) {
+// out of the trace, and the worst case here is a dangling parent id — in this
+// trace, or in the bridge's own if the manual span outlived the connection and
+// fell back to the bridge trace id when it ended.
+static __always_inline u8 nodejs_manual_parent_span_id(u64 pid_tgid,
+                                                       const unsigned char *trace_id,
+                                                       unsigned char *span_id_out) {
     const obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
     if (!shadow) {
         return 0;
