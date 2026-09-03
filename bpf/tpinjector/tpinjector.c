@@ -675,21 +675,25 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
         return false;
     }
 
-    msg_buffer_t msg_buf = {
-        .pos = 0,
-        .real_size = min(msg->size, k_msg_buffer_size_max),
-        .cpu_id = bpf_get_smp_processor_id(),
-    };
-
-    const u16 copy_bytes = max(msg_buf.real_size, k_kprobes_http2_buf_size);
-
-    // A failed bpf_msg_pull_data() leaves msg->data/data_end short of copy_bytes.
-    // Reading past data_end would copy whatever kernel memory follows the message.
-    if (!msg->data || msg->data + copy_bytes > msg->data_end) {
+    if (!msg->data || msg->data >= msg->data_end) {
         return false;
     }
 
-    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
+    // A failed bpf_msg_pull_data() can leave msg->data/data_end short of msg->size.
+    // Every read below is bounded by this mapped window instead of msg->size alone,
+    // so a short message never pulls in whatever kernel memory follows it.
+    const u32 mapped = (unsigned char *)msg->data_end - (unsigned char *)msg->data;
+    const u16 window = min(mapped, (u32)k_msg_buffer_size_max);
+
+    msg_buffer_t msg_buf = {
+        .pos = 0,
+        .real_size = min(min(msg->size, k_msg_buffer_size_max), (u32)window),
+        .cpu_id = bpf_get_smp_processor_id(),
+    };
+
+    const u16 copy_bytes = min(max(msg_buf.real_size, k_kprobes_http2_buf_size), window);
+
+    bpf_probe_read_kernel(msg_buf.fallback_buf, min(window, k_kprobes_http2_buf_size), msg->data);
 
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
