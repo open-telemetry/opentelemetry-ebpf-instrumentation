@@ -309,7 +309,6 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 			slog.Error("can't create OTLP HTTP traces exporter", "error", err)
 			return nil, nil, err
 		}
-		// TODO: remove this once the batcher helper is added to otlphttpexporter
 		wrapped, err := queueInstrumentedTraces(ctx, set, cfg, im, exp, queueCfg, retryCfg)
 		if err != nil {
 			_ = exp.Shutdown(ctx)
