@@ -64,20 +64,26 @@ jobs:
       - name: Build test matrix
         id: build-matrix
         run: |
-          echo -n "matrix=" >> $GITHUB_OUTPUT
-          make oats-integration-test-matrix-json >> $GITHUB_OUTPUT
+          echo -n "matrix=" >> "$GITHUB_OUTPUT"
+          make oats-integration-test-matrix-json >> "$GITHUB_OUTPUT"
 
   test:
-    name: ${{ matrix.basename }}
+    name: ${{ matrix.shard.basename }} (${{ matrix.platform.arch }})
     needs: [test-matrix, generate-bpf]
     permissions:
       checks: write
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+        shard: ${{ fromJson(needs.test-matrix.outputs.matrix).include }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,7 +137,7 @@ jobs:
 
       - name: Run oats tests
         env:
-          MATRIX_BASENAME: ${{ matrix.basename }}
+          MATRIX_BASENAME: ${{ matrix.shard.basename }}
           TESTCASE_TIMEOUT: 5m
         run: make "oats-test-$MATRIX_BASENAME"
 
@@ -139,8 +145,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: oats-logs-${{ matrix.basename }}-${{ github.run_number }}
-          path: internal/test/oats/${{ matrix.basename }}/build/*
+          name: oats-logs-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}
+          path: internal/test/oats/${{ matrix.shard.basename }}/build/*
 
       - name: Process coverage data
         run: make itest-coverage-data
@@ -152,4 +158,4 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: oats-test
-          name: oats-coverage-${{ matrix.basename }}-${{ github.run_number }}
+          name: oats-coverage-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}

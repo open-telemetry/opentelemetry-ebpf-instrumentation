@@ -7,7 +7,13 @@ services:
     ports:
       - "8080:8080"
   testserver:
-    image: ghcr.io/open-telemetry/obi-testimg:java-tls-0.0.1-jdk8@sha256:9381c0321f0e86f04bff1d921000a08c24837a880f7b2f80ad444046a667dd92
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/java_tls/jdk8/Dockerfile
+    # TODO: use ghcr.io/open-telemetry/obi-testimg:java-tls-0.0.1-jdk8@sha256:9381c0321f0e86f04bff1d921000a08c24837a880f7b2f80ad444046a667dd92
+    # That image is only being built for amd64:
+    # docker inspect ghcr.io/open-telemetry/obi-testimg:java-tls-0.0.1-jdk8 --format '{{.Architecture}}' amd64
+    image: java-tls-jdk8
     ports:
       - "8443:8443"
   # eBPF auto instrumenter
