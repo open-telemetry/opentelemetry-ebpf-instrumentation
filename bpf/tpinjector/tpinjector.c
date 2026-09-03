@@ -681,9 +681,15 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
         .cpu_id = bpf_get_smp_processor_id(),
     };
 
-    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
-
     const u16 copy_bytes = max(msg_buf.real_size, k_kprobes_http2_buf_size);
+
+    // A failed bpf_msg_pull_data() leaves msg->data/data_end short of copy_bytes.
+    // Reading past data_end would copy whatever kernel memory follows the message.
+    if (!msg->data || msg->data + copy_bytes > msg->data_end) {
+        return false;
+    }
+
+    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
 
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
