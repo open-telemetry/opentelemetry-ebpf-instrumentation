@@ -56,11 +56,8 @@ jobs:
           if [[ "$OVERRIDE_IMG_TAG" == "" ]]; then
             echo "Fetching latest version from ${{ env.REGISTRY }}/${{ env.IMAGE }}..."
 
-            # Get authentication token for GHCR
-            TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
-
             # Fetch tags from GHCR API
-            TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" \
+            TAGS=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" \
               "https://${{ env.REGISTRY }}/v2/${{ env.IMAGE }}/tags/list")
             echo "Image tags: ${TAGS}"
 
