@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read # list existing obi-testimg tags from GHCR API
+      packages: read # list existing obi-testimg tags via GitHub Packages REST API
     outputs:
       imgtag: ${{ steps.image_tag.outputs.imgtag }}
     steps:
@@ -37,16 +37,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [[ "$OVERRIDE_IMG_TAG" == "" ]]; then
+            PACKAGE_ORG="${IMAGE%%/*}"
+            PACKAGE_NAME="${IMAGE#*/}"
             echo "Fetching latest version from ${REGISTRY}/${IMAGE}..."
 
-            # Fetch tags from GHCR API
-            TAGS=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              "https://${REGISTRY}/v2/${IMAGE}/tags/list")
-            echo "Image tags: ${TAGS}"
+            # List package versions via GitHub Packages REST API
+            VERSIONS=$(curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/orgs/${PACKAGE_ORG}/packages/container/${PACKAGE_NAME}/versions?per_page=100")
+            echo "Package versions: $(echo "${VERSIONS}" | jq 'length') entries"
 
-            # tags are in the form rustserver-0.1.0, so we use "tr" to split and later remove any prefix
-            LATEST_VERSION=$(echo "${TAGS}" | \
-              jq -r '.tags[]' | \
+            # tags are in the form rust-0.1.0, so we use "tr" to split and later remove any prefix
+            LATEST_VERSION=$(echo "${VERSIONS}" | \
+              jq -r '[.[].metadata.container.tags[]?] | unique[]' | \
               tr "-" "\n" | \
               grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
               sort -V | \
