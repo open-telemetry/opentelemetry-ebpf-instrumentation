@@ -174,6 +174,11 @@ generate-schema-next:
 	@echo "### Cutting the OBI telemetry schema for the versions.yaml version"
 	@./scripts/generate-schema-next.sh
 
+.PHONY: generate-schema-docs
+generate-schema-docs: fetch-upstream-semconv
+	@echo "### Generating the OBI telemetry reference docs"
+	@./scripts/generate-schema-docs.sh $(OCI_BIN) $(WEAVERIMAGE)
+
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
 	@echo "### Linting dependency integrity policy"
@@ -914,6 +919,7 @@ verify-mods:
 prerelease: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
 	@$(MAKE) generate-schema-next
+	@$(MAKE) generate-schema-docs
 	go tool $(TOOLS_MODFILE) multimod prerelease -m ${MODSET}
 
 COMMIT ?= "HEAD"
