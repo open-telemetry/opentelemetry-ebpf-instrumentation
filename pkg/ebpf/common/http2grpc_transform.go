@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -88,6 +89,7 @@ type h2RequestMeta struct {
 	method   string
 	path     string
 	fullPath string
+	host     string
 	grpc     bool
 }
 
@@ -273,7 +275,7 @@ func hpackOpensResponse(frag []byte) bool {
 	return b&formMask != formMask
 }
 
-func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Framer, hf *http2.HeadersFrame) (string, string, string, bool, bool) {
+func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Framer, hf *http2.HeadersFrame) (string, string, string, string, bool, bool) {
 	h2c := getOrInitH2Conn(parseContext.h2c, connID)
 
 	ok := false
@@ -281,9 +283,10 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 	method := ""
 	path := ""
 	contentType := ""
+	authority := ""
 
 	if h2c == nil {
-		return method, path, contentType, ok, isResponse
+		return method, path, contentType, authority, ok, isResponse
 	}
 
 	h2c.hdec.SetEmitFunc(func(hf bhpack.HeaderField) {
@@ -293,6 +296,9 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 			ok = true
 		case ":path":
 			path = hf.Value
+			ok = true
+		case ":authority":
+			authority = hf.Value
 			ok = true
 		case ":status":
 			// only responses carry :status — this HEADERS was misread as a request start
@@ -314,12 +320,12 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 	// HPACK state is per direction. Decoding a response block with the request decoder
 	// desyncs its dynamic table against the peer's, so every later index resolves wrong.
 	if hpackOpensResponse(frag) {
-		return method, path, contentType, ok, true
+		return method, path, contentType, authority, ok, true
 	}
 
 	for {
 		if _, err := h2c.hdec.Write(frag); err != nil {
-			return method, path, contentType, ok, isResponse
+			return method, path, contentType, authority, ok, isResponse
 		}
 		if hf.HeadersEnded() {
 			break
@@ -335,7 +341,7 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 		frag = cf.HeaderBlockFragment()
 	}
 
-	return method, path, contentType, ok, isResponse
+	return method, path, contentType, authority, ok, isResponse
 }
 
 func http2grpcStatus(status int) int {
@@ -417,6 +423,16 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 	}
 
 	return status, grpc, ok
+}
+
+// authorityHost strips the port from an :authority pseudo-header, mirroring how the
+// HTTP/1.x Host: header is handled. :authority usually omits the port, so this
+// recovers the address alone.
+func authorityHost(authority string) string {
+	if host, _, err := net.SplitHostPort(authority); err == nil {
+		return host
+	}
+	return authority
 }
 
 func http2InfoToSpan(info *BPFHTTP2Info, method, path, fullPath, peer, host string, status int, protocol Protocol) request.Span {
@@ -592,7 +608,7 @@ func http2EventToSpan(parseContext *EBPFParseContext, pending *pendingH2Event) (
 		}
 
 		if ff, ok := f.(*http2.HeadersFrame); ok {
-			method, path, contentType, ok, isResponse := readMetaFrame(parseContext, connID, framer, ff)
+			method, path, contentType, authority, ok, isResponse := readMetaFrame(parseContext, connID, framer, ff)
 			if isResponse {
 				return request.Span{}, true, nil // response HEADERS misread as a request start
 			}
@@ -621,6 +637,8 @@ func http2EventToSpan(parseContext *EBPFParseContext, pending *pendingH2Event) (
 				source, target := (*BPFConnInfo)(unsafe.Pointer(&event.ConnInfo)).reqHostInfo()
 				host = target
 				peer = source
+			} else {
+				host = authorityHost(authority)
 			}
 
 			return http2InfoToSpan(event, method, path, fullPath, peer, host, status, eventType), false, nil
@@ -705,6 +723,7 @@ func readHTTP2HeaderEvent(parseContext *EBPFParseContext, event *BPFHTTP2Info) e
 				method:   span.Method,
 				path:     span.Path,
 				fullPath: span.FullPath,
+				host:     span.Host,
 				grpc:     h2SpanIsGRPC(span),
 			}
 			stream.requestOK = true
@@ -785,6 +804,8 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 		source, target := (*BPFConnInfo)(unsafe.Pointer(&event.ConnInfo)).reqHostInfo()
 		host = target
 		peer = source
+	} else {
+		host = cached.host
 	}
 	span := http2InfoToSpan(
 		event, cached.method, cached.path, cached.fullPath, peer, host, status, protocol,
