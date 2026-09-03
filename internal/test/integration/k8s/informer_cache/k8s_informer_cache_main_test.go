@@ -37,8 +37,6 @@ func TestMain(m *testing.M) {
 
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
 		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
-		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
-		docker.ImageBuild{Tag: "httppinger:dev", Dockerfile: k8s.DockerfileHTTPPinger},
 		docker.ImageBuild{Tag: "obi-k8s-cache:dev", Dockerfile: k8s.DockerfileK8sCache},
 	); err != nil {
 		slog.Error("can't build docker images", "error", err)
@@ -48,8 +46,6 @@ func TestMain(m *testing.M) {
 	cluster = kube.NewKind("test-kind-cluster-external-cache",
 		kube.KindConfig(testpath.Manifests+"/00-kind.yml"),
 		kube.LocalImage("obi:dev"),
-		kube.LocalImage("testserver:dev"),
-		kube.LocalImage("httppinger:dev"),
 		kube.LocalImage("obi-k8s-cache:dev"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
 		kube.Deploy(testpath.Manifests+"/01-serviceaccount.yml"),
