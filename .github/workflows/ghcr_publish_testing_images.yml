@@ -41,20 +41,35 @@ jobs:
             PACKAGE_NAME="${IMAGE#*/}"
             echo "Fetching latest version from ${REGISTRY}/${IMAGE}..."
 
-            # List package versions via GitHub Packages REST API
-            VERSIONS=$(curl -fsSL \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/orgs/${PACKAGE_ORG}/packages/container/${PACKAGE_NAME}/versions?per_page=100")
-            echo "Package versions: $(echo "${VERSIONS}" | jq 'length') entries"
+            # List package versions via GitHub Packages REST API (paginate; each digest push is a version)
+            PAGE=1
+            VERSION_COUNT=0
+            TAGS_FILE="$(mktemp)"
+            while true; do
+              VERSIONS=$(curl -fsSL \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/orgs/${PACKAGE_ORG}/packages/container/${PACKAGE_NAME}/versions?per_page=100&page=${PAGE}")
+              COUNT=$(echo "${VERSIONS}" | jq 'length')
+              VERSION_COUNT=$((VERSION_COUNT + COUNT))
+              if [[ "${COUNT}" -eq 0 ]]; then
+                break
+              fi
+              echo "${VERSIONS}" | jq -r '[.[].metadata.container.tags[]?] | unique[]' >> "${TAGS_FILE}"
+              if [[ "${COUNT}" -lt 100 ]]; then
+                break
+              fi
+              PAGE=$((PAGE + 1))
+            done
+            echo "Package versions: ${VERSION_COUNT} entries across ${PAGE} page(s)"
 
             # tags are in the form rust-0.1.0, so we use "tr" to split and later remove any prefix
-            LATEST_VERSION=$(echo "${VERSIONS}" | \
-              jq -r '[.[].metadata.container.tags[]?] | unique[]' | \
+            LATEST_VERSION=$(sort -u "${TAGS_FILE}" | \
               tr "-" "\n" | \
               grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
               sort -V | \
               tail -n 1)
+            rm -f "${TAGS_FILE}"
 
             if [[ -z "$LATEST_VERSION" ]]; then
               echo "No semantic version found, starting with 0.1.0"
