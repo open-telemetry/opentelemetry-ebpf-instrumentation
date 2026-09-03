@@ -1,0 +1,27 @@
+name: PR description
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: pr-description-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  check:
+    name: Length and readability
+    # bot PRs (Renovate, Dependabot) carry generated release notes; the policy
+    # is about human communication
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check PR description
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/check-pr-description.py

@@ -59,6 +59,11 @@ point, use short paragraphs or lists when helpful, and include only the context
 needed to understand or act on the message. Do not post generated wall-of-text
 reports, exhaustive restatements of the code, or a play-by-play of the work.
 
+Keep pull request descriptions short and in plain language: a reviewer must
+understand what changed and why in a single read. When reporting a bug, explain
+concisely what happened and what was expected, and include a reproducer
+whenever possible.
+
 ## Validation
 
 Before proposing changes, ensure the repository generates required artifacts, passes validation, and compiles successfully.
