@@ -21,6 +21,17 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } msg_buffer_mem SEC(".maps");
 
+// Read-only zero source: invalidates a full msg_buffer_mem slot with a single
+// bpf_map_update_elem instead of an unrolled 8K memset
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, u32);
+    __type(value, unsigned char[k_msg_buffer_size_max]);
+    __uint(max_entries, 1);
+    __uint(map_flags, BPF_F_RDONLY_PROG);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} msg_buffer_zero SEC(".maps");
+
 // When sock_msg is installed it disables the kprobes attached to tcp_sendmsg.
 // We use this data structure to provide the buffer to the tcp_sendmsg logic,
 // because we can't read the bvec physical pages.

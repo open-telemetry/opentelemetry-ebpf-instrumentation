@@ -659,6 +659,17 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     return 1;
 }
 
+// A bail must not leave the previous send's buffers behind: protocol_detector
+// and the tcp_sendmsg kprobe would consume them as if they were this send
+static __always_inline void invalidate_msg_buffers(const egress_key_t *e_key) {
+    bpf_map_delete_elem(&msg_buffers, e_key);
+
+    const unsigned char *zero = bpf_map_lookup_elem(&msg_buffer_zero, &(u32){0});
+    if (zero) {
+        bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, zero, BPF_ANY);
+    }
+}
+
 // This code is copied from the kprobe on tcp_sendmsg and it's called from
 // the sock_msg program, which does the packet extension for injecting the
 // Traceparent. Since the sock_msg runs before the kprobe on tcp_sendmsg, we
@@ -673,6 +684,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
                                              const pid_connection_info_t *p_conn,
                                              const egress_key_t *e_key) {
     if (msg->size == 0 || is_ssl_connection(p_conn)) {
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
@@ -702,6 +714,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
 
     if (!msg_ptr) {
         bpf_d_printk("failed to reserve msg_buffer space [%s]", __FUNCTION__);
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
@@ -717,6 +730,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
 
     if (bpf_map_update_elem(&msg_buffers, e_key, &msg_buf, BPF_ANY)) {
         // fail if we can't setup a msg buffer
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
@@ -1109,7 +1123,11 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    fill_msg_buffers(msg, p_conn, e_key);
+
+    if (!fill_msg_buffers(msg, p_conn, e_key)) {
+        clear_tp_info_pid(e_key);
+        return false;
+    }
 
     const bool is_http = protocol_detector(msg, id, &p_conn->conn);
     if (is_http) {
