@@ -1,5 +1,5 @@
 name: Publish integration testing images
-on:
+on: # zizmor: ignore[dangerous-triggers] workflow_dispatch only; override_image_tag validated as semver before use
   workflow_dispatch:
     inputs:
       override_image_tag:
@@ -10,55 +10,38 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ghcr-publish-testing-images
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   IMAGE: open-telemetry/obi-testimg
 
 jobs:
-  build-and-push-image:
-    runs-on: oracle-16cpu-64gb-x86-64
-
+  prepare:
+    name: Prepare image tag
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-      attestations: write
-
+      packages: read # list existing obi-testimg tags from GHCR API
+    outputs:
+      imgtag: ${{ steps.image_tag.outputs.imgtag }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: 'false'
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-        with:
-          platforms: linux/amd64,linux/arm64
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: "${{ env.REGISTRY }}/${{ env.IMAGE }}"
-
       - name: Set image tag
         id: image_tag
         env:
           OVERRIDE_IMG_TAG: ${{ github.event.inputs.override_image_tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE: ${{ env.IMAGE }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [[ "$OVERRIDE_IMG_TAG" == "" ]]; then
-            echo "Fetching latest version from ${{ env.REGISTRY }}/${{ env.IMAGE }}..."
+            echo "Fetching latest version from ${REGISTRY}/${IMAGE}..."
 
             # Fetch tags from GHCR API
             TAGS=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              "https://${{ env.REGISTRY }}/v2/${{ env.IMAGE }}/tags/list")
+              "https://${REGISTRY}/v2/${IMAGE}/tags/list")
             echo "Image tags: ${TAGS}"
 
             # tags are in the form rustserver-0.1.0, so we use "tr" to split and later remove any prefix
@@ -82,111 +65,120 @@ jobs:
             fi
 
             echo "New version: $NEW_VERSION"
-            echo "imgtag=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "imgtag=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           else
-            echo "imgtag=$OVERRIDE_IMG_TAG" >> $GITHUB_OUTPUT
+            if [[ ! "$OVERRIDE_IMG_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: override_image_tag must be semver (e.g. 0.1.2)" >&2
+              exit 1
+            fi
+            echo "imgtag=$OVERRIDE_IMG_TAG" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: go
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: go
-          file: internal/test/integration/components/testserver/Dockerfile
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - tag_id: go
+            file: internal/test/integration/components/testserver/Dockerfile
+          - tag_id: go-http-client
+            file: internal/test/integration/components/httppinger/Dockerfile
+          - tag_id: rust
+            file: internal/test/integration/components/rusttestserver/Dockerfile
+          - tag_id: rust-ssl
+            file: internal/test/integration/components/rustssltestserver/Dockerfile
+          - tag_id: rails
+            file: internal/test/integration/components/rubytestserver/testapi/Dockerfile
+          - tag_id: rails-ssl
+            file: internal/test/integration/components/rubytestserver/testapi/Dockerfile_tls
+          - tag_id: java-jar
+            file: internal/test/integration/components/javatestserver/Dockerfile_jar
+          - tag_id: java-native
+            file: internal/test/integration/components/javatestserver/Dockerfile
+          - tag_id: java-tls
+            file: internal/test/integration/components/java_tls/sync_async_tls/Dockerfile
+          - tag_id: java-tls-jdk8
+            file: internal/test/integration/components/java_tls/jdk8/Dockerfile
+          - tag_id: netty-tls
+            file: internal/test/integration/components/java_tls/netty_tls/Dockerfile
+          - tag_id: node
+            file: internal/test/integration/components/nodejsserver/Dockerfile
+          - tag_id: python
+            file: internal/test/integration/components/pythonserver/Dockerfile
+    uses: ./.github/workflows/integration_test_image_build.yml
+    with:
+      tag_id: ${{ matrix.image.tag_id }}
+      file: ${{ matrix.image.file }}
+    permissions:
+      contents: read
+      packages: write # push single-platform image layers by digest
+      attestations: write # SLSA provenance from docker/build-push-action
 
-      - name: go-http-client
-        uses: $/.github/actions/integration-test-image-build
+  merge:
+    name: Merge multi-arch manifests
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # publish versioned multi-arch manifest tags
+      attestations: write # attestations attached at digest push time
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: go-http-client
-          file: internal/test/integration/components/httppinger/Dockerfile
+          path: ${{ runner.temp }}/digests
+          pattern: obi-testimg-digest-*
 
-      - name: rust
-        uses: $/.github/actions/integration-test-image-build
+      - name: Log in to the Container registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: rust
-          file: internal/test/integration/components/rusttestserver/Dockerfile
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: rust-ssl
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: rust-ssl
-          file: internal/test/integration/components/rustssltestserver/Dockerfile
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      - name: rails
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: rails
-          file: internal/test/integration/components/rubytestserver/testapi/Dockerfile
+      - name: Create multi-arch manifests
+        env:
+          IMG_TAG: ${{ needs.prepare.outputs.imgtag }}
+          DIGESTS_DIR: ${{ runner.temp }}/digests
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          TAG_IDS: >-
+            go
+            go-http-client
+            rust
+            rust-ssl
+            rails
+            rails-ssl
+            java-jar
+            java-native
+            java-tls
+            java-tls-jdk8
+            netty-tls
+            node
+            python
+        run: |
+          shopt -s nullglob
+          for tag_id in ${TAG_IDS}; do
+            amd64_files=("${DIGESTS_DIR}"/obi-testimg-digest-amd64-"${tag_id}"/*)
+            arm64_files=("${DIGESTS_DIR}"/obi-testimg-digest-arm64-"${tag_id}"/*)
 
-      - name: rails-ssl
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: rails-ssl
-          file: internal/test/integration/components/rubytestserver/testapi/Dockerfile_tls
+            if [ "${#amd64_files[@]}" -ne 1 ] || [ ! -f "${amd64_files[0]}" ]; then
+              echo "Error: expected one amd64 digest for ${tag_id}, found ${#amd64_files[@]}"
+              exit 1
+            fi
+            if [ "${#arm64_files[@]}" -ne 1 ] || [ ! -f "${arm64_files[0]}" ]; then
+              echo "Error: expected one arm64 digest for ${tag_id}, found ${#arm64_files[@]}"
+              exit 1
+            fi
 
-      - name: java-jar
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: java-jar
-          file: internal/test/integration/components/javatestserver/Dockerfile_jar
-
-      - name: java-native
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: java-native
-          file: internal/test/integration/components/javatestserver/Dockerfile
-
-      - name: java-tls
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: java-tls
-          file: internal/test/integration/components/java_tls/sync_async_tls/Dockerfile
-
-      - name: java-tls-jdk8
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: java-tls-jdk8
-          file: internal/test/integration/components/java_tls/jdk8/Dockerfile
-
-      - name: netty-tls
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: netty-tls
-          file: internal/test/integration/components/java_tls/netty_tls/Dockerfile
-
-      - name: node
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: node
-          file: internal/test/integration/components/nodejsserver/Dockerfile
-
-      - name: python
-        uses: $/.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: python
-          file: internal/test/integration/components/pythonserver/Dockerfile
+            amd64_digest=$(basename "${amd64_files[0]}")
+            arm64_digest=$(basename "${arm64_files[0]}")
+            echo "Publishing ${IMAGE}:${tag_id}-${IMG_TAG}"
+            docker buildx imagetools create \
+              -t "${IMAGE}:${tag_id}-${IMG_TAG}" \
+              "${IMAGE}@sha256:${amd64_digest}" \
+              "${IMAGE}@sha256:${arm64_digest}"
+          done
