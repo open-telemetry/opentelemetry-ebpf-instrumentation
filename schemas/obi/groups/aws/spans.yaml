@@ -35,3 +35,4 @@ groups:
       - ref: network.peer.address
       - ref: network.peer.port
       - ref: network.protocol.version
+      - ref: error.type

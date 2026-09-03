@@ -13,6 +13,4 @@ groups:
       - ref: server.address
       - ref: server.port
       - ref: span.metrics.skip
-      - ref: network.peer.address
-      - ref: network.peer.port
-      - ref: network.protocol.version
+      - ref: error.type

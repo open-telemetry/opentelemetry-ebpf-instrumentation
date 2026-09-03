@@ -80,6 +80,15 @@ func resolveRegistry(t *testing.T) resolveOutput {
 		}
 		t.Skipf("%s is not available; skipping provenance check", ociBin)
 	}
+	// Without the pinned upstream registry weaver cannot resolve, and the
+	// failure says nothing about the registry under test. Skip as the drift
+	// tests do, but fail closed in CI where the fetch is part of the target.
+	if _, err := os.Stat(upstreamDeps); os.IsNotExist(err) {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("%s is required for the provenance check in CI; run `make fetch-upstream-semconv`", upstreamDeps)
+		}
+		t.Skipf("%s is not populated; run `make fetch-upstream-semconv`", upstreamDeps)
+	}
 	registryAbs, err := filepath.Abs(registryDir)
 	require.NoError(t, err)
 

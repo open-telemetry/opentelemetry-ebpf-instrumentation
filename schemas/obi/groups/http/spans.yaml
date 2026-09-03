@@ -47,6 +47,7 @@ groups:
       - ref: network.peer.address
       - ref: network.peer.port
       - ref: network.protocol.version
+      - ref: error.type
   - id: span.obi.http.client
     type: span
     span_kind: client
@@ -76,3 +77,4 @@ groups:
       - ref: network.peer.address
       - ref: network.peer.port
       - ref: network.protocol.version
+      - ref: error.type

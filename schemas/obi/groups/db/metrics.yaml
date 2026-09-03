@@ -25,6 +25,8 @@ groups:
   # operations from the database server's perspective (the instrumented
   # process IS the server), reported here so server-side measurements don't
   # pollute the client metric or double-count against it.
+      - ref: db.response.status_code
+
   - id: metric.obi.db.server.operation.duration
     type: metric
     metric_name: db.server.operation.duration

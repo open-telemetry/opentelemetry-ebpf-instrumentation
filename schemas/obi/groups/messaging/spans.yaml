@@ -20,7 +20,8 @@ groups:
       - ref: span.metrics.skip
       - ref: network.peer.address
       - ref: network.peer.port
-      - ref: network.protocol.version
+      - ref: error.type
+      - ref: messaging.operation.name
   - id: span.obi.messaging.consumer
     type: span
     span_kind: consumer
@@ -40,4 +41,5 @@ groups:
       - ref: span.metrics.skip
       - ref: network.peer.address
       - ref: network.peer.port
-      - ref: network.protocol.version
+      - ref: error.type
+      - ref: messaging.operation.name

@@ -17,14 +17,13 @@ groups:
       - ref: server.port
       - ref: service.peer.name
       - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
 
   # Elasticsearch is recognised from HTTP client traffic, so these spans carry
   # the HTTP client base set on top of the db.* attributes. The native database
   # protocols covered by span.obi.db.client never emit http.* / url.*, which is
   # why this is a separate group rather than extra refs on the shared one.
-      - ref: network.peer.address
-      - ref: network.peer.port
-      - ref: network.protocol.version
   - id: span.obi.elasticsearch.client
     type: span
     span_kind: client
@@ -52,6 +51,7 @@ groups:
       - ref: network.peer.address
       - ref: network.peer.port
       - ref: network.protocol.version
+      - ref: db.response.status_code
   - id: span.obi.db.server
     type: span
     span_kind: server
@@ -70,4 +70,3 @@ groups:
       - ref: span.metrics.skip
       - ref: network.peer.address
       - ref: network.peer.port
-      - ref: network.protocol.version
