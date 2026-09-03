@@ -353,13 +353,24 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
 
 // Node.js manual-span nesting: when a bridge manual span is active, its shadow
 // entry exists and traces_ctx_v1 holds the manual span's id under the request's
-// (server) trace id. In that case reparent the resolved client span under the
-// manual span instead of the server span, so outgoing calls made inside a
-// manual span nest correctly. Gated on node_manual_ctx_shadow, which is written
-// only by the Node.js span bridge, so other languages are unaffected. When the
-// override trace differs from the resolved parent trace (e.g. a manual span
-// outside any request) the client span is left under the server parent.
-static __always_inline u8 nodejs_manual_reparent_client(u64 pid_tgid, tp_info_t *tp) {
+// (server) trace id. Writes that manual span id into span_id_out, so an
+// outgoing call made inside a manual span nests under it instead of under the
+// server span. Callers pass the field that carries the parent identity in their
+// own tp: the client path builds the client's own tp and passes parent_id,
+// while the tpinjector path holds the parent's tp and passes span_id.
+//
+// Gated on node_manual_ctx_shadow, which is written only by the Node.js span
+// bridge, so other languages are unaffected. When the override trace differs
+// from the resolved parent trace (e.g. a manual span outside any request) the
+// caller is left with the server parent.
+//
+// The returned parent may legitimately never be exported (payload over budget,
+// SDK handoff mid-span, span outliving the transaction window). Callers ship it
+// as live rather than conditional anyway: a conditional parent would be rerooted
+// out of the trace, and the worst case here is a dangling parent id inside the
+// correct trace.
+static __always_inline u8
+nodejs_manual_parent_span_id(u64 pid_tgid, const unsigned char *trace_id, unsigned char *span_id_out) {
     const obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
     if (!shadow) {
         return 0;
@@ -368,12 +379,10 @@ static __always_inline u8 nodejs_manual_reparent_client(u64 pid_tgid, tp_info_t 
     if (!live) {
         return 0;
     }
-    for (u8 i = 0; i < TRACE_ID_SIZE_BYTES; ++i) {
-        if (live->trace_id[i] != tp->trace_id[i]) {
-            return 0;
-        }
+    if (bpf_memcmp(live->trace_id, trace_id, TRACE_ID_SIZE_BYTES) != 0) {
+        return 0;
     }
-    __builtin_memcpy(tp->parent_id, live->span_id, SPAN_ID_SIZE_BYTES);
+    __builtin_memcpy(span_id_out, live->span_id, SPAN_ID_SIZE_BYTES);
     return 1;
 }
 
@@ -401,12 +410,8 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         __builtin_memcpy(tp->trace_id, server_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, server_tp->tp.span_id, sizeof(tp->parent_id));
-        // A manual-span parent may legitimately never be exported (payload
-        // over budget, SDK handoff mid-span, span outliving the transaction
-        // window); a conditional parent would then be rerooted out of the
-        // trace. Ship immediately instead: worst case is a dangling parent id
-        // inside the correct trace.
-        if (nodejs_manual_reparent_client(pid_tgid, tp)) {
+
+        if (nodejs_manual_parent_span_id(pid_tgid, tp->trace_id, tp->parent_id)) {
             return k_parent_status_live;
         }
         return parent_kind(server_tp);
@@ -451,12 +456,10 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
         }
 
         *tp = server_tp->tp;
-        // A manual-span parent may legitimately never be exported (payload
-        // over budget, SDK handoff mid-span, span outliving the transaction
-        // window); a conditional parent would then be rerooted out of the
-        // trace. Ship immediately instead: worst case is a dangling parent id
-        // inside the correct trace.
-        if (nodejs_manual_reparent_client(pid_tgid, tp)) {
+
+        // This tp IS the parent: create_trace_info copies parent_tp.span_id
+        // into the client span's parent_id, so the override belongs in span_id.
+        if (nodejs_manual_parent_span_id(pid_tgid, tp->trace_id, tp->span_id)) {
             return k_parent_status_live;
         }
         return parent_kind(server_tp);

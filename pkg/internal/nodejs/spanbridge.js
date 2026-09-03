@@ -144,6 +144,10 @@
   let yielded = false;
   const yieldToApp = (why) => {
     if (yielded) return;
+    // Drop any live override BEFORE yielding: every emitter bails once yielded
+    // is set, so a pop left to the unwind would never be sent and the kernel
+    // map would keep pointing at a bridge span nobody exports.
+    emitPop();
     yielded = true;
     debug('yielded to application-registered SDK: ' + why);
   };
@@ -175,17 +179,13 @@
   };
 
   // Once the app's SDK owns telemetry — via a wrapped setter (yielded) or a
-  // registration through an unwrapped copy (detectRegistryHandoff) — the bridge
-  // must stop pointing the kernel context map at its own spans, or stale
-  // overrides would point eBPF client spans at bridge span ids that are no
-  // longer exported. Handoff drops the override rather than skipping the emit:
-  // skipping would latch whichever override was already in the map.
+  // registration through an unwrapped copy (detectRegistryHandoff, which yields
+  // on the spot) — the bridge must stop pointing the kernel context map at its
+  // own spans, or stale overrides would point eBPF client spans at bridge span
+  // ids that are no longer exported. yieldToApp pops the live override as it
+  // yields, so there is nothing left to clear here.
   const emitOverride = (span) => {
-    if (yielded) return;
-    if (detectRegistryHandoff()) {
-      emitPop();
-      return;
-    }
+    if (yielded || detectRegistryHandoff()) return;
     const sc = span._spanContext;
     try {
       fs.accessSync(MSPAN_PREFIX + sc.traceId + sc.spanId);

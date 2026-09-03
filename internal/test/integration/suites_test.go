@@ -424,6 +424,21 @@ func TestSuite_NodeJS(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// With context propagation on, the outgoing call's parent is resolved by the
+// tpinjector rather than by the generic tracer, so manual-span nesting runs
+// through a different helper. Same assertions, second code path.
+func TestSuite_NodeJSManualSpansPropagation(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-nodejs-manual-prop.yml",
+		path.Join(pathOutput, "test-suite-nodejs-manual-prop.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
+	require.NoError(t, compose.Up())
+	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_Deno(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-deno.yml", path.Join(pathOutput, "test-suite-deno.log"))
 	require.NoError(t, err)

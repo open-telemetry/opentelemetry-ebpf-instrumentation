@@ -14,6 +14,7 @@
 #include <common/ringbuf.h>
 #include <common/scratch_mem.h>
 #include <common/strings.h>
+#include <common/trace_helpers.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
 
@@ -126,18 +127,6 @@ nodejs_v8_parse_heap(const unsigned char *payload, u64 len, u64 *vals, u8 *name_
     return 0;
 }
 
-// True if the context carries a non-zero trace id. An all-zero trace id is used
-// as the shadow map's "no base existed" marker (real request trace ids are
-// random 16-byte values and are never all zero).
-static __always_inline bool ctx_has_trace_id(const obi_ctx_info_t *c) {
-    for (u8 i = 0; i < TRACE_ID_SIZE_BYTES; ++i) {
-        if (c->trace_id[i] != 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
     u32 fd = 0;
     for (u8 i = 0; i < k_max_fd_digits; ++i) {
@@ -176,9 +165,9 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
 //
 // "Override" means: the innermost active manual span is now this one; make the
 // thread's traces_ctx_v1 entry point at it so OBI's automatic client spans nest
-// under the manual span instead of the server span. Downstream traceparent
-// propagation follows transitively — the injected header carries the client
-// span's own id, whose parent is now the manual span. We keep the request (base)
+// under the manual span instead of the server span. Both the exported client
+// span and the injected traceparent read it, through the two call sites of
+// nodejs_manual_parent_span_id in trace_parent.h. We keep the request (base)
 // trace id and only swap in the manual span's span id. The pre-override entry is
 // saved once per sync block in node_manual_ctx_shadow; "pop" restores it. This
 // mirrors go_sdk.c's update_tp_parent_go / prev_tp semantics.
@@ -198,7 +187,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
     if (hexbuf[0] == '-') {
         obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
         if (shadow) {
-            if (ctx_has_trace_id(shadow)) {
+            if (valid_trace(shadow->trace_id)) {
                 bpf_map_update_elem(&traces_ctx_v1, &pid_tgid, shadow, BPF_ANY);
             } else {
                 obi_ctx__del(pid_tgid);
@@ -236,7 +225,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
     }
 
     obi_ctx_info_t newlive = {};
-    if (ctx_has_trace_id(shadow)) {
+    if (valid_trace(shadow->trace_id)) {
         // Keep the request trace id; adopt the manual span's span id.
         bpf_memcpy(newlive.trace_id, shadow->trace_id, TRACE_ID_SIZE_BYTES);
     } else {
@@ -288,7 +277,7 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
     if (shadow) {
         // A manual span is active: the base (server) context, if any, lives in
         // the shadow — the live entry is this span's own override.
-        octx = ctx_has_trace_id(shadow) ? shadow : NULL;
+        octx = valid_trace(shadow->trace_id) ? shadow : NULL;
     } else {
         octx = obi_ctx__get(pid_tgid);
     }
