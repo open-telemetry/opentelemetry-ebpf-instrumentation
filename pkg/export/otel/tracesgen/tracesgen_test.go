@@ -1190,6 +1190,53 @@ func TestManualSpanKind(t *testing.T) {
 	}))
 }
 
+func TestMessagingSpanKindFollowsTheOperationNotTheDirection(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType request.EventType
+		operation string
+		want      trace2.SpanKind
+	}{
+		{"kafka send", request.EventTypeKafkaClient, request.MessagingSend, trace2.SpanKindProducer},
+		{"kafka publish", request.EventTypeKafkaClient, request.MessagingPublish, trace2.SpanKindProducer},
+		{"kafka process", request.EventTypeKafkaClient, request.MessagingProcess, trace2.SpanKindConsumer},
+		{"kafka receive", request.EventTypeKafkaClient, request.MessagingReceive, trace2.SpanKindConsumer},
+		{"kafka send observed from the receiving side", request.EventTypeKafkaServer, request.MessagingSend, trace2.SpanKindProducer},
+		{"kafka process observed from the receiving side", request.EventTypeKafkaServer, request.MessagingProcess, trace2.SpanKindConsumer},
+		{"nats send observed from the receiving side", request.EventTypeNATSServer, request.MessagingSend, trace2.SpanKindProducer},
+		{"mqtt process observed from the receiving side", request.EventTypeMQTTServer, request.MessagingProcess, trace2.SpanKindConsumer},
+		{"amqp send", request.EventTypeAMQPClient, request.MessagingSend, trace2.SpanKindProducer},
+		{"an unmapped operation stays internal", request.EventTypeKafkaServer, "Metadata", trace2.SpanKindInternal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, spanKind(&request.Span{Type: tt.eventType, Method: tt.operation}))
+		})
+	}
+}
+
+func TestNoMessagingSpanIsReportedAsServerKind(t *testing.T) {
+	messaging := []request.EventType{
+		request.EventTypeKafkaClient, request.EventTypeKafkaServer,
+		request.EventTypeMQTTClient, request.EventTypeMQTTServer,
+		request.EventTypeNATSClient, request.EventTypeNATSServer,
+		request.EventTypeAMQPClient,
+	}
+	operations := []string{
+		request.MessagingSend, request.MessagingPublish,
+		request.MessagingReceive, request.MessagingProcess, "",
+	}
+
+	for _, et := range messaging {
+		for _, op := range operations {
+			kind := spanKind(&request.Span{Type: et, Method: op})
+			assert.NotEqualf(t, trace2.SpanKindServer, kind,
+				"%v with operation %q reported server kind; semantic conventions define messaging spans as producer or consumer only", et, op)
+		}
+	}
+}
+
 func manualOTelPayload(t *testing.T) []byte {
 	t.Helper()
 
