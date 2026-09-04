@@ -628,8 +628,9 @@ func TestConfigValidate_ApplicationSizes(t *testing.T) {
 			"application_sizes needs the application RED metrics")
 	})
 
-	// a per-service list is joined with the top-level one before it reaches the exporters
-	t.Run("sizes per service with top-level application", func(t *testing.T) {
+	// a defined per-service list replaces the global one, so this service would be left
+	// with the size histograms and no HTTP metric pipeline to emit them from
+	t.Run("sizes per service without application is rejected", func(t *testing.T) {
 		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
 		cfg, err := LoadConfig(bytes.NewBufferString(`
 metrics:
@@ -639,6 +640,36 @@ discovery:
     - exe_path: foo
       metrics:
         features: ["application_sizes"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"application_sizes needs the application RED metrics enabled in the same features list")
+	})
+
+	t.Run("sizes per service alongside application is accepted", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application", "application_sizes"]
+`))
+		require.NoError(t, err)
+		require.NoError(t, cfg.Validate())
+	})
+
+	// an omitted per-service list inherits the global one, which is validated on its own
+	t.Run("per service without features inherits the global list", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_sizes"]
+discovery:
+  instrument:
+    - exe_path: foo
 `))
 		require.NoError(t, err)
 		require.NoError(t, cfg.Validate())
