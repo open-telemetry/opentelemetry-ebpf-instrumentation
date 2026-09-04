@@ -385,6 +385,13 @@ func loadModuledataOffsets(elfF *elf.File) (moduledataOffsets, error) {
 	}
 
 	goVersion = strings.ReplaceAll(goVersion, "go", "")
+	if goVersionAtLeast(goVersion, "1.27.0") {
+		abi, err := loadGoRuntimeABI(elfF, goVersion)
+		if err != nil {
+			return moduledataOffsets{}, err
+		}
+		return abi.moduledata, nil
+	}
 
 	offs, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	if err != nil {
