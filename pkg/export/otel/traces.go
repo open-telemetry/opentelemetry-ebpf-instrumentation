@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configcompression"
 	"go.opentelemetry.io/collector/config/configgrpc"
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/configmiddleware"
@@ -292,7 +293,8 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 				Insecure:           opts.Insecure,
 				InsecureSkipVerify: cfg.InsecureSkipVerify,
 			},
-			Headers: convertHeaders(opts.Headers),
+			Headers:     convertHeaders(opts.Headers),
+			Compression: configcompression.Type(cfg.GetCompression()),
 		}
 		host := component.Host(emptyHost{})
 		if opts.UnixSocketAddr != "" {
@@ -347,7 +349,8 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 				Insecure:           opts.Insecure,
 				InsecureSkipVerify: cfg.InsecureSkipVerify,
 			},
-			Headers: convertHeaders(opts.Headers),
+			Headers:     convertHeaders(opts.Headers),
+			Compression: configcompression.Type(cfg.GetCompression()),
 		}
 		set := getTraceSettings(factory.Type(), cfg.SDKLogLevel)
 		exp, err := factory.CreateTraces(ctx, set, config)
