@@ -510,6 +510,66 @@ func TestGatherGoProbeGroupOffsetsSkipsIncompleteCopy(t *testing.T) {
 	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
 }
 
+func TestGatherGoProbeGroupOffsetsRejectsUnknownPaddingBoundary(t *testing.T) {
+	const (
+		writeHeaders = "golang.org/x/net/http2.(*Framer).WriteHeaders"
+		endWrite     = "golang.org/x/net/http2.(*Framer).endWrite"
+	)
+	group := ebpfcommon.GoProbeGroup{
+		Name: "http2-preflush",
+		Probes: []ebpfcommon.GoProbe{
+			{
+				Symbol: writeHeaders,
+				Probe:  &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, UsePadStart: true},
+			},
+			{Symbol: endWrite, Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		writeHeaders: {{Symbol: writeHeaders, Start: 0x10}},
+		endWrite:     {{Symbol: endWrite, Start: 0x30}},
+	}}}
+
+	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
+
+	i.offsets.Funcs[writeHeaders][0].PadStart = 0x20
+	i.offsets.Funcs[writeHeaders][0].PadOffset = 0x80
+	resolved := i.gatherGoProbeGroupOffsets(group)
+	require.Len(t, resolved, 1)
+	require.Len(t, resolved[0].Probes, 2)
+	assert.Equal(t, uint64(0x20), resolved[0].Probes[0].Probe.StartOffset)
+	assert.Equal(t, uint64(0x30), resolved[0].Probes[1].Probe.StartOffset)
+}
+
+func TestGatherGoProbeGroupOffsetsRequiresDirectCall(t *testing.T) {
+	const (
+		writeHeaders = "golang.org/x/net/http2.(*Framer).WriteHeaders"
+		endWrite     = "golang.org/x/net/http2.(*Framer).endWrite"
+	)
+	group := ebpfcommon.GoProbeGroup{
+		Name: "http2-preflush",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: writeHeaders, Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{
+				Symbol:     endWrite,
+				CalledFrom: writeHeaders,
+				Probe:      &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}},
+			},
+		},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		writeHeaders: {{Symbol: writeHeaders, Start: 0x10}},
+		endWrite:     {{Symbol: endWrite, Start: 0x30}},
+	}}}
+
+	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
+
+	i.offsets.Funcs[writeHeaders][0].CallTargets = []uint64{0x30}
+	resolved := i.gatherGoProbeGroupOffsets(group)
+	require.Len(t, resolved, 1)
+	require.Len(t, resolved[0].Probes, 2)
+}
+
 func TestGoProbeGroupCompatibilityIsAppliedPerCopy(t *testing.T) {
 	const symbol = "example.com/library.Function"
 	group := ebpfcommon.GoProbeGroup{

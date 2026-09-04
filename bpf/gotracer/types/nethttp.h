@@ -47,6 +47,8 @@ typedef struct framer_func_invocation {
     u32 stream_id;
     u16 s_port;
     u16 d_port;
+    bool reserved_padding;
+    u8 _pad[7];
 } framer_func_invocation_t;
 
 typedef struct http2_owned_stream_ref {

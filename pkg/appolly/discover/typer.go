@@ -389,6 +389,9 @@ func (t *typer) loadAllGoFunctionNames() {
 	for _, symbolName := range gotracer.GoAutoSDKActivationProbeSymbols() {
 		t.addGoFunctionName(uniqueFunctions, symbolName)
 	}
+	for _, symbolName := range gotracer.GoHTTP2FlushProbeSymbols() {
+		t.addGoFunctionName(uniqueFunctions, symbolName)
+	}
 	for _, symbolName := range gotracer.GoH2OwnershipProbeSymbols() {
 		t.addGoFunctionName(uniqueFunctions, symbolName)
 	}
