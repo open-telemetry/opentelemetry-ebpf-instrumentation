@@ -1,0 +1,15 @@
+# Attributes OBI sets on the application-authored spans it relays through its
+# manual span feature. The spans themselves are named and shaped by the
+# instrumented application, so they match no span group in this registry;
+# these are declared here so they resolve as part of OBI's contract without
+# being falsely attributed to a span carrier OBI does not define.
+groups:
+  - id: registry.obi.exception
+    type: attribute_group
+    display_name: OBI Exception Attributes
+    brief: >
+      Exception attributes OBI's Go SDK tracer sets on relayed manual spans.
+    attributes:
+      # Set by the RecordError uprobe (bpf/gotracer/go_sdk.c) from the error
+      # passed to the Go SDK's span.RecordError.
+      - ref: exception.message

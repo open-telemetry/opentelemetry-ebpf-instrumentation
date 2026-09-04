@@ -1472,9 +1472,9 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 	assert.Equal(t, processing.SpanID, p.SpanID)
 	sd = sig.Diff(
 		jaeger.Tag{Key: "error", Type: "bool", Value: bool(true)},
-		jaeger.Tag{Key: "error message", Type: "string", Value: "some unknown error"},
+		jaeger.Tag{Key: "exception.message", Type: "string", Value: "some unknown error"},
 		jaeger.Tag{Key: "otel.status_code", Type: "string", Value: "ERROR"},
-		jaeger.Tag{Key: "impact", Type: "int64", Value: float64(11)},
+		jaeger.Tag{Key: "obitest.impact", Type: "int64", Value: float64(11)},
 	)
 	assert.Empty(t, sd, sd.String())
 
@@ -1487,8 +1487,8 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 	assert.Equal(t, sig.TraceID, p.TraceID)
 	assert.Equal(t, sig.SpanID, p.SpanID)
 	sd = sigInner1.Diff(
-		jaeger.Tag{Key: "user", Type: "string", Value: "user1"},
-		jaeger.Tag{Key: "admin", Type: "bool", Value: bool(true)},
+		jaeger.Tag{Key: "obitest.user", Type: "string", Value: "user1"},
+		jaeger.Tag{Key: "obitest.admin", Type: "bool", Value: bool(true)},
 	)
 	assert.Empty(t, sd, sd.String())
 
@@ -1501,9 +1501,9 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 	assert.Equal(t, sig.TraceID, p.TraceID)
 	assert.Equal(t, sig.SpanID, p.SpanID)
 	sd = sigInner2.Diff(
-		jaeger.Tag{Key: "test", Type: "string", Value: "append"},
-		jaeger.Tag{Key: "user", Type: "string", Value: "user2"},
-		jaeger.Tag{Key: "admin", Type: "bool", Value: bool(true)},
+		jaeger.Tag{Key: "obitest.test", Type: "string", Value: "append"},
+		jaeger.Tag{Key: "obitest.user", Type: "string", Value: "user2"},
+		jaeger.Tag{Key: "obitest.admin", Type: "bool", Value: bool(true)},
 	)
 	assert.Empty(t, sd, sd.String())
 }
