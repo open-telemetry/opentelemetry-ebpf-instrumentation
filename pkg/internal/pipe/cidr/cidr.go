@@ -40,6 +40,19 @@ func (d Definition) Label() string {
 	return d.CIDR
 }
 
+// plainDefinition drops the Definition method set, so marshaling it does not
+// recurse back into MarshalYAML.
+type plainDefinition Definition
+
+// MarshalYAML emits back the shape the definition was written in: a plain CIDR
+// string when no name was given, a "cidr"/"name" mapping otherwise.
+func (d Definition) MarshalYAML() (any, error) {
+	if d.Name == "" {
+		return d.CIDR, nil
+	}
+	return plainDefinition(d), nil
+}
+
 // Definitions contains a list of CIDRs to be set as the "src.cidr" and "dst.cidr"
 // attribute as a function of the source and destination IP addresses.
 // It supports two YAML formats:
