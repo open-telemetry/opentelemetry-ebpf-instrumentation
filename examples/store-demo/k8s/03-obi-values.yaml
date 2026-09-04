@@ -3,8 +3,8 @@ namespaceOverride: obi-store-demo
 image:
   registry: docker.io
   repository: otel/ebpf-instrument
-  tag: v0.9.0
-  digest: sha256:26f82b148dfe8cb0530561ab72a3cb5490b3ae5df556a33c27984af2e28542cf
+  tag: v0.12.2
+  digest: sha256:750df53abff8d104f757b7f9a42ee88808db69d43cc338ab1819c00273b9422b
 
 preset: application
 privileged: true
@@ -15,6 +15,13 @@ config:
     attributes:
       kubernetes:
         enable: true
+    ebpf:
+      buffer_sizes:
+        # Required for Aerospike spans. Once a connection is classified as
+        # Aerospike the generic tcp buffer no longer applies to it, and this
+        # setting defaults to 0 (disabled) - so without it nothing is captured
+        # and no spans are produced. See devdocs/protocols/tcp/aerospike.md.
+        aerospike: 1024
     routes:
       patterns:
         - /
@@ -24,6 +31,8 @@ config:
         - /setCurrency
         - /logout
         - /cart/checkout
+        - /viewed
+        - /viewed/:product_id
         - /_healthz
       unmatched: low-cardinality
     otel_metrics_export:
@@ -49,6 +58,8 @@ config:
           k8s_deployment_name: paymentservice
         - namespace: obi-store-demo
           k8s_deployment_name: productcatalogservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: recentlyviewed
         - namespace: obi-store-demo
           k8s_deployment_name: recommendationservice
         - namespace: obi-store-demo
