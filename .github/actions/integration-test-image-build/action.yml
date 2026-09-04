@@ -1,17 +1,21 @@
 name: Build Integration Test Image
-description: 'Builds a Docker image for integration tests'
+description: 'Builds a single-platform Docker image for integration tests and pushes by digest'
 
 inputs:
   registry:
     description: 'Image registry (e.g. ghcr.io)'
     required: false
     default: ghcr.io
+  platform:
+    description: 'Target platform (e.g. linux/amd64)'
+    required: true
   tag-id:
-    description: 'Image ID to be pretended to the tag (e.g. nodeserver)'
+    description: 'Image ID to be prepended to the tag (e.g. nodeserver)'
     required: true
   tag-version:
     description: 'Image version to be appended to the tag (e.g. 2.1.0)'
-    required: true
+    required: false
+    default: ''
   file:
     description: 'override name of the Dockerfile'
     required: false
@@ -19,6 +23,15 @@ inputs:
   labels:
     description: 'Image metadata labels'
     required: false
+  digest-dir:
+    description: 'Subdirectory under RUNNER_TEMP where per-image digest markers are stored'
+    required: false
+    default: obi-testimg-digests
+
+outputs:
+  digest:
+    description: 'Pushed image digest'
+    value: ${{ steps.push.outputs.digest }}
 
 runs:
   using: "composite"
@@ -29,8 +42,16 @@ runs:
       with:
         context: .
         file: ${{ inputs.file }}
-        push: true
-        platforms: linux/amd64,linux/arm64
+        platforms: ${{ inputs.platform }}
         labels: ${{ inputs.labels }}
-        tags: |
-          "${{ inputs.registry }}/open-telemetry/obi-testimg:${{ inputs.tag-id }}-${{ inputs.tag-version }}"
+        outputs: type=image,name=${{ inputs.registry }}/open-telemetry/obi-testimg,push-by-digest=true,name-canonical=true,push=true
+
+    - name: Record digest
+      shell: bash
+      env:
+        TAG_ID: ${{ inputs.tag-id }}
+        DIGEST: ${{ steps.push.outputs.digest }}
+        DIGEST_DIR: ${{ inputs.digest-dir }}
+      run: |
+        mkdir -p "${RUNNER_TEMP}/${DIGEST_DIR}/${TAG_ID}"
+        touch "${RUNNER_TEMP}/${DIGEST_DIR}/${TAG_ID}/${DIGEST#sha256:}"
