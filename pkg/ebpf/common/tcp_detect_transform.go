@@ -82,6 +82,15 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
 }
 
+func emitTCPExtraSpans(parseCtx *EBPFParseContext, event *TCPRequestInfo, spans ...request.Span) {
+	parentConditional := event.ParentStatus == parentStatusConditional
+	for i := range spans {
+		spans[i].ParentConditional = parentConditional
+	}
+
+	parseCtx.emitExtraSpans(spans...)
+}
+
 // dispatchKernelAssignedProtocol handles events where the kernel has already classified the protocol.
 // returns matched=false for ProtocolTypeUnknown or when MySQL/Postgres fall back to generic detection.
 func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
@@ -150,7 +159,7 @@ func kafkaSpanEmittingExtras(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 			s.SpanID = trace.SpanID{}
 			extra = append(extra, s)
 		}
-		parseCtx.emitExtraSpans(extra...)
+		emitTCPExtraSpans(parseCtx, event, extra...)
 	}
 	return primary, true
 }
@@ -470,7 +479,7 @@ func matchRedis(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer
 		for i := 1; i < len(spans); i++ {
 			spans[i].SpanID = trace.SpanID{}
 		}
-		parseCtx.emitExtraSpans(spans[1:]...)
+		emitTCPExtraSpans(parseCtx, event, spans[1:]...)
 	}
 
 	return spans[0], false, true, nil
@@ -521,7 +530,7 @@ func matchNATS(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer,
 		extraSpan.Type = request.EventTypeNATSServer
 		extraSpan.SpanID = trace.SpanID{}
 
-		parseCtx.emitExtraSpans(extraSpan)
+		emitTCPExtraSpans(parseCtx, event, extraSpan)
 	}
 	return TCPToNATSToSpan(event, info), false, true, nil
 }
@@ -546,7 +555,7 @@ func matchAMQP(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer,
 			for i := 1; i < len(spans); i++ {
 				spans[i].SpanID = trace.SpanID{}
 			}
-			parseCtx.emitExtraSpans(spans[1:]...)
+			emitTCPExtraSpans(parseCtx, event, spans[1:]...)
 		}
 		return spans[0], false, true, nil
 	}

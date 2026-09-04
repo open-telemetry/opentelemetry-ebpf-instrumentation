@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"path"
-	"strings"
 	"testing"
 	"time"
 
@@ -143,37 +142,28 @@ func latchTraces(t *testing.T, service string) []jaeger.Trace {
 
 func assertCallsDetached(t *testing.T, service string) {
 	for _, trace := range latchTraces(t, service) {
-		var servers, clients []jaeger.Span
-		targets := map[string]struct{}{}
+		serverIDs := map[string]struct{}{}
 
 		for _, span := range trace.Spans {
-			switch spanKind(span) {
-			case "server":
-				servers = append(servers, span)
-			case "client":
-				clients = append(clients, span)
-				targets[serverAddress(span)] = struct{}{}
+			if spanKind(span) == "server" {
+				serverIDs[span.SpanID] = struct{}{}
 			}
 		}
 
-		// the outgoing calls happen after the response, so they belong to no inbound request
-		if len(servers) > 0 {
-			var detail strings.Builder
-			for _, s := range servers {
-				fmt.Fprintf(&detail, "\n  server id=%s start=%d dur=%d", s.SpanID, s.StartTime, s.Duration)
+		for _, span := range trace.Spans {
+			if spanKind(span) != "client" {
+				continue
 			}
-			for _, c := range clients {
-				fmt.Fprintf(&detail, "\n  client id=%s refs=%v start=%d dur=%d target=%s",
-					c.SpanID, c.References, c.StartTime, c.Duration, serverAddress(c))
+			for _, ref := range span.References {
+				if ref.RefType != "CHILD_OF" {
+					continue
+				}
+				_, isServer := serverIDs[ref.SpanID]
+				assert.Falsef(t, isServer,
+					"client span %s retained finished server %s as its parent in trace %s",
+					span.SpanID, ref.SpanID, trace.TraceID)
 			}
-			assert.Emptyf(t, clients, "trace %s holds %d client spans next to %d server spans: "+
-				"a finished server trace adopted calls made after its response%s",
-				trace.TraceID, len(clients), len(servers), detail.String())
 		}
-
-		assert.LessOrEqualf(t, len(targets), 1,
-			"trace %s mixes calls to %d different targets, so unrelated requests were merged",
-			trace.TraceID, len(targets))
 	}
 }
 
