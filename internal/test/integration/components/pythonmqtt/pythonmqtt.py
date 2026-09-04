@@ -89,7 +89,7 @@ async def mqtt_publish():
     # Ensure client is connected
     if client is None or not client.is_connected():
         logger.warning("Client not connected, attempting to reconnect...")
-        broker = os.getenv("MQTT_BROKER", "vernemq:1883")
+        broker = os.getenv("MQTT_BROKER", "mqttbroker:1883")
         broker_host, broker_port = broker.split(":") if ":" in broker else (broker, 1883)
         broker_port = int(broker_port)
         try:
@@ -130,7 +130,7 @@ async def mqtt_connect():
     """Connect to MQTT broker (or reconnect if already connected)"""
     global client
 
-    broker = os.getenv("MQTT_BROKER", "vernemq:1883")
+    broker = os.getenv("MQTT_BROKER", "mqttbroker:1883")
     broker_host, broker_port = broker.split(":") if ":" in broker else (broker, 1883)
     broker_port = int(broker_port)
 
@@ -234,7 +234,7 @@ async def mqtt_subscribe(
     # Ensure client is connected
     if client is None or not client.is_connected():
         logger.warning("Client not connected, attempting to reconnect...")
-        broker = os.getenv("MQTT_BROKER", "vernemq:1883")
+        broker = os.getenv("MQTT_BROKER", "mqttbroker:1883")
         broker_host, broker_port = broker.split(":") if ":" in broker else (broker, 1883)
         broker_port = int(broker_port)
         try:
@@ -280,7 +280,7 @@ async def mqtt_subscribe(
 
 if __name__ == "__main__":
     # Get configuration from environment
-    broker = os.getenv("MQTT_BROKER", "vernemq:1883")
+    broker = os.getenv("MQTT_BROKER", "mqttbroker:1883")
     broker_host, broker_port = broker.split(":") if ":" in broker else (broker, 1883)
     broker_port = int(broker_port)
 

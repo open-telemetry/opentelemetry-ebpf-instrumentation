@@ -69,7 +69,7 @@ var pythonRuntimeMetricsImages = []pythonRuntimeMetricsImage{
 
 var unsupportedPythonRuntimeMetricsImage = pythonRuntimeMetricsImage{
 	version: "3.8.20-unsupported",
-	image:   "python:3.8.20-slim@sha256:314bc2fb0714b7807bf5699c98f0c73817e579799f2d91567ab7e9510f5601a5",
+	image:   "python:3.8.20-slim@sha256:1d52838af602b4b5a831beb13a0e4d073280665ea7be7f69ce2382f29c5a613f",
 }
 
 type pythonGCStats [3]struct {
@@ -88,10 +88,12 @@ type pythonForkPID struct {
 }
 
 func TestPythonRuntimeMetricsProm(t *testing.T) {
+	skipIfNotAmd64(t, "private CPython collector probes require amd64")
 	runPythonRuntimeMetricsMatrix(t, "prom", pythonRuntimeMetricsImages)
 }
 
 func TestPythonRuntimeMetricsOTel(t *testing.T) {
+	skipIfNotAmd64(t, "private CPython collector probes require amd64")
 	images := make([]pythonRuntimeMetricsImage, 0, len(pythonRuntimeMetricsImages))
 	for _, image := range pythonRuntimeMetricsImages {
 		if image.otelRepresentative {

@@ -27,7 +27,7 @@ var (
 func main() {
 	broker := os.Getenv("MQTT_BROKER")
 	if broker == "" {
-		broker = "vernemq:1883"
+		broker = "mqttbroker:1883"
 	}
 
 	topic = os.Getenv("MQTT_TOPIC")

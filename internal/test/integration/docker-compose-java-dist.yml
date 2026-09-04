@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   testserver:
-    image: ghcr.io/open-telemetry/obi-testimg:netty-tls-0.0.2@sha256:94466b3a5cb4ebd0bc99fcce87140dd65997bfb8de2c90ca2aeef1cae1ae7164
+    image: ghcr.io/open-telemetry/obi-testimg:netty-tls-0.1.2@sha256:8f87a73de41fbdfef5cc74c8099ddfe95340e09da18643e0c4a20195e5a43451
     ports:
       - "8081:8080"
     environment:
