@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -654,6 +655,10 @@ func TestSuite_PythonMySQL(t *testing.T) {
 }
 
 func TestSuite_PythonMSSQL(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("mcr.microsoft.com/mssql/server is published amd64-only")
+	}
+
 	compose, err := docker.ComposeSuite("docker-compose-python-mssql.yml", path.Join(pathOutput, "test-suite-python-mssql.log"))
 	require.NoError(t, err)
 
