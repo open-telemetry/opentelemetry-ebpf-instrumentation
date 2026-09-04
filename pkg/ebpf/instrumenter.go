@@ -131,7 +131,6 @@ func (c *usdtLinkCloser) Close() error {
 }
 
 func (i *instrumenter) goprobes(p Tracer) error {
-	// TODO: not running program if it does not find the required probes
 	goProbes := p.GoProbes()
 
 	i.gatherGoOffsets(goProbes)
@@ -139,6 +138,10 @@ func (i *instrumenter) goprobes(p Tracer) error {
 	closers, attachedSymbols, err := i.instrumentProbesWithResults(i.exe, goProbes)
 	if err != nil {
 		return err
+	}
+	if noGoProbeAttached(attachedSymbols) {
+		ilog().Warn("no Go probes attached to executable, it will produce no telemetry",
+			"process", i.processName, "wanted_symbols", len(attachedSymbols))
 	}
 	i.closables = append(i.closables, closers...)
 	p.AddCloser(closers...)
@@ -193,6 +196,18 @@ func (i *instrumenter) registerProcessScopedGoProbes(key ExecutableKey) {
 
 func (i *instrumenter) rollbackOptionalGoProbeGroups() {
 	closeAllReverse(i.optionalGoProbeGroupClosers)
+}
+
+func noGoProbeAttached(attachedSymbols map[string]bool) bool {
+	if len(attachedSymbols) == 0 {
+		return false
+	}
+	for _, attached := range attachedSymbols {
+		if attached {
+			return false
+		}
+	}
+	return true
 }
 
 func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string][]*ebpfcommon.ProbeDesc) ([]io.Closer, error) {
