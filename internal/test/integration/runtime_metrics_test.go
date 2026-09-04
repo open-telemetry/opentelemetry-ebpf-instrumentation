@@ -28,6 +28,9 @@ const (
 	runtimeMemoryGaugeTolerance     = 16 * 1024 * 1024
 	runtimeGoroutineGaugeTolerance  = 4
 	runtimeMetricsReadIterations    = 12
+	// ARM can expose 1 ULP drift between /runtime/metrics and OBI counters
+	// (e.g. 2.2400000000000002e-07 vs 2.24e-07).
+	runtimeMetricAcceptableDrift = 1e-12
 )
 
 type runtimeHistogram struct {
@@ -325,11 +328,11 @@ func assertRuntimeMetricObserved(
 
 	assert.Positivef(t, expectedValue, "service runtime/metrics %s should be positive", runtimeName)
 	assert.Positivef(t, obiValue, "OBI %s should be positive", obiName)
-	assert.LessOrEqualf(t, expectedValue, currentValue,
+	assertRuntimeMetricLessOrEqual(t, expectedValue, currentValue,
 		"service runtime/metrics %s should not go backwards", runtimeName)
-	assert.LessOrEqualf(t, expectedValue, obiValue,
+	assertRuntimeMetricLessOrEqual(t, expectedValue, obiValue,
 		"OBI %s should not be older than the captured service runtime/metrics value for %s", obiName, runtimeName)
-	assert.LessOrEqualf(t, obiValue, currentValue,
+	assertRuntimeMetricLessOrEqual(t, obiValue, currentValue,
 		"OBI %s should not be newer than the current service runtime/metrics value for %s", obiName, runtimeName)
 }
 
@@ -351,12 +354,16 @@ func assertRuntimeMetricCounterObserved(
 		assert.Positivef(t, expectedValue, "service runtime/metrics %s should be positive", runtimeName)
 		assert.Positivef(t, obiValue, "OBI %s should be positive", obiName)
 	}
-	assert.LessOrEqualf(t, expectedValue, currentValue,
+	assertRuntimeMetricLessOrEqual(t, expectedValue, currentValue,
 		"service runtime/metrics %s should not go backwards", runtimeName)
-	assert.LessOrEqualf(t, expectedValue, obiValue,
+	assertRuntimeMetricLessOrEqual(t, expectedValue, obiValue,
 		"OBI %s should not be older than the captured service runtime/metrics value for %s", obiName, runtimeName)
-	assert.LessOrEqualf(t, obiValue, currentValue,
+	assertRuntimeMetricLessOrEqual(t, obiValue, currentValue,
 		"OBI %s should not be newer than the current service runtime/metrics value for %s", obiName, runtimeName)
+}
+
+func assertRuntimeMetricLessOrEqual(t require.TestingT, older, newer float64, msg string, args ...any) {
+	assert.LessOrEqualf(t, older, newer+runtimeMetricAcceptableDrift, msg, args...)
 }
 
 func assertRuntimeMetricGaugeObserved(

@@ -1,18 +1,12 @@
 services:
-  vernemq:
+  mqttbroker:
     restart: always
-    container_name: vernemq-mqtt-broker
-    image: vernemq/vernemq:2.2.0@sha256:f10a268789411f85522a01c9052235dbffa94cbd5ac2cfaadcaf94d649b42775
+    container_name: mqttbroker
+    image: eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
     ports:
       - "1883:1883" # MQTT port
-    environment:
-      - DOCKER_VERNEMQ_ACCEPT_EULA=yes
-      - DOCKER_VERNEMQ_ALLOW_ANONYMOUS=on
-      - DOCKER_VERNEMQ_LOG__CONSOLE__LEVEL=warning
-      - DOCKER_VERNEMQ_PLUGINS__vmq_acl=on
-      - DOCKER_VERNEMQ_VMQ_ACL__ACL_FILE=/etc/vernemq/vmq.acl
     volumes:
-      - ./vernemq-acl:/etc/vernemq
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
 
   testserver:
     build:
@@ -22,13 +16,13 @@ services:
     ports:
       - "${TEST_SERVICE_PORTS}"
     environment:
-      - MQTT_BROKER=vernemq:1883
+      - MQTT_BROKER=mqttbroker:1883
       - MQTT_TOPIC=test/topic
       - MQTT_QOS=1
     depends_on:
       otelcol:
         condition: service_started
-      vernemq:
+      mqttbroker:
         condition: service_started
       jaeger:
         condition: service_started

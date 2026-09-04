@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -381,4 +382,11 @@ func waitForTestComponentsTCPSub(t *testing.T, rawURL string, minutes int) {
 			conn.Close()
 		}
 	}, time.Duration(minutes)*time.Minute, 1*time.Second)
+}
+
+func skipIfNotAmd64(t *testing.T, reason string) {
+	t.Helper()
+	if runtime.GOARCH != "amd64" {
+		t.Skip(reason)
+	}
 }
