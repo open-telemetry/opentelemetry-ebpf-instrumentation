@@ -155,7 +155,9 @@ func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	fe.recordProductView(r.Context(), log, id)
+	if r.Method == http.MethodGet {
+		fe.recordProductView(r.Context(), log, id)
+	}
 
 	currencies, err := fe.getCurrencies(r.Context())
 	if err != nil {
