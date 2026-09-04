@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
@@ -267,4 +268,129 @@ func startDeletedTyperPipeline(
 			}
 		}
 	}()
+}
+
+func TestSyncServiceMetadata_Precedence(t *testing.T) {
+	t.Run("explicit src overrides auto dst", func(t *testing.T) {
+		src := execpkg.New(execpkg.Init{
+			Service: svc.Attrs{UID: svc.UID{Name: "explicit-svc"}},
+		})
+		dst := execpkg.New(execpkg.Init{})
+		dst.SetAutoServiceName("auto-svc")
+
+		syncServiceMetadata(dst, src)
+
+		assert.Equal(t, "explicit-svc", dst.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("explicit dst overrides auto src", func(t *testing.T) {
+		dst := execpkg.New(execpkg.Init{
+			Service: svc.Attrs{UID: svc.UID{Name: "explicit-dst"}},
+		})
+		src := execpkg.New(execpkg.Init{})
+		src.SetAutoServiceName("auto-src")
+
+		syncServiceMetadata(dst, src)
+
+		assert.Equal(t, "explicit-dst", src.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("explicit src overrides empty dst", func(t *testing.T) {
+		src := execpkg.New(execpkg.Init{
+			Service: svc.Attrs{UID: svc.UID{Name: "explicit-src"}},
+		})
+		dst := execpkg.New(execpkg.Init{})
+
+		syncServiceMetadata(dst, src)
+
+		assert.Equal(t, "explicit-src", dst.ServiceAttrs().UID.Name)
+		assert.False(t, dst.AutoName())
+	})
+
+	t.Run("auto src propagates to empty dst", func(t *testing.T) {
+		src := execpkg.New(execpkg.Init{})
+		src.SetAutoServiceName("auto-src")
+		dst := execpkg.New(execpkg.Init{})
+
+		syncServiceMetadata(dst, src)
+
+		assert.Equal(t, "auto-src", dst.ServiceAttrs().UID.Name)
+		assert.True(t, dst.AutoName())
+	})
+
+	t.Run("auto dst propagates to empty src", func(t *testing.T) {
+		dst := execpkg.New(execpkg.Init{})
+		dst.SetAutoServiceName("auto-dst")
+		src := execpkg.New(execpkg.Init{})
+
+		syncServiceMetadata(dst, src)
+
+		assert.Equal(t, "auto-dst", src.ServiceAttrs().UID.Name)
+		assert.True(t, src.AutoName())
+	})
+
+	t.Run("distinct auto names are preserved without overwrite", func(t *testing.T) {
+		dst := execpkg.New(execpkg.Init{})
+		dst.SetAutoServiceName("auto-dst")
+		src := execpkg.New(execpkg.Init{})
+		src.SetAutoServiceName("auto-src")
+
+		syncServiceMetadata(dst, src)
+
+		assert.Equal(t, "auto-dst", dst.ServiceAttrs().UID.Name)
+		assert.Equal(t, "auto-src", src.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("metadata map synchronization and isolation", func(t *testing.T) {
+		src := execpkg.New(execpkg.Init{})
+		src.SetMetadata(map[attr.Name]string{attr.Name("service.version"): "1.2.3"})
+		dst := execpkg.New(execpkg.Init{})
+
+		syncServiceMetadata(dst, src)
+
+		assert.Equal(t, "1.2.3", dst.ServiceAttrs().Metadata[attr.Name("service.version")])
+
+		// Mutating src should not mutate dst (deep copy)
+		src.SetMetadata(map[attr.Name]string{attr.Name("service.version"): "9.9.9"})
+		assert.Equal(t, "1.2.3", dst.ServiceAttrs().Metadata[attr.Name("service.version")])
+	})
+
+	t.Run("reverse metadata map synchronization", func(t *testing.T) {
+		dst := execpkg.New(execpkg.Init{})
+		dst.SetMetadata(map[attr.Name]string{attr.Name("service.version"): "2.0.0"})
+		src := execpkg.New(execpkg.Init{})
+
+		syncServiceMetadata(dst, src)
+
+		assert.Equal(t, "2.0.0", src.ServiceAttrs().Metadata[attr.Name("service.version")])
+	})
+
+	t.Run("nil and self no-op safety", func(t *testing.T) {
+		fi := execpkg.New(execpkg.Init{})
+		fi.SetAutoServiceName("test")
+		syncServiceMetadata(nil, fi)
+		syncServiceMetadata(fi, nil)
+		syncServiceMetadata(fi, fi)
+		assert.Equal(t, "test", fi.ServiceAttrs().UID.Name)
+	})
+}
+
+func TestMonitorPIDs_PropagatesNameToServiceSource(t *testing.T) {
+	parent := execpkg.New(execpkg.Init{Pid: 100, CmdExePath: "/usr/bin/python3.14"})
+	worker := execpkg.New(execpkg.Init{Pid: 101, Ppid: 100, Ns: 17, CmdExePath: "/usr/bin/python3.14"})
+	worker.SetRuntimeMetricServiceSource(parent)
+	worker.SetAutoServiceName("main_ssl")
+
+	program := &recordingTracer{}
+	tracer := &ebpf.ProcessTracer{Programs: []ebpf.Tracer{program}}
+
+	(&traceAttacher{}).monitorPIDs(tracer, &ebpf.Instrumentable{
+		Type: svc.InstrumentablePython, FileInfo: worker,
+	})
+
+	// Parent should receive main_ssl from worker before applying defaults,
+	// rather than falling back to python3.14.
+	assert.Equal(t, "main_ssl", parent.ServiceAttrs().UID.Name)
+	assert.Equal(t, "main_ssl", worker.ServiceAttrs().UID.Name)
+	assert.Equal(t, svc.InstrumentablePython, parent.SDKLanguage())
 }
