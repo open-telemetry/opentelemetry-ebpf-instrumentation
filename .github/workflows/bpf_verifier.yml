@@ -2,11 +2,16 @@ name: BPF verifier
 run-name: >-
   BPF verifier${{ inputs.pr_number && format(' · PR #{0}', inputs.pr_number) || '' }}${{ inputs.ref && format(' @ {0}', inputs.ref) || '' }}
 
-# Not run per-PR: comment /verifier-tests on a PR to dispatch it (see
-# slash_command_verifier_tests.yml). Still runs on push to main/release-*.
+# Not run on every PR: comment /verifier-tests to dispatch it (see
+# slash_command_verifier_tests.yml). Still runs on push to main/release-*,
+# and on PRs that touch this workflow file so CI changes are self-tested.
 on:
   push:
     branches: [main, release-*]
+  pull_request:
+    branches: [main, release-*]
+    paths:
+      - ".github/workflows/bpf_verifier.yml"
   workflow_call:
     inputs:
       ref:
