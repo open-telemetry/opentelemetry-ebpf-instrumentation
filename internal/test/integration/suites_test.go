@@ -778,6 +778,7 @@ func TestSuite_PythonAsyncUvloop_3_9(t *testing.T) {
 	t.Run("Sequential", testPythonAsyncSequential)
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Cancelled To Thread", testPythonAsyncCancelledToThread)
 	t.Run("Nested", testPythonAsyncNested)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -792,6 +793,50 @@ func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// Uvicorn on the standard asyncio event loop (uvloop replaced via UVICORN_LOOP)
+func TestSuite_PythonAsyncUvicornAsyncio_3_14(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop-3.14.yml", path.Join(pathOutput, "test-suite-python-async-uvicorn-asyncio-3_14.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env, `UVICORN_LOOP=asyncio`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncSequential)
+	t.Run("Concurrent", testPythonAsyncConcurrent)
+	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Nested", testPythonAsyncNested)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAsyncGeneric_3_9(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-generic-3.9.yml", path.Join(pathOutput, "test-suite-python-async-generic-3_9.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncGenericSequential)
+	t.Run("Concurrent", testPythonAsyncGenericConcurrent)
+	t.Run("To Thread", testPythonAsyncGenericToThread)
+	t.Run("Cancelled To Thread", testPythonAsyncGenericCancelledToThread)
+	t.Run("Nested", testPythonAsyncGenericNested)
+	t.Run("Keep-Alive", testPythonAsyncGenericKeepAlive)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAsyncGeneric_3_14(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-generic-3.14.yml", path.Join(pathOutput, "test-suite-python-async-generic-3_14.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncGenericSequential)
+	t.Run("Concurrent", testPythonAsyncGenericConcurrent)
+	t.Run("To Thread", testPythonAsyncGenericToThread)
+	t.Run("Nested", testPythonAsyncGenericNested)
+	t.Run("Keep-Alive", testPythonAsyncGenericKeepAlive)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

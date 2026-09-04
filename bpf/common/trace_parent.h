@@ -156,58 +156,74 @@ static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_k
     return NULL;
 }
 
-static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid) {
+static __always_inline python_task_resolution_t
+resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid, python_task_ref_t *task_ref) {
     const python_thread_state_t *thread_state =
         (const python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &pid_tgid);
 
     if (!thread_state) {
-        return 0;
+        return PYTHON_TASK_NOT_FOUND;
     }
 
     if (thread_state->current_task) {
-        bpf_dbg_printk("resolve_python_current_task: resolved tid=%d task=%llx",
-                       t_key->p_key.tid,
-                       thread_state->current_task);
-        return thread_state->current_task;
+        if (resolve_python_task_ref(pid_tgid, thread_state->current_task, task_ref)) {
+            bpf_dbg_printk("resolve_python_current_task: resolved tid=%d task=%llx",
+                           t_key->p_key.tid,
+                           thread_state->current_task);
+            return PYTHON_TASK_RESOLVED;
+        }
+        return PYTHON_TASK_NOT_FOUND;
     }
 
     if (!thread_state->current_context) {
-        return 0;
+        return PYTHON_TASK_NOT_FOUND;
     }
 
     // asyncio.to_thread can switch work onto a thread that inherited a context
-    // but has not run task_step, so current_context is the only usable link.
-    const python_context_task_t *context_task = (const python_context_task_t *)bpf_map_lookup_elem(
-        &python_context_task, &thread_state->current_context);
-    const u64 task_id = resolve_python_context_task(context_task);
-    if (task_id) {
+    // but has not run task_step, so the current context is the only usable link.
+    const python_task_resolution_t resolution =
+        resolve_python_task_from_context(pid_tgid, thread_state->current_context, task_ref);
+    if (resolution == PYTHON_TASK_RESOLVED) {
         bpf_dbg_printk("resolve_python_current_task: context fallback tid=%d ctx=%llx task=%llx",
                        t_key->p_key.tid,
                        thread_state->current_context,
-                       task_id);
-        return task_id;
+                       task_ref->addr);
     }
-    return 0;
+    return resolution;
 }
 
-static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t *t_key,
-                                                               u64 pid_tgid) {
-    const u64 task_id = resolve_python_current_task(t_key, pid_tgid);
-    if (!task_id) {
+static __always_inline tp_info_pid_t *
+find_python_parent_trace(const trace_key_t *t_key, u64 pid_tgid, u8 *allow_parent_fallback) {
+    if (allow_parent_fallback) {
+        *allow_parent_fallback = 1;
+    }
+
+    python_task_ref_t task_ref = {};
+    const python_task_resolution_t task_resolution =
+        resolve_python_current_task(t_key, pid_tgid, &task_ref);
+    if (task_resolution != PYTHON_TASK_RESOLVED) {
+        if (task_resolution == PYTHON_TASK_STALE && allow_parent_fallback) {
+            *allow_parent_fallback = 0;
+        }
         bpf_dbg_printk("find_python_parent_trace: no current task pid=%d tid=%d",
                        t_key->p_key.pid,
                        t_key->p_key.tid);
         return NULL;
     }
 
-    tp_info_pid_t *server_tp = find_python_owning_server_trace(task_id);
+    python_task_resolution_t owning_resolution = PYTHON_TASK_NOT_FOUND;
+    tp_info_pid_t *server_tp =
+        find_python_owning_server_trace(pid_tgid, task_ref, &owning_resolution);
+    if (owning_resolution == PYTHON_TASK_STALE && allow_parent_fallback) {
+        *allow_parent_fallback = 0;
+    }
     if (server_tp) {
         bpf_dbg_printk(
-            "find_python_parent_trace: FOUND tid=%d task=%llx", t_key->p_key.tid, task_id);
+            "find_python_parent_trace: FOUND tid=%d task=%llx", t_key->p_key.tid, task_ref.addr);
     } else {
         bpf_dbg_printk("find_python_parent_trace: no owning trace for tid=%d task=%llx",
                        t_key->p_key.tid,
-                       task_id);
+                       task_ref.addr);
     }
     return server_tp;
 }
@@ -313,8 +329,10 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
         }
     }
 
-    tp_info_pid_t *python_parent = find_python_parent_trace(t_key, pid_tgid);
-    if (python_parent) {
+    u8 allow_parent_fallback = 1;
+    tp_info_pid_t *python_parent =
+        find_python_parent_trace(t_key, pid_tgid, &allow_parent_fallback);
+    if (python_parent || !allow_parent_fallback) {
         return python_parent;
     }
 

@@ -571,6 +571,14 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Required: false,
 				End:      p.bpfObjects.ObiUprobeCopyContext,
 			}},
+			"context_tp_dealloc": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeContextDealloc,
+			}},
+			"context_tp_dealloc.lto_priv.0": {{ // LTO builds (e.g. Python 3.14) rename the symbol
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeContextDealloc,
+			}},
 			"context_new_from_vars": {{ // In Docker, PyContext_CopyCurrent has Tail Recursion Optimization, so we need this function instead
 				Required: false,
 				End:      p.bpfObjects.ObiUprobeCopyContext,
