@@ -708,7 +708,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
     bpf_clamp_umax(fallback_bytes, k_kprobes_http2_buf_size);
     bpf_probe_read_kernel(msg_buf.fallback_buf, fallback_bytes, msg->data);
 
-    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+    unsigned char *msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
     if (!msg_ptr) {
         bpf_d_printk("failed to reserve msg_buffer space [%s]", __FUNCTION__);
@@ -752,7 +752,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
         return 0;
     }
 
-    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+    unsigned char *msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
     if (!msg_ptr) {
         return 0;
