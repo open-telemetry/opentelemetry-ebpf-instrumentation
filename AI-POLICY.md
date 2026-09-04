@@ -65,6 +65,16 @@ or lightly edited Generative AI output, generated wall-of-text reports,
 exhaustive restatements of the code, or a play-by-play of the work. Include only
 the context needed for another contributor to understand or act on the message.
 
+Pull request descriptions must be short and written in plain language. A
+reviewer should understand what changed and why in a single read, without
+needing AI tooling to summarize or simplify the text. Maintainers may ask for a
+rewrite before reviewing a pull request whose description is very long or
+needlessly hard to read.
+
+Issues that report a bug must explain concisely what happened and what was
+expected. Include a reproducer whenever possible: a small script or a short
+list of steps is worth more than pages of analysis.
+
 ## 3. Unacceptable Use
 
 It is not acceptable to use Generative AI tools to:
@@ -81,6 +91,9 @@ It is not acceptable to use Generative AI tools to:
   sources without correct attribution or licensing.
 5. Submit contributions where you cannot explain, contextualize, or justify the
   submission as part of review.
+6. Submit pull request descriptions or issues that are so long, or written in
+  such complex language, that other contributors need Generative AI tooling to
+  read them.
 
 ## 4. Generative AI for Translation
 

@@ -1,6 +1,17 @@
+<!--
+Keep the whole description short (aim for under ~20 lines) and in plain
+language: a reviewer must understand what changed and why in a single read.
+Long or AI-generated walls of text will be sent back for a rewrite before
+review (see AI-POLICY.md).
+-->
+
 ## Summary
 
-Describe the change briefly.
+<!-- What changed and why, in 2-4 sentences. Link the issue if there is one. -->
+
+## Testing
+
+<!-- How you verified it: tests run, environment, before/after behavior. -->
 
 ## Validation
 
