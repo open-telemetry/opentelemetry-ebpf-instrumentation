@@ -57,13 +57,19 @@ jobs:
           persist-credentials: false
       - id: k
         run: |
+          amd64=$(bash scripts/kernel-matrix-json.sh --kind=verifier --arch=amd64)
+          arm64=$(bash scripts/kernel-matrix-json.sh --kind=verifier --arch=arm64)
           echo -n "kernels=" >> "$GITHUB_OUTPUT"
-          bash scripts/kernel-matrix-json.sh --kind=verifier >> "$GITHUB_OUTPUT"
+          jq -c -n --argjson amd64 "$amd64" --argjson arm64 "$arm64" \
+            '{include: (
+                ($amd64.include | map(. + {runner: "ubuntu-latest"})) +
+                ($arm64.include | map(. + {runner: "ubuntu-24.04-arm"}))
+              )}' >> "$GITHUB_OUTPUT"
 
   test:
-    name: Kernel ${{ matrix.kernel.id }}
+    name: Kernel ${{ matrix.kernel.id }} (${{ matrix.kernel.arch }})
     needs: [matrix, generate-bpf]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.kernel.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -85,25 +91,33 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Install QEMU
+        env:
+          ARCH: ${{ matrix.kernel.arch }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
+          case "$ARCH" in
+            arm64) pkg=qemu-system-arm ;;
+            *)     pkg=qemu-system-x86 ;;
+          esac
+          sudo apt-get install -y --no-install-recommends qemu-utils "$pkg"
 
       - id: kernel
         uses: $/.github/actions/setup-lvh-kernel
         with:
           kernel-id: ${{ matrix.kernel.id }}
           lvh-tag: ${{ matrix.kernel.lvh_tag }}
+          arch: ${{ matrix.kernel.arch }}
 
       - name: Run BPF verifier tests in VM
         env:
           KERNEL: ${{ steps.kernel.outputs.kernel }}
           MODULES_DIR: ${{ steps.kernel.outputs.modules-dir }}
+          ARCH: ${{ matrix.kernel.arch }}
         run: |
           sudo make -C internal/test/vm \
             KERNEL="$KERNEL" \
             MODULES_DIR="$MODULES_DIR" \
-            ARCH=amd64 \
+            ARCH="$ARCH" \
             QEMU_SMP="$(nproc)" \
             TARGET_TEST=run-bpf-verifier-vm \
             && [ -f testoutput/success ]

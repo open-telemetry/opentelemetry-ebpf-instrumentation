@@ -1,8 +1,8 @@
 WORKDIR ?= $(HOME)
 
 ARCH ?= amd64
-ifeq ($(filter $(ARCH),amd64 x86_64),)
-  $(error Unsupported ARCH=$(ARCH). Only amd64 is supported; arm64 GH runners lack nested KVM)
+ifeq ($(filter $(ARCH),amd64 x86_64 arm64 aarch64),)
+  $(error Unsupported ARCH=$(ARCH). Use amd64 or arm64)
 endif
 
 KERNEL_ID ?=
@@ -33,6 +33,16 @@ QEMU_BIN = qemu-system-$(QEMU_ARCH)
 QEMU := $(shell which $(QEMU_BIN))
 QEMU_MEMORY ?= 8192
 QEMU_SMP ?= 2
+# Guest machine / console / TCG CPU. Same-arch KVM uses -cpu host instead.
+ifeq ($(filter $(ARCH),arm64 aarch64),)
+  QEMU_MACHINE :=
+  QEMU_CONSOLE := earlyprintk=ttyS0 console=ttyS0
+  QEMU_TCG_CPU := qemu64
+else
+  QEMU_MACHINE := -M virt
+  QEMU_CONSOLE := console=ttyAMA0
+  QEMU_TCG_CPU := max
+endif
 PRECOMPILED_TESTS_DIR ?=
 # Path to /lib/modules tree for the active LVH kernel. CI populates via
 # prepare-kernel.sh; local invocations can rely on that auto-resolution.
@@ -86,8 +96,8 @@ launchvm: check_qemu $(ROOT_IMG) $(TEST_OUTPUT) write-test-env
 	fi; \
 	if [ ! -f "$$RESOLVED_KERNEL" ]; then \
 		echo "ERROR: kernel image not found at '$$RESOLVED_KERNEL'" >&2; \
-		echo "Set KERNEL=<path> [MODULES_DIR=<path>] ARCH=amd64, OR" >&2; \
-		echo "set KERNEL_ID=<id-from-kernels.yaml> ARCH=amd64" >&2; \
+		echo "Set KERNEL=<path> [MODULES_DIR=<path>] ARCH=$(ARCH), OR" >&2; \
+		echo "set KERNEL_ID=<id-from-kernels.yaml> ARCH=$(ARCH)" >&2; \
 		exit 1; \
 	fi; \
 	export KERNEL="$$RESOLVED_KERNEL"; \
@@ -110,12 +120,12 @@ launchvm-run:
 		QEMU_ACCEL="-enable-kvm -cpu host"; \
 	else \
 		echo "KVM not available, falling back to TCG"; \
-		QEMU_ACCEL="-accel tcg,thread=multi -cpu qemu64"; \
+		QEMU_ACCEL="-accel tcg,thread=multi -cpu $(QEMU_TCG_CPU)"; \
 	fi; \
-	qemu-system-x86_64 $$QEMU_ACCEL -m $(QEMU_MEMORY) -smp $(QEMU_SMP) -kernel $(KERNEL) \
+	$(QEMU) $(QEMU_MACHINE) $$QEMU_ACCEL -m $(QEMU_MEMORY) -smp $(QEMU_SMP) -kernel $(KERNEL) \
 		-drive file=$(ROOT_IMG),format=qcow2,if=none,id=hd0 \
 		-device virtio-blk-pci,drive=hd0 \
-		-append "earlyprintk=ttyS0 console=ttyS0 root=/dev/vda rw quiet rcupdate.rcu_cpu_stall_timeout=60 panic=5" \
+		-append "$(QEMU_CONSOLE) root=/dev/vda rw quiet rcupdate.rcu_cpu_stall_timeout=60 panic=5" \
 		-no-reboot \
 		-virtfs local,path=$(REPO_ROOT),mount_tag=obi,security_model=mapped,id=obi \
 		-virtfs local,path=$(TEST_OUTPUT),mount_tag=testout,security_model=mapped,id=testout \
