@@ -32,8 +32,8 @@ spec:
     spec:
       containers:
         - name: statefulservice
-          image: testserver:dev
-          imagePullPolicy: Never # loaded into Kind from localhost
+          image: ghcr.io/open-telemetry/obi-testimg:go-0.1.2@sha256:b3e65ac053586943bcfbba0af32a0ec1cfb3fa64add67f92a742d8431835be39
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               hostPort: 8080

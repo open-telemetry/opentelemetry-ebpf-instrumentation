@@ -64,20 +64,26 @@ jobs:
       - name: Build test matrix
         id: build-matrix
         run: |
-          echo -n "matrix=" >> $GITHUB_OUTPUT
-          make k8s-integration-test-matrix-json >> $GITHUB_OUTPUT
+          echo -n "matrix=" >> "$GITHUB_OUTPUT"
+          make k8s-integration-test-matrix-json >> "$GITHUB_OUTPUT"
 
   test:
-    name: ${{ matrix.basename }}
+    name: ${{ matrix.shard.basename }} (${{ matrix.platform.arch }})
     needs: [test-matrix, generate-bpf]
     permissions:
       checks: write
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+        shard: ${{ fromJson(needs.test-matrix.outputs.matrix).include }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,9 +137,9 @@ jobs:
 
       - name: Run integration tests
         env:
-          MATRIX_ID: ${{ matrix.id }}
+          MATRIX_ID: ${{ matrix.shard.id }}
           MATRIX_JSON: ${{ toJson(matrix) }}
-          MATRIX_TEST_PATTERN: ${{ matrix.test_pattern }}
+          MATRIX_TEST_PATTERN: ${{ matrix.shard.test_pattern }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           echo Partition
@@ -163,13 +169,13 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: k8s-integration-test
-          name: integration-k8s-coverage-${{ matrix.basename }}-${{ github.run_number }}
+          name: integration-k8s-coverage-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: integration-k8s-reports-${{ matrix.basename }}-${{ github.run_number }}
+          name: integration-k8s-reports-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
@@ -177,7 +183,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: integration-k8s-logs-${{ matrix.basename }}-${{ github.run_number }}
+          name: integration-k8s-logs-${{ matrix.shard.basename }}-${{ matrix.platform.arch }}-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind
