@@ -57,9 +57,10 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	if index != "" {
 		operationName = op + " " + index
 		params.Add("operation", operationName)
+		params.Add("tags", fmt.Sprintf("{\"db.system.name\":\"%s\"}", dbSystemName))
 	} else {
 		operationName = op
-		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\"}", op))
+		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\",\"db.system.name\":\"%s\"}", op, dbSystemName))
 	}
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
