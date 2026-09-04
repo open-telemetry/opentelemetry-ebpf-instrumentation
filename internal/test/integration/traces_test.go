@@ -2005,3 +2005,57 @@ func testHTTPTracesNoNestedCalls(t *testing.T) {
 	res = trace.FindByOperationName("GET /echoBack", "client")
 	require.Empty(t, res)
 }
+
+// A method outside the semconv http.request.method enum has to be reported as
+// _OTHER, with the wire value moved to http.request.method_original. Without
+// the clamp http.request.method carries arbitrary bytes off the request line.
+func testHTTPTracesUnknownMethod(t *testing.T) {
+	const (
+		slug = "unknown-method"
+		// Kept within 7 bytes so the same assertion holds on the Go uprobe path,
+		// whose method field is k_method_max_len wide.
+		method = "PURGE"
+	)
+
+	// Ensure OBI is attached before sending the single marker request; this
+	// subtest may run first (e.g. filtered runs), without prior warm-up.
+	waitForTestComponents(t, instrumentedServiceStdURL)
+
+	req, err := http.NewRequest(method, instrumentedServiceStdURL+"/"+slug, nil)
+	require.NoError(t, err)
+	resp, err := testHTTPClient.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	var span jaeger.Span
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		r, err := http.Get(jaegerQueryURL + "?service=testserver&limit=1000")
+		require.NoError(ct, err)
+		if r == nil {
+			return
+		}
+		defer r.Body.Close()
+		require.Equal(ct, http.StatusOK, r.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
+
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug})
+		require.NotEmpty(ct, traces)
+
+		found := false
+		for _, s := range traces[len(traces)-1].Spans {
+			if _, ok := jaeger.FindIn(s.Tags, "http.request.method_original"); ok {
+				span, found = s, true
+				break
+			}
+		}
+		require.True(ct, found, "no span carrying http.request.method_original")
+	}, testTimeout, 100*time.Millisecond)
+
+	sd := span.Diff(
+		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "_OTHER"},
+		jaeger.Tag{Key: "http.request.method_original", Type: "string", Value: method},
+	)
+	assert.Empty(t, sd, sd.String())
+}

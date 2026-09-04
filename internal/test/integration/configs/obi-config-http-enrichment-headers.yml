@@ -42,4 +42,5 @@ ebpf:
                 - "Content-Type"
                 - "X-Custom-*"
                 - "X-Dice-Roll"
+                - "User-Agent"
               case_sensitive: false
