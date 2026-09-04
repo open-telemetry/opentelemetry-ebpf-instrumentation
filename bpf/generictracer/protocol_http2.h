@@ -462,10 +462,15 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
             http2_poison_hpack(&g_ctx->stream, &g_ctx->prev_info, poison);
         }
 
-        if (http_grpc_stream_ended(frame)) {
-            if (h2_next_frame_changes_hpack(g_ctx, frame)) {
-                http2_poison_hpack(&g_ctx->stream, &g_ctx->prev_info, poison);
-            }
+        // Emit at the response HEADERS frame instead of deferring to the DATA
+        // end frame: a later stream's HEADERS would overwrite the single
+        // saved_buf_pos slot first, dropping every multiplexed stream but the
+        // last. No poison on a following HEADERS frame either -- the scan now
+        // walks the buffer in wire order, keeping the response HPACK decoder
+        // synced; overflow past the iteration budget is still poisoned at the
+        // end of the frames loop.
+        if (response || http_grpc_stream_ended(frame)) {
+            g_ctx->resume_pos = g_ctx->pos + frame->length + k_frame_header_len;
             preempt_guarded_tail_call(
                 ctx, &jump_table, k_tail_protocol_http2_grpc_handle_end_frame);
             return 0; // normally unreachable
@@ -483,6 +488,8 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
             if (h2_next_frame_changes_hpack(g_ctx, frame)) {
                 http2_poison_hpack(&g_ctx->stream, 0, h2_hpack_req_unreliable);
             }
+            // resume after start_frame so the other multiplexed streams register
+            g_ctx->resume_pos = g_ctx->pos + frame->length + k_frame_header_len;
             preempt_guarded_tail_call(
                 ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame);
             return 0; // normally unreachable
@@ -490,6 +497,20 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
     }
 
     return 1;
+}
+
+// mirrors k_max_loop_iterations * k_loop_count in the frames program below
+enum { k_h2_frame_scan_max_iterations = 12 };
+
+// Hands control back to the frame scan after a per-frame handler tail-called
+// away, so the rest of the streams in a multiplexed buffer are still scanned.
+// The caller must set g_ctx->resume_pos to the offset past its frame.
+static __always_inline void resume_frame_scan(void *ctx, grpc_frames_ctx_t *g_ctx) {
+    g_ctx->pos = g_ctx->resume_pos;
+    if (!g_ctx->terminate_search && g_ctx->pos < g_ctx->args.bytes_len &&
+        g_ctx->iterations < k_h2_frame_scan_max_iterations) {
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
+    }
 }
 
 static __always_inline void handle_data_frame(void *ctx, grpc_frames_ctx_t *g_ctx) {
@@ -530,6 +551,8 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame, void *, ctx) {
     http2_grpc_start(
         ctx, &g_ctx->stream, offset, args->bytes_len, args->direction, args->ssl, args->orig_dport);
 
+    // reached only on the client path (server path tail-calls away above)
+    resume_frame_scan(ctx, g_ctx);
     return 0;
 }
 
@@ -743,6 +766,8 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_commit, void 
     http2_grpc_start_finalize_server(
         &g_ctx->stream, h2g_info, tp_p, found_tp, g_ctx->args.ssl, g_ctx->args.orig_dport);
 
+    // server request registered; scan the rest of the multiplexed streams
+    resume_frame_scan(ctx, g_ctx);
     return 0;
 }
 
@@ -768,6 +793,11 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_end_frame, void *, ctx) {
         http2_grpc_end(&g_ctx->stream, &g_ctx->prev_info, offset);
 
         bpf_map_delete_elem(&active_ssl_connections, &g_ctx->args.pid_conn);
+
+        // drop the per-stream latch so the resumed scan looks up the next
+        // stream fresh instead of re-emitting this one
+        g_ctx->has_prev_info = 0;
+        g_ctx->saved_stream_id = 0;
     } else {
         // Wrong-direction end flag (e.g. a CLIENT request's own HEADERS
         // carries END_STREAM=1). Keep ongoing_http2_grpc so the correct
@@ -778,6 +808,8 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_end_frame, void *, ctx) {
                        g_ctx->prev_info.type);
     }
 
+    // continue scanning the remaining multiplexed streams in this buffer
+    resume_frame_scan(ctx, g_ctx);
     return 0;
 }
 
