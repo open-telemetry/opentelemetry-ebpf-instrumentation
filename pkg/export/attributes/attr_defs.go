@@ -307,6 +307,15 @@ func getDefinitions(
 		nil,
 	)
 
+	v8jsResourceAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.V8JSResourceType: true,
+		},
+		nil,
+	)
+
 	httpRoutes := NewAttrReportGroup(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
@@ -638,6 +647,10 @@ func getDefinitions(
 		},
 		V8JSMemoryHeapSpacePhysicalSize.Section: {
 			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSResourceActive.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsResourceAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {

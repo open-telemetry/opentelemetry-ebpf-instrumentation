@@ -464,6 +464,12 @@ var (
 		Unit:    "By",
 		Type:    InstrumentUpDownCounter,
 	})
+	V8JSResourceActive = metric(Name{
+		Section: "v8js.resource.active",
+		OTEL:    "v8js.resource.active",
+		Unit:    "{resource}",
+		Type:    InstrumentGauge,
+	})
 	// Resource is not an instrument: it only names the attributes.select section
 	// that selects resource attributes. It still goes through metric() so its
 	// Prom and OTEL forms stay populated like every other entry.

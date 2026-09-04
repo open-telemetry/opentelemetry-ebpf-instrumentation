@@ -459,7 +459,7 @@ func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot
 		}
 		metrics.nodejsMetrics.record(snapshot)
 	}
-	if snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil {
+	if snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil || snapshot.NodejsResource != nil {
 		if !snapshot.Service.ExportModes.CanExportMetrics() || !snapshot.Service.Features.AppRuntime() {
 			return
 		}

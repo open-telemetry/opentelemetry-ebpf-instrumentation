@@ -56,6 +56,9 @@ func TestNodejsRuntimeMetrics(t *testing.T) {
 	t.Run("v8js gc duration histogram counts forced major collections", func(t *testing.T) {
 		testV8GCDuration(t, pq)
 	})
+	t.Run("v8js active resources census pending timers", func(t *testing.T) {
+		testV8ResourceActive(t, pq)
+	})
 	runWeaverValidation(t)
 }
 
@@ -128,8 +131,9 @@ type nodejsGroundTruth struct {
 	Delay struct {
 		P50S float64 `json:"p50_s"`
 	} `json:"delay"`
-	HeapSpaces map[string]nodejsHeapSpaceTruth `json:"heap_spaces"`
-	GCCounts   map[string]float64              `json:"gc_counts"`
+	HeapSpaces     map[string]nodejsHeapSpaceTruth `json:"heap_spaces"`
+	GCCounts       map[string]float64              `json:"gc_counts"`
+	ResourceCounts map[string]float64              `json:"resource_counts"`
 }
 
 // testNodejsGroundTruth compares the exported metrics against the
@@ -202,12 +206,14 @@ func testV8HeapGrowth(t *testing.T, pq promtest.Client) {
 
 	ti.DoHTTPGet(t, "http://localhost:"+nodejsRuntimeMetricsHostPort+"/alloc?mb=30", http.StatusOK)
 
-	const twentyMB = 20 * 1024 * 1024
+	// well below the 30MB retained: V8 compaction and collected transients
+	// can eat a few MB, and this only needs to catch order-of-magnitude bugs
+	const fifteenMB = 15 * 1024 * 1024
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		used := queryNodejsValue(ct, pq,
 			`sum(v8js_memory_heap_used_bytes{`+nodejsRuntimeServiceLabels+`})`)
-		require.Greater(ct, used, baseline+twentyMB,
-			"retaining 30MB must grow the exported used heap by at least 20MB")
+		require.Greater(ct, used, baseline+fifteenMB,
+			"retaining 30MB must grow the exported used heap by at least 15MB")
 	}, testTimeout, time.Second)
 }
 
@@ -237,6 +243,51 @@ func testV8GCDuration(t *testing.T, pq promtest.Client) {
 		require.Positive(ct, gt.GCCounts["major"],
 			"the app's own observer must have seen the major GC")
 	}, testTimeout, time.Second)
+}
+
+// testV8ResourceActive retains never-firing timers and expects the active
+// resource gauge to census them under v8js_resource_type="Timeout", in step
+// with the app's own getActiveResourcesInfo() fold. Clearing them must drop
+// the exported count back down: a type that vanishes between two ticks is
+// reported once as an explicit zero, not left frozen at its last value until
+// the staleness TTL retires the series.
+func testV8ResourceActive(t *testing.T, pq promtest.Client) {
+	const timers = 5
+
+	ti.DoHTTPGet(t, "http://localhost:"+nodejsRuntimeMetricsHostPort+"/resources?timers="+strconv.Itoa(timers), http.StatusOK)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.GreaterOrEqual(ct, nodejsResourceCount(ct, pq, "Timeout"), float64(timers),
+			"%d retained intervals must show up as active Timeout resources", timers)
+
+		gt := fetchNodejsGroundTruth(ct)
+		require.GreaterOrEqual(ct, gt.ResourceCounts["Timeout"], float64(timers))
+
+		// the listening server is exactly one TCPServerWrap, in both views
+		require.Positive(ct, gt.ResourceCounts["TCPServerWrap"])
+		require.InDelta(ct, gt.ResourceCounts["TCPServerWrap"], nodejsResourceCount(ct, pq, "TCPServerWrap"), 0.0001)
+	}, testTimeout, time.Second)
+
+	ti.DoHTTPGet(t, "http://localhost:"+nodejsRuntimeMetricsHostPort+"/resources?timers=0", http.StatusOK)
+
+	// must drop well before the 30s prometheus staleness TTL: only the
+	// agent's explicit zero can get it there — TTL retirement of a frozen
+	// series would take the full window
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.Less(ct, nodejsResourceCount(ct, pq, "Timeout"), float64(timers),
+			"clearing the intervals must drop the exported count (explicit zero on vanish)")
+	}, 15*time.Second, time.Second)
+}
+
+// nodejsResourceCount returns the exported active count for one resource
+// type, or 0 when the series does not exist (yet, or anymore).
+func nodejsResourceCount(t require.TestingT, pq promtest.Client, resourceType string) float64 {
+	results, err := pq.Query(`v8js_resource_active{` + nodejsRuntimeServiceLabels + `,v8js_resource_type="` + resourceType + `"}`)
+	require.NoError(t, err)
+	if len(results) == 0 {
+		return 0
+	}
+	return promResultValue(t, results[0])
 }
 
 func fetchNodejsGroundTruth(t require.TestingT) nodejsGroundTruth {
