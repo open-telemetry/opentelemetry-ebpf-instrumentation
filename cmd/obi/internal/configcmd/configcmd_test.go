@@ -1520,7 +1520,7 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 				require.True(t, cfg.Discovery.ExcludeInstrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
 				require.Equal(t, "http://otelcol:4317", cfg.OTELMetrics.MetricsEndpoint)
 				require.Equal(t, otelcfg.ProtocolGRPC, cfg.OTELMetrics.MetricsProtocol)
-				require.Equal(t, "http://jaeger:4317", cfg.Traces.TracesEndpoint)
+				require.Equal(t, "http://otelcol:4317", cfg.Traces.TracesEndpoint)
 				require.Equal(t, otelcfg.ProtocolGRPC, cfg.Traces.TracesProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()

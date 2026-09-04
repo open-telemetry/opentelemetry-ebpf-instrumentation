@@ -5,7 +5,7 @@ routes:
 otel_metrics_export:
   endpoint: http://otelcol:4018
 otel_traces_export:
-  endpoint: http://jaeger:4318
+  endpoint: http://otelcol:4018
 discovery:
   # these are repeated with different params to test the discovery section
   # ordering semantics
