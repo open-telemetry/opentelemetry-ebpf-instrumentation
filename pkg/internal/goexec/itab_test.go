@@ -4,11 +4,13 @@
 package goexec
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/internal/goabi"
 	"go.opentelemetry.io/obi/internal/test/tools"
 )
 
@@ -84,12 +86,58 @@ func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
 	assert.NotZero(t, implementations["*errors.errorString"])
 }
 
-func TestLoadGoTypeMetadataABI(t *testing.T) {
-	_, err := loadGoTypeMetadataABI("go1.27.999")
+func TestFindInterfaceImplsFromFutureGoDWARF(t *testing.T) {
+	goVersion, _, err := getGoDetails(smallELF)
+	require.NoError(t, err)
+	if !goVersionAtLeast(goVersion, "1.27.0") {
+		t.Skip("Go 1.27 moduledata is not available")
+	}
+
+	elfFile := compileELF(tools.ProjectDir() + "/pkg/internal/goexec/testdata/itab/main.go")
+	t.Cleanup(func() { require.NoError(t, elfFile.Close()) })
+
+	implementations, err := findInterfaceImplsFromModuledata(elfFile, "go999.0.0")
+	require.NoError(t, err)
+	assert.NotZero(t, implementations["*main.workerImpl"])
+	assert.NotZero(t, implementations["go.opentelemetry.io/otel/trace.attributeOption"])
+}
+
+func TestLoadGeneratedGoRuntimeABI(t *testing.T) {
+	_, err := loadGeneratedGoRuntimeABI("go1.27.999")
 	require.NoError(t, err)
 
-	_, err = loadGoTypeMetadataABI("go999.0.0")
+	_, err = loadGeneratedGoRuntimeABI("go999.0.0")
 	require.ErrorContains(t, err, "runtime ABI is not generated")
+}
+
+func TestResolveGoRuntimeABI(t *testing.T) {
+	generated, err := loadGeneratedGoRuntimeABI("go1.27.0")
+	require.NoError(t, err)
+
+	dynamic := generated
+	dynamic.Moduledata.PCHeader = 1
+	generated.Moduledata.PCHeader = 2
+
+	actual, err := resolveGoRuntimeABI(
+		func() (goabi.ABI, error) { return dynamic, nil },
+		func() (goabi.ABI, error) { return generated, nil },
+	)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), actual.Moduledata.PCHeader)
+
+	actual, err = resolveGoRuntimeABI(
+		func() (goabi.ABI, error) { return dynamic, errors.New("incomplete") },
+		func() (goabi.ABI, error) { return generated, nil },
+	)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(2), actual.Moduledata.PCHeader)
+
+	_, err = resolveGoRuntimeABI(
+		func() (goabi.ABI, error) { return goabi.ABI{}, errors.New("incomplete") },
+		func() (goabi.ABI, error) { return goabi.ABI{}, errors.New("unsupported version") },
+	)
+	require.ErrorContains(t, err, "DWARF discovery: incomplete")
+	require.ErrorContains(t, err, "generated fallback: unsupported version")
 }
 
 func TestFindGRPCInterfaceImplsFromGo127Moduledata(t *testing.T) {

@@ -18,6 +18,7 @@ RUN go mod download
 COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
+COPY internal/goabi/ internal/goabi/
 COPY internal/config/ internal/config/
 COPY pkg/ pkg/
 COPY Makefile Makefile

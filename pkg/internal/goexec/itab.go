@@ -77,14 +77,12 @@ func findInterfaceImplsFromModuledata(ef *elf.File, goVersion string) (map[strin
 		return nil, errors.New("no .gopclntab section")
 	}
 
-	mdoffs, err := loadModuledataOffsets(ef)
+	runtimeABI, err := loadGoRuntimeABI(ef, goVersion)
 	if err != nil {
 		return nil, err
 	}
-	abi, err := loadGoTypeMetadataABI(goVersion)
-	if err != nil {
-		return nil, err
-	}
+	mdoffs := runtimeABI.moduledata
+	abi := runtimeABI.typeMetadata
 	relocs := buildRelocationInfo(ef)
 	for _, candidate := range moduledataCandidates(ef, gopclntab.Addr, mdoffs, relocs) {
 		if !inWritableSection(ef, candidate) {
@@ -126,7 +124,7 @@ func readGoInterfaceImpls(
 			return nil, errors.New("truncated Go itab metadata")
 		}
 
-		interfaceType := resolveAddr(ef, itabAddr, relocs)
+		interfaceType := resolveAddr(ef, itabAddr+abi.itabInterOffset, relocs)
 		concreteType := resolveAddr(ef, itabAddr+abi.itabTypeOffset, relocs)
 		firstMethod := resolveAddr(ef, itabAddr+abi.itabFunOffset, relocs)
 		if interfaceType == 0 || concreteType < types || concreteType >= types+itabOffset {

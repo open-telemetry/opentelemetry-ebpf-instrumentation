@@ -5,12 +5,14 @@ package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 
 import (
 	"bytes"
-	"encoding/binary"
+	"debug/elf"
 	"errors"
 	"fmt"
 
 	trackeroffsets "github.com/grafana/go-offsets-tracker/pkg/offsets"
 	"golang.org/x/mod/semver"
+
+	"go.opentelemetry.io/obi/internal/goabi"
 )
 
 type goTypeMetadataABI struct {
@@ -24,6 +26,7 @@ type goTypeMetadataABI struct {
 	interfaceMethods      uint64
 	sliceLenOffset        uint64
 	interfaceLenOffset    uint64
+	itabInterOffset       uint64
 	itabTypeOffset        uint64
 	itabFunOffset         uint64
 	itabBaseSize          uint64
@@ -50,76 +53,115 @@ type goTypeMetadataABI struct {
 	uncommonStruct        uint64
 }
 
-func loadGoTypeMetadataABI(goVersion string) (goTypeMetadataABI, error) {
+type goRuntimeABI struct {
+	moduledata   moduledataOffsets
+	typeMetadata goTypeMetadataABI
+}
+
+func loadGoRuntimeABI(ef *elf.File, goVersion string) (goRuntimeABI, error) {
+	abi, err := resolveGoRuntimeABI(
+		func() (goabi.ABI, error) {
+			data, err := ef.DWARF()
+			if err != nil {
+				return goabi.ABI{}, err
+			}
+			return goabi.Extract(data, goVersion)
+		},
+		func() (goabi.ABI, error) {
+			return loadGeneratedGoRuntimeABI(goVersion)
+		},
+	)
+	if err != nil {
+		return goRuntimeABI{}, err
+	}
+	return convertGoRuntimeABI(abi), nil
+}
+
+func resolveGoRuntimeABI(
+	dynamic func() (goabi.ABI, error),
+	generated func() (goabi.ABI, error),
+) (goabi.ABI, error) {
+	abi, dynamicErr := dynamic()
+	if dynamicErr == nil {
+		return abi, nil
+	}
+	abi, generatedErr := generated()
+	if generatedErr == nil {
+		return abi, nil
+	}
+	return goabi.ABI{}, fmt.Errorf(
+		"go runtime ABI unavailable: %w",
+		errors.Join(
+			fmt.Errorf("DWARF discovery: %w", dynamicErr),
+			fmt.Errorf("generated fallback: %w", generatedErr),
+		),
+	)
+}
+
+func loadGeneratedGoRuntimeABI(goVersion string) (goabi.ABI, error) {
 	track, err := trackeroffsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	if err != nil {
-		return goTypeMetadataABI{}, fmt.Errorf("reading generated Go ABI facts: %w", err)
+		return goabi.ABI{}, fmt.Errorf("reading generated Go ABI facts: %w", err)
 	}
+	return goabi.FromLookup(goVersion, func(definition goabi.Definition) (uint64, error) {
+		return generatedABIFact(track, definition.OutputType, definition.OutputField, goVersion)
+	})
+}
 
-	var abi goTypeMetadataABI
-	facts := []struct {
-		typeName string
-		factName string
-		dest     *uint64
-	}{
-		{"internal/abi.Type", "TFlag", &abi.typeTFlagOffset},
-		{"internal/abi.Type", "Kind_", &abi.typeKindOffset},
-		{"internal/abi.Type", "Str", &abi.typeNameOffset},
-		{"internal/abi.Type", "$size", &abi.typeSize},
-		{"internal/abi.TFlag", "$size", &abi.tflagSize},
-		{"internal/abi.Kind", "$size", &abi.kindSize},
-		{"internal/abi.NameOff", "$size", &abi.nameOffsetSize},
-		{"internal/abi.InterfaceType", "Methods", &abi.interfaceMethods},
-		{"[]internal/abi.Imethod", "len", &abi.sliceLenOffset},
-		{"internal/abi.ITab", "Type", &abi.itabTypeOffset},
-		{"internal/abi.ITab", "Fun", &abi.itabFunOffset},
-		{"internal/abi.ITab", "$size", &abi.itabBaseSize},
-		{"internal/abi.UncommonType", "PkgPath", &abi.uncommonPkgPathOffset},
-		{"internal/abi", "TFlagUncommon", &abi.tflagUncommon},
-		{"internal/abi", "TFlagExtraStar", &abi.tflagExtraStar},
-		{"internal/abi", "KindDirectIface", &abi.kindDirectIface},
-		{"internal/abi", "Array", &abi.kindArray},
-		{"internal/abi", "Chan", &abi.kindChan},
-		{"internal/abi", "Func", &abi.kindFunc},
-		{"internal/abi", "Interface", &abi.kindInterface},
-		{"internal/abi", "Map", &abi.kindMap},
-		{"internal/abi", "Pointer", &abi.kindPointer},
-		{"internal/abi", "Slice", &abi.kindSlice},
-		{"internal/abi", "Struct", &abi.kindStruct},
-		{"internal/abi.ArrayType", "$size", &abi.uncommonArray},
-		{"internal/abi.ChanType", "$size", &abi.uncommonChan},
-		{"internal/abi.FuncType", "$size", &abi.uncommonFunc},
-		{"internal/abi.InterfaceType", "$size", &abi.uncommonInterface},
-		{"internal/abi.MapType", "$size", &abi.uncommonMap},
-		{"internal/abi.PtrType", "$size", &abi.uncommonPointer},
-		{"internal/abi.SliceType", "$size", &abi.uncommonSlice},
-		{"internal/abi.StructType", "$size", &abi.uncommonStruct},
+func convertGoRuntimeABI(abi goabi.ABI) goRuntimeABI {
+	moduledata := abi.Moduledata
+	metadata := abi.TypeMetadata
+	return goRuntimeABI{
+		moduledata: moduledataOffsets{
+			pcHeader:    moduledata.PCHeader,
+			pclntable:   moduledata.PCLNTable,
+			minpc:       moduledata.MinPC,
+			maxpc:       moduledata.MaxPC,
+			text:        moduledata.Text,
+			etext:       moduledata.EText,
+			types:       moduledata.Types,
+			typedesclen: moduledata.TypeDescLen,
+			itaboffset:  moduledata.ITabOffset,
+			itabsize:    moduledata.ITabSize,
+		},
+		typeMetadata: goTypeMetadataABI{
+			typeTFlagOffset:       metadata.TypeTFlagOffset,
+			typeKindOffset:        metadata.TypeKindOffset,
+			typeNameOffset:        metadata.TypeNameOffset,
+			typeSize:              metadata.TypeSize,
+			tflagSize:             metadata.TFlagSize,
+			kindSize:              metadata.KindSize,
+			nameOffsetSize:        metadata.NameOffsetSize,
+			interfaceMethods:      metadata.InterfaceMethods,
+			sliceLenOffset:        metadata.SliceLenOffset,
+			interfaceLenOffset:    metadata.InterfaceLenOffset,
+			itabInterOffset:       metadata.ITabInterOffset,
+			itabTypeOffset:        metadata.ITabTypeOffset,
+			itabFunOffset:         metadata.ITabFunOffset,
+			itabBaseSize:          metadata.ITabBaseSize,
+			itabFuncSize:          metadata.ITabFuncSize,
+			uncommonPkgPathOffset: metadata.UncommonPkgPathOffset,
+			tflagUncommon:         metadata.TFlagUncommon,
+			tflagExtraStar:        metadata.TFlagExtraStar,
+			kindDirectIface:       metadata.KindDirectIface,
+			kindArray:             metadata.KindArray,
+			kindChan:              metadata.KindChan,
+			kindFunc:              metadata.KindFunc,
+			kindInterface:         metadata.KindInterface,
+			kindMap:               metadata.KindMap,
+			kindPointer:           metadata.KindPointer,
+			kindSlice:             metadata.KindSlice,
+			kindStruct:            metadata.KindStruct,
+			uncommonArray:         metadata.UncommonArray,
+			uncommonChan:          metadata.UncommonChan,
+			uncommonFunc:          metadata.UncommonFunc,
+			uncommonInterface:     metadata.UncommonInterface,
+			uncommonMap:           metadata.UncommonMap,
+			uncommonPointer:       metadata.UncommonPointer,
+			uncommonSlice:         metadata.UncommonSlice,
+			uncommonStruct:        metadata.UncommonStruct,
+		},
 	}
-	for _, fact := range facts {
-		value, err := generatedABIFact(track, fact.typeName, fact.factName, goVersion)
-		if err != nil {
-			return goTypeMetadataABI{}, err
-		}
-		*fact.dest = value
-	}
-
-	if abi.tflagSize != uint64(binary.Size(uint8(0))) ||
-		abi.kindSize != uint64(binary.Size(uint8(0))) ||
-		abi.nameOffsetSize != uint64(binary.Size(int32(0))) {
-		return goTypeMetadataABI{}, errors.New("unsupported Go runtime ABI scalar sizes")
-	}
-	maxByte := uint64(^uint8(0))
-	if abi.itabBaseSize <= abi.itabFunOffset || abi.kindDirectIface == 0 ||
-		abi.tflagUncommon > maxByte || abi.tflagExtraStar > maxByte ||
-		abi.kindDirectIface > maxByte || abi.kindArray > maxByte ||
-		abi.kindChan > maxByte || abi.kindFunc > maxByte || abi.kindInterface > maxByte ||
-		abi.kindMap > maxByte || abi.kindPointer > maxByte || abi.kindSlice > maxByte ||
-		abi.kindStruct > maxByte {
-		return goTypeMetadataABI{}, errors.New("invalid generated Go runtime ABI facts")
-	}
-	abi.interfaceLenOffset = abi.interfaceMethods + abi.sliceLenOffset
-	abi.itabFuncSize = abi.itabBaseSize - abi.itabFunOffset
-	return abi, nil
 }
 
 func generatedABIFact(
