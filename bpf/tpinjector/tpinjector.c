@@ -5,6 +5,7 @@
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
+#include <bpfcore/utils.h>
 
 #include <common/algorithm.h>
 #include <common/connection_info.h>
@@ -675,15 +676,27 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
         return false;
     }
 
+    if (!msg->data || msg->data >= msg->data_end) {
+        return false;
+    }
+
+    // The mapped [data, data_end) window is always a sub-range of the message, so
+    // bounding every read by it is sufficient on its own — msg->size can't add
+    // information a failed bpf_msg_pull_data() has already invalidated.
+    u32 window = (unsigned char *)msg->data_end - (unsigned char *)msg->data;
+    bpf_clamp_umax(window, k_msg_buffer_size_max);
+
     msg_buffer_t msg_buf = {
         .pos = 0,
-        .real_size = min(msg->size, k_msg_buffer_size_max),
+        .real_size = window,
         .cpu_id = bpf_get_smp_processor_id(),
     };
 
-    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
-
-    const u16 copy_bytes = max(msg_buf.real_size, k_kprobes_http2_buf_size);
+    // fallback_buf is a fixed k_kprobes_http2_buf_size array, smaller than window's
+    // ceiling, so it needs its own, tighter clamp.
+    u32 fallback_bytes = window;
+    bpf_clamp_umax(fallback_bytes, k_kprobes_http2_buf_size);
+    bpf_probe_read_kernel(msg_buf.fallback_buf, fallback_bytes, msg->data);
 
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
@@ -693,7 +706,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
     }
 
     msg_ptr[0] = 0;
-    bpf_probe_read_kernel(msg_ptr, copy_bytes & k_msg_buffer_size_max_mask, msg->data);
+    bpf_probe_read_kernel(msg_ptr, window, msg->data);
     bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
 
     // We setup any call that looks like HTTP request to be extended.
