@@ -131,7 +131,7 @@ launchvm-run:
 		-virtfs local,path=$(TEST_OUTPUT),mount_tag=testout,security_model=mapped,id=testout \
 		$$PRECOMPILED_VIRTFS \
 		$$MODULES_VIRTFS \
-		-netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
+		-netdev user,id=net0 -device virtio-net-pci,netdev=net0,romfile= \
 		-nographic
 
 change-owner:
