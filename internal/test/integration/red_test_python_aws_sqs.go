@@ -62,10 +62,21 @@ func sqsRequestWithData[T sqsQueueURL | sqsMessages](t *testing.T, url string) T
 	return data
 }
 
+func sqsSpanKind(operationType string) string {
+	switch operationType {
+	case "send":
+		return "producer"
+	case "receive":
+		return "consumer"
+	}
+
+	return "client"
+}
+
 func assertSQSOperation(t require.TestingT, op, expectedQueueURL, expectedMessageID, expectedOperationType string) {
 	opName := "sqs." + op
 
-	span := fetchAWSSpanByOP(t, opName)
+	span := fetchAWSSpanByOP(t, opName, sqsSpanKind(expectedOperationType))
 	require.Equal(t, opName, span.OperationName)
 
 	tag, found := jaeger.FindIn(span.Tags, "aws.request_id")

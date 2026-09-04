@@ -1719,6 +1719,17 @@ func genAIResponseErrorMessage(span *request.Span) string {
 	return ""
 }
 
+func messagingSpanKind(operationType string) (trace2.SpanKind, bool) {
+	switch operationType {
+	case request.MessagingSend:
+		return trace2.SpanKindProducer, true
+	case request.MessagingReceive, request.MessagingProcess:
+		return trace2.SpanKindConsumer, true
+	}
+
+	return trace2.SpanKindUnspecified, false
+}
+
 func spanKind(span *request.Span) trace2.SpanKind {
 	if span.Type == request.EventTypeManualSpan {
 		return trace2.ValidateSpanKind(span.SpanKind)
@@ -1728,6 +1739,11 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer, request.EventTypeAerospikeServer:
 		return trace2.SpanKindServer
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
+		if span.SubType == request.HTTPSubtypeAWSSQS && span.AWS != nil {
+			if kind, ok := messagingSpanKind(span.AWS.SQS.OperationType); ok {
+				return kind
+			}
+		}
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient, request.EventTypeMQTTClient, request.EventTypeNATSClient, request.EventTypeAMQPClient:
 		switch request.MessagingOperationTypeOf(span.Method) {
