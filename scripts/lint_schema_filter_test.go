@@ -37,7 +37,7 @@ const expectedUnstable = `[{
 	"diagnostic": {"severity": "Error"},
 	"error": {"FailToResolveDefinition": {"UnstableFileFormat" :{
 		"file_format": "definition/2",
-		"provenances": "/obi-registry/groups/dns.yaml"
+		"provenances": "/obi-registry/groups/resource.yaml"
 	}}}
 }]`
 
@@ -115,8 +115,9 @@ func TestLintSchemaFilterAllowsExpectedEnumOverrideDuplicates(t *testing.T) {
 }
 
 // expectedDeprecatedIncludeUnreferenced mirrors the diagnostic weaver 0.25
-// emits (promoted to Error by --future) for OBI's use of the deprecated
-// --include-unreferenced flag, which OBI still needs.
+// emits (promoted to Error by --future) for the deprecated
+// --include-unreferenced flag. OBI no longer relies on the flag, but the
+// filter still drops the notice defensively.
 const expectedDeprecatedIncludeUnreferenced = `[{
 	"diagnostic": {"severity": "Error"},
 	"error": {"DeprecatedIncludeUnreferencedWarning": {}}
@@ -136,7 +137,7 @@ func TestLintSchemaFilterKeepsUnrelatedDiagnostics(t *testing.T) {
 				"metric_name": "http.server.request.duration",
 				"provenances": [
 					{"path": ".deps/upstream-v1.41.0/model/http/metrics.yaml"},
-					{"path": "/obi-registry/groups/dns.yaml"}
+					{"path": "/obi-registry/groups/dns/metrics.yaml"}
 				]
 			}}
 		}]`,
@@ -154,7 +155,7 @@ func TestLintSchemaFilterKeepsUnrelatedDiagnostics(t *testing.T) {
 				"metric_name": "dns.lookup.duration",
 				"provenances": [
 					{"path": ".deps/upstream-v1.41.0/model/dns/metrics.yaml"},
-					{"path": "/obi-registry/groups/dns.yaml"},
+					{"path": "/obi-registry/groups/dns/metrics.yaml"},
 					{"path": "/obi-registry/groups/extra.yaml"}
 				]
 			}}

@@ -1,0 +1,136 @@
+# OBI's narrowed copies of the upstream JVM runtime metrics
+# (semconv model/jvm). service/container metadata is on the meter resource, so
+# these groups list only the jvm memory pool/type data-point attributes. Each
+# carries the obi.upstream_override annotation so the schemacheck drift test
+# pins its unit/instrument/stability to upstream.
+groups:
+  - id: metric.obi.jvm.memory.committed
+    type: metric
+    metric_name: jvm.memory.committed
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.memory.committed
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes:
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+  - id: metric.obi.jvm.memory.limit
+    type: metric
+    metric_name: jvm.memory.limit
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.memory.limit
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes:
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+  - id: metric.obi.jvm.memory.used
+    type: metric
+    metric_name: jvm.memory.used
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.memory.used
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes:
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+  - id: metric.obi.jvm.memory.used_after_last_gc
+    type: metric
+    metric_name: jvm.memory.used_after_last_gc
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.memory.used_after_last_gc
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes:
+      - ref: jvm.memory.pool.name
+      - ref: jvm.memory.type
+  - id: metric.obi.jvm.class.loaded
+    type: metric
+    metric_name: jvm.class.loaded
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.class.loaded
+    instrument: counter
+    unit: "{class}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.class.unloaded
+    type: metric
+    metric_name: jvm.class.unloaded
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.class.unloaded
+    instrument: counter
+    unit: "{class}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.class.count
+    type: metric
+    metric_name: jvm.class.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.class.count
+    instrument: updowncounter
+    unit: "{class}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.thread.count
+    type: metric
+    metric_name: jvm.thread.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.thread.count
+    instrument: updowncounter
+    unit: "{thread}"
+    stability: stable
+    attributes:
+      - ref: jvm.thread.daemon
+  - id: metric.obi.jvm.cpu.time
+    type: metric
+    metric_name: jvm.cpu.time
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.cpu.time
+    instrument: counter
+    unit: "s"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.cpu.count
+    type: metric
+    metric_name: jvm.cpu.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.cpu.count
+    instrument: updowncounter
+    unit: "{cpu}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.jvm.cpu.recent_utilization
+    type: metric
+    metric_name: jvm.cpu.recent_utilization
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.cpu.recent_utilization
+    instrument: gauge
+    unit: "1"
+    stability: stable
+    attributes: []

@@ -30,7 +30,24 @@ sample_names = [
   "iface.direction",
 ]
 
-# The legacy span metrics stay declared and marked deprecated in spanmetrics.yaml while
+# Accept passthrough attributes OBI forwards but does not itself set. These are
+# valid semconv keys under namespaces OBI uses, so they surface as
+# missing_attribute / extends_namespace violations rather than being tolerated
+# as the sub-violation advice that unknown-namespace user attributes get — but
+# they are not part of OBI's emitted contract, so they are tolerated here
+# instead of declared:
+#   - deployment.environment.name: set by the workload via
+#     OTEL_RESOURCE_ATTRIBUTES and forwarded on the resource. Unlike
+#     service.version, OBI never derives it from a Kubernetes label.
+# Anything OBI actually sets is declared in the registry, so a new violation
+# here still means a real gap unless it is genuine passthrough added to this list.
+[[live-check.finding_filters]]
+exclude = ["missing_attribute", "extends_namespace"]
+sample_names = [
+  "deployment.environment.name",
+]
+
+# The legacy span metrics stay declared and marked deprecated in spanmetrics/metrics.yaml while
 # the deprecated `application_span` and `application_span_sizes` features still emit them.
 # Weaver reports any emitted deprecated metric as a violation; accept these four for the
 # compatibility window, scoped to their exact names so a deprecated emission of any other

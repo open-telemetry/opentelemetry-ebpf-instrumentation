@@ -5,7 +5,7 @@ groups:
   # instruments processes that carry no SDK at all, a case the upstream enum
   # has no member for.
   #
-  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # See ../../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
   - id: x.obi.telemetry
     type: attribute_group

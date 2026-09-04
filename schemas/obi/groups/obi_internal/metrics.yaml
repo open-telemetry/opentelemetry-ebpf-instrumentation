@@ -1,66 +1,11 @@
 groups:
-  - id: registry.obi
-    type: attribute_group
-    display_name: OBI Internal Telemetry
-    brief: >
-      OBI's own meta-telemetry: the `target.info` / `host.info` family of
-      per-target meta-metrics (emitted in OTel dot notation over OTLP, and
-      as the Prometheus-style `target_info` / `host_info` underscore
-      variants by the Prometheus exporter) that
-      identify the instrumenter and the resource it is running against,
-      together with the labels they carry and any deviations from upstream
-      semconv that are tracked for removal. Distinct from OBI's emissions
-      that describe the *instrumented application's* behaviour
-      (HTTP / DB / messaging / spanmetrics / service-graph), which live in
-      sibling files or in upstream semconv.
-    attributes:
-      - id: source
-        type: string
-        stability: development
-        brief: >
-          Identifier of the vendor / SDK that produced the metric. OBI sets
-          this to `obi`. Used by the spanmetrics and service-graph
-          emissions to disambiguate from collector-contrib connector
-          output.
-        examples: [ "obi" ]
-      - id: instance
-        type: string
-        stability: development
-        brief: >
-          Scrape target instance label, originating from the Prometheus /
-          OpenMetrics convention. Carried on `target_info` and on every
-          series exported via OBI's Prometheus exporter.
-        examples: ["host.local:9090"]
-      - id: job
-        type: string
-        stability: development
-        brief: >
-          Scrape target job label, originating from the Prometheus /
-          OpenMetrics convention. Carried on `target_info` and on every
-          series exported via OBI's Prometheus exporter.
-        examples: ["my-service"]
-      - id: obi.version
-        type: string
-        stability: development
-        brief: >
-          OBI build version, e.g. the release tag the instrumenter was
-          built from. Carried as a resource attribute on every signal.
-        examples: ["v0.42.0"]
-      - id: obi.revision
-        type: string
-        stability: development
-        brief: >
-          Git SHA of the OBI build. Carried as a resource attribute on
-          every signal.
-        examples: ["a2a9a6e2"]
-
   # The instrument and (empty) unit declared here mirror what OBI currently
   # emits over OTLP rather than the OTel-canonical `gauge` / `unit: "1"`
   # Prometheus mapping, so weaver validates against the actual contract.
   # The OTLP name uses OTel dot notation; OBI's Prometheus exporter emits
   # the OpenMetrics-convention `target_info` counterpart, which weaver does
   # not see (only the OTLP tap is validated).
-  - id: metric.target.info
+  - id: metric.obi.target.info
     type: metric
     metric_name: target.info
     instrument: updowncounter
@@ -73,6 +18,38 @@ groups:
     attributes:
       - ref: instance
       - ref: job
+      - ref: service.name
+      - ref: service.namespace
+      - ref: service.instance.id
+      - ref: service.version
+      - ref: telemetry.sdk.language
+      - ref: telemetry.sdk.name
+      - ref: telemetry.sdk.version
+      - ref: telemetry.distro.name
+      - ref: telemetry.distro.version
+      - ref: host.name
+      - ref: host.id
+      - ref: host.type
+      - ref: host.image.id
+      - ref: os.type
+      - ref: os.version
+      - ref: container.id
+      - ref: container.name
+      - ref: k8s.cluster.name
+      - ref: k8s.container.name
+      - ref: k8s.cronjob.name
+      - ref: k8s.daemonset.name
+      - ref: k8s.deployment.name
+      - ref: k8s.job.name
+      - ref: k8s.kind
+      - ref: k8s.namespace.name
+      - ref: k8s.node.name
+      - ref: k8s.owner.name
+      - ref: k8s.pod.name
+      - ref: k8s.pod.start_time
+      - ref: k8s.pod.uid
+      - ref: k8s.replicaset.name
+      - ref: k8s.statefulset.name
 
   # The trace-pipeline counterpart of `target.info`. Only emitted when any
   # span-metrics feature is enabled — i.e. one of `application_span`,
@@ -80,7 +57,7 @@ groups:
   # `application_service_graph` feature does NOT trigger it). OBI's
   # Prometheus exporter emits the underscore `traces_target_info`
   # counterpart.
-  - id: metric.traces.target.info
+  - id: metric.obi.traces.target.info
     type: metric
     metric_name: traces.target.info
     instrument: updowncounter
@@ -92,12 +69,43 @@ groups:
       join trace metrics back to service identity.
     attributes:
       - ref: source
+      - ref: service.name
+      - ref: service.namespace
+      - ref: service.instance.id
+      - ref: service.version
+      - ref: telemetry.sdk.language
+      - ref: telemetry.sdk.name
+      - ref: telemetry.sdk.version
+      - ref: telemetry.distro.name
+      - ref: telemetry.distro.version
+      - ref: host.id
+      - ref: host.type
+      - ref: host.image.id
+      - ref: os.type
+      - ref: os.version
+      - ref: container.id
+      - ref: container.name
+      - ref: k8s.cluster.name
+      - ref: k8s.container.name
+      - ref: k8s.cronjob.name
+      - ref: k8s.daemonset.name
+      - ref: k8s.deployment.name
+      - ref: k8s.job.name
+      - ref: k8s.kind
+      - ref: k8s.namespace.name
+      - ref: k8s.node.name
+      - ref: k8s.owner.name
+      - ref: k8s.pod.name
+      - ref: k8s.pod.start_time
+      - ref: k8s.pod.uid
+      - ref: k8s.replicaset.name
+      - ref: k8s.statefulset.name
 
   # OBI-invented per-host meta-metric — there is no upstream /
   # collector-contrib analogue. Carries the upstream `host.id` attribute.
   # OBI's Prometheus exporter emits the underscore `traces_host_info`
   # counterpart.
-  - id: metric.traces.host.info
+  - id: metric.obi.traces.host.info
     type: metric
     metric_name: traces.host.info
     instrument: gauge
@@ -110,108 +118,8 @@ groups:
       - ref: host.id
         requirement_level: opt_in
 
-  # ======================================================================
-  # OBI internal ("meta") metrics emitted over OTLP by the
-  # InternalMetricsReporter (pkg/export/otel/metrics_internal.go) when
-  # internal_metrics.exporter=otel. These describe OBI's own behaviour
-  # (exporter throughput, instrumentation accounting, eBPF probe/map stats,
-  # build info), NOT the instrumented application. All names use the `obi.`
-  # vendor prefix (attr.VendorPrefix).
-  #
-  # Attribute keys are namespaced to satisfy weaver's "must include a
-  # namespace" advice. Where an existing semantic-convention attribute fits,
-  # the metric references it directly (`process.executable.name` for the
-  # instrumented process, `error.type` for the instrumentation-error class);
-  # the OBI build version / revision reuse `obi.version` / `obi.revision`
-  # declared above; everything else takes the `obi.` vendor prefix. The
-  # matching keys are emitted by the OTLP InternalMetricsReporter. (OBI's
-  # Prometheus internal exporter keeps underscore keys — Prometheus labels
-  # cannot carry dots — but weaver only validates the OTLP tap.)
-  # ======================================================================
-  - id: registry.obi.internal_metrics
-    type: attribute_group
-    display_name: OBI Internal Metrics
-    brief: >
-      Attributes carried by OBI's own internal (obi.*) OTLP metrics. Keys are
-      namespaced; where a semantic-convention attribute already fits
-      (`process.executable.name`, `error.type`) the metrics reference it
-      directly rather than declaring an OBI-specific alias.
-    attributes:
-      - id: obi.error
-        type: string
-        stability: development
-        brief: >
-          Raw error message from a failed OTLP export.
-        examples: ["context deadline exceeded"]
-      - id: obi.goarch
-        type: string
-        stability: development
-        brief: Go build target architecture (runtime.GOARCH).
-        examples: ["amd64", "arm64"]
-      - id: obi.goos
-        type: string
-        stability: development
-        brief: Go build target OS (runtime.GOOS).
-        examples: ["linux"]
-      - id: obi.goversion
-        type: string
-        stability: development
-        brief: Go toolchain version OBI was built with (runtime.Version()).
-        examples: ["go1.25.11"]
-      - id: bpf.probe.id
-        type: string
-        stability: development
-        brief: Identifier of the eBPF program (probe) the stats belong to.
-        examples: ["42"]
-      - id: bpf.probe.type
-        type: string
-        stability: development
-        brief: eBPF program type of the probe.
-        examples: ["kprobe", "tracepoint"]
-      - id: bpf.probe.name
-        type: string
-        stability: development
-        brief: Name of the eBPF probe.
-        examples: ["kprobe_tcp_sendmsg"]
-      - id: bpf.map.id
-        type: string
-        stability: development
-        brief: Identifier of the eBPF map the stats belong to.
-        examples: ["17"]
-      - id: bpf.map.type
-        type: string
-        stability: development
-        brief: eBPF map type.
-        examples: ["hash", "lru_hash", "perf_event_array"]
-      - id: bpf.map.name
-        type: string
-        stability: development
-        brief: Name of the eBPF map.
-        examples: ["events", "ongoing_http"]
-      - id: subscriber
-        type: string
-        stability: development
-        brief: >
-          Name of the pipeline stage consuming the internal queue, as given to
-          msg.SubscriberName when the stage subscribed. Subscribers that do not
-          provide a name fall back to the name of the queue they subscribed to.
-        examples: ["discover.CriteriaMatcher", "traceAttacher"]
-      - id: telemetry.type
-        type: string
-        stability: development
-        brief: >
-          Which OBI pipeline avoided instrumenting a service that already has
-          OpenTelemetry instrumentation. Value is "metrics" or "traces".
-        examples: ["metrics", "traces"]
-      - id: otel.metric.overflow
-        type: boolean
-        stability: development
-        brief: >
-          Set by the OpenTelemetry SDK cardinality limiter when the
-          avoided-services attribute set overflows its configured limit.
-
   # --- OTLP exporter throughput / errors ---------------------------------
-  - id: metric.obi.otel.metric.exports
+  - id: metric.obi.obi.otel.metric.exports
     type: metric
     metric_name: obi.otel.metric.exports
     instrument: counter
@@ -219,7 +127,7 @@ groups:
     stability: development
     brief: Length of the metric batches submitted to the remote OTEL collector.
 
-  - id: metric.obi.otel.metric.export.errors
+  - id: metric.obi.obi.otel.metric.export.errors
     type: metric
     metric_name: obi.otel.metric.export.errors
     instrument: counter
@@ -229,7 +137,7 @@ groups:
     attributes:
       - ref: obi.error
 
-  - id: metric.obi.otel.trace.exports
+  - id: metric.obi.obi.otel.trace.exports
     type: metric
     metric_name: obi.otel.trace.exports
     instrument: counter
@@ -237,7 +145,7 @@ groups:
     stability: development
     brief: Length of the trace batches submitted to the remote OTEL collector.
 
-  - id: metric.obi.otel.trace.export.errors
+  - id: metric.obi.obi.otel.trace.export.errors
     type: metric
     metric_name: obi.otel.trace.export.errors
     instrument: counter
@@ -248,7 +156,7 @@ groups:
       - ref: obi.error
 
   # --- Instrumentation accounting ----------------------------------------
-  - id: metric.obi.instrumented.processes
+  - id: metric.obi.obi.instrumented.processes
     type: metric
     metric_name: obi.instrumented.processes
     instrument: updowncounter
@@ -258,7 +166,7 @@ groups:
     attributes:
       - ref: process.executable.name
 
-  - id: metric.obi.instrumentation.errors
+  - id: metric.obi.obi.instrumentation.errors
     type: metric
     metric_name: obi.instrumentation.errors
     instrument: counter
@@ -270,7 +178,7 @@ groups:
       - ref: process.executable.name
       - ref: error.type
 
-  - id: metric.obi.avoided.services
+  - id: metric.obi.obi.avoided.services
     type: metric
     metric_name: obi.avoided.services
     instrument: gauge
@@ -287,7 +195,7 @@ groups:
       - ref: otel.metric.overflow
 
   # --- Build info --------------------------------------------------------
-  - id: metric.obi.internal.build.info
+  - id: metric.obi.obi.internal.build.info
     type: metric
     metric_name: obi.internal.build.info
     instrument: gauge
@@ -304,7 +212,7 @@ groups:
       - ref: obi.revision
 
   # --- eBPF tracer / probe / map stats -----------------------------------
-  - id: metric.obi.ebpf.tracer.flushes
+  - id: metric.obi.obi.ebpf.tracer.flushes
     type: metric
     metric_name: obi.ebpf.tracer.flushes
     instrument: histogram
@@ -320,7 +228,7 @@ groups:
   # individually. Supersedes the former obi.bpf.probe.executions and
   # obi.bpf.probe.latency_seconds_total, whose values are this histogram's
   # count and sum.
-  - id: metric.obi.bpf.probe.latency
+  - id: metric.obi.obi.bpf.probe.latency
     type: metric
     metric_name: obi.bpf.probe.latency
     instrument: histogram
@@ -332,7 +240,7 @@ groups:
       - ref: bpf.probe.type
       - ref: bpf.probe.name
 
-  - id: metric.obi.bpf.map.entries
+  - id: metric.obi.obi.bpf.map.entries
     type: metric
     metric_name: obi.bpf.map.entries
     instrument: gauge
@@ -344,7 +252,7 @@ groups:
       - ref: bpf.map.type
       - ref: bpf.map.name
 
-  - id: metric.obi.bpf.map.max_entries
+  - id: metric.obi.obi.bpf.map.max_entries
     type: metric
     metric_name: obi.bpf.map.max_entries
     instrument: gauge
@@ -357,7 +265,7 @@ groups:
       - ref: bpf.map.name
 
   # --- Network packet accounting (netolly) -------------------------------
-  - id: metric.obi.bpf.network.packets
+  - id: metric.obi.obi.bpf.network.packets
     type: metric
     metric_name: obi.bpf.network.packets
     instrument: counter
@@ -365,7 +273,7 @@ groups:
     stability: development
     brief: How many network packets have been internally accounted.
 
-  - id: metric.obi.bpf.network.ignored.packets
+  - id: metric.obi.obi.bpf.network.ignored.packets
     type: metric
     metric_name: obi.bpf.network.ignored.packets
     instrument: counter
@@ -376,7 +284,7 @@ groups:
       in the internal eBPF cache.
 
   # --- Kubernetes informer ------------------------------------------------
-  - id: metric.obi.kube.cache.forward.lag
+  - id: metric.obi.obi.kube.cache.forward.lag
     type: metric
     metric_name: obi.kube.cache.forward.lag
     instrument: histogram

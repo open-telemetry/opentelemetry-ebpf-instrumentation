@@ -4,7 +4,7 @@ groups:
   # chat_completions / responses / embeddings from the URL path; upstream
   # v1.41 declares only the first two.
   #
-  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # See ../../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
   - id: x.obi.openai
     type: attribute_group

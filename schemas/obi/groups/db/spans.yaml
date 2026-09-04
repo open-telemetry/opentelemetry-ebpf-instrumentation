@@ -1,0 +1,72 @@
+groups:
+  - id: span.obi.db.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI outbound database client span.
+    attributes:
+      - ref: db.system.name
+      - ref: db.namespace
+      - ref: db.collection.name
+      - ref: db.operation.name
+      - ref: db.operation.batch.size
+      - ref: db.query.text
+      - ref: db.response.status_code
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+
+  # Elasticsearch is recognised from HTTP client traffic, so these spans carry
+  # the HTTP client base set on top of the db.* attributes. The native database
+  # protocols covered by span.obi.db.client never emit http.* / url.*, which is
+  # why this is a separate group rather than extra refs on the shared one.
+  - id: span.obi.elasticsearch.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI Elasticsearch client span, detected from HTTP client traffic.
+    attributes:
+      - ref: http.request.method
+      - ref: http.response.status_code
+      - ref: url.full
+      - ref: url.scheme
+      - ref: url.query
+      - ref: http.request.body.size
+      - ref: http.response.body.size
+      - ref: db.system.name
+      - ref: db.namespace
+      - ref: db.collection.name
+      - ref: db.operation.name
+      - ref: db.query.text
+      - ref: elasticsearch.node.name
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
+      - ref: db.response.status_code
+  - id: span.obi.db.server
+    type: span
+    span_kind: server
+    stability: development
+    brief: OBI inbound database server span.
+    attributes:
+      - ref: db.system.name
+      - ref: db.namespace
+      - ref: db.collection.name
+      - ref: db.operation.name
+      - ref: db.query.text
+      - ref: db.response.status_code
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port

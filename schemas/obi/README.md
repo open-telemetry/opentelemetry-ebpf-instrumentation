@@ -8,8 +8,9 @@ upstream dependency it forms the complete contract of what OBI emits
 ## Overriding an upstream definition
 
 Weaver has **no precedence or merge semantics** between a local group and the
-groups a dependency contributes to the resolved registry
-(`groups/dns.yaml` imports all upstream groups). When the same attribute id is
+groups a dependency contributes to the resolved registry (OBI's group files
+`import` the definitions they refine and `ref` the attributes they emit, both
+of which pull the upstream groups in). When the same attribute id is
 declared by more than one group, live-check silently resolves
 the duplicate in favor of the group whose id sorts **last lexicographically** —
 including the upstream `span.*` / `metric.*` groups that `ref` an attribute
@@ -39,6 +40,24 @@ Until weaver defines local-wins override semantics, every override in
    (covered by `scripts/lint_schema_filter_test.go`). Anything else still
    fails `make lint-schema`.
 
+## Group ids
+
+A metric group's id is `metric.obi.<metric_name>`, derived from the metric it
+declares so the two cannot drift apart.
+
+Do not rely on that id sorting after the upstream `metric.<metric_name>` group.
+It does for most namespaces, but `obi.` loses to any namespace ordering after
+it: `metric.obi.rpc.client.call.duration` sorts before
+`metric.rpc.client.call.duration`, and the `target.info` / `traces.*` ids lose
+to `metric.t*` the same way. What keeps the local definition authoritative is
+that live-check runs without `--include-unreferenced`, so unreferenced upstream
+groups drop out of resolution and only one group per metric name survives.
+`TestOBIMetricOverridesResolveToLocalNarrowedDefinition` fails closed if that
+stops holding.
+
+Attribute groups declaring OBI-own attributes use `registry.obi.<namespace>`;
+overrides of an upstream attribute use `x.obi.<namespace>` per the rules above.
+
 ## Two override styles
 
 - **Closed enum, extended**: the upstream value space is enumerable and OBI
@@ -46,7 +65,12 @@ Until weaver defines local-wins override semantics, every override in
   `amqp`/`mqtt`/`nats`, `db.system.name` gains `aerospike`). The override
   re-declares the enum with upstream members + OBI's, so weaver still flags
   any value outside the combined list — bug values like an empty string or
-  `unknown` are deliberately NOT declared and keep failing the suites.
+  `unknown` are deliberately NOT declared on these overrides and keep failing
+  the suites. This applies to overrides of upstream enums only. OBI's own
+  attributes (`direction`, `reason`, `network.tcp.handshake.role`) do declare
+  `unknown`, where it is a meaningful classification rather than a bug: OBI
+  genuinely cannot always determine a flow's direction or why a handshake
+  failed.
 - **Open-ended value space, re-typed as string**: upstream declares an enum,
   but the real value space is unbounded by design — domain-specific error
   codes (`error.type`) or provider/MCP operation vocabularies

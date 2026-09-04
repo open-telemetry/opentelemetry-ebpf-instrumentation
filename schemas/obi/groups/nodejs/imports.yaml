@@ -1,0 +1,24 @@
+# OBI emits the upstream Node.js event-loop and V8 metrics unchanged — same
+# names, units, instruments and data-point attributes — so they are imported
+# rather than redeclared.
+#
+# Imports must live in their own definition/2 file: weaver's imports directive
+# is file-level and cannot be mixed into a groups-format domain file.
+file_format: definition/2
+
+imports:
+  metrics:
+    - nodejs.eventloop.time
+    - nodejs.eventloop.utilization
+    - nodejs.eventloop.delay.min
+    - nodejs.eventloop.delay.max
+    - nodejs.eventloop.delay.mean
+    - nodejs.eventloop.delay.stddev
+    - nodejs.eventloop.delay.p50
+    - nodejs.eventloop.delay.p90
+    - nodejs.eventloop.delay.p99
+    - v8js.gc.duration
+    - v8js.memory.heap.limit
+    - v8js.memory.heap.used
+    - v8js.memory.heap.space.available_size
+    - v8js.memory.heap.space.physical_size

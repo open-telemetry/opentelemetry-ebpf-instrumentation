@@ -21,6 +21,7 @@ on:
       - "configs/**"
       - "internal/**"
       - "pkg/**"
+      - "schemas/**"
       - "scripts/**"
   workflow_call:
     inputs:
@@ -95,6 +96,9 @@ jobs:
       - name: Lint OBI semantic-convention registry
         if: matrix.platform.arch == 'amd64'
         run: make lint-schema
+
+      - name: Test OBI semantic-convention registry provenance
+        run: make test-schema
 
       - name: Check published OBI telemetry schema files
         if: matrix.platform.arch == 'amd64'

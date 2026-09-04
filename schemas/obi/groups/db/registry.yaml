@@ -5,7 +5,7 @@ groups:
   # pkg/appolly/app/request/span_getters.go) identifies the Aerospike wire
   # protocol, which upstream semconv v1.41 has no member for.
   #
-  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # See ../../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
   - id: x.obi.db
     type: attribute_group
@@ -192,30 +192,3 @@ groups:
               brief: "[Aerospike](https://aerospike.com/)"
               stability: development
         stability: stable
-
-  # OBI-custom metric: upstream semconv defines only the client-side
-  # db.client.operation.duration. OBI's eBPF instrumentation also observes
-  # operations from the database server's perspective (the instrumented
-  # process IS the server), reported here so server-side measurements don't
-  # pollute the client metric or double-count against it.
-  - id: metric.db_server_operation_duration
-    type: metric
-    metric_name: db.server.operation.duration
-    instrument: histogram
-    unit: "s"
-    stability: development
-    brief: >
-      Duration of database operations observed from the server side.
-    attributes:
-      - ref: db.system.name
-        requirement_level: required
-      - ref: db.operation.name
-      - ref: error.type
-      - ref: db.collection.name
-        requirement_level: opt_in
-      - ref: server.address
-      - ref: server.port
-      - ref: client.address
-        requirement_level: opt_in
-      - ref: db.namespace
-      - ref: db.response.status_code

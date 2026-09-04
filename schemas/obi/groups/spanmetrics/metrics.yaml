@@ -1,78 +1,7 @@
 groups:
-  - id: registry.obi.spanmetrics
-    type: attribute_group
-    display_name: Span Metrics
-    brief: >
-      Attributes used by OBI's span-metrics emission. The metric names match
-      the output of the OTel collector-contrib `spanmetricsconnector` so the
-      same dashboards consume both OBI-emitted and connector-emitted data.
-      Emitted when OBI's `application_span_otel` metrics feature is enabled,
-      except the `traces_spanmetrics_*_size_total` counters, which are gated
-      separately on the deprecated `application_span_sizes` feature.
-
-      `service.name`, `service.namespace`, `service.instance.id`, `host.id`
-      and `telemetry.sdk.language` are referenced from upstream OpenTelemetry
-      semantic conventions rather than redeclared here, and appear on the
-      metric groups below because `spanMetricAttributes` puts them on the data
-      point rather than on the resource. The OBI-specific `source` attribute is
-      declared in `obi_internal.yaml`.
-
-      See:
-      https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/spanmetricsconnector
-    attributes:
-      - id: span.metrics.skip
-        type: boolean
-        stability: development
-        brief: >
-          Hint set on a span by the producer to tell downstream span-metrics
-          processors that this span is already accounted for in upstream
-          span-metrics emissions and should be excluded from aggregation,
-          to avoid double counting.
-      - id: span.name
-        type: string
-        stability: development
-        brief: The span name (matches the OTLP span name field).
-        examples: ["GET /api/users"]
-      - id: span.kind
-        type:
-          allow_custom_values: true
-          members:
-            - id: server
-              value: SPAN_KIND_SERVER
-              stability: development
-            - id: client
-              value: SPAN_KIND_CLIENT
-              stability: development
-            - id: producer
-              value: SPAN_KIND_PRODUCER
-              stability: development
-            - id: consumer
-              value: SPAN_KIND_CONSUMER
-              stability: development
-            - id: internal
-              value: SPAN_KIND_INTERNAL
-              stability: development
-        stability: development
-        brief: The span kind, mirrored from the originating span.
-      - id: status.code
-        type:
-          allow_custom_values: true
-          members:
-            - id: ok
-              value: STATUS_CODE_OK
-              stability: development
-            - id: error
-              value: STATUS_CODE_ERROR
-              stability: development
-            - id: unset
-              value: STATUS_CODE_UNSET
-              stability: development
-        stability: development
-        brief: The span status code, mirrored from the originating span.
-
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
-  - id: metric.traces.span.metrics.calls
+  - id: metric.obi.traces.span.metrics.calls
     type: metric
     metric_name: traces.span.metrics.calls
     instrument: counter
@@ -91,7 +20,7 @@ groups:
       - ref: telemetry.sdk.language
       - ref: host.id
 
-  - id: metric.traces.span.metrics.duration
+  - id: metric.obi.traces.span.metrics.duration
     type: metric
     metric_name: traces.span.metrics.duration
     instrument: histogram
@@ -115,7 +44,7 @@ groups:
   # spanmetrics processor output. Emitted by the deprecated `application_span`
   # metrics feature; the `traces.span.metrics.*` names above are the
   # replacement (`OTEL_EBPF_OTEL_METRICS_FEATURES=application_span_otel`).
-  - id: metric.traces_spanmetrics_calls_total
+  - id: metric.obi.traces_spanmetrics_calls_total
     type: metric
     metric_name: traces_spanmetrics_calls_total
     instrument: counter
@@ -138,7 +67,7 @@ groups:
       - ref: telemetry.sdk.language
       - ref: host.id
 
-  - id: metric.traces_spanmetrics_latency
+  - id: metric.obi.traces_spanmetrics_latency
     type: metric
     metric_name: traces_spanmetrics_latency
     instrument: histogram
@@ -161,7 +90,7 @@ groups:
       - ref: telemetry.sdk.language
       - ref: host.id
 
-  - id: metric.traces_spanmetrics_size_total
+  - id: metric.obi.traces_spanmetrics_size_total
     type: metric
     metric_name: traces_spanmetrics_size_total
     instrument: counter
@@ -187,7 +116,7 @@ groups:
       - ref: telemetry.sdk.language
       - ref: host.id
 
-  - id: metric.traces_spanmetrics_response_size_total
+  - id: metric.obi.traces_spanmetrics_response_size_total
     type: metric
     metric_name: traces_spanmetrics_response_size_total
     instrument: counter
