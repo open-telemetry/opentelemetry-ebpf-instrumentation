@@ -659,15 +659,12 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     return 1;
 }
 
-// A bail must not leave the previous send's buffers behind: protocol_detector
-// and the tcp_sendmsg kprobe would consume them as if they were this send
+// A bail must not leave the previous send's buffers behind. Deleting the keyed
+// entry cuts off the tcp_sendmsg kprobe; msg_buffer_mem itself needs no
+// clearing because every reader is gated on fill_msg_buffers success or on the
+// msg_buffers entry deleted here — keep it that way
 static __always_inline void invalidate_msg_buffers(const egress_key_t *e_key) {
     bpf_map_delete_elem(&msg_buffers, e_key);
-
-    const unsigned char *zero = bpf_map_lookup_elem(&msg_buffer_zero, &(u32){0});
-    if (zero) {
-        bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, zero, BPF_ANY);
-    }
 }
 
 // This code is copied from the kprobe on tcp_sendmsg and it's called from
@@ -689,6 +686,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
     }
 
     if (!msg->data || msg->data >= msg->data_end) {
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
