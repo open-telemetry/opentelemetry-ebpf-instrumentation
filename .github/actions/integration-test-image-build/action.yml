@@ -10,7 +10,7 @@ inputs:
     description: 'Target platform (e.g. linux/amd64)'
     required: true
   tag-id:
-    description: 'Image ID to be pretended to the tag (e.g. nodeserver)'
+    description: 'Image ID to be prepended to the tag (e.g. nodeserver)'
     required: true
   tag-version:
     description: 'Image version to be appended to the tag (e.g. 2.1.0)'
