@@ -40,13 +40,6 @@ typedef struct direct_chan_handoff {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, void *); // *m
-    __type(value, u32);
-    __uint(max_entries, 5000);
-} mptr_to_root_tid SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t);
     __type(value, chan_func_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);

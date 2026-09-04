@@ -1605,12 +1605,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"runtime.casgstatus": {{
 			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
 		}},
-		"runtime.mstart1": {{
-			Start: p.bpfObjects.ObiUprobeRuntimeMstart1,
-		}},
-		"runtime.mexit": {{
-			Start: p.bpfObjects.ObiUprobeRuntimeMexit,
-		}},
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
 			Start: p.bpfObjects.ObiUprobeServeHTTP,

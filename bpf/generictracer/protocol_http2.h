@@ -371,6 +371,9 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
             __builtin_memcpy(trace, prev_info, sizeof(http2_grpc_request_t));
             bpf_ringbuf_submit(trace, get_flags());
         }
+        if (prev_info->type == EVENT_HTTP_CLIENT) {
+            obi_ctx__restore_server(&prev_info->tp);
+        }
     }
 
     bpf_map_delete_elem(&ongoing_http2_grpc, stream);

@@ -40,7 +40,7 @@
 
 #include <pid/pid_helpers.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 typedef struct new_func_invocation {
     u64 parent;
@@ -1262,38 +1262,7 @@ enum gstatus {
 // }
 enum offsets : u8 {
     k_g_m_off = 0x30,
-    k_m_procid_off = 0x40,
 };
-
-SEC("uprobe/runtime.mstart1")
-int GUARDED_PROG(obi_uprobe_runtime_mstart1, struct pt_regs *, ctx) {
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-
-    void *g = (void *)GOROUTINE_PTR(ctx);
-    void *m = NULL;
-
-    bpf_probe_read_user(&m, sizeof(m), (void *)((char *)g + k_g_m_off));
-    if (!m) {
-        return 0;
-    }
-
-    bpf_map_update_elem(&mptr_to_root_tid, &m, &(u32){pid_tgid}, BPF_ANY);
-    return 0;
-}
-
-SEC("uprobe/runtime.mexit")
-int GUARDED_PROG(obi_uprobe_runtime_mexit, struct pt_regs *, ctx) {
-    void *g = (void *)GOROUTINE_PTR(ctx);
-    void *m = NULL;
-
-    bpf_probe_read_user(&m, sizeof(m), (void *)((char *)g + k_g_m_off));
-    if (!m) {
-        return 0;
-    }
-
-    bpf_map_delete_elem(&mptr_to_root_tid, &m);
-    return 0;
-}
 
 // gp *g, oldval, newval uint32
 SEC("uprobe/runtime.casgstatus")
@@ -1308,86 +1277,25 @@ int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
         return 0;
     }
 
-    u64 procid = 0;
-    bpf_probe_read_user(&procid, sizeof(procid), (void *)((char *)m + k_m_procid_off));
-    if (procid == 0) {
-        return 0;
-    }
-
     const u32 pid = pid_tgid >> 32;
-    u32 *root_tid = bpf_map_lookup_elem(&mptr_to_root_tid, &m);
-    if (root_tid != NULL) {
-        procid = *root_tid;
-    }
-
-    const u64 g_pid_tgid = ((u64)pid << 32) | (procid & 0xffffffff);
+    const u64 g_pid_tgid = pid_tgid;
     go_addr_key_t g_key = {
         .addr = (u64)g,
         .pid = pid,
     };
 
-    // grpc
-    grpc_srv_func_invocation_t *grpc_server_inv;
-    grpc_client_func_invocation_t *grpc_client_inv;
-    // http
-    server_http_func_invocation_t *http_server_inv;
-    // kafka_go
-    tp_info_t *kafka_go_tp;
-    // mongo
-    mongo_go_client_req_t *mongo;
-    // redis
-    redis_client_req_t *redis;
-    // sql
-    sql_func_invocation_t *sql;
-
-    obi_ctx_info_t obi_info = {};
-
     const u32 newval = (u32)(uintptr_t)GO_PARAM3(ctx);
     switch (newval) {
     case g_running:
+        go_obi_ctx__resume(g_pid_tgid, &g_key);
+        break;
     case g_syscall:
-        // grpc
-        grpc_server_inv = bpf_map_lookup_elem(&ongoing_grpc_server_requests, &g_key);
-        if (grpc_server_inv) {
-            obi_ctx__set_(g_pid_tgid, &grpc_server_inv->tp, &obi_info);
-            return 0;
-        }
-        grpc_client_inv = bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-        if (grpc_client_inv) {
-            obi_ctx__set_(g_pid_tgid, &grpc_client_inv->tp, &obi_info);
-            return 0;
-        }
-        // http
-        http_server_inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
-        if (http_server_inv) {
-            obi_ctx__set_(g_pid_tgid, &http_server_inv->tp, &obi_info);
-            return 0;
-        }
-        // kafka_go
-        kafka_go_tp = bpf_map_lookup_elem(&produce_traceparents_by_goroutine, &g_key);
-        if (kafka_go_tp) {
-            obi_ctx__set_(g_pid_tgid, kafka_go_tp, &obi_info);
-            return 0;
-        }
-        // mongo
-        mongo = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
-        if (mongo) {
-            obi_ctx__set_(g_pid_tgid, &mongo->tp, &obi_info);
-            return 0;
-        }
-        // redis
-        redis = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
-        if (redis) {
-            obi_ctx__set_(g_pid_tgid, &redis->tp, &obi_info);
-            return 0;
-        }
-        // sql
-        sql = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
-        if (sql) {
-            obi_ctx__set_(g_pid_tgid, &sql->tp, &obi_info);
-            return 0;
-        }
-
+        // same goroutine, same thread: the context is already right
+        break;
+    case g_dead:
+        // Go reuses g objects: drop the stack before the next goroutine gets it
+        bpf_map_delete_elem(&obi_ctx_stacks, &g_key);
+        obi_ctx__del(g_pid_tgid);
         break;
     default:
         obi_ctx__del(g_pid_tgid);

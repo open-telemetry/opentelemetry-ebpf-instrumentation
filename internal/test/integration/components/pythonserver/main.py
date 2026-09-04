@@ -88,6 +88,16 @@ def json_logger():
     return log
 
 
+@app.route("/nested_logger")
+def nested_logger():
+    # log after a nested HTTP client span must keep the server span context
+    rid = request.args.get("id", "")
+    app.logger.info(f"nested: before client {rid}")
+    requests.get("http://testservergrpcgo:8080/smoke", timeout=5)
+    app.logger.info(f"nested: after client {rid}")
+    return "ok"
+
+
 if __name__ == '__main__':
     print(f"Server running: port={8380} process_id={os.getpid()}")
     app.run(host="0.0.0.0", port=8380, debug=False)

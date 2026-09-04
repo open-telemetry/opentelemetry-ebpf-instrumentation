@@ -41,7 +41,7 @@
 
 #include <pid/pid_helpers.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 #define TRANSPORT_HTTP2 1
 #define TRANSPORT_HANDLER 2
@@ -160,7 +160,7 @@ int GUARDED_PROG(obi_uprobe_server_handleStream, struct pt_regs *, ctx) {
         bpf_dbg_printk("can't update grpc map element");
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_server, &invocation.tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -338,10 +338,10 @@ int GUARDED_PROG(obi_uprobe_server_handleStream_return, struct pt_regs *, ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_server, invocation ? &invocation->tp : NULL);
     bpf_map_delete_elem(&ongoing_grpc_server_requests, &g_key);
     bpf_map_delete_elem(&ongoing_grpc_request_status, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
@@ -384,8 +384,12 @@ int GUARDED_PROG(obi_uprobe_transport_writeStatus, struct pt_regs *, ctx) {
 }
 
 /* GRPC client */
-static __always_inline void clientConnStart(
-    void *goroutine_addr, void *cc_ptr, void *ctx_ptr, void *method_ptr, void *method_len) {
+static __always_inline void clientConnStart(void *goroutine_addr,
+                                            void *cc_ptr,
+                                            void *ctx_ptr,
+                                            void *method_ptr,
+                                            void *method_len,
+                                            u64 stack_off) {
     grpc_client_func_invocation_t invocation = {
         .start_monotime_ns = bpf_ktime_get_ns(),
         .cc = (u64)cc_ptr,
@@ -418,7 +422,7 @@ static __always_inline void clientConnStart(
         bpf_dbg_printk("can't update grpc client map element");
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, stack_off);
 }
 
 SEC("uprobe/ClientConn_Invoke")
@@ -433,7 +437,8 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke, struct pt_regs *, ctx) {
     void *method_ptr = GO_PARAM4(ctx);
     void *method_len = GO_PARAM5(ctx);
 
-    clientConnStart(goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len);
+    clientConnStart(
+        goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -451,7 +456,8 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     void *method_ptr = GO_PARAM5(ctx);
     void *method_len = GO_PARAM6(ctx);
 
-    clientConnStart(goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len);
+    clientConnStart(
+        goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -523,8 +529,8 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, invocation ? &invocation->tp : NULL);
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
 
@@ -551,8 +557,8 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }

@@ -28,7 +28,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 #define MONGO_OP_DEF(name, str)                                                                    \
     static const char name[] = str;                                                                \
@@ -77,7 +77,7 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, &req, BPF_ANY);
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &req.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req.tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -188,7 +188,7 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, req, BPF_ANY);
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &req->tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req->tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -223,8 +223,8 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute_ret, struct pt_regs *, ctx) {
         }
     }
 
+    go_obi_ctx__end(&g_key, k_obi_ctx_mongo, req ? &req->tp : NULL);
     bpf_map_delete_elem(&ongoing_mongo_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
