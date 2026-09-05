@@ -434,6 +434,7 @@ func TestSuite_NodeJSManualSpansPropagation(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
+	waitForTestComponents(t, "http://localhost:3031")
 	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
