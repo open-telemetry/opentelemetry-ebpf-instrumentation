@@ -151,8 +151,8 @@ func inner(id int) {
 
 	opts := []trace.SpanStartOption{
 		trace.WithAttributes(
-			attribute.String("user", "user"+strconv.Itoa(id)),
-			attribute.Bool("admin", true),
+			attribute.String("obitest.user", "user"+strconv.Itoa(id)),
+			attribute.Bool("obitest.admin", true),
 		),
 		trace.WithTimestamp(y2k.Add(500 * time.Microsecond)),
 		trace.WithSpanKind(trace.SpanKindServer),
@@ -164,7 +164,7 @@ func inner(id int) {
 	if id == 2 {
 		span.SetName("changed name")
 		span.SetAttributes(
-			attribute.String("test", "append"),
+			attribute.String("obitest.test", "append"),
 		)
 	}
 }
@@ -193,7 +193,7 @@ func manual(rw http.ResponseWriter) {
 		errors.New("some unknown error"),
 		trace.WithTimestamp(y2k.Add(2*time.Second)),
 		trace.WithStackTrace(true),
-		trace.WithAttributes(attribute.Int("impact", 11)),
+		trace.WithAttributes(attribute.Int("obitest.impact", 11)),
 	)
 
 	rw.WriteHeader(http.StatusOK)
