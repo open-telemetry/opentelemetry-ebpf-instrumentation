@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	stdmaps "maps"
 	"slices"
 	"time"
 
@@ -233,15 +234,11 @@ func syncServiceMetadata(dst, src *exec.FileInfo) {
 	// 2. Synchronize metadata attributes (e.g. service.version)
 	if len(srcAttrs.Metadata) > 0 && len(dstAttrs.Metadata) == 0 {
 		m := make(map[attr.Name]string, len(srcAttrs.Metadata))
-		for k, v := range srcAttrs.Metadata {
-			m[k] = v
-		}
+		stdmaps.Copy(m, srcAttrs.Metadata)
 		dst.SetMetadata(m)
 	} else if len(dstAttrs.Metadata) > 0 && len(srcAttrs.Metadata) == 0 {
 		m := make(map[attr.Name]string, len(dstAttrs.Metadata))
-		for k, v := range dstAttrs.Metadata {
-			m[k] = v
-		}
+		stdmaps.Copy(m, dstAttrs.Metadata)
 		src.SetMetadata(m)
 	}
 }
