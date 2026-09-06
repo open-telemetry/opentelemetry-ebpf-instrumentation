@@ -173,6 +173,49 @@ func TestV2ToRuntimeRejectsNegativeChannelBufferLength(t *testing.T) {
 	require.EqualError(t, err, "capture.channels.buffer_len must be greater than or equal to zero")
 }
 
+func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("off by default", func(t *testing.T) {
+		t.Parallel()
+
+		_, ext := RuntimeToV2(nil)
+		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = false
+
+		got, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+		require.True(t, got.Metrics.Features.AppRED())
+		require.False(t, got.Metrics.Features.AppSizes())
+	})
+
+	t.Run("enabled alongside the HTTP metrics", func(t *testing.T) {
+		t.Parallel()
+
+		_, ext := RuntimeToV2(nil)
+		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = true
+
+		got, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+		require.True(t, got.Metrics.Features.AppRED())
+		require.True(t, got.Metrics.Features.AppSizes())
+	})
+
+	// the histograms are emitted from the HTTP metric pipeline, so on their own they
+	// would produce no telemetry at all
+	t.Run("rejected without the HTTP metrics", func(t *testing.T) {
+		t.Parallel()
+
+		_, ext := RuntimeToV2(nil)
+		ext.Capture.Instrumentation.HTTP.Enabled.Metrics = false
+		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = true
+
+		_, err := V2ToRuntime(ext)
+		require.EqualError(t, err,
+			"capture.instrumentation.http.enabled.body_size_metrics needs"+
+				" capture.instrumentation.http.enabled.metrics")
+	})
+}
+
 func TestV2ToRuntimeCompleteInstrumentationCanDisableAerospike(t *testing.T) {
 	t.Parallel()
 

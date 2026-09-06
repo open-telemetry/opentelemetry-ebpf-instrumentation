@@ -87,6 +87,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
+	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "traces"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "metrics"))
 	require.ElementsMatch(t, []string{
@@ -925,6 +926,32 @@ func TestGlobPatternsRegexMatchesGlobSemantics(t *testing.T) {
 	}
 }
 
+func TestRuntimeToV2HTTPBodySizeMetrics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("application alone leaves them off", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Metrics.Features = export.FeatureApplicationRED
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, false, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
+	})
+
+	t.Run("application_sizes turns them on", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Metrics.Features = export.FeatureApplicationRED | export.FeatureApplicationSizes
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
+	})
+}
+
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
 	t.Parallel()
 
@@ -1102,6 +1129,12 @@ func fieldByYAMLName(value reflect.Value, name string) (reflect.Value, bool) {
 	for i := range value.NumField() {
 		field := valueType.Field(i)
 		if field.PkgPath != "" {
+			continue
+		}
+		if field.Anonymous && strings.Contains(field.Tag.Get("yaml"), ",inline") {
+			if inlined, ok := fieldByYAMLName(value.Field(i), name); ok {
+				return inlined, true
+			}
 			continue
 		}
 		if yamlName(field) == name {

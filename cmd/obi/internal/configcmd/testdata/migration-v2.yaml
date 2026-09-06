@@ -85,6 +85,7 @@ extensions:
                     enabled:
                         traces: true
                         metrics: true
+                        body_size_metrics: false
                     filters:
                         traces:
                             http.request.method:
