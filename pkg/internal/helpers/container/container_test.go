@@ -53,6 +53,7 @@ var fixturesWithContainer = map[app.PID]string{
 }
 
 var fixturesWithoutContainer = map[app.PID]string{
+	1012: `0::/user.slice/user-963461.slice/session-11909.scope`,
 	1011: `12:rdma:/
 11:perf_event:
 10:freezer:/docker/a2ffe0e97ac22657a2a023ad628e9df837c38a03b1ebc904d3f6d644eb1a1a81
