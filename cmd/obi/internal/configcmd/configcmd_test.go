@@ -861,6 +861,43 @@ metrics:
 	require.True(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
 }
 
+// application_sizes has to survive the v1-to-v2 round trip: without a v2 key for the
+// body size histograms the migration contract would report metrics.features as changed
+// and refuse the configuration.
+func TestMigrateConfigCarriesApplicationSizes(t *testing.T) {
+	v1 := func(features string) []byte {
+		return []byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+metrics:
+  features: ` + features + `
+prometheus_export:
+  port: 9090
+`)
+	}
+
+	output, _, err := migrateConfig(v1("[application, application_sizes]"))
+	require.NoError(t, err)
+
+	doc, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.True(t, ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics)
+
+	roundTripped, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.True(t, roundTripped.Metrics.Features.AppRED())
+	require.True(t, roundTripped.Metrics.Features.AppSizes())
+
+	// the same input without the feature must not pick it up on the way through v2
+	withoutSizes, _, err := migrateConfig(v1("[application]"))
+	require.NoError(t, err)
+
+	_, plainExt, err := schema.ParseStandaloneYAML(withoutSizes)
+	require.NoError(t, err)
+	require.False(t, plainExt.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics)
+}
+
 func TestMigrateConfigExpandsGlobalRoutes(t *testing.T) {
 	output, report, err := migrateConfig([]byte(`
 routes:

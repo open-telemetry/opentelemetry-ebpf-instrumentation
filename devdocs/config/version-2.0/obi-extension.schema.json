@@ -46,6 +46,28 @@
         }
       }
     },
+    "HttpSignalEnabled": {
+      "type": "object",
+      "description": "Enable/disable each signal explicitly for HTTP, including the Opt-In body size histograms.",
+      "additionalProperties": false,
+      "properties": {
+        "traces": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable trace signal generation for this scope.\nIf omitted, true is used.\n"
+        },
+        "metrics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable metric signal generation for this scope.\nIf omitted, true is used.\n"
+        },
+        "body_size_metrics": {
+          "type": "boolean",
+          "default": false,
+          "description": "Emit the HTTP request and response body size histograms.\nThey are Opt-In in the semantic conventions and require `metrics`.\nIf omitted, false is used.\n"
+        }
+      }
+    },
     "MatchDefinition": {
       "type": "object",
       "description": "Match expression using either an include (`match`) or exclude (`not_match`) wildcard pattern.",
@@ -1085,8 +1107,8 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "$ref": "#/$defs/SignalEnabled",
-          "description": "Enable HTTP traces/metrics.\nIf omitted, signal defaults are used.\n"
+          "$ref": "#/$defs/HttpSignalEnabled",
+          "description": "Enable HTTP traces/metrics and the Opt-In body size histograms.\nIf omitted, signal defaults are used.\n"
         },
         "filters": {
           "$ref": "#/$defs/SignalFilters",

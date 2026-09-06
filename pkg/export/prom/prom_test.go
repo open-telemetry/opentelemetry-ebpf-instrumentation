@@ -47,6 +47,72 @@ import (
 
 const timeout = 5 * time.Second
 
+// application on its own keeps the RED histograms while dropping the four Opt-In body
+// size histograms, which is the whole point of splitting them into their own feature.
+func TestAppMetrics_BodySizeFeature(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		features export.Features
+		emitted  bool
+	}{
+		{name: "application and application_sizes", features: export.FeatureApplicationRED | export.FeatureApplicationSizes, emitted: true},
+		{name: "application only", features: export.FeatureApplicationRED, emitted: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			openPort := testutil.FreeTCPPort(t)
+			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+
+			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			exporter, err := PrometheusEndpoint(
+				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+				&PrometheusConfig{
+					Port:                        openPort,
+					Path:                        "/metrics",
+					TTL:                         3 * time.Minute,
+					SpanMetricsServiceCacheSize: 10,
+					Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				},
+				&perapp.GlobalMetricsConfig{Features: tc.features},
+				&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
+				request.UnresolvedNames{},
+				promInput,
+				processEvents,
+				nil,
+			)(ctx)
+			require.NoError(t, err)
+
+			go exporter(ctx)
+
+			svcAttrs := svc.Attrs{Features: tc.features, UID: svc.UID{Instance: "foo"}}
+			promInput.Send([]request.Span{
+				{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/foo", End: 1 * time.Second.Nanoseconds()},
+				{Service: svcAttrs, Type: request.EventTypeHTTPClient, Path: "/bar", End: 1 * time.Second.Nanoseconds()},
+			})
+
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				exported := getMetrics(ct, promURL)
+				assert.Contains(ct, exported, "http_server_request_duration_seconds_count")
+				assert.Contains(ct, exported, "http_client_request_duration_seconds_count")
+
+				for _, name := range []string{
+					"http_server_request_body_size_bytes",
+					"http_server_response_body_size_bytes",
+					"http_client_request_body_size_bytes",
+					"http_client_response_body_size_bytes",
+				} {
+					if tc.emitted {
+						assert.Contains(ct, exported, name)
+						continue
+					}
+					assert.NotContains(ct, exported, name)
+				}
+			}, timeout, 100*time.Millisecond)
+		})
+	}
+}
+
 func TestAppMetricsExpiration(t *testing.T) {
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
@@ -80,7 +146,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -104,7 +170,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	go exporter(ctx)
 
 	svcAttrs := svc.Attrs{
-		Features: export.FeatureApplicationRED | export.FeatureApplicationHost,
+		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureApplicationHost,
 		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
 	}
 	svcAttrs001 := svc.Attrs{
@@ -1478,7 +1544,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -1496,7 +1562,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 	go exporter(ctx)
 
 	svcAttrs := svc.Attrs{
-		Features: export.FeatureApplicationRED | export.FeatureApplicationHost,
+		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureApplicationHost,
 		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
 	}
 	// Send a process event so we make target_info and traces_host_info

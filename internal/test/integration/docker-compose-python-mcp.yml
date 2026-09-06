@@ -41,7 +41,7 @@ services:
       OTEL_EBPF_HOSTNAME: "obi"
       OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
-      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes"
       OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 1024
       OTEL_EBPF_HTTP_MCP_ENABLED: true
     depends_on:

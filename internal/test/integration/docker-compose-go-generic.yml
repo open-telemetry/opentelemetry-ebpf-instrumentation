@@ -89,8 +89,8 @@ services:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: 8080
-      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
-      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_sizes,application_span_otel,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_sizes,application_span_otel,application_service_graph,ebpf,application_host"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
