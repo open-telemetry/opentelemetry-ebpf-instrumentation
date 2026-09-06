@@ -24,6 +24,7 @@ async def messages():
     payload = {
         "model": "claude-sonnet-4-6",
         "max_tokens": 1024,
+        "top_k": 5,
         "messages": [{"role": "user", "content": "Explain quantum computing in one sentence."}],
     }
     resp = requests.post(f"{ANTHROPIC_BASE_URL}/v1/messages", json=payload, headers=HEADERS)

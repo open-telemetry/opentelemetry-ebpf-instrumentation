@@ -67,6 +67,7 @@ func handleInvoke(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("X-Amzn-Requestid", "mock-request-id-12345678")
+	h.Set("X-Amzn-Bedrock-Guardrail-Id", "gr-mock-12345678")
 
 	// Return error for nonexistent model
 	if strings.Contains(modelID, "nonexistent") {

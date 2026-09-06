@@ -1298,7 +1298,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.GenAIDataSourceID(collection))
 			}
 			if topK := ai.Input.GetTopK(); topK > 0 {
-				attrs = append(attrs, attribute.Int("gen_ai.retrieval.top_k", topK))
+				attrs = append(attrs, semconv.GenAIRequestTopK(float64(topK)))
 			}
 		}
 
