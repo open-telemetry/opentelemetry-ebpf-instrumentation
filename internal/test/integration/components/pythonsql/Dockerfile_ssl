@@ -8,4 +8,4 @@ RUN pip install --require-hashes -r /requirements.txt
 COPY main_ssl.py /main_ssl.py
 COPY server.crt /server.crt
 COPY server.key /server.key
-CMD ["gunicorn", "--keyfile", "/server.key", "--certfile", "/server.crt", "-w", "1", "-b", "0.0.0.0:8080", "-k", "uvicorn.workers.UvicornWorker", "main_ssl:app"]
+CMD ["gunicorn", "--keyfile", "/server.key", "--certfile", "/server.crt", "-w", "3", "-b", "0.0.0.0:8080", "-k", "uvicorn.workers.UvicornWorker", "main_ssl:app"]

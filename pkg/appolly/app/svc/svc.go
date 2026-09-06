@@ -181,12 +181,20 @@ func (i *Attrs) setFlag(flag idFlags) {
 	i.flags |= flag
 }
 
+func (i *Attrs) clearFlag(flag idFlags) {
+	i.flags &^= flag
+}
+
 func (i *Attrs) getFlag(flag idFlags) bool {
 	return (i.flags & flag) == flag
 }
 
 func (i *Attrs) SetAutoName() {
 	i.setFlag(autoName)
+}
+
+func (i *Attrs) ClearAutoName() {
+	i.clearFlag(autoName)
 }
 
 func (i *Attrs) AutoName() bool {

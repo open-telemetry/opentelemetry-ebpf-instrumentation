@@ -217,11 +217,11 @@ func syncServiceMetadata(dst, src *exec.FileInfo) {
 	switch {
 	case srcAttrs.UID.Name != "" && !src.AutoName():
 		if dst.AutoName() || dstAttrs.UID.Name == "" {
-			dst.SetUID(srcAttrs.UID)
+			dst.SetExplicitServiceName(srcAttrs.UID.Name)
 		}
 	case dstAttrs.UID.Name != "" && !dst.AutoName():
 		if src.AutoName() || srcAttrs.UID.Name == "" {
-			src.SetUID(dstAttrs.UID)
+			src.SetExplicitServiceName(dstAttrs.UID.Name)
 		}
 	case srcAttrs.UID.Name != "" && dstAttrs.UID.Name == "":
 		dst.SetAutoServiceName(srcAttrs.UID.Name)

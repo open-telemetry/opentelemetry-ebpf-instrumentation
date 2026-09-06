@@ -281,6 +281,7 @@ func TestSyncServiceMetadata_Precedence(t *testing.T) {
 		syncServiceMetadata(dst, src)
 
 		assert.Equal(t, "explicit-svc", dst.ServiceAttrs().UID.Name)
+		assert.False(t, dst.AutoName())
 	})
 
 	t.Run("explicit dst overrides auto src", func(t *testing.T) {
@@ -293,6 +294,7 @@ func TestSyncServiceMetadata_Precedence(t *testing.T) {
 		syncServiceMetadata(dst, src)
 
 		assert.Equal(t, "explicit-dst", src.ServiceAttrs().UID.Name)
+		assert.False(t, src.AutoName())
 	})
 
 	t.Run("explicit src overrides empty dst", func(t *testing.T) {
