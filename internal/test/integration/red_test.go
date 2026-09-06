@@ -919,14 +919,14 @@ func testPrometheusBPFMetrics(t *testing.T) {
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`bpf_probe_latency_seconds_count{probe_name=~"uprobe_.*"}`)
+		results, err = pq.Query(`bpf_probe_latency_seconds_count{bpf_probe_name=~"uprobe_.*"}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`bpf_map_entries_total{map_name="ongoing_server_"}`)
+		results, err = pq.Query(`bpf_map_entries{bpf_map_name="ongoing_server_"}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, testTimeout, 100*time.Millisecond)

@@ -53,6 +53,7 @@ const (
 	DBCollectionName       = Name(semconv.DBCollectionNameKey)
 	DBSystemName           = Name(semconv.DBSystemNameKey)
 	ErrorType              = Name(semconv.ErrorTypeKey)
+	ProcessExecutableName  = Name(semconv.ProcessExecutableNameKey)
 	RPCMethod              = Name(semconv.RPCMethodKey)
 	RPCSystem              = Name(semconv.RPCSystemNameKey)
 	HTTPRoute              = Name(semconv.HTTPRouteKey)
@@ -220,9 +221,51 @@ const (
 	V8JSGCType        = Name("v8js.gc.type")
 	V8JSHeapSpaceName = Name("v8js.heap.space.name")
 
-	VendorVersionSuffix  = Name(".version")
-	VendorRevisionSuffix = Name(".revision")
+	VendorVersionSuffix   = Name(".version")
+	VendorRevisionSuffix  = Name(".revision")
+	VendorGoarchSuffix    = Name(".goarch")
+	VendorGoosSuffix      = Name(".goos")
+	VendorGoversionSuffix = Name(".goversion")
 )
+
+// Attributes carried by OBI's own self-observability metrics: the obi.* internal metrics and
+// the bpf_* Prometheus collector metrics. Declared here so that the Prometheus label name is
+// derived from the OTLP attribute key via Name.Prom(), instead of being written a second time
+// by the exporters.
+const (
+	BpfMapID   = Name("bpf.map.id")
+	BpfMapName = Name("bpf.map.name")
+	BpfMapType = Name("bpf.map.type")
+
+	BpfProbeID   = Name("bpf.probe.id")
+	BpfProbeName = Name("bpf.probe.name")
+	BpfProbeType = Name("bpf.probe.type")
+
+	TelemetryType = Name("telemetry.type")
+	Subscriber    = Name("subscriber")
+)
+
+// InternalAttributes are the vendor-prefixed attributes carried by OBI's own internal metrics.
+// Like the internal metric names, they are built from a prefix at call time rather than declared
+// as package constants, because a component that vendors OBI can override VendorPrefix and
+// package-level initialization would run before it had the chance.
+type InternalAttributes struct {
+	Goarch    Name
+	Goos      Name
+	Goversion Name
+	Version   Name
+	Revision  Name
+}
+
+func NewInternalAttributes(prefix string) InternalAttributes {
+	return InternalAttributes{
+		Goarch:    Name(prefix + string(VendorGoarchSuffix)),
+		Goos:      Name(prefix + string(VendorGoosSuffix)),
+		Goversion: Name(prefix + string(VendorGoversionSuffix)),
+		Version:   Name(prefix + string(VendorVersionSuffix)),
+		Revision:  Name(prefix + string(VendorRevisionSuffix)),
+	}
+}
 
 // traces related attributes
 const (

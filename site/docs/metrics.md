@@ -22,7 +22,7 @@ Duration of database operations observed from the server side.
 | `db.operation.name` | string | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
 | `db.response.status_code` | string | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 
@@ -367,7 +367,7 @@ Error count on each failed OTEL metric export.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `obi.error` | string | development | Raw error message from a failed OTLP export. | context deadline exceeded |
+| `error.type` | enum | stable | Describes the error the DNS lookup failed with. | host_not_found; no_recovery; java.net.UnknownHostException |
 
 ## `obi.otel.metric.exports`
 
@@ -389,7 +389,7 @@ Error count on each failed OTEL trace export.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `obi.error` | string | development | Raw error message from a failed OTLP export. | context deadline exceeded |
+| `error.type` | enum | stable | Describes the error the DNS lookup failed with. | host_not_found; no_recovery; java.net.UnknownHostException |
 
 ## `obi.otel.trace.exports`
 

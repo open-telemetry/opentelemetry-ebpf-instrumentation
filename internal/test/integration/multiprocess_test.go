@@ -209,7 +209,7 @@ func checkInstrumentedProcessesMetric(t *testing.T) {
 		}
 
 		for processName, expectedCount := range processes {
-			results, err := pq.Query(fmt.Sprintf(`obi_instrumented_processes{process_name="%s"}`, processName))
+			results, err := pq.Query(fmt.Sprintf(`obi_instrumented_processes{process_executable_name="%s"}`, processName))
 			require.NoError(ct, err)
 			require.NotEmpty(ct, results, "Expected to find instrumented processes metric for %s", processName)
 			value, err := strconv.Atoi(results[0].Value[1].(string))
