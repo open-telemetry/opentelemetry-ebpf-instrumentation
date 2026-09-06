@@ -27,6 +27,8 @@ ebpf:
           enabled: true
         bedrock:
           enabled: true
+        retrieval:
+          enabled: true
 trace_printer: text
 discovery:
   exclude_otel_instrumented_services: false

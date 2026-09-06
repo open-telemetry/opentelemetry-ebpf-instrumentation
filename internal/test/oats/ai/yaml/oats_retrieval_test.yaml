@@ -1,0 +1,20 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-retrieval.yml
+  - ../../weaver/docker-compose-weaver.yml
+input:
+- path: /search
+- path: /query
+interval: 500ms
+expected:
+  traces:
+  # Qdrant similarity search, matched on the vendor host map
+  - traceql: '{ .gen_ai.provider.name = "qdrant" && .gen_ai.operation.name = "retrieval" }'
+    equals: retrieval qdrant
+    attributes:
+      gen_ai.provider.name: qdrant
+      gen_ai.operation.name: retrieval
+  metrics:
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="retrieval",gen_ai_provider_name="qdrant"}
+    value: '> 0'
