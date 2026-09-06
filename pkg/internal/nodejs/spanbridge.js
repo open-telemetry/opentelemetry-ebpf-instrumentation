@@ -568,12 +568,35 @@
   // ended, and every later eBPF client span and enriched log line would carry
   // it. Only the outermost callback pops, so a nested one does not strip the
   // override the outer callback is still running under.
+  //
+  // A hook callback that throws has no working view of the active span, so it
+  // can neither refresh nor retire the override: leaving it enabled would keep
+  // charging every callback for a hook that can only latch a stale context.
+  // The first exception therefore retires the hook for good — it pops whatever
+  // override is live, stops both callbacks, and makes a later rehook() a no-op
+  // rather than re-arming a broken hook.
   let mspanHook;
   let hookDepth = 0;
   let overrideEmitted = false;
+  let hookFailed = false;
+  const failHook = (err) => {
+    hookFailed = true;
+    hookDepth = 0;
+    if (overrideEmitted) {
+      overrideEmitted = false;
+      emitPop();
+    }
+    try {
+      if (mspanHook) mspanHook.disable();
+    } catch (_) {
+      // the hookFailed guard has already neutered both callbacks
+    }
+    debug('manual-span context hook failed; disabling it', err);
+  };
   try {
     mspanHook = createHook({
       before() {
+        if (hookFailed) return;
         hookDepth++;
         try {
           const span = activeBridgeSpan(als.getStore());
@@ -581,24 +604,28 @@
             emitOverride(span);
             overrideEmitted = true;
           }
-        } catch (_) {
+        } catch (err) {
           // never let the hook throw into the app
+          failHook(err);
         }
       },
       after() {
+        if (hookFailed) return;
         if (hookDepth > 0) hookDepth--;
         try {
           if (hookDepth === 0 && overrideEmitted) {
             emitPop();
             overrideEmitted = false;
           }
-        } catch (_) {
+        } catch (err) {
           // never let the hook throw into the app
+          failHook(err);
         }
       },
     });
     mspanHook.enable();
   } catch (err) {
+    hookFailed = true;
     debug('failed to install manual-span context hook', err);
   }
 
@@ -697,7 +724,7 @@
   g.__obiSpanBridge = {
     version: 1,
     rehook() {
-      if (!mspanHook) return;
+      if (!mspanHook || hookFailed) return;
       mspanHook.disable();
       mspanHook.enable();
     },

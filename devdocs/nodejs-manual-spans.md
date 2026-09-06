@@ -173,7 +173,9 @@ Mechanism:
   (`node_manual_ctx_shadow`, `bpf/maps/node_manual_ctx_shadow.h`). `pop`
   restores it; the per-callback `-ctx` / `-noreqctx` refresh clears it (each
   callback re-derives the base and the bridge re-applies the override right
-  after).
+  after). A thread that exits mid-override never reaches either, so
+  `obi_kprobe_sys_exit` drops the slot next to `obi_ctx__del` — otherwise the
+  next thread to reuse the `pid_tgid` would inherit the dead thread's base.
 - **Client-span parenting** (`nodejs_manual_parent_span_id` in
   `trace_parent.h`): after the fd-correlation map resolves the outgoing call's
   server parent, if the shadow slot exists and the live `traces_ctx_v1` entry
