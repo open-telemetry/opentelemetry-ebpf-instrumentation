@@ -363,6 +363,15 @@ jobs:
           flags: integration-test-vm-${{ matrix.kernel.id }}
           name: vm-coverage-${{ matrix.kernel.id }}-${{ matrix.test.id }}-${{ github.run_number }}
 
+      - name: Upload weaver live-check reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: weaver-reports-vm-${{ matrix.kernel.id }}-${{ matrix.test.id }}-${{ github.run_number }}
+          path: testoutput/weaver-report-*.json
+          if-no-files-found: ignore
+          retention-days: 5
+
       - name: Upload integration test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
