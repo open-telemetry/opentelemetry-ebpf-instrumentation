@@ -713,6 +713,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
 			attrs = append(attrs, request.DBSystemName(span.Elasticsearch.DBSystemName))
+			attrs = append(attrs, request.HTTPResponseBodySize(span.ResponseBodyLength()))
 			// Semconv defines this as the HTTP code the cluster returned, and
 			// requires it only when a response was received.
 			if span.Status != 0 {

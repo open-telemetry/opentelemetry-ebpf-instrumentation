@@ -1420,12 +1420,12 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 			present: transportKeys,
 		},
 		{
-			name:    "elasticsearch keeps only what the db conventions require",
+			name:    "elasticsearch keeps the db conventions plus the response size",
 			subType: request.HTTPSubtypeElasticsearch,
 			payload: func(s *request.Span) {
 				s.Elasticsearch = &request.Elasticsearch{DBSystemName: "elasticsearch", DBOperationName: "search"}
 			},
-			present: []string{"url.full", "http.request.method"},
+			present: []string{"url.full", "http.request.method", "http.response.body.size"},
 		},
 		{
 			name:    "aws s3 carries no http transport attributes",
