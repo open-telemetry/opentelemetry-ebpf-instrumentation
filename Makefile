@@ -174,6 +174,11 @@ generate-schema-next:
 	@echo "### Cutting the OBI telemetry schema for the versions.yaml version"
 	@./scripts/generate-schema-next.sh
 
+.PHONY: generate-schema-docs
+generate-schema-docs: fetch-upstream-semconv
+	@echo "### Generating the OBI telemetry reference docs"
+	@./scripts/generate-schema-docs.sh $(OCI_BIN) $(WEAVERIMAGE)
+
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
 	@echo "### Linting dependency integrity policy"
@@ -215,9 +220,8 @@ lint-markdown-fix:
 .PHONY: update-offsets
 update-offsets:
 	@echo "### Updating pkg/internal/goexec/offsets.json"
-	go tool $(TOOLS_MODFILE) go-offsets-tracker -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
-	@echo "### Updating pkg/internal/goexec/go_abi_offsets.json"
-	go run ./internal/goabioffsets -i configs/offsets/go_abi_input.json pkg/internal/goexec/go_abi_offsets.json
+	go run ./internal/gooffsets -i configs/offsets/tracker_input.json \
+		-abi configs/offsets/go_abi_input.json pkg/internal/goexec/offsets.json
 
 .PHONY: update-python-offsets
 update-python-offsets:
@@ -528,12 +532,6 @@ run-integration-test-vm:
 			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
 
-.PHONY: run-integration-test-arm
-run-integration-test-arm:
-	@echo "### Running integration tests"
-	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
-
 .PHONY: unit-test-matrix-json
 unit-test-matrix-json:
 	@go list ./... | go tool $(TOOLS_MODFILE) gotestsum tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
@@ -576,12 +574,6 @@ integration-test: prereqs prepare-integration-test
 .PHONY: integration-test-k8s
 integration-test-k8s: prereqs prepare-integration-test
 	$(MAKE) run-integration-test-k8s || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
-	$(MAKE) itest-coverage-data
-	$(MAKE) cleanup-integration-test
-
-.PHONY: integration-test-arm
-integration-test-arm: prereqs prepare-integration-test
-	$(MAKE) run-integration-test-arm || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
 
@@ -914,6 +906,7 @@ verify-mods:
 prerelease: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
 	@$(MAKE) generate-schema-next
+	@$(MAKE) generate-schema-docs
 	go tool $(TOOLS_MODFILE) multimod prerelease -m ${MODSET}
 
 COMMIT ?= "HEAD"

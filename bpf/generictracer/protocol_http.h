@@ -55,7 +55,7 @@ static __always_inline http_info_t *empty_http_info() {
 }
 
 static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta) {
-    if (meta->type == EVENT_HTTP_CLIENT) {
+    if (meta->type == k_event_type_http_client) {
         return TRACE_TYPE_CLIENT;
     }
 
@@ -138,7 +138,7 @@ static __always_inline void cleanup_http_server_thread_trace(http_info_t *info,
 
 static __always_inline void
 cleanup_incomplete_http_server_thread_trace(http_info_t *info, const trace_key_t *current_key) {
-    if (info->type == EVENT_HTTP_REQUEST && !http_info_complete(info)) {
+    if (info->type == k_event_type_http_request && !http_info_complete(info)) {
         cleanup_http_server_thread_trace(info, current_key);
     }
 }
@@ -170,7 +170,7 @@ static __always_inline void submit_http_event(http_info_t *info, pid_connection_
         bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
 
         __builtin_memcpy(trace, info, sizeof(http_info_t));
-        trace->flags = EVENT_K_HTTP_REQUEST;
+        trace->flags = k_event_type_k_http_request;
         bpf_ringbuf_submit(trace, get_flags());
     } else {
         bpf_dbg_printk("failed to reserve space in the ringbuf");
@@ -185,7 +185,7 @@ finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_
 
     submit_http_event(info, pid_conn);
 
-    if (info->type == EVENT_HTTP_REQUEST) {
+    if (info->type == k_event_type_http_request) {
         cleanup_http_server_thread_trace(info, current_key);
     }
     // Don't delete the ongoing_http entry for requests that weren't delayed, we might be
@@ -255,7 +255,8 @@ static __always_inline tp_info_t *self_referencing_request(pid_connection_info_t
                                                            u8 packet_type) {
     if (packet_type == PACKET_TYPE_REQUEST) {
         http_info_t *old_info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
-        if (old_info && !http_info_complete(old_info) && old_info->type == EVENT_HTTP_CLIENT) {
+        if (old_info && !http_info_complete(old_info) &&
+            old_info->type == k_event_type_http_client) {
             bpf_dbg_printk("found self referencing request, remembering the old tp info parent_id");
             return &old_info->tp;
         }
@@ -291,7 +292,7 @@ static __always_inline void terminate_http_request_if_needed(pid_connection_info
                                                              const trace_key_t *current_key) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
-        if (info->type == EVENT_HTTP_REQUEST) {
+        if (info->type == k_event_type_http_request) {
             cleanup_http_server_response_data(pid_conn, info);
             cleanup_http_server_thread_trace(info, current_key);
         } else {
@@ -313,14 +314,14 @@ static __always_inline void process_http_request(http_info_t *info,
         info->type = meta->type;
     } else {
         if (direction == TCP_RECV) {
-            info->type = EVENT_HTTP_REQUEST;
+            info->type = k_event_type_http_request;
         } else {
-            info->type = EVENT_HTTP_CLIENT;
+            info->type = k_event_type_http_client;
         }
         task_pid(&info->pid);
     }
 
-    fixup_connection_info(&info->conn_info, info->type == EVENT_HTTP_CLIENT, orig_dport);
+    fixup_connection_info(&info->conn_info, info->type == k_event_type_http_client, orig_dport);
 
     u64 start_time = bpf_ktime_get_ns();
     u64 req_time = start_time;
@@ -336,7 +337,7 @@ static __always_inline void process_http_request(http_info_t *info,
             // Splitting client calls with in-queue and processing can be noisy in traces.
             // We want to record the earlier time, but we don't want to split them, therefore
             // we set both start_time and req_time to the same earlier value.
-            if (info->type == EVENT_HTTP_CLIENT) {
+            if (info->type == k_event_type_http_client) {
                 start_time = req_time;
             }
         }
@@ -384,7 +385,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  int orig_len,
                                                  lw_thread_t lw_thread) {
     process_http_response(info, small_buf);
-    if (info->type == EVENT_HTTP_REQUEST) {
+    if (info->type == k_event_type_http_request) {
         cleanup_http_server_response_data(pid_conn, info);
     } else {
         delete_client_trace_info(pid_conn);
@@ -400,7 +401,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
         return;
     }
 
-    if (info->type == EVENT_HTTP_REQUEST) {
+    if (info->type == k_event_type_http_request) {
         info->delayed = 1;
         mark_http_server_thread_trace_response_sent(info);
         if (high_request_volume && !info->ssl) {
@@ -562,7 +563,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                 unsigned char *t_id = extract_trace_id(res);
                 unsigned char *s_id = extract_span_id(res);
                 unsigned char *f_id = extract_flags(res);
-                const bool is_client = meta && meta->type == EVENT_HTTP_CLIENT;
+                const bool is_client = meta && meta->type == k_event_type_http_client;
                 unsigned char *previous_trace_id = NULL;
 
                 if (is_client && valid_trace(tp_p->tp.trace_id)) {
@@ -574,7 +575,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
 
                 decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
                 decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
-                if (meta && meta->type != EVENT_HTTP_CLIENT) {
+                if (meta && meta->type != k_event_type_http_client) {
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
                 } else if (previous_trace_id &&
                            bpf_memcmp(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES) !=
@@ -658,7 +659,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
 
     tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
 
-    if (tp_p && tp_p->req_type == EVENT_HTTP_CLIENT && tp_p->written &&
+    if (tp_p && tp_p->req_type == k_event_type_http_client && tp_p->written &&
         tp_p->pid == args->pid_conn.pid) {
         bpf_dbg_printk("found tp info previously set by sock msg");
         // we've already got a tp_info_pid_t setup by the sockmsg program, use
@@ -688,7 +689,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     u8 found_tp = 0;
 
     if (meta) {
-        if (meta->type == EVENT_HTTP_CLIENT) {
+        if (meta->type == k_event_type_http_client) {
             pid_connection_info_t p_conn = {.pid = args->pid_conn.pid};
             __builtin_memcpy(&p_conn.conn, &args->pid_conn.conn, sizeof(connection_info_t));
             found_tp = find_trace_for_client_request(
@@ -699,8 +700,8 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
             //dbg_print_http_connection_info(conn);
 
             // For server requests, we first look for TCP info (setup by TC ingress) and then we fall back to black-box info.
-            found_tp =
-                find_trace_for_server_request(&args->pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
+            found_tp = find_trace_for_server_request(
+                &args->pid_conn.conn, &tp_p->tp, k_event_type_http_request);
         }
     }
 
@@ -726,7 +727,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     // for example can forward headers as-is, which can give us a stale
     // value.
     if (meta) {
-        if (meta->type == EVENT_HTTP_REQUEST && found_tp && args->ssl) {
+        if (meta->type == k_event_type_http_request && found_tp && args->ssl) {
             bpf_dbg_printk("skipping headers parsing because of existing tp info for SSL call");
             args->skip_tp_parsing = 1;
         }
@@ -903,7 +904,7 @@ int GUARDED_PROG(obi_large_buf_emit_continue, struct pt_regs *, ctx) {
         return 0;
     }
 
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
+    large_buf->type = k_event_type_tcp_large_buffer;
     large_buf->packet_type = state->packet_type;
     large_buf->direction = state->direction;
     large_buf->conn_info = info->conn_info;

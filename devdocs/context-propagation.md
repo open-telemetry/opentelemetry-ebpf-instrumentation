@@ -52,6 +52,23 @@ Examples:
 - `tcp` - TCP options only
 - `headers` - HTTP headers only
 
+> **⚠️ TCP options and middleboxes.** TCP-option propagation writes an unknown
+> TCP option (kind 25) onto the connection's segments. On SSL/TLS connections
+> this is the *only* channel, since the payload is ciphertext (see Case 1). An
+> unknown TCP option on an established connection is not preserved end-to-end
+> across many network paths: L7 proxies and load balancers discard and replay
+> the original packets, and some middleboxes and managed endpoints drop or reset
+> the segment that carries it. The client then sees `connection reset by peer`,
+> typically on the first request after connect. The effect is path-dependent, so
+> it appears intermittently.
+>
+> If your instrumented services talk through such intermediaries, use
+> `headers` and do not enable `tcp`. HTTP-header propagation is unaffected;
+> only cross-service linking over paths that require the TCP-option channel
+> (chiefly non-Go SSL/TLS clients) is lost. TCP options are safe only when OBI
+> is on both ends and the path preserves them (typically a direct L2/L3 network
+> with no option-stripping middlebox).
+
 ## Egress (Sending) Flow
 
 ### Execution Order
@@ -112,6 +129,10 @@ The `written` flag implements mutual exclusion through the natural execution ord
    - Lookup fails (entry deleted), skips
 Result: TCP options only ✓
 ```
+
+TCP options are the only channel here, and they only reach the peer on paths
+that preserve the option (see the middlebox warning under
+[Configuration](#configuration)). Where they do not, prefer `headers`.
 
 **For Go HTTP (plaintext):**
 

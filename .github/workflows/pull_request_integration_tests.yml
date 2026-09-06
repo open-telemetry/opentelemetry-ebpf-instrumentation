@@ -45,7 +45,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/generate-bpf
+      - uses: $/.github/actions/generate-bpf
         with:
           cache-key-prefix: go-build-integration-race
 
@@ -61,20 +61,37 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      # amd64 runs the full suite (10 shards). arm64 keeps the current
+      # multiprocess subset (5 shards) until coverage is expanded.
       - name: Build test matrix
         id: build-matrix
-        env:
-          PARTITIONS: 10
         run: |
-          echo -n "matrix=" >> $GITHUB_OUTPUT
-          make integration-test-matrix-json >> $GITHUB_OUTPUT
+          {
+            echo -n "matrix="
+            jq -nc \
+              --argjson amd64 "$(PARTITIONS=10 make integration-test-matrix-json)" \
+              --argjson arm64 "$(PARTITIONS=5 make multiprocess-integration-test-matrix-json)" \
+              '{
+                include: (
+                  ($amd64.include | map(. + {runner: "ubuntu-latest", arch: "amd64"}))
+                  +
+                  ($arm64.include | map(. + {runner: "ubuntu-24.04-arm", arch: "arm64"}))
+                )
+              }'
+          } >> "$GITHUB_OUTPUT"
 
   prep-images:
-    name: "Pre-pull base images"
-    runs-on: ubuntu-latest
+    name: "Pre-pull base images (${{ matrix.platform.arch }})"
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 20
-    outputs:
-      cache-key: ${{ steps.cache-key.outputs.key }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -108,10 +125,18 @@ jobs:
         run: bash scripts/pull-base-images.sh /tmp/base-images.tar
 
   build-obi-image:
-    name: "Build OBI test image"
-    runs-on: ubuntu-latest
+    name: "Build OBI test image (${{ matrix.platform.arch }})"
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 20
     needs: [generate-bpf]
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -133,18 +158,20 @@ jobs:
       - name: Upload OBI test image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: obi-image-amd64-${{ github.run_id }}
+          name: obi-image-${{ matrix.platform.arch }}-${{ github.run_id }}
           path: /tmp/hatest-obi.tar
           retention-days: 1
 
   test:
-    name: ${{ matrix.description }}
+    name: ${{ matrix.description }} (${{ matrix.arch }})
     needs: [test-matrix, generate-bpf, prep-images, build-obi-image]
+    # prep-images and build-obi-image are matrixed; don't skip all shards if one arch fails
+    if: ${{ !cancelled() && needs.generate-bpf.result == 'success' && needs.test-matrix.result == 'success' }}
     permissions:
       # Required for codecov
       checks: write
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -155,7 +182,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/free-disk
+      - uses: $/.github/actions/free-disk
 
       - name: Check for Docker Hub token
         id: check-docker-token
@@ -197,11 +224,26 @@ jobs:
       - name: Build test tools
         run: make prereqs
 
+      - name: Compute base-image cache key
+        id: cache-key
+        env:
+          ARCH: ${{ runner.arch }}
+          INPUT_REF: ${{ inputs.ref || '' }}
+        run: |
+          if [ -n "${INPUT_REF}" ]; then
+            REF_SCOPE="input-ref-$(printf '%s' "${INPUT_REF}" | sha256sum | cut -d' ' -f1)"
+          else
+            REF_SCOPE="event-ref"
+          fi
+
+          IMAGE_SCOPE="$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)"
+          echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}" >> "$GITHUB_OUTPUT"
+
       - name: Restore base images
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
           path: /tmp/base-images.tar
-          key: ${{ needs.prep-images.outputs.cache-key }}
+          key: ${{ steps.cache-key.outputs.key }}
 
       - name: Load base images
         run: |
@@ -214,7 +256,7 @@ jobs:
       - name: Download prebuilt OBI image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: obi-image-amd64-${{ github.run_id }}
+          name: obi-image-${{ matrix.arch }}-${{ github.run_id }}
           path: /tmp/obi-image
 
       # hatest-obi-b is the same plain build under a second tag
@@ -227,6 +269,7 @@ jobs:
         run: df -h
 
       - name: Install bpftool (PoC eBPF metrics)
+        if: matrix.arch == 'amd64'
         run: |
           sudo apt-get update
           sudo apt-get install -y linux-tools-generic jq
@@ -243,6 +286,7 @@ jobs:
           sudo /usr/local/sbin/bpftool version
 
       - name: Start bpftool sampler (PoC eBPF metrics)
+        if: matrix.arch == 'amd64'
         env:
           BPF_SAMPLE_DIR: /tmp/bpfsamples
           BPF_SAMPLE_INTERVAL: "2"
@@ -281,7 +325,7 @@ jobs:
               -run="^(${MATRIX_TEST_PATTERN})$" ./internal/test/integration
 
       - name: Stop bpftool sampler (PoC eBPF metrics)
-        if: always()
+        if: ${{ always() && matrix.arch == 'amd64' }}
         env:
           BPF_SAMPLE_DIR: /tmp/bpfsamples
         run: |
@@ -305,7 +349,7 @@ jobs:
           echo "Sample count: ${#snaps[@]}"
 
       - name: Build eBPF metrics summary (PoC)
-        if: always()
+        if: ${{ always() && matrix.arch == 'amd64' }}
         env:
           BPF_SAMPLE_DIR: /tmp/bpfsamples
           MATRIX_ID: ${{ matrix.id }}
@@ -319,7 +363,7 @@ jobs:
           bash ./scripts/bpf-metrics-summary.sh "${ARGS[@]}" || true
 
       - name: Upload eBPF metrics snapshots (PoC)
-        if: always()
+        if: ${{ always() && matrix.arch == 'amd64' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bpf-metrics-${{ matrix.id }}-${{ github.run_number }}
@@ -336,13 +380,13 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: integration-test
-          name: integration-coverage-${{ matrix.id }}-${{ github.run_number }}
+          name: integration-coverage-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: integration-reports-${{ matrix.id }}-${{ github.run_number }}
+          name: integration-reports-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
@@ -350,7 +394,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: integration-logs-${{ matrix.id }}-${{ github.run_number }}
+          name: integration-logs-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind

@@ -29,7 +29,7 @@ jobs:
         with:
           persist-credentials: 'false'
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
@@ -91,7 +91,7 @@ jobs:
           fi
 
       - name: go
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -99,7 +99,7 @@ jobs:
           file: internal/test/integration/components/testserver/Dockerfile
 
       - name: go-http-client
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -107,7 +107,7 @@ jobs:
           file: internal/test/integration/components/httppinger/Dockerfile
 
       - name: rust
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -115,7 +115,7 @@ jobs:
           file: internal/test/integration/components/rusttestserver/Dockerfile
 
       - name: rust-ssl
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -123,7 +123,7 @@ jobs:
           file: internal/test/integration/components/rustssltestserver/Dockerfile
 
       - name: rails
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -131,7 +131,7 @@ jobs:
           file: internal/test/integration/components/rubytestserver/testapi/Dockerfile
 
       - name: rails-ssl
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -139,7 +139,7 @@ jobs:
           file: internal/test/integration/components/rubytestserver/testapi/Dockerfile_tls
 
       - name: java-jar
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -147,7 +147,7 @@ jobs:
           file: internal/test/integration/components/javatestserver/Dockerfile_jar
 
       - name: java-native
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -155,7 +155,7 @@ jobs:
           file: internal/test/integration/components/javatestserver/Dockerfile
 
       - name: node
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
@@ -163,7 +163,7 @@ jobs:
           file: internal/test/integration/components/nodejsserver/Dockerfile
 
       - name: python
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}

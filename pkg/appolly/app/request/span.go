@@ -30,7 +30,8 @@ import (
 type EventType uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	// EventTypeProcessAlive is an internal signal. It will be ignored by the metrics exporters.
 	EventTypeProcessAlive EventType = iota
@@ -246,6 +247,16 @@ type SQLError struct {
 	Code     uint16 `json:"code"`
 	SQLState string `json:"sqlState"`
 	Message  string `json:"message"`
+}
+
+// ResponseStatusCode returns the db.response.status_code value for the error:
+// the vendor error code when the protocol provides one (MySQL, SQL Server),
+// else the SQLSTATE (PostgreSQL, whose protocol carries no vendor code).
+func (e *SQLError) ResponseStatusCode() string {
+	if e.Code != 0 {
+		return strconv.Itoa(int(e.Code))
+	}
+	return e.SQLState
 }
 
 type MessagingInfo struct {

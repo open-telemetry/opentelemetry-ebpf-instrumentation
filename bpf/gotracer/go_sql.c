@@ -337,7 +337,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {
         task_pid(&trace->pid);
-        trace->type = EVENT_SQL_CLIENT;
+        trace->type = k_event_type_sql_client;
         trace->sub_type = k_db_generic;
         trace->start_monotime_ns = invocation->start_monotime_ns;
         trace->end_monotime_ns = bpf_ktime_get_ns();

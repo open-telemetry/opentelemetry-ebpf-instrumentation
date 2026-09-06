@@ -684,16 +684,20 @@ func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 			End:          200,
 		}
 	}
+	failedSpan := postgresSpan("FAILED", 5433, "dbhost")
+	failedSpan.Status = 1
+	failedSpan.SQLError = &request.SQLError{Code: 1146}
 	metrics.Send([]request.Span{
 		postgresSpan("NONDEFAULT", 5433, "dbhost"),
 		postgresSpan("DEFAULTPORT", 5432, "dbhost"),
 		postgresSpan("NOADDRESS", 5433, ""),
 		postgresSpan("UNKNOWNPORT", 0, "dbhost"),
+		failedSpan,
 	})
 
 	records := map[string]collector.MetricRecord{}
 	deadline := time.After(timeout)
-	for len(records) < 4 {
+	for len(records) < 5 {
 		select {
 		case item := <-metricRecords:
 			if item.Name != attributes.DBClientDuration.OTEL {
@@ -709,6 +713,10 @@ func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 	assert.NotContains(t, records["DEFAULTPORT"].Attributes, string(attr.ServerPort))
 	assert.NotContains(t, records["NOADDRESS"].Attributes, string(attr.ServerPort))
 	assert.NotContains(t, records["UNKNOWNPORT"].Attributes, string(attr.ServerPort))
+
+	// db.response.status_code is reported only for failed operations
+	assert.Equal(t, "1146", records["FAILED"].Attributes[string(attr.DBResponseStatusCode)])
+	assert.NotContains(t, records["NONDEFAULT"].Attributes, string(attr.DBResponseStatusCode))
 }
 
 func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {

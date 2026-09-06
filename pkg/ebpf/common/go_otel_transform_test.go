@@ -34,7 +34,7 @@ var (
 )
 
 func TestReadBPFTraceAsSpanGoAutoSpan(t *testing.T) {
-	assert.Equal(t, uint8(20), uint8(EventTypeGoAutoSpan))
+	assert.Equal(t, uint8(20), EventTypeGoAutoSpan)
 	assert.Equal(t, 20, int(unsafe.Offsetof(GoAutoSpanTrace{}.Buf)))
 	assert.Equal(t, 16*1024, goAutoSpanJSONMaxLen)
 	assert.NotEqual(t, EventTypeGoRuntimeMetric, EventTypeGoAutoSpan)

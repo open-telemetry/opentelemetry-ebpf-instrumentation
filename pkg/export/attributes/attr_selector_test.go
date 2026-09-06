@@ -202,6 +202,7 @@ func TestDefault_DBClientDuration(t *testing.T) {
 	assert.Equal(t, []attr.Name{
 		attr.DBNamespace,
 		attr.DBOperation,
+		attr.DBResponseStatusCode,
 		attr.DBSystemName,
 		attr.ErrorType,
 		attr.ServerAddr,
@@ -215,6 +216,7 @@ func TestDefault_DBServerDuration(t *testing.T) {
 	assert.Equal(t, []attr.Name{
 		attr.DBNamespace,
 		attr.DBOperation,
+		attr.DBResponseStatusCode,
 		attr.DBSystemName,
 		attr.ErrorType,
 		attr.ServerAddr,
