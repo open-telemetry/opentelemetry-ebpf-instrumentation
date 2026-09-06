@@ -37,7 +37,7 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_INTERNAL_METRICS_INTERVAL: "10ms"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
