@@ -208,6 +208,8 @@ extensions:
           enabled:
             traces: true
             metrics: true
+            # Opt-In in the semantic conventions, so off unless requested.
+            body_size_metrics: false
           # The target adapter imports one shared application filter. Every
           # application protocol's trace and metric maps must equal this trace
           # map.

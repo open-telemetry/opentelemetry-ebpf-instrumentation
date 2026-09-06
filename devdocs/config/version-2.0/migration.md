@@ -362,7 +362,9 @@ reshaped:
 - `discovery.services` and related regex selectors become regex rules;
 - `discovery.instrument` and related glob selectors become glob rules;
 - deprecated exporter `features` values are normalized through
-  `metrics.features` and then split across protocol and network enablement.
+  `metrics.features` and then split across protocol and network enablement;
+- `application_sizes` becomes
+  `capture.instrumentation.http.enabled.body_size_metrics`.
 
 Selector naming, per-selector metric features and samplers, and exclusion-rule
 refinements are not part of that reshape; the command rejects them as described
@@ -393,7 +395,7 @@ include:
 | `ebpf.log_enricher.services` | Correlation filtering is not supported in v2. Do not broaden annotation silently; keep v1 or redesign the deployment. |
 | `attributes.sensitive_query_params` | No v2 field exists. Do not remove a redaction setting without an equivalent privacy review. |
 | `discovery.exclude_otel_instrumented_services_span_metrics` | No independent v2 selector exists for this legacy span-metrics exception. |
-| `metrics.features` values other than application RED, basic network flow, and the individual network-stat features | Span metrics, the HTTP body size histograms, service graphs, application host/runtime metrics, inter-zone/network-packet variants, and eBPF metrics are not represented by current v2 enablement. |
+| `metrics.features` values other than application RED, the HTTP body size histograms, basic network flow, and the individual network-stat features | Span metrics, service graphs, application host/runtime metrics, inter-zone/network-packet variants, and eBPF metrics are not represented by current v2 enablement. |
 | Non-default `otel_traces_export.instrumentations`, `otel_metrics_export.instrumentations`, or `prometheus_export.instrumentations` selections involving protocols not modeled by v2 | The v2 protocol enablement section cannot represent every v1 instrumentation. Keep v1 when the command reports a changed instrumentation list. |
 | OTLP HTTP protocol or an implicitly HTTP endpoint | Automatic migration supports the emitted OTLP/gRPC provider subset only. In a release that includes [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682), map it manually to the signal's `otlp_http` exporter and preserve the effective endpoint and encoding as described above; otherwise keep v1. |
 | `otel_traces_export.protocol: debug` | The v1 debug exporter has no supported declarative provider mapping. `daemon.logging.debug_trace_output` maps `trace_printer`, which is a different output path. Keep v1 when the debug exporter behavior is required. |

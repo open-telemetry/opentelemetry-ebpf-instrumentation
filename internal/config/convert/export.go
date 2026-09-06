@@ -96,7 +96,10 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 
 	http := protocols[protocolHTTP]
 	httpInstrumentation := schema.HTTPInstrumentation{
-		Enabled:                   http.Enabled,
+		Enabled: schema.HTTPProtocolEnablement{
+			ProtocolEnablement: http.Enabled,
+			BodySizeMetrics:    cfg.Metrics.Features.AppSizes(),
+		},
 		Filters:                   http.Filters,
 		TrackRequestHeaders:       cfg.EBPF.TrackRequestHeaders,
 		RequestTimeout:            schema.Duration(cfg.EBPF.HTTPRequestTimeout),
