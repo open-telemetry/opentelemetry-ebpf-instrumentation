@@ -46,7 +46,7 @@ func TestMySQLErrorPacketValidation(t *testing.T) {
 	})
 
 	packet := mysqlErrorPacket(20301, "#HY000test error")
-	for length := 0; length < MySQLHdrSize+1+2+1+5; length++ {
+	for length := range MySQLHdrSize + 1 + 2 + 1 + 5 {
 		t.Run("truncated/"+strconv.Itoa(length), func(t *testing.T) {
 			assert.Nil(t, SQLParseError(request.DBMySQL, packet[:length]))
 		})
