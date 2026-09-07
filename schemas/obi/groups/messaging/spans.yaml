@@ -68,6 +68,9 @@ groups:
       - ref: messaging.kafka.offset
         requirement_level:
           recommended: if the record carried partition metadata
+      - ref: messaging.consumer.group.name
+        requirement_level:
+          conditionally_required: if OBI attributed the fetch to a single consumer group of the process
 
   - id: span.obi.messaging.kafka.client
     type: span
