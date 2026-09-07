@@ -217,7 +217,7 @@ func runPythonRuntimeMetricsIntegration(t *testing.T, exporter string, image pyt
 	var workerStats pythonGCStats
 	for _, workerPID := range workerPIDs {
 		worker := readPythonForkStats(t, compose, workerPID)
-		addPythonGCStats(workerStats, worker.Stats)
+		addPythonGCStats(&workerStats, worker.Stats)
 	}
 	expectedParentStats := readPythonGCStats(t, compose, "/stats")
 	assertPythonRuntimeWorkersEventuallyMatch(t, pq, expectedParentStats, workerStats)
@@ -414,7 +414,7 @@ func addPythonRuntimeMetricDelta(
 	return exportedBeforeExit
 }
 
-func addPythonGCStats(total, next pythonGCStats) {
+func addPythonGCStats(total *pythonGCStats, next pythonGCStats) {
 	for generation := range next {
 		current := total[generation]
 		current.Collections += next[generation].Collections
