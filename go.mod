@@ -77,7 +77,7 @@ require (
 	go.opentelemetry.io/contrib/detectors/azure/azurevm v0.18.0
 	go.opentelemetry.io/contrib/detectors/gcp v1.46.0
 	go.opentelemetry.io/contrib/otelconf v0.26.0
-	go.opentelemetry.io/ebpf-profiler v0.0.202633
+	go.opentelemetry.io/ebpf-profiler v0.0.202636
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
