@@ -19,7 +19,7 @@ FROM ruby:4.0.1-slim@sha256:939bb2710ba0a49ffdba9470b4e562c9dfc5ee6718ba5a5214f1
 
 RUN apt-get update && apt-get install -y default-libmysqlclient-dev
 
-WORKDIR /
+WORKDIR /app
 COPY --from=builder /build .
 COPY --from=builder /usr/local/bundle /usr/local/bundle
 
