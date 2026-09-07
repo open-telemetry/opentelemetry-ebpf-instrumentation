@@ -94,3 +94,80 @@ func TestPostgresProtocolLengthField(t *testing.T) {
 		})
 	}
 }
+
+func TestMySQLPreparedProtocolLengthCollision(t *testing.T) {
+	for _, command := range []byte{kMySQLPrepare, kMySQLExecute} {
+		for _, payloadLength := range []int{65, 66, 67, 68, 80, 81, 82, 255, 256, 337} {
+			t.Run(fmt.Sprintf("%x/%d", command, payloadLength), func(t *testing.T) {
+				packet := make([]byte, 4+payloadLength)
+				binary.LittleEndian.PutUint32(packet, uint32(payloadLength))
+				packet[4] = command
+				if command == kMySQLPrepare {
+					copy(packet[5:], "SELECT ?"+strings.Repeat(" ", payloadLength))
+				} else {
+					// Statement 1, cursor flags 0, iteration count 1, one non-NULL
+					// string parameter with its type supplied on this execution.
+					binary.LittleEndian.PutUint32(packet[5:], 1)
+					binary.LittleEndian.PutUint32(packet[10:], 1)
+					packet[15] = 1
+					packet[16] = 0xfd // MYSQL_TYPE_VAR_STRING
+					value := strings.Repeat("x", len(packet)-21)
+					packet[18] = 0xfc // two-byte length-encoded string length
+					binary.LittleEndian.PutUint16(packet[19:], uint16(len(value)))
+					copy(packet[21:], value)
+				}
+				assert.Equal(t, request.DBMySQL, sqlKind(largebuf.NewLargeBufferFrom(packet)))
+			})
+		}
+	}
+}
+
+func postgresTestPacket(op byte, body []byte) []byte {
+	packet := make([]byte, pgHeaderLen+len(body))
+	packet[0] = op
+	binary.BigEndian.PutUint32(packet[1:], uint32(len(packet)-1))
+	copy(packet[pgHeaderLen:], body)
+	return packet
+}
+
+func TestPostgresReverseProtocolCollision(t *testing.T) {
+	for _, op := range []byte{kPostgresQuery, kPostgresCommand, kPostgresBind} {
+		for size := 12; size <= 3000; size++ {
+			if byte(size) != kMySQLQuery && byte(size) != kMySQLPrepare && byte(size) != kMySQLExecute {
+				continue
+			}
+			t.Run(fmt.Sprintf("%c/%d", op, size), func(t *testing.T) {
+				var body []byte
+				if op == kPostgresBind {
+					// Portal name, empty statement name, zero formats/parameters/results.
+					body = append([]byte(strings.Repeat("p", size-4-8)), make([]byte, 8)...)
+				} else {
+					body = append([]byte("SELECT 1"+strings.Repeat(" ", size-4-9)), 0)
+				}
+				packet := postgresTestPacket(op, body)
+				require.True(t, isMySQL(largebuf.NewLargeBufferFrom(packet)), "exercise overlapping headers")
+				assert.Equal(t, request.DBPostgres, sqlKind(largebuf.NewLargeBufferFrom(packet)))
+				// Coalesced messages must not be mistaken for a length mismatch.
+				pipeline := append(append([]byte(nil), packet...), postgresTestPacket('S', nil)...)
+				assert.Equal(t, request.DBPostgres, sqlKind(largebuf.NewLargeBufferFrom(pipeline)))
+				assert.Equal(t, request.DBGeneric, sqlKind(largebuf.NewLargeBufferFrom(packet[:6])))
+			})
+		}
+	}
+}
+
+func TestPostgresBindBodyValidation(t *testing.T) {
+	// Empty names, two parameter formats (text/binary), NULL and empty values,
+	// and one binary result format.
+	valid := []byte{0, 0, 0, 2, 0, 0, 0, 1, 0, 2, 255, 255, 255, 255, 0, 0, 0, 0, 0, 1, 0, 1}
+	assert.True(t, validPostgresSQLBody(largebuf.NewLargeBufferFrom(postgresTestPacket(kPostgresBind, valid))))
+	for n := 0; n < len(valid); n++ {
+		assert.False(t, validPostgresSQLBody(largebuf.NewLargeBufferFrom(postgresTestPacket(kPostgresBind, valid[:n]))), "prefix %d", n)
+	}
+	for _, pos := range []int{7, 9, 13, 17, 21} {
+		invalid := append([]byte(nil), valid...)
+		invalid[pos] = 3 // bad format, count, NULL length, value length or result format
+		assert.False(t, validPostgresSQLBody(largebuf.NewLargeBufferFrom(postgresTestPacket(kPostgresBind, invalid))), "offset %d", pos)
+	}
+	assert.False(t, validPostgresSQLBody(largebuf.NewLargeBufferFrom(postgresTestPacket(kPostgresBind, append(valid, 0)))))
+}

@@ -95,6 +95,60 @@ func isValidPostgresPayload(b *largebuf.LargeBuffer) (byte, bool) {
 	return op, true
 }
 
+// validPostgresSQLBody disambiguates overlapping MySQL/PG headers using a complete
+// first PG message. Later pipelined messages are outside the reader's bounds.
+func validPostgresSQLBody(b *largebuf.LargeBuffer) bool {
+	r, err := msgBodyReader(b)
+	if err != nil {
+		return false
+	}
+	op, _ := b.U8At(0)
+	if _, err := r.ReadCStr(); err != nil {
+		return false
+	}
+	if op != kPostgresBind {
+		return r.Remaining() == 0
+	}
+	if _, err := r.ReadCStr(); err != nil {
+		return false
+	}
+	formats, ok := readPostgresFormats(&r)
+	if !ok {
+		return false
+	}
+	params, err := r.ReadU16BE()
+	if err != nil || (formats > 1 && formats != params) {
+		return false
+	}
+	for range int(params) {
+		length, err := r.ReadI32BE()
+		if err != nil || length < -1 {
+			return false
+		}
+		if length >= 0 {
+			if err := r.Skip(int(length)); err != nil {
+				return false
+			}
+		}
+	}
+	_, ok = readPostgresFormats(&r)
+	return ok && r.Remaining() == 0
+}
+
+func readPostgresFormats(r *largebuf.LargeBufferReader) (uint16, bool) {
+	count, err := r.ReadU16BE()
+	if err != nil || int(count) > r.Remaining()/2 {
+		return 0, false
+	}
+	for range int(count) {
+		format, err := r.ReadU16BE()
+		if err != nil || format > 1 {
+			return 0, false
+		}
+	}
+	return count, true
+}
+
 // msgBody returns the raw bytes of the Postgres message body (after the 5-byte header),
 // bounded by the message size field. Returns an error if the buffer is too short.
 func msgBody(b *largebuf.LargeBuffer) ([]byte, error) {
