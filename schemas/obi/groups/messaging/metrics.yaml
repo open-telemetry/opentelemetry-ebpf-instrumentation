@@ -28,6 +28,7 @@ groups:
     stability: development
     attributes:
       - ref: error.type
+      - ref: messaging.consumer.group.name
       - ref: messaging.destination.name
       - ref: messaging.operation.name
       - ref: messaging.system

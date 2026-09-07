@@ -4,7 +4,8 @@ groups:
   # process is consumer, and receive and settle are client, because OBI
   # observes the exchange with the broker rather than what the application
   # afterwards does with the message. The attribute set is the union OBI emits
-  # across systems and is identical for all three kinds.
+  # across systems and is identical for all three kinds, except the consumer
+  # group, which only a consumer has.
   - id: span.obi.messaging.producer
     type: span
     span_kind: producer
@@ -38,6 +39,7 @@ groups:
       - ref: messaging.client.id
       - ref: messaging.destination.partition.id
       - ref: messaging.kafka.offset
+      - ref: messaging.consumer.group.name
       - ref: messaging.message.envelope.size
       - ref: server.address
       - ref: server.port
