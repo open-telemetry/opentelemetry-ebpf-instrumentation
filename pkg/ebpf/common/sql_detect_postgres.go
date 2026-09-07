@@ -87,7 +87,8 @@ func isValidPostgresPayload(b *largebuf.LargeBuffer) (byte, bool) {
 	}
 
 	size, err := b.I32BEAt(1)
-	if err != nil || size < 0 || size > 3000 {
+	// The declared length includes the four-byte length field itself.
+	if err != nil || size < pgHeaderLen-1 || size > 3000 {
 		return 0, false
 	}
 
