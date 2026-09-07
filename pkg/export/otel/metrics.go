@@ -410,6 +410,18 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 	return opts
 }
 
+// rpcClientRecorded and msgPublishRecorded mirror the enablement conditions the
+// corresponding instruments are created under. An HTTP client subtype routed to
+// another domain's instrument must check the owning domain, not its own: with
+// none of these features enabled the instrument is nil.
+func (mr *MetricsReporter) rpcClientRecorded() bool {
+	return mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() || mr.is.HTTPEnabled()
+}
+
+func (mr *MetricsReporter) msgPublishRecorded() bool {
+	return mr.is.MQEnabled() || mr.is.HTTPEnabled()
+}
+
 func (mr *MetricsReporter) usesLegacySpanNames() bool {
 	return mr.jointMetricsCfg.Features.LegacySpanMetrics()
 }
@@ -974,10 +986,10 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			} else if span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled() {
 				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			} else if span.SubType == request.HTTPSubtypeAWSS3 {
+			} else if span.SubType == request.HTTPSubtypeAWSS3 && mr.rpcClientRecorded() {
 				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			} else if span.SubType == request.HTTPSubtypeAWSSQS && request.IsMessagingClientOperation(span) {
+			} else if span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && mr.msgPublishRecorded() {
 				msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
 				msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestIsMessagingClientOperation(t *testing.T) {
+func TestIsSQSMessagingClientOperation(t *testing.T) {
 	for _, tt := range []struct {
 		name          string
 		subType       int
@@ -51,7 +51,7 @@ func TestIsMessagingClientOperation(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			span := &Span{Type: EventTypeHTTPClient, SubType: tt.subType, AWS: tt.aws}
-			assert.Equal(t, tt.wantMessaging, IsMessagingClientOperation(span))
+			assert.Equal(t, tt.wantMessaging, IsSQSMessagingClientOperation(span))
 		})
 	}
 }

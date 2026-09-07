@@ -220,10 +220,10 @@ func MessagingOperationTypeOf(operationName string) string {
 	return operationName
 }
 
-// IsMessagingClientOperation reports whether an AWS SQS span describes a
+// IsSQSMessagingClientOperation reports whether an AWS SQS span describes a
 // producer or consumer operation. Queue administration calls carry no
 // messaging.operation.type and are not messaging client operations.
-func IsMessagingClientOperation(span *Span) bool {
+func IsSQSMessagingClientOperation(span *Span) bool {
 	if span.SubType != HTTPSubtypeAWSSQS || span.AWS == nil {
 		return false
 	}

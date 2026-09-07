@@ -1012,6 +1012,18 @@ func traceExemplar(span *request.Span) prometheus.Labels {
 	}
 }
 
+// rpcClientRecorded and msgPublishRecorded mirror the enablement conditions the
+// corresponding histograms are created under. An HTTP client subtype routed to
+// another domain's histogram must check the owning domain, not its own: with
+// none of these features enabled the histogram is nil.
+func (r *metricsReporter) rpcClientRecorded() bool {
+	return r.is.GRPCEnabled() || r.is.SunRPCEnabled() || r.is.HTTPEnabled()
+}
+
+func (r *metricsReporter) msgPublishRecorded() bool {
+	return r.is.MQEnabled() || r.is.HTTPEnabled()
+}
+
 // observeHistogram observes a value into a histogram, attaching an exemplar when applicable.
 func (r *metricsReporter) observeHistogram(h prometheus.Histogram, value float64, span *request.Span) {
 	if r.shouldAddExemplar(span) {
@@ -1069,9 +1081,9 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
 			case span.SubType == request.HTTPSubtypeJSONRPC && r.is.GRPCEnabled():
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
-			case span.SubType == request.HTTPSubtypeAWSS3:
+			case span.SubType == request.HTTPSubtypeAWSS3 && r.rpcClientRecorded():
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
-			case span.SubType == request.HTTPSubtypeAWSSQS && request.IsMessagingClientOperation(span):
+			case span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && r.msgPublishRecorded():
 				r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 			case r.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType):
 				r.observeHistogram(r.genAIClientDuration.WithLabelValues(labelValues(span, r.attrGenAIClientDuration)...).Metric, duration, span)

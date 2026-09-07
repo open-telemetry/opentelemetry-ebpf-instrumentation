@@ -554,6 +554,12 @@ const (
 	httpTransportNone
 )
 
+// httpClientTransportScope decides how much of the HTTP exchange a client span
+// describes alongside its own convention. It is deliberately default-deny: a
+// new subtype sheds the HTTP attributes unless it is listed here, so adding a
+// protocol needs no change unless its span group requires them. Elasticsearch
+// is the exception — `span.db.elasticsearch.client` marks `url.full` and
+// `http.request.method` as required.
 func httpClientTransportScope(subType int) httpTransportScope {
 	switch subType {
 	case request.HTTPSubtypeNone, request.HTTPSubtypeGraphQL:
