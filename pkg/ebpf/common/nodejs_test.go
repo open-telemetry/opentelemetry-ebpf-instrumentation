@@ -362,8 +362,7 @@ func TestParseNodejsResourceRecord(t *testing.T) {
 	assert.Equal(t, uint64(5), event.Count)
 	assert.False(t, event.Time.IsZero())
 
-	// count 0 is a valid record: the explicit zero for a type that vanished
-	// since the previous sampling interval
+	// count 0 is valid: the vanished-type explicit zero
 	event, err = ParseNodejsResourceRecord(&ringbuf.Record{RawSample: nodejsResourceRawSample("Timeout", 0)})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(0), event.Count)
@@ -402,8 +401,7 @@ func TestHandleRuntimeMetricsRecordSendsDecoratedResourceEvent(t *testing.T) {
 	assert.Equal(t, "Timeout", sender.nodejsResourceEvents[0].ResourceType)
 	assert.Equal(t, uint64(5), sender.nodejsResourceEvents[0].Count)
 
-	// the runtime spelling for TCP connections is canonicalized to the
-	// semconv member and must survive the well-known filter
+	// the runtime spelling is canonicalized and must survive the filter
 	handled, err = HandleRuntimeMetricsRecord(context.Background(), eventCtx, &ringbuf.Record{
 		RawSample: nodejsResourceRawSample("TCPSocketWrap", 2),
 	}, filter, nil)
@@ -414,8 +412,7 @@ func TestHandleRuntimeMetricsRecordSendsDecoratedResourceEvent(t *testing.T) {
 	assert.Equal(t, uint64(2), sender.nodejsResourceEvents[1].Count)
 }
 
-// resource types outside the well-known semconv v8js.resource.type members
-// (e.g. FSReqCallback) must be dropped at dispatch, never exported
+// non-well-known resource types must be dropped at dispatch, never exported
 func TestHandleRuntimeMetricsRecordDropsNonSemconvResourceType(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "node-svc"}}
 	filter := fakeRuntimeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{

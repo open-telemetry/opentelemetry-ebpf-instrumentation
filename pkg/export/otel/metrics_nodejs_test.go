@@ -374,8 +374,7 @@ func TestRuntimeMetricsReporterRecordsV8ResourceActive(t *testing.T) {
 	assert.Equal(t, "Timeout", timeout.Attrs["v8js.resource.type"])
 	assert.Equal(t, "orders-node", timeout.ResourceAttrs["service.name"])
 
-	// the vanished-type explicit zero must be recorded as a real zero, not
-	// skipped: a skipped record would leave the gauge frozen at 5
+	// the vanished-type explicit zero must be recorded, not skipped
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: service,
 		PID:     55,

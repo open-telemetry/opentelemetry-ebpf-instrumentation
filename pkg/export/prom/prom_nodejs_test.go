@@ -255,8 +255,7 @@ func TestRuntimeMetricsReporterRecordsV8ResourceActive(t *testing.T) {
 	require.NotNil(t, server)
 	assert.InEpsilon(t, 1.0, server.GetGauge().GetValue(), 1e-9)
 
-	// the vanished-type explicit zero must overwrite the gauge, not be
-	// skipped: a skipped record would keep serving the stale 5
+	// the vanished-type explicit zero must overwrite the gauge, not be skipped
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
 		nodejsV8ResourceSnapshot(export.FeatureApplicationRuntime, "Timeout", 0),
 	})

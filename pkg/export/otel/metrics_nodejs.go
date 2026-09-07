@@ -191,9 +191,8 @@ func (m *nodejsRuntimeMetrics) recordV8(snapshot runtimemetrics.RuntimeMetricSna
 		m.heapPhysical.Record(snapshot, int64(values.PhysicalSpaceSize))
 	}
 
-	// Count 0 is the vanished-type explicit zero and must be recorded like
-	// any other value: skipping it would leave the gauge frozen at the last
-	// nonzero count until the TTL retires the series.
+	// count 0 is the vanished-type explicit zero and must be recorded, or
+	// the gauge stays frozen at its last value until the TTL
 	if snapshot.NodejsResource != nil && m.resourceActive != nil {
 		if attrs, ok := m.resourceTypeAttrs[snapshot.NodejsResource.ResourceType]; ok {
 			m.resourceActive.Record(m.ctx, int64(snapshot.NodejsResource.Count),

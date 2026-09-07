@@ -266,13 +266,12 @@
           fs.accessSync(`/dev/null/obi-v8/h${rtHex(s.space_size)}${rtHex(s.space_used_size)}${rtHex(s.space_available_size)}${rtHex(s.physical_space_size)}${s.space_name}`);
         } catch (_) {}
       }
-      // v8js.resource.active: fold the live-resource list (one entry per
-      // resource) into per-type counts, one a-record per type. A type
-      // present on the previous tick but absent now is emitted once with
-      // an explicit count 0: a gauge that silently stops being reported
-      // would keep serving its stale last value until the staleness TTL.
-      // getActiveResourcesInfo needs Node 16.14+; older runtimes skip
-      // resource metrics while everything above keeps working.
+      // v8js.resource.active: fold the live-resource list into per-type
+      // counts, one a-record per type. A type present on the previous tick
+      // but absent now is emitted once with count 0, or exporters would
+      // serve its stale last value until the staleness TTL.
+      // getActiveResourcesInfo needs Node 16.14+; older runtimes just skip
+      // resource metrics.
       if (typeof process.getActiveResourcesInfo === 'function') {
         const counts = new Map();
         for (const type of process.getActiveResourcesInfo()) {

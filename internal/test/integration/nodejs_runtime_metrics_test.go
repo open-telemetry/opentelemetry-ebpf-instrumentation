@@ -246,11 +246,9 @@ func testV8GCDuration(t *testing.T, pq promtest.Client) {
 }
 
 // testV8ResourceActive retains never-firing timers and expects the active
-// resource gauge to census them under v8js_resource_type="Timeout", in step
-// with the app's own getActiveResourcesInfo() fold. Clearing them must drop
-// the exported count back down: a type that vanishes between two ticks is
-// reported once as an explicit zero, not left frozen at its last value until
-// the staleness TTL retires the series.
+// resource gauge to census them, in step with the app's own
+// getActiveResourcesInfo() fold; clearing them must drop the exported count
+// back down (the vanished-type explicit zero).
 func testV8ResourceActive(t *testing.T, pq promtest.Client) {
 	const timers = 5
 
@@ -270,9 +268,8 @@ func testV8ResourceActive(t *testing.T, pq promtest.Client) {
 
 	ti.DoHTTPGet(t, "http://localhost:"+nodejsRuntimeMetricsHostPort+"/resources?timers=0", http.StatusOK)
 
-	// must drop well before the 30s prometheus staleness TTL: only the
-	// agent's explicit zero can get it there — TTL retirement of a frozen
-	// series would take the full window
+	// must drop well before the 30s staleness TTL: only the agent's explicit
+	// zero can get it there
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		require.Less(ct, nodejsResourceCount(ct, pq, "Timeout"), float64(timers),
 			"clearing the intervals must drop the exported count (explicit zero on vanish)")

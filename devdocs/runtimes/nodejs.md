@@ -76,9 +76,9 @@ The injected agent reports in-process readings over an eBPF side channel:
 3. The generic tracer's `uv_fs_access` uprobe decodes the payloads
    (rejecting any malformed record — exact-length, hex and name-length
    validation), stamps kernel time and the calling thread's namespaced pid,
-   and submits `EVENT_NODEJS_EVENTLOOP`, `EVENT_NODEJS_GC`,
-   `EVENT_NODEJS_HEAP_SPACE` and `EVENT_NODEJS_RESOURCE` events through the
-   shared BPF event ring buffer.
+   and submits `k_event_type_nodejs_eventloop`, `k_event_type_nodejs_gc`,
+   `k_event_type_nodejs_heap_space` and `k_event_type_nodejs_resource`
+   events through the shared BPF event ring buffer.
 4. Userspace converts raw events into `RuntimeMetricSnapshot` values and
    forwards them through the runtime metrics queue.
 5. OTEL and Prometheus exporters consume queued snapshots, apply per-service

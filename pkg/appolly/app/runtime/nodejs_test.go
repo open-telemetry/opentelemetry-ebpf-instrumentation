@@ -78,10 +78,8 @@ func TestIsSemconvHeapSpace(t *testing.T) {
 	}
 }
 
-// Only the well-known members of the semconv v8js.resource.type enum are
-// exported; Node reports one name per live wrap class — far more than the
-// documented set (FSReqCallback, MessagePort, ...) — and those are dropped
-// before export, same policy as heap spaces. Values are CamelCase verbatim.
+// Same policy as heap spaces: only the well-known enum members are
+// exported, everything else is dropped before export.
 func TestIsSemconvResourceType(t *testing.T) {
 	for _, name := range []string{"Immediate", "TCPServerWrap", "TCPWrap", "Timeout", "TTYWrap"} {
 		assert.True(t, IsSemconvResourceType(name), name)
@@ -110,10 +108,8 @@ func TestParseNodejsResourceEvent(t *testing.T) {
 	assert.Equal(t, uint64(5), event.Count)
 	require.WithinDuration(t, timing.KernelTime(ktime), event.Time, 100*time.Millisecond)
 
-	// Node has reported TCP connections as "TCPSocketWrap" since before
-	// getActiveResourcesInfo existed, so the semconv member value "TCPWrap"
-	// never occurs verbatim: the runtime spelling is canonicalized at parse
-	// time or the member could never be populated.
+	// the runtime spelling for TCP connections is canonicalized to the
+	// semconv member, which never occurs verbatim in real output
 	assert.Equal(t, "TCPWrap", ParseNodejsResourceEvent(ktime, 55, 99, "TCPSocketWrap", 2).ResourceType)
 }
 

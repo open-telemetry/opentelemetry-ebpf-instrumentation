@@ -85,16 +85,13 @@ struct nodejs_heap_space_event {
 };
 
 enum {
-    // names are MemoryInfoName() of Node's handle/request wrap classes; the
-    // longest today (node source, src/*wrap*) is 19 (TraceSigintWatchdog)
+    // longest wrap-class MemoryInfoName() today is 19 (TraceSigintWatchdog)
     k_nodejs_resource_type_max = 32,
 };
 
-// One active-resource census entry reported by the injected agent (one event
-// per resource type per sampling interval; count 0 marks a type that
-// vanished since the previous interval). The type name is the Node-defined
-// resource class name, passed through verbatim (name_len bytes, not
-// NUL-terminated).
+// One active-resource census entry (one event per resource type per sampling
+// interval; count 0 marks a type that vanished since the previous interval).
+// The type name travels verbatim (name_len bytes, not NUL-terminated).
 // Mirrored in Go by nodejsResourceRawEvent (pkg/ebpf/common/nodejs.go).
 struct nodejs_resource_event {
     u8 type;

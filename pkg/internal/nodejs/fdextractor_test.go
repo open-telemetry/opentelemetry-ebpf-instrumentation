@@ -143,8 +143,8 @@ func TestV8GCEmissionFieldOrder(t *testing.T) {
 }
 
 // TestV8ResourceEmissionFieldOrder pins the a-record wire layout: the
-// fixed-width count first, the variable-length resource type name LAST (the
-// path NUL terminates it), mirroring the h-record framing.
+// fixed-width count first, the variable-length type name last (the path NUL
+// terminates it), mirroring the h-record framing.
 func TestV8ResourceEmissionFieldOrder(t *testing.T) {
 	src := _extractorCode
 
@@ -162,17 +162,14 @@ func TestV8ResourceEmissionFieldOrder(t *testing.T) {
 	require.NotEqual(t, -1, typeIdx, "type name missing from the resource record")
 	require.Greater(t, typeIdx, countIdx, "count must precede the type name on the wire")
 
-	// getActiveResourcesInfo needs Node 16.14+ (17.3 backport); an unguarded
-	// call would throw inside the interval and terminate the application
+	// an unguarded call would throw on pre-16.14 runtimes and terminate the app
 	require.Contains(t, src, "typeof process.getActiveResourcesInfo === 'function'",
 		"resource emission must be guarded for pre-16.14 runtimes")
 }
 
-// TestV8ResourceVanishedTypeZero pins the disappearing-type contract: the
-// previous tick's type set is kept on the shared store and a type absent
-// from the current fold is emitted once with count 0 — without it the
-// exporters would serve the stale last value until the staleness TTL
-// retires the series.
+// TestV8ResourceVanishedTypeZero pins the disappearing-type contract: a
+// type absent from the current fold is emitted once with count 0, or the
+// exporters would serve its stale last value until the staleness TTL.
 func TestV8ResourceVanishedTypeZero(t *testing.T) {
 	src := _extractorCode
 
@@ -183,8 +180,7 @@ func TestV8ResourceVanishedTypeZero(t *testing.T) {
 	require.Contains(t, src, "orig.rtPrevResources = present",
 		"the previous-tick set must hold only the types actually present")
 
-	// teardown must sit in the cleanup section that runs before the RT gate,
-	// like the histogram and gc observer teardowns
+	// teardown must sit in the cleanup section before the RT gate
 	gateStart := strings.Index(src, "if (RT_ENABLED &&")
 	require.NotEqual(t, -1, gateStart, "RT gate not found in fdextractor.js")
 	require.Contains(t, src[:gateStart], "orig.rtPrevResources = undefined",
