@@ -1785,21 +1785,11 @@ func spanKind(span *request.Span) trace2.SpanKind {
 		request.EventTypeMQTTClient, request.EventTypeMQTTServer,
 		request.EventTypeNATSClient, request.EventTypeNATSServer,
 		request.EventTypeAMQPClient:
-		if kind, ok := messagingSpanKind(request.MessagingOperationTypeOf(span.Method)); ok {
+		if kind, ok := request.MessagingSpanKind(span.Method); ok {
 			return kind
 		}
 	}
 	return trace2.SpanKindInternal
-}
-
-func messagingSpanKind(operationType string) (trace2.SpanKind, bool) {
-	switch operationType {
-	case request.MessagingSend:
-		return trace2.SpanKindProducer, true
-	case request.MessagingReceive, request.MessagingProcess:
-		return trace2.SpanKindConsumer, true
-	}
-	return trace2.SpanKindUnspecified, false
 }
 
 func spanStartTime(t request.Timings) time.Time {
