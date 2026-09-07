@@ -848,7 +848,7 @@
         },
         "wakeup_len": {
           "type": "integer",
-          "description": "Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0 TODO: see if there is a way to force eBPF to wakeup userspace on timeout",
+          "description": "Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0. The userspace ring buffer reader periodically flushes pending events regardless, so wakeup_len bounds wakeup overhead rather than maximum delivery delay.",
           "default": 500,
           "x-env-var": "OTEL_EBPF_BPF_WAKEUP_LEN"
         }

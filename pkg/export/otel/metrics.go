@@ -744,8 +744,7 @@ func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 
 	mlog().Debug("creating new metric set", "service", service)
 	// time units for HTTP and GRPC durations are in seconds, according to the OTEL specification:
-	// https://github.com/open-telemetry/opentelemetry-specification/tree/main/specification/metrics/semantic_conventions
-	// TODO: set ExplicitBucketBoundaries here and in prometheus from the previous specification
+	// https://opentelemetry.io/docs/specs/semconv/http/http-metrics/#metric-httpserverrequestduration
 	meter := m.provider.Meter(reporterName)
 	var err error
 
@@ -928,6 +927,9 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 
 	ctx := trace.ContextWithSpanContext(r.ctx, trace.SpanContext{}.WithTraceID(span.TraceID).WithSpanID(span.SpanID).WithTraceFlags(trace.TraceFlags(span.TraceFlags)))
 
+	// Data point timestamps are the collection time, not the span end time: the OTel
+	// metrics API takes no per-measurement timestamp. Span-accurate timing lives in
+	// traces and in the exemplars attached through ctx.
 	if otelMetricsAccepted(span) {
 		switch span.Type {
 		case request.EventTypeHTTP:
@@ -936,7 +938,6 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				grpcDuration, attrs := r.grpcDuration.ForRecord(span)
 				grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			} else if mr.is.HTTPEnabled() {
-				// TODO: for more accuracy, there must be a way to set the metric time from the actual span end time
 				httpDuration, attrs := r.httpDuration.ForRecord(span)
 				httpDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 
