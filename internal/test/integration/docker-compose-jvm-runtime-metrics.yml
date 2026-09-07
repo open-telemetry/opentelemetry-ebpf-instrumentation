@@ -38,7 +38,7 @@ services:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
@@ -57,7 +57,7 @@ services:
     image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus
     command:
-      - --config.file=/etc/prometheus/prometheus-config-promscrape.yml
+      - --config.file=/etc/prometheus/prometheus-config-promscrape-jvm.yml
       - --web.enable-lifecycle
       - --web.route-prefix=/
     volumes:
