@@ -6,6 +6,7 @@ package sqlprune
 import (
 	"encoding/binary"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,7 @@ func TestMySQLErrorCodes(t *testing.T) {
 			err := SQLParseError(request.DBMySQL, packet)
 			require.NotNil(t, err)
 			assert.Equal(t, code, err.Code)
-			assert.Equal(t, "#HY000", err.SQLState)
+			assert.Equal(t, "HY000", strings.TrimPrefix(err.SQLState, "#"))
 			assert.Equal(t, "test error", err.Message)
 
 			err = SQLParseError(request.DBMySQL, mysqlErrorPacket(code, "legacy error"))
@@ -34,6 +35,16 @@ func TestMySQLErrorCodes(t *testing.T) {
 }
 
 func TestMySQLErrorPacketValidation(t *testing.T) {
+	t.Run("empty_message", func(t *testing.T) {
+		packet := mysqlErrorPacket(20301, "#HY000")
+		require.Len(t, packet, 13)
+		err := SQLParseError(request.DBMySQL, packet)
+		require.NotNil(t, err)
+		assert.Equal(t, uint16(20301), err.Code)
+		assert.Empty(t, err.Message)
+		assert.Equal(t, "HY000", strings.TrimPrefix(err.SQLState, "#"))
+	})
+
 	packet := mysqlErrorPacket(20301, "#HY000test error")
 	for length := 0; length < MySQLHdrSize+1+2+1+5; length++ {
 		t.Run("truncated/"+strconv.Itoa(length), func(t *testing.T) {

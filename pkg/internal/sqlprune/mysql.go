@@ -64,12 +64,13 @@ func parseMySQLError(buf []uint8) *request.SQLError {
 	}
 
 	if buf[offset] == MySQLStateMarker {
-		if len(buf) < (MySQLErrMinLen + 6) {
+		if length < offset+1+5 {
 			return nil
 		}
 		// Skip the SQL state marker
 		offset++
 		// Read the SQL state
+		// TODO: Normalize SQLState to five characters without changing error.type silently.
 		sqlErr.SQLState = string(MySQLStateMarker) + string(buf[offset:offset+5])
 		offset += 5
 	}
