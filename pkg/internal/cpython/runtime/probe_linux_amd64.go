@@ -26,10 +26,11 @@ type decodedInstruction struct {
 
 const (
 	// maximumPythonFunctionSize bounds decoder work on malformed or unexpected ELF metadata.
-	maximumPythonFunctionSize = 512
-	ehFrameEncodedFieldSize   = 4
-	ehFrameHeaderSize         = 12
-	ehFrameTableEntrySize     = 2 * ehFrameEncodedFieldSize
+	maximumPythonFunctionSize      = 512
+	maximumPythonFunctionTableSize = 64 << 20
+	ehFrameEncodedFieldSize        = 4
+	ehFrameHeaderSize              = 12
+	ehFrameTableEntrySize          = 2 * ehFrameEncodedFieldSize
 )
 
 var (
@@ -54,7 +55,7 @@ func boundedFunctionSize(starts []uint64, start uint64) (uint64, error) {
 // pythonFunctionStartEntries reads the fixed-format search table from .eh_frame_hdr.
 func pythonFunctionStartEntries(file *elf.File) (uint64, []byte, error) {
 	section := file.Section(".eh_frame_hdr")
-	if section == nil || section.ReaderAt == nil || section.Size > math.MaxInt || file.ByteOrder == nil {
+	if section == nil || section.ReaderAt == nil || section.Size > maximumPythonFunctionTableSize || file.ByteOrder == nil {
 		return 0, nil, fmt.Errorf("%w: missing CPython function-start table", errUnsupportedLayout)
 	}
 	data := make([]byte, section.Size)

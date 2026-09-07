@@ -124,6 +124,29 @@ func TestPythonFunctionStarts(t *testing.T) {
 	assert.Equal(t, want, starts)
 }
 
+type recordingTableReader struct {
+	*bytes.Reader
+	reads int
+}
+
+func (r *recordingTableReader) ReadAt(p []byte, off int64) (int, error) {
+	r.reads++
+	return r.Reader.ReadAt(p, off)
+}
+
+func TestPythonFunctionStartsRejectsOversizedTable(t *testing.T) {
+	file := newProbeTestELF(t, nil, []uint64{0x1100})
+	section := file.Section(".eh_frame_hdr")
+	section.Size = maximumPythonFunctionTableSize + 1
+	reader := &recordingTableReader{Reader: bytes.NewReader(nil)}
+	section.ReaderAt = reader
+
+	_, err := pythonFunctionStarts(file)
+
+	require.ErrorIs(t, err, errUnsupportedLayout)
+	assert.Zero(t, reader.reads)
+}
+
 func TestPythonFunctionStartsRejectsMalformedTables(t *testing.T) {
 	tests := map[string][]byte{}
 	unsupported := functionStartTable([]uint64{0x1100})
