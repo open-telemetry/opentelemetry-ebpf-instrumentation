@@ -298,6 +298,14 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return MessagingMessageID("")
 		}
+	case attr.MessagingConsumerGroup:
+		getter = func(span *Span) attribute.KeyValue {
+			if mi := span.MessagingInfo; mi != nil && mi.ConsumerGroup != "" {
+				return MessagingConsumerGroupName(mi.ConsumerGroup)
+			}
+			// only consumers of a group have one: omit rather than emit empty
+			return attribute.KeyValue{}
+		}
 	case attr.CudaMemcpyKind:
 		getter = func(span *Span) attribute.KeyValue { return CudaMemcpy(span.SubType) }
 	case attr.Job:
