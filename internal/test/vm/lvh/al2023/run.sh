@@ -7,8 +7,8 @@
 # AL2023 ships without CONFIG_NET_9P, so the standard launchvm 9p-virtfs
 # path doesn't apply. This script self-contains the entire flow:
 #   1. Extract vmlinuz + modules from AL2023 kernel RPM (Dockerfile here).
-#   2. Cross-compile verifier.test on the host (BPF .o files are
-#      go:embed'd via bpf2go, so the binary is fully self-contained).
+#   2. Use VERIFIER_TEST_BIN if set, otherwise cross-compile verifier.test
+#      on the host (BPF .o files are go:embed'd via bpf2go).
 #   3. Pack a minimal initramfs (static busybox + verifier.test + tiny
 #      init that mounts /proc /sys /sys/fs/bpf, runs the binary, prints
 #      OBI-VERIFIER-RESULT: <exit> on the serial console, powers off).
@@ -47,14 +47,20 @@ KVER_DIR="$(ls -d ${KSTAGE}/data/kernels/*/ | head -1)"
 KREL="$(basename "$KVER_DIR")"
 VMLINUZ="${KVER_DIR}boot/vmlinuz-${KREL}"
 
-# 2. Cross-compile the verifier test binary (self-contained, no /obi needed).
-TEST_BIN="${WORKDIR}/verifier.test"
-echo "run.sh: compiling verifier.test" >&2
-(cd "${REPO_ROOT}" && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go test -c -tags=bpf_verifier_tests \
-        -o "${TEST_BIN}" \
-        ./pkg/internal/ebpf/verifier/)
+# 2. Verifier test binary (self-contained, no /obi needed).
+if [ -n "${VERIFIER_TEST_BIN:-}" ]; then
+    TEST_BIN="${VERIFIER_TEST_BIN}"
+    echo "run.sh: using precompiled ${TEST_BIN}" >&2
+    chmod +x "${TEST_BIN}"
+else
+    TEST_BIN="${WORKDIR}/verifier.test"
+    echo "run.sh: compiling verifier.test" >&2
+    (cd "${REPO_ROOT}" && \
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+        go test -c -tags=bpf_verifier_tests \
+            -o "${TEST_BIN}" \
+            ./pkg/internal/ebpf/verifier/)
+fi
 
 # 3. Stage the initramfs.
 IRD="${WORKDIR}/initramfs"
