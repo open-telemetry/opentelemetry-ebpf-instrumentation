@@ -32,6 +32,10 @@ data:
           # assured cardinality explosion. Don't try in production!
           include: ["*"]
           exclude: ["src_port"]
+        obi.network.inter.zone.bytes:
+          # assured cardinality explosion. Don't try in production!
+          include: ["*"]
+          exclude: ["src_port"]
 ---
 apiVersion: apps/v1
 kind: DaemonSet
