@@ -13,14 +13,11 @@ import (
 func sqlKind(b *largebuf.LargeBuffer) request.SQLKind {
 	if isPostgres(b) {
 		if isMySQL(b) {
-			size, _ := b.I32BEAt(1)
-			if int(size)+1 > b.Len() {
-				// A truncated, ambiguous header cannot establish either protocol.
-				return request.DBGeneric
-			}
-			if !validPostgresSQLBody(b) {
+			if postgresSQLBodyStatus(b) == postgresBodyInvalid {
 				return request.DBMySQL
 			}
+			// Retain the existing PG fallback for incomplete captures. Generic
+			// would suppress SQL extraction when heuristic detection is disabled.
 		}
 		return request.DBPostgres
 	}

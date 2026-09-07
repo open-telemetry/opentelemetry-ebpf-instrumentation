@@ -95,14 +95,41 @@ func isValidPostgresPayload(b *largebuf.LargeBuffer) (byte, bool) {
 	return op, true
 }
 
-// validPostgresSQLBody disambiguates overlapping MySQL/PG headers using a complete
-// first PG message. Later pipelined messages are outside the reader's bounds.
-func validPostgresSQLBody(b *largebuf.LargeBuffer) bool {
+type postgresBodyStatus uint8
+
+const (
+	postgresBodyInvalid postgresBodyStatus = iota
+	postgresBodyIncomplete
+	postgresBodyValid
+)
+
+// postgresSQLBodyStatus bounds validation to the first declared message, not
+// the capture boundary or any later pipelined messages.
+func postgresSQLBodyStatus(b *largebuf.LargeBuffer) postgresBodyStatus {
+	if b.Len() < pgHeaderLen {
+		return postgresBodyIncomplete
+	}
+	op, ok := isValidPostgresPayload(b)
+	if !ok || (op != kPostgresQuery && op != kPostgresCommand && op != kPostgresBind) {
+		return postgresBodyInvalid
+	}
+	size, _ := b.I32BEAt(1)
+	if int(size)+1 > b.Len() {
+		return postgresBodyIncomplete
+	}
 	r, err := msgBodyReader(b)
 	if err != nil {
-		return false
+		return postgresBodyInvalid
 	}
-	op, _ := b.U8At(0)
+	if validPostgresSQLBody(op, &r) {
+		return postgresBodyValid
+	}
+	return postgresBodyInvalid
+}
+
+func validPostgresSQLBody(op byte, r *largebuf.LargeBufferReader) bool {
+	// C can be CommandComplete (a string) or frontend Close (S/P followed
+	// by a name). Both have exactly one trailing NUL and no embedded NULs.
 	if _, err := r.ReadCStr(); err != nil {
 		return false
 	}
@@ -112,7 +139,7 @@ func validPostgresSQLBody(b *largebuf.LargeBuffer) bool {
 	if _, err := r.ReadCStr(); err != nil {
 		return false
 	}
-	formats, ok := readPostgresFormats(&r)
+	formats, ok := readPostgresFormats(r)
 	if !ok {
 		return false
 	}
@@ -131,7 +158,7 @@ func validPostgresSQLBody(b *largebuf.LargeBuffer) bool {
 			}
 		}
 	}
-	_, ok = readPostgresFormats(&r)
+	_, ok = readPostgresFormats(r)
 	return ok && r.Remaining() == 0
 }
 
@@ -197,15 +224,8 @@ func parsePostgresBindCommand(b *largebuf.LargeBuffer) (string, string, []string
 		return "", "", nil, errPGTooShortPortal
 	}
 
-	// skip format codes: Int16 count + count*Int16 entries
-	formats, err := r.ReadI16BE()
-	if err != nil {
+	if _, ok := readPostgresFormats(&r); !ok {
 		return "", "", nil, errPGTooShortFormatCodes
-	}
-	if formats > 0 {
-		if err := r.Skip(2 * int(formats)); err != nil {
-			return "", "", nil, errPGTooShortFormatCodes
-		}
 	}
 
 	// parse parameter values: Int16 count + repeated (Int32 length + bytes)
