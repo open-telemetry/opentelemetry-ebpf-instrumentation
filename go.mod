@@ -42,7 +42,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.7
 	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/jsonc v0.3.3
-	github.com/vektah/gqlparser/v2 v2.5.36
+	github.com/vektah/gqlparser/v2 v2.5.37
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vladimirvivien/gexe v0.5.0
 	github.com/wk8/go-ordered-map/v2 v2.1.8
