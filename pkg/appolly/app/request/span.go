@@ -312,6 +312,10 @@ func (e *SQLError) ResponseStatusCode() string {
 type MessagingInfo struct {
 	Offset    int64 `json:"offset"`
 	Partition int   `json:"partition"`
+	// HasPartition reports whether Partition and Offset were read from the wire. The
+	// consumer group can be known while the partition list was cut by the kernel buffer.
+	HasPartition  bool   `json:"hasPartition"`
+	ConsumerGroup string `json:"consumerGroup"`
 }
 
 type GraphQL struct {
@@ -1638,9 +1642,14 @@ func spanAttributes(s *Span) SpanAttributes {
 			"topic":      s.Path,
 		}
 		if s.MessagingInfo != nil {
-			attrs["partition"] = strconv.FormatUint(uint64(s.MessagingInfo.Partition), 10)
-			if s.Method == MessagingProcess {
-				attrs["offset"] = strconv.FormatUint(uint64(s.MessagingInfo.Offset), 10)
+			if s.MessagingInfo.HasPartition {
+				attrs["partition"] = strconv.FormatUint(uint64(s.MessagingInfo.Partition), 10)
+				if s.Method == MessagingProcess {
+					attrs["offset"] = strconv.FormatUint(uint64(s.MessagingInfo.Offset), 10)
+				}
+			}
+			if s.MessagingInfo.ConsumerGroup != "" {
+				attrs["consumerGroup"] = s.MessagingInfo.ConsumerGroup
 			}
 		}
 		return attrs

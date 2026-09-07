@@ -205,6 +205,7 @@ discovery:
 			MSSQLPreparedStatementsCacheSize:    1024,
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
+			KafkaConsumerGroupCacheSize:         4096,
 			CouchbaseDBCacheSize:                1024,
 			PayloadExtraction: config.PayloadExtraction{
 				HTTP: config.HTTPConfig{
