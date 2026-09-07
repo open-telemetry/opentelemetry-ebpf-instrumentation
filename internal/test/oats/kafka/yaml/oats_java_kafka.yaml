@@ -8,11 +8,12 @@ input:
 interval: 500ms
 expected:
   traces:
-  - traceql: '{ .messaging.operation.type = "process" }'
+  - traceql: '{ .messaging.operation.type = "process" && .messaging.consumer.group.name = "1" }'
     regexp: ^process
     attributes:
       messaging.operation.type: process
       messaging.operation.name: process
+      messaging.consumer.group.name: '1'
       messaging.system: kafka
       server.port: '9092'
   - traceql: '{ .messaging.operation.type = "send" }'
@@ -30,6 +31,8 @@ expected:
   - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
     value: '> 0'
   - promql: messaging_process_duration_seconds_count{messaging_system="kafka"}
+    value: '> 0'
+  - promql: messaging_process_duration_seconds_count{messaging_system="kafka", messaging_consumer_group_name="1"}
     value: '> 0'
   - promql: messaging_process_duration_seconds_bucket{le="0"}
     value: == 0
