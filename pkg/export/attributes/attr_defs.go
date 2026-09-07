@@ -381,11 +381,12 @@ func getDefinitions(
 		false,
 		[]*AttrReportGroup{&appAttributes},
 		map[attr.Name]Default{
-			attr.MessagingSystem:      true,
-			attr.MessagingDestination: true,
-			attr.MessagingOpName:      true,
-			attr.ServerAddr:           true,
-			attr.ErrorType:            true,
+			attr.MessagingSystem:        true,
+			attr.MessagingDestination:   true,
+			attr.MessagingOpName:        true,
+			attr.ServerAddr:             true,
+			attr.ErrorType:              true,
+			attr.MessagingConsumerGroup: true,
 		},
 		extraGroupAttributes[GroupMessaging],
 	)
