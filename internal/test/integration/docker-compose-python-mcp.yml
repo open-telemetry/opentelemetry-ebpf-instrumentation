@@ -8,9 +8,21 @@ services:
     image: hatest-testserver-python-mcp
     ports:
       - "${TEST_SERVICE_PORTS}"
+    environment:
+      REMOTE_MCP_URL: "http://mcpremote:8080/mcp"
     depends_on:
       otelcol:
         condition: service_started
+      mcpremote:
+        condition: service_started
+
+  # A second MCP server the instrumented one calls out to, so the same process
+  # produces client-kind MCP spans as well as server-kind ones.
+  mcpremote:
+    build:
+      context: ../../../internal/test/integration/components/pythonmcp/
+      dockerfile: Dockerfile
+    image: hatest-testserver-python-mcp
 
   obi:
     build:
