@@ -2,7 +2,7 @@ module go.opentelemetry.io/obi
 
 go 1.25.11
 
-toolchain go1.27.0
+toolchain go1.27.1
 
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
