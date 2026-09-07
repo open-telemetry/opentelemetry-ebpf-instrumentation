@@ -83,16 +83,9 @@ func testTCPStatsIODecoration(ctx context.Context, t *testing.T, _ *envconf.Conf
 		assert.NoError(ct, err)
 		assert.NotEmpty(ct, results)
 
+		assertPingerFlowDecoration(ct, results)
 		for _, res := range results {
-			metric := res.Metric
-			assert.NotEmpty(ct, metric["k8s_src_namespace"])
-			assert.NotEmpty(ct, metric["k8s_src_owner_name"])
-			assert.NotEmpty(ct, metric["k8s_src_owner_type"])
-			assert.NotEmpty(ct, metric["k8s_src_node_name"])
-			assert.NotEmpty(ct, metric["k8s_dst_namespace"])
-			assert.Equal(ct, "testserver", metric["k8s_dst_owner_name"])
-			assert.Equal(ct, "Service", metric["k8s_dst_owner_type"])
-			assert.Contains(ct, []string{"receive", "transmit"}, metric["network_io_direction"])
+			assert.Contains(ct, []string{"receive", "transmit"}, res.Metric["network_io_direction"])
 		}
 	}, testTimeout, pollInterval)
 	return ctx
@@ -104,6 +97,7 @@ func testTCPStatsRTT(ctx context.Context, t *testing.T, _ *envconf.Config) conte
 		counts, err := pq.Query(pingerFlow("obi_stat_tcp_rtt_seconds_count") + " > 0")
 		assert.NoError(ct, err)
 		assert.NotEmpty(ct, counts)
+		assertPingerFlowDecoration(ct, counts)
 
 		sums, err := pq.Query(pingerFlow("obi_stat_tcp_rtt_seconds_sum") + " > 0")
 		assert.NoError(ct, err)
@@ -131,6 +125,19 @@ func testTCPStatsFailedConnections(ctx context.Context, t *testing.T, _ *envconf
 		assert.NotEmpty(ct, results)
 	}, testTimeout, pollInterval)
 	return ctx
+}
+
+func assertPingerFlowDecoration(ct *assert.CollectT, results []promtest.Result) {
+	for _, res := range results {
+		metric := res.Metric
+		assert.NotEmpty(ct, metric["k8s_src_namespace"])
+		assert.NotEmpty(ct, metric["k8s_src_owner_name"])
+		assert.NotEmpty(ct, metric["k8s_src_owner_type"])
+		assert.NotEmpty(ct, metric["k8s_src_node_name"])
+		assert.NotEmpty(ct, metric["k8s_dst_namespace"])
+		assert.Equal(ct, "testserver", metric["k8s_dst_owner_name"])
+		assert.Equal(ct, "Service", metric["k8s_dst_owner_type"])
+	}
 }
 
 // pingerFlow pins a query to the flow the pinger generates. The obi.stat.tcp.*
