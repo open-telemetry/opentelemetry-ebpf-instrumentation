@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,6 +47,31 @@ func startNodeScript(t *testing.T, script string) *exec.Cmd {
 		_ = cmd.Wait()
 	})
 	// Give Node.js time to initialize and register signal handlers
+	time.Sleep(1 * time.Second)
+	return cmd
+}
+
+// startNodeApp runs a script from a file so the process has a resolvable
+// application directory, which "node -e" does not.
+func startNodeApp(t *testing.T, script string) *exec.Cmd {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.js")
+	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatalf("failed to write script: %v", err)
+	}
+
+	cmd := exec.Command("node", "app.js")
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start node: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
 	time.Sleep(1 * time.Second)
 	return cmd
 }
@@ -189,5 +216,221 @@ func TestFindExeSymbols_NotFound(t *testing.T) {
 	}
 	if _, ok := syms["nonexistent_symbol_xyz"]; ok {
 		t.Error("expected symbol not to be found")
+	}
+}
+
+func openELFPath(t *testing.T, path string) *elf.File {
+	t.Helper()
+	f, err := elf.Open(path)
+	if err != nil {
+		t.Fatalf("failed to open ELF %s: %v", path, err)
+	}
+	t.Cleanup(func() { f.Close() })
+	return f
+}
+
+func testBinaryELF(t *testing.T) *elf.File {
+	t.Helper()
+	path, err := os.Executable()
+	if err != nil {
+		t.Fatalf("failed to locate test binary: %v", err)
+	}
+	return openELFPath(t, path)
+}
+
+func unusedPID(t *testing.T) int {
+	t.Helper()
+	raw, err := os.ReadFile("/proc/sys/kernel/pid_max")
+	if err != nil {
+		t.Skipf("cannot read pid_max: %v", err)
+	}
+	pidMax, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Skipf("cannot parse pid_max: %v", err)
+	}
+	return pidMax + 1
+}
+
+func TestIsNodeRuntime_NilELF(t *testing.T) {
+	if isNodeRuntime(os.Getpid(), nil) {
+		t.Error("expected a nil ELF not to be identified as a Node.js runtime")
+	}
+}
+
+func TestIsNodeRuntime_NodeBinary(t *testing.T) {
+	if !isNodeRuntime(os.Getpid(), openELFPath(t, findNodeBinary(t))) {
+		t.Error("expected the node binary to be identified as a Node.js runtime")
+	}
+}
+
+func TestIsNodeRuntime_NonNodeExecutable(t *testing.T) {
+	if isNodeRuntime(os.Getpid(), testBinaryELF(t)) {
+		t.Error("expected a non-Node executable not to be identified as a Node.js runtime")
+	}
+}
+
+func TestHasMappedNodeLibrary_NonNodeProcess(t *testing.T) {
+	if hasMappedNodeLibrary(os.Getpid()) {
+		t.Error("expected no libnode.so mapping in a non-Node process")
+	}
+}
+
+func TestSigusr1Disposition_NodeCatchesSignal(t *testing.T) {
+	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
+
+	if got := sigusr1Disposition(cmd.Process.Pid); got != signalDispositionHandled {
+		t.Errorf("expected signalDispositionHandled for a Node process, got %d", got)
+	}
+}
+
+func TestSigusr1Disposition_FatalWithoutHandler(t *testing.T) {
+	cmd := exec.Command("sleep", "600")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start sleep: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	if got := sigusr1Disposition(cmd.Process.Pid); got != signalDispositionFatal {
+		t.Errorf("expected signalDispositionFatal for a process with no SIGUSR1 handler, got %d", got)
+	}
+}
+
+func TestSigusr1Disposition_UnknownForDeadProcess(t *testing.T) {
+	if got := sigusr1Disposition(unusedPID(t)); got != signalDispositionUnknown {
+		t.Errorf("expected signalDispositionUnknown for a nonexistent pid, got %d", got)
+	}
+}
+
+func TestSignalTreeRuntimeAddr_ResolvesForNode(t *testing.T) {
+	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
+
+	addr, ok := signalTreeRuntimeAddr(cmd.Process.Pid, openNodeELF(t, cmd.Process.Pid))
+	if !ok {
+		t.Fatal("expected uv__signal_tree to resolve for a Node process")
+	}
+	if addr == 0 {
+		t.Error("expected a non-zero runtime address")
+	}
+}
+
+func TestSIGUSR1Refusal_NonNodeExecutable(t *testing.T) {
+	reason := sigusr1Refusal(os.Getpid(), testBinaryELF(t))
+	if reason != refusalNotNodeRuntime {
+		t.Errorf("expected %q, got %q", refusalNotNodeRuntime, reason)
+	}
+}
+
+func TestSIGUSR1Refusal_NilELF(t *testing.T) {
+	reason := sigusr1Refusal(os.Getpid(), nil)
+	if reason != refusalNotNodeRuntime {
+		t.Errorf("expected %q, got %q", refusalNotNodeRuntime, reason)
+	}
+}
+
+func TestSIGUSR1Refusal_DispositionUnreadable(t *testing.T) {
+	reason := sigusr1Refusal(unusedPID(t), openELFPath(t, findNodeBinary(t)))
+	if reason != refusalDispositionUnknown {
+		t.Errorf("expected %q, got %q", refusalDispositionUnknown, reason)
+	}
+}
+
+func TestSIGUSR1Refusal_SignalWouldBeFatal(t *testing.T) {
+	cmd := exec.Command("sleep", "600")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start sleep: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	reason := sigusr1Refusal(cmd.Process.Pid, openELFPath(t, findNodeBinary(t)))
+	if reason != refusalSignalIsFatal {
+		t.Errorf("expected %q, got %q", refusalSignalIsFatal, reason)
+	}
+}
+
+func TestSourceScanRefusal_AppReferencingSIGUSR1(t *testing.T) {
+	cmd := startNodeApp(t, `
+process.on("SIGUSR1", () => console.log('reload'));
+setTimeout(() => {}, 600000);
+`)
+
+	if reason := sourceScanRefusal(cmd.Process.Pid); reason != refusalSourceReferencesSIGUSR1 {
+		t.Errorf("expected %q, got %q", refusalSourceReferencesSIGUSR1, reason)
+	}
+}
+
+func TestSourceScanRefusal_CleanApp(t *testing.T) {
+	cmd := startNodeApp(t, `setTimeout(() => {}, 600000);`)
+
+	if reason := sourceScanRefusal(cmd.Process.Pid); reason != "" {
+		t.Errorf("expected no refusal for a clean application, got %q", reason)
+	}
+}
+
+func TestSourceScanRefusal_EvaluatedHandlerIsDetected(t *testing.T) {
+	cmd := startNodeScript(t, `
+		process.on('SIGUSR1', () => console.log('reload'));
+		setTimeout(() => {}, 600000);
+	`)
+
+	if reason := sourceScanRefusal(cmd.Process.Pid); reason != refusalSourceReferencesSIGUSR1 {
+		t.Errorf("expected %q for a handler registered in --eval code, got %q", refusalSourceReferencesSIGUSR1, reason)
+	}
+}
+
+func TestSourceScanRefusal_EvaluatedCleanScript(t *testing.T) {
+	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
+
+	if reason := sourceScanRefusal(cmd.Process.Pid); reason != "" {
+		t.Errorf("expected no refusal for clean --eval code, got %q", reason)
+	}
+}
+
+func TestSIGUSR1Refusal_CleanAppIsSignalled(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root to read /proc/<pid>/mem")
+	}
+
+	cmd := startNodeApp(t, `setTimeout(() => {}, 600000);`)
+
+	if reason := sigusr1Refusal(cmd.Process.Pid, openNodeELF(t, cmd.Process.Pid)); reason != "" {
+		t.Errorf("expected a clean Node application to be signaled, got %q", reason)
+	}
+}
+
+func TestSIGUSR1Refusal_NoHandler(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root to read /proc/<pid>/mem")
+	}
+
+	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
+
+	reason := sigusr1Refusal(cmd.Process.Pid, openNodeELF(t, cmd.Process.Pid))
+	if reason != "" {
+		t.Errorf("expected no refusal, got %q", reason)
+	}
+}
+
+func TestSIGUSR1Refusal_WithHandler(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root to read /proc/<pid>/mem")
+	}
+
+	cmd := startNodeScript(t, `
+		process.on('SIGUSR1', () => console.log('got sigusr1'));
+		setTimeout(() => {}, 600000);
+	`)
+
+	// An unstripped runtime is caught by the libuv signal tree; a stripped
+	// distribution build falls back to the source scan. Either way the
+	// handler must prevent the signal.
+	reason := sigusr1Refusal(cmd.Process.Pid, openNodeELF(t, cmd.Process.Pid))
+	if reason != refusalHandlerFound && reason != refusalSourceReferencesSIGUSR1 {
+		t.Errorf("expected a refusal for a process with a custom SIGUSR1 handler, got %q", reason)
 	}
 }

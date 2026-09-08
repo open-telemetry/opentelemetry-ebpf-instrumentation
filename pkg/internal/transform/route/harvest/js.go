@@ -28,6 +28,17 @@ import (
 // unbounded work on large application files.
 const MaxJSFileScanBytes int64 = 10 * 1024 * 1024
 
+// MaxJSLineScanBytes caps a single line of a JS/TS scan. Minified bundles put a
+// whole module on one line, which overruns the bufio.Scanner default and makes
+// the scan fail rather than silently returning no matches.
+const MaxJSLineScanBytes = 1024 * 1024
+
+func newJSLineScanner(file io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(io.LimitReader(file, MaxJSFileScanBytes))
+	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), MaxJSLineScanBytes)
+	return scanner
+}
+
 const (
 	maxNestDecoratorValues = 64
 	maxNestRouteVariants   = 256
@@ -1265,7 +1276,7 @@ func ScanJSFileLines(path string, fn func(line string) bool) error {
 	defer file.Close()
 
 	inBlockComment := false
-	scanner := bufio.NewScanner(io.LimitReader(file, MaxJSFileScanBytes))
+	scanner := newJSLineScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
@@ -1305,7 +1316,7 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(io.LimitReader(file, MaxJSFileScanBytes))
+	scanner := newJSLineScanner(file)
 	lineNum := 0
 	var line string
 	var save string
@@ -1636,6 +1647,7 @@ var compiledSkipDirs = func() map[string]string {
 	maps.Copy(m, skipDirs)
 	delete(m, "dist")
 	delete(m, "build")
+	delete(m, ".next")
 	return m
 }()
 

@@ -98,23 +98,10 @@ func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
 		conn.Close()
 	}
 
-	if elfFile != nil {
-		switch hasUserSIGUSR1Handler(pid, elfFile) {
-		case signalCheckFound:
-			i.log.Warn("Node.js process has a custom SIGUSR1 handler, skipping agent injection. "+
-				"Node.js trace correlation will not work", "pid", pid)
-			return nil
-		case signalCheckFailed:
-			// Symbol-based detection failed (e.g. stripped binary with dynamic libuv).
-			// Fall back to scanning the application's source files for quoted SIGUSR1 references.
-			if sourceHasSIGUSR1Reference(pid) {
-				i.log.Warn("Node.js source files reference SIGUSR1, skipping agent injection. "+
-					"Node.js trace correlation will not work", "pid", pid)
-				return nil
-			}
-		case signalCheckNotFound:
-			// No handler detected, safe to proceed.
-		}
+	if reason := sigusr1Refusal(pid, elfFile); reason != "" {
+		i.log.Warn("not sending SIGUSR1 to open the Node.js inspector, skipping agent injection. "+
+			"Node.js trace correlation will not work", "pid", pid, "reason", reason)
+		return nil
 	}
 
 	if err := syscall.Kill(pid, syscall.SIGUSR1); err != nil {
@@ -127,6 +114,76 @@ func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
 	}
 
 	return i.injectViaConn(conn)
+}
+
+const (
+	refusalNotNodeRuntime          = "executable is not identifiable as a Node.js runtime"
+	refusalSignalIsFatal           = "SIGUSR1 is neither caught nor ignored, so it would terminate the process"
+	refusalDispositionUnknown      = "the process signal mask could not be read"
+	refusalHandlerFound            = "process has a custom SIGUSR1 handler"
+	refusalSourceReferencesSIGUSR1 = "process source files reference SIGUSR1"
+	refusalSourceUnscannable       = "process source files could not be scanned for SIGUSR1 references"
+)
+
+// dispositionWait bounds how long to wait for the runtime to install its own
+// SIGUSR1 handler. Node installs it around 16ms after exec, and until then
+// SIGUSR1 terminates the process, so a process discovered at exec time is
+// otherwise refused for a condition that clears on its own.
+const (
+	dispositionWait     = 500 * time.Millisecond
+	dispositionInterval = 10 * time.Millisecond
+)
+
+func sigusr1Refusal(pid int, elfFile *elf.File) string {
+	if !isNodeRuntime(pid, elfFile) {
+		return refusalNotNodeRuntime
+	}
+
+	switch awaitSignalDisposition(pid) {
+	case signalDispositionFatal:
+		return refusalSignalIsFatal
+	case signalDispositionUnknown:
+		return refusalDispositionUnknown
+	case signalDispositionHandled:
+	}
+
+	switch hasUserSIGUSR1Handler(pid, elfFile) {
+	case signalCheckFound:
+		return refusalHandlerFound
+	case signalCheckFailed:
+		return sourceScanRefusal(pid)
+	case signalCheckNotFound:
+	}
+
+	return ""
+}
+
+// sourceScanRefusal decides the cases where the runtime carries no readable
+// libuv signal tree — distribution packages ship Node stripped — so the
+// application's own files are the only remaining evidence of a handler.
+func sourceScanRefusal(pid int) string {
+	switch sourceSIGUSR1Reference(pid) {
+	case sourceScanFound:
+		return refusalSourceReferencesSIGUSR1
+	case sourceScanUnavailable:
+		return refusalSourceUnscannable
+	case sourceScanClean:
+	}
+
+	return ""
+}
+
+func awaitSignalDisposition(pid int) signalDisposition {
+	deadline := time.Now().Add(dispositionWait)
+
+	for {
+		disposition := sigusr1Disposition(pid)
+		if disposition != signalDispositionFatal || time.Now().After(deadline) {
+			return disposition
+		}
+
+		time.Sleep(dispositionInterval)
+	}
 }
 
 // isNodeInspector validates that a connection to port 9229 is actually a

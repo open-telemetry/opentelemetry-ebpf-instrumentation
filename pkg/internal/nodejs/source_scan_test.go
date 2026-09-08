@@ -27,13 +27,22 @@ func writeFile(t *testing.T, dir, name, content string) {
 	}
 }
 
+func hasSIGUSR1Reference(t *testing.T, dir string) bool {
+	t.Helper()
+	result := dirSIGUSR1Reference(dir)
+	if result == sourceScanUnavailable {
+		t.Fatal("expected the application directory to be scannable")
+	}
+	return result == sourceScanFound
+}
+
 func TestSourceScan_DoubleQuoted(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "app.js", `
 const signals = ["SIGINT", "SIGTERM", "SIGUSR1"];
 signals.forEach((sig) => process.on(sig, () => shutdown()));
 `)
-	if !dirHasSIGUSR1Reference(dir) {
+	if !hasSIGUSR1Reference(t, dir) {
 		t.Error("expected SIGUSR1 to be detected (double quotes)")
 	}
 }
@@ -45,7 +54,7 @@ process.on('SIGUSR1', () => {
   console.log('reloading config');
 });
 `)
-	if !dirHasSIGUSR1Reference(dir) {
+	if !hasSIGUSR1Reference(t, dir) {
 		t.Error("expected SIGUSR1 to be detected (single quotes)")
 	}
 }
@@ -53,7 +62,7 @@ process.on('SIGUSR1', () => {
 func TestSourceScan_BacktickQuoted(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "app.ts", "const sig = `SIGUSR1`;\nprocess.on(sig, handler);\n")
-	if !dirHasSIGUSR1Reference(dir) {
+	if !hasSIGUSR1Reference(t, dir) {
 		t.Error("expected SIGUSR1 to be detected (backtick)")
 	}
 }
@@ -65,7 +74,7 @@ const http = require('http');
 const server = http.createServer((req, res) => res.end('ok'));
 server.listen(3000);
 `)
-	if dirHasSIGUSR1Reference(dir) {
+	if hasSIGUSR1Reference(t, dir) {
 		t.Error("expected no SIGUSR1 reference")
 	}
 }
@@ -77,7 +86,7 @@ func TestSourceScan_CommentIgnored(t *testing.T) {
 /* "SIGUSR1" is handled elsewhere */
 const server = require('http').createServer();
 `)
-	if dirHasSIGUSR1Reference(dir) {
+	if hasSIGUSR1Reference(t, dir) {
 		t.Error("expected SIGUSR1 in comments to be ignored")
 	}
 }
@@ -88,7 +97,7 @@ func TestSourceScan_UnquotedIgnored(t *testing.T) {
 // This app does not handle SIGUSR1
 console.log("Starting server");
 `)
-	if dirHasSIGUSR1Reference(dir) {
+	if hasSIGUSR1Reference(t, dir) {
 		t.Error("expected unquoted SIGUSR1 to be ignored")
 	}
 }
@@ -104,7 +113,7 @@ const http = require('http');
 */
 const server = http.createServer();
 `)
-	if dirHasSIGUSR1Reference(dir) {
+	if hasSIGUSR1Reference(t, dir) {
 		t.Error("expected SIGUSR1 in multi-line block comment to be ignored")
 	}
 }
@@ -126,7 +135,7 @@ func TestSourceScan_ArrayPattern(t *testing.T) {
   });
 });
 `)
-	if !dirHasSIGUSR1Reference(dir) {
+	if !hasSIGUSR1Reference(t, dir) {
 		t.Error("expected SIGUSR1 to be detected in array pattern")
 	}
 }
@@ -137,18 +146,99 @@ func TestSourceScan_TypeScriptFile(t *testing.T) {
 import { createServer } from 'http';
 process.on('SIGUSR1', () => console.log('debug'));
 `)
-	if !dirHasSIGUSR1Reference(dir) {
+	if !hasSIGUSR1Reference(t, dir) {
 		t.Error("expected SIGUSR1 to be detected in .ts file")
 	}
 }
 
-func TestSourceScan_SkipsNodeModules(t *testing.T) {
+func TestSourceScan_SkipsNonEntryPointDependencyFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "app.js", `const server = require('http').createServer();`)
-	writeFile(t, dir, "node_modules/some-lib/index.js", `process.on("SIGUSR1", handler);`)
+	writeFile(t, dir, "node_modules/some-lib/package.json", `{"main": "index.js"}`)
+	writeFile(t, dir, "node_modules/some-lib/index.js", `module.exports = {};`)
+	writeFile(t, dir, "node_modules/some-lib/internal/deep.js", `process.on("SIGUSR1", handler);`)
 
-	if dirHasSIGUSR1Reference(dir) {
-		t.Error("expected SIGUSR1 in node_modules to be skipped")
+	if hasSIGUSR1Reference(t, dir) {
+		t.Error("expected SIGUSR1 outside a dependency entry point to be skipped")
+	}
+}
+
+func TestSourceScan_CompiledOutputDist(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "package.json", `{"main": "dist/main.js"}`)
+	writeFile(t, dir, "dist/main.js", `process.on("SIGUSR1", () => reloadConfig());`)
+
+	if !hasSIGUSR1Reference(t, dir) {
+		t.Error("expected SIGUSR1 to be detected in compiled output under dist")
+	}
+}
+
+func TestSourceScan_CompiledOutputBuild(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "build/server.js", `process.on('SIGUSR1', handler);`)
+
+	if !hasSIGUSR1Reference(t, dir) {
+		t.Error("expected SIGUSR1 to be detected in compiled output under build")
+	}
+}
+
+func TestSourceScan_MinifiedSingleLineBundle(t *testing.T) {
+	dir := t.TempDir()
+	padding := strings.Repeat("a", 200*1024)
+	writeFile(t, dir, "dist/main.js", `var x="`+padding+`";process.on("SIGUSR1",function(){r()});`)
+
+	if !hasSIGUSR1Reference(t, dir) {
+		t.Error("expected SIGUSR1 to be detected in a minified single-line bundle")
+	}
+}
+
+func TestSourceScan_OverlongLineIsUnscannable(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "dist/main.js", "var x=\""+strings.Repeat("a", harvest.MaxJSLineScanBytes+1)+"\";")
+
+	if got := dirSIGUSR1Reference(dir); got != sourceScanUnavailable {
+		t.Errorf("expected sourceScanUnavailable for a line over the scan limit, got %d", got)
+	}
+}
+
+func TestSourceScan_HandlerInDependencyEntryPoint(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "index.js", `require('heapdump');`)
+	writeFile(t, dir, "node_modules/heapdump/index.js", `process.on("SIGUSR1", () => writeSnapshot());`)
+
+	if !hasSIGUSR1Reference(t, dir) {
+		t.Error("expected SIGUSR1 to be detected in a dependency entry point")
+	}
+}
+
+func TestSourceScan_HandlerInScopedDependencyMain(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "index.js", `require('@acme/agent');`)
+	writeFile(t, dir, "node_modules/@acme/agent/package.json", `{"main": "lib/agent.js"}`)
+	writeFile(t, dir, "node_modules/@acme/agent/lib/agent.js", `process.on('SIGUSR1', reload);`)
+
+	if !hasSIGUSR1Reference(t, dir) {
+		t.Error("expected SIGUSR1 to be detected in a scoped dependency main")
+	}
+}
+
+func TestSourceScan_DependencyWithoutHandlerStaysClean(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "index.js", `require('lodash');`)
+	writeFile(t, dir, "node_modules/lodash/package.json", `{"main": "lodash.js"}`)
+	writeFile(t, dir, "node_modules/lodash/lodash.js", `module.exports = {};`)
+
+	if hasSIGUSR1Reference(t, dir) {
+		t.Error("expected a dependency without a handler to stay clean")
+	}
+}
+
+func TestSourceScan_NextJSOutput(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".next/server/app.js", `process.on("SIGUSR1", () => reload());`)
+
+	if !hasSIGUSR1Reference(t, dir) {
+		t.Error("expected SIGUSR1 to be detected in .next output")
 	}
 }
 
@@ -159,7 +249,7 @@ export function setup() {
   process.on("SIGUSR1", () => reloadConfig());
 }
 `)
-	if !dirHasSIGUSR1Reference(dir) {
+	if !hasSIGUSR1Reference(t, dir) {
 		t.Error("expected SIGUSR1 to be detected in nested source file")
 	}
 }
@@ -170,7 +260,7 @@ func TestSourceScan_NonJSFileIgnored(t *testing.T) {
 	writeFile(t, dir, "config.json", `{"signal": "SIGUSR1"}`)
 	writeFile(t, dir, "app.py", `import signal; signal.signal(signal.SIGUSR1, handler)`)
 
-	if dirHasSIGUSR1Reference(dir) {
+	if hasSIGUSR1Reference(t, dir) {
 		t.Error("expected non-JS files to be ignored")
 	}
 }
@@ -184,7 +274,7 @@ func TestSourceScan_NonRegularJSFileIgnored(t *testing.T) {
 
 	result := make(chan bool, 1)
 	go func() {
-		result <- dirHasSIGUSR1Reference(dir)
+		result <- hasSIGUSR1Reference(t, dir)
 	}()
 
 	select {
@@ -204,14 +294,14 @@ func TestSourceScan_OversizedJSFileIgnored(t *testing.T) {
 		`process.on("SIGUSR1", handler);`
 	writeFile(t, dir, "large.js", content)
 
-	if dirHasSIGUSR1Reference(dir) {
+	if hasSIGUSR1Reference(t, dir) {
 		t.Error("expected oversized JS file to be ignored")
 	}
 }
 
 func TestSourceScan_EmptyDirectory(t *testing.T) {
 	dir := t.TempDir()
-	if dirHasSIGUSR1Reference(dir) {
+	if hasSIGUSR1Reference(t, dir) {
 		t.Error("expected false for empty directory")
 	}
 }
