@@ -114,16 +114,6 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]Fun
 		// we still need to find the return statements, since go linkage is non-standard we can't use uretprobe
 		if gosyms == nil && len(allSyms) > 0 {
 			offs, found = staticSymbolOffsets(f.Name, allSyms, ilog)
-			if found && isFramerWriteHeaders(f.Name) {
-				goOffsets, goFound, err := findFuncOffset(&f, elfF)
-				if err != nil {
-					return nil, err
-				}
-				if goFound {
-					offs.PadStart = goOffsets.PadStart
-					offs.PadOffset = goOffsets.PadOffset
-				}
-			}
 		}
 		if !found {
 			var err error
@@ -218,20 +208,12 @@ func staticSymbolOffsets(fName string, allSyms map[string]procs.Sym, ilog *slog.
 			return FuncOffsets{}, false
 		}
 
-		returns, err := FindReturnOffsets(s.Off, data)
+		offs, err := analyzeFunctionOffsets(s.Off, data)
 		if err != nil {
-			ilog.Error("error finding returns for symbol", "symbol", fName, "offset", s.Off-s.Prog.Off, "size", s.Len, "error", err)
+			ilog.Error("error analyzing instructions for symbol", "symbol", fName, "offset", s.Off-s.Prog.Off, "size", s.Len, "error", err)
 			return FuncOffsets{}, false
 		}
-		var callTargets []uint64
-		if isFramerWriteHeaders(fName) {
-			callTargets, err = FindCallTargets(s.Off, data)
-			if err != nil {
-				ilog.Error("error finding call targets", "symbol", fName, "offset", s.Off-s.Prog.Off, "size", s.Len, "error", err)
-				return FuncOffsets{}, false
-			}
-		}
-		return FuncOffsets{Start: s.Off, Returns: returns, CallTargets: callTargets}, true
+		return offs, true
 	} else {
 		ilog.Debug("can't find in elf symbol table", "symbol", fName, "ok", ok, "prog", s.Prog)
 	}
@@ -263,43 +245,44 @@ func findFuncOffset(f *gosym.Func, elfF *elf.File) (FuncOffsets, bool, error) {
 				return FuncOffsets{}, false, fmt.Errorf("finding function return: %w", err)
 			}
 
-			returns, err := FindReturnOffsets(off, data)
+			offs, err := analyzeFunctionOffsets(off, data)
 			if err != nil {
-				return FuncOffsets{}, false, fmt.Errorf("finding function return: %w", err)
+				return FuncOffsets{}, false, err
 			}
-			var callTargets []uint64
-			padStart := uint64(0)
-			padOffset := uint64(0)
-			if isFramerWriteHeaders(f.Name) {
-				callTargets, err = FindCallTargets(off, data)
-				if err != nil {
-					return FuncOffsets{}, false, fmt.Errorf("finding function call targets: %w", err)
-				}
-				padStart, padOffset, err = FindPadStartOffset(off, data)
-				if err != nil {
-					return FuncOffsets{}, false, fmt.Errorf("finding HeadersFrameParam padding boundary: %w", err)
-				}
-				if padStart <= off {
-					padStart = 0
-					padOffset = 0
-				}
-			}
-			return FuncOffsets{
-				Start:       off,
-				Returns:     returns,
-				CallTargets: callTargets,
-				PadStart:    padStart,
-				PadOffset:   padOffset,
-			}, true, nil
+			return offs, true, nil
 		}
 	}
 
 	return FuncOffsets{}, false, nil
 }
 
-func isFramerWriteHeaders(name string) bool {
-	return strings.HasSuffix(name, ".(*Framer).WriteHeaders") ||
-		strings.HasSuffix(name, ".(*http2Framer).WriteHeaders")
+func analyzeFunctionOffsets(baseOffset uint64, data []byte) (FuncOffsets, error) {
+	returns, err := FindReturnOffsets(baseOffset, data)
+	if err != nil {
+		return FuncOffsets{}, fmt.Errorf("finding function returns: %w", err)
+	}
+
+	callTargets, err := FindCallTargets(baseOffset, data)
+	if err != nil {
+		return FuncOffsets{}, fmt.Errorf("finding function call targets: %w", err)
+	}
+
+	padStart, padOffset, err := FindPadStartOffset(baseOffset, data)
+	if err != nil {
+		return FuncOffsets{}, fmt.Errorf("finding function stack offsets: %w", err)
+	}
+	if padStart <= baseOffset {
+		padStart = 0
+		padOffset = 0
+	}
+
+	return FuncOffsets{
+		Start:       baseOffset,
+		Returns:     returns,
+		CallTargets: callTargets,
+		PadStart:    padStart,
+		PadOffset:   padOffset,
+	}, nil
 }
 
 func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {

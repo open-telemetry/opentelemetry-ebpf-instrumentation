@@ -51,6 +51,7 @@ func FindCallTargets(baseOffset uint64, data []byte) ([]uint64, error) {
 
 func FindPadStartOffset(baseOffset uint64, data []byte) (uint64, uint64, error) {
 	const (
+		// Fields in the LDRB (immediate) encoding used to recognize a byte load from SP.
 		loadByteImmediateMask = 0xffc00000
 		loadByteImmediate     = 0x39400000
 		stackPointerRegister  = 31

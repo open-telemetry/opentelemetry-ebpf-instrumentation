@@ -22,10 +22,8 @@ func isENDBRXX(data []uint8) bool {
 		(data[3] == 0xFA || data[3] == 0xFB)
 }
 
-func FindReturnOffsets(baseOffset uint64, data []byte) ([]uint64, error) {
-	var returnOffsets []uint64
-	index := 0
-	for index < len(data) {
+func walkX86Instructions(data []byte, visit func(int, x86asm.Inst)) error {
+	for index := 0; index < len(data); {
 		// FIXME remove this once x86asm is able to recognize and decode
 		// ENDBR64
 		if isENDBRXX(data[index:]) {
@@ -35,31 +33,29 @@ func FindReturnOffsets(baseOffset uint64, data []byte) ([]uint64, error) {
 
 		instruction, err := x86asm.Decode(data[index:], 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode x64 instruction at offset %d: %w", index, err)
+			return fmt.Errorf("failed to decode x64 instruction at offset %d: %w", index, err)
 		}
 
-		if instruction.Op == x86asm.RET {
-			returnOffsets = append(returnOffsets, baseOffset+uint64(index))
-		}
-
+		visit(index, instruction)
 		index += instruction.Len
 	}
 
-	return returnOffsets, nil
+	return nil
+}
+
+func FindReturnOffsets(baseOffset uint64, data []byte) ([]uint64, error) {
+	var returnOffsets []uint64
+	err := walkX86Instructions(data, func(index int, instruction x86asm.Inst) {
+		if instruction.Op == x86asm.RET {
+			returnOffsets = append(returnOffsets, baseOffset+uint64(index))
+		}
+	})
+	return returnOffsets, err
 }
 
 func FindCallTargets(baseOffset uint64, data []byte) ([]uint64, error) {
 	var targets []uint64
-	for index := 0; index < len(data); {
-		if isENDBRXX(data[index:]) {
-			index += endbrSize
-			continue
-		}
-
-		instruction, err := x86asm.Decode(data[index:], 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode x64 instruction at offset %d: %w", index, err)
-		}
+	err := walkX86Instructions(data, func(index int, instruction x86asm.Inst) {
 		if instruction.Op == x86asm.CALL {
 			if relative, ok := instruction.Args[0].(x86asm.Rel); ok {
 				target := int64(baseOffset) + int64(index+instruction.Len) + int64(relative)
@@ -68,28 +64,23 @@ func FindCallTargets(baseOffset uint64, data []byte) ([]uint64, error) {
 				}
 			}
 		}
-		index += instruction.Len
-	}
-	return targets, nil
+	})
+	return targets, err
 }
 
+// FindPadStartOffset locates the compiler sequence that loads a PadLength byte
+// from the stack and branches when the value is zero.
 func FindPadStartOffset(baseOffset uint64, data []byte) (uint64, uint64, error) {
 	type decoded struct {
 		index int
 		inst  x86asm.Inst
 	}
 	instructions := make([]decoded, 0, len(data)/4)
-	for index := 0; index < len(data); {
-		if isENDBRXX(data[index:]) {
-			index += endbrSize
-			continue
-		}
-		instruction, err := x86asm.Decode(data[index:], 64)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to decode x64 instruction at offset %d: %w", index, err)
-		}
+	err := walkX86Instructions(data, func(index int, instruction x86asm.Inst) {
 		instructions = append(instructions, decoded{index: index, inst: instruction})
-		index += instruction.Len
+	})
+	if err != nil {
+		return 0, 0, err
 	}
 
 	for index := 0; index+2 < len(instructions); index++ {
