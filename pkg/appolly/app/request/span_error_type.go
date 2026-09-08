@@ -63,9 +63,8 @@ func parsedErrorType(span *Span) string {
 	if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorCode != 0 {
 		return strconv.Itoa(span.JSONRPC.ErrorCode)
 	}
-	if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil &&
-		span.GenAI.MCP.ErrorCode != 0 {
-		return strconv.Itoa(span.GenAI.MCP.ErrorCode)
+	if mcp := span.MCP(); mcp != nil && mcp.ErrorCode != 0 {
+		return strconv.Itoa(mcp.ErrorCode)
 	}
 
 	return ""

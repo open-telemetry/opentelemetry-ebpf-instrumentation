@@ -593,6 +593,106 @@ func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_MCPOperationDuration(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		eventType  request.EventType
+		wantMetric string
+	}{
+		{"client side", request.EventTypeHTTPClient, attributes.MCPClientOperationDuration.OTEL},
+		{"server side", request.EventTypeHTTP, attributes.MCPServerOperationDuration.OTEL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			metricRecords := make(chan collector.MetricRecord, 100)
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+			mcfg := &otelcfg.MetricsConfig{
+				Interval:          20 * time.Millisecond,
+				TTL:               30 * time.Minute,
+				ReportersCacheLen: 10,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP, instrumentations.InstrumentationGenAI},
+				MetricsConsumer:   testMetricsConsumer(metricRecords),
+			}
+			reporter, err := newMetricsReporter(
+				ctx,
+				&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+				mcfg,
+				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+				&attributes.SelectorConfig{},
+				request.UnresolvedNames{},
+				metrics,
+				processEvents,
+			)
+			require.NoError(t, err)
+			go reporter.reportMetrics(ctx)
+
+			metrics.Send([]request.Span{{
+				Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "mcp"}},
+				Type:         tc.eventType,
+				SubType:      request.HTTPSubtypeMCP,
+				Method:       "tools/call",
+				RequestStart: 100,
+				End:          200,
+				GenAI: &request.GenAI{MCP: &request.MCPCall{
+					Method:      "tools/call",
+					ToolName:    "get_weather",
+					SessionID:   "session-1",
+					ProtocolVer: "2025-06-18",
+					ErrorCode:   -32602,
+				}},
+			}})
+
+			seen := map[string]collector.MetricRecord{}
+
+			deadline := time.NewTimer(2 * time.Second)
+			defer deadline.Stop()
+		wait:
+			for {
+				select {
+				case record := <-metricRecords:
+					seen[record.Name] = record
+					if _, ok := seen[tc.wantMetric]; ok {
+						break wait
+					}
+				case <-deadline.C:
+					require.FailNow(t, "timed out waiting for "+tc.wantMetric)
+				}
+			}
+
+			// Keep draining past the first match: the HTTP duration record the
+			// span would otherwise fall through to may arrive in any order
+			// within a cycle, so asserting on it before the queue is quiet
+			// would pass whether or not it was recorded.
+			quiet := time.NewTimer(200 * time.Millisecond)
+			defer quiet.Stop()
+		drain:
+			for {
+				select {
+				case record := <-metricRecords:
+					seen[record.Name] = record
+				case <-quiet.C:
+					break drain
+				}
+			}
+
+			record := seen[tc.wantMetric]
+			assert.Equal(t, "tools/call", record.Attributes["mcp.method.name"])
+			assert.Equal(t, "get_weather", record.Attributes["gen_ai.tool.name"])
+			assert.Equal(t, "2025-06-18", record.Attributes["mcp.protocol.version"])
+			assert.Equal(t, "-32602", record.Attributes["rpc.response.status_code"])
+			assert.Equal(t, "-32602", record.Attributes["error.type"])
+			// High-cardinality identifiers stay off the metric.
+			assert.NotContains(t, record.Attributes, "mcp.session.id")
+			assert.NotContains(t, record.Attributes, "mcp.resource.uri")
+			assert.NotContains(t, seen, attributes.HTTPServerDuration.OTEL)
+			assert.NotContains(t, seen, attributes.HTTPClientDuration.OTEL)
+		})
+	}
+}
+
 func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)
