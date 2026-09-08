@@ -23,14 +23,24 @@ func TestRecordStringDeclaration(t *testing.T) {
 			expected: map[string]string{"base": "/api"},
 		},
 		{
-			name:     "let with double quotes",
-			line:     `let users = "/users"`,
+			name:     "const with double quotes and no semicolon",
+			line:     `const users = "/users"`,
 			expected: map[string]string{"users": "/users"},
 		},
 		{
-			name:     "var with template literal",
-			line:     "var items = `/items`;",
+			name:     "const with template literal",
+			line:     "const items = `/items`;",
 			expected: map[string]string{"items": "/items"},
+		},
+		{
+			name:     "let is not tracked",
+			line:     "let users = '/users';",
+			expected: map[string]string{},
+		},
+		{
+			name:     "var is not tracked",
+			line:     "var items = '/items';",
+			expected: map[string]string{},
 		},
 		{
 			name:     "exported const",
@@ -83,11 +93,36 @@ func TestRecordStringDeclaration(t *testing.T) {
 	}
 }
 
-func TestRecordStringDeclarationRedeclaration(t *testing.T) {
-	extractor := NewRouteExtractor()
-	extractor.recordStringDeclaration("const p = '/first';")
-	extractor.recordStringDeclaration("const p = '/second';")
-	assert.Equal(t, map[string]string{"p": "/second"}, extractor.jsConsts)
+func TestRecordStringDeclarationRedeclaredNameIsAmbiguous(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+	}{
+		{
+			name:  "two literals",
+			lines: []string{"const p = '/first';", "const p = '/second';"},
+		},
+		{
+			name:  "literal then expression",
+			lines: []string{"const p = '/first';", "const p = prefix + '/second';"},
+		},
+		{
+			name:  "three declarations",
+			lines: []string{"const p = '/first';", "const p = '/second';", "const p = '/third';"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			for _, line := range tt.lines {
+				extractor.recordStringDeclaration(line)
+			}
+			assert.Equal(t, map[string]string{"p": ""}, extractor.jsConsts)
+			assert.Empty(t, extractor.resolveJSExpression("p"))
+			assert.Equal(t, "/x/${p}", extractor.resolveJSExpression("`/x/${p}`"))
+		})
+	}
 }
 
 func TestRecordStringDeclarationIsBounded(t *testing.T) {
@@ -102,9 +137,9 @@ func TestRecordStringDeclarationIsBounded(t *testing.T) {
 	assert.Len(t, extractor.jsConsts, maxJSStringConsts)
 	assert.NotContains(t, extractor.jsConsts, "overflow")
 
-	// a known name still takes its latest value
+	// a known name declared again is still marked ambiguous
 	extractor.recordStringDeclaration("const p0 = '/redeclared';")
-	assert.Equal(t, "/redeclared", extractor.jsConsts["p0"])
+	assert.Empty(t, extractor.jsConsts["p0"])
 }
 
 func TestFirstJSArgument(t *testing.T) {

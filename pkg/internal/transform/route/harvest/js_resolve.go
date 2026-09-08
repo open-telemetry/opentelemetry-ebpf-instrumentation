@@ -10,36 +10,51 @@ import (
 
 // recordStringDeclaration remembers a string constant declared by the line
 // (const prefix = '/api'), so that later route calls can refer to it. Only a
-// declaration whose whole initializer is a single string literal is tracked;
-// once the per-file cap is reached, new names are dropped but a redeclared
-// name still takes its latest value.
+// const whose whole initializer is a single string literal is tracked. A name
+// declared again, whatever its new initializer, becomes ambiguous: the scanner
+// does not know which scope a later use refers to. Once the per-file cap is
+// reached, new names are dropped.
 func (e *RouteExtractor) recordStringDeclaration(line string) {
-	m := e.patterns.StringDeclaration.FindStringSubmatchIndex(line)
+	m := e.patterns.ConstDeclaration.FindStringSubmatchIndex(line)
 	if m == nil {
 		return
 	}
 	name := line[m[2]:m[3]]
 
-	open := m[1] - 1
-	end := endOfJSString(line, open)
-	if end >= len(line) {
+	if _, exists := e.jsConsts[name]; exists {
+		e.jsConsts[name] = ""
+		return
+	}
+	if len(e.jsConsts) >= maxJSStringConsts {
 		return
 	}
 
-	rest := strings.TrimSpace(line[end+1:])
-	if rest != "" && rest != ";" {
-		return
-	}
-
-	value := jsStringLiteral(line[open : end+1])
+	value := constStringValue(line[m[1]:])
 	if value == "" {
 		return
 	}
-
-	if _, exists := e.jsConsts[name]; !exists && len(e.jsConsts) >= maxJSStringConsts {
-		return
-	}
 	e.jsConsts[name] = value
+}
+
+// constStringValue returns the value of a const initializer when the whole of
+// it is a single string literal, optionally followed by a semicolon, and an
+// empty string otherwise.
+func constStringValue(initializer string) string {
+	if initializer == "" || !isJSQuote(initializer[0]) {
+		return ""
+	}
+
+	end := endOfJSString(initializer, 0)
+	if end >= len(initializer) {
+		return ""
+	}
+
+	rest := strings.TrimSpace(initializer[end+1:])
+	if rest != "" && rest != ";" {
+		return ""
+	}
+
+	return jsStringLiteral(initializer[:end+1])
 }
 
 // resolveRouteCall returns the method captured by the call pattern (empty when
@@ -195,7 +210,7 @@ func (e *RouteExtractor) substituteTemplate(contents string) string {
 				out.WriteString(contents[i:])
 				return out.String()
 			}
-			if value, ok := e.jsConsts[strings.TrimSpace(contents[i+2:end])]; ok {
+			if value := e.jsConsts[strings.TrimSpace(contents[i+2:end])]; value != "" {
 				out.WriteString(value)
 			} else {
 				out.WriteString(contents[i : end+1])

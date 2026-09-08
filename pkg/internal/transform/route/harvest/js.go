@@ -143,9 +143,10 @@ type FrameworkPatterns struct {
 	URLPatternPathname *regexp.Regexp
 	// key of the 'baseURL' member of a URLPattern init object
 	URLPatternBaseURL *regexp.Regexp
-	// a string constant declaration, whose value route calls may refer to:
-	// const prefix = '/api'
-	StringDeclaration *regexp.Regexp
+	// a constant declaration, whose value route calls may refer to:
+	// const prefix = '/api'. Only const is tracked: a let or var may be
+	// reassigned, so its value at the route call is not known
+	ConstDeclaration *regexp.Regexp
 	// Fallback
 	Fallback *regexp.Regexp
 
@@ -250,8 +251,8 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		URLPatternPathname: jsObjectKeyPattern("pathname"),
 		URLPatternBaseURL:  jsObjectKeyPattern("baseURL"),
 
-		// Matches: const prefix = '/api', let p = "/users", export const b = `/x`
-		StringDeclaration: regexp.MustCompile(`^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*['"\x60]`),
+		// Matches: const prefix = '/api', export const base = `/x`
+		ConstDeclaration: regexp.MustCompile(`^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*`),
 
 		// Fallback (e.g. NextJS)
 		Fallback: regexp.MustCompile(`['"\x60](/[^'"\x60]+)['"\x60]`),
@@ -300,8 +301,10 @@ type RouteExtractor struct {
 	// being scanned, nil when no call is open
 	urlPatternCall *urlPatternCall
 	// jsConsts holds the string constants declared so far in the file being
-	// scanned, so that a route path given as a variable or a concatenation can
-	// be resolved. A declaration must precede its use.
+	// scanned, so that a route path given as a constant or a concatenation can
+	// be resolved. A declaration must precede its use. A name declared more
+	// than once (necessarily in different scopes) is ambiguous and holds an
+	// empty value, which no route resolves through.
 	jsConsts map[string]string
 
 	// application-level NestJS settings, harvested from any scanned file

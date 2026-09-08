@@ -179,7 +179,6 @@ func TestRouteExtractor_VariableRoutesApp(t *testing.T) {
 		"/api/v1/users/:id",
 		"/api/users/{id}",
 		"/api/items/{itemId}",
-		"/second",
 		"/api/books",
 		"/api/items/:id",
 		"/api/multi",

@@ -1,19 +1,24 @@
-// Express application declaring route paths through variables, string
+// Express application declaring route paths through constants, string
 // concatenation and template literals
 const express = require("express");
 const app = express();
 const server = require("restify").createServer();
 
 const base = '/api';
-let usersPath = "/users";
-var itemsPath = `/items`;
+const usersPath = "/users";
+const itemsPath = `/items`;
 export const version = 'v1';
+let mutablePath = '/mutable';
+var legacyPath = '/legacy';
 const key = 'user:1';
-const dup = '/first';
-const dup = '/second';
+const shadowed = '/outer';
 
 // a bare identifier argument
 app.get(usersPath, listUsers);
+
+// let and var may be reassigned, so their value is not trusted
+app.get(mutablePath, getMutable);
+app.get(legacyPath, getLegacy);
 
 // concatenation of a constant and a literal
 app.post(base + '/users', createUser);
@@ -30,8 +35,12 @@ app.patch(`${base}/users/${req.params.id}`, patchUser);
 // concatenation with a template literal
 app.get(base + `/items/${itemId}`, getItem);
 
-// the latest declaration of a name wins
-app.head(dup, headHandler);
+// a name declared in more than one scope is ambiguous and never resolved
+function nested() {
+  const shadowed = '/inner';
+  app.head(shadowed, headInner);
+}
+app.head(shadowed, headOuter);
 
 // a name declared later in the file is unknown here
 app.options(later, optionsHandler);
