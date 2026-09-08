@@ -33,6 +33,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export/otel/idgen"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -516,6 +517,19 @@ func (ctx *EBPFParseContext) Close() {
 	ctx.discardPendingGoHTTPClients.Store(true)
 	if ctx.pendingGoHTTPClientRequests != nil {
 		ctx.pendingGoHTTPClientRequests.Purge()
+	}
+}
+
+// detachExtraSpans prepares sibling spans parsed out of a single batched event.
+// They all carry the ids of that one event, so each needs its own span id, and
+// when the batch has no parent request each also needs its own trace id: sharing
+// one would put several parentless spans in a trace that can have only one root.
+func detachExtraSpans(spans []request.Span) {
+	for i := range spans {
+		spans[i].SpanID = trace.SpanID{}
+		if !spans[i].ParentSpanID.IsValid() {
+			spans[i].TraceID = idgen.RandomTraceID()
+		}
 	}
 }
 
