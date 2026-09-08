@@ -52,6 +52,7 @@
 #include <maps/filter_ports.h>
 #include <maps/fd_to_connection.h>
 #include <maps/msg_buffers.h>
+#include <maps/node_manual_ctx_shadow.h>
 #include <maps/sock_pids.h>
 #include <maps/unreadable_buffer_ports.h>
 #include <pid/pid.h>
@@ -1517,6 +1518,11 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_exit, int status) {
         bpf_map_delete_elem(&server_traces, &vt_task);
     }
     obi_ctx__del(id);
+    // The Node.js span bridge's override shadow is keyed by pid_tgid like the
+    // entry obi_ctx__del just dropped, so it must go with it: a thread exiting
+    // mid-override would otherwise hand its saved base context to whatever
+    // thread next reuses the id.
+    bpf_map_delete_elem(&node_manual_ctx_shadow, &id);
     // A carrier dying without VirtualThread.unmount() must not leave a
     // stale entry that would re-key a future thread reusing this tid.
     bpf_map_delete_elem(&java_vt_threads, &task.p_key);

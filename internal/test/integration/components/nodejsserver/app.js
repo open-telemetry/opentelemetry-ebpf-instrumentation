@@ -16,10 +16,22 @@ const tracer = trace.getTracer("nodejs-manual-test", "1.0.0");
 // Span names here are deliberately distinct from OBI's own automatic
 // sub-span names ("in queue", "processing") that it adds to every HTTP
 // server span, so the assertions can tell them apart.
-app.get("/manual", (req, res, next) => {
+// Make an outgoing HTTP GET and resolve once the response is fully consumed.
+function outgoingGet(url) {
+  return new Promise((resolve) => {
+    const req = http.get(url, (resp) => {
+      resp.on("data", () => {});
+      resp.on("end", resolve);
+      resp.on("error", resolve);
+    });
+    req.on("error", resolve);
+  });
+}
+
+app.get("/manual", async (req, res, next) => {
   // Root manual span. OBI re-anchors it onto the in-flight request context,
   // i.e. it becomes a child of OBI's automatic "processing" sub-span.
-  tracer.startActiveSpan("checkout", (checkout) => {
+  await tracer.startActiveSpan("checkout", async (checkout) => {
     checkout.setAttribute("cart.items", 3);
 
     // Plain (non-active) child of checkout.
@@ -39,6 +51,15 @@ app.get("/manual", (req, res, next) => {
 
       charge.end();
     });
+
+    // Outgoing HTTP call made INSIDE the active "checkout" manual span. OBI's
+    // automatic eBPF client span must nest under "checkout" (not be a sibling
+    // under the server span): while the manual span is active the bridge points
+    // the request's trace context at it via the -mspan/ sentinel. The target is
+    // an external host (as the other Node.js client-span tests use) so OBI emits
+    // a genuine client span — a same-process loopback call is deduplicated to
+    // its server span and would not exercise client-span parenting.
+    await outgoingGet("http://grafana.com/");
 
     checkout.end();
     res.sendStatus(200);

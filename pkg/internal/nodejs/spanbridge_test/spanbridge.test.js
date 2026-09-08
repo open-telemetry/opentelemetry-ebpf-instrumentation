@@ -62,6 +62,40 @@ test('api loaded AFTER injection: late copy is still wired, app SDK wins handoff
   assert.ok(!r.bridge.includes('after'), 'bridge must stop capturing after the late SDK registers');
 });
 
+test('active manual spans publish -mspan/ override and restore on unwind', () => {
+  // The bridge points traces_ctx_v1 at the innermost active manual span so
+  // OBI's eBPF client spans nest under it, then restores the enclosing span (or
+  // pops to none) as each scope unwinds. For nested startActiveSpan('outer' >
+  // 'inner'): override(outer), override(inner), restore(outer) on inner exit,
+  // pop on outer exit.
+  const r = runScenario('mspan-nesting');
+  assert.deepStrictEqual(r.mspan, ['outer', 'inner', 'outer', 'pop']);
+  assert.deepStrictEqual(r.bridge, ['inner', 'outer'], 'both spans are still captured');
+});
+
+test('a span ending in an async callback releases its override', () => {
+  // The override must not outlive the callback: nothing else clears it when no
+  // further callback runs (a timer in an idle process, work outside a request),
+  // so eBPF client spans and enriched log lines would keep carrying an ended
+  // span. The 'after' boundary pops it.
+  const r = runScenario('mspan-async-release');
+  assert.ok(r.mspan.includes('override'), 'the active span must publish an override');
+  assert.strictEqual(r.mspan[r.mspan.length - 1], 'pop', 'the last sentinel must release it');
+  assert.deepStrictEqual(r.bridge, ['job'], 'the span is still captured');
+});
+
+test('re-injection keeps the override hook after the context-refresh hook', () => {
+  // async_hooks fire in enable order; a re-injected fdextractor re-enables its
+  // '-ctx' hook, which would then erase the override every callback unless the
+  // bridge moves its own hook back last on re-injection.
+  const r = runScript('scenario_reinject.js');
+  assert.strictEqual(
+    r.stateInContinuation,
+    'manual',
+    'the override must run after the competing context-refresh hook'
+  );
+});
+
 test('native ESM app: bridge captures and the late SDK still wins the handoff', () => {
   // `import '@opentelemetry/api'` resolves to the package's CommonJS entry, so
   // it flows through the Module._load hook: the bridge wires the copy, captures
