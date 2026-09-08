@@ -94,7 +94,7 @@ services:
       - "9090:9090"
 
   jaeger:
-    image: jaegertracing/all-in-one:1.76.0@sha256:ab6f1a1f0fb49ea08bcd19f6b84f6081d0d44b364b6de148e1798eb5816bacac
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
     ports:
       - "16686:16686" # Query frontend
       - "4317" # OTEL GRPC traces collector

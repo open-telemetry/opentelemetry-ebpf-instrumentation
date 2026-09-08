@@ -48,9 +48,9 @@ func testPythonGraphQL(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "graphql.operation.type", Type: "string", Value: "query"})
 		require.GreaterOrEqual(ct, len(traces), 1)
 		lastTrace := traces[len(traces)-1]
-		span := lastTrace.Spans[0]
-
-		assert.Equal(ct, operationName, span.OperationName)
+		spans := lastTrace.FindByOperationName(operationName, "")
+		require.Len(ct, spans, 1)
+		span := spans[0]
 
 		tag, found := jaeger.FindIn(span.Tags, "graphql.operation.name")
 		assert.True(ct, found)
