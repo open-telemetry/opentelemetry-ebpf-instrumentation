@@ -63,6 +63,20 @@ func TestExtractPythonRoutesMissingDir(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+func TestExtractPythonRoutesFromSymlinkRoot(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.py"), []byte(`
+@app.get("/items/{item_id}")
+`), 0o644))
+	root := filepath.Join(t.TempDir(), "root")
+	require.NoError(t, os.Symlink(dir, root))
+
+	result, err := extractPythonRoutes(root)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/items/{item_id}"}, result.Routes)
+}
+
 func routeKeys(routes map[string]struct{}) []string {
 	keys := make([]string, 0, len(routes))
 	for route := range routes {

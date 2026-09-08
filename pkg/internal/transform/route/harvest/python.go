@@ -71,21 +71,31 @@ func extractPythonRoutes(dir string) (*RouteHarvesterResult, error) {
 }
 
 func walkPythonFiles(root string, fn func(string) error) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+	files, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		path := filepath.Join(root, file.Name())
+		if err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				if skipPythonDir(info.Name()) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !info.Mode().IsRegular() || info.Size() > maxPythonFileBytes || filepath.Ext(path) != ".py" {
+				return nil
+			}
+			return fn(path)
+		}); err != nil {
 			return err
 		}
-		if info.IsDir() {
-			if path != root && skipPythonDir(info.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !info.Mode().IsRegular() || info.Size() > maxPythonFileBytes || filepath.Ext(path) != ".py" {
-			return nil
-		}
-		return fn(path)
-	})
+	}
+	return nil
 }
 
 func skipPythonDir(name string) bool {
