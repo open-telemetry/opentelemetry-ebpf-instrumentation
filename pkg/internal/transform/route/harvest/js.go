@@ -302,9 +302,10 @@ type RouteExtractor struct {
 	urlPatternCall *urlPatternCall
 	// jsConsts holds the string constants declared so far in the file being
 	// scanned, so that a route path given as a constant or a concatenation can
-	// be resolved. A declaration must precede its use. A name declared more
-	// than once (necessarily in different scopes) is ambiguous and holds an
-	// empty value, which no route resolves through.
+	// be resolved. A declaration must precede its use. A name whose value is
+	// not a string literal, or that is declared more than once (necessarily
+	// in different scopes), holds an empty value, which no route resolves
+	// through.
 	jsConsts map[string]string
 
 	// application-level NestJS settings, harvested from any scanned file
@@ -1339,10 +1340,24 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	e.urlPatternCall = nil
 	clear(e.jsConsts)
 
+	inBlockComment := false
 	for scanner.Scan() {
 		lineNum++
 		line = scanner.Text()
 		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		// a block comment spanning several lines is skipped as a whole, so
+		// that commented-out code neither declares a constant nor makes a
+		// live one ambiguous
+		current := strings.TrimSpace(line)
+		if inBlockComment {
+			inBlockComment = !strings.Contains(current, "*/")
+			continue
+		}
+		if strings.HasPrefix(current, "/*") && !strings.Contains(current, "*/") {
+			inBlockComment = true
 			continue
 		}
 		if strings.Contains(line, ";") {
@@ -1360,7 +1375,7 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 		}
 
 		// a declaration line still goes through the handlers below
-		e.recordStringDeclaration(strings.TrimSpace(scanner.Text()))
+		e.recordStringDeclaration(current)
 
 		// a non-decorator line (typically the method signature) ends the
 		// decorator stack of a buffered NestJS method

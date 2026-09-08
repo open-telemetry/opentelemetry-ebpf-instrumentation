@@ -8,12 +8,13 @@ import (
 	"strings"
 )
 
-// recordStringDeclaration remembers a string constant declared by the line
+// recordStringDeclaration remembers a constant declared by the line
 // (const prefix = '/api'), so that later route calls can refer to it. Only a
-// const whose whole initializer is a single string literal is tracked. A name
-// declared again, whatever its new initializer, becomes ambiguous: the scanner
-// does not know which scope a later use refers to. Once the per-file cap is
-// reached, new names are dropped.
+// const whose whole initializer is a single string literal has a value; any
+// other const is remembered as unresolvable, so that a same-named literal in
+// another scope cannot be taken for it. A name declared again, whatever its
+// new initializer, becomes unresolvable for the same reason. Once the per-file
+// cap is reached, new names are dropped.
 func (e *RouteExtractor) recordStringDeclaration(line string) {
 	m := e.patterns.ConstDeclaration.FindStringSubmatchIndex(line)
 	if m == nil {
@@ -29,11 +30,7 @@ func (e *RouteExtractor) recordStringDeclaration(line string) {
 		return
 	}
 
-	value := constStringValue(line[m[1]:])
-	if value == "" {
-		return
-	}
-	e.jsConsts[name] = value
+	e.jsConsts[name] = constStringValue(line[m[1]:])
 }
 
 // constStringValue returns the value of a const initializer when the whole of
@@ -70,14 +67,21 @@ func (e *RouteExtractor) resolveRouteCall(line string, call *regexp.Regexp) (met
 		method = line[m[2]:m[3]]
 	}
 
-	return method, e.resolveJSExpression(firstJSArgument(line[m[1]:]))
+	// an argument cut by the end of the line is left for the scan to complete
+	// with the next line
+	arg, complete := firstJSArgument(line[m[1]:])
+	if !complete {
+		return method, ""
+	}
+
+	return method, e.resolveJSExpression(arg)
 }
 
 // firstJSArgument returns the first argument of the call whose source follows
 // its opening parenthesis. The argument ends at the first comma or closing
-// parenthesis outside a string literal or a nested object, array or call. It
-// is returned as read when the source ends before either of them.
-func firstJSArgument(rest string) string {
+// parenthesis outside a string literal or a nested object, array or call;
+// complete reports whether that end was found before the source ran out.
+func firstJSArgument(rest string) (arg string, complete bool) {
 	depth := 0
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -89,17 +93,17 @@ func firstJSArgument(rest string) string {
 			depth--
 		case ')':
 			if depth == 0 {
-				return strings.TrimSpace(rest[:i])
+				return strings.TrimSpace(rest[:i]), true
 			}
 			depth--
 		case ',':
 			if depth == 0 {
-				return strings.TrimSpace(rest[:i])
+				return strings.TrimSpace(rest[:i]), true
 			}
 		}
 	}
 
-	return strings.TrimSpace(rest)
+	return strings.TrimSpace(rest), false
 }
 
 // resolveJSExpression returns the string value of a path expression: a string

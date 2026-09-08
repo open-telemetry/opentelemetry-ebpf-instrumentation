@@ -53,33 +53,33 @@ func TestRecordStringDeclaration(t *testing.T) {
 			expected: map[string]string{"p": `/it\'s`},
 		},
 		{
-			name:     "interpolated template is not a constant",
+			name:     "interpolated template is unresolvable",
 			line:     "const p = `/api/${version}`;",
-			expected: map[string]string{},
+			expected: map[string]string{"p": ""},
 		},
 		{
-			name:     "concatenation is not a constant",
+			name:     "concatenation is unresolvable",
 			line:     "const p = '/api' + '/users';",
-			expected: map[string]string{},
+			expected: map[string]string{"p": ""},
 		},
 		{
-			name:     "several declarators are not tracked",
+			name:     "several declarators are unresolvable",
 			line:     "const p = '/api', other = 1;",
-			expected: map[string]string{},
+			expected: map[string]string{"p": ""},
 		},
 		{
-			name:     "empty string is not tracked",
+			name:     "empty string is unresolvable",
 			line:     "const p = '';",
-			expected: map[string]string{},
+			expected: map[string]string{"p": ""},
+		},
+		{
+			name:     "non-literal initializer is unresolvable",
+			line:     "const p = require('./paths');",
+			expected: map[string]string{"p": ""},
 		},
 		{
 			name:     "not a declaration",
 			line:     "app.get('/users', handler);",
-			expected: map[string]string{},
-		},
-		{
-			name:     "non-literal initializer",
-			line:     "const p = require('./paths');",
 			expected: map[string]string{},
 		},
 	}
@@ -105,6 +105,10 @@ func TestRecordStringDeclarationRedeclaredNameIsAmbiguous(t *testing.T) {
 		{
 			name:  "literal then expression",
 			lines: []string{"const p = '/first';", "const p = prefix + '/second';"},
+		},
+		{
+			name:  "expression then literal",
+			lines: []string{"const p = getPath();", "const p = '/inner';"},
 		},
 		{
 			name:  "three declarations",
@@ -147,41 +151,53 @@ func TestFirstJSArgument(t *testing.T) {
 		name     string
 		rest     string
 		expected string
+		complete bool
 	}{
 		{
 			name:     "ends at the comma",
 			rest:     "'/users', handler)",
 			expected: "'/users'",
+			complete: true,
 		},
 		{
 			name:     "ends at the closing parenthesis",
 			rest:     "'/users')",
 			expected: "'/users'",
+			complete: true,
 		},
 		{
 			name:     "comma inside the string",
 			rest:     "'/a,b', handler)",
 			expected: "'/a,b'",
+			complete: true,
 		},
 		{
 			name:     "nested call",
 			rest:     "join(base, '/users'), handler)",
 			expected: "join(base, '/users')",
+			complete: true,
 		},
 		{
 			name:     "object argument",
 			rest:     "{ method: 'GET', url: '/x' })",
 			expected: "{ method: 'GET', url: '/x' }",
-		},
-		{
-			name:     "no terminator",
-			rest:     "base +",
-			expected: "base +",
+			complete: true,
 		},
 		{
 			name:     "argument spread over lines",
 			rest:     "\n  base + '/multi',\n  handler)",
 			expected: "base + '/multi'",
+			complete: true,
+		},
+		{
+			name:     "cut after an operator",
+			rest:     "base +",
+			expected: "base +",
+		},
+		{
+			name:     "cut after an operand",
+			rest:     "base",
+			expected: "base",
 		},
 		{
 			name:     "empty",
@@ -192,7 +208,9 @@ func TestFirstJSArgument(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, firstJSArgument(tt.rest))
+			arg, complete := firstJSArgument(tt.rest)
+			assert.Equal(t, tt.expected, arg)
+			assert.Equal(t, tt.complete, complete)
 		})
 	}
 }

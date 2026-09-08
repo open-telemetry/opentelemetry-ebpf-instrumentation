@@ -61,6 +61,18 @@ app.get(
   multiHandler
 );
 
+// an argument cut by a line break
+app.get(base
+  + '/split',
+  splitHandler
+);
+
+/*
+commented-out code neither declares nor shadows a constant
+const base = '/old-api';
+app.get(base + '/old', oldHandler);
+*/
+
 // a value that is not a path is dropped
 cache.get(key, loadUser);
 

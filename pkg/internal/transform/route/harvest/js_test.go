@@ -182,7 +182,30 @@ func TestRouteExtractor_VariableRoutesApp(t *testing.T) {
 		"/api/books",
 		"/api/items/:id",
 		"/api/multi",
+		"/api/split",
 	}, extractor.GetHarvestedRoutes())
+}
+
+func TestRouteExtractorSkipsBlockComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.js")
+	require.NoError(t, os.WriteFile(path, []byte(`
+const usersPath = '/users';
+/*
+const usersPath = '/old-users';
+const legacyPath = '/legacy';
+app.get('/commented-out', handler);
+*/
+/* const itemsPath = '/items'; */
+app.get(usersPath, listUsers);
+app.get(legacyPath, listLegacy);
+app.get(itemsPath, listItems);
+`), 0o644))
+
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(path))
+
+	assert.ElementsMatch(t, []string{"/users"}, extractor.GetHarvestedRoutes())
 }
 
 func TestRouteExtractor_NextJSManifest(t *testing.T) {
@@ -522,6 +545,11 @@ func TestHandleTypicalRoute(t *testing.T) {
 		{
 			name:  "concatenation with unknown variable",
 			line:  "  app.get(prefix + '/items', handler)",
+			found: false,
+		},
+		{
+			name:  "argument cut by the end of the line",
+			line:  "  app.get(itemsPath",
 			found: false,
 		},
 	}
