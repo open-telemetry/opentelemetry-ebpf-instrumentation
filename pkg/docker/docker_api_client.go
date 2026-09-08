@@ -79,10 +79,10 @@ type ContainerStore struct {
 	watcherStarted sync.Once
 	watcherRunning atomic.Bool
 
-	cacheMu                sync.RWMutex
-	byPID                  map[app.PID]ContainerMeta
-	byContainerID          map[ContainerID]containerEntry // metadata + PIDs keyed by full container ID
-	notContainerUntilByPID map[app.PID]time.Time
+	cacheMu                       sync.RWMutex
+	byPID                         map[app.PID]ContainerMeta
+	byContainerID                 map[ContainerID]containerEntry // metadata + PIDs keyed by full container ID
+	containerNotFoundRetryAtByPID map[app.PID]time.Time
 
 	// lastEventAt is the Unix timestamp (seconds) of the last processed Docker event.
 	// It is seeded to the start time of watchContainerEvents and updated on each event,
@@ -93,10 +93,10 @@ type ContainerStore struct {
 
 func NewStore() *ContainerStore {
 	return &ContainerStore{
-		log:                    cmlog(),
-		byPID:                  make(map[app.PID]ContainerMeta),
-		byContainerID:          make(map[ContainerID]containerEntry),
-		notContainerUntilByPID: make(map[app.PID]time.Time),
+		log:                           cmlog(),
+		byPID:                         make(map[app.PID]ContainerMeta),
+		byContainerID:                 make(map[ContainerID]containerEntry),
+		containerNotFoundRetryAtByPID: make(map[app.PID]time.Time),
 	}
 }
 
@@ -141,19 +141,19 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 		s.cacheMu.RUnlock()
 		return ci, true
 	}
-	retryAt, notContainer := s.notContainerUntilByPID[pid]
+	retryAt, notContainer := s.containerNotFoundRetryAtByPID[pid]
 	s.cacheMu.RUnlock()
 	if notContainer {
 		if time.Now().Before(retryAt) {
 			return ContainerMeta{}, false
 		}
 		s.cacheMu.Lock()
-		if retryAt, ok := s.notContainerUntilByPID[pid]; ok {
+		if retryAt, ok := s.containerNotFoundRetryAtByPID[pid]; ok {
 			if time.Now().Before(retryAt) {
 				s.cacheMu.Unlock()
 				return ContainerMeta{}, false
 			}
-			delete(s.notContainerUntilByPID, pid)
+			delete(s.containerNotFoundRetryAtByPID, pid)
 		}
 		s.cacheMu.Unlock()
 	}
@@ -161,12 +161,12 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	osCntInfo, err := osInfoForPID(pid)
 	if errors.Is(err, container.ErrContainerNotFound) {
 		s.cacheMu.Lock()
-		retryAt := s.notContainerUntilByPID[pid]
+		retryAt := s.containerNotFoundRetryAtByPID[pid]
 		if _, ok := s.byPID[pid]; !ok && !time.Now().Before(retryAt) {
 			// InvalidatePID may have run while the first lookup was in flight.
 			_, currentErr := osInfoForPID(pid)
 			if errors.Is(currentErr, container.ErrContainerNotFound) {
-				s.notContainerUntilByPID[pid] = time.Now().Add(containerNotFoundRetryInterval)
+				s.containerNotFoundRetryAtByPID[pid] = time.Now().Add(containerNotFoundRetryInterval)
 			}
 		}
 		s.cacheMu.Unlock()
@@ -195,7 +195,7 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 			s.byContainerID[fullContainerID] = entry
 		}
 		s.byPID[pid] = meta
-		delete(s.notContainerUntilByPID, pid)
+		delete(s.containerNotFoundRetryAtByPID, pid)
 		s.cacheMu.Unlock()
 		return meta, true
 	}
@@ -246,13 +246,13 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 		}
 		s.byPID[pid] = meta
 		s.byContainerID[meta.FullID] = entry
-		delete(s.notContainerUntilByPID, pid)
+		delete(s.containerNotFoundRetryAtByPID, pid)
 		s.cacheMu.Unlock()
 		return meta, true
 	}
 	s.byPID[pid] = meta
 	s.byContainerID[meta.FullID] = containerEntry{meta: meta, pids: []app.PID{pid}}
-	delete(s.notContainerUntilByPID, pid)
+	delete(s.containerNotFoundRetryAtByPID, pid)
 	s.cacheMu.Unlock()
 
 	return meta, true
@@ -391,7 +391,7 @@ func (s *ContainerStore) eventsLoop(ctx context.Context, fltrs client.Filters, s
 func (s *ContainerStore) InvalidatePID(pid app.PID) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	delete(s.notContainerUntilByPID, pid)
+	delete(s.containerNotFoundRetryAtByPID, pid)
 
 	meta, ok := s.byPID[pid]
 	if !ok {

@@ -193,7 +193,7 @@ func TestContainerInfo(t *testing.T) {
 			assert.Equal(t, ContainerID(fullID), got.FullID)
 			assert.Equal(t, 4, calls)
 			s.cacheMu.RLock()
-			_, negativelyCached := s.notContainerUntilByPID[pid]
+			_, negativelyCached := s.containerNotFoundRetryAtByPID[pid]
 			s.cacheMu.RUnlock()
 			assert.False(t, negativelyCached)
 		})
@@ -215,7 +215,7 @@ func TestContainerInfo(t *testing.T) {
 			_, ok := s.ContainerInfo(context.Background(), pid)
 			assert.False(t, ok)
 			s.cacheMu.RLock()
-			_, negativelyCached := s.notContainerUntilByPID[pid]
+			_, negativelyCached := s.containerNotFoundRetryAtByPID[pid]
 			s.cacheMu.RUnlock()
 			require.True(t, negativelyCached)
 
@@ -225,7 +225,7 @@ func TestContainerInfo(t *testing.T) {
 			assert.False(t, ok)
 
 			s.cacheMu.RLock()
-			_, negativelyCached = s.notContainerUntilByPID[pid]
+			_, negativelyCached = s.containerNotFoundRetryAtByPID[pid]
 			s.cacheMu.RUnlock()
 			assert.False(t, negativelyCached)
 		})
