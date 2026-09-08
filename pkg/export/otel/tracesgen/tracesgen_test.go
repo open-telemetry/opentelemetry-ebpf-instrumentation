@@ -1240,6 +1240,30 @@ func TestNoMessagingSpanIsReportedAsServerKind(t *testing.T) {
 	}
 }
 
+func TestSQSSpanKind(t *testing.T) {
+	sqsSpan := func(operationType string) *request.Span {
+		return &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAWSSQS,
+			AWS:     &request.AWS{SQS: request.AWSSQS{OperationType: operationType}},
+		}
+	}
+
+	assert.Equal(t, trace2.SpanKindProducer, spanKind(sqsSpan(request.MessagingSend)))
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingReceive)))
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingSettle)))
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan("")))
+
+	assert.Equal(t, trace2.SpanKindClient, spanKind(&request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeAWSSQS,
+	}))
+	assert.Equal(t, trace2.SpanKindClient, spanKind(&request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeAWSS3,
+	}))
+}
+
 func manualOTelPayload(t *testing.T) []byte {
 	t.Helper()
 
