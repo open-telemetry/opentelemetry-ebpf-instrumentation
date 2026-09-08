@@ -22,6 +22,7 @@ import (
 const (
 	maxPythonFileBytes = MaxJSFileScanBytes
 	pyLit              = `(?:[rRuU])?(?:"([^"\r\n]*)"|'([^'\r\n]*)')`
+	pyObj              = `(?:[A-Za-z_][A-Za-z0-9_]*\.)+`
 )
 
 var pySkipDirs = map[string]struct{}{
@@ -103,15 +104,43 @@ func scanPythonFile(path string, routes map[string]struct{}) error {
 	defer file.Close()
 
 	scan := bufio.NewScanner(file)
+	var stmt strings.Builder
+	depth := 0
 	for scan.Scan() {
 		line := strings.TrimSpace(scan.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		scanFastAPI(line, routes)
-		scanFlask(line, routes)
+
+		if stmt.Len() == 0 {
+			depth = parenDelta(line)
+			if (!startsFastAPI(line) && !startsFlask(line)) || depth <= 0 {
+				scanPythonStmt(line, routes)
+				continue
+			}
+			stmt.WriteString(line)
+			continue
+		}
+
+		stmt.WriteByte(' ')
+		stmt.WriteString(line)
+		depth += parenDelta(line)
+		if depth <= 0 {
+			scanPythonStmt(stmt.String(), routes)
+			stmt.Reset()
+			depth = 0
+		}
 	}
 	return scan.Err()
+}
+
+func scanPythonStmt(stmt string, routes map[string]struct{}) {
+	scanFastAPI(stmt, routes)
+	scanFlask(stmt, routes)
+}
+
+func parenDelta(line string) int {
+	return strings.Count(line, "(") - strings.Count(line, ")")
 }
 
 func addPyMatch(routes map[string]struct{}, re *regexp.Regexp, line string) {

@@ -18,11 +18,18 @@ func TestExtractPythonRoutes(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "api"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".venv"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.py"), []byte(`
-@app.get("/items/{item_id}")
-router = APIRouter(prefix="/api")
+@app.get(
+    "/items/{item_id}",
+    response_model=Item,
+    response_model_exclude_none=True,
+    tags=["items"],
+)
+	router = APIRouter(prefix="/api")
 `), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "api", "users.py"), []byte(`
-@bp.route('/users/<int:user_id>')
+@bp.route(
+    '/users/<int:user_id>',
+)
 `), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".venv", "dep.py"), []byte(`
 @app.get("/dependency")

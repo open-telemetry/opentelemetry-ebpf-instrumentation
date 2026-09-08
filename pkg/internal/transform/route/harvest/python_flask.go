@@ -14,8 +14,17 @@ var flaskPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\b` + pyObj + `register_blueprint\s*\([^)]*\burl_prefix\s*=\s*` + pyLit),
 }
 
+var flaskStart = regexp.MustCompile(
+	`(?:^@` + pyObj + `(?:route|get|post|put|patch|delete)|\b` +
+		pyObj + `(?:add_url_rule|register_blueprint)|\b(?:` + pyObj + `)?Blueprint)\s*\(`,
+)
+
 func scanFlask(line string, routes map[string]struct{}) {
 	for _, re := range flaskPatterns {
 		addPyMatch(routes, re, line)
 	}
+}
+
+func startsFlask(line string) bool {
+	return flaskStart.MatchString(line)
 }
