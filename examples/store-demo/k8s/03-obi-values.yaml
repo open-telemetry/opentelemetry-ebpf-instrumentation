@@ -3,8 +3,8 @@ namespaceOverride: obi-store-demo
 image:
   registry: docker.io
   repository: otel/ebpf-instrument
-  tag: v0.12.2
-  digest: sha256:750df53abff8d104f757b7f9a42ee88808db69d43cc338ab1819c00273b9422b
+  tag: v0.13.0
+  digest: sha256:5e89d7478b5feeb8ee73881c58bfe5bb0ccb6dcd4f8cd62e30457aa6e6426adb
 
 preset: application
 privileged: true
