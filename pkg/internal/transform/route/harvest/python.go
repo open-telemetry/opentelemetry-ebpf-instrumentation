@@ -21,6 +21,7 @@ import (
 
 const (
 	maxPythonFileBytes = MaxJSFileScanBytes
+	maxPythonFiles     = 10_000
 	pyLit              = `(?:[rRuU])?(?:"([^"\r\n]*)"|'([^'\r\n]*)')`
 	pyObj              = `(?:[A-Za-z_][A-Za-z0-9_]*\.)+`
 )
@@ -71,10 +72,16 @@ func extractPythonRoutes(dir string) (*RouteHarvesterResult, error) {
 }
 
 func walkPythonFiles(root string, fn func(string) error) error {
+	return walkPythonFilesN(root, maxPythonFiles, fn)
+}
+
+func walkPythonFilesN(root string, maxFiles int, fn func(string) error) error {
 	files, err := os.ReadDir(root)
 	if err != nil {
 		return err
 	}
+	scanned := 0
+	limit := false
 	for _, file := range files {
 		path := filepath.Join(root, file.Name())
 		if err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
@@ -90,9 +97,20 @@ func walkPythonFiles(root string, fn func(string) error) error {
 			if !info.Mode().IsRegular() || info.Size() > maxPythonFileBytes || filepath.Ext(path) != ".py" {
 				return nil
 			}
-			return fn(path)
+			scanned++
+			if err := fn(path); err != nil {
+				return err
+			}
+			if scanned >= maxFiles {
+				limit = true
+				return filepath.SkipAll
+			}
+			return nil
 		}); err != nil {
 			return err
+		}
+		if limit {
+			break
 		}
 	}
 	return nil

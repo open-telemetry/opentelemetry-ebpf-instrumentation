@@ -77,6 +77,22 @@ func TestExtractPythonRoutesFromSymlinkRoot(t *testing.T) {
 	assert.Equal(t, []string{"/items/{item_id}"}, result.Routes)
 }
 
+func TestWalkPythonFilesStopsAtLimit(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.py", "b.py", "c.py"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o644))
+	}
+
+	count := 0
+	err := walkPythonFilesN(dir, 2, func(string) error {
+		count++
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+}
+
 func routeKeys(routes map[string]struct{}) []string {
 	keys := make([]string, 0, len(routes))
 	for route := range routes {
