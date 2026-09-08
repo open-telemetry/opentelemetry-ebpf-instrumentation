@@ -874,6 +874,42 @@ func (*recordingSampler) Description() string {
 	return "recording sampler"
 }
 
+func TestMCPGenAIOperationNameOnlyForToolCalls(t *testing.T) {
+	tests := []struct {
+		method string
+		want   string
+	}{
+		{method: "tools/call", want: "execute_tool"},
+		{method: "tools/list"},
+		{method: "initialize"},
+		{method: "resources/read"},
+		{method: "prompts/get"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			exported := generateSingleTraceSpan(t, &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeMCP,
+				Method:  "POST",
+				Status:  200,
+				GenAI:   &request.GenAI{MCP: &request.MCPCall{Method: tt.method}},
+			}, map[attr.Name]struct{}{})
+
+			if tt.want == "" {
+				// Semantic conventions require the attribute to be absent
+				// rather than empty for anything but a tool call.
+				assertSpanAttributeAbsent(t, exported, string(attr.GenAIOperationName))
+				return
+			}
+
+			value, ok := exported.Attributes().Get(string(attr.GenAIOperationName))
+			require.True(t, ok)
+			assert.Equal(t, tt.want, value.Str())
+		})
+	}
+}
+
 func generateSingleTraceSpan(
 	t *testing.T,
 	span *request.Span,
