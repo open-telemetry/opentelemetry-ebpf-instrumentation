@@ -57,6 +57,10 @@ func parseMySQLError(buf []uint8) *request.SQLError {
 	sqlErr.Code = binary.LittleEndian.Uint16(buf[offset : offset+2])
 	offset += 2
 
+	if sqlErr.Code == 0 {
+		return nil
+	}
+
 	// MariaDB progress reports share the ERR marker but are not errors.
 	// Other codes may be user-defined or supplied by MySQL-compatible servers.
 	if sqlErr.Code == MySQLProgressReporting {
@@ -70,7 +74,6 @@ func parseMySQLError(buf []uint8) *request.SQLError {
 		// Skip the SQL state marker
 		offset++
 		// Read the SQL state
-		// TODO: Normalize SQLState to five characters without changing error.type silently.
 		sqlErr.SQLState = string(MySQLStateMarker) + string(buf[offset:offset+5])
 		offset += 5
 	}

@@ -35,6 +35,13 @@ func TestMySQLErrorCodes(t *testing.T) {
 }
 
 func TestMySQLErrorPacketValidation(t *testing.T) {
+	t.Run("zero_code_with_sqlstate", func(t *testing.T) {
+		assert.Nil(t, SQLParseError(request.DBMySQL, mysqlErrorPacket(0, "#HY000test error")))
+	})
+	t.Run("zero_code_without_sqlstate", func(t *testing.T) {
+		assert.Nil(t, SQLParseError(request.DBMySQL, mysqlErrorPacket(0, "legacy error")))
+	})
+
 	t.Run("empty_message", func(t *testing.T) {
 		packet := mysqlErrorPacket(20301, "#HY000")
 		require.Len(t, packet, 13)
