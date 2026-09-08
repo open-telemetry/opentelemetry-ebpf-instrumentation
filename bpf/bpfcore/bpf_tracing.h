@@ -510,16 +510,16 @@ struct pt_regs;
  */
 #define BPF_PROG(name, args...)                                                                    \
     name(unsigned long long *ctx);                                                                 \
-    static __attribute__((always_inline)) typeof(name(0)) ____##name(unsigned long long *ctx,      \
-                                                                     ##args);                      \
+    static __attribute__((always_inline)) typeof(name(0)) ____##name(                              \
+        unsigned long long *ctx, ##args);                                                          \
     typeof(name(0)) name(unsigned long long *ctx) {                                                \
         _Pragma("GCC diagnostic push")                                                             \
             _Pragma("GCC diagnostic ignored \"-Wint-conversion\"") return ____##name(              \
                 ___bpf_ctx_cast(args));                                                            \
         _Pragma("GCC diagnostic pop")                                                              \
     }                                                                                              \
-    static                                                                                         \
-        __attribute__((always_inline)) typeof(name(0)) ____##name(unsigned long long *ctx, ##args)
+    static __attribute__((always_inline)) typeof(name(0)) ____##name(                              \
+        unsigned long long *ctx, ##args)
 
 struct pt_regs;
 

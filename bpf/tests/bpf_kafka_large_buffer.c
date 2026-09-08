@@ -113,10 +113,10 @@ enum {
     k_kafka_hdr_request_api_key = 2,
     k_kafka_hdr_request_api_version = 2,
     k_kafka_hdr_correlation_id = 4,
-    k_kafka_request_header_fields_without_message_size =
-        k_kafka_hdr_request_api_key + k_kafka_hdr_request_api_version + k_kafka_hdr_correlation_id,
-    k_kafka_min_request_header_size =
-        k_kafka_hdr_message_size + k_kafka_request_header_fields_without_message_size,
+    k_kafka_request_header_fields_without_message_size = k_kafka_hdr_request_api_key +
+        k_kafka_hdr_request_api_version + k_kafka_hdr_correlation_id,
+    k_kafka_min_request_header_size = k_kafka_hdr_message_size +
+        k_kafka_request_header_fields_without_message_size,
 
     k_kafka_min_response_message_size_value = 4, // correlation_id (4)
 
