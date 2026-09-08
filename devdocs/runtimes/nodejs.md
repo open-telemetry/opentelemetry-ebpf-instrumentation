@@ -95,10 +95,27 @@ The injected agent reports in-process readings over an eBPF side channel:
   V8 reports (`read_only_space`, `shared_space`, ...) are
   engine-version-dependent, so they are dropped before export
   (debug-logged) to keep the series set stable.
-- The inspector must be reachable: injection is skipped when the application
-  registers its own `SIGUSR1` handler, and fails when the environment blocks
-  the inspector (e.g. seccomp) — in both cases the metrics are silently
-  absent (an error is logged).
+- The inspector must be reachable: injection is skipped when OBI will not send
+  `SIGUSR1` (see below), and fails when the environment blocks the inspector
+  (e.g. seccomp) — in both cases the metrics are silently absent (an error is
+  logged).
+- `SIGUSR1` is withheld unless the process is provably a Node.js runtime that
+  the signal cannot terminate and that has no handler of its own. Each refusal
+  is logged once, with a `reason`:
+  - the executable carries no Node internal symbol and maps no `libnode.so`,
+    so it is only a Node.js process by the name of its binary;
+  - `SigCgt`/`SigIgn` in `/proc/<pid>/status` show `SIGUSR1` neither caught nor
+    ignored, so sending it would terminate the process. A runtime is briefly in
+    this state after `exec`, so OBI waits for it to install its handler before
+    giving up;
+  - `/proc/<pid>/status` could not be read;
+  - libuv's signal tree shows a handler the application registered;
+  - the application's command line, files or a dependency entry point mention
+    `SIGUSR1`;
+  - those files could not be searched — an unreadable directory, a file past
+    the scan size limit, a Yarn Plug'n'Play install, or a tree too large to
+    search within the scan budget. A scan that cannot complete withholds the
+    signal rather than treating the application as handler-free.
 - **Main-thread event loop only**: `perf_hooks` are per-thread and the agent
   runs on the main isolate, so `worker_threads` loops are not measured (the
   same scope as the standard OTel Node.js SDK). See the design notes for

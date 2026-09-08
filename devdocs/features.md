@@ -151,8 +151,10 @@ Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,ms
 
 Since OBI v0.12.1, OBI can capture spans that a Node.js application creates through `@opentelemetry/api` when no
 OpenTelemetry SDK is registered. Opt-in: `nodejs.manual_spans: true` or `OTEL_EBPF_NODEJS_MANUAL_SPANS=true`. The
-Node.js inspector must be reachable, and the process must not register its own `SIGUSR1` handler. If the application
-registers an SDK, OBI leaves span creation to that SDK.
+Node.js inspector must be reachable, and OBI must be able to open it: it withholds `SIGUSR1` unless the process is
+provably a Node.js runtime that the signal cannot terminate and that registers no handler of its own (see
+[runtimes/nodejs.md](runtimes/nodejs.md) for the full list of refusal reasons). If the application registers an SDK,
+OBI leaves span creation to that SDK.
 
 See [nodejs-manual-spans.md](nodejs-manual-spans.md).
 

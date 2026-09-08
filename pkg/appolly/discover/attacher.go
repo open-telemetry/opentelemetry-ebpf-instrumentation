@@ -137,6 +137,13 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 			defer javaInjections.wait()
 		}
 
+		var nodeInjections *nodeInjectionQueue
+		if ta.nodeInjector != nil {
+			nodeInjections = newNodeInjectionQueue(ta.log, ta.nodeInjector.InjectPID)
+			nodeInjections.start(ctx)
+			defer nodeInjections.wait()
+		}
+
 		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
 			for _, instr := range instrumentables {
 				ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
@@ -144,7 +151,11 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 				switch instr.Type {
 				case EventCreated:
 					ta.resolveServiceMetadata(&instr.Obj)
-					ta.nodeInjector.NewExecutable(&instr.Obj)
+
+					nodeTarget := app.PID(0)
+					if nodeInjections != nil && ta.nodeInjector.Accepts(&instr.Obj) {
+						nodeTarget = instr.Obj.FileInfo.Pid()
+					}
 
 					var javaTarget *javaagent.InjectionTarget
 					if javaInjections != nil && instr.Obj.Type == svc.InstrumentableJava {
@@ -169,6 +180,12 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 					// was just sent to.
 					if javaTarget != nil {
 						javaInjections.enqueue(*javaTarget)
+					}
+
+					// Node injection waits on the runtime and on the
+					// application's files, so it is queued for the same reason.
+					if nodeTarget != 0 {
+						nodeInjections.enqueue(nodeTarget)
 					}
 
 					if instr.Obj.FileInfo.ELF() != nil {

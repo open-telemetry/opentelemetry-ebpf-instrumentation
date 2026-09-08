@@ -10,6 +10,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
@@ -31,6 +33,39 @@ const (
 	maxSignalNum = 64
 )
 
+const (
+	signalTreeSymbol = "uv__signal_tree"
+	nodeLibrary      = "libnode.so"
+	sigusr1Mask      = uint64(1) << (sigusr1 - 1)
+)
+
+var nodeInternalSymbols = []string{
+	"_ZN4node16NodeMainInstance",
+	"_ZN4node11Environment",
+	"_ZN4node5StartE",
+	signalTreeSymbol,
+}
+
+func isNodeRuntime(pid int, elfFile *elf.File) bool {
+	if elfFile != nil {
+		syms, err := procs.FindExeSymbolsBySubstring(elfFile, nodeInternalSymbols, elf.STT_FUNC, elf.STT_OBJECT)
+		if err == nil && len(syms) > 0 {
+			return true
+		}
+	}
+
+	return hasMappedNodeLibrary(pid)
+}
+
+func hasMappedNodeLibrary(pid int) bool {
+	maps, err := procs.FindLibMaps(app.PID(pid))
+	if err != nil {
+		return false
+	}
+
+	return procs.LibPath(nodeLibrary, maps) != nil
+}
+
 // hasUserSIGUSR1Handler checks whether a Node.js process has a JavaScript-level
 // SIGUSR1 handler registered (via process.on('SIGUSR1', ...)).
 //
@@ -41,30 +76,13 @@ const (
 // Returns signalCheckFound if a handler is detected, signalCheckNotFound if no handler,
 // or signalCheckFailed if the detection could not be performed (e.g. stripped symbols).
 func hasUserSIGUSR1Handler(pid int, elfFile *elf.File) signalCheckResult {
-	if elfFile.Class != elf.ELFCLASS64 {
+	if elfFile == nil || elfFile.Class != elf.ELFCLASS64 {
 		return signalCheckFailed
 	}
 
-	syms, err := procs.FindExeSymbols(elfFile, []string{"uv__signal_tree"}, elf.STT_OBJECT)
-	if err != nil {
-		return signalCheckFailed
-	}
-	sym, ok := syms["uv__signal_tree"]
+	runtimeAddr, ok := signalTreeRuntimeAddr(pid, elfFile)
 	if !ok {
 		return signalCheckFailed
-	}
-	symVAddr := sym.Off
-
-	// For PIE executables (ET_DYN), the symbol's virtual address is relative to the
-	// load base. We need to find the actual runtime address by reading the executable's
-	// base address from /proc/<pid>/maps.
-	runtimeAddr := symVAddr
-	if elfFile.Type == elf.ET_DYN {
-		base, err := procs.FindExeBaseAddr(app.PID(pid))
-		if err != nil {
-			return signalCheckFailed
-		}
-		runtimeAddr = base + symVAddr
 	}
 
 	memPath := fmt.Sprintf("/proc/%d/mem", pid)
@@ -86,6 +104,68 @@ func hasUserSIGUSR1Handler(pid int, elfFile *elf.File) signalCheckResult {
 		return signalCheckFound
 	}
 	return signalCheckNotFound
+}
+
+func signalTreeRuntimeAddr(pid int, elfFile *elf.File) (uint64, bool) {
+	syms, err := procs.FindExeSymbols(elfFile, []string{signalTreeSymbol}, elf.STT_OBJECT)
+	if err != nil {
+		return 0, false
+	}
+	sym, ok := syms[signalTreeSymbol]
+	if !ok {
+		return 0, false
+	}
+
+	// For PIE executables (ET_DYN), the symbol's virtual address is relative to the
+	// load base. We need to find the actual runtime address by reading the executable's
+	// base address from /proc/<pid>/maps.
+	if elfFile.Type != elf.ET_DYN {
+		return sym.Off, true
+	}
+
+	base, err := procs.FindExeBaseAddr(app.PID(pid))
+	if err != nil {
+		return 0, false
+	}
+
+	return base + sym.Off, true
+}
+
+func sigusr1Disposition(pid int) signalDisposition {
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return signalDispositionUnknown
+	}
+
+	caught, gotCaught := signalMask(status, "SigCgt:")
+	ignored, gotIgnored := signalMask(status, "SigIgn:")
+	if !gotCaught || !gotIgnored {
+		return signalDispositionUnknown
+	}
+
+	if (caught|ignored)&sigusr1Mask != 0 {
+		return signalDispositionHandled
+	}
+
+	return signalDispositionFatal
+}
+
+func signalMask(status []byte, field string) (uint64, bool) {
+	for line := range strings.SplitSeq(string(status), "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), field)
+		if !ok {
+			continue
+		}
+
+		mask, err := strconv.ParseUint(strings.TrimSpace(rest), 16, 64)
+		if err != nil {
+			return 0, false
+		}
+
+		return mask, true
+	}
+
+	return 0, false
 }
 
 // walkTreeForSignal performs an iterative traversal of the libuv signal RB-tree
