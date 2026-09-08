@@ -291,7 +291,7 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn, payload []byte) erro
 	return nil
 }
 
-func (i *NodeInjector) injectViaConn(conn net.Conn) error {
+func (i *NodeInjector) injectViaConn(conn net.Conn, code string) error {
 	wsURL, err := i.requestDebuggerURL(conn)
 	if err != nil {
 		conn.Close()
@@ -300,7 +300,7 @@ func (i *NodeInjector) injectViaConn(conn net.Conn) error {
 
 	i.log.Debug("found debugger url", "url", wsURL)
 
-	payload, err := evaluateRequest(i.agentCode(), 1)
+	payload, err := evaluateRequest(code, 1)
 	if err != nil {
 		conn.Close()
 		return err

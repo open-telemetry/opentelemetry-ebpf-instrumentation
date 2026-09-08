@@ -12,8 +12,10 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netns"
@@ -23,6 +25,9 @@ import (
 type NodeInjector struct {
 	log *slog.Logger
 	cfg *obi.Config
+
+	mu       sync.Mutex
+	injected map[app.PID]uint64
 }
 
 func NewNodeInjector(cfg *obi.Config) *NodeInjector {
@@ -34,8 +39,9 @@ func NewNodeInjector(cfg *obi.Config) *NodeInjector {
 	}
 
 	return &NodeInjector{
-		cfg: cfg,
-		log: log,
+		cfg:      cfg,
+		log:      log,
+		injected: map[app.PID]uint64{},
 	}
 }
 
@@ -105,10 +111,27 @@ func (i *NodeInjector) Inject(ctx context.Context, target InjectionTarget) {
 	}
 	defer elfFile.Close()
 
-	if err := i.attachAgent(ctx, target, elfFile); err != nil {
+	injected, err := i.attachAgent(ctx, target, elfFile)
+	if err != nil {
 		i.log.Error("couldn't attach NodeJS injector", "pid", pid, "error", err)
 		i.log.Error("trace-context propagation and nodejs runtime metrics will not work for NodeJS services!")
+
+		return
 	}
+
+	if injected {
+		i.mu.Lock()
+		i.injected[pid] = target.StartTime
+		i.mu.Unlock()
+	}
+}
+
+// Forget drops a process from the uninjection set, so a PID discovery has
+// already seen exit is never reopened at shutdown.
+func (i *NodeInjector) Forget(pid app.PID) {
+	i.mu.Lock()
+	delete(i.injected, pid)
+	i.mu.Unlock()
 }
 
 // attachAgent injects the agent through the Node.js inspector, opening it with
@@ -118,12 +141,12 @@ func (i *NodeInjector) Inject(ctx context.Context, target InjectionTarget) {
 // Deciding whether the signal is safe to send reads /proc and the application's
 // files, needs no namespace of its own, and can wait on the runtime for as long
 // as dispositionWait.
-func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, elfFile *elf.File) error {
+func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, elfFile *elf.File) (bool, error) {
 	pid := int(target.Pid)
 
-	injected, err := i.injectViaOpenInspector(pid)
+	injected, err := i.injectViaOpenInspector(pid, i.agentCode())
 	if injected || err != nil {
-		return err
+		return injected, err
 	}
 
 	reason := sigusr1Refusal(ctx, pid, elfFile)
@@ -131,33 +154,35 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 	// Shutdown is not a refusal: the gates were abandoned rather than answered,
 	// so nothing was concluded about this process and nothing is reported.
 	if err := ctx.Err(); err != nil {
-		return nil
+		return false, nil
 	}
 
 	if reason != "" {
 		i.log.Warn("not sending SIGUSR1 to open the Node.js inspector, skipping agent injection. "+
 			"Node.js trace correlation will not work", "pid", pid, "reason", reason)
-		return nil
+		return false, nil
 	}
 
 	if err := sendSIGUSR1(target.Process); err != nil {
-		return fmt.Errorf("error enabling node inspector: %w", err)
+		return false, fmt.Errorf("error enabling node inspector: %w", err)
 	}
 
-	return netns.WithNetNS(pid, func() error {
+	err = netns.WithNetNS(pid, func() error {
 		conn, err := connectWait("127.0.0.1", 9229, 5*time.Second, 200*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
 		}
 
-		return i.injectViaConn(conn)
+		return i.injectViaConn(conn, i.agentCode())
 	})
+
+	return err == nil, err
 }
 
 // injectViaOpenInspector handles the case of an inspector already listening,
 // as it is under --inspect, where no signal is needed at all. The first return
 // value reports whether the injection was carried out.
-func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
+func (i *NodeInjector) injectViaOpenInspector(pid int, code string) (bool, error) {
 	injected := false
 
 	err := netns.WithNetNS(pid, func() error {
@@ -175,7 +200,7 @@ func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
 
 		i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
 		injected = true
-		return i.injectViaConn(conn)
+		return i.injectViaConn(conn, code)
 	})
 
 	return injected, err
@@ -279,6 +304,8 @@ const (
 	rtEnabledOn              = "= true; /*OBI_RT_ENABLED*/"
 	tracesEnabledPlaceholder = "= false; /*OBI_TRACES_ENABLED*/"
 	tracesEnabledOn          = "= true; /*OBI_TRACES_ENABLED*/"
+	spansEnabledPlaceholder  = "= false; /*OBI_SPANS_ENABLED*/"
+	spansEnabledOn           = "= true; /*OBI_SPANS_ENABLED*/"
 )
 
 // agentCode returns the extractor script with the RT gate substituted from
@@ -296,7 +323,111 @@ func (i *NodeInjector) agentCode() string {
 		code = strings.Replace(code, tracesEnabledPlaceholder, tracesEnabledOn, 1)
 	}
 	if i.cfg.NodeJS.ManualSpans {
-		code += ";\n" + _spanBridgeCode
+		code += ";\n" + strings.Replace(_spanBridgeCode, spansEnabledPlaceholder, spansEnabledOn, 1)
 	}
 	return code
+}
+
+// uninstallCode is both scripts with every gate left off. Each one's prologue
+// undoes what a previous injection installed — the extractor restores the net
+// prototypes it wrapped and clears the async hook, sampling timer, delay
+// histogram and GC observer; the bridge restores Module._load and the api
+// setters it wrapped, and stops emitting. What survives either way is a
+// delegate already cached by a ProxyTracer, which is inert once the bridge has
+// stopped emitting.
+func uninstallCode() string {
+	return _extractorCode + ";\n" + _spanBridgeCode
+}
+
+const (
+	uninjectTimeout     = 15 * time.Second
+	uninjectConcurrency = 4
+)
+
+// UninjectAll removes the injected script from every process this agent
+// injected. It runs on the way out, when the caller's context is already
+// cancelled, so it carries its own deadline rather than deriving one.
+func (i *NodeInjector) UninjectAll() {
+	i.mu.Lock()
+	targets := i.injected
+	i.injected = map[app.PID]uint64{}
+	i.mu.Unlock()
+
+	if len(targets) == 0 {
+		return
+	}
+
+	i.log.Info("removing NodeJS instrumentation before shutdown", "processes", len(targets))
+
+	ctx, cancel := context.WithTimeout(context.Background(), uninjectTimeout)
+	defer cancel()
+
+	sem := make(chan struct{}, uninjectConcurrency)
+
+	var wg sync.WaitGroup
+
+	for pid, startTime := range targets {
+		if ctx.Err() != nil {
+			i.log.Warn("timed out removing NodeJS instrumentation; "+
+				"the injected script stays resident until the application restarts", "pid", pid)
+
+			continue
+		}
+
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			if err := i.uninject(ctx, pid, startTime); err != nil {
+				i.log.Warn("couldn't remove NodeJS instrumentation; "+
+					"the injected script stays resident until the application restarts",
+					"pid", pid, "error", err)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+// uninject reopens the process this agent injected and evaluates the uninstall
+// pass in it.
+//
+// The handle is what makes reopening safe: it validates the start time captured
+// at injection, and the signal that reopens the inspector goes through it, so a
+// PID the kernel recycled since cannot be signaled in the original's place.
+func (i *NodeInjector) uninject(ctx context.Context, pid app.PID, startTime uint64) error {
+	process, err := openProcessHandle(pid, startTime)
+	if err != nil {
+		return err
+	}
+	defer process.Close()
+
+	numericPid := int(pid)
+
+	injected, err := i.injectViaOpenInspector(numericPid, uninstallCode())
+	if injected || err != nil {
+		return err
+	}
+
+	// The process was injected, so it is a runtime that handles SIGUSR1; this
+	// confirms that is still true before the signal goes out.
+	if disposition := awaitSignalDisposition(ctx, numericPid); disposition != signalDispositionHandled {
+		return fmt.Errorf("not signaling process %d: %s", pid, refusalSignalIsFatal)
+	}
+
+	if err := sendSIGUSR1(process); err != nil {
+		return fmt.Errorf("error reopening node inspector: %w", err)
+	}
+
+	return netns.WithNetNS(numericPid, func() error {
+		conn, err := connectWait("127.0.0.1", 9229, 5*time.Second, 200*time.Millisecond)
+		if err != nil {
+			return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
+		}
+
+		return i.injectViaConn(conn, uninstallCode())
+	})
 }

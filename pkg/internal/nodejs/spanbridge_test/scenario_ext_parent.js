@@ -13,19 +13,17 @@ const fs = require('fs');
 const path = require('path');
 
 const records = [];
-const origAccess = fs.accessSync;
-fs.accessSync = (p, ...rest) => {
+const origExists = fs.existsSync;
+fs.existsSync = (p, ...rest) => {
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-span/')) {
     records.push(JSON.parse(p.slice('/dev/null/obi-span/'.length)));
-    const err = new Error('ENOTDIR');
-    err.code = 'ENOTDIR';
-    throw err;
+    return false;
   }
-  return origAccess(p, ...rest);
+  return origExists(p, ...rest);
 };
 
 // Inject the bridge, then load the api (wired via the module-load hook).
-const src = fs.readFileSync(path.join(__dirname, '..', 'spanbridge.js'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, '..', 'spanbridge.js'), 'utf8').replace('= false; /*OBI_SPANS_ENABLED*/', '= true; /*OBI_SPANS_ENABLED*/');
 // eslint-disable-next-line no-eval
 eval(src);
 
@@ -51,7 +49,7 @@ tracer.startActiveSpan('bridge-root', (root) => {
 // 3. No parent at all.
 tracer.startSpan('orphan').end();
 
-fs.accessSync = origAccess;
+fs.existsSync = origExists;
 
 const byName = {};
 for (const r of records) byName[r.name] = r;

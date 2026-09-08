@@ -45,7 +45,25 @@
   const MAX_STATUS_MSG_LEN = 128;
 
   const g = globalThis;
-  if (g.__obiSpanBridgeLoaded) return;
+
+  // Tear down a previous injection before doing anything else, so a
+  // re-injection replaces the bridge rather than layering onto it, and so the
+  // shutdown pass — this script with the gate left off — removes it.
+  if (g.__obiSpanBridge && typeof g.__obiSpanBridge.uninstall === 'function') {
+    try {
+      g.__obiSpanBridge.uninstall();
+    } catch (_) {}
+  }
+  g.__obiSpanBridge = undefined;
+  g.__obiSpanBridgeLoaded = false;
+
+  // Substituted by the injector, exactly as the fdextractor gates are: an
+  // injection that does not want manual spans installs nothing, and the
+  // uninstall pass reaches here having already run the teardown above.
+  const SPANS_ENABLED = false; /*OBI_SPANS_ENABLED*/
+
+  if (!SPANS_ENABLED) return;
+
   g.__obiSpanBridgeLoaded = true;
 
   const fs = require('fs');
@@ -134,6 +152,13 @@
     debug('yielded to application-registered SDK: ' + why);
   };
 
+  // Restorers for everything this injection mutates outside its own closure,
+  // run in reverse on uninstall. What cannot be undone is the delegate already
+  // handed to a ProxyTracer: the api caches the first one and never re-consults
+  // the registry. Leaving it pointed at this provider is harmless once yielded
+  // is set, which is what silences the transport.
+  const undo = [];
+
   // --- transport -----------------------------------------------------------
 
   // The span payload is smuggled to the eBPF layer as the argument of a
@@ -152,7 +177,7 @@
     // provider straight into the global registry (detectRegistryHandoff).
     if (yielded || detectRegistryHandoff()) return;
     try {
-      fs.accessSync(SENTINEL_PREFIX + payload);
+      fs.existsSync(SENTINEL_PREFIX + payload);
     } catch (err) {
       if (DEBUG && err && err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
         debug('unexpected error emitting span', err);
@@ -493,13 +518,19 @@
     if (!apiObj || typeof apiObj[method] !== 'function' || apiObj[method].__obiWrapped) {
       return;
     }
-    const orig = apiObj[method].bind(apiObj);
+    const raw = apiObj[method];
+    const orig = raw.bind(apiObj);
     const wrapped = function (...args) {
       yieldToApp(why);
       return orig(...args);
     };
     wrapped.__obiWrapped = true;
     apiObj[method] = wrapped;
+    undo.push(() => {
+      if (apiObj[method] === wrapped) {
+        apiObj[method] = raw;
+      }
+    });
   };
 
   // Wire a single @opentelemetry/api copy to the bridge. Because we never
@@ -570,11 +601,27 @@
       };
       patchedLoad.__obiWrapped = true;
       Module._load = patchedLoad;
+      undo.push(() => {
+        if (Module._load === patchedLoad) {
+          Module._load = origLoad;
+        }
+      });
     }
   } catch (err) {
     debug('failed to install module-load hook', err);
   }
 
-  g.__obiSpanBridge = { version: 1 };
+  const uninstall = () => {
+    yielded = true;
+    for (const restore of undo.splice(0).reverse()) {
+      try {
+        restore();
+      } catch (_) {}
+    }
+    g.__obiSpanBridgeLoaded = false;
+    g.__obiSpanBridge = undefined;
+  };
+
+  g.__obiSpanBridge = { version: 1, uninstall };
   debug('span bridge activated (pid ' + process.pid + ')');
 })();
