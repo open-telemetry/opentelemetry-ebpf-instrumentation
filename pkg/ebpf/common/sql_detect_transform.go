@@ -12,13 +12,11 @@ import (
 
 func sqlKind(b *largebuf.LargeBuffer) request.SQLKind {
 	if isPostgres(b) {
-		if isMySQL(b) {
-			if postgresSQLBodyStatus(b) == postgresBodyInvalid {
-				return request.DBMySQL
-			}
-			// Retain the existing PG fallback for incomplete captures. Generic
-			// would suppress SQL extraction when heuristic detection is disabled.
+		if isMySQL(b) && postgresSQLBodyStatus(b) == postgresBodyInvalid {
+			return request.DBMySQL
 		}
+		// Retain the existing PG fallback for incomplete captures. Generic
+		// would suppress SQL extraction when heuristic detection is disabled.
 		return request.DBPostgres
 	}
 	if isMySQL(b) {
