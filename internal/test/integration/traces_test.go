@@ -1718,7 +1718,7 @@ func testPythonAsyncConcurrent(t *testing.T) {
 func pythonAsyncSpanHasAncestor(trace *jaeger.Trace, s *jaeger.Span, ancestorID string) bool {
 	const maxHops = 3 // crosses the "in queue"/"processing" pseudo-spans
 	cur := s
-	for hop := 0; hop < maxHops; hop++ {
+	for range maxHops {
 		parent, ok := trace.ParentOf(cur)
 		if !ok {
 			return false
