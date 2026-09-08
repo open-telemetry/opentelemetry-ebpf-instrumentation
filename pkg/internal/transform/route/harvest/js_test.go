@@ -1721,7 +1721,8 @@ func TestFindDenoAppDir(t *testing.T) {
 		isDirFunc = origIsDir
 	})
 
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
 
