@@ -4,28 +4,21 @@
 package rubytools // import "go.opentelemetry.io/obi/pkg/internal/rubytools"
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
 
 const (
-	maxRubyMetadataBytes int64 = 2 * 1024 * 1024
-	maxProjectEntries          = 4096
-	bundleGemfile              = "BUNDLE_GEMFILE"
-	gemHome                    = "GEM_HOME"
-	gemPath                    = "GEM_PATH"
-	serviceVersion             = attr.Name("service.version")
+	bundleGemfile = "BUNDLE_GEMFILE"
+	gemHome       = "GEM_HOME"
+	gemPath       = "GEM_PATH"
 )
 
 var (
@@ -34,335 +27,145 @@ var (
 	cwdForPID     = ebpfcommon.CWDForPID
 )
 
-type serviceMetadata struct {
-	Name    string
-	Version string
-}
-
-type serviceMetadataResult struct {
-	metadata serviceMetadata
-	found    bool
-	err      error
-}
-
-type projectKind uint8
-
-const (
-	projectNone projectKind = iota
-	projectRails
-	projectGemspec
-	projectMarker
-)
-
-func ResolveServiceMetadata(ctx context.Context, fileInfo *exec.FileInfo) error {
+func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	if fileInfo == nil {
 		return errors.New("ruby service metadata requires process file info")
 	}
-
-	service := fileInfo.ServiceAttrs()
-	resolveName := service.UID.Name == ""
-	resolveVersion := service.Metadata[serviceVersion] == ""
-	if !resolveName && !resolveVersion {
+	if fileInfo.ServiceAttrs().UID.Name != "" {
 		return nil
 	}
 
-	pid := fileInfo.Pid()
-	result := make(chan serviceMetadataResult, 1)
-	go func() {
-		metadata, found, err := discoverServiceMetadata(ctx, pid, service.EnvVars)
-		result <- serviceMetadataResult{metadata: metadata, found: found, err: err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case resolved := <-result:
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if !resolved.found {
-			return resolved.err
-		}
-
-		if resolveName && langtools.ValidServiceName(resolved.metadata.Name) {
-			fileInfo.SetAutoServiceName(resolved.metadata.Name)
-		}
-		if resolveVersion && validGemVersion(resolved.metadata.Version) {
-			if service.Metadata == nil {
-				service.Metadata = map[attr.Name]string{}
-			}
-			service.Metadata[serviceVersion] = resolved.metadata.Version
-			fileInfo.SetMetadata(service.Metadata)
-		}
-		return resolved.err
+	name, found, err := discoverRailsServiceName(
+		fileInfo.Pid(),
+		fileInfo.ServiceAttrs().EnvVars,
+	)
+	if err != nil {
+		return err
 	}
+	if found && langtools.ValidServiceName(name) {
+		fileInfo.SetAutoServiceName(name)
+	}
+	return nil
 }
 
-func discoverServiceMetadata(
-	ctx context.Context,
+func discoverRailsServiceName(
 	pid app.PID,
 	env map[string]string,
-) (serviceMetadata, bool, error) {
-	if err := ctx.Err(); err != nil {
-		return serviceMetadata{}, false, err
-	}
-
+) (string, bool, error) {
 	command, args, cmdlineErr := cmdlineForPID(pid)
-	if err := ctx.Err(); err != nil {
-		return serviceMetadata{}, false, err
-	}
-
 	cwd, cwdErr := cwdForPID(pid)
 	if err := errors.Join(cmdlineErr, cwdErr); err != nil {
-		return serviceMetadata{}, false, err
+		return "", false, err
 	}
-	if err := ctx.Err(); err != nil {
-		return serviceMetadata{}, false, err
-	}
-
 	root := rootDirForPID(pid)
-	if err := ctx.Err(); err != nil {
-		return serviceMetadata{}, false, err
-	}
-
 	boundary, ok := langtools.ResolveProcessPath(root, "/", "/")
 	if !ok {
-		return serviceMetadata{}, false, ctx.Err()
+		return "", false, errors.New("can't resolve process path")
 	}
 
 	launch := ParseRubyLaunch(command, args)
-	return findRubyMetadata(ctx, root, boundary, cwd, launch, env)
+	return findRailsServiceName(root, boundary, cwd, launch, env)
 }
 
-func findRubyMetadata(
-	ctx context.Context,
+func findRailsServiceName(
 	root, boundary, cwd string,
 	launch RubyLaunch,
 	env map[string]string,
-) (serviceMetadata, bool, error) {
-	if err := ctx.Err(); err != nil {
-		return serviceMetadata{}, false, err
-	}
-
+) (string, bool, error) {
 	dependencyRoots := gemDependencyRoots(cwd, env)
 
 	if launch.EntryPoint != "" && !pathInDependencyRoot(cwd, launch.EntryPoint, dependencyRoots) {
-		fallback := serviceNameFromEntryPoint(launch.EntryPoint)
 		if start, ok := searchStart(root, cwd, launch.EntryPoint, true); ok {
-			metadata, found, err := findProjectMetadata(ctx, start, boundary, fallback, false)
-			if err != nil {
-				return serviceMetadata{Name: fallback}, fallback != "", err
+			name, found, err := findRailsProject(start, boundary)
+			if err != nil || found {
+				return name, found, err
 			}
-			if found {
-				return metadata, true, nil
-			}
-		}
-		if fallback != "" {
-			return serviceMetadata{Name: fallback}, true, nil
 		}
 	}
 
-	if launch.ProjectPath != "" {
-		dependencyPath := pathInDependencyRoot(cwd, launch.ProjectPath, dependencyRoots)
-		if !dependencyPath {
-			if start, ok := searchStart(
-				root, cwd, launch.ProjectPath, projectPathLooksLikeFile(launch.ProjectPath),
-			); ok {
-				metadata, found, err := findProjectMetadata(
-					ctx, start, boundary, "", launch.projectPathAuthoritative,
-				)
-				if err != nil {
-					return serviceMetadata{}, false, err
-				}
-				if found {
-					return metadata, true, nil
-				}
+	if launch.ProjectPath != "" && !pathInDependencyRoot(cwd, launch.ProjectPath, dependencyRoots) {
+		if start, ok := searchStart(
+			root, cwd, launch.ProjectPath, projectPathLooksLikeFile(launch.ProjectPath),
+		); ok {
+			name, found, err := findRailsProject(start, boundary)
+			if err != nil || found {
+				return name, found, err
 			}
-			if launch.projectPathAuthoritative {
-				return serviceMetadata{}, false, nil
-			}
+		}
+		if launch.projectPathAuthoritative {
+			return "", false, nil
 		}
 	}
 
 	if !pathInDependencyRoot("/", cwd, dependencyRoots) {
 		if start, ok := langtools.ResolveProcessPath(root, "/", cwd); ok {
-			metadata, found, err := findProjectMetadata(ctx, start, boundary, "", false)
-			if err != nil {
-				return serviceMetadata{}, false, err
-			}
-			if found {
-				return metadata, true, nil
+			name, found, err := findRailsProject(start, boundary)
+			if err != nil || found {
+				return name, found, err
 			}
 		}
-	}
-
-	return findBundlerMetadata(ctx, root, boundary, cwd, env, dependencyRoots)
-}
-
-func findBundlerMetadata(
-	ctx context.Context,
-	root, boundary, cwd string,
-	env map[string]string,
-	dependencyRoots []string,
-) (serviceMetadata, bool, error) {
-	if err := ctx.Err(); err != nil {
-		return serviceMetadata{}, false, err
 	}
 
 	if path := env[bundleGemfile]; path != "" && !pathInDependencyRoot(cwd, path, dependencyRoots) {
-		if resolved, ok := langtools.ResolveProcessPath(root, cwd, path); ok && regularFile(resolved) {
-			metadata, found, err := findProjectMetadata(ctx, filepath.Dir(resolved), boundary, "", true)
-			if err != nil {
-				return serviceMetadata{}, false, err
-			}
-			if found {
-				return metadata, true, nil
-			}
+		if start, ok := searchStart(root, cwd, path, true); ok {
+			return findRailsProject(start, boundary)
 		}
 	}
 
-	return serviceMetadata{}, false, nil
+	return "", false, nil
 }
 
-func findProjectMetadata(
-	ctx context.Context,
-	start, boundary, directFallback string,
-	firstDirectoryIsProject bool,
-) (serviceMetadata, bool, error) {
-	var metadata serviceMetadata
+func findRailsProject(start, boundary string) (string, bool, error) {
+	var name string
 	found := false
-	first := true
 	err := langtools.WalkParentDirectories(start, boundary, func(dir string) (bool, error) {
-		if err := ctx.Err(); err != nil {
+		candidate, rails, err := inspectRailsProjectDirectory(dir)
+		if err != nil {
 			return true, err
 		}
-
-		kind, candidate, err := inspectProjectDirectory(ctx, dir)
-		if err != nil {
-			return false, err
-		}
-		if kind != projectNone || (first && firstDirectoryIsProject) {
-			switch kind {
-			case projectRails:
-				if candidate.Name == "" {
-					candidate.Name = firstValidName(
-						directFallback,
-						serviceNameFromProjectDirectory(dir, boundary),
-					)
-				}
-			case projectGemspec:
-				if candidate.Name == "" {
-					candidate.Name = firstValidName(
-						directFallback,
-						serviceNameFromProjectDirectory(dir, boundary),
-					)
-				}
-			default:
-				candidate.Name = firstValidName(
-					directFallback,
-					serviceNameFromProjectDirectory(dir, boundary),
-				)
-			}
-
-			metadata = candidate
-			found = true
-			return true, nil
+		if !rails {
+			return false, nil
 		}
 
-		first = false
-		return false, nil
+		name = candidate
+		if name == "" {
+			name = serviceNameFromProjectDirectory(dir, boundary)
+		}
+		found = true
+		return true, nil
 	})
-	return metadata, found, err
+	return name, found, err
 }
 
-func inspectProjectDirectory(ctx context.Context, dir string) (projectKind, serviceMetadata, error) {
-	if err := ctx.Err(); err != nil {
-		return projectNone, serviceMetadata{}, err
-	}
-
+func inspectRailsProjectDirectory(dir string) (string, bool, error) {
 	configPath := filepath.Join(dir, "config")
-	if configInfo, err := os.Lstat(configPath); err == nil {
-		if err := ctx.Err(); err != nil {
-			return projectNone, serviceMetadata{}, err
-		}
-
-		if configInfo.Mode()&os.ModeSymlink != 0 {
-			return projectRails, serviceMetadata{}, nil
-		}
-
-		if configInfo.IsDir() {
-			applicationPath := filepath.Join(configPath, "application.rb")
-			if applicationInfo, err := os.Lstat(applicationPath); err == nil {
-				if applicationInfo.Mode().IsRegular() {
-					return projectRails, serviceMetadata{Name: readRailsApplicationName(applicationPath)}, nil
-				}
-				return projectRails, serviceMetadata{}, nil
-			}
-		}
+	configInfo, err := os.Lstat(configPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
 	}
-
-	gemspecs, boundary, err := rootGemspecs(ctx, dir)
 	if err != nil {
-		return projectNone, serviceMetadata{}, err
+		return "", false, fmt.Errorf("checking Rails config directory %q: %w", configPath, err)
 	}
-	if boundary {
-		if len(gemspecs) == 1 {
-			return projectGemspec, readGemspec(gemspecs[0]), nil
-		}
-
-		return projectGemspec, serviceMetadata{}, nil
+	if configInfo.Mode()&os.ModeSymlink != 0 {
+		return "", true, nil
 	}
-
-	for _, name := range [...]string{"Gemfile", "Gemfile.lock", "config.ru"} {
-		if err := ctx.Err(); err != nil {
-			return projectNone, serviceMetadata{}, err
-		}
-
-		exists, err := pathEntryExists(filepath.Join(dir, name))
-		if err != nil {
-			return projectNone, serviceMetadata{}, err
-		}
-		if exists {
-			return projectMarker, serviceMetadata{}, nil
-		}
-	}
-	return projectNone, serviceMetadata{}, nil
-}
-
-func rootGemspecs(ctx context.Context, dir string) ([]string, bool, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, false, err
+	if !configInfo.IsDir() {
+		return "", false, nil
 	}
 
-	directory, err := os.Open(dir)
+	applicationPath := filepath.Join(configPath, "application.rb")
+	applicationInfo, err := os.Lstat(applicationPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
 	if err != nil {
-		return nil, false, fmt.Errorf("opening Ruby project directory %q: %w", dir, err)
+		return "", false, fmt.Errorf("checking Rails application file %q: %w", applicationPath, err)
+	}
+	if !applicationInfo.Mode().IsRegular() {
+		return "", true, nil
 	}
 
-	defer directory.Close()
-
-	entries, err := directory.ReadDir(maxProjectEntries + 1)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, false, fmt.Errorf("reading Ruby project directory %q: %w", dir, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, false, err
-	}
-
-	if len(entries) > maxProjectEntries {
-		return nil, true, nil
-	}
-
-	var paths []string
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return nil, false, err
-		}
-		if strings.HasSuffix(entry.Name(), ".gemspec") {
-			paths = append(paths, filepath.Join(dir, entry.Name()))
-		}
-	}
-	return paths, len(paths) != 0, nil
+	return readRailsApplicationName(applicationPath), true, nil
 }
 
 func searchStart(root, cwd, path string, assumeFile bool) (string, bool) {

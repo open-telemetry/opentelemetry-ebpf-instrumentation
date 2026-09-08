@@ -4,11 +4,7 @@
 package rubytools // import "go.opentelemetry.io/obi/pkg/internal/rubytools"
 
 import (
-	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
@@ -67,35 +63,6 @@ func cleanDependencyRoot(cwd, path string) string {
 	return path
 }
 
-func regularFile(path string) bool {
-	info, err := os.Lstat(path)
-	return err == nil && info.Mode().IsRegular()
-}
-
-func pathEntryExists(path string) (bool, error) {
-	_, err := os.Lstat(path)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return false, fmt.Errorf("checking Ruby project marker %q: %w", path, err)
-}
-
-func serviceNameFromEntryPoint(path string) string {
-	name := filepath.Base(path)
-	name = strings.TrimSuffix(name, ".rb")
-	if _, tooling := rubyTooling[name]; tooling {
-		return ""
-	}
-
-	if !langtools.ValidServiceName(name) || name == "config.ru" {
-		return ""
-	}
-	return name
-}
-
 func serviceNameFromProjectDirectory(dir, boundary string) string {
 	if dir == boundary {
 		return ""
@@ -107,14 +74,4 @@ func serviceNameFromProjectDirectory(dir, boundary string) string {
 	}
 
 	return name
-}
-
-func firstValidName(values ...string) string {
-	for _, value := range values {
-		if langtools.ValidServiceName(value) {
-			return value
-		}
-	}
-
-	return ""
 }
