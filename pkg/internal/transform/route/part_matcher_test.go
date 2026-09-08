@@ -418,3 +418,26 @@ func TestMatchedPartsSliceExpansion(t *testing.T) {
 
 	assert.Equal(t, "/api/v1/users/{id}/profile/settings/preferences/notifications", result)
 }
+
+func TestPartialMatcherPythonParams(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/api",
+		"/users/<int:user_id>",
+		"/items/{item_id:uuid}",
+	})
+
+	assert.Equal(t, "/api/users/<int:user_id>", m.Find("/api/users/42"))
+	assert.Equal(t, "/api/items/{item_id:uuid}", m.Find("/api/items/5fecd08b"))
+}
+
+func TestPartialMatcherPythonPathParams(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{"/api", "/files/<path:name>"})
+
+	assert.Equal(t, "/api/files/<path:name>", m.Find("/api/files/a/b/c.txt"))
+}
+
+func TestMatcherSkipsNonTerminalPathParam(t *testing.T) {
+	m := NewMatcher([]string{"/files/{name:path}/metadata"})
+
+	assert.Empty(t, m.Find("/files/a/b/metadata"))
+}
