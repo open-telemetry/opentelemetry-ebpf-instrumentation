@@ -240,6 +240,36 @@ func IsSQSMessagingClientOperation(span *Span) bool {
 	}
 }
 
+// MessagingSpanKind maps a messaging operation to its span kind. A receive or a
+// settle is a client operation rather than a consumer one: OBI observes the
+// exchange with the broker, not what the application afterwards does with the
+// message, which is what a consumer span describes.
+func MessagingSpanKind(operationName string) (trace.SpanKind, bool) {
+	switch MessagingOperationTypeOf(operationName) {
+	case MessagingSend:
+		return trace.SpanKindProducer, true
+	case MessagingProcess:
+		return trace.SpanKindConsumer, true
+	case MessagingReceive, MessagingSettle:
+		return trace.SpanKindClient, true
+	}
+	return trace.SpanKindUnspecified, false
+}
+
+func spanKindString(kind trace.SpanKind) string {
+	switch kind {
+	case trace.SpanKindServer:
+		return "SPAN_KIND_SERVER"
+	case trace.SpanKindClient:
+		return "SPAN_KIND_CLIENT"
+	case trace.SpanKindProducer:
+		return "SPAN_KIND_PRODUCER"
+	case trace.SpanKindConsumer:
+		return "SPAN_KIND_CONSUMER"
+	}
+	return "SPAN_KIND_INTERNAL"
+}
+
 type converter struct {
 	clock     func() time.Time
 	monoClock func() time.Duration
@@ -1903,29 +1933,20 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	if s.Type == EventTypeManualSpan {
-		switch s.SpanKind {
-		case trace.SpanKindServer:
-			return "SPAN_KIND_SERVER"
-		case trace.SpanKindClient:
-			return "SPAN_KIND_CLIENT"
-		case trace.SpanKindProducer:
-			return "SPAN_KIND_PRODUCER"
-		case trace.SpanKindConsumer:
-			return "SPAN_KIND_CONSUMER"
-		}
+		return spanKindString(s.SpanKind)
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
 		return "SPAN_KIND_CLIENT"
-	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
-		switch MessagingOperationTypeOf(s.Method) {
-		case MessagingSend:
-			return "SPAN_KIND_PRODUCER"
-		case MessagingProcess:
-			return "SPAN_KIND_CONSUMER"
+	case EventTypeKafkaClient, EventTypeKafkaServer,
+		EventTypeMQTTClient, EventTypeMQTTServer,
+		EventTypeNATSClient, EventTypeNATSServer,
+		EventTypeAMQPClient:
+		if kind, ok := MessagingSpanKind(s.Method); ok {
+			return spanKindString(kind)
 		}
 	}
 	return "SPAN_KIND_INTERNAL"
