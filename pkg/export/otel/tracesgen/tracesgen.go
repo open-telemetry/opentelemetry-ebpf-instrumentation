@@ -1775,12 +1775,10 @@ func spanKind(span *request.Span) trace2.SpanKind {
 		return trace2.SpanKindServer
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
-	// A messaging span is a producer or a consumer whichever side of the
-	// connection OBI observed it from. Semantic conventions define no
-	// server-kind messaging span, so the `*Server` event types belong here
-	// rather than with the request/response protocols above: the side OBI
-	// classified the exchange by says nothing about whether the operation
-	// itself was a send or a receive, which is what decides the kind.
+	// A messaging span is a producer, a consumer or a client, decided by the
+	// operation rather than by the side OBI observed it from. Semantic
+	// conventions define no server-kind messaging span, so the `*Server` event
+	// types belong here rather than with the request/response protocols above.
 	case request.EventTypeKafkaClient, request.EventTypeKafkaServer,
 		request.EventTypeMQTTClient, request.EventTypeMQTTServer,
 		request.EventTypeNATSClient, request.EventTypeNATSServer,

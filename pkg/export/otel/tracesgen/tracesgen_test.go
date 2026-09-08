@@ -1201,6 +1201,7 @@ func TestMessagingSpanKindFollowsTheOperationNotTheDirection(t *testing.T) {
 		{"kafka publish", request.EventTypeKafkaClient, request.MessagingPublish, trace2.SpanKindProducer},
 		{"kafka process", request.EventTypeKafkaClient, request.MessagingProcess, trace2.SpanKindConsumer},
 		{"kafka receive", request.EventTypeKafkaClient, request.MessagingReceive, trace2.SpanKindClient},
+		{"kafka settle", request.EventTypeKafkaClient, request.MessagingSettle, trace2.SpanKindClient},
 		{"kafka receive observed from the receiving side", request.EventTypeKafkaServer, request.MessagingReceive, trace2.SpanKindClient},
 		{"kafka send observed from the receiving side", request.EventTypeKafkaServer, request.MessagingSend, trace2.SpanKindProducer},
 		{"kafka process observed from the receiving side", request.EventTypeKafkaServer, request.MessagingProcess, trace2.SpanKindConsumer},
@@ -1226,14 +1227,15 @@ func TestNoMessagingSpanIsReportedAsServerKind(t *testing.T) {
 	}
 	operations := []string{
 		request.MessagingSend, request.MessagingPublish,
-		request.MessagingReceive, request.MessagingProcess, "",
+		request.MessagingReceive, request.MessagingProcess,
+		request.MessagingSettle, "",
 	}
 
 	for _, et := range messaging {
 		for _, op := range operations {
 			kind := spanKind(&request.Span{Type: et, Method: op})
 			assert.NotEqualf(t, trace2.SpanKindServer, kind,
-				"%v with operation %q reported server kind; semantic conventions define messaging spans as producer or consumer only", et, op)
+				"%v with operation %q reported server kind; semantic conventions define no server-kind messaging span", et, op)
 		}
 	}
 }

@@ -85,6 +85,7 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeMongoClient}:                           "SPAN_KIND_CLIENT",
 		{Type: EventTypeKafkaClient, Method: MessagingSend}:    "SPAN_KIND_PRODUCER",
 		{Type: EventTypeKafkaClient, Method: MessagingReceive}: "SPAN_KIND_CLIENT",
+		{Type: EventTypeKafkaClient, Method: MessagingSettle}:  "SPAN_KIND_CLIENT",
 		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
 		{Type: EventTypeKafkaServer, Method: MessagingSend}:    "SPAN_KIND_PRODUCER",
 		{Type: EventTypeKafkaServer, Method: MessagingReceive}: "SPAN_KIND_CLIENT",

@@ -1933,9 +1933,7 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	if s.Type == EventTypeManualSpan {
-		if s.SpanKind != trace.SpanKindUnspecified && s.SpanKind != trace.SpanKindInternal {
-			return spanKindString(s.SpanKind)
-		}
+		return spanKindString(s.SpanKind)
 	}
 
 	switch s.Type {
