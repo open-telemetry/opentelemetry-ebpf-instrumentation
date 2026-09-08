@@ -13,7 +13,7 @@
  */
 #include "bpf_helper_defs.h"
 
-#define __uint(name, val) int (*name)[val]
+#define __uint(name, val) int(*name)[val]
 #define __type(name, val) typeof(val) *name
 #define __array(name, val) typeof(val) *name[]
 
@@ -267,8 +267,21 @@ enum libbpf_tristate {
  * Otherwise use __bpf_vprintk
  */
 #define ___bpf_pick_printk(...)                                                                    \
-    ___bpf_nth(                                                                                    \
-        _, ##__VA_ARGS__, __bpf_vprintk, __bpf_vprintk, __bpf_vprintk, __bpf_vprintk, __bpf_vprintk, __bpf_vprintk, __bpf_vprintk, __bpf_vprintk, __bpf_vprintk, __bpf_printk /*3*/, __bpf_printk /*2*/, __bpf_printk /*1*/, __bpf_printk /*0*/)
+    ___bpf_nth(_,                                                                                  \
+               ##__VA_ARGS__,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_vprintk,                                                                      \
+               __bpf_printk /*3*/,                                                                 \
+               __bpf_printk /*2*/,                                                                 \
+               __bpf_printk /*1*/,                                                                 \
+               __bpf_printk /*0*/)
 
 /* Helper macro to print out debug messages */
 #define bpf_printk(fmt, args...) ___bpf_pick_printk(args)(fmt, ##args)

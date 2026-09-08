@@ -20,8 +20,8 @@
 // Returns a zero value of the correct field type; no runtime dereference.
 #define BPF_CORE_READ(src, ...)                                                                    \
     ({                                                                                             \
-        __typeof__(___bpf_apply(___bpf_arrow,                                                      \
-                                ___bpf_narg(__VA_ARGS__))(src, ##__VA_ARGS__)) __r = {};           \
+        __typeof__(___bpf_apply(___bpf_arrow, ___bpf_narg(__VA_ARGS__))(src,                       \
+                                                                        ##__VA_ARGS__)) __r = {};  \
         (void)(src);                                                                               \
         __r;                                                                                       \
     })
@@ -30,8 +30,8 @@
 // destination the way the real macro's bpf_probe_read() does.
 #define BPF_CORE_READ_INTO(dst, src, ...)                                                          \
     do {                                                                                           \
-        __typeof__(___bpf_apply(___bpf_arrow,                                                      \
-                                ___bpf_narg(__VA_ARGS__))(src, ##__VA_ARGS__)) __v = {};           \
+        __typeof__(___bpf_apply(___bpf_arrow, ___bpf_narg(__VA_ARGS__))(src,                       \
+                                                                        ##__VA_ARGS__)) __v = {};  \
         (void)(src);                                                                               \
         __builtin_memcpy((dst), &__v, sizeof(__v));                                                \
     } while (0)
