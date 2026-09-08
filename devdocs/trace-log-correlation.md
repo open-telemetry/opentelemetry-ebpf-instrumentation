@@ -102,7 +102,7 @@ Go's context refresh has two complementary mechanisms:
 
 ### Node.js — `async_hooks` before callback + `uv_fs_access` uprobe
 
-The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.accessSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
+The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.existsSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
 
 1. Parses the 4-digit fd from the path.
 2. Looks up `fd_to_connection[pid_tgid, fd]` to get the connection info.

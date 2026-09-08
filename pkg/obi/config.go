@@ -347,7 +347,8 @@ var DefaultConfig = Config{
 		ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
 	},
 	NodeJS: NodeJSConfig{
-		Enabled: true,
+		Enabled:            true,
+		UninjectOnShutdown: true,
 	},
 	Java: JavaConfig{
 		Enabled: true,
@@ -679,6 +680,12 @@ type NodeJSConfig struct {
 	// processes, capturing spans the application creates through the
 	// OpenTelemetry API when no OpenTelemetry SDK is registered.
 	ManualSpans bool `yaml:"manual_spans" env:"OTEL_EBPF_NODEJS_MANUAL_SPANS"`
+	// UninjectOnShutdown re-enters every process this agent injected and
+	// uninstalls the injected script before exiting. The processes are
+	// signaled again to reopen their inspector, so operators who would
+	// rather leave a running application untouched can turn it off; the
+	// injected script then stays resident until the application restarts.
+	UninjectOnShutdown bool `yaml:"uninject_on_shutdown" env:"OTEL_EBPF_NODEJS_UNINJECT_ON_SHUTDOWN"`
 }
 
 type JavaConfig struct {

@@ -62,7 +62,7 @@ The injected agent reports in-process readings over an eBPF side channel:
    (cumulative idle/active nanoseconds) and the `monitorEventLoopDelay()`
    histogram (reset after each read, so delay values are per-interval), and
    encodes the ten values as fixed-width hex into a synthetic path:
-   `fs.accessSync("/dev/null/obi-rt/<10 × 16 hex chars>")`. On the same tick
+   `fs.existsSync("/dev/null/obi-rt/<10 × 16 hex chars>")`. On the same tick
    it walks `v8.getHeapSpaceStatistics()` and emits one
    `/dev/null/obi-v8/h...` record per heap space (four fixed-width values,
    the engine-defined space name last). GC cycles are pushed as they are
