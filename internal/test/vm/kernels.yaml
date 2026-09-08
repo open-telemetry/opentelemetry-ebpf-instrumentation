@@ -63,6 +63,12 @@ kernels:
     pr_integration: true
     pr_verifier: true
 
+  - id: "7.2"
+    lvh_tag: "7.2-20260831.012453"
+    digest: "sha256:7534768ff79913cacaacaca9fc18372e52de3a41e9d9a37403d493db47f80e36"
+    pr_integration: true
+    pr_verifier: true
+
   - id: "bpf"
     lvh_tag: "bpf-20260831.012453"
     digest: "sha256:764d1a97c6cc08e9213d4dd4a016ece95eb0e01fa9fd068b17b15c0902bae9c6"
