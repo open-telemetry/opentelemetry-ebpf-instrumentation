@@ -486,7 +486,8 @@
             "enum": [
               "go",
               "java",
-              "nodejs"
+              "nodejs",
+              "python"
             ]
           },
           "type": "array"
