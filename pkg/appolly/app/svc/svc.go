@@ -28,11 +28,11 @@ const (
 	InstrumentablePython
 	InstrumentableRuby
 	InstrumentableNodejs
-	InstrumentableDeno
 	InstrumentableRust
 	InstrumentableGeneric
 	InstrumentablePHP
 	InstrumentableCPP
+	InstrumentableDeno
 )
 
 func (it InstrumentableType) String() string {
