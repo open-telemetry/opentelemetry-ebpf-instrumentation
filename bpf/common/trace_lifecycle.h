@@ -76,8 +76,10 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
                 bpf_dbg_printk("Found existing correlated tp for server request");
                 // Mark the client info as invalid (used), in case the client
                 // request information is not cleaned up.
-                if ((type == EVENT_HTTP_REQUEST && existing_tp->req_type == EVENT_HTTP_CLIENT) ||
-                    (type == EVENT_TCP_REQUEST && existing_tp->req_type == EVENT_TCP_REQUEST)) {
+                if ((type == k_event_type_http_request &&
+                     existing_tp->req_type == k_event_type_http_client) ||
+                    (type == k_event_type_tcp_request &&
+                     existing_tp->req_type == k_event_type_tcp_request)) {
                     found_tp = 1;
                     __builtin_memcpy(tp->trace_id, existing_tp->tp.trace_id, sizeof(tp->trace_id));
                     __builtin_memcpy(tp->parent_id, existing_tp->tp.span_id, sizeof(tp->parent_id));
@@ -113,7 +115,7 @@ static __always_inline void server_or_client_trace(const u8 type,
     const u64 id = bpf_get_current_pid_tgid();
     const u32 host_pid = pid_from_pid_tgid(id);
 
-    if (type == EVENT_HTTP_REQUEST) {
+    if (type == k_event_type_http_request) {
         tp_p->response_sent = 0;
 
         trace_key_t t_key = {0};
@@ -136,7 +138,8 @@ static __always_inline void server_or_client_trace(const u8 type,
 
         tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, &t_key);
         if (existing && existing->req_type == tp_p->req_type &&
-            tp_p->req_type == EVENT_HTTP_REQUEST && existing->valid && !existing->response_sent) {
+            tp_p->req_type == k_event_type_http_request && existing->valid &&
+            !existing->response_sent) {
             existing->valid = 0;
             bpf_dbg_printk("Found conflicting thread server span, marking it invalid.");
             return;

@@ -67,6 +67,7 @@ func testREDMetricsNodeBullMQ(t *testing.T) {
 				attribute.String("db.operation.name", "evalsha"),
 				attribute.Bool("error", true),
 				attribute.String("db.response.status_code", "NOSCRIPT"),
+				attribute.String("error.type", "NOSCRIPT"),
 			},
 		},
 		{

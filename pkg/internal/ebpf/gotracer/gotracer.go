@@ -23,7 +23,6 @@ import (
 	"os"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -132,16 +131,6 @@ type goAutoSDKActivationEvent struct {
 const missingGoOffset = ^uint64(0)
 
 const goAutoSDKActivationMaxAttempts = 3
-
-var nextRuntimeMetricGeneration atomic.Uint64
-
-func newRuntimeMetricGeneration() uint64 {
-	for {
-		if generation := nextRuntimeMetricGeneration.Add(1); generation != 0 {
-			return generation
-		}
-	}
-}
 
 // Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h. Scalar
 // bits also mirror the raw snapshot masks in pkg/runtimemetrics/reader.go.
@@ -674,9 +663,17 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			symbol: "*github.com/lib/pq.conn",
 			field:  goexec.PqConnTypeOffset,
 		},
+		{
+			symbol: "*google.golang.org/grpc/internal/credentials.syscallConn",
+			field:  goexec.GrpcSyscallConnTypeAddress,
+		},
+		{
+			symbol: "*crypto/tls.Conn",
+			field:  goexec.TLSConnTypeAddress,
+		},
 	} {
-		if offset, ok := offsets.ITypes[iType.symbol]; ok {
-			offTable.Table[iType.field] = offset
+		if address, ok := offsets.ITypes[iType.symbol]; ok {
+			offTable.Table[iType.field] = address
 		}
 	}
 
@@ -1413,7 +1410,7 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 	p.goRuntimeMetricMaskByExecutable[identity] = availableMask
 	generation := fileInfo.RuntimeMetricGeneration(pid)
 	if generation == 0 {
-		generation = newRuntimeMetricGeneration()
+		generation = ebpfcommon.NewRuntimeMetricGeneration()
 	}
 
 	value := BpfGoRuntimeMetricTargetT{
@@ -1574,6 +1571,8 @@ var goH2OwnershipProbeSymbols = []string{
 	"golang.org/x/net/http2.(*ClientConn).writeHeader",
 	"net/http.(*http2clientStream).encodeAndWriteHeaders",
 	"net/http.(*http2ClientConn).writeHeader",
+	"net/http/internal/http2.(*clientStream).encodeAndWriteHeaders",
+	"net/http/internal/http2.(*ClientConn).writeHeader",
 }
 
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
@@ -1647,6 +1646,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
+		"net/http/internal/http2.(*responseWriter).handlerDone": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
+		}},
 		"golang.org/x/net/http2.(*responseWriter).handlerDone": {{
 			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
@@ -1656,10 +1658,16 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2ClientConn).writeHeaders": {{ // http2 client vendored in Go, but used from http 1.1 transition
 			Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored,
 		}},
+		"net/http/internal/http2.(*ClientConn).writeHeaders": {{
+			Start: p.bpfObjects.ObiUprobeHttp2WriteHeadersVendored,
+		}},
 		"golang.org/x/net/http2.(*responseWriterState).writeHeader": {{ // http2 server request done, capture the response code
 			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
 		}},
 		"net/http.(*http2responseWriterState).writeHeader": {{ // same as above, vendored in go
+			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
+		}},
+		"net/http/internal/http2.(*responseWriterState).writeHeader": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ResponseWriterStateWriteHeader,
 		}},
 		"net/http.(*response).WriteHeader": {{
@@ -1671,11 +1679,17 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2serverConn).runHandler": {{
 			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler, // http2 server connection tracking, vendored in go
 		}},
+		"net/http/internal/http2.(*serverConn).runHandler": {{
+			Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler,
+		}},
 		"golang.org/x/net/http2.(*serverConn).processHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing
 		}},
 		"net/http.(*http2serverConn).processHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders, // http2 server request header parsing, vendored in go
+		}},
+		"net/http/internal/http2.(*serverConn).processHeaders": {{
+			Start: p.bpfObjects.ObiUprobeHttp2ServerProcessHeaders,
 		}},
 		// tracking of tcp connections for black-box propagation
 		"net/http.(*conn).serve": {{ // http server
@@ -2044,6 +2058,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
 			End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
 		}}
+		m["net/http/internal/http2.(*Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
+			End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
+		}}
 	}
 
 	return m
@@ -2126,6 +2144,25 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 				},
 				{
 					Symbol: goH2OwnershipProbeSymbols[3],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
+				},
+			},
+		},
+		{
+			Name:          "go_http2_stdlib_go127_ownership",
+			Prerequisites: []string{"net/http/internal/http2.(*ClientConn).writeHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[4],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeaders,
+						End:   p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeadersReturns,
+					},
+				},
+				{
+					Symbol: goH2OwnershipProbeSymbols[5],
 					Probe: &ebpfcommon.ProbeDesc{
 						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
 					},

@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	execdiscover "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
@@ -42,9 +43,12 @@ func TestInjectionTargetFromUsesInspectionIdentity(t *testing.T) {
 		FileInfo: execdiscover.New(execdiscover.Init{
 			Pid:       1000,
 			StartTime: 4242,
-			Service: svc.Attrs{EnvVars: map[string]string{
-				"TMPDIR": "/custom/tmp",
-			}},
+			Service: svc.Attrs{
+				Features: export.FeatureApplicationRuntime,
+				EnvVars: map[string]string{
+					"TMPDIR": "/custom/tmp",
+				},
+			},
 		}),
 		Type: svc.InstrumentableJava,
 	})
@@ -53,6 +57,7 @@ func TestInjectionTargetFromUsesInspectionIdentity(t *testing.T) {
 	assert.Equal(t, app.PID(1000), target.Pid)
 	assert.Equal(t, uint64(4242), target.StartTime)
 	assert.Equal(t, "/custom/tmp", target.TempDirEnv)
+	assert.True(t, target.RuntimeMetricsEnabled)
 }
 
 func TestInjectionTargetFromFailsWhenStableIdentityCannotBeOpened(t *testing.T) {

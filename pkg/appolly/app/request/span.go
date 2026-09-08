@@ -30,7 +30,8 @@ import (
 type EventType uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	// EventTypeProcessAlive is an internal signal. It will be ignored by the metrics exporters.
 	EventTypeProcessAlive EventType = iota
@@ -117,13 +118,17 @@ const (
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
 )
 
+// IsGenAISubtype reports whether a subtype is recorded on the GenAI client
+// metrics. MCP is deliberately absent: it is a tool and resource protocol
+// rather than a model provider, so it has no `gen_ai.provider.name` to report,
+// and semantic conventions give it its own `mcp.client.*` / `mcp.server.*`
+// metrics. Its spans still carry the GenAI attributes it does define.
 func IsGenAISubtype(subtype int) bool {
 	return subtype == HTTPSubtypeOpenAI ||
 		subtype == HTTPSubtypeAnthropic ||
 		subtype == HTTPSubtypeGemini ||
 		subtype == HTTPSubtypeQwen ||
 		subtype == HTTPSubtypeAWSBedrock ||
-		subtype == HTTPSubtypeMCP ||
 		subtype == HTTPSubtypeEmbedding ||
 		subtype == HTTPSubtypeRerank ||
 		subtype == HTTPSubtypeRetrieval ||
@@ -210,6 +215,7 @@ const (
 	MessagingReceive = "receive"
 	MessagingPublish = "publish"
 	MessagingProcess = "process"
+	MessagingSettle  = "settle"
 )
 
 func MessagingOperationTypeOf(operationName string) string {
@@ -217,6 +223,51 @@ func MessagingOperationTypeOf(operationName string) string {
 		return MessagingSend
 	}
 	return operationName
+}
+
+// IsSQSMessagingClientOperation reports whether an AWS SQS span describes a
+// producer or consumer operation. Queue administration calls carry no
+// messaging.operation.type and are not messaging client operations.
+func IsSQSMessagingClientOperation(span *Span) bool {
+	if span.SubType != HTTPSubtypeAWSSQS || span.AWS == nil {
+		return false
+	}
+	switch span.AWS.SQS.OperationType {
+	case MessagingSend, MessagingReceive, MessagingSettle:
+		return true
+	default:
+		return false
+	}
+}
+
+// MessagingSpanKind maps a messaging operation to its span kind. A receive or a
+// settle is a client operation rather than a consumer one: OBI observes the
+// exchange with the broker, not what the application afterwards does with the
+// message, which is what a consumer span describes.
+func MessagingSpanKind(operationName string) (trace.SpanKind, bool) {
+	switch MessagingOperationTypeOf(operationName) {
+	case MessagingSend:
+		return trace.SpanKindProducer, true
+	case MessagingProcess:
+		return trace.SpanKindConsumer, true
+	case MessagingReceive, MessagingSettle:
+		return trace.SpanKindClient, true
+	}
+	return trace.SpanKindUnspecified, false
+}
+
+func spanKindString(kind trace.SpanKind) string {
+	switch kind {
+	case trace.SpanKindServer:
+		return "SPAN_KIND_SERVER"
+	case trace.SpanKindClient:
+		return "SPAN_KIND_CLIENT"
+	case trace.SpanKindProducer:
+		return "SPAN_KIND_PRODUCER"
+	case trace.SpanKindConsumer:
+		return "SPAN_KIND_CONSUMER"
+	}
+	return "SPAN_KIND_INTERNAL"
 }
 
 type converter struct {
@@ -246,6 +297,16 @@ type SQLError struct {
 	Code     uint16 `json:"code"`
 	SQLState string `json:"sqlState"`
 	Message  string `json:"message"`
+}
+
+// ResponseStatusCode returns the db.response.status_code value for the error:
+// the vendor error code when the protocol provides one (MySQL, SQL Server),
+// else the SQLSTATE (PostgreSQL, whose protocol carries no vendor code).
+func (e *SQLError) ResponseStatusCode() string {
+	if e.Code != 0 {
+		return strconv.Itoa(int(e.Code))
+	}
+	return e.SQLState
 }
 
 type MessagingInfo struct {
@@ -1317,6 +1378,7 @@ type Span struct {
 	Type           EventType      `json:"type"`
 	SpanKind       trace.SpanKind `json:"-"`
 	Flags          uint8          `json:"-"`
+	ProtoVersion   ProtoVersion   `json:"-"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	FullPath       string         `json:"-"`
@@ -1809,28 +1871,10 @@ func HTTPSpanStatusCode(span *Span) string {
 
 	if span.Type == EventTypeHTTPClient {
 		if span.Status < 400 {
-			// this is possibly not needed, because in my experiments they
-			// respond with 429, but just to be correct according to the OTel
+			// A provider can report a failure inside a 2xx response, per the OTel
 			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
-			if span.GenAI != nil {
-				if span.GenAI.OpenAI != nil && span.GenAI.OpenAI.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Qwen != nil && span.GenAI.Qwen.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil && span.GenAI.Rerank.Output.Error.Type != "" {
-					return StatusCodeError
-				}
+			if span.GenAIFailed() {
+				return StatusCodeError
 			}
 
 			return StatusCodeUnset
@@ -1889,29 +1933,20 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	if s.Type == EventTypeManualSpan {
-		switch s.SpanKind {
-		case trace.SpanKindServer:
-			return "SPAN_KIND_SERVER"
-		case trace.SpanKindClient:
-			return "SPAN_KIND_CLIENT"
-		case trace.SpanKindProducer:
-			return "SPAN_KIND_PRODUCER"
-		case trace.SpanKindConsumer:
-			return "SPAN_KIND_CONSUMER"
-		}
+		return spanKindString(s.SpanKind)
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
 		return "SPAN_KIND_CLIENT"
-	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
-		switch MessagingOperationTypeOf(s.Method) {
-		case MessagingSend:
-			return "SPAN_KIND_PRODUCER"
-		case MessagingProcess:
-			return "SPAN_KIND_CONSUMER"
+	case EventTypeKafkaClient, EventTypeKafkaServer,
+		EventTypeMQTTClient, EventTypeMQTTServer,
+		EventTypeNATSClient, EventTypeNATSServer,
+		EventTypeAMQPClient:
+		if kind, ok := MessagingSpanKind(s.Method); ok {
+			return spanKindString(kind)
 		}
 	}
 	return "SPAN_KIND_INTERNAL"
@@ -2543,6 +2578,40 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Retrieval != nil {
 		return s.GenAI.Retrieval.Provider
 	}
+	return ""
+}
+
+// GenAIFailed reports whether a GenAI provider returned an error in its
+// response payload, which can happen inside a 2xx.
+func (s *Span) GenAIFailed() bool {
+	return s.GenAIErrorType() != ""
+}
+
+// GenAIErrorType returns the provider-reported error, mirroring the per-provider
+// shapes the trace exporter reads. Providers that carry no error field yield "".
+func (s *Span) GenAIErrorType() string {
+	if s.GenAI == nil {
+		return ""
+	}
+
+	for _, ai := range []*VendorOpenAI{s.GenAI.OpenAI, s.GenAI.Qwen, s.GenAI.OpenAICompatible} {
+		if ai != nil && ai.Error.Type != "" {
+			return ai.Error.Type
+		}
+	}
+	if ai := s.GenAI.Anthropic; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+	if ai := s.GenAI.Gemini; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Status
+	}
+	if ai := s.GenAI.Bedrock; ai != nil && ai.Output.ErrorType != "" {
+		return ai.Output.ErrorType
+	}
+	if ai := s.GenAI.Rerank; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+
 	return ""
 }
 

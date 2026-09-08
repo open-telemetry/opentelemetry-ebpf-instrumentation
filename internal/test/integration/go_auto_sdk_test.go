@@ -199,15 +199,15 @@ func testGoAutoSDKRichSpans(t *testing.T, version, service string) {
 	require.NotEmpty(t, root.TraceID)
 	require.NotEmpty(t, root.SpanID)
 	assert.Empty(t, root.Diff(
-		jaeger.Tag{Key: "activation.version", Type: "string", Value: version},
-		jaeger.Tag{Key: "activation.root", Type: "bool", Value: true},
+		jaeger.Tag{Key: "obitest.activation.version", Type: "string", Value: version},
+		jaeger.Tag{Key: "obitest.activation.root", Type: "bool", Value: true},
 		jaeger.Tag{Key: "otel.scope.name", Type: "string", Value: "go-auto-sdk-activation-test"},
 		jaeger.Tag{Key: "otel.scope.version", Type: "string", Value: "v1.0.0"},
 	))
 	require.Len(t, root.Logs, 1)
 	assert.Empty(t, jaeger.Diff([]jaeger.Tag{
 		{Key: "event", Type: "string", Value: "root event"},
-		{Key: "event.detail", Type: "string", Value: "preserved"},
+		{Key: "obitest.event.detail", Type: "string", Value: "preserved"},
 	}, root.Logs[0].Fields))
 
 	childName := autoSDKSpanName("child", version)
@@ -220,7 +220,7 @@ func testGoAutoSDKRichSpans(t *testing.T, version, service string) {
 	require.True(t, ok)
 	assert.Equal(t, root.SpanID, parent.SpanID)
 	assert.Empty(t, child.Diff(
-		jaeger.Tag{Key: "activation.answer", Type: "int64", Value: float64(42)},
+		jaeger.Tag{Key: "obitest.activation.answer", Type: "int64", Value: float64(42)},
 		jaeger.Tag{Key: "otel.status_code", Type: "string", Value: "ERROR"},
 		jaeger.Tag{Key: "otel.status_description", Type: "string", Value: "expected test status"},
 	))

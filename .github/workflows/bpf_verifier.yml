@@ -42,7 +42,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/generate-bpf
+      - uses: $/.github/actions/generate-bpf
 
   matrix:
     name: Build matrix
@@ -75,7 +75,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/free-disk
+      - uses: $/.github/actions/free-disk
         with:
           docker-prune: 'false'
 
@@ -90,7 +90,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
 
       - id: kernel
-        uses: ./.github/actions/setup-lvh-kernel
+        uses: $/.github/actions/setup-lvh-kernel
         with:
           kernel-id: ${{ matrix.kernel.id }}
           lvh-tag: ${{ matrix.kernel.lvh_tag }}
@@ -127,7 +127,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/free-disk
+      - uses: $/.github/actions/free-disk
         with:
           docker-prune: 'false'
 

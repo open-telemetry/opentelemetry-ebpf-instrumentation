@@ -156,9 +156,10 @@ static __always_inline u8 http2_emit_hpack_event(grpc_frames_ctx_t *g_ctx,
     bpf_memset(&event->data, 0, sizeof(*event) - __builtin_offsetof(http2_grpc_request_t, data));
     event->flags = event_type;
     event->ssl = g_ctx->args.ssl;
-    event->type = request_type_by_direction(
-        g_ctx->args.direction,
-        event_type == EVENT_K_HTTP2_REQUEST_HEADERS ? PACKET_TYPE_REQUEST : PACKET_TYPE_RESPONSE);
+    event->type = request_type_by_direction(g_ctx->args.direction,
+                                            event_type == k_event_type_k_http2_request_headers
+                                                ? PACKET_TYPE_REQUEST
+                                                : PACKET_TYPE_RESPONSE);
     task_pid(&event->pid);
     event->stream_id = frame->stream_id;
     event->len = g_ctx->args.bytes_len - g_ctx->pos;
@@ -179,7 +180,7 @@ static __always_inline u8 http2_emit_hpack_event(grpc_frames_ctx_t *g_ctx,
     }
 
     const void *buf = (const unsigned char *)g_ctx->args.u_buf + g_ctx->pos;
-    if (event_type == EVENT_K_HTTP2_REQUEST_HEADERS) {
+    if (event_type == k_event_type_k_http2_request_headers) {
         bpf_probe_read(event->data, sizeof(event->data), buf);
     } else {
         bpf_probe_read(event->ret_data, sizeof(event->ret_data), buf);
@@ -204,7 +205,7 @@ static __always_inline void http2_grpc_start_finalize_server(http2_conn_stream_t
     h2g_info->tp = tp_p->tp;
 
     set_trace_info_for_connection(&h2g_info->conn_info, TRACE_TYPE_SERVER, tp_p);
-    server_or_client_trace(EVENT_HTTP_REQUEST,
+    server_or_client_trace(k_event_type_http_request,
                            &h2g_info->conn_info,
                            k_lw_thread_none,
                            tp_p,
@@ -232,7 +233,8 @@ static __always_inline void http2_grpc_start(void *ctx,
     http2_grpc_request_t *existing = bpf_map_lookup_elem(&ongoing_http2_grpc, s_key);
     if (existing) {
         bpf_dbg_printk("already found existing grpcstart, ignoring this exchange");
-        if (existing->type == EVENT_HTTP_CLIENT && adopt_injected_trace(s_key, &existing->tp)) {
+        if (existing->type == k_event_type_http_client &&
+            adopt_injected_trace(s_key, &existing->tp)) {
             // the uprobe's context comes from the running request itself
             existing->parent_status = k_parent_status_live;
         }
@@ -251,7 +253,7 @@ static __always_inline void http2_grpc_start(void *ctx,
         return;
     }
 
-    h2g_info->flags = EVENT_K_HTTP2_REQUEST;
+    h2g_info->flags = k_event_type_k_http2_request;
     h2g_info->start_monotime_ns = bpf_ktime_get_ns();
     h2g_info->len = len;
     h2g_info->ssl = ssl;
@@ -275,7 +277,7 @@ static __always_inline void http2_grpc_start(void *ctx,
         h2g_info->hpack_flags = h2_hpack_req_unreliable | h2_hpack_resp_unreliable;
     }
 
-    const u8 is_client = (meta->type == EVENT_HTTP_CLIENT);
+    const u8 is_client = (meta->type == k_event_type_http_client);
     fixup_connection_info(&h2g_info->conn_info, is_client, orig_dport);
     bpf_probe_read(h2g_info->data, k_kprobes_http2_buf_size, u_buf);
 
@@ -334,7 +336,7 @@ static __always_inline void http2_grpc_start(void *ctx,
 
     set_trace_info_for_connection(&h2g_info->conn_info, TRACE_TYPE_CLIENT, tp_p);
     // BPF_NOEXIST so a Go uprobe's HPACK-injected entry (written=1) isn't clobbered
-    server_or_client_trace(EVENT_HTTP_CLIENT,
+    server_or_client_trace(k_event_type_http_client,
                            &h2g_info->conn_info,
                            k_lw_thread_none,
                            tp_p,
@@ -450,7 +452,7 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
             request_type_by_direction(g_ctx->args.direction, PACKET_TYPE_RESPONSE);
         const u8 response = response_type == g_ctx->prev_info.type;
         const u8 event_type =
-            response ? EVENT_K_HTTP2_RESPONSE_HEADERS : EVENT_K_HTTP2_REQUEST_HEADERS;
+            response ? k_event_type_k_http2_response_headers : k_event_type_k_http2_request_headers;
         const u8 poison = response ? h2_hpack_resp_unreliable : h2_hpack_req_unreliable;
         if (!http2_emit_hpack_event(g_ctx, frame, event_type)) {
             http2_poison_hpack(&g_ctx->stream, &g_ctx->prev_info, poison);
@@ -472,7 +474,7 @@ handle_headers_frame(void *ctx, grpc_frames_ctx_t *g_ctx, const frame_header_t *
         // Not starting new grpc request, found end frame in a start, likely
         // just terminating prev connection
         if (!(is_flags_only_frame(frame) && http_grpc_stream_ended(frame))) {
-            if (!http2_emit_hpack_event(g_ctx, frame, EVENT_K_HTTP2_REQUEST_HEADERS)) {
+            if (!http2_emit_hpack_event(g_ctx, frame, k_event_type_k_http2_request_headers)) {
                 http2_poison_hpack(&g_ctx->stream, 0, h2_hpack_req_unreliable);
             }
             if (frame->length + k_frame_header_len > k_kprobes_http2_buf_size) {
@@ -499,8 +501,9 @@ static __always_inline void handle_data_frame(void *ctx, grpc_frames_ctx_t *g_ct
     const u8 type = g_ctx->prev_info.type;
     const u8 direction = g_ctx->args.direction;
 
-    if (g_ctx->found_data_frame || ((type == EVENT_HTTP_REQUEST) && (direction == TCP_SEND)) ||
-        ((type == EVENT_HTTP_CLIENT) && (direction == TCP_RECV))) {
+    if (g_ctx->found_data_frame ||
+        ((type == k_event_type_http_request) && (direction == TCP_SEND)) ||
+        ((type == k_event_type_http_client) && (direction == TCP_RECV))) {
 
         g_ctx->stream.pid_conn = g_ctx->args.pid_conn;
         g_ctx->stream.stream_id = g_ctx->saved_stream_id;
@@ -701,7 +704,8 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_finalize, voi
     }
 
     if (!valid_trace(tp_p->tp.trace_id)) {
-        find_trace_for_server_request(&g_ctx->stream.pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
+        find_trace_for_server_request(
+            &g_ctx->stream.pid_conn.conn, &tp_p->tp, k_event_type_http_request);
     }
 
     if (!valid_trace(tp_p->tp.trace_id)) {

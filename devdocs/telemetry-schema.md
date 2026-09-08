@@ -34,7 +34,8 @@ Version management is release-driven. The version comes from `versions.yaml`
 automatically, which:
 
 - cuts `site/schemas/obi/<version>` (previous file plus a new, empty `<version>:`
-  entry on top), and
+  entry on top),
+- regenerates the reference docs under `site/docs/`, and
 - bumps `OBISchemaURL` in `pkg/export/attributes/names/schema_version.go` and the
   `schema_url` in `schemas/obi/manifest.yaml` to `<version>`.
 
@@ -63,3 +64,12 @@ versions:
 
 Released files are immutable — never edit a `<version>` file once it has shipped;
 only add new ones.
+
+## Hosting notes
+
+`site/` is published as static files with no markdown processing, so the generated
+pages under `site/docs/` are served as markdown, not HTML. They are meant to be
+read rendered: on GitHub, or on the OpenTelemetry website, where OBI has a docs
+section (`/docs/zero-code/obi/`) that is where these generated pages belong. The
+published copies exist so the reference is fetchable at a stable URL alongside the
+schema files.

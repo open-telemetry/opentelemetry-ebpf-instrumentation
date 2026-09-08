@@ -169,7 +169,7 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
     // payload_len are never read by user space, and the _pad bytes are never
     // read at all, so both are fine left uninitialized. has_parent_ctx MUST be
     // set though — user space reads the parent ids only when it is non-zero.
-    ev->type = EVENT_NODE_SPAN;
+    ev->type = k_event_type_node_span;
     ev->end_ktime = bpf_ktime_get_ns();
     task_pid(&ev->pid);
 
@@ -247,7 +247,7 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
     }
 
     bpf_memset(e, 0, sizeof(*e));
-    e->type = EVENT_NODEJS_EVENTLOOP;
+    e->type = k_event_type_nodejs_eventloop;
     e->timestamp = bpf_ktime_get_ns();
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
@@ -339,7 +339,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             return 0;
         }
         bpf_memset(e, 0, sizeof(*e));
-        e->type = EVENT_NODEJS_GC;
+        e->type = k_event_type_nodejs_gc;
         e->timestamp = bpf_ktime_get_ns();
         nodejs_fill_event_pids(
             pid_tgid, &e->global_pid, &e->global_tid, &e->ns_pid, &e->ns_tid, &e->pid_ns_id);
@@ -364,7 +364,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             return 0;
         }
         bpf_memset(e, 0, sizeof(*e));
-        e->type = EVENT_NODEJS_HEAP_SPACE;
+        e->type = k_event_type_nodejs_heap_space;
         e->timestamp = bpf_ktime_get_ns();
         nodejs_fill_event_pids(
             pid_tgid, &e->global_pid, &e->global_tid, &e->ns_pid, &e->ns_tid, &e->pid_ns_id);

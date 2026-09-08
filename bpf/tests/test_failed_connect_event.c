@@ -80,7 +80,7 @@ static void test_failed_connect_record_is_fully_initialized(void) {
     init_failed_connect_tcp_req(&actual, &pid_conn, orig_dport, connect_ts, end_ts, extra_id, &pid);
 
     tcp_req_t expected = {};
-    expected.flags = EVENT_FAILED_CONNECT;
+    expected.flags = k_event_type_failed_connect;
     expected.conn_info = pid_conn.conn;
     fixup_connection_info(&expected.conn_info, TCP_SEND, orig_dport);
     expected.direction = TCP_SEND;

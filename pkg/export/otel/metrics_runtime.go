@@ -374,8 +374,11 @@ func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 	if !tracked {
 		return
 	}
-	if metrics, exists := r.reporters.Lookup(uid); exists && metrics.goHistogramProducer != nil {
-		metrics.goHistogramProducer.Delete(pid)
+	if metrics, exists := r.reporters.Lookup(uid); exists {
+		if metrics.goHistogramProducer != nil {
+			metrics.goHistogramProducer.Delete(pid)
+		}
+		metrics.jvmMetrics.deleteProcess(pid, pe.File.RuntimeMetricGeneration(pid))
 	}
 	// Keep final Python counters available until the reporter cache expires them.
 	if removed, _ := r.pidTracker.RemovePID(pid); removed && service.SDKLanguage != svc.InstrumentablePython {

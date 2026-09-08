@@ -40,7 +40,7 @@ enum { k_go_ptr_arr_size = 16 };
 enum { k_go_auto_activation_max_attempts = 3 };
 enum { k_efault = 14 };
 
-const char ERROR_KEY[] = "error message";
+const char ERROR_KEY[] = "exception.message";
 const u32 ERROR_KEY_SIZE = sizeof(ERROR_KEY) - 1;
 
 typedef struct span_info {
@@ -187,7 +187,7 @@ static __always_inline u8 go_auto_target_matches(u64 generation) {
 
 static __always_inline void notify_go_auto_activation(u64 generation) {
     go_auto_activation_event_t event = {
-        .type = EVENT_GO_AUTO_ACTIVATED,
+        .type = k_event_type_go_auto_activated,
         .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
         .generation = generation,
     };
@@ -694,7 +694,7 @@ int GUARDED_PROG(obi_uprobe_nonRecordingSpan_End, struct pt_regs *, ctx) {
         return 0;
     }
 
-    span->type = EVENT_GO_SPAN;
+    span->type = k_event_type_go_span;
     span->end_time = bpf_ktime_get_ns();
     task_pid(&span->pid);
 
@@ -753,7 +753,7 @@ int GUARDED_PROG(obi_uprobe_auto_sdk_span_Ended, struct pt_regs *, ctx) {
     }
 
     __builtin_memset(event, 0, offsetof(go_auto_span_t, buf));
-    event->type = EVENT_GO_AUTO_SPAN;
+    event->type = k_event_type_go_auto_span;
     event->size = (u32)len;
     task_pid(&event->pid);
 
@@ -906,16 +906,18 @@ int GUARDED_PROG(obi_uprobe_RecordError, struct pt_regs *, ctx) {
             u8 valid_attrs = span->span_attrs.valid_attrs;
             bpf_dbg_printk("valid_attrs=%d, len=%d, str=%s", valid_attrs, go_str.len, go_str.str);
 
-            if ((go_str.len < OTEL_ATTRIBUTE_KEY_MAX_LEN) &&
-                (valid_attrs < OTEL_ATTRIBUTE_MAX_COUNT)) {
-                __builtin_memcpy(
-                    span->span_attrs.attrs[valid_attrs].key, ERROR_KEY, ERROR_KEY_SIZE);
-                bpf_probe_read_user(span->span_attrs.attrs[valid_attrs].value,
-                                    go_str.len & (OTEL_ATTRIBUTE_KEY_MAX_LEN - 1),
-                                    go_str.str);
-                span->span_attrs.attrs[valid_attrs].val_length = go_str.len;
-                span->span_attrs.attrs[valid_attrs].vtype = attr_type_string;
-                span->span_attrs.valid_attrs = valid_attrs + 1;
+            if ((go_str.len > 0) && (valid_attrs < OTEL_ATTRIBUTE_MAX_COUNT)) {
+                u32 val_len = (u32)go_str.len;
+                bpf_clamp_umax(val_len, OTEL_ATTRIBUTE_VALUE_MAX_LEN - 1);
+
+                if (bpf_probe_read_user(
+                        span->span_attrs.attrs[valid_attrs].value, val_len, go_str.str) == 0) {
+                    __builtin_memcpy(
+                        span->span_attrs.attrs[valid_attrs].key, ERROR_KEY, ERROR_KEY_SIZE);
+                    span->span_attrs.attrs[valid_attrs].val_length = val_len;
+                    span->span_attrs.attrs[valid_attrs].vtype = attr_type_string;
+                    span->span_attrs.valid_attrs = valid_attrs + 1;
+                }
             }
         }
     }

@@ -97,3 +97,34 @@ func TestSameNetNSReportsMissingTarget(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
+
+func TestIsIsolated_selfIsNotIsolated(t *testing.T) {
+	isolated, err := IsIsolated(os.Getpid())
+	require.NoError(t, err)
+	assert.False(t, isolated)
+}
+
+func TestIsIsolated_failsClosedWhenHostNetNSUnavailable(t *testing.T) {
+	orig := statNetNSInode
+	t.Cleanup(func() { statNetNSInode = orig })
+
+	const targetPID = 9999
+	statNetNSInode = func(path string) (uint64, error) {
+		switch path {
+		case netNSPath(targetPID):
+			return 100, nil
+		case netNSPath(os.Getpid()):
+			return 200, nil
+		case netNSPath(1):
+			return 0, os.ErrNotExist
+		default:
+			t.Fatalf("unexpected netns path %q", path)
+			return 0, nil
+		}
+	}
+
+	isolated, err := IsIsolated(targetPID)
+	require.Error(t, err)
+	assert.False(t, isolated)
+	assert.ErrorContains(t, err, "stat host netns")
+}

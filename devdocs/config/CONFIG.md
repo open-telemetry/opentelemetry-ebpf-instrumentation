@@ -181,7 +181,7 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.stats_wakeup_data_bytes` | `integer` | `OTEL_EBPF_STATS_WAKEUP_DATA_BYTES` | `4096` |  |  | Specifies the minimum number of bytes that must be available in the stats eBPF ring buffer before waking up the userspace consumer. When 0, every submission wakes up userspace immediately. Higher values reduce wakeup overhead under high traffic at the cost of delivery latency. The value should be well below ring buffer size / flushInterval to avoid event loss. |
 | `ebpf.track_request_headers` | `boolean` | `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS` | `false` |  |  | Enables the kprobes based HTTP request tracking to start tracking the request headers to process any 'Traceparent' fields. |
 | `ebpf.traffic_control_backend` | `string` | `OTEL_EBPF_BPF_TC_BACKEND` | `auto` | `auto`, `tc`, `tcx` |  | Select the TC attachment backend: accepted values are 'tc' (netlink), and 'tcx' |
-| `ebpf.wakeup_len` | `integer` | `OTEL_EBPF_BPF_WAKEUP_LEN` | `500` |  |  | Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0 TODO: see if there is a way to force eBPF to wakeup userspace on timeout |
+| `ebpf.wakeup_len` | `integer` | `OTEL_EBPF_BPF_WAKEUP_LEN` | `500` |  |  | Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0. The userspace ring buffer reader periodically flushes pending events regardless, so wakeup_len bounds wakeup overhead rather than maximum delivery delay. |
 
 ### `ebpf.buffer_sizes`
 
@@ -407,13 +407,13 @@ AvoidedServicesConfig controls the avoided-services internal metric.
 | `javaagent.attach_timeout` | `duration` | `OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `javaagent.debug` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG` | `false` |  |  |  |
 | `javaagent.debug_instrumentation` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION` | `false` |  |  |  |
-| `javaagent.enabled` | `boolean` | `OTEL_EBPF_JAVAAGENT_ENABLED` | `true` |  |  |  |
+| `javaagent.enabled` | `boolean` | `OTEL_EBPF_JAVAAGENT_ENABLED` | `true` |  |  | Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables class, thread, and CPU runtime metrics. HotSpot memory metrics remain available. |
 
 ## `jvm_runtime_metrics`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `jvm_runtime_metrics.sampling_interval` | `duration` | `OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL` | `1s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `jvm_runtime_metrics.sampling_interval` | `duration` | `OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL` | `1s` | `30s`, `5m`, `1ms`, etc |  | Controls HotSpot memory event sampling and Java agent class, thread, and CPU snapshot collection. |
 
 ## `metrics`
 

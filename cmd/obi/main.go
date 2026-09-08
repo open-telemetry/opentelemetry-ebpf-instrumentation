@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -128,6 +129,7 @@ func main() {
 		})
 	}
 	slog.SetDefault(slog.New(logHandler))
+	klogbridge.Install()
 
 	slog.Info("OpenTelemetry eBPF Instrumentation", "Version", buildinfo.Version, "Revision", buildinfo.Revision, "OpenTelemetry SDK Version", otelsdk.Version())
 	slog.Info("configuration loaded", "version", configVersion)

@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -681,6 +682,9 @@ type NodeJSConfig struct {
 }
 
 type JavaConfig struct {
+	// Enabled turns on the Java injector agent, used for TLS tracing, virtual thread
+	// correlation, and agent-backed runtime metrics. Setting it to false disables
+	// class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.
 	Enabled              bool          `yaml:"enabled" env:"OTEL_EBPF_JAVAAGENT_ENABLED"`
 	Debug                bool          `yaml:"debug" env:"OTEL_EBPF_JAVAAGENT_DEBUG"`
 	DebugInstrumentation bool          `yaml:"debug_instrumentation" env:"OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"`
@@ -688,6 +692,8 @@ type JavaConfig struct {
 }
 
 type JVMRuntimeMetricsConfig struct {
+	// SamplingInterval controls HotSpot memory event sampling and Java agent
+	// class, thread, and CPU snapshot collection.
 	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 
@@ -972,6 +978,7 @@ func (c *Config) SpanMetricsEnabledForTraces() bool {
 // TODO: maybe this method has too many responsibilities, as it affects the global logger.
 func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	slog.SetDefault(slog.New(handler))
+	klogbridge.Install()
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
 		c.EBPF.BpfDebug = true

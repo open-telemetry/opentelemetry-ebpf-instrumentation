@@ -132,11 +132,12 @@ func GoRuntimeCPUTimeValues(cpu *GoRuntimeCPUTimeSnapshot) [goRuntimeCPUTimeValu
 }
 
 type JVMRuntimeMetricSnapshot struct {
-	Kind       appruntime.JVMRuntimeMetricKind
-	PoolName   string
-	MemoryType appruntime.JVMMemoryType
-	GCPhase    appruntime.JVMGCPhase
-	ValueBytes uint64
+	Kind          appruntime.JVMRuntimeMetricKind
+	PoolName      string
+	MemoryType    appruntime.JVMMemoryType
+	GCPhase       appruntime.JVMGCPhase
+	ValueBytes    uint64
+	RuntimeValues *appruntime.JVMRuntimeValues
 }
 
 type NodejsRuntimeMetricSnapshot struct {
@@ -227,6 +228,18 @@ func (s *QueueSender) SendNodejsHeapSpaceMetrics(ctx context.Context, events []a
 	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
 	for i := range events {
 		snapshots = append(snapshots, SnapshotFromNodejsHeapSpaceEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
+}
+
+func (s *QueueSender) SendJVMGCMetrics(ctx context.Context, events []appruntime.JVMGCEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromJVMGCEvent(events[i]))
 	}
 	s.queue.SendCtx(ctx, snapshots)
 }
@@ -620,7 +633,7 @@ func SnapshotFromNodejsRuntimeEvent(event appruntime.NodejsRuntimeEvent) Runtime
 	}
 }
 
-func SnapshotFromJVMRuntimeEvent(event appruntime.JVMRuntimeEvent) RuntimeMetricSnapshot {
+func SnapshotFromJVMGCEvent(event appruntime.JVMGCEvent) RuntimeMetricSnapshot {
 	return RuntimeMetricSnapshot{
 		Service: event.Service,
 		PID:     event.PID,
@@ -631,6 +644,19 @@ func SnapshotFromJVMRuntimeEvent(event appruntime.JVMRuntimeEvent) RuntimeMetric
 			MemoryType: event.MemoryType,
 			GCPhase:    event.GCPhase,
 			ValueBytes: event.ValueBytes,
+		},
+	}
+}
+
+func SnapshotFromJVMRuntimeEvent(event appruntime.JVMRuntimeEvent) RuntimeMetricSnapshot {
+	values := event.Values
+	return RuntimeMetricSnapshot{
+		Service:    event.Service,
+		PID:        event.PID,
+		Generation: event.Generation,
+		Time:       event.Time,
+		JVM: &JVMRuntimeMetricSnapshot{
+			RuntimeValues: &values,
 		},
 	}
 }

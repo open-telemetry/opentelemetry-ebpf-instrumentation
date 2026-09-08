@@ -32,6 +32,33 @@ struct jvm_mem_pool_gc_event {
     unsigned char pool[k_jvm_raw_string_len];
 };
 
+struct jvm_runtime_metrics_event {
+    u8 type;
+    u8 _pad[7];
+    u64 timestamp;
+    u32 global_pid;
+    u32 global_tid;
+    u32 ns_pid;
+    u32 ns_tid;
+    u32 pid_ns_id;
+    u32 _pad2;
+    u64 loaded_class_count;
+    u64 total_loaded_class_count;
+    u64 unloaded_class_count;
+    u64 thread_count;
+    u64 daemon_thread_count;
+    u64 available_processor_count;
+    u64 process_cpu_time_ns;
+    u64 recent_cpu_utilization_bits;
+};
+
+enum { k_jvm_runtime_metrics_payload_len = 8 * sizeof(u64) };
+
+_Static_assert(sizeof(struct jvm_runtime_metrics_event) -
+                       __builtin_offsetof(struct jvm_runtime_metrics_event, loaded_class_count) ==
+                   k_jvm_runtime_metrics_payload_len,
+               "JVM runtime metrics payload layout changed");
+
 struct jvm_mem_pool_key {
     u32 pid;
     u32 gc_when_type;

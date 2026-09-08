@@ -225,6 +225,22 @@ Using [jattach](https://github.com/jattach/jattach).
 jattach <PID of Java program> load instrument false "/path/to/obi-java-agent.jar"
 ```
 
+### Enable JVM Runtime Metrics
+
+The interval is specified in nanoseconds.
+
+```bash
+java -javaagent:/path/to/obi-java-agent.jar=runtimeMetrics=true,runtimeMetricsIntervalNanos=1000000000 \
+     -jar your-application.jar
+```
+
+For dynamic attachment:
+
+```bash
+jattach <PID> load instrument false \
+  "/path/to/obi-java-agent.jar=runtimeMetrics=true,runtimeMetricsIntervalNanos=1000000000"
+```
+
 ### Enable Debug Mode (stdout)
 
 ```bash
@@ -315,6 +331,9 @@ gradle :agent:jmh -Pjmh.profilers=gc
 
 # Run with memory allocation profiling
 gradle :agent:jmh -Pjmh.profilers=gc,stack
+
+# Measure JVM runtime collection cost
+gradle :agent:jmh -PjmhIncludes=JVMRuntimeMetricsBenchmark -PjmhProfilers=gc -PjmhForks=5
 ```
 
 ### Benchmark Results

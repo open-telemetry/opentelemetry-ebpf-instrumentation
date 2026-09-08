@@ -41,7 +41,6 @@ echo "Collecting data since: $SINCE" >&2
 # Workflows that produce gotestsum JSON artifacts
 GOTESTSUM_WORKFLOWS=(
   "Integration tests"
-  "Integration tests ARM"
   "Integration tests K8S"
   "Unit tests"
 )
@@ -60,7 +59,6 @@ ALL_WORKFLOWS=("${GOTESTSUM_WORKFLOWS[@]}" "${JOB_ONLY_WORKFLOWS[@]}")
 report_pattern_for() {
   case "$1" in
     "Integration tests")     echo "integration-reports-*" ;;
-    "Integration tests ARM") echo "integration-arm-reports-*" ;;
     "Integration tests K8S") echo "integration-k8s-reports-*" ;;
     "Unit tests")            echo "unit-reports-*" ;;
     *)                       echo "" ;;
@@ -70,7 +68,6 @@ report_pattern_for() {
 logs_pattern_for() {
   case "$1" in
     "Integration tests")     echo "integration-logs-*" ;;
-    "Integration tests ARM") echo "integration-arm-logs-*" ;;
     "Integration tests K8S") echo "integration-k8s-logs-*" ;;
     "Integration tests VM")  echo "vm-logs-*" ;;
     "OATS tests")            echo "oats-logs-*" ;;

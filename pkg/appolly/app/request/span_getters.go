@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
-	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -202,18 +201,21 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return DBNamespace(span.DBNamespace)
 		}
+	case attr.DBResponseStatusCode:
+		getter = func(span *Span) attribute.KeyValue {
+			// db.response.status_code is Conditionally Required "if the
+			// operation failed and status code is available": omit it when no
+			// code was captured (for Elasticsearch semconv defines it as the
+			// HTTP response code, reported also on success)
+			if code := dbResponseStatusCode(span); code != "" {
+				return DBResponseStatusCode(code)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
-			if span.Type == EventTypeDNS && span.Status != int(dnsparser.RCodeSuccess) {
-				return ErrorType(dnsparser.RCode(span.Status).String())
-			} else if SpanStatusCode(span) == StatusCodeError {
-				switch span.Type {
-				case EventTypeMemcachedClient, EventTypeMemcachedServer:
-					if span.DBError.ErrorCode != "" {
-						return ErrorType(span.DBError.ErrorCode)
-					}
-				}
-				return ErrorType("error")
+			if errType := SpanErrorType(span); errType != "" {
+				return ErrorType(errType)
 			}
 			// error.type only applies to failed requests: return an invalid
 			// KeyValue so the attribute is omitted instead of emitted empty.
@@ -604,6 +606,24 @@ func spanPromGetters(attrName attr.Name) attributes.Getter[*Span, string] {
 	// unlike the OTEL getters, when the attribute is not found, we need to look for it
 	// in the metadata section
 	return func(s *Span) string { return s.Service.Metadata[attrName] }
+}
+
+func dbResponseStatusCode(span *Span) string {
+	// semconv defines db.response.status_code for Elasticsearch as the HTTP
+	// response code, reported whenever a response was received
+	if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeElasticsearch {
+		if span.Status != 0 {
+			return strconv.Itoa(span.Status)
+		}
+		return ""
+	}
+	if span.DBError.ErrorCode != "" {
+		return span.DBError.ErrorCode
+	}
+	if span.Status == 1 && span.SQLError != nil {
+		return span.SQLError.ResponseStatusCode()
+	}
+	return ""
 }
 
 func dbSystemNameForSpan(span *Span) string {

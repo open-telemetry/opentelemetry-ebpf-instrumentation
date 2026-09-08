@@ -416,6 +416,7 @@ func assertPythonRuntimeWorkersEventuallyMatch(
 		require.NoError(ct, err)
 
 		values := make(map[metricKey]uint64)
+		seen := make(map[metricKey]bool)
 		for _, result := range results {
 			require.Len(ct, result.Value, prometheusInstantVectorValueLen)
 			value, err := strconv.ParseUint(fmt.Sprint(result.Value[1]), 10, 64)
@@ -426,6 +427,7 @@ func assertPythonRuntimeWorkersEventuallyMatch(
 
 			key := metricKey{name: result.Metric["__name__"], generation: generation}
 			values[key] += value
+			seen[key] = true
 		}
 
 		for generation := range parent {
@@ -435,6 +437,9 @@ func assertPythonRuntimeWorkersEventuallyMatch(
 				"cpython_gc_uncollectable_objects_total": parent[generation].Uncollectable + child[generation].Uncollectable,
 			} {
 				key := metricKey{name: metric, generation: generation}
+				// Require the series to be present, so an absent/expired metric is a
+				// clear failure rather than a silent 0 that matches an expected 0.
+				assert.Truef(ct, seen[key], "metric %s (generation %d) not exported", metric, generation)
 				assert.Equal(ct, want, values[key])
 			}
 		}

@@ -101,6 +101,9 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(port)},
 		jaeger.Tag{Key: "http.route", Type: "string", Value: "/trace"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		// Read from the request line by the generic tracer. Go services are
+		// instrumented through uprobes and carry no version.
+		jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "1.1"},
 	)
 	assert.Empty(t, sd, sd.String())
 

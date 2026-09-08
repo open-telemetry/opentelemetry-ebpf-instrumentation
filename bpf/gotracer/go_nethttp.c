@@ -579,7 +579,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     }
 
     task_pid(&trace->pid);
-    trace->type = EVENT_HTTP_REQUEST;
+    trace->type = k_event_type_http_request;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
@@ -784,7 +784,7 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     }
 
     task_pid(&trace->pid);
-    trace->type = EVENT_HTTP_CLIENT;
+    trace->type = k_event_type_http_client;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
@@ -1511,7 +1511,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
                             .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
                             .valid = 1,
                             .written = 0,
-                            .req_type = EVENT_HTTP_CLIENT,
+                            .req_type = k_event_type_http_client,
                         };
                         egress_key_t e_key = {
                             .d_port = conn_info->d_port,
@@ -1798,14 +1798,25 @@ int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
     store_persist_conn_request(&g_key, (u64)pc_ptr);
 
     if (pc_ptr) {
-        void *conn_conn_ptr = pc_ptr + k_go_iface_data_offset +
-                              go_offset_of(ot, (go_offset){.v = _pc_conn_pos}); // embedded struct
+        const u64 conn_pos = go_offset_of(ot, (go_offset){.v = _pc_conn_pos});
+        void *conn_iface = pc_ptr + conn_pos;
+        void *conn_conn_ptr = conn_iface + k_go_iface_data_offset;
         void *tls_state = 0;
         bpf_probe_read(
             &tls_state,
             sizeof(tls_state),
             (void *)(pc_ptr + go_offset_of(ot, (go_offset){.v = _pc_tls_pos}))); // find tlsState
         bpf_dbg_printk("conn_conn_ptr=%llx, tls_state=%llx", conn_conn_ptr, tls_state);
+
+        if (tls_state) {
+            void *conn_type = NULL;
+            bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+            const u64 tls_conn_type_addr = go_offset_of(ot, (go_offset){.v = _tls_conn_type_addr});
+            if (tls_conn_type_addr && conn_type != (void *)tls_conn_type_addr) {
+                bpf_dbg_printk("wrapped TLS client connection, waiting for writer handoff");
+                return 0;
+            }
+        }
 
         conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
 
@@ -1833,7 +1844,7 @@ int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
                     .pid = pid,
                     .valid = 1,
                     .written = 0,
-                    .req_type = EVENT_HTTP_CLIENT,
+                    .req_type = k_event_type_http_client,
                 };
 
                 tp_clone(&tp_p.tp, &invocation->tp);

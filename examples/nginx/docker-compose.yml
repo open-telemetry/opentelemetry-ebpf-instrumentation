@@ -1,6 +1,6 @@
 services:
   edge-nginx:
-    image: nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
+    image: nginx:1.31.5-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3
     container_name: edge-nginx
     ports:
       - "8080:8080"
@@ -12,14 +12,14 @@ services:
       - recommendations-v2
 
   recommendations-v1:
-    image: nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
+    image: nginx:1.31.5-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3
     container_name: recommendations-v1
     volumes:
       - ./docker/recommendations-v1/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./k8s/shared:/etc/nginx/shared:ro
 
   recommendations-v2:
-    image: nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
+    image: nginx:1.31.5-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3
     container_name: recommendations-v2
     volumes:
       - ./docker/recommendations-v2/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -41,7 +41,7 @@ services:
       - edge-nginx
 
   obi:
-    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.12.2@sha256:750df53abff8d104f757b7f9a42ee88808db69d43cc338ab1819c00273b9422b}
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.13.0@sha256:5e89d7478b5feeb8ee73881c58bfe5bb0ccb6dcd4f8cd62e30457aa6e6426adb}
     container_name: obi-nginx-example
     command:
       - --config=/config/obi-config.yaml
@@ -57,7 +57,7 @@ services:
       - lgtm
 
   lgtm:
-    image: grafana/otel-lgtm:0.31.0@sha256:f1e548c20c99d2678744be9d90955c0ab208ecc273db2a7a0b5dc5673d0b57fd
+    image: grafana/otel-lgtm:0.32.1@sha256:7fd8eaad6bb64897ad5f644c8e15ee67c3204c97168f4bdba122adbf8f60e3c4
     container_name: lgtm-nginx-example
     ports:
       - "3000:3000"

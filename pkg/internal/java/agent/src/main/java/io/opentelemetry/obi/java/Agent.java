@@ -103,6 +103,15 @@ public class Agent {
     return optVal.toLowerCase(Locale.getDefault()).equals("true");
   }
 
+  static long positiveLongOpt(Map<String, String> opts, String opt, long defaultValue) {
+    try {
+      long value = Long.parseLong(opts.getOrDefault(opt, ""));
+      return value > 0 ? value : defaultValue;
+    } catch (NumberFormatException ignored) {
+      return defaultValue;
+    }
+  }
+
   // Main agent load and instrumentation code, this gets invoked directly with -javaagent on the
   // command line
   public static void premain(String agentArgs, Instrumentation inst) {
@@ -163,6 +172,18 @@ public class Agent {
         .type(VirtualThreadInst.type())
         .transform(VirtualThreadInst.transformer())
         .installOn(inst);
+
+    if (optEnabled(opts, "runtimeMetrics")) {
+      try {
+        JVMRuntimeMetrics.start(
+            positiveLongOpt(
+                opts,
+                "runtimeMetricsIntervalNanos",
+                JVMRuntimeMetrics.DEFAULT_SAMPLING_INTERVAL_NANOS));
+      } catch (Throwable error) {
+        logger.log(Level.WARNING, "Failed to start JVM runtime metrics", error);
+      }
+    }
   }
 
   // Needed for Dynamic Agent Injection
