@@ -16,41 +16,41 @@ import (
 )
 
 type goTypeMetadataABI struct {
-	typeTFlagOffset       uint64
-	typeKindOffset        uint64
-	typeNameOffset        uint64
-	typeSize              uint64
-	tflagSize             uint64
-	kindSize              uint64
-	nameOffsetSize        uint64
-	interfaceMethods      uint64
-	sliceLenOffset        uint64
-	interfaceLenOffset    uint64
-	itabInterOffset       uint64
-	itabTypeOffset        uint64
-	itabFunOffset         uint64
-	itabBaseSize          uint64
-	itabFuncSize          uint64
-	uncommonPkgPathOffset uint64
-	tflagUncommon         uint64
-	tflagExtraStar        uint64
-	kindDirectIface       uint64
-	kindArray             uint64
-	kindChan              uint64
-	kindFunc              uint64
-	kindInterface         uint64
-	kindMap               uint64
-	kindPointer           uint64
-	kindSlice             uint64
-	kindStruct            uint64
-	uncommonArray         uint64
-	uncommonChan          uint64
-	uncommonFunc          uint64
-	uncommonInterface     uint64
-	uncommonMap           uint64
-	uncommonPointer       uint64
-	uncommonSlice         uint64
-	uncommonStruct        uint64
+	typeTFlagOffset            uint64
+	typeKindOffset             uint64
+	typeNameOffset             uint64
+	interfaceMethodCountOffset uint64
+	itabInterOffset            uint64
+	itabTypeOffset             uint64
+	itabFunOffset              uint64
+	uncommonPkgPathOffset      uint64
+	arrayUncommonOffset        uint64
+	chanUncommonOffset         uint64
+	funcUncommonOffset         uint64
+	interfaceUncommonOffset    uint64
+	mapUncommonOffset          uint64
+	pointerUncommonOffset      uint64
+	sliceUncommonOffset        uint64
+	structUncommonOffset       uint64
+
+	typeSize          uint64
+	tflagSize         uint64
+	kindSize          uint64
+	nameOffsetSize    uint64
+	itabBaseSize      uint64
+	itabFuncEntrySize uint64
+
+	tflagUncommonMask   uint64
+	tflagExtraStarMask  uint64
+	kindDirectIfaceFlag uint64
+	arrayKind           uint64
+	chanKind            uint64
+	funcKind            uint64
+	interfaceKind       uint64
+	mapKind             uint64
+	pointerKind         uint64
+	sliceKind           uint64
+	structKind          uint64
 }
 
 type goRuntimeABI struct {
@@ -125,41 +125,41 @@ func convertGoRuntimeABI(abi goabi.ABI) goRuntimeABI {
 			itabsize:    moduledata.ITabSize,
 		},
 		typeMetadata: goTypeMetadataABI{
-			typeTFlagOffset:       metadata.TypeTFlagOffset,
-			typeKindOffset:        metadata.TypeKindOffset,
-			typeNameOffset:        metadata.TypeNameOffset,
-			typeSize:              metadata.TypeSize,
-			tflagSize:             metadata.TFlagSize,
-			kindSize:              metadata.KindSize,
-			nameOffsetSize:        metadata.NameOffsetSize,
-			interfaceMethods:      metadata.InterfaceMethods,
-			sliceLenOffset:        metadata.SliceLenOffset,
-			interfaceLenOffset:    metadata.InterfaceLenOffset,
-			itabInterOffset:       metadata.ITabInterOffset,
-			itabTypeOffset:        metadata.ITabTypeOffset,
-			itabFunOffset:         metadata.ITabFunOffset,
-			itabBaseSize:          metadata.ITabBaseSize,
-			itabFuncSize:          metadata.ITabFuncSize,
-			uncommonPkgPathOffset: metadata.UncommonPkgPathOffset,
-			tflagUncommon:         metadata.TFlagUncommon,
-			tflagExtraStar:        metadata.TFlagExtraStar,
-			kindDirectIface:       metadata.KindDirectIface,
-			kindArray:             metadata.KindArray,
-			kindChan:              metadata.KindChan,
-			kindFunc:              metadata.KindFunc,
-			kindInterface:         metadata.KindInterface,
-			kindMap:               metadata.KindMap,
-			kindPointer:           metadata.KindPointer,
-			kindSlice:             metadata.KindSlice,
-			kindStruct:            metadata.KindStruct,
-			uncommonArray:         metadata.UncommonArray,
-			uncommonChan:          metadata.UncommonChan,
-			uncommonFunc:          metadata.UncommonFunc,
-			uncommonInterface:     metadata.UncommonInterface,
-			uncommonMap:           metadata.UncommonMap,
-			uncommonPointer:       metadata.UncommonPointer,
-			uncommonSlice:         metadata.UncommonSlice,
-			uncommonStruct:        metadata.UncommonStruct,
+			typeTFlagOffset:            metadata.TypeTFlagOffset,
+			typeKindOffset:             metadata.TypeKindOffset,
+			typeNameOffset:             metadata.TypeNameOffset,
+			interfaceMethodCountOffset: metadata.InterfaceMethodCountOffset,
+			itabInterOffset:            metadata.ITabInterOffset,
+			itabTypeOffset:             metadata.ITabTypeOffset,
+			itabFunOffset:              metadata.ITabFunOffset,
+			uncommonPkgPathOffset:      metadata.UncommonPkgPathOffset,
+			arrayUncommonOffset:        metadata.ArrayUncommonOffset,
+			chanUncommonOffset:         metadata.ChanUncommonOffset,
+			funcUncommonOffset:         metadata.FuncUncommonOffset,
+			interfaceUncommonOffset:    metadata.InterfaceUncommonOffset,
+			mapUncommonOffset:          metadata.MapUncommonOffset,
+			pointerUncommonOffset:      metadata.PointerUncommonOffset,
+			sliceUncommonOffset:        metadata.SliceUncommonOffset,
+			structUncommonOffset:       metadata.StructUncommonOffset,
+
+			typeSize:          metadata.TypeSize,
+			tflagSize:         metadata.TFlagSize,
+			kindSize:          metadata.KindSize,
+			nameOffsetSize:    metadata.NameOffsetSize,
+			itabBaseSize:      metadata.ITabBaseSize,
+			itabFuncEntrySize: metadata.ITabFuncEntrySize,
+
+			tflagUncommonMask:   metadata.TFlagUncommonMask,
+			tflagExtraStarMask:  metadata.TFlagExtraStarMask,
+			kindDirectIfaceFlag: metadata.KindDirectIfaceFlag,
+			arrayKind:           metadata.ArrayKind,
+			chanKind:            metadata.ChanKind,
+			funcKind:            metadata.FuncKind,
+			interfaceKind:       metadata.InterfaceKind,
+			mapKind:             metadata.MapKind,
+			pointerKind:         metadata.PointerKind,
+			sliceKind:           metadata.SliceKind,
+			structKind:          metadata.StructKind,
 		},
 	}
 }
@@ -207,24 +207,24 @@ func (abi goTypeMetadataABI) typeHeaderSize() uint64 {
 }
 
 func (abi goTypeMetadataABI) uncommonOffset(kind byte) uint64 {
-	kind &= byte(abi.kindDirectIface - 1)
+	kind &= byte(abi.kindDirectIfaceFlag - 1)
 	switch uint64(kind) {
-	case abi.kindArray:
-		return abi.uncommonArray
-	case abi.kindChan:
-		return abi.uncommonChan
-	case abi.kindFunc:
-		return abi.uncommonFunc
-	case abi.kindInterface:
-		return abi.uncommonInterface
-	case abi.kindMap:
-		return abi.uncommonMap
-	case abi.kindPointer:
-		return abi.uncommonPointer
-	case abi.kindSlice:
-		return abi.uncommonSlice
-	case abi.kindStruct:
-		return abi.uncommonStruct
+	case abi.arrayKind:
+		return abi.arrayUncommonOffset
+	case abi.chanKind:
+		return abi.chanUncommonOffset
+	case abi.funcKind:
+		return abi.funcUncommonOffset
+	case abi.interfaceKind:
+		return abi.interfaceUncommonOffset
+	case abi.mapKind:
+		return abi.mapUncommonOffset
+	case abi.pointerKind:
+		return abi.pointerUncommonOffset
+	case abi.sliceKind:
+		return abi.sliceUncommonOffset
+	case abi.structKind:
+		return abi.structUncommonOffset
 	default:
 		return abi.typeSize
 	}

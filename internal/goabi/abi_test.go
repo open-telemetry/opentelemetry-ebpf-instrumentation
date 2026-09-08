@@ -104,8 +104,12 @@ func TestFromLookupBuildsDerivedFacts(t *testing.T) {
 	abi, err := FromLookup("go1.27.0", mapLookup(values))
 	require.NoError(t, err)
 
-	assert.Equal(t, abi.TypeMetadata.InterfaceMethods+abi.TypeMetadata.SliceLenOffset, abi.TypeMetadata.InterfaceLenOffset)
-	assert.Equal(t, abi.TypeMetadata.ITabBaseSize-abi.TypeMetadata.ITabFunOffset, abi.TypeMetadata.ITabFuncSize)
+	assert.Equal(
+		t,
+		abi.TypeMetadata.InterfaceMethodsOffset+abi.TypeMetadata.SliceLenOffset,
+		abi.TypeMetadata.InterfaceMethodCountOffset,
+	)
+	assert.Equal(t, abi.TypeMetadata.ITabBaseSize-abi.TypeMetadata.ITabFunOffset, abi.TypeMetadata.ITabFuncEntrySize)
 	assert.Len(t, abi.Facts(), len(values))
 }
 

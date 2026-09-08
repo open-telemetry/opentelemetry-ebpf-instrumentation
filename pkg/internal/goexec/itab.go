@@ -141,12 +141,12 @@ func readGoInterfaceImpls(
 
 		itabEntrySize := abi.itabBaseSize
 		if firstMethod != 0 {
-			methodCount := readAddr(ef, interfaceType+abi.interfaceLenOffset)
+			methodCount := readAddr(ef, interfaceType+abi.interfaceMethodCountOffset)
 			if methodCount == 0 ||
-				methodCount-1 > (itabEnd-itabAddr-itabEntrySize)/abi.itabFuncSize {
+				methodCount-1 > (itabEnd-itabAddr-itabEntrySize)/abi.itabFuncEntrySize {
 				return nil, errors.New("invalid Go itab method count")
 			}
-			itabEntrySize += (methodCount - 1) * abi.itabFuncSize
+			itabEntrySize += (methodCount - 1) * abi.itabFuncEntrySize
 		}
 		itabAddr += itabEntrySize
 	}
@@ -168,7 +168,7 @@ func goTypeName(ef *elf.File, types, typeAddr uint64, abi goTypeMetadataABI) (st
 	if err != nil {
 		return "", fmt.Errorf("reading Go type name: %w", err)
 	}
-	if typeHeader[abi.typeTFlagOffset]&byte(abi.tflagExtraStar) != 0 {
+	if typeHeader[abi.typeTFlagOffset]&byte(abi.tflagExtraStarMask) != 0 {
 		name = strings.TrimPrefix(name, "*")
 	}
 
@@ -197,7 +197,7 @@ func goTypePackagePath(
 	typeHeader []byte,
 	abi goTypeMetadataABI,
 ) (string, error) {
-	if typeHeader[abi.typeTFlagOffset]&byte(abi.tflagUncommon) == 0 {
+	if typeHeader[abi.typeTFlagOffset]&byte(abi.tflagUncommonMask) == 0 {
 		return "", nil
 	}
 

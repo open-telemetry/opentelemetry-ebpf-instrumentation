@@ -108,41 +108,43 @@ type Moduledata struct {
 
 // TypeMetadata contains the internal/abi layout used to decode Go type data.
 type TypeMetadata struct {
-	TypeTFlagOffset       uint64
-	TypeKindOffset        uint64
-	TypeNameOffset        uint64
-	TypeSize              uint64
-	TFlagSize             uint64
-	KindSize              uint64
-	NameOffsetSize        uint64
-	InterfaceMethods      uint64
-	SliceLenOffset        uint64
-	InterfaceLenOffset    uint64
-	ITabInterOffset       uint64
-	ITabTypeOffset        uint64
-	ITabFunOffset         uint64
-	ITabBaseSize          uint64
-	ITabFuncSize          uint64
-	UncommonPkgPathOffset uint64
-	TFlagUncommon         uint64
-	TFlagExtraStar        uint64
-	KindDirectIface       uint64
-	KindArray             uint64
-	KindChan              uint64
-	KindFunc              uint64
-	KindInterface         uint64
-	KindMap               uint64
-	KindPointer           uint64
-	KindSlice             uint64
-	KindStruct            uint64
-	UncommonArray         uint64
-	UncommonChan          uint64
-	UncommonFunc          uint64
-	UncommonInterface     uint64
-	UncommonMap           uint64
-	UncommonPointer       uint64
-	UncommonSlice         uint64
-	UncommonStruct        uint64
+	TypeTFlagOffset            uint64
+	TypeKindOffset             uint64
+	TypeNameOffset             uint64
+	InterfaceMethodsOffset     uint64
+	SliceLenOffset             uint64
+	InterfaceMethodCountOffset uint64
+	ITabInterOffset            uint64
+	ITabTypeOffset             uint64
+	ITabFunOffset              uint64
+	UncommonPkgPathOffset      uint64
+	ArrayUncommonOffset        uint64
+	ChanUncommonOffset         uint64
+	FuncUncommonOffset         uint64
+	InterfaceUncommonOffset    uint64
+	MapUncommonOffset          uint64
+	PointerUncommonOffset      uint64
+	SliceUncommonOffset        uint64
+	StructUncommonOffset       uint64
+
+	TypeSize          uint64
+	TFlagSize         uint64
+	KindSize          uint64
+	NameOffsetSize    uint64
+	ITabBaseSize      uint64
+	ITabFuncEntrySize uint64
+
+	TFlagUncommonMask   uint64
+	TFlagExtraStarMask  uint64
+	KindDirectIfaceFlag uint64
+	ArrayKind           uint64
+	ChanKind            uint64
+	FuncKind            uint64
+	InterfaceKind       uint64
+	MapKind             uint64
+	PointerKind         uint64
+	SliceKind           uint64
+	StructKind          uint64
 }
 
 // ABI is one complete, validated set of ABI facts for a Go version.
@@ -309,39 +311,41 @@ func FromLookup(
 	}
 
 	abi.TypeMetadata = TypeMetadata{
-		TypeTFlagOffset:       values["internal/abi.Type.TFlag"],
-		TypeKindOffset:        values["internal/abi.Type.Kind_"],
-		TypeNameOffset:        values["internal/abi.Type.Str"],
-		TypeSize:              values["internal/abi.Type."+SizeField],
-		TFlagSize:             values["internal/abi.TFlag."+SizeField],
-		KindSize:              values["internal/abi.Kind."+SizeField],
-		NameOffsetSize:        values["internal/abi.NameOff."+SizeField],
-		InterfaceMethods:      values["internal/abi.InterfaceType.Methods"],
-		SliceLenOffset:        values["[]internal/abi.Imethod.len"],
-		ITabInterOffset:       values["internal/abi.ITab.Inter"],
-		ITabTypeOffset:        values["internal/abi.ITab.Type"],
-		ITabFunOffset:         values["internal/abi.ITab.Fun"],
-		ITabBaseSize:          values["internal/abi.ITab."+SizeField],
-		UncommonPkgPathOffset: values["internal/abi.UncommonType.PkgPath"],
-		TFlagUncommon:         values["internal/abi.TFlagUncommon"],
-		TFlagExtraStar:        values["internal/abi.TFlagExtraStar"],
-		KindDirectIface:       values["internal/abi.KindDirectIface"],
-		KindArray:             values["internal/abi.Array"],
-		KindChan:              values["internal/abi.Chan"],
-		KindFunc:              values["internal/abi.Func"],
-		KindInterface:         values["internal/abi.Interface"],
-		KindMap:               values["internal/abi.Map"],
-		KindPointer:           values["internal/abi.Pointer"],
-		KindSlice:             values["internal/abi.Slice"],
-		KindStruct:            values["internal/abi.Struct"],
-		UncommonArray:         values["internal/abi.ArrayType."+SizeField],
-		UncommonChan:          values["internal/abi.ChanType."+SizeField],
-		UncommonFunc:          values["internal/abi.FuncType."+SizeField],
-		UncommonInterface:     values["internal/abi.InterfaceType."+SizeField],
-		UncommonMap:           values["internal/abi.MapType."+SizeField],
-		UncommonPointer:       values["internal/abi.PtrType."+SizeField],
-		UncommonSlice:         values["internal/abi.SliceType."+SizeField],
-		UncommonStruct:        values["internal/abi.StructType."+SizeField],
+		TypeTFlagOffset:         values["internal/abi.Type.TFlag"],
+		TypeKindOffset:          values["internal/abi.Type.Kind_"],
+		TypeNameOffset:          values["internal/abi.Type.Str"],
+		InterfaceMethodsOffset:  values["internal/abi.InterfaceType.Methods"],
+		SliceLenOffset:          values["[]internal/abi.Imethod.len"],
+		ITabInterOffset:         values["internal/abi.ITab.Inter"],
+		ITabTypeOffset:          values["internal/abi.ITab.Type"],
+		ITabFunOffset:           values["internal/abi.ITab.Fun"],
+		UncommonPkgPathOffset:   values["internal/abi.UncommonType.PkgPath"],
+		ArrayUncommonOffset:     values["internal/abi.ArrayType."+SizeField],
+		ChanUncommonOffset:      values["internal/abi.ChanType."+SizeField],
+		FuncUncommonOffset:      values["internal/abi.FuncType."+SizeField],
+		InterfaceUncommonOffset: values["internal/abi.InterfaceType."+SizeField],
+		MapUncommonOffset:       values["internal/abi.MapType."+SizeField],
+		PointerUncommonOffset:   values["internal/abi.PtrType."+SizeField],
+		SliceUncommonOffset:     values["internal/abi.SliceType."+SizeField],
+		StructUncommonOffset:    values["internal/abi.StructType."+SizeField],
+
+		TypeSize:       values["internal/abi.Type."+SizeField],
+		TFlagSize:      values["internal/abi.TFlag."+SizeField],
+		KindSize:       values["internal/abi.Kind."+SizeField],
+		NameOffsetSize: values["internal/abi.NameOff."+SizeField],
+		ITabBaseSize:   values["internal/abi.ITab."+SizeField],
+
+		TFlagUncommonMask:   values["internal/abi.TFlagUncommon"],
+		TFlagExtraStarMask:  values["internal/abi.TFlagExtraStar"],
+		KindDirectIfaceFlag: values["internal/abi.KindDirectIface"],
+		ArrayKind:           values["internal/abi.Array"],
+		ChanKind:            values["internal/abi.Chan"],
+		FuncKind:            values["internal/abi.Func"],
+		InterfaceKind:       values["internal/abi.Interface"],
+		MapKind:             values["internal/abi.Map"],
+		PointerKind:         values["internal/abi.Pointer"],
+		SliceKind:           values["internal/abi.Slice"],
+		StructKind:          values["internal/abi.Struct"],
 	}
 	if err := validateTypeMetadata(&abi.TypeMetadata); err != nil {
 		return ABI{}, err
@@ -361,7 +365,7 @@ func validateTypeMetadata(metadata *TypeMetadata) error {
 		!fieldFits(metadata.TypeKindOffset, metadata.KindSize, metadata.TypeSize) ||
 		!fieldFits(metadata.TypeNameOffset, metadata.NameOffsetSize, metadata.TypeSize) ||
 		metadata.SliceLenOffset != pointerSize ||
-		!fieldFits(metadata.InterfaceMethods, metadata.SliceLenOffset+pointerSize, metadata.UncommonInterface) ||
+		!fieldFits(metadata.InterfaceMethodsOffset, metadata.SliceLenOffset+pointerSize, metadata.InterfaceUncommonOffset) ||
 		!fieldFits(metadata.ITabInterOffset, pointerSize, metadata.ITabBaseSize) ||
 		!fieldFits(metadata.ITabTypeOffset, pointerSize, metadata.ITabBaseSize) ||
 		metadata.ITabFunOffset > metadata.ITabBaseSize-pointerSize ||
@@ -372,46 +376,46 @@ func validateTypeMetadata(metadata *TypeMetadata) error {
 		metadata.ITabInterOffset == metadata.ITabFunOffset ||
 		metadata.ITabTypeOffset == metadata.ITabFunOffset ||
 		!allAtLeast(metadata.TypeSize,
-			metadata.UncommonArray,
-			metadata.UncommonChan,
-			metadata.UncommonFunc,
-			metadata.UncommonInterface,
-			metadata.UncommonMap,
-			metadata.UncommonPointer,
-			metadata.UncommonSlice,
-			metadata.UncommonStruct,
+			metadata.ArrayUncommonOffset,
+			metadata.ChanUncommonOffset,
+			metadata.FuncUncommonOffset,
+			metadata.InterfaceUncommonOffset,
+			metadata.MapUncommonOffset,
+			metadata.PointerUncommonOffset,
+			metadata.SliceUncommonOffset,
+			metadata.StructUncommonOffset,
 		) {
 		return errors.New("invalid Go runtime ABI layout")
 	}
 
 	maxByte := uint64(^uint8(0))
-	if metadata.TFlagUncommon > maxByte || metadata.TFlagExtraStar > maxByte ||
-		metadata.KindDirectIface > maxByte || metadata.KindArray > maxByte ||
-		metadata.KindChan > maxByte || metadata.KindFunc > maxByte || metadata.KindInterface > maxByte ||
-		metadata.KindMap > maxByte || metadata.KindPointer > maxByte || metadata.KindSlice > maxByte ||
-		metadata.KindStruct > maxByte {
+	if metadata.TFlagUncommonMask > maxByte || metadata.TFlagExtraStarMask > maxByte ||
+		metadata.KindDirectIfaceFlag > maxByte || metadata.ArrayKind > maxByte ||
+		metadata.ChanKind > maxByte || metadata.FuncKind > maxByte || metadata.InterfaceKind > maxByte ||
+		metadata.MapKind > maxByte || metadata.PointerKind > maxByte || metadata.SliceKind > maxByte ||
+		metadata.StructKind > maxByte {
 		return errors.New("invalid Go runtime ABI facts")
 	}
-	if !powerOfTwo(metadata.TFlagUncommon) || !powerOfTwo(metadata.TFlagExtraStar) ||
-		metadata.TFlagUncommon == metadata.TFlagExtraStar || !powerOfTwo(metadata.KindDirectIface) {
+	if !powerOfTwo(metadata.TFlagUncommonMask) || !powerOfTwo(metadata.TFlagExtraStarMask) ||
+		metadata.TFlagUncommonMask == metadata.TFlagExtraStarMask || !powerOfTwo(metadata.KindDirectIfaceFlag) {
 		return errors.New("invalid Go runtime ABI constants")
 	}
-	kindMask := metadata.KindDirectIface - 1
+	kindMask := metadata.KindDirectIfaceFlag - 1
 	if !distinctValuesWithin(kindMask,
-		metadata.KindArray,
-		metadata.KindChan,
-		metadata.KindFunc,
-		metadata.KindInterface,
-		metadata.KindMap,
-		metadata.KindPointer,
-		metadata.KindSlice,
-		metadata.KindStruct,
+		metadata.ArrayKind,
+		metadata.ChanKind,
+		metadata.FuncKind,
+		metadata.InterfaceKind,
+		metadata.MapKind,
+		metadata.PointerKind,
+		metadata.SliceKind,
+		metadata.StructKind,
 	) {
 		return errors.New("invalid Go runtime ABI kind constants")
 	}
 
-	metadata.InterfaceLenOffset = metadata.InterfaceMethods + metadata.SliceLenOffset
-	metadata.ITabFuncSize = metadata.ITabBaseSize - metadata.ITabFunOffset
+	metadata.InterfaceMethodCountOffset = metadata.InterfaceMethodsOffset + metadata.SliceLenOffset
+	metadata.ITabFuncEntrySize = metadata.ITabBaseSize - metadata.ITabFunOffset
 	return nil
 }
 
