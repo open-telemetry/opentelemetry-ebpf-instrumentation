@@ -29,10 +29,10 @@ func TestValidateCoverage(t *testing.T) {
 
 func TestCachedFactsRejectInvalidABI(t *testing.T) {
 	track := coverageTrack(t)
-	definitions, err := goabi.Definitions("go1.27.0")
+	requirements, err := goabi.Requirements("go1.27.0")
 	require.NoError(t, err)
 
-	_, ok := cachedFacts(track, "1.27.0", definitions)
+	_, ok := cachedFacts(track, "1.27.0", requirements)
 	assert.False(t, ok)
 }
 
@@ -136,11 +136,11 @@ func TestGeneratedOffsetsCoverage(t *testing.T) {
 func coverageTrack(t *testing.T) *offsets.Track {
 	t.Helper()
 	track := &offsets.Track{Data: map[string]offsets.Struct{}}
-	definitions, err := goabi.Definitions("go999.0.0")
+	requirements, err := goabi.Requirements("go999.0.0")
 	require.NoError(t, err)
-	for _, definition := range definitions {
-		addCoverage(track, definition.OutputType, definition.OutputField, offsets.VersionInfo{
-			Oldest: definition.Since,
+	for _, requirement := range requirements {
+		addCoverage(track, requirement.OutputType, requirement.OutputField, offsets.VersionInfo{
+			Oldest: requirement.Since,
 			Newest: "999.0.0",
 		})
 	}
@@ -151,14 +151,14 @@ func generatedABIResult(t *testing.T) *target.Result {
 	t.Helper()
 	result := &target.Result{ModuleName: offsets.GoStdLib}
 	for _, version := range []string{"1.17.0", "1.27.0"} {
-		definitions, err := goabi.Definitions(version)
+		requirements, err := goabi.Requirements(version)
 		require.NoError(t, err)
-		facts := make([]*binary.DataMemberOffset, 0, len(definitions))
-		for _, definition := range definitions {
+		facts := make([]*binary.DataMemberOffset, 0, len(requirements))
+		for _, requirement := range requirements {
 			facts = append(facts, &binary.DataMemberOffset{
 				DataMember: &binary.DataMember{
-					StructName: definition.OutputType,
-					Field:      definition.OutputField,
+					StructName: requirement.OutputType,
+					Field:      requirement.OutputField,
 				},
 				Offset: 1,
 			})

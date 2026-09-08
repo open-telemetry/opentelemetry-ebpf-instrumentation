@@ -275,11 +275,11 @@ func collectABIFacts(config abiInput, cacheFile string) (*target.Result, error) 
 			continue
 		}
 
-		definitions, err := goabi.Definitions(release)
+		requirements, err := goabi.Requirements(release)
 		if err != nil {
 			return nil, err
 		}
-		facts, ok := cachedFacts(cache, release, definitions)
+		facts, ok := cachedFacts(cache, release, requirements)
 		if !ok {
 			log.Printf("collecting Go %s runtime ABI facts", release)
 			facts, err = collectRelease(release, config.Inspect)
@@ -352,31 +352,31 @@ func writeResultsAtomic(outputFile string, results []*target.Result) (retErr err
 }
 
 func validateCoverage(track *offsets.Track) error {
-	definitions, err := goabi.Definitions("go999.0.0")
+	requirements, err := goabi.Requirements("go999.0.0")
 	if err != nil {
 		return err
 	}
 	references := map[string]offsets.VersionInfo{}
-	for _, definition := range definitions {
-		coverage, err := factCoverage(track, definition.OutputType, definition.OutputField)
+	for _, requirement := range requirements {
+		coverage, err := factCoverage(track, requirement.OutputType, requirement.OutputField)
 		if err != nil {
 			return err
 		}
 		oldest, err := goversion.NewVersion(coverage.Oldest)
 		if err != nil {
-			return fmt.Errorf("invalid oldest version for ABI fact %s: %w", definition.Key(), err)
+			return fmt.Errorf("invalid oldest version for ABI fact %s: %w", requirement.Key(), err)
 		}
-		since, err := goversion.NewVersion(definition.Since)
+		since, err := goversion.NewVersion(requirement.Since)
 		if err != nil {
-			return fmt.Errorf("invalid minimum version for ABI fact %s: %w", definition.Key(), err)
+			return fmt.Errorf("invalid minimum version for ABI fact %s: %w", requirement.Key(), err)
 		}
 		if !oldest.Equal(since) {
-			return fmt.Errorf("ABI fact %s starts at %s, expected %s", definition.Key(), coverage.Oldest, definition.Since)
+			return fmt.Errorf("ABI fact %s starts at %s, expected %s", requirement.Key(), coverage.Oldest, requirement.Since)
 		}
-		if reference, ok := references[definition.Since]; ok && coverage != reference {
-			return fmt.Errorf("ABI fact %s has coverage %v, expected %v", definition.Key(), coverage, reference)
+		if reference, ok := references[requirement.Since]; ok && coverage != reference {
+			return fmt.Errorf("ABI fact %s has coverage %v, expected %v", requirement.Key(), coverage, reference)
 		}
-		references[definition.Since] = coverage
+		references[requirement.Since] = coverage
 	}
 	return nil
 }
@@ -396,7 +396,7 @@ func factCoverage(track *offsets.Track, typeName, factName string) (offsets.Vers
 func cachedFacts(
 	track *offsets.Track,
 	release string,
-	definitions []goabi.Definition,
+	requirements []goabi.Requirement,
 ) ([]*binary.DataMemberOffset, bool) {
 	if track == nil {
 		return nil, false
@@ -406,12 +406,12 @@ func cachedFacts(
 		return nil, false
 	}
 
-	abi, err := goabi.FromLookup(release, func(definition goabi.Definition) (uint64, error) {
-		fields, ok := track.Data[definition.OutputType]
+	abi, err := goabi.FromLookup(release, func(requirement goabi.Requirement) (uint64, error) {
+		fields, ok := track.Data[requirement.OutputType]
 		if !ok {
 			return 0, errors.New("type not found")
 		}
-		field, ok := fields[definition.OutputField]
+		field, ok := fields[requirement.OutputField]
 		if !ok {
 			return 0, errors.New("fact not found")
 		}
@@ -419,7 +419,7 @@ func cachedFacts(
 		if err != nil || targetVersion.GreaterThan(newest) {
 			return 0, errors.New("version not covered")
 		}
-		value, ok := track.Find(definition.OutputType, definition.OutputField, release)
+		value, ok := track.Find(requirement.OutputType, requirement.OutputField, release)
 		if !ok {
 			return 0, errors.New("versioned fact not found")
 		}
@@ -429,7 +429,7 @@ func cachedFacts(
 		return nil, false
 	}
 
-	facts := make([]*binary.DataMemberOffset, 0, len(definitions))
+	facts := make([]*binary.DataMemberOffset, 0, len(requirements))
 	for _, fact := range abi.Facts() {
 		facts = append(facts, dataMember(fact))
 	}
@@ -485,8 +485,8 @@ func configureGoBuild() func() {
 func dataMember(fact goabi.Fact) *binary.DataMemberOffset {
 	return &binary.DataMemberOffset{
 		DataMember: &binary.DataMember{
-			StructName: fact.Definition.OutputType,
-			Field:      fact.Definition.OutputField,
+			StructName: fact.Requirement.OutputType,
+			Field:      fact.Requirement.OutputField,
 		},
 		Offset: fact.Value,
 	}

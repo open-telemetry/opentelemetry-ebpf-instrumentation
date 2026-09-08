@@ -15,15 +15,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefinitionsByGoVersion(t *testing.T) {
-	legacy, err := Definitions("go1.26.9")
+func TestRequirementsByGoVersion(t *testing.T) {
+	legacy, err := Requirements("go1.26.9")
 	require.NoError(t, err)
 	require.Len(t, legacy, 6)
 	for _, definition := range legacy {
 		assert.Equal(t, "runtime.moduledata", definition.OutputType)
 	}
 
-	current, err := Definitions("go1.27.0")
+	current, err := Requirements("go1.27.0")
 	require.NoError(t, err)
 	assert.Greater(t, len(current), len(legacy))
 
@@ -125,9 +125,9 @@ func TestExtractCompleteRuntimeABI(t *testing.T) {
 
 	abi, err := Extract(data, "go1.27.0")
 	require.NoError(t, err)
-	definitions, err := Definitions("go1.27.0")
+	requirements, err := Requirements("go1.27.0")
 	require.NoError(t, err)
-	assert.Len(t, abi.Facts(), len(definitions))
+	assert.Len(t, abi.Facts(), len(requirements))
 	assert.Equal(t, uint64(0), abi.TypeMetadata.ITabInterOffset)
 }
 
@@ -139,11 +139,11 @@ func TestStoreValueRejectsConflicts(t *testing.T) {
 
 func validValues(t *testing.T) map[string]uint64 {
 	t.Helper()
-	definitions, err := Definitions("go1.27.0")
+	requirements, err := Requirements("go1.27.0")
 	require.NoError(t, err)
-	values := make(map[string]uint64, len(definitions))
-	for _, definition := range definitions {
-		values[definition.Key()] = 1
+	values := make(map[string]uint64, len(requirements))
+	for _, requirement := range requirements {
+		values[requirement.Key()] = 1
 	}
 	values["internal/abi.Type.TFlag"] = 20
 	values["internal/abi.Type.Kind_"] = 23
@@ -184,9 +184,9 @@ func validValues(t *testing.T) map[string]uint64 {
 	return values
 }
 
-func mapLookup(values map[string]uint64) func(Definition) (uint64, error) {
-	return func(definition Definition) (uint64, error) {
-		value, ok := values[definition.Key()]
+func mapLookup(values map[string]uint64) func(Requirement) (uint64, error) {
+	return func(requirement Requirement) (uint64, error) {
+		value, ok := values[requirement.Key()]
 		if !ok {
 			return 0, errors.New("not found")
 		}

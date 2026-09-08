@@ -18,12 +18,21 @@ import (
 // SizeField is the generated offset field used to store a DWARF type size.
 const SizeField = "$size"
 
-// Definition describes one versioned ABI fact and its generated output key.
-type Definition struct {
-	query       dwarfQuery
+// Requirement describes one versioned ABI fact and its generated output key.
+type Requirement struct {
 	OutputType  string
 	OutputField string
 	Since       string
+}
+
+// Key returns the generated type-and-field key for a requirement.
+func (r Requirement) Key() string {
+	return r.OutputType + "." + r.OutputField
+}
+
+type definition struct {
+	Requirement
+	query dwarfQuery
 }
 
 type dwarfQuery interface {
@@ -44,42 +53,43 @@ type constantQuery struct {
 	constantName string
 }
 
-func fieldDefinition(typeName, fieldName, since string) Definition {
-	return Definition{
-		query:       fieldQuery{typeName: typeName, fieldName: fieldName},
-		OutputType:  typeName,
-		OutputField: fieldName,
-		Since:       since,
+func fieldDefinition(typeName, fieldName, since string) definition {
+	return definition{
+		Requirement: Requirement{
+			OutputType:  typeName,
+			OutputField: fieldName,
+			Since:       since,
+		},
+		query: fieldQuery{typeName: typeName, fieldName: fieldName},
 	}
 }
 
-func sizeDefinition(typeName string) Definition {
-	return Definition{
-		query:       sizeQuery{typeName: typeName},
-		OutputType:  typeName,
-		OutputField: SizeField,
-		Since:       go127,
+func sizeDefinition(typeName string) definition {
+	return definition{
+		Requirement: Requirement{
+			OutputType:  typeName,
+			OutputField: SizeField,
+			Since:       go127,
+		},
+		query: sizeQuery{typeName: typeName},
 	}
 }
 
-func constantDefinition(constantName, outputField string) Definition {
-	return Definition{
-		query:       constantQuery{constantName: constantName},
-		OutputType:  "internal/abi",
-		OutputField: outputField,
-		Since:       go127,
+func constantDefinition(constantName, outputField string) definition {
+	return definition{
+		Requirement: Requirement{
+			OutputType:  "internal/abi",
+			OutputField: outputField,
+			Since:       go127,
+		},
+		query: constantQuery{constantName: constantName},
 	}
 }
 
-// Key returns the generated type-and-field key for a definition.
-func (d Definition) Key() string {
-	return d.OutputType + "." + d.OutputField
-}
-
-// Fact is a resolved ABI definition and value.
+// Fact is a resolved ABI requirement and value.
 type Fact struct {
-	Definition Definition
-	Value      uint64
+	Requirement Requirement
+	Value       uint64
 }
 
 // Moduledata contains the runtime.moduledata field offsets OBI reads.
@@ -152,7 +162,7 @@ const (
 	go127 = "1.27.0"
 )
 
-var definitions = []Definition{
+var definitions = []definition{
 	fieldDefinition("runtime.moduledata", "pcHeader", go117),
 	fieldDefinition("runtime.moduledata", "pclntable", go117),
 	fieldDefinition("runtime.moduledata", "minpc", go117),
@@ -200,8 +210,21 @@ var definitions = []Definition{
 
 var goVersionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
 
-// Definitions returns all ABI facts required for goVersion.
-func Definitions(goVersion string) ([]Definition, error) {
+// Requirements returns all ABI facts required for goVersion.
+func Requirements(goVersion string) ([]Requirement, error) {
+	definitions, err := requiredDefinitions(goVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]Requirement, 0, len(definitions))
+	for _, definition := range definitions {
+		result = append(result, definition.Requirement)
+	}
+	return result, nil
+}
+
+func requiredDefinitions(goVersion string) ([]definition, error) {
 	version := goVersionPattern.FindString(goVersion)
 	if version == "" {
 		return nil, fmt.Errorf("invalid Go version %q", goVersion)
@@ -210,7 +233,7 @@ func Definitions(goVersion string) ([]Definition, error) {
 		return nil, fmt.Errorf("unsupported Go version %q", goVersion)
 	}
 
-	result := make([]Definition, 0, len(definitions))
+	result := make([]definition, 0, len(definitions))
 	for _, definition := range definitions {
 		if semver.Compare("v"+version, "v"+definition.Since) >= 0 {
 			result = append(result, definition)
@@ -227,7 +250,7 @@ func Extract(data *dwarf.Data, goVersion string) (ABI, error) {
 	if data == nil {
 		return ABI{}, errors.New("missing DWARF data")
 	}
-	requested, err := Definitions(goVersion)
+	requested, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return ABI{}, err
 	}
@@ -235,8 +258,8 @@ func Extract(data *dwarf.Data, goVersion string) (ABI, error) {
 	if err != nil {
 		return ABI{}, err
 	}
-	return FromLookup(goVersion, func(definition Definition) (uint64, error) {
-		value, ok := values[definition.Key()]
+	return FromLookup(goVersion, func(requirement Requirement) (uint64, error) {
+		value, ok := values[requirement.Key()]
 		if !ok {
 			return 0, errors.New("not found")
 		}
@@ -247,9 +270,9 @@ func Extract(data *dwarf.Data, goVersion string) (ABI, error) {
 // FromLookup loads and validates a complete ABI using lookup as its source.
 func FromLookup(
 	goVersion string,
-	lookup func(Definition) (uint64, error),
+	lookup func(Requirement) (uint64, error),
 ) (ABI, error) {
-	requested, err := Definitions(goVersion)
+	requested, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return ABI{}, err
 	}
@@ -257,12 +280,13 @@ func FromLookup(
 	values := make(map[string]uint64, len(requested))
 	facts := make([]Fact, 0, len(requested))
 	for _, definition := range requested {
-		value, err := lookup(definition)
+		requirement := definition.Requirement
+		value, err := lookup(requirement)
 		if err != nil {
-			return ABI{}, fmt.Errorf("loading Go ABI fact %s: %w", definition.Key(), err)
+			return ABI{}, fmt.Errorf("loading Go ABI fact %s: %w", requirement.Key(), err)
 		}
-		values[definition.Key()] = value
-		facts = append(facts, Fact{Definition: definition, Value: value})
+		values[requirement.Key()] = value
+		facts = append(facts, Fact{Requirement: requirement, Value: value})
 	}
 
 	abi := ABI{
@@ -474,8 +498,8 @@ func (q constantQuery) extract(_ *dwarf.Data, entry *dwarf.Entry) (uint64, bool,
 	return value, true, nil
 }
 
-func readDWARF(data *dwarf.Data, requested []Definition) (map[string]uint64, error) {
-	queries := map[string][]Definition{}
+func readDWARF(data *dwarf.Data, requested []definition) (map[string]uint64, error) {
+	queries := map[string][]definition{}
 	for _, definition := range requested {
 		name := definition.query.name()
 		queries[name] = append(queries[name], definition)

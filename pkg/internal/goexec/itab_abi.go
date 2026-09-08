@@ -103,8 +103,8 @@ func loadGeneratedGoRuntimeABI(goVersion string) (goabi.ABI, error) {
 	if err != nil {
 		return goabi.ABI{}, fmt.Errorf("reading generated Go ABI facts: %w", err)
 	}
-	return goabi.FromLookup(goVersion, func(definition goabi.Definition) (uint64, error) {
-		return generatedABIFact(track, definition.OutputType, definition.OutputField, goVersion)
+	return goabi.FromLookup(goVersion, func(requirement goabi.Requirement) (uint64, error) {
+		return generatedABIFact(track, requirement.OutputType, requirement.OutputField, goVersion)
 	})
 }
 
