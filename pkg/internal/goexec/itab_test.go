@@ -86,7 +86,7 @@ func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
 	assert.NotZero(t, implementations["*errors.errorString"])
 }
 
-func TestFindInterfaceImplsFromFutureGoDWARF(t *testing.T) {
+func TestFindInterfaceImplsWithUngeneratedVersionAndCompatibleDWARF(t *testing.T) {
 	goVersion, _, err := getGoDetails(smallELF)
 	require.NoError(t, err)
 	if !goVersionAtLeast(goVersion, "1.27.0") {
@@ -96,6 +96,8 @@ func TestFindInterfaceImplsFromFutureGoDWARF(t *testing.T) {
 	elfFile := compileELF(tools.ProjectDir() + "/pkg/internal/goexec/testdata/itab/main.go")
 	t.Cleanup(func() { require.NoError(t, elfFile.Close()) })
 
+	// The future label verifies that dynamic discovery does not depend on generated
+	// coverage. The DWARF comes from the current toolchain, so this does not model a future ABI.
 	implementations, err := findInterfaceImplsFromModuledata(elfFile, "go999.0.0")
 	require.NoError(t, err)
 	assert.NotZero(t, implementations["*main.workerImpl"])
@@ -103,10 +105,34 @@ func TestFindInterfaceImplsFromFutureGoDWARF(t *testing.T) {
 }
 
 func TestLoadGeneratedGoRuntimeABI(t *testing.T) {
-	_, err := loadGeneratedGoRuntimeABI("go1.27.999")
-	require.NoError(t, err)
+	for _, goVersion := range []string{"1.27.1", "go1.27.1"} {
+		t.Run(goVersion, func(t *testing.T) {
+			_, err := loadGeneratedGoRuntimeABI(goVersion)
+			require.NoError(t, err)
+		})
+	}
 
-	_, err = loadGeneratedGoRuntimeABI("go999.0.0")
+	for _, goVersion := range []string{"go1.27.999", "go999.0.0"} {
+		t.Run(goVersion, func(t *testing.T) {
+			_, err := loadGeneratedGoRuntimeABI(goVersion)
+			require.ErrorContains(t, err, "runtime ABI is not generated")
+		})
+	}
+
+	_, err := loadGeneratedGoRuntimeABI("devel go1.29-abcdef")
+	require.ErrorContains(t, err, "invalid Go version")
+}
+
+func TestFindInterfaceImplsRejectsUngeneratedVersionWithoutDWARF(t *testing.T) {
+	elfFile := compileELF(
+		tools.ProjectDir()+"/pkg/internal/goexec/testdata/itab/main.go",
+		"-ldflags", "-s -w",
+	)
+	t.Cleanup(func() { require.NoError(t, elfFile.Close()) })
+
+	_, err := findInterfaceImplsFromModuledata(elfFile, "go999.0.0")
+	require.ErrorContains(t, err, "DWARF discovery")
+	require.ErrorContains(t, err, "generated fallback")
 	require.ErrorContains(t, err, "runtime ABI is not generated")
 }
 

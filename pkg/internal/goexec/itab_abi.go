@@ -8,11 +8,12 @@ import (
 	"debug/elf"
 	"errors"
 	"fmt"
+	"strings"
 
 	trackeroffsets "github.com/grafana/go-offsets-tracker/pkg/offsets"
-	"golang.org/x/mod/semver"
 
 	"go.opentelemetry.io/obi/internal/goabi"
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 type goTypeMetadataABI struct {
@@ -99,12 +100,16 @@ func resolveGoRuntimeABI(
 }
 
 func loadGeneratedGoRuntimeABI(goVersion string) (goabi.ABI, error) {
+	target, err := goversion.Parse(goVersion)
+	if err != nil {
+		return goabi.ABI{}, err
+	}
 	track, err := trackeroffsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	if err != nil {
 		return goabi.ABI{}, fmt.Errorf("reading generated Go ABI facts: %w", err)
 	}
-	return goabi.FromLookup(goVersion, func(requirement goabi.Requirement) (uint64, error) {
-		return generatedABIFact(track, requirement.OutputType, requirement.OutputField, goVersion)
+	return goabi.FromLookup(target.String(), func(requirement goabi.Requirement) (uint64, error) {
+		return generatedABIFact(track, requirement.OutputType, requirement.OutputField, target)
 	})
 }
 
@@ -168,7 +173,7 @@ func generatedABIFact(
 	track *trackeroffsets.Track,
 	typeName string,
 	factName string,
-	goVersion string,
+	target goversion.Version,
 ) (uint64, error) {
 	fields, ok := track.Data[typeName]
 	if !ok {
@@ -179,20 +184,35 @@ func generatedABIFact(
 		return 0, fmt.Errorf("missing generated Go ABI fact %s.%s", typeName, factName)
 	}
 
-	target := goVersionPattern.FindString(goVersion)
-	oldest := goVersionPattern.FindString(fact.Versions.Oldest)
-	newest := goVersionPattern.FindString(fact.Versions.Newest)
-	if target == "" || oldest == "" || newest == "" ||
-		semver.Compare(semver.MajorMinor("v"+target), semver.MajorMinor("v"+oldest)) < 0 ||
-		semver.Compare(semver.MajorMinor("v"+target), semver.MajorMinor("v"+newest)) > 0 {
-		return 0, fmt.Errorf("go %s runtime ABI is not generated", goVersion)
+	covered, err := generatedVersionCovered(target, fact.Versions.Oldest, fact.Versions.Newest)
+	if err != nil {
+		return 0, fmt.Errorf("invalid generated Go ABI coverage for %s.%s: %w", typeName, factName, err)
+	}
+	if !covered {
+		return 0, fmt.Errorf("runtime ABI is not generated for %s", target.String())
 	}
 
-	value, ok := track.Find(typeName, factName, target)
+	release := strings.TrimPrefix(target.String(), "go")
+	value, ok := track.Find(typeName, factName, release)
 	if !ok {
-		return 0, fmt.Errorf("missing generated Go ABI fact %s.%s for Go %s", typeName, factName, goVersion)
+		return 0, fmt.Errorf("missing generated Go ABI fact %s.%s for %s", typeName, factName, target.String())
 	}
 	return value, nil
+}
+
+func generatedVersionCovered(target goversion.Version, oldestValue, newestValue string) (bool, error) {
+	if strings.Contains(target.String(), "-") {
+		return false, nil
+	}
+	oldest, err := goversion.Parse(oldestValue)
+	if err != nil {
+		return false, err
+	}
+	newest, err := goversion.Parse(newestValue)
+	if err != nil {
+		return false, err
+	}
+	return target.Compare(oldest) >= 0 && target.Compare(newest) <= 0, nil
 }
 
 func (abi goTypeMetadataABI) typeHeaderSize() uint64 {

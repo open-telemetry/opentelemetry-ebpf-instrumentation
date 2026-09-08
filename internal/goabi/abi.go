@@ -9,10 +9,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 
-	"golang.org/x/mod/semver"
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 // SizeField is the generated offset field used to store a DWARF type size.
@@ -210,11 +209,10 @@ var definitions = []definition{
 	constantDefinition("internal/abi.Struct", "Struct"),
 }
 
-var goVersionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
-
-// Requirements returns all ABI facts required for goVersion.
+// Requirements returns the ABI facts known to be required for goVersion.
+// The version selects facts; it does not establish ABI compatibility.
 func Requirements(goVersion string) ([]Requirement, error) {
-	definitions, err := requiredDefinitions(goVersion)
+	_, definitions, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -226,25 +224,33 @@ func Requirements(goVersion string) ([]Requirement, error) {
 	return result, nil
 }
 
-func requiredDefinitions(goVersion string) ([]definition, error) {
-	version := goVersionPattern.FindString(goVersion)
-	if version == "" {
-		return nil, fmt.Errorf("invalid Go version %q", goVersion)
+func requiredDefinitions(goVersion string) (goversion.Version, []definition, error) {
+	version, err := goversion.Parse(goVersion)
+	if err != nil {
+		return goversion.Version{}, nil, err
 	}
-	if semver.Compare("v"+version, "v"+go117) < 0 {
-		return nil, fmt.Errorf("unsupported Go version %q", goVersion)
+	minimum, err := goversion.Parse(go117)
+	if err != nil {
+		return goversion.Version{}, nil, err
+	}
+	if version.Compare(minimum) < 0 {
+		return goversion.Version{}, nil, fmt.Errorf("unsupported Go version %q", goVersion)
 	}
 
 	result := make([]definition, 0, len(definitions))
 	for _, definition := range definitions {
-		if semver.Compare("v"+version, "v"+definition.Since) >= 0 {
+		since, err := goversion.Parse(definition.Since)
+		if err != nil {
+			return goversion.Version{}, nil, err
+		}
+		if version.Compare(since) >= 0 {
 			result = append(result, definition)
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Key() < result[j].Key()
 	})
-	return result, nil
+	return version, result, nil
 }
 
 // Extract discovers and validates a complete ABI from DWARF.
@@ -252,7 +258,7 @@ func Extract(data *dwarf.Data, goVersion string) (ABI, error) {
 	if data == nil {
 		return ABI{}, errors.New("missing DWARF data")
 	}
-	requested, err := requiredDefinitions(goVersion)
+	version, requested, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return ABI{}, err
 	}
@@ -260,7 +266,7 @@ func Extract(data *dwarf.Data, goVersion string) (ABI, error) {
 	if err != nil {
 		return ABI{}, err
 	}
-	return FromLookup(goVersion, func(requirement Requirement) (uint64, error) {
+	return loadAndValidate(version, requested, func(requirement Requirement) (uint64, error) {
 		value, ok := values[requirement.Key()]
 		if !ok {
 			return 0, errors.New("not found")
@@ -274,11 +280,18 @@ func FromLookup(
 	goVersion string,
 	lookup func(Requirement) (uint64, error),
 ) (ABI, error) {
-	requested, err := requiredDefinitions(goVersion)
+	version, requested, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return ABI{}, err
 	}
+	return loadAndValidate(version, requested, lookup)
+}
 
+func loadAndValidate(
+	version goversion.Version,
+	requested []definition,
+	lookup func(Requirement) (uint64, error),
+) (ABI, error) {
 	values := make(map[string]uint64, len(requested))
 	facts := make([]Fact, 0, len(requested))
 	for _, definition := range requested {
@@ -306,7 +319,11 @@ func FromLookup(
 		},
 		facts: facts,
 	}
-	if semver.Compare("v"+goVersionPattern.FindString(goVersion), "v"+go127) < 0 {
+	typeMetadataSince, err := goversion.Parse(go127)
+	if err != nil {
+		return ABI{}, err
+	}
+	if version.Compare(typeMetadataSince) < 0 {
 		return abi, nil
 	}
 

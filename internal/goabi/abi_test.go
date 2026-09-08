@@ -22,10 +22,19 @@ func TestRequirementsByGoVersion(t *testing.T) {
 	for _, definition := range legacy {
 		assert.Equal(t, "runtime.moduledata", definition.OutputType)
 	}
+	rc, err := Requirements("go1.27rc1")
+	require.NoError(t, err)
+	assert.Equal(t, legacy, rc)
 
-	current, err := Requirements("go1.27.0")
+	current, err := Requirements("1.27.0")
 	require.NoError(t, err)
 	assert.Greater(t, len(current), len(legacy))
+	prefixed, err := Requirements("go1.27.0")
+	require.NoError(t, err)
+	assert.Equal(t, current, prefixed)
+	patch, err := Requirements("go1.27.1")
+	require.NoError(t, err)
+	assert.Equal(t, current, patch)
 
 	keys := map[string]struct{}{}
 	for _, definition := range current {
@@ -34,6 +43,19 @@ func TestRequirementsByGoVersion(t *testing.T) {
 		keys[definition.Key()] = struct{}{}
 	}
 	assert.Contains(t, keys, "internal/abi.ITab.Inter")
+}
+
+func TestRequirementsRejectsInvalidGoVersions(t *testing.T) {
+	for _, goVersion := range []string{
+		"release go1.27.0",
+		"go1.27.0 release",
+		"devel go1.29-abcdef",
+	} {
+		t.Run(goVersion, func(t *testing.T) {
+			_, err := Requirements(goVersion)
+			require.ErrorContains(t, err, "invalid Go version")
+		})
+	}
 }
 
 func TestFromLookupRequiresCompleteABI(t *testing.T) {

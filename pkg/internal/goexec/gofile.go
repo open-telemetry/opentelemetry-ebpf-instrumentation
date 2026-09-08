@@ -10,11 +10,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"regexp"
 	"runtime/debug"
 	"strings"
 
-	"golang.org/x/mod/semver"
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 const (
@@ -25,8 +24,6 @@ const (
 	minGoRuntimeGCGoalArgumentVersion               = "1.19"
 	minGoRuntimeGoroutineCountIncludesSystemVersion = "1.26"
 )
-
-var goVersionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
 
 // supportedGoVersion checks if the given Go version string is equal or greater than the
 // minimum supported version.
@@ -50,13 +47,12 @@ func SupportsGoRuntimeMemoryMetrics(elfFile *elf.File) (bool, error) {
 }
 
 func goVersionAtLeast(version, minimum string) bool {
-	match := goVersionPattern.FindString(version)
-	if match == "" {
+	target, err := goversion.Parse(version)
+	if err != nil {
 		return false
 	}
-
-	// 'semver' package requires version strings to begin with a leading "v".
-	return semver.Compare("v"+match, "v"+minimum) >= 0
+	minimumVersion, err := goversion.Parse(minimum)
+	return err == nil && target.Compare(minimumVersion) >= 0
 }
 
 type moduleVersions struct {
@@ -67,7 +63,7 @@ type moduleVersions struct {
 }
 
 func runtimeMetricGoroutineCountModeVersion(version string) (includesSystem, known bool) {
-	if goVersionPattern.FindString(version) == "" {
+	if _, err := goversion.Parse(version); err != nil {
 		return false, false
 	}
 	return goVersionAtLeast(version, minGoRuntimeGoroutineCountIncludesSystemVersion), true
