@@ -219,6 +219,7 @@ const (
 
 	V8JSGCType        = Name("v8js.gc.type")
 	V8JSHeapSpaceName = Name("v8js.heap.space.name")
+	V8JSResourceType  = Name("v8js.resource.type")
 
 	VendorVersionSuffix  = Name(".version")
 	VendorRevisionSuffix = Name(".revision")

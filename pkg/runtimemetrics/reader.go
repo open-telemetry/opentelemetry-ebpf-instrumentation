@@ -42,6 +42,7 @@ type RuntimeMetricSnapshot struct {
 	Nodejs          *NodejsRuntimeMetricSnapshot
 	NodejsGC        *NodejsGCSnapshot
 	NodejsHeapSpace *NodejsHeapSpaceSnapshot
+	NodejsResource  *NodejsResourceSnapshot
 	Python          *PythonRuntimeMetricSnapshot
 
 	Histogram *GoRuntimeHistogramSnapshot
@@ -154,6 +155,11 @@ type NodejsHeapSpaceSnapshot struct {
 	appruntime.NodejsHeapSpaceValues
 }
 
+type NodejsResourceSnapshot struct {
+	ResourceType string
+	Count        uint64
+}
+
 type QueueSender struct {
 	queue *msg.Queue[[]RuntimeMetricSnapshot]
 }
@@ -228,6 +234,18 @@ func (s *QueueSender) SendNodejsHeapSpaceMetrics(ctx context.Context, events []a
 	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
 	for i := range events {
 		snapshots = append(snapshots, SnapshotFromNodejsHeapSpaceEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
+}
+
+func (s *QueueSender) SendNodejsResourceMetrics(ctx context.Context, events []appruntime.NodejsResourceEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromNodejsResourceEvent(events[i]))
 	}
 	s.queue.SendCtx(ctx, snapshots)
 }
@@ -618,6 +636,18 @@ func SnapshotFromNodejsHeapSpaceEvent(event appruntime.NodejsHeapSpaceEvent) Run
 		NodejsHeapSpace: &NodejsHeapSpaceSnapshot{
 			SpaceName:             event.SpaceName,
 			NodejsHeapSpaceValues: event.NodejsHeapSpaceValues,
+		},
+	}
+}
+
+func SnapshotFromNodejsResourceEvent(event appruntime.NodejsResourceEvent) RuntimeMetricSnapshot {
+	return RuntimeMetricSnapshot{
+		Service: event.Service,
+		PID:     event.PID,
+		Time:    event.Time,
+		NodejsResource: &NodejsResourceSnapshot{
+			ResourceType: event.ResourceType,
+			Count:        event.Count,
 		},
 	}
 }
