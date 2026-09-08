@@ -45,6 +45,13 @@ func TestRequirementsByGoVersion(t *testing.T) {
 	assert.Contains(t, keys, "internal/abi.ITab.Inter")
 }
 
+func TestDefinitionsCanAssignResolvedFacts(t *testing.T) {
+	for _, definition := range definitions {
+		assert.NotNil(t, definition.query, definition.Key())
+		assert.NotNil(t, definition.assign, definition.Key())
+	}
+}
+
 func TestRequirementsRejectsInvalidGoVersions(t *testing.T) {
 	for _, goVersion := range []string{
 		"release go1.27.0",
@@ -64,6 +71,19 @@ func TestFromLookupRequiresCompleteABI(t *testing.T) {
 
 	_, err := FromLookup("go1.27.0", mapLookup(values))
 	require.ErrorContains(t, err, "runtime.moduledata.itabsize")
+}
+
+func TestFromLookupLeavesUnrequiredTypeMetadataAbsent(t *testing.T) {
+	requirements, err := Requirements("go1.26.9")
+	require.NoError(t, err)
+	values := make(map[string]uint64, len(requirements))
+	for _, requirement := range requirements {
+		values[requirement.Key()] = 1
+	}
+
+	abi, err := FromLookup("go1.26.9", mapLookup(values))
+	require.NoError(t, err)
+	assert.Nil(t, abi.TypeMetadata)
 }
 
 func TestFromLookupValidatesABI(t *testing.T) {
@@ -121,17 +141,69 @@ func TestFromLookupRejectsInvalidConstants(t *testing.T) {
 	}
 }
 
-func TestFromLookupBuildsDerivedFacts(t *testing.T) {
+func TestFromLookupBuildsABI(t *testing.T) {
 	values := validValues(t)
 	abi, err := FromLookup("go1.27.0", mapLookup(values))
 	require.NoError(t, err)
 
+	assert.Equal(t, Moduledata{
+		PCHeader:    0,
+		PCLNTable:   104,
+		MinPC:       160,
+		MaxPC:       168,
+		Text:        176,
+		EText:       184,
+		Types:       296,
+		TypeDescLen: 304,
+		ITabOffset:  320,
+		ITabSize:    328,
+	}, abi.Moduledata)
+	require.NotNil(t, abi.TypeMetadata)
+	assert.Equal(t, TypeMetadata{
+		TypeTFlagOffset:         20,
+		TypeKindOffset:          23,
+		TypeNameOffset:          40,
+		InterfaceMethodsOffset:  56,
+		SliceLenOffset:          8,
+		ITabInterOffset:         0,
+		ITabTypeOffset:          8,
+		ITabFunOffset:           16,
+		UncommonPkgPathOffset:   4,
+		ArrayUncommonOffset:     48,
+		ChanUncommonOffset:      56,
+		FuncUncommonOffset:      64,
+		InterfaceUncommonOffset: 80,
+		MapUncommonOffset:       88,
+		PointerUncommonOffset:   96,
+		SliceUncommonOffset:     104,
+		StructUncommonOffset:    112,
+		TypeSize:                48,
+		TFlagSize:               1,
+		KindSize:                1,
+		NameOffsetSize:          4,
+		ITabBaseSize:            24,
+		TFlagUncommonMask:       1,
+		TFlagExtraStarMask:      2,
+		KindDirectIfaceFlag:     32,
+		ArrayKind:               17,
+		ChanKind:                18,
+		FuncKind:                19,
+		InterfaceKind:           20,
+		MapKind:                 21,
+		PointerKind:             22,
+		SliceKind:               23,
+		StructKind:              25,
+	}, *abi.TypeMetadata)
+	assert.Equal(t, uint64(44), abi.TypeMetadata.TypeHeaderSize())
+	assert.Equal(t, uint64(64), abi.TypeMetadata.InterfaceMethodCountOffset())
+	assert.Equal(t, uint64(8), abi.TypeMetadata.ITabFuncEntrySize())
+	assert.Equal(t, uint64(48), abi.TypeMetadata.UncommonTypeOffset(byte(abi.TypeMetadata.ArrayKind)))
 	assert.Equal(
 		t,
-		abi.TypeMetadata.InterfaceMethodsOffset+abi.TypeMetadata.SliceLenOffset,
-		abi.TypeMetadata.InterfaceMethodCountOffset,
+		uint64(48),
+		abi.TypeMetadata.UncommonTypeOffset(byte(abi.TypeMetadata.ArrayKind|abi.TypeMetadata.KindDirectIfaceFlag)),
 	)
-	assert.Equal(t, abi.TypeMetadata.ITabBaseSize-abi.TypeMetadata.ITabFunOffset, abi.TypeMetadata.ITabFuncEntrySize)
+	assert.Equal(t, abi.TypeMetadata.TypeSize, abi.TypeMetadata.UncommonTypeOffset(1))
 	assert.Len(t, abi.Facts(), len(values))
 }
 
@@ -154,7 +226,13 @@ func TestExtractCompleteRuntimeABI(t *testing.T) {
 	requirements, err := Requirements("go1.27.0")
 	require.NoError(t, err)
 	assert.Len(t, abi.Facts(), len(requirements))
+	require.NotNil(t, abi.TypeMetadata)
 	assert.Equal(t, uint64(0), abi.TypeMetadata.ITabInterOffset)
+
+	legacyABI, err := Extract(data, "go1.26.9")
+	require.NoError(t, err)
+	assert.Nil(t, legacyABI.TypeMetadata)
+	assert.Len(t, legacyABI.Facts(), 6)
 }
 
 func TestStoreValueRejectsConflicts(t *testing.T) {
@@ -171,6 +249,16 @@ func validValues(t *testing.T) map[string]uint64 {
 	for _, requirement := range requirements {
 		values[requirement.Key()] = 1
 	}
+	values["runtime.moduledata.pcHeader"] = 0
+	values["runtime.moduledata.pclntable"] = 104
+	values["runtime.moduledata.minpc"] = 160
+	values["runtime.moduledata.maxpc"] = 168
+	values["runtime.moduledata.text"] = 176
+	values["runtime.moduledata.etext"] = 184
+	values["runtime.moduledata.types"] = 296
+	values["runtime.moduledata.typedesclen"] = 304
+	values["runtime.moduledata.itaboffset"] = 320
+	values["runtime.moduledata.itabsize"] = 328
 	values["internal/abi.Type.TFlag"] = 20
 	values["internal/abi.Type.Kind_"] = 23
 	values["internal/abi.Type.Str"] = 40
@@ -185,17 +273,14 @@ func validValues(t *testing.T) map[string]uint64 {
 	values["internal/abi.ITab.Type"] = 8
 	values["internal/abi.ITab.Fun"] = 16
 	values["internal/abi.ITab."+SizeField] = 24
-	for _, typeName := range []string{
-		"internal/abi.ArrayType",
-		"internal/abi.ChanType",
-		"internal/abi.FuncType",
-		"internal/abi.MapType",
-		"internal/abi.PtrType",
-		"internal/abi.SliceType",
-		"internal/abi.StructType",
-	} {
-		values[typeName+"."+SizeField] = 48
-	}
+	values["internal/abi.UncommonType.PkgPath"] = 4
+	values["internal/abi.ArrayType."+SizeField] = 48
+	values["internal/abi.ChanType."+SizeField] = 56
+	values["internal/abi.FuncType."+SizeField] = 64
+	values["internal/abi.MapType."+SizeField] = 88
+	values["internal/abi.PtrType."+SizeField] = 96
+	values["internal/abi.SliceType."+SizeField] = 104
+	values["internal/abi.StructType."+SizeField] = 112
 	values["internal/abi.TFlagUncommon"] = 1
 	values["internal/abi.TFlagExtraStar"] = 2
 	values["internal/abi.KindDirectIface"] = 32

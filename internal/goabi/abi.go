@@ -31,7 +31,8 @@ func (r Requirement) Key() string {
 
 type definition struct {
 	Requirement
-	query dwarfQuery
+	query  dwarfQuery
+	assign func(*ABI, uint64)
 }
 
 type dwarfQuery interface {
@@ -52,18 +53,43 @@ type constantQuery struct {
 	constantName string
 }
 
-func fieldDefinition(typeName, fieldName, since string) definition {
+func moduledataField(
+	fieldName string,
+	since string,
+	assign func(*Moduledata, uint64),
+) definition {
+	return definition{
+		Requirement: Requirement{
+			OutputType:  "runtime.moduledata",
+			OutputField: fieldName,
+			Since:       since,
+		},
+		query: fieldQuery{typeName: "runtime.moduledata", fieldName: fieldName},
+		assign: func(abi *ABI, value uint64) {
+			assign(&abi.Moduledata, value)
+		},
+	}
+}
+
+func typeMetadataField(
+	typeName string,
+	fieldName string,
+	assign func(*TypeMetadata, uint64),
+) definition {
 	return definition{
 		Requirement: Requirement{
 			OutputType:  typeName,
 			OutputField: fieldName,
-			Since:       since,
+			Since:       go127,
 		},
 		query: fieldQuery{typeName: typeName, fieldName: fieldName},
+		assign: func(abi *ABI, value uint64) {
+			assign(abi.typeMetadata(), value)
+		},
 	}
 }
 
-func sizeDefinition(typeName string) definition {
+func typeMetadataSize(typeName string, assign func(*TypeMetadata, uint64)) definition {
 	return definition{
 		Requirement: Requirement{
 			OutputType:  typeName,
@@ -71,10 +97,17 @@ func sizeDefinition(typeName string) definition {
 			Since:       go127,
 		},
 		query: sizeQuery{typeName: typeName},
+		assign: func(abi *ABI, value uint64) {
+			assign(abi.typeMetadata(), value)
+		},
 	}
 }
 
-func constantDefinition(constantName, outputField string) definition {
+func typeMetadataConstant(
+	constantName string,
+	outputField string,
+	assign func(*TypeMetadata, uint64),
+) definition {
 	return definition{
 		Requirement: Requirement{
 			OutputType:  "internal/abi",
@@ -82,6 +115,9 @@ func constantDefinition(constantName, outputField string) definition {
 			Since:       go127,
 		},
 		query: constantQuery{constantName: constantName},
+		assign: func(abi *ABI, value uint64) {
+			assign(abi.typeMetadata(), value)
+		},
 	}
 }
 
@@ -94,7 +130,7 @@ type Fact struct {
 // Moduledata contains the runtime.moduledata field offsets OBI reads.
 type Moduledata struct {
 	PCHeader    uint64
-	PCLNTable   uint64
+	PCLNTable   uint64 // Offset of the pclntable slice header.
 	MinPC       uint64
 	MaxPC       uint64
 	Text        uint64
@@ -107,31 +143,29 @@ type Moduledata struct {
 
 // TypeMetadata contains the internal/abi layout used to decode Go type data.
 type TypeMetadata struct {
-	TypeTFlagOffset            uint64
-	TypeKindOffset             uint64
-	TypeNameOffset             uint64
-	InterfaceMethodsOffset     uint64
-	SliceLenOffset             uint64
-	InterfaceMethodCountOffset uint64
-	ITabInterOffset            uint64
-	ITabTypeOffset             uint64
-	ITabFunOffset              uint64
-	UncommonPkgPathOffset      uint64
-	ArrayUncommonOffset        uint64
-	ChanUncommonOffset         uint64
-	FuncUncommonOffset         uint64
-	InterfaceUncommonOffset    uint64
-	MapUncommonOffset          uint64
-	PointerUncommonOffset      uint64
-	SliceUncommonOffset        uint64
-	StructUncommonOffset       uint64
+	TypeTFlagOffset         uint64
+	TypeKindOffset          uint64
+	TypeNameOffset          uint64
+	InterfaceMethodsOffset  uint64
+	SliceLenOffset          uint64
+	ITabInterOffset         uint64
+	ITabTypeOffset          uint64
+	ITabFunOffset           uint64
+	UncommonPkgPathOffset   uint64
+	ArrayUncommonOffset     uint64
+	ChanUncommonOffset      uint64
+	FuncUncommonOffset      uint64
+	InterfaceUncommonOffset uint64
+	MapUncommonOffset       uint64
+	PointerUncommonOffset   uint64
+	SliceUncommonOffset     uint64
+	StructUncommonOffset    uint64
 
-	TypeSize          uint64
-	TFlagSize         uint64
-	KindSize          uint64
-	NameOffsetSize    uint64
-	ITabBaseSize      uint64
-	ITabFuncEntrySize uint64
+	TypeSize       uint64
+	TFlagSize      uint64
+	KindSize       uint64
+	NameOffsetSize uint64
+	ITabBaseSize   uint64
 
 	TFlagUncommonMask   uint64
 	TFlagExtraStarMask  uint64
@@ -148,9 +182,17 @@ type TypeMetadata struct {
 
 // ABI is one complete, validated set of ABI facts for a Go version.
 type ABI struct {
-	Moduledata   Moduledata
-	TypeMetadata TypeMetadata
+	Moduledata Moduledata
+	// TypeMetadata is nil when the selected requirements do not include type metadata.
+	TypeMetadata *TypeMetadata
 	facts        []Fact
+}
+
+func (a *ABI) typeMetadata() *TypeMetadata {
+	if a.TypeMetadata == nil {
+		a.TypeMetadata = &TypeMetadata{}
+	}
+	return a.TypeMetadata
 }
 
 // Facts returns the resolved facts in stable key order.
@@ -164,55 +206,58 @@ const (
 )
 
 var definitions = []definition{
-	fieldDefinition("runtime.moduledata", "pcHeader", go117),
-	fieldDefinition("runtime.moduledata", "pclntable", go117),
-	fieldDefinition("runtime.moduledata", "minpc", go117),
-	fieldDefinition("runtime.moduledata", "maxpc", go117),
-	fieldDefinition("runtime.moduledata", "text", go117),
-	fieldDefinition("runtime.moduledata", "etext", go117),
-	fieldDefinition("runtime.moduledata", "types", go127),
-	fieldDefinition("runtime.moduledata", "typedesclen", go127),
-	fieldDefinition("runtime.moduledata", "itaboffset", go127),
-	fieldDefinition("runtime.moduledata", "itabsize", go127),
-	fieldDefinition("internal/abi.Type", "TFlag", go127),
-	fieldDefinition("internal/abi.Type", "Kind_", go127),
-	fieldDefinition("internal/abi.Type", "Str", go127),
-	fieldDefinition("internal/abi.InterfaceType", "Methods", go127),
-	fieldDefinition("internal/abi.ITab", "Inter", go127),
-	fieldDefinition("internal/abi.ITab", "Type", go127),
-	fieldDefinition("internal/abi.ITab", "Fun", go127),
-	fieldDefinition("internal/abi.UncommonType", "PkgPath", go127),
-	fieldDefinition("[]internal/abi.Imethod", "len", go127),
-	sizeDefinition("internal/abi.Type"),
-	sizeDefinition("internal/abi.ArrayType"),
-	sizeDefinition("internal/abi.ChanType"),
-	sizeDefinition("internal/abi.FuncType"),
-	sizeDefinition("internal/abi.InterfaceType"),
-	sizeDefinition("internal/abi.MapType"),
-	sizeDefinition("internal/abi.PtrType"),
-	sizeDefinition("internal/abi.SliceType"),
-	sizeDefinition("internal/abi.StructType"),
-	sizeDefinition("internal/abi.ITab"),
-	sizeDefinition("internal/abi.TFlag"),
-	sizeDefinition("internal/abi.Kind"),
-	sizeDefinition("internal/abi.NameOff"),
-	constantDefinition("internal/abi.TFlagUncommon", "TFlagUncommon"),
-	constantDefinition("internal/abi.TFlagExtraStar", "TFlagExtraStar"),
-	constantDefinition("internal/abi.KindDirectIface", "KindDirectIface"),
-	constantDefinition("internal/abi.Array", "Array"),
-	constantDefinition("internal/abi.Chan", "Chan"),
-	constantDefinition("internal/abi.Func", "Func"),
-	constantDefinition("internal/abi.Interface", "Interface"),
-	constantDefinition("internal/abi.Map", "Map"),
-	constantDefinition("internal/abi.Pointer", "Pointer"),
-	constantDefinition("internal/abi.Slice", "Slice"),
-	constantDefinition("internal/abi.Struct", "Struct"),
+	moduledataField("pcHeader", go117, func(m *Moduledata, v uint64) { m.PCHeader = v }),
+	moduledataField("pclntable", go117, func(m *Moduledata, v uint64) { m.PCLNTable = v }),
+	moduledataField("minpc", go117, func(m *Moduledata, v uint64) { m.MinPC = v }),
+	moduledataField("maxpc", go117, func(m *Moduledata, v uint64) { m.MaxPC = v }),
+	moduledataField("text", go117, func(m *Moduledata, v uint64) { m.Text = v }),
+	moduledataField("etext", go117, func(m *Moduledata, v uint64) { m.EText = v }),
+	moduledataField("types", go127, func(m *Moduledata, v uint64) { m.Types = v }),
+	moduledataField("typedesclen", go127, func(m *Moduledata, v uint64) { m.TypeDescLen = v }),
+	moduledataField("itaboffset", go127, func(m *Moduledata, v uint64) { m.ITabOffset = v }),
+	moduledataField("itabsize", go127, func(m *Moduledata, v uint64) { m.ITabSize = v }),
+
+	typeMetadataField("internal/abi.Type", "TFlag", func(m *TypeMetadata, v uint64) { m.TypeTFlagOffset = v }),
+	typeMetadataField("internal/abi.Type", "Kind_", func(m *TypeMetadata, v uint64) { m.TypeKindOffset = v }),
+	typeMetadataField("internal/abi.Type", "Str", func(m *TypeMetadata, v uint64) { m.TypeNameOffset = v }),
+	typeMetadataField("internal/abi.InterfaceType", "Methods", func(m *TypeMetadata, v uint64) { m.InterfaceMethodsOffset = v }),
+	typeMetadataField("internal/abi.ITab", "Inter", func(m *TypeMetadata, v uint64) { m.ITabInterOffset = v }),
+	typeMetadataField("internal/abi.ITab", "Type", func(m *TypeMetadata, v uint64) { m.ITabTypeOffset = v }),
+	typeMetadataField("internal/abi.ITab", "Fun", func(m *TypeMetadata, v uint64) { m.ITabFunOffset = v }),
+	typeMetadataField("internal/abi.UncommonType", "PkgPath", func(m *TypeMetadata, v uint64) { m.UncommonPkgPathOffset = v }),
+	typeMetadataField("[]internal/abi.Imethod", "len", func(m *TypeMetadata, v uint64) { m.SliceLenOffset = v }),
+
+	typeMetadataSize("internal/abi.Type", func(m *TypeMetadata, v uint64) { m.TypeSize = v }),
+	typeMetadataSize("internal/abi.ArrayType", func(m *TypeMetadata, v uint64) { m.ArrayUncommonOffset = v }),
+	typeMetadataSize("internal/abi.ChanType", func(m *TypeMetadata, v uint64) { m.ChanUncommonOffset = v }),
+	typeMetadataSize("internal/abi.FuncType", func(m *TypeMetadata, v uint64) { m.FuncUncommonOffset = v }),
+	typeMetadataSize("internal/abi.InterfaceType", func(m *TypeMetadata, v uint64) { m.InterfaceUncommonOffset = v }),
+	typeMetadataSize("internal/abi.MapType", func(m *TypeMetadata, v uint64) { m.MapUncommonOffset = v }),
+	typeMetadataSize("internal/abi.PtrType", func(m *TypeMetadata, v uint64) { m.PointerUncommonOffset = v }),
+	typeMetadataSize("internal/abi.SliceType", func(m *TypeMetadata, v uint64) { m.SliceUncommonOffset = v }),
+	typeMetadataSize("internal/abi.StructType", func(m *TypeMetadata, v uint64) { m.StructUncommonOffset = v }),
+	typeMetadataSize("internal/abi.ITab", func(m *TypeMetadata, v uint64) { m.ITabBaseSize = v }),
+	typeMetadataSize("internal/abi.TFlag", func(m *TypeMetadata, v uint64) { m.TFlagSize = v }),
+	typeMetadataSize("internal/abi.Kind", func(m *TypeMetadata, v uint64) { m.KindSize = v }),
+	typeMetadataSize("internal/abi.NameOff", func(m *TypeMetadata, v uint64) { m.NameOffsetSize = v }),
+
+	typeMetadataConstant("internal/abi.TFlagUncommon", "TFlagUncommon", func(m *TypeMetadata, v uint64) { m.TFlagUncommonMask = v }),
+	typeMetadataConstant("internal/abi.TFlagExtraStar", "TFlagExtraStar", func(m *TypeMetadata, v uint64) { m.TFlagExtraStarMask = v }),
+	typeMetadataConstant("internal/abi.KindDirectIface", "KindDirectIface", func(m *TypeMetadata, v uint64) { m.KindDirectIfaceFlag = v }),
+	typeMetadataConstant("internal/abi.Array", "Array", func(m *TypeMetadata, v uint64) { m.ArrayKind = v }),
+	typeMetadataConstant("internal/abi.Chan", "Chan", func(m *TypeMetadata, v uint64) { m.ChanKind = v }),
+	typeMetadataConstant("internal/abi.Func", "Func", func(m *TypeMetadata, v uint64) { m.FuncKind = v }),
+	typeMetadataConstant("internal/abi.Interface", "Interface", func(m *TypeMetadata, v uint64) { m.InterfaceKind = v }),
+	typeMetadataConstant("internal/abi.Map", "Map", func(m *TypeMetadata, v uint64) { m.MapKind = v }),
+	typeMetadataConstant("internal/abi.Pointer", "Pointer", func(m *TypeMetadata, v uint64) { m.PointerKind = v }),
+	typeMetadataConstant("internal/abi.Slice", "Slice", func(m *TypeMetadata, v uint64) { m.SliceKind = v }),
+	typeMetadataConstant("internal/abi.Struct", "Struct", func(m *TypeMetadata, v uint64) { m.StructKind = v }),
 }
 
 // Requirements returns the ABI facts known to be required for goVersion.
 // The version selects facts; it does not establish ABI compatibility.
 func Requirements(goVersion string) ([]Requirement, error) {
-	_, definitions, err := requiredDefinitions(goVersion)
+	definitions, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -224,24 +269,24 @@ func Requirements(goVersion string) ([]Requirement, error) {
 	return result, nil
 }
 
-func requiredDefinitions(goVersion string) (goversion.Version, []definition, error) {
+func requiredDefinitions(goVersion string) ([]definition, error) {
 	version, err := goversion.Parse(goVersion)
 	if err != nil {
-		return goversion.Version{}, nil, err
+		return nil, err
 	}
 	minimum, err := goversion.Parse(go117)
 	if err != nil {
-		return goversion.Version{}, nil, err
+		return nil, err
 	}
 	if version.Compare(minimum) < 0 {
-		return goversion.Version{}, nil, fmt.Errorf("unsupported Go version %q", goVersion)
+		return nil, fmt.Errorf("unsupported Go version %q", goVersion)
 	}
 
 	result := make([]definition, 0, len(definitions))
 	for _, definition := range definitions {
 		since, err := goversion.Parse(definition.Since)
 		if err != nil {
-			return goversion.Version{}, nil, err
+			return nil, err
 		}
 		if version.Compare(since) >= 0 {
 			result = append(result, definition)
@@ -250,7 +295,7 @@ func requiredDefinitions(goVersion string) (goversion.Version, []definition, err
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Key() < result[j].Key()
 	})
-	return version, result, nil
+	return result, nil
 }
 
 // Extract discovers and validates a complete ABI from DWARF.
@@ -258,7 +303,7 @@ func Extract(data *dwarf.Data, goVersion string) (ABI, error) {
 	if data == nil {
 		return ABI{}, errors.New("missing DWARF data")
 	}
-	version, requested, err := requiredDefinitions(goVersion)
+	requested, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return ABI{}, err
 	}
@@ -266,7 +311,7 @@ func Extract(data *dwarf.Data, goVersion string) (ABI, error) {
 	if err != nil {
 		return ABI{}, err
 	}
-	return loadAndValidate(version, requested, func(requirement Requirement) (uint64, error) {
+	return loadAndValidate(requested, func(requirement Requirement) (uint64, error) {
 		value, ok := values[requirement.Key()]
 		if !ok {
 			return 0, errors.New("not found")
@@ -280,91 +325,32 @@ func FromLookup(
 	goVersion string,
 	lookup func(Requirement) (uint64, error),
 ) (ABI, error) {
-	version, requested, err := requiredDefinitions(goVersion)
+	requested, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return ABI{}, err
 	}
-	return loadAndValidate(version, requested, lookup)
+	return loadAndValidate(requested, lookup)
 }
 
 func loadAndValidate(
-	version goversion.Version,
 	requested []definition,
 	lookup func(Requirement) (uint64, error),
 ) (ABI, error) {
-	values := make(map[string]uint64, len(requested))
-	facts := make([]Fact, 0, len(requested))
+	abi := ABI{facts: make([]Fact, 0, len(requested))}
 	for _, definition := range requested {
 		requirement := definition.Requirement
 		value, err := lookup(requirement)
 		if err != nil {
 			return ABI{}, fmt.Errorf("loading Go ABI fact %s: %w", requirement.Key(), err)
 		}
-		values[requirement.Key()] = value
-		facts = append(facts, Fact{Requirement: requirement, Value: value})
+		definition.assign(&abi, value)
+		abi.facts = append(abi.facts, Fact{Requirement: requirement, Value: value})
 	}
 
-	abi := ABI{
-		Moduledata: Moduledata{
-			PCHeader:    values["runtime.moduledata.pcHeader"],
-			PCLNTable:   values["runtime.moduledata.pclntable"],
-			MinPC:       values["runtime.moduledata.minpc"],
-			MaxPC:       values["runtime.moduledata.maxpc"],
-			Text:        values["runtime.moduledata.text"],
-			EText:       values["runtime.moduledata.etext"],
-			Types:       values["runtime.moduledata.types"],
-			TypeDescLen: values["runtime.moduledata.typedesclen"],
-			ITabOffset:  values["runtime.moduledata.itaboffset"],
-			ITabSize:    values["runtime.moduledata.itabsize"],
-		},
-		facts: facts,
-	}
-	typeMetadataSince, err := goversion.Parse(go127)
-	if err != nil {
-		return ABI{}, err
-	}
-	if version.Compare(typeMetadataSince) < 0 {
+	if abi.TypeMetadata == nil {
 		return abi, nil
 	}
-
-	abi.TypeMetadata = TypeMetadata{
-		TypeTFlagOffset:         values["internal/abi.Type.TFlag"],
-		TypeKindOffset:          values["internal/abi.Type.Kind_"],
-		TypeNameOffset:          values["internal/abi.Type.Str"],
-		InterfaceMethodsOffset:  values["internal/abi.InterfaceType.Methods"],
-		SliceLenOffset:          values["[]internal/abi.Imethod.len"],
-		ITabInterOffset:         values["internal/abi.ITab.Inter"],
-		ITabTypeOffset:          values["internal/abi.ITab.Type"],
-		ITabFunOffset:           values["internal/abi.ITab.Fun"],
-		UncommonPkgPathOffset:   values["internal/abi.UncommonType.PkgPath"],
-		ArrayUncommonOffset:     values["internal/abi.ArrayType."+SizeField],
-		ChanUncommonOffset:      values["internal/abi.ChanType."+SizeField],
-		FuncUncommonOffset:      values["internal/abi.FuncType."+SizeField],
-		InterfaceUncommonOffset: values["internal/abi.InterfaceType."+SizeField],
-		MapUncommonOffset:       values["internal/abi.MapType."+SizeField],
-		PointerUncommonOffset:   values["internal/abi.PtrType."+SizeField],
-		SliceUncommonOffset:     values["internal/abi.SliceType."+SizeField],
-		StructUncommonOffset:    values["internal/abi.StructType."+SizeField],
-
-		TypeSize:       values["internal/abi.Type."+SizeField],
-		TFlagSize:      values["internal/abi.TFlag."+SizeField],
-		KindSize:       values["internal/abi.Kind."+SizeField],
-		NameOffsetSize: values["internal/abi.NameOff."+SizeField],
-		ITabBaseSize:   values["internal/abi.ITab."+SizeField],
-
-		TFlagUncommonMask:   values["internal/abi.TFlagUncommon"],
-		TFlagExtraStarMask:  values["internal/abi.TFlagExtraStar"],
-		KindDirectIfaceFlag: values["internal/abi.KindDirectIface"],
-		ArrayKind:           values["internal/abi.Array"],
-		ChanKind:            values["internal/abi.Chan"],
-		FuncKind:            values["internal/abi.Func"],
-		InterfaceKind:       values["internal/abi.Interface"],
-		MapKind:             values["internal/abi.Map"],
-		PointerKind:         values["internal/abi.Pointer"],
-		SliceKind:           values["internal/abi.Slice"],
-		StructKind:          values["internal/abi.Struct"],
-	}
-	if err := validateTypeMetadata(&abi.TypeMetadata); err != nil {
+	if err := validateTypeMetadata(abi.TypeMetadata); err != nil {
 		return ABI{}, err
 	}
 	return abi, nil
@@ -431,9 +417,54 @@ func validateTypeMetadata(metadata *TypeMetadata) error {
 		return errors.New("invalid Go runtime ABI kind constants")
 	}
 
-	metadata.InterfaceMethodCountOffset = metadata.InterfaceMethodsOffset + metadata.SliceLenOffset
-	metadata.ITabFuncEntrySize = metadata.ITabBaseSize - metadata.ITabFunOffset
 	return nil
+}
+
+// TypeHeaderSize returns the number of bytes needed to decode a Go type header.
+func (metadata *TypeMetadata) TypeHeaderSize() uint64 {
+	size := metadata.TypeNameOffset + metadata.NameOffsetSize
+	if end := metadata.TypeTFlagOffset + metadata.TFlagSize; end > size {
+		size = end
+	}
+	if end := metadata.TypeKindOffset + metadata.KindSize; end > size {
+		size = end
+	}
+	return size
+}
+
+// InterfaceMethodCountOffset returns the offset of the method slice's length.
+func (metadata *TypeMetadata) InterfaceMethodCountOffset() uint64 {
+	return metadata.InterfaceMethodsOffset + metadata.SliceLenOffset
+}
+
+// ITabFuncEntrySize returns the size of one function-table entry in an itab.
+func (metadata *TypeMetadata) ITabFuncEntrySize() uint64 {
+	return metadata.ITabBaseSize - metadata.ITabFunOffset
+}
+
+// UncommonTypeOffset returns the offset of uncommon type data for kind.
+func (metadata *TypeMetadata) UncommonTypeOffset(kind byte) uint64 {
+	kind &= byte(metadata.KindDirectIfaceFlag - 1)
+	switch uint64(kind) {
+	case metadata.ArrayKind:
+		return metadata.ArrayUncommonOffset
+	case metadata.ChanKind:
+		return metadata.ChanUncommonOffset
+	case metadata.FuncKind:
+		return metadata.FuncUncommonOffset
+	case metadata.InterfaceKind:
+		return metadata.InterfaceUncommonOffset
+	case metadata.MapKind:
+		return metadata.MapUncommonOffset
+	case metadata.PointerKind:
+		return metadata.PointerUncommonOffset
+	case metadata.SliceKind:
+		return metadata.SliceUncommonOffset
+	case metadata.StructKind:
+		return metadata.StructUncommonOffset
+	default:
+		return metadata.TypeSize
+	}
 }
 
 func fieldFits(offset, size, containerSize uint64) bool {
