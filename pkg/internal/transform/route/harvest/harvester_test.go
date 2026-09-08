@@ -312,7 +312,8 @@ func TestHarvestNodejsRoutes_Error(t *testing.T) {
 
 func TestFindScriptDirectory(t *testing.T) {
 	// Create a temporary directory structure for testing
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 
 	isDirFunc = func(path string) bool {
 		return !strings.HasSuffix(path, ".js")
@@ -424,7 +425,8 @@ func TestFindScriptDirectory(t *testing.T) {
 }
 
 func TestFindScriptDirectory_EdgeCases(t *testing.T) {
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "some", "deep", "path"), 0o755))
 

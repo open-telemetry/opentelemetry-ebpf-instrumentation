@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -216,6 +217,9 @@ func TestJavaInjectionQueue_ShutdownCancelsInFlightAndSkipsPending(t *testing.T)
 }
 
 func TestJavaInjectionQueue_ClosesDequeuedTargetAfterCancellation(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping on non-linux platform: it relies on /proc filesystem")
+	}
 	pid := app.PID(os.Getpid())
 	startTime, err := procs.StartTime(pid)
 	require.NoError(t, err)
@@ -291,6 +295,10 @@ func TestJavaInjectionQueue_OnlyJVMsAreAdmitted(t *testing.T) {
 }
 
 func TestJavaInjectionQueue_EnqueueAfterShutdownIsDropped(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping on non-linux platform: it relies on /proc filesystem")
+	}
+
 	var injections atomic.Int32
 
 	queue := newJavaInjectionQueue(slog.Default(), func(context.Context, javaagent.InjectionTarget) error {
