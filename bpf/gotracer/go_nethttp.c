@@ -1571,7 +1571,7 @@ static __always_inline void
 make_http2_traceparent_field(unsigned char field[k_h2_tp_hpack_huffman_size], const tp_info_t *tp) {
     field[0] = 0;
     field[1] = sizeof(tp_encoded) | 0x80;
-    __builtin_memcpy(field + 2, tp_encoded, sizeof(tp_encoded));
+    bpf_memcpy(field + 2, tp_encoded, sizeof(tp_encoded));
     field[2 + sizeof(tp_encoded)] = TP_MAX_VAL_LENGTH;
     make_tp_string(field + 3 + sizeof(tp_encoded), tp);
 }
@@ -1586,6 +1586,8 @@ enum : u32 {
     k_h2_pad_length_to_stream_id_offset = 34,
     k_h2_pad_length_to_fragment_len_offset = 18,
     k_h2_pad_length_stack_offset_limit = 512,
+    k_h2_traceparent_append_max_len =
+        k_h2_default_max_frame_size + k_h2_frame_header_len - k_h2_tp_hpack_huffman_size,
 };
 
 static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
@@ -1715,12 +1717,11 @@ commit_http2_reserved_padding(void *buf, s64 n, const framer_func_invocation_t *
 
 static __always_inline bool append_http2_traceparent_to_framer(
     void *framer, u64 wbuf_pos, void *buf, s64 n, s64 cap, const framer_func_invocation_t *f_info) {
-    if (n < k_h2_frame_header_len || cap < n ||
-        (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len ||
+    if (n < k_h2_frame_header_len || cap < n || (u64)n > k_h2_traceparent_append_max_len ||
         (u64)cap - (u64)n < k_h2_tp_hpack_huffman_size) {
         return false;
     }
-    bpf_clamp_umax(n, k_h2_default_max_frame_size + k_h2_frame_header_len);
+    bpf_clamp_umax(n, k_h2_traceparent_append_max_len);
 
     unsigned char header[k_h2_frame_header_len] = {};
     if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != k_h2_frame_headers ||
