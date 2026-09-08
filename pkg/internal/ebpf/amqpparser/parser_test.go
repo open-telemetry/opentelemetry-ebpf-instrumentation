@@ -253,7 +253,7 @@ func TestParseShortBufferIsNotAMQP(t *testing.T) {
 func TestParseFrameIterationCap(t *testing.T) {
 	// Pack more than maxFramesParsed non-transfer frames and assert parsing stops.
 	payload := make([]byte, 0)
-	for i := 0; i < maxFramesParsed+4; i++ {
+	for range maxFramesParsed + 4 {
 		payload = append(payload, makeFrame(frameTypeAMQP, descriptorOpen)...)
 	}
 

@@ -28,7 +28,7 @@ func testREDMetricsForPythonMongoLibrary(t *testing.T, testCase TestCase) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, uri+"/"+urlPath, 200)
 	}
 

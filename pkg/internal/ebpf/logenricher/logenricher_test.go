@@ -117,13 +117,17 @@ func TestHandleWithoutTraceContextPreservesPlainText(t *testing.T) {
 	tr := newTestTracer(t, false)
 	tr.cfg = &cfg
 	tr.formatter = newLogFormatter(cfg.EBPF.LogEnricher)
-	tr.fdCache = expirable.NewLRU[string, *os.File](1, func(_ string, file *os.File) {
-		_ = file.Close()
+	tr.fdCache = expirable.NewLRU[string, *destFile](1, func(_ string, d *destFile) {
+		d.release()
 	}, time.Minute)
 	t.Cleanup(tr.fdCache.Purge)
 
 	event := LogEvent{logLine: "request failed\n"}
 	copy(event.orig.FilePath[:], path)
+	event.dest = event.ttyPath()
+	out, err := tr.openLogDestination(event.dest, pipeKey{})
+	require.NoError(t, err)
+	event.out = out
 
 	tr.handle(event)
 

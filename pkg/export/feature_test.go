@@ -70,20 +70,49 @@ func TestFeatureEnv_Separator(t *testing.T) {
 }
 
 func TestFeatureApplicationAliasDoesNotIncludeRuntime(t *testing.T) {
-	features := LoadFeatures([]string{"application"})
+	features := mustLoadFeatures(t, "application")
 
 	assert.True(t, features.has(FeatureApplicationRED))
 	assert.False(t, features.has(FeatureApplicationRuntime))
 	assert.False(t, AppO11yFeatures.has(FeatureApplicationRuntime))
-	assert.True(t, LoadFeatures([]string{"application_runtime"}).AnyAppO11yMetric())
-	assert.True(t, LoadFeatures([]string{"application_runtime"}).AppOrSpan())
+	assert.True(t, mustLoadFeatures(t, "application_runtime").AnyAppO11yMetric())
+	assert.True(t, mustLoadFeatures(t, "application_runtime").AppOrSpan())
 }
 
-func TestFeatureApplicationJVMAliasMapsToRuntime(t *testing.T) {
-	features := LoadFeatures([]string{"application_jvm"})
+func mustLoadFeatures(t *testing.T, names ...string) Features {
+	t.Helper()
+	features, err := LoadFeatures(names)
+	require.NoError(t, err)
+	return features
+}
 
-	assert.True(t, features.AppRuntime())
-	assert.True(t, features.AnyAppO11yMetric())
+func TestLoadFeaturesRejectsUnknownNames(t *testing.T) {
+	_, err := LoadFeatures([]string{"application_jvm"})
+	require.ErrorContains(t, err, `unknown metrics feature "application_jvm"`)
+
+	_, err = LoadFeatures([]string{"application", "application_runtme"})
+	require.ErrorContains(t, err, "application_runtme")
+
+	// empty entries (trailing commas in env values) are not an error
+	features, err := LoadFeatures([]string{"application", ""})
+	require.NoError(t, err)
+	assert.True(t, features.has(FeatureApplicationRED))
+
+	// the error names the valid features so a typo is self-diagnosing
+	_, err = LoadFeatures([]string{"no_such_feature"})
+	require.ErrorContains(t, err, "application_runtime")
+}
+
+// An unset OTEL_EBPF_METRICS_FEATURES resolves to an empty envDefault string
+// (perapp.GlobalMetricsConfig), so UnmarshalText("") runs on every default
+// deployment and must keep yielding Undefined rather than an error.
+func TestFeatureUnmarshalTextEmpty(t *testing.T) {
+	var features Features
+	require.NoError(t, features.UnmarshalText(nil))
+	assert.True(t, features.Undefined())
+
+	require.NoError(t, features.UnmarshalText([]byte("")))
+	assert.True(t, features.Undefined())
 }
 
 func TestFeatureEnv_All(t *testing.T) {
@@ -183,6 +212,36 @@ func TestInvalidSpanMetricsConfig(t *testing.T) {
 	}
 }
 
+func TestFeatureJSONSchemaFlagsDeprecatedNames(t *testing.T) {
+	items := Features(0).JSONSchema().Items
+	require.Len(t, items.OneOf, 2)
+
+	assert.False(t, items.OneOf[0].Deprecated)
+	assert.Contains(t, items.OneOf[0].Enum, "application_span_otel")
+	assert.Contains(t, items.OneOf[0].Enum, "*")
+	assert.NotContains(t, items.OneOf[0].Enum, "application_span")
+	assert.NotContains(t, items.OneOf[0].Enum, "application_span_sizes")
+
+	assert.True(t, items.OneOf[1].Deprecated)
+	assert.Equal(t, []any{"application_span", "application_span_sizes"}, items.OneOf[1].Enum)
+
+	// the schema names the migration target instead of pointing elsewhere for it
+	assert.Contains(t, items.OneOf[1].Description, "application_span (use application_span_otel)")
+	assert.Contains(t, items.OneOf[1].Description, "application_span_sizes (no direct replacement)")
+}
+
+func TestDeprecatedEnabled(t *testing.T) {
+	assert.Equal(t,
+		[]DeprecatedFeature{{Name: "application_span", Replacement: "application_span_otel"}},
+		mustLoadFeatures(t, "application", "application_span").DeprecatedEnabled())
+
+	assert.Equal(t,
+		[]DeprecatedFeature{{Name: "application_span_sizes"}},
+		mustLoadFeatures(t, "application_span_sizes").DeprecatedEnabled())
+
+	assert.Empty(t, mustLoadFeatures(t, "application", "application_span_otel").DeprecatedEnabled())
+}
+
 func TestFeatureUndefined(t *testing.T) {
 	t.Run("undefined YAML", func(t *testing.T) {
 		doc := struct {
@@ -201,4 +260,54 @@ func TestFeatureUndefined(t *testing.T) {
 		require.False(t, doc.Features.Empty())
 		require.True(t, doc.Features.Undefined())
 	})
+}
+
+func TestFeatureMarshalYAML(t *testing.T) {
+	type doc struct {
+		Features Features `yaml:"features"`
+	}
+	for _, tc := range []struct {
+		name     string
+		features Features
+		expected string
+	}{
+		{name: "undefined", features: 0, expected: "features: null\n"},
+		{name: "explicitly empty", features: FeatureEmpty, expected: "features: []\n"},
+		{
+			name:     "single feature",
+			features: FeatureApplicationRuntime,
+			expected: "features:\n    - application_runtime\n",
+		},
+		{
+			name:     "combined features follow the declaration order",
+			features: FeatureApplicationRuntime | FeatureApplicationRED,
+			expected: "features:\n    - application\n    - application_runtime\n",
+		},
+		{
+			name:     "aggregate feature keeps its name",
+			features: FeatureStats,
+			expected: "features:\n    - stats\n",
+		},
+		{
+			name:     "aggregate name comes before the remaining single features",
+			features: FeatureStats | FeatureNetwork,
+			expected: "features:\n    - stats\n    - network\n",
+		},
+		{
+			name:     "partial aggregate expands to its bits",
+			features: FeatureStatsTCPRtt | FeatureStatsTCPRetransmits,
+			expected: "features:\n    - stats_tcp_rtt\n    - stats_tcp_retransmits\n",
+		},
+		{name: "all features", features: FeatureAll, expected: "features:\n    - all\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := yaml.Marshal(doc{Features: tc.features})
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, string(out))
+
+			var reparsed doc
+			require.NoError(t, yaml.Unmarshal(out, &reparsed))
+			require.Equal(t, tc.features, reparsed.Features)
+		})
+	}
 }

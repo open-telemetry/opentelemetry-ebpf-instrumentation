@@ -60,14 +60,17 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	}
 
 	if span, ignore, matched, err := dispatchKernelAssignedProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
+		span.ParentConditional = event.ParentStatus == parentStatusConditional
 		return span, ignore, err
 	}
 
 	if span, ignore, matched, err := detectGenericProtocol(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
+		span.ParentConditional = event.ParentStatus == parentStatusConditional
 		return span, ignore, err
 	}
 
 	if span, ignore, matched, err := detectHeuristicProtocol(parseCtx, event, requestBuffer, responseBuffer); matched {
+		span.ParentConditional = event.ParentStatus == parentStatusConditional
 		return span, ignore, err
 	}
 
@@ -95,6 +98,8 @@ func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPReques
 		return dispatchMSSQL(parseCtx, event, requestBuffer, responseBuffer)
 	case ProtocolTypeSunRPC:
 		return dispatchSunRPC(event, requestBuffer, responseBuffer)
+	case ProtocolTypeAerospike:
+		return dispatchAerospike(event, requestBuffer, responseBuffer)
 	}
 
 	return request.Span{}, false, false, nil
@@ -380,17 +385,21 @@ func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 	return request.Span{}, false, false, nil
 }
 
-// matchAerospike detects the Aerospike native client protocol (proto v2) from the
-// captured request/response buffers and builds a client span. Only type-3 AS_MSG
-// data requests produce a span; info/auth/compressed frames are left for the
-// generic ignore path. Correlation is the generic per-connection direction flip.
-func matchAerospike(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
-	// Aerospike instrumentation is client-side only. When OBI also instruments the
-	// Aerospike server process it sees the same exchange from the server side; skip
-	// it so a single operation isn't reported twice (once per peer).
-	if event.IsServer {
-		return request.Span{}, false, false, nil
+func dispatchAerospike(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+	span, ignore, matched, err := matchAerospike(event, requestBuffer, responseBuffer)
+	if !matched {
+		return request.Span{}, true, true, nil
 	}
+	return span, ignore, matched, err
+}
+
+// matchAerospike detects the Aerospike native protocol (proto v2) from the
+// captured request/response buffers and builds a span typed by the observed
+// role: client on the application side, server on the aerospike server (asd)
+// side. Only type-3 AS_MSG data requests produce a span; info/auth/compressed
+// frames are left for the generic ignore path. Correlation is the generic
+// per-connection direction flip.
+func matchAerospike(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
 
 	// parseAerospikeRequest validates the proto/as_msg header itself and returns
 	// nil for non-Aerospike or response frames, so it doubles as the detector.

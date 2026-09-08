@@ -1263,7 +1263,7 @@ func BenchmarkHTTPEnricher_BodyObfuscate_LargeJSON(b *testing.B) {
 
 	// Build a ~4KB JSON body with 50 users
 	var users []string
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		users = append(users, `{"name":"User`+strings.Repeat("x", 10)+`","email":"user@test.com","ssn":"123-45-6789","role":"admin"}`)
 	}
 	body := `{"users":[` + strings.Join(users, ",") + `]}`

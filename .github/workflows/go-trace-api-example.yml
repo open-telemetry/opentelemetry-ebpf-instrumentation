@@ -1,0 +1,32 @@
+name: Go Trace API example
+
+on:
+  push:
+    paths:
+      - ".github/workflows/go-trace-api-example.yml"
+      - "examples/go-trace-api/**"
+  pull_request:
+    paths:
+      - ".github/workflows/go-trace-api-example.yml"
+      - "examples/go-trace-api/**"
+
+concurrency:
+  group: go-trace-api-example-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build example application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate Compose configuration
+        run: docker compose --file examples/go-trace-api/docker-compose.yml config --quiet
+      - name: Build application container
+        run: docker compose --file examples/go-trace-api/docker-compose.yml build app

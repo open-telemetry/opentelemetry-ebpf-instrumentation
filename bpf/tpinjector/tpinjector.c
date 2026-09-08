@@ -5,6 +5,7 @@
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
+#include <bpfcore/utils.h>
 
 #include <common/algorithm.h>
 #include <common/connection_info.h>
@@ -33,6 +34,7 @@
 #include <logger/bpf_dbg.h>
 
 #include <maps/incoming_trace_map.h>
+#include <maps/go_h2_owned_streams.h>
 #include <maps/msg_buffers.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/sock_dir.h>
@@ -55,9 +57,11 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //
 //   obi_packet_extender (sk_msg entry)
 //   │
-//   ├── tp_pid present?               ─┐  Central dispatch: Go net/http,
+//   ├── tp_pid && !is_h2_socket?      ─┐  Central dispatch: Go net/http,
 //   │     └── handle_existing_tp_pid   │  SSL. Pulls+fills internally after
-//   │                                  │  passing valid check, then injects
+//   │                                  │  passing valid check, then injects.
+//   │                                  │  H2 sockets skip this — they carry
+//   │                                  │  per-stream traceparents in HPACK
 //   │                                  │
 //   ├── is_go_grpc_client_conn?        │  Go gRPC: pull+fill, then detect_h2
 //   │     └── pull+fill, detect_h2     │  injects only streams whose stored
@@ -74,11 +78,14 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │                                 │     write_msg_traceparent
 //   │                                 │
 //   └── fall through ─────────────────┴─▶ wrap_http2_traceparent
-//                                           │ preface at pos 0, or (for conns
-//                                           │ whose preface predates attach)
-//                                           │ strict mid-stream frame sniff
-//                                           │ confirms; known-SSL conns are
-//                                           │ never sniffed
+//                                           │ preface at pos 0 → detect_h2;
+//                                           │ known-SSL conns are never
+//                                           │ sniffed; otherwise (a conn whose
+//                                           │ preface predates attach):
+//                                           ▼
+//                                        sniff_h2
+//                                           │ strict mid-stream frame sniff;
+//                                           │ confirms H2, marks the socket
 //                                           ▼
 //                                        detect_h2 ◀──────────────┐
 //                                           │                     │
@@ -88,8 +95,14 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //                                           │ then HEADERS+        │ h2_scan_pos
 //                                           │ END_HEADERS          │
 //                                           ▼                     │
-//                                        find_existing_h2_tp ─────┤
-//                                           │ adopt or            │
+//                                        find_existing_h2_tp ◀─┐  │
+//                                           │ candidate found  │  │
+//                                           ▼                  │  │
+//                                        validate_h2_tp ───────┘  │
+//                                           │ malformed: rescan   │
+//                                           │ (h2_tp_retries);    │
+//                                           │ adoptable: adopt;   │
+//                                           │ none left:          │
 //                                           ▼                     │
 //                                        create_h2_tp ────────────┤
 //                                           │                     │
@@ -475,7 +488,7 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->pid = t_ctx->p_conn.pid;
-    tp_p->req_type = EVENT_HTTP_CLIENT;
+    tp_p->req_type = k_event_type_http_client;
 
     if (t_ctx->has_parent_tp) {
         bpf_dbg_printk("found existing tp info");
@@ -646,6 +659,14 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     return 1;
 }
 
+// A bail must not leave the previous send's buffers behind. Deleting the keyed
+// entry cuts off the tcp_sendmsg kprobe; msg_buffer_mem itself needs no
+// clearing because every reader is gated on fill_msg_buffers success or on the
+// msg_buffers entry deleted here — keep it that way
+static __always_inline void invalidate_msg_buffers(const egress_key_t *e_key) {
+    bpf_map_delete_elem(&msg_buffers, e_key);
+}
+
 // This code is copied from the kprobe on tcp_sendmsg and it's called from
 // the sock_msg program, which does the packet extension for injecting the
 // Traceparent. Since the sock_msg runs before the kprobe on tcp_sendmsg, we
@@ -660,28 +681,43 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
                                              const pid_connection_info_t *p_conn,
                                              const egress_key_t *e_key) {
     if (msg->size == 0 || is_ssl_connection(p_conn)) {
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
+    if (!msg->data || msg->data >= msg->data_end) {
+        invalidate_msg_buffers(e_key);
+        return false;
+    }
+
+    // The mapped [data, data_end) window is always a sub-range of the message, so
+    // bounding every read by it is sufficient on its own — msg->size can't add
+    // information a failed bpf_msg_pull_data() has already invalidated.
+    u32 window = (unsigned char *)msg->data_end - (unsigned char *)msg->data;
+    bpf_clamp_umax(window, k_msg_buffer_size_max);
+
     msg_buffer_t msg_buf = {
         .pos = 0,
-        .real_size = min(msg->size, k_msg_buffer_size_max),
+        .real_size = window,
         .cpu_id = bpf_get_smp_processor_id(),
     };
 
-    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
+    // fallback_buf is a fixed k_kprobes_http2_buf_size array, smaller than window's
+    // ceiling, so it needs its own, tighter clamp.
+    u32 fallback_bytes = window;
+    bpf_clamp_umax(fallback_bytes, k_kprobes_http2_buf_size);
+    bpf_probe_read_kernel(msg_buf.fallback_buf, fallback_bytes, msg->data);
 
-    const u16 copy_bytes = max(msg_buf.real_size, k_kprobes_http2_buf_size);
-
-    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+    unsigned char *msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
     if (!msg_ptr) {
         bpf_d_printk("failed to reserve msg_buffer space [%s]", __FUNCTION__);
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
     msg_ptr[0] = 0;
-    bpf_probe_read_kernel(msg_ptr, copy_bytes & k_msg_buffer_size_max_mask, msg->data);
+    bpf_probe_read_kernel(msg_ptr, window, msg->data);
     bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
 
     // We setup any call that looks like HTTP request to be extended.
@@ -692,6 +728,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
 
     if (bpf_map_update_elem(&msg_buffers, e_key, &msg_buf, BPF_ANY)) {
         // fail if we can't setup a msg buffer
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
@@ -715,7 +752,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
         return 0;
     }
 
-    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+    unsigned char *msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
     if (!msg_ptr) {
         return 0;
@@ -732,6 +769,24 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
 static __always_inline connection_info_t get_connection_info(struct sk_msg_md *msg) {
     return msg->family == AF_INET6 ? sk_msg_extract_key_ip6(msg) : sk_msg_extract_key_ip4(msg);
+}
+
+static __always_inline bool consume_go_h2_owned_stream(struct sk_msg_md *msg, u32 stream_id) {
+    go_h2_owned_stream_key_t key = {
+        .p_conn =
+            {
+                .conn = get_connection_info(msg),
+                .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
+            },
+        .stream_id = stream_id,
+    };
+    set_go_h2_owned_stream_process_identity(&key);
+
+    if (!fresh_go_h2_owned_stream(&key, bpf_ktime_get_ns())) {
+        return false;
+    }
+    bpf_map_delete_elem(&go_h2_owned_streams, &key);
+    return true;
 }
 
 // this "beauty" ensures we hold pkt in the same register being range
@@ -1066,7 +1121,11 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    fill_msg_buffers(msg, p_conn, e_key);
+
+    if (!fill_msg_buffers(msg, p_conn, e_key)) {
+        clear_tp_info_pid(e_key);
+        return false;
+    }
 
     const bool is_http = protocol_detector(msg, id, &p_conn->conn);
     if (is_http) {
@@ -1133,14 +1192,16 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+    const bool msg_buffers_ready = fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
 
     if (is_h2_socket(msg)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return SK_PASS;
     }
 
-    if (msg->size <= MIN_HTTP_SIZE) {
+    // on a bail (SSL, etc.) msg_buffer_mem is stale — the HTTP detector would
+    // match a prior request and inject into this connection
+    if (!msg_buffers_ready || msg->size <= MIN_HTTP_SIZE) {
         return SK_PASS;
     }
 
@@ -1294,7 +1355,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
             tp_p->valid = 1;
             tp_p->written = 1;
             tp_p->pid = t_ctx->p_conn.pid;
-            tp_p->req_type = EVENT_HTTP_CLIENT;
+            tp_p->req_type = k_event_type_http_client;
 
             print_tp("found TP in headers", &tp_p->tp);
 
@@ -1458,6 +1519,11 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             facts.sk_server = h2_sk_flag(msg, k_h2_sk_server);
 
             if (h2_inject_verdict(&facts) != k_h2_inject_allow) {
+                h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
+                return SK_PASS;
+            }
+
+            if (consume_go_h2_owned_stream(msg, f.stream_id)) {
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
                 return SK_PASS;
             }
@@ -1699,7 +1765,7 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
         tp_p->valid = 1;
         tp_p->written = 1;
         tp_p->pid = t_ctx->p_conn.pid;
-        tp_p->req_type = EVENT_HTTP_CLIENT;
+        tp_p->req_type = k_event_type_http_client;
         set_tp_info_pid(&t_ctx->e_key, tp_p);
         h2_resume_after(
             msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
@@ -1801,6 +1867,15 @@ static __always_inline bool h2_write_frame_len(struct sk_msg_md *msg, u32 frame_
     return true;
 }
 
+// Undoes a push whose bytes were never filled: leftover bytes are a COMPRESSION_ERROR and a
+// restored length alone leaves a bogus frame header behind, both connection-level (RFC 7540 4.3)
+static __always_inline void
+h2_undo_tp_push(struct sk_msg_md *msg, u32 frame_offset, u32 inject_offset, u32 payload_len) {
+    if (bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0) {
+        h2_write_frame_len(msg, frame_offset, payload_len);
+    }
+}
+
 // k_tail_write_h2_traceparent — push k_h2_tp_hpack_size bytes of HPACK at
 // the end of the HEADERS payload. Small targeted pulls keep writes at fixed
 // offsets so the verifier is happy
@@ -1830,24 +1905,26 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
     // linearize before push, as the HTTP/1 path does
     bpf_msg_pull_data(msg, 0, msg->size, 0);
 
-    // length before push: a failed push is revertible, unfilled inserted bytes are not.
-    // Frame length disagreeing with the HPACK block is a connection-level error.
+    // length before push: a failed push then changes nothing on the wire
     if (!h2_write_frame_len(msg, frame_offset, payload_len + k_h2_tp_hpack_size)) {
         return SK_PASS;
     }
     if (bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
-        // push leaves the message untouched when it fails, so this pull cannot fail either
+        // a failed push leaves the message untouched, so restoring the length cannot fail
         h2_write_frame_len(msg, frame_offset, payload_len);
         return SK_PASS;
     }
 
+    // past the push the inserted bytes exist but hold no field, so every exit has to undo
     if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
+        h2_undo_tp_push(msg, frame_offset, inject_offset, payload_len);
         return SK_PASS;
     }
 
     unsigned char *data = msg->data;
     const unsigned char *end = msg->data_end;
     if (!data || (void *)data + k_h2_tp_hpack_size > (void *)end) {
+        h2_undo_tp_push(msg, frame_offset, inject_offset, payload_len);
         return SK_PASS;
     }
 

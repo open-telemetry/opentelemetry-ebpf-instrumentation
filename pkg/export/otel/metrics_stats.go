@@ -32,13 +32,13 @@ const statScopeName = "stats_ebpf_events"
 // StatMetricsConfig extends MetricsConfig for Statistical Metrics
 type StatMetricsConfig struct {
 	Metrics     *otelcfg.MetricsConfig
-	CommonCfg   *perapp.MetricsConfig
+	CommonCfg   *perapp.GlobalMetricsConfig
 	SelectorCfg *attributes.SelectorConfig
 }
 
 func (mc *StatMetricsConfig) Enabled() bool {
 	return mc.Metrics != nil && mc.Metrics.EndpointEnabled() &&
-		(mc.CommonCfg.Features.StatMetrics())
+		mc.CommonCfg.Features.StatMetrics()
 }
 
 func smlog() *slog.Logger {
@@ -62,7 +62,7 @@ func getFilteredStatsResourceAttrs(hostID string, attrSelector attributes.Select
 
 func createFilteredStatsResource(hostID string, attrSelector attributes.Selection) *resource.Resource {
 	attrs := getFilteredStatsResourceAttrs(hostID, attrSelector)
-	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
+	return resource.NewWithAttributes(attr.OBISchemaURL, attrs...)
 }
 
 func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration, cfg *otelcfg.MetricsConfig) *metric.MeterProvider {
@@ -147,7 +147,7 @@ func newStatMetricsExporter(
 
 		tcpRtt, err := ebpfEvents.Float64Histogram(
 			attributes.StatTCPRtt.OTEL,
-			metric2.WithUnit("s"),
+			metric2.WithUnit(attributes.StatTCPRtt.Unit),
 		)
 		if err != nil {
 			log.Error("creating stats tcp rtt histogram", "error", err)
@@ -181,7 +181,7 @@ func newStatMetricsExporter(
 	if cfg.CommonCfg.Features.StatsTCPIo() {
 		log := log.With("metricFamily", "StatsTCPIo")
 
-		tcpIo, err := ebpfEvents.Int64Counter(attributes.StatTCPIo.OTEL, metric2.WithUnit("By"))
+		tcpIo, err := ebpfEvents.Int64Counter(attributes.StatTCPIo.OTEL, metric2.WithUnit(attributes.StatTCPIo.Unit))
 		if err != nil {
 			log.Error("creating stats tcp io counter", "error", err)
 			return nil, err

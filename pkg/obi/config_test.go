@@ -21,6 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/collector/confmap"
+
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
@@ -33,6 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
+	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -45,7 +48,7 @@ type envMap map[string]string
 
 func TestJoinMetricsConfigIncludesPerServiceFeatures(t *testing.T) {
 	cfg := Config{
-		Metrics: perapp.MetricsConfig{
+		Metrics: perapp.GlobalMetricsConfig{
 			Features: export.FeatureApplicationRED,
 		},
 		Discovery: services.DiscoveryConfig{
@@ -189,12 +192,13 @@ discovery:
 				MaxSize: 1000,
 			},
 			BufferSizes: config.EBPFBufferSizes{
-				HTTP:     0,
-				MySQL:    0,
-				Postgres: 0,
-				Kafka:    0,
-				MSSQL:    0,
-				TCP:      0,
+				HTTP:      0,
+				MySQL:     0,
+				Postgres:  0,
+				Kafka:     0,
+				MSSQL:     0,
+				TCP:       0,
+				Aerospike: 0,
 			},
 			MySQLPreparedStatementsCacheSize:    1024,
 			PostgresPreparedStatementsCacheSize: 1024,
@@ -241,7 +245,7 @@ discovery:
 		},
 		NetworkFlows: nc,
 		Stats:        sc,
-		Metrics: perapp.MetricsConfig{
+		Metrics: perapp.GlobalMetricsConfig{
 			// after normalization, network feature is added from network > enable: true
 			Features: export.FeatureApplicationRED | export.FeatureNetwork,
 		},
@@ -258,6 +262,7 @@ discovery:
 				GenAITokenUsageHistogram:     export.DefaultBuckets.GenAITokenUsageHistogram,
 				GenAIClientDurationHistogram: export.DefaultBuckets.GenAIClientDurationHistogram,
 				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
+				V8JSGCDurationHistogram:      export.DefaultBuckets.V8JSGCDurationHistogram,
 			},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
@@ -309,6 +314,7 @@ discovery:
 				GenAITokenUsageHistogram:     []float64{1, 2, 3, 4},
 				GenAIClientDurationHistogram: []float64{5, 6, 7, 8},
 				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
+				V8JSGCDurationHistogram:      export.DefaultBuckets.V8JSGCDurationHistogram,
 			},
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
@@ -316,7 +322,7 @@ discovery:
 			AvoidedServices: imetrics.AvoidedServicesConfig{
 				Limit: avoidedsvc.DefaultLimit,
 			},
-			Prometheus: imetrics.PrometheusConfig{
+			Prometheus: imetrics.PrometheusEndpointConfig{
 				Port: 3210,
 				Path: "/internal/metrics",
 			},
@@ -366,6 +372,7 @@ discovery:
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
 			MinProcessAge:                   5 * time.Second,
+			ProcessContextPollInterval:      time.Second,
 			DefaultExcludeServices: services.RegexDefinitionCriteria{
 				services.RegexSelector{
 					Path: services.NewRegexp("(?:^|/)(obi$|otelcol[^/]*$)"),
@@ -400,7 +407,8 @@ discovery:
 			SamplingInterval: time.Second,
 		},
 		HealthCheck: HealthCheckConfig{
-			Port: 0,
+			Port:          0,
+			ListenAddress: health.DefaultListenAddress,
 		},
 	}, cfg)
 }
@@ -445,7 +453,7 @@ func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
 		seen[typ] = true
 		for i := 0; i < typ.NumField(); i++ {
 			f := typ.Field(i)
-			yamlTag := strings.Split(f.Tag.Get("yaml"), ",")[0]
+			yamlTag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
 			envDefault := f.Tag.Get("envDefault")
 			if yamlTag != "" && yamlTag != "-" && envDefault != "" && !strings.HasPrefix(envDefault, "${") {
 				violations = append(violations, path+"."+f.Name)
@@ -453,7 +461,7 @@ func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
 			walk(f.Type, path+"."+f.Name)
 		}
 	}
-	walk(reflect.TypeOf(Config{}), "Config")
+	walk(reflect.TypeFor[Config](), "Config")
 	assert.Empty(t, violations, "literal envDefault on yaml-configurable fields; move the default to DefaultConfig")
 }
 
@@ -508,19 +516,15 @@ jvm_runtime_metrics:
 	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
 }
 
-func TestConfig_JVMRuntimeMetricsV010ConfigCompatibility(t *testing.T) {
-	cfg, err := LoadConfig(bytes.NewBufferString(`
+// An unknown feature name must abort config loading, not be silently ignored.
+// application_jvm is an unknown name most likely to appear in real configs.
+func TestConfig_UnknownMetricsFeatureFailsStartup(t *testing.T) {
+	_, err := LoadConfig(bytes.NewBufferString(`
 metrics:
   features:
     - application_jvm
-jvm_runtime_metrics:
-  enabled: true
-  sampling_interval: 2s
 `))
-	require.NoError(t, err)
-
-	assert.True(t, cfg.Metrics.Features.AppRuntime())
-	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+	require.ErrorContains(t, err, `unknown metrics feature "application_jvm"`)
 }
 
 func TestConfigValidate_JVMRuntimeMetricsSamplingInterval(t *testing.T) {
@@ -597,6 +601,190 @@ func TestConfigValidate(t *testing.T) {
 			require.NoError(t, loadConfig(t, tc).Validate())
 		})
 	}
+}
+
+func TestConfigValidate_DeprecatedMetricsFeatureWarning(t *testing.T) {
+	captureWarnings := func(t *testing.T, validate func(t *testing.T)) string {
+		t.Helper()
+		var logs bytes.Buffer
+		restore := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		t.Cleanup(func() { slog.SetDefault(restore) })
+
+		validate(t)
+		return logs.String()
+	}
+
+	validateWithFeatures := func(t *testing.T, features string) string {
+		t.Helper()
+		return captureWarnings(t, func(t *testing.T) {
+			require.NoError(t, loadConfig(t, envMap{
+				"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234",
+				"OTEL_EBPF_EXECUTABLE_PATH":           "foo",
+				"OTEL_EBPF_METRICS_FEATURES":          features,
+			}).Validate())
+		})
+	}
+
+	t.Run("warns for application_span", func(t *testing.T) {
+		logs := validateWithFeatures(t, "application,application_span")
+		assert.Contains(t, logs, "feature=application_span")
+		assert.Contains(t, logs, "use=application_span_otel")
+	})
+
+	// application_span_sizes has no OTel-named equivalent, so it is reported without a
+	// replacement rather than pointing at a feature that does not exist.
+	t.Run("warns for application_span_sizes without a replacement", func(t *testing.T) {
+		logs := validateWithFeatures(t, "application,application_span_sizes")
+		assert.Contains(t, logs, "feature=application_span_sizes")
+		assert.NotContains(t, logs, "use=")
+	})
+
+	t.Run("silent for application_span_otel", func(t *testing.T) {
+		assert.NotContains(t, validateWithFeatures(t, "application,application_span_otel"), "deprecated")
+	})
+
+	// "all" enables both span-metric formats; the conflict is resolved in favor of OTel,
+	// so application_span must not be reported as deprecated anywhere in the output --
+	// including inside the conflict-resolution message, which only "all"/"*" ever sees.
+	// application_span_sizes is not resolved away and keeps emitting, so it is reported.
+	t.Run("all reports only the features that remain enabled", func(t *testing.T) {
+		logs := validateWithFeatures(t, "all")
+		assert.NotContains(t, logs, "feature=application_span ")
+		assert.NotContains(t, logs, "application_span is deprecated")
+		assert.Contains(t, logs, "application_span_otel is selected automatically")
+		assert.Contains(t, logs, "feature=application_span_sizes")
+	})
+
+	// A per-service "all" is joined into the mask that selects the exported metric names,
+	// so it must be resolved to OTel just like the top-level list. Otherwise one service
+	// saying "all" silently puts every span-metrics service back on the legacy names.
+	t.Run("per-service all resolves to otel", func(t *testing.T) {
+		var cfg *Config
+		logs := captureWarnings(t, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+			loaded, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span_otel"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["all"]
+`))
+			require.NoError(t, err)
+			require.NoError(t, loaded.Validate())
+			cfg = loaded
+		})
+
+		assert.False(t, cfg.JoinMetricsConfig().Features.LegacySpanMetrics(),
+			"per-service all must not select the legacy span metric names")
+		assert.NotContains(t, logs, "feature=application_span ")
+		assert.Contains(t, logs, "application_span_otel is selected automatically")
+	})
+
+	t.Run("explicit legacy and otel per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span", "application_span_otel"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(), "only enable one format of span metrics")
+	})
+
+	// Each mask can be conflict-free while their OR is not: the exporters pick the metric
+	// names from the joined mask, so a top-level legacy format with a per-service OTel one
+	// would silently select legacy names for the very service that requested OTel.
+	t.Run("legacy top-level with otel per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span_otel"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	t.Run("otel top-level with legacy per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span_otel"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	t.Run("all top-level with legacy per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["all"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	t.Run("legacy top-level with all per-service is rejected", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application", "application_span"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["*"]
+`))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(),
+			"across the top-level and per-service metrics features")
+	})
+
+	// Per-service sections feed the exporters through JoinMetricsConfig, so a feature
+	// enabled only there must still be reported.
+	t.Run("warns for a feature enabled only per-service", func(t *testing.T) {
+		logs := captureWarnings(t, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+			cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: ["application_span"]
+`))
+			require.NoError(t, err)
+			require.NoError(t, cfg.Validate())
+		})
+		assert.Contains(t, logs, "feature=application_span")
+		assert.Contains(t, logs, "use=application_span_otel")
+	})
 }
 
 func TestConfigValidate_error(t *testing.T) {
@@ -786,6 +974,44 @@ func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
 	require.NoError(t, cfg.ValidateStatic())
 }
 
+func TestConfigValidatePrometheusPaths(t *testing.T) {
+	testCases := map[string]struct {
+		yamlConfig string
+		field      string
+	}{
+		"application metrics": {
+			yamlConfig: `open_port: 8080
+trace_printer: text
+prometheus_export:
+  port: 9090
+  path: metrics
+`,
+			field: "Config.Prometheus.Path",
+		},
+		"internal metrics": {
+			yamlConfig: `open_port: 8080
+trace_printer: text
+internal_metrics:
+  prometheus:
+    port: 9090
+    path: internal/metrics
+`,
+			field: "Config.InternalMetrics.Prometheus.Path",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := LoadConfig(strings.NewReader(tc.yamlConfig))
+			require.NoError(t, err)
+
+			err = cfg.ValidateStatic()
+			require.ErrorContains(t, err, tc.field)
+			require.ErrorContains(t, err, "'startswith'")
+		})
+	}
+}
+
 func TestConfigValidateRoutes(t *testing.T) {
 	userConfig := bytes.NewBufferString(`executable_path: foo
 trace_printer: text
@@ -879,6 +1105,42 @@ health_check:
 `)
 		cfg, err := LoadConfig(userConfig)
 		require.NoError(t, err)
+		require.Error(t, cfg.Validate())
+	})
+}
+
+func TestHealthCheckListenAddress(t *testing.T) {
+	t.Run("defaults to loopback", func(t *testing.T) {
+		unsetEnv(t, "OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS")
+
+		cfg, err := LoadConfig(nil)
+		require.NoError(t, err)
+		assert.Equal(t, health.DefaultListenAddress, cfg.HealthCheck.ListenAddress)
+	})
+
+	t.Run("loads external address from YAML", func(t *testing.T) {
+		unsetEnv(t, "OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS")
+		userConfig := bytes.NewBufferString(`health_check:
+  listen_address: 0.0.0.0
+  port: 8080
+`)
+
+		cfg, err := LoadConfig(userConfig)
+		require.NoError(t, err)
+		assert.Equal(t, "0.0.0.0", cfg.HealthCheck.ListenAddress)
+	})
+
+	t.Run("loads external address from environment", func(t *testing.T) {
+		t.Setenv("OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS", "::")
+
+		cfg, err := LoadConfig(nil)
+		require.NoError(t, err)
+		assert.Equal(t, "::", cfg.HealthCheck.ListenAddress)
+	})
+
+	t.Run("rejects non-IP address", func(t *testing.T) {
+		cfg := DefaultConfig
+		cfg.HealthCheck.ListenAddress = "localhost"
 		require.Error(t, cfg.Validate())
 	})
 }
@@ -1106,7 +1368,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 		name        string
 		metrics     otelcfg.MetricsConfig
 		prometheus  prom.PrometheusConfig
-		mp          perapp.MetricsConfig
+		mp          perapp.GlobalMetricsConfig
 		wantEnabled bool
 	}{
 		{
@@ -1121,7 +1383,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
 			},
 			prometheus:  prom.PrometheusConfig{},
-			mp:          perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+			mp:          perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 			wantEnabled: false,
 		},
 		{
@@ -1130,7 +1392,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
 			},
 			prometheus:  prom.PrometheusConfig{},
-			mp:          perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+			mp:          perapp.GlobalMetricsConfig{Features: export.FeatureSpanOTel},
 			wantEnabled: true,
 		},
 		{
@@ -1139,7 +1401,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			prometheus: prom.PrometheusConfig{
 				Port: 9090,
 			},
-			mp:          perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+			mp:          perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 			wantEnabled: false,
 		},
 		{
@@ -1148,14 +1410,14 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			prometheus: prom.PrometheusConfig{
 				Port: 9090,
 			},
-			mp:          perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+			mp:          perapp.GlobalMetricsConfig{Features: export.FeatureSpanOTel},
 			wantEnabled: true,
 		},
 		{
 			name:        "both have features, but not enabled",
 			metrics:     otelcfg.MetricsConfig{},
 			prometheus:  prom.PrometheusConfig{},
-			mp:          perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureGraph},
+			mp:          perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureGraph},
 			wantEnabled: false,
 		},
 	}
@@ -1180,9 +1442,7 @@ func loadConfig(t *testing.T, env envMap) *Config {
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
 		"OTEL_EBPF_PROMETHEUS_PORT":           "0",
 	}
-	for k, v := range env {
-		isolatedEnv[k] = v
-	}
+	maps.Copy(isolatedEnv, env)
 	for k, v := range isolatedEnv {
 		t.Setenv(k, v)
 	}
@@ -1203,7 +1463,7 @@ func TestNormalizeConfig_MetricFeatures(t *testing.T) {
 		cfg: Config{
 			OTELMetrics: otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
 			Prometheus:  prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+			Metrics:     perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}, {
 		name:     "OTEL endpoint and legacy features are defined",
@@ -1211,7 +1471,7 @@ func TestNormalizeConfig_MetricFeatures(t *testing.T) {
 		cfg: Config{
 			OTELMetrics: otelcfg.MetricsConfig{MetricsEndpoint: "http://foo", DeprFeatures: export.FeatureEBPF},
 			Prometheus:  prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+			Metrics:     perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}, {
 		name:     "OTEL endpoint defined but legacy features are not",
@@ -1219,7 +1479,7 @@ func TestNormalizeConfig_MetricFeatures(t *testing.T) {
 		cfg: Config{
 			OTELMetrics: otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
 			Prometheus:  prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+			Metrics:     perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}, {
 		name:     "Prom endpoint and legacy features are defined",
@@ -1227,7 +1487,7 @@ func TestNormalizeConfig_MetricFeatures(t *testing.T) {
 		cfg: Config{
 			OTELMetrics: otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
 			Prometheus:  prom.PrometheusConfig{Port: 8080, DeprFeatures: export.FeatureNetwork},
-			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+			Metrics:     perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}, {
 		name:     "Prom endpoint defined but legacy features are not",
@@ -1235,7 +1495,7 @@ func TestNormalizeConfig_MetricFeatures(t *testing.T) {
 		cfg: Config{
 			OTELMetrics: otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
 			Prometheus:  prom.PrometheusConfig{Port: 8080},
-			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+			Metrics:     perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}}
 	for _, tc := range testCases {
@@ -1250,9 +1510,65 @@ func TestNormalizeConfig_MetricFeatures(t *testing.T) {
 func TestNormalizeConfig_Network(t *testing.T) {
 	obi := Config{
 		NetworkFlows: NetworkConfig{Enable: true},
-		Metrics:      perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		Metrics:      perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 	}
 	obi.normalize()
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork,
 		obi.Metrics.Features)
+}
+
+// stringSliceToTextUnmarshalerHookFunc exists so that Features and ExportModes accept a
+// YAML sequence as well as the comma-separated text their UnmarshalText parses. Both shapes
+// have to decode through confmap, which is how the collector receiver loads the
+// configuration; plain YAML loading only ever reaches UnmarshalYAML.
+func TestUnmarshalConfmapSequences(t *testing.T) {
+	unmarshal := func(t *testing.T, raw map[string]any) *Config {
+		t.Helper()
+		cfg := DefaultConfig
+		require.NoError(t, cfg.Unmarshal(confmap.NewFromStringMap(raw)))
+		return &cfg
+	}
+
+	t.Run("metrics features", func(t *testing.T) {
+		expected := export.FeatureApplicationRED | export.FeatureSpanOTel
+
+		for _, tc := range []struct {
+			name  string
+			value any
+		}{
+			{name: "sequence", value: []any{"application", "application_span_otel"}},
+			{name: "comma separated", value: "application,application_span_otel"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := unmarshal(t, map[string]any{
+					"metrics": map[string]any{"features": tc.value},
+				})
+				assert.Equal(t, expected, cfg.Metrics.Features)
+			})
+		}
+	})
+
+	t.Run("discovery export modes", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			value any
+		}{
+			{name: "sequence", value: []any{"metrics", "traces"}},
+			{name: "comma separated", value: "metrics,traces"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := unmarshal(t, map[string]any{
+					"discovery": map[string]any{"instrument": []any{
+						map[string]any{"k8s_namespace": "demo", "exports": tc.value},
+					}},
+				})
+				require.Len(t, cfg.Discovery.Instrument, 1)
+
+				modes := cfg.Discovery.Instrument[0].ExportModes
+				assert.True(t, modes.CanExportMetrics())
+				assert.True(t, modes.CanExportTraces())
+				assert.False(t, modes.CanExportLogs())
+			})
+		}
+	})
 }

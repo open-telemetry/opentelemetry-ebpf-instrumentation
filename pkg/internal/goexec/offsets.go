@@ -13,13 +13,15 @@ import (
 )
 
 type Offsets struct {
-	// Funcs key: function name
-	Funcs  map[string]FuncOffsets
+	// Funcs key: requested function name. Each value contains every resolved
+	// canonical or vendored copy of that function.
+	Funcs  map[string][]FuncOffsets
 	Field  FieldOffsets
 	ITypes map[string]uint64
 }
 
 type FuncOffsets struct {
+	Symbol  string
 	Start   uint64
 	Returns []uint64
 }
@@ -47,10 +49,13 @@ func (o *Offsets) HasGoChannelOffsets() bool {
 	return true
 }
 
-// HasGoAutoSDKSpanContextOffsets reports whether all trace.SpanContext offsets
-// needed for Go Auto SDK span integration are available for an inspected executable.
-func (o *Offsets) HasGoAutoSDKSpanContextOffsets() bool {
+// SupportsGoAutoSDKActivation reports whether an inspected executable has a
+// supported ABI and every offset needed for Go Auto SDK span integration.
+func (o *Offsets) SupportsGoAutoSDKActivation() bool {
 	if o == nil {
+		return false
+	}
+	if supported, ok := o.Field[AutoSDKActivationSupported].(uint64); !ok || supported != 1 {
 		return false
 	}
 
@@ -58,6 +63,7 @@ func (o *Offsets) HasGoAutoSDKSpanContextOffsets() bool {
 		SpanContextTraceIDPos,
 		SpanContextSpanIDPos,
 		SpanContextTraceFlagsPos,
+		AutoSDKSpanContextPos,
 	} {
 		if _, ok := o.Field[field].(uint64); !ok {
 			return false

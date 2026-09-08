@@ -1,0 +1,13 @@
+# OBI configuration for the internal-metrics weaver suite. Internal metrics
+# (obi.*) can only be exported over OTLP when the OTEL metrics endpoint is
+# enabled, and they conflict with the internal Prometheus port
+# (see pkg/obi/config.go). The application feature gives the eBPF probes a
+# process to instrument so obi.bpf.* / obi.instrumented.processes populate.
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+internal_metrics:
+  exporter: otel
+attributes:
+  select:
+    "*":
+      include: ["*"]

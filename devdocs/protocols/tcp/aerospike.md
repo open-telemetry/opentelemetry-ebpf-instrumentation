@@ -7,10 +7,11 @@ This document describes the Aerospike protocol parser that OBI provides.
 Aerospike clients talk to the server over a custom binary protocol (the native
 "proto version 2" protocol) on the service port (default **3000**). It is a
 length-prefixed binary protocol — not HTTP, gRPC, or Protocol Buffers despite
-the unfortunate "proto" name. OBI parses this wire format in userspace: the
-request and response payloads of an unclassified TCP connection are handed to
-the Aerospike parser. The protocol is **one-request-one-response per connection
-(FIFO)**, so the generic per-connection direction-flip correlation is exact.
+the unfortunate "proto" name. Connections are classified as Aerospike in kernel
+space (eBPF) from the frame signature; the request and response payloads are
+then parsed in userspace. The protocol is **one-request-one-response per
+connection (FIFO)**, so the generic per-connection direction-flip correlation
+is exact.
 
 ### proto header (8 bytes, every message)
 
@@ -103,7 +104,9 @@ plus, for writes, the per-op type bytes:
   sizes and stops at the end of the captured buffer. scan/query requests can be
   several KB (they carry a partition/digest list), exceeding the inline capture
   buffer — but the namespace, set, and index fields sit at the front, so
-  classification and namespace/collection extraction survive truncation.
+  classification and namespace/collection extraction survive truncation. With
+  `OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE` set, requests are captured up to that
+  size instead, so large requests are no longer truncated to the inline buffer.
 - **Streaming responses**: scan/query/batch return many response frames
   terminated by the `INFO3_LAST` flag. OBI builds the span from the **request**
   frame's metadata (operation, namespace, set, batch size) and reads the status
@@ -112,10 +115,17 @@ plus, for writes, the per-op type bytes:
 
 ## Protocol Parsing
 
-1. TCP packets arrive at `ReadTCPRequestIntoSpan`
+1. `is_aerospike` in
+   [protocol_aerospike.h](../../../bpf/generictracer/protocol_aerospike.h)
+   classifies the connection in kernel space from the frame signature
+   (proto version 2, type-3 AS_MSG, `header_sz` 22, sane body length) and
+   caches it in `protocol_cache`, so classification runs once per connection.
+2. TCP events arrive at `ReadTCPRequestIntoSpan`
    in [tcp_detect_transform.go](../../../pkg/ebpf/common/tcp_detect_transform.go).
-2. `matchAerospike` (in the heuristic detection stage) recognizes the proto
-   header and parses the request.
+   Kernel-classified events dispatch directly to the Aerospike parser
+   (`dispatchAerospike`); for connections the kernel missed (e.g. OBI attached
+   mid-connection) `matchAerospike` in the heuristic detection stage recognizes
+   the proto header as a fallback.
 3. Parsing logic lives in
    [aerospike_detect_transform.go](../../../pkg/ebpf/common/aerospike_detect_transform.go):
    `parseAerospikeRequest` (op classification + field extraction),
@@ -137,6 +147,20 @@ plus, for writes, the per-op type bytes:
 
 The span name follows the OTel database convention `{operation} {target}`, e.g.
 `GET test.users` (`{db.operation.name} {db.namespace}.{db.collection.name}`).
+
+### Client- and server-side spans
+
+The span type follows the observed role: instrumenting an application that uses
+an Aerospike client produces `client` spans, while instrumenting the Aerospike
+server process (`asd`) produces `server` spans. Both roles share the span name
+convention and the attribute set above. When both peers are instrumented, one
+operation yields one client span and one server span with distinct kinds — the
+server span nests under the client span in the same trace.
+
+Server-side error status does not require the capture buffer size: the server
+writes each response in a single send, so the `result_code` is always captured
+on that side. (The client-side split-read consideration below does not apply
+to the server role.)
 
 ### User key (opt-in)
 
@@ -170,20 +194,16 @@ the decrypted payloads, so the AS_MSG frames are parsed the same as cleartext.
   in the clients).
 - **Multi-record data**: only operation metadata is captured, not returned
   record/bin values.
-- **Response status codes are client/SDK-dependent**: `db.response.status_code`
-  is parsed from the response `result_code`, which lives in the `as_msg` body. It
-  is only populated when the captured response buffer includes that body. Whether
-  it does depends on how the client SDK reads the response from the socket:
-  - The **Java client** (`aerospike-client-jdk21`) reads each response in two
-    steps — an 8-byte proto-header read, then a separate read for the body — so
-    on the generic TCP path only the header is captured and the `result_code` is
-    not observed (error status stays unset).
-  - SDKs that read the whole response in a single recv leave the full first frame
-    in the captured buffer, so the `result_code` is read and error status is
-    emitted.
-
-  Capturing the body regardless of the client's read pattern would require
-  kernel-side response reassembly (an eBPF change outside this parser's scope).
+- **Response status codes require the capture buffer** (default off):
+  `db.response.status_code` is parsed from the response `result_code`, which
+  lives in the `as_msg` body. Some clients (e.g. the Java
+  `aerospike-client-jdk21`) read a response in two steps — an 8-byte
+  proto-header read, then a separate read for the body — so without reassembly
+  only the header reaches userspace and the error status stays unset. Setting
+  `OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE` (see Configuration) enables kernel-side
+  reassembly of the first response frame, making the status reliable for every
+  client read pattern. With the buffer size at its 0 default, the status is
+  still emitted for SDKs that read the whole response in a single recv.
 
 ## Configuration
 
@@ -202,6 +222,25 @@ or via environment variables:
 OTEL_EBPF_TRACES_INSTRUMENTATIONS=aerospike
 OTEL_EBPF_METRICS_INSTRUMENTATIONS=aerospike
 ```
+
+### Capture buffer size
+
+`ebpf.buffer_sizes.aerospike` (`OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE`, default
+`0` = disabled, maximum 65536) sets the per-direction capture size in bytes for
+Aerospike connections. Setting it enables kernel-side reassembly of the first
+response frame — required for reliable `db.response.status_code` with clients
+that read responses in multiple recv() calls (see Limitations) — and full
+request capture for large scan/query requests:
+
+```yaml
+ebpf:
+  buffer_sizes:
+    aerospike: 1024
+```
+
+Once a connection is classified as Aerospike, the generic
+`ebpf.buffer_sizes.tcp` setting no longer applies to it; capture is governed
+solely by the Aerospike buffer size.
 
 ## Semantic conventions and prior art
 
@@ -227,7 +266,7 @@ observability tooling is metrics-only:
   latency histograms per command type, but emit no spans and have no out-of-the-box
   OTel exporter.
 
-So OBI's client-side span generation here is novel — it is the only source that
+So OBI's client- and server-side span generation here is novel — it is the only source that
 produces per-operation traces for Aerospike.
 
 ## References

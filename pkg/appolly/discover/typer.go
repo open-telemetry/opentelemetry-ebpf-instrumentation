@@ -155,6 +155,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		Sampler:            samplerFromConfig(samplerConfig),
 		Features:           svcFeatures,
 		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
+		SDKLanguage:        svc.InstrumentableGeneric,
 	}
 
 	routesCfg := t.cfg.Routes
@@ -260,8 +261,13 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	log := t.log.With("pid", execElf.Pid(), "comm", execElf.CmdExePath())
 	if ic, ok := t.instrumentableCache.Get(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}); ok {
 		log.Debug("new instance of existing executable", "type", ic.Type)
+		if parent, ok := t.currentPids[execElf.Ppid()]; ok && ic.Type == svc.InstrumentablePython &&
+			execElf.CmdExePath() == parent.CmdExePath() {
+			execElf.SetRuntimeMetricServiceSource(parent)
+		}
 		return ebpf.Instrumentable{Type: ic.Type, FileInfo: execElf, Offsets: ic.Offsets, InstrumentationError: ic.InstrumentationError}
 	}
+	lifecycle := execElf
 
 	log.Debug("getting instrumentable information")
 	// look for suitable Go application first
@@ -314,6 +320,13 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	// Return the instrumentable without offsets, as it is identified as a generic
 	// (or non-instrumentable Go proxy) executable
 	t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
+	if detectedType == svc.InstrumentablePython {
+		lifecycle.SetRuntimeMetricServiceSource(execElf)
+		return ebpf.Instrumentable{
+			Type: detectedType, FileInfo: lifecycle, InstrumentationError: err,
+			LogEnricherEnabled: lifecycle.LogEnricherEnabled(),
+		}
+	}
 
 	return ebpf.Instrumentable{
 		Type:                 detectedType,
@@ -339,12 +352,20 @@ func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, bool, e
 	return offsets, true, nil
 }
 
+var supportOnlyGoProbeSymbols = map[string]struct{}{
+	"context.WithValue": {},
+}
+
 func isGoProxy(offsets *goexec.Offsets) bool {
 	for f := range offsets.Funcs {
-		// if we find anything of interest other than the Go runtime, we consider this a valid application
-		if !strings.HasPrefix(f, "runtime.") {
-			return false
+		if strings.HasPrefix(f, "runtime.") {
+			continue
 		}
+		if _, ok := supportOnlyGoProbeSymbols[f]; ok {
+			continue
+		}
+
+		return false
 	}
 
 	return true
@@ -363,6 +384,12 @@ func (t *typer) loadAllGoFunctionNames() {
 		t.addGoFunctionName(uniqueFunctions, symbolName)
 	}
 	for _, symbolName := range gotracer.GoRuntimeMetricProbeSymbols() {
+		t.addGoFunctionName(uniqueFunctions, symbolName)
+	}
+	for _, symbolName := range gotracer.GoAutoSDKActivationProbeSymbols() {
+		t.addGoFunctionName(uniqueFunctions, symbolName)
+	}
+	for _, symbolName := range gotracer.GoH2OwnershipProbeSymbols() {
 		t.addGoFunctionName(uniqueFunctions, symbolName)
 	}
 }

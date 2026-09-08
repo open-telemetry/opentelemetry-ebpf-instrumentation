@@ -135,7 +135,7 @@ func TestWriteReport(t *testing.T) {
 	require.Contains(t, report, "## Fingerprint Legend")
 
 	// TestPassed should not appear as a flaky test row
-	for _, line := range strings.Split(report, "\n") {
+	for line := range strings.SplitSeq(report, "\n") {
 		if strings.Contains(line, "| `TestPassed`") {
 			t.Errorf("TestPassed should not appear as a flaky test row")
 		}

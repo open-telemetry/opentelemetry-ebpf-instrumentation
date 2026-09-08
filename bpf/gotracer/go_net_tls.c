@@ -23,6 +23,7 @@
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_large_buffer.h>
+#include <gotracer/maps/go_persist_conn.h>
 #include <gotracer/maps/ongoing_ssl_ops.h>
 
 #include <gotracer/types/net_args.h>
@@ -30,6 +31,7 @@
 #include <gotracer/go_net_common.h>
 
 #include <logger/bpf_dbg.h>
+#include <common/preempt_guard.h>
 
 static __always_inline void *unwrap_conn(void *conn) {
     void *conn_conn = 0;
@@ -40,7 +42,7 @@ static __always_inline void *unwrap_conn(void *conn) {
 }
 
 SEC("uprobe/cryptoTlsRead")
-int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_cryptoTlsRead, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -108,7 +110,7 @@ int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/cryptoTlsRead")
-int obi_uprobe_cryptoTlsReadRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_cryptoTlsReadRet, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -168,7 +170,7 @@ done:
 }
 
 SEC("uprobe/cryptoTlsWrite")
-int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_cryptoTlsWrite, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -215,6 +217,8 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
         args.p_conn.pid = pid_from_pid_tgid(id);
         args.byte_ptr = (u64)buf;
 
+        persist_conn_publish(&g_key, &args.p_conn.conn);
+
         if (args.skip) {
             send_http_large_buffers_if_needed(&g_key, &args.p_conn.conn, buf, len, TCP_SEND);
             return 0;
@@ -256,7 +260,7 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/cryptoTlsWrite")
-int obi_uprobe_cryptoTlsWriteRet(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_cryptoTlsWriteRet, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);

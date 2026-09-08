@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import com.aerospike.client.AerospikeClient;
+import com.aerospike.client.AerospikeException;
 import com.aerospike.client.Bin;
 import com.aerospike.client.Host;
 import com.aerospike.client.Key;
 import com.aerospike.client.policy.ClientPolicy;
+import com.aerospike.client.policy.RecordExistsAction;
 import com.aerospike.client.policy.WritePolicy;
 import com.sun.net.httpserver.HttpServer;
 
@@ -46,11 +48,23 @@ public class Aerospike {
         WritePolicy sendKey = new WritePolicy();
         sendKey.sendKey = true; // carry the primary key on the wire (db.query.text)
 
+        WritePolicy createOnly = new WritePolicy();
+        createOnly.sendKey = true;
+        createOnly.recordExistsAction = RecordExistsAction.CREATE_ONLY;
+
         HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
         server.createContext("/", exchange -> {
             try {
                 Key key = new Key(NAMESPACE, SET, "obi");
                 as.put(sendKey, key, new Bin("product", "rocks")); // PUT (sends key)
+                try {
+                    // create-only PUT on the record that was just written: the
+                    // server answers KEY_EXISTS_ERROR, exercising the response
+                    // result_code capture (db.response.status_code).
+                    as.put(createOnly, key, new Bin("product", "rocks"));
+                } catch (AerospikeException e) {
+                    // expected: result code 5 (key exists)
+                }
                 as.get(null, key);                                 // GET
                 as.delete(null, key);                              // DELETE
                 as.scanAll(null, NAMESPACE, SET, (k, rec) -> {

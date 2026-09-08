@@ -12,11 +12,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,8 +29,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -210,7 +215,7 @@ func TestGatherGoOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
 	reporter := &countingReporter{}
 	i := &instrumenter{
 		offsets: &goexec.Offsets{
-			Funcs: map[string]goexec.FuncOffsets{},
+			Funcs: map[string][]goexec.FuncOffsets{},
 		},
 		metrics:     reporter,
 		processName: "testproc",
@@ -232,11 +237,12 @@ func TestGatherGoOffsetsAppliesResolvedOffsetsAndClearsSkip(t *testing.T) {
 	reporter := &countingReporter{}
 	i := &instrumenter{
 		offsets: &goexec.Offsets{
-			Funcs: map[string]goexec.FuncOffsets{
-				"net/http.serverHandler.ServeHTTP": {
+			Funcs: map[string][]goexec.FuncOffsets{
+				"net/http.serverHandler.ServeHTTP": {{
+					Symbol:  "net/http.serverHandler.ServeHTTP",
 					Start:   0x1234,
 					Returns: []uint64{0x1250, 0x1260},
-				},
+				}},
 			},
 		},
 		metrics:     reporter,
@@ -256,6 +262,45 @@ func TestGatherGoOffsetsAppliesResolvedOffsetsAndClearsSkip(t *testing.T) {
 	assert.Empty(t, reporter.errors, "no InstrumentationError should be emitted when the symbol resolves")
 }
 
+func TestGatherGoOffsetsExpandsEveryResolvedCopy(t *testing.T) {
+	const symbol = "example.com/library.Function"
+	original := &ebpfcommon.ProbeDesc{Skip: true}
+	probes := probeDescMap{symbol: {original}}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		symbol: {
+			{Symbol: symbol, Start: 0x10, Returns: []uint64{0x11}},
+			{Symbol: "one/vendor/" + symbol, Start: 0x20, Returns: []uint64{0x21}},
+		},
+	}}}
+
+	i.gatherGoOffsets(probes)
+
+	require.Len(t, probes[symbol], 2)
+	assert.Equal(t, uint64(0x10), probes[symbol][0].StartOffset)
+	assert.Equal(t, []uint64{0x11}, probes[symbol][0].ReturnOffsets)
+	assert.Equal(t, uint64(0x20), probes[symbol][1].StartOffset)
+	assert.Equal(t, []uint64{0x21}, probes[symbol][1].ReturnOffsets)
+	assert.True(t, original.Skip)
+	assert.Zero(t, original.StartOffset)
+}
+
+func TestGatherGoOffsetsKeepsCompatibleCopy(t *testing.T) {
+	const symbol = "example.com/library.Function"
+	probes := probeDescMap{symbol: {{End: &ebpf.Program{}}}}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		symbol: {
+			{Symbol: symbol, Start: 0x10},
+			{Symbol: "one/vendor/" + symbol, Start: 0x20, Returns: []uint64{0x21}},
+		},
+	}}}
+
+	i.gatherGoOffsets(probes)
+
+	require.Len(t, probes[symbol], 1)
+	assert.Equal(t, uint64(0x20), probes[symbol][0].StartOffset)
+	assert.Equal(t, []uint64{0x21}, probes[symbol][0].ReturnOffsets)
+}
+
 func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 	i := &instrumenter{}
 	probes := probeDescMap{
@@ -265,9 +310,302 @@ func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 		}},
 	}
 
-	closers, err := i.instrumentProbes(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
 	require.NoError(t, err)
 	assert.Empty(t, closers)
+	assert.False(t, attached["skipped_optional_symbol"])
+}
+
+func TestNoGoProbeAttached(t *testing.T) {
+	assert.False(t, noGoProbeAttached(nil))
+	assert.False(t, noGoProbeAttached(map[string]bool{"a": false, "b": true}))
+	assert.True(t, noGoProbeAttached(map[string]bool{"a": false, "b": false}))
+}
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	var logs bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+	return &logs
+}
+
+func TestGoProbesWarnsWhenNoSymbolAttached(t *testing.T) {
+	logs := captureLogs(t)
+	i := &instrumenter{offsets: &goexec.Offsets{}, processName: "svc"}
+	tracer := &stubTracer{goProbes: map[string][]*ebpfcommon.ProbeDesc{
+		"net/http.serverHandler.ServeHTTP": {{Start: &ebpf.Program{}}},
+	}}
+
+	require.NoError(t, i.goprobes(tracer))
+
+	assert.Contains(t, logs.String(), "no Go probes attached to executable")
+	assert.Contains(t, logs.String(), "process=svc")
+}
+
+func TestGoProbesDoesNotWarnWithoutProbes(t *testing.T) {
+	logs := captureLogs(t)
+	i := &instrumenter{offsets: &goexec.Offsets{}}
+
+	require.NoError(t, i.goprobes(&stubTracer{}))
+
+	assert.NotContains(t, logs.String(), "no Go probes attached")
+}
+
+func TestGoProbeGroupRequiresAttachedPrerequisites(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name:          "activation",
+		Prerequisites: []string{"synthetic-start", "synthetic-end"},
+	}
+
+	assert.False(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"synthetic-start": true,
+		"synthetic-end":   false,
+	}))
+	assert.True(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"synthetic-start": true,
+		"synthetic-end":   true,
+	}))
+}
+
+func TestOptionalProbeAttachmentFailureDoesNotSatisfyGroupPrerequisite(t *testing.T) {
+	i := &instrumenter{}
+	probes := probeDescMap{
+		"synthetic-end": {{
+			End: &ebpf.Program{},
+		}},
+	}
+
+	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached["synthetic-end"])
+	assert.False(t, goProbeGroupPrerequisitesAttached(ebpfcommon.GoProbeGroup{
+		Prerequisites: []string{"synthetic-end"},
+	}, attached))
+}
+
+func TestZeroLinkProbeDoesNotSatisfyGroupPrerequisite(t *testing.T) {
+	i := &instrumenter{}
+	probes := probeDescMap{
+		"synthetic-start": {{}},
+	}
+
+	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached["synthetic-start"])
+}
+
+func TestInstrumentOptionalGoProbeGroupPreflightsEverySymbol(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{
+				Symbol:        "newSpan",
+				Probe:         &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, Skip: true},
+				ProcessScoped: true,
+			},
+		},
+	}
+
+	var attached []string
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			attached = append(attached, symbol)
+			return nil, nil
+		})
+
+	assert.Empty(t, closers)
+	assert.Empty(t, attached)
+}
+
+func TestInstrumentOptionalGoProbeGroupRejectsEmptyProbe(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{}},
+			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+
+	var attached []string
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			attached = append(attached, symbol)
+			return nil, nil
+		})
+
+	assert.Empty(t, closers)
+	assert.Empty(t, attached)
+}
+
+func TestInstrumentOptionalGoProbeGroupRejectsZeroLinkAttachment(t *testing.T) {
+	startCloser := &countingCloser{}
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			if symbol == "start" {
+				return []io.Closer{startCloser}, nil
+			}
+			return nil, nil
+		})
+
+	assert.Empty(t, closers)
+	assert.Equal(t, int32(1), startCloser.closes.Load())
+}
+
+func TestInstrumentOptionalGoProbeGroupLeavesProcessScopedProbeDetached(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{
+				Symbol:        "newSpan",
+				Probe:         &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}},
+				ProcessScoped: true,
+			},
+		},
+	}
+
+	var attached []string
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			attached = append(attached, symbol)
+			return []io.Closer{&countingCloser{}}, nil
+		})
+
+	assert.Equal(t, []string{"start", "ended"}, attached)
+	assert.Len(t, closers, 2)
+}
+
+func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
+	startCloser := &countingCloser{}
+	endedCloser := &countingCloser{}
+	partialCloser := &countingCloser{}
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+
+	var attached []string
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			attached = append(attached, symbol)
+			switch symbol {
+			case "start":
+				return []io.Closer{startCloser}, nil
+			case "ended":
+				return []io.Closer{endedCloser}, nil
+			default:
+				return []io.Closer{partialCloser}, errors.New("attach failed")
+			}
+		})
+
+	assert.Empty(t, closers)
+	assert.Equal(t, []string{"start", "ended", "newSpan"}, attached)
+	assert.Equal(t, int32(1), startCloser.closes.Load())
+	assert.Equal(t, int32(1), endedCloser.closes.Load())
+	assert.Equal(t, int32(1), partialCloser.closes.Load())
+}
+
+func TestGatherGoProbeGroupOffsetsSkipsIncompleteCopy(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{}},
+			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{}},
+		},
+	}
+	i := &instrumenter{
+		offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+			"start":   {{Symbol: "start", Start: 0x10}},
+			"newSpan": {{Symbol: "newSpan", Start: 0x30}},
+		}},
+	}
+
+	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
+}
+
+func TestGoProbeGroupCompatibilityIsAppliedPerCopy(t *testing.T) {
+	const symbol = "example.com/library.Function"
+	group := ebpfcommon.GoProbeGroup{
+		Name: "compatible-copy",
+		Probes: []ebpfcommon.GoProbe{{
+			Symbol: symbol,
+			Probe:  &ebpfcommon.ProbeDesc{End: &ebpf.Program{}},
+		}},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		symbol: {
+			{Symbol: symbol, Start: 0x10},
+			{Symbol: "one/vendor/" + symbol, Start: 0x20, Returns: []uint64{0x21}},
+		},
+	}}}
+
+	resolved := i.gatherGoProbeGroupOffsets(group)
+	require.Len(t, resolved, 2)
+	assert.Empty(t, instrumentOptionalGoProbeGroup(resolved[0], func(string, *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+		return []io.Closer{&countingCloser{}}, nil
+	}))
+
+	var attached []uint64
+	closers := instrumentOptionalGoProbeGroup(resolved[1], func(_ string, probe *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+		attached = append(attached, probe.StartOffset)
+		return []io.Closer{&countingCloser{}}, nil
+	})
+	require.Len(t, closers, 1)
+	assert.Equal(t, []uint64{0x20}, attached)
+}
+
+func TestGatherGoProbeGroupOffsetsDoesNotMixCopies(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "separate-copies",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "library.Start", Probe: &ebpfcommon.ProbeDesc{}},
+			{Symbol: "library.End", Probe: &ebpfcommon.ProbeDesc{}},
+		},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		"library.Start": {{Symbol: "library.Start", Start: 0x10}},
+		"library.End":   {{Symbol: "one/vendor/library.End", Start: 0x20}},
+	}}}
+
+	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
+}
+
+func TestGoFunctionCopyID(t *testing.T) {
+	const symbol = "example.com/library.Function"
+
+	copyID, ok := goFunctionCopyID(symbol, symbol)
+	require.True(t, ok)
+	assert.Empty(t, copyID)
+
+	copyID, ok = goFunctionCopyID(symbol, "one/vendor/"+symbol)
+	require.True(t, ok)
+	assert.Equal(t, "one/vendor/", copyID)
+
+	_, ok = goFunctionCopyID(symbol, "unrelated."+symbol)
+	assert.False(t, ok)
 }
 
 func TestMatchVersionedUprobeLibrary(t *testing.T) {
@@ -451,11 +789,9 @@ func TestUSDTLinkCloserCloseIsConcurrentSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
 	for range cap(errs) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs <- closer.Close()
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -495,6 +831,221 @@ type countingCloser struct {
 func (c *countingCloser) Close() error {
 	c.closes.Add(1)
 	return nil
+}
+
+type orderedCloser struct {
+	name   string
+	closes *[]string
+}
+
+func (c orderedCloser) Close() error {
+	*c.closes = append(*c.closes, c.name)
+	return nil
+}
+
+func TestReverseCloserClosesLinksOnceInReverseOrderConcurrently(t *testing.T) {
+	var closes []string
+	closer := &reverseCloser{closers: []io.Closer{
+		orderedCloser{name: "start", closes: &closes},
+		orderedCloser{name: "ended", closes: &closes},
+		orderedCloser{name: "activation", closes: &closes},
+	}}
+
+	const workers = 16
+	start := make(chan struct{})
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			<-start
+			errs <- closer.Close()
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, []string{"activation", "ended", "start"}, closes)
+}
+
+type processScopedGoProbeRecorder struct {
+	registeredKeys []ExecutableKey
+	unregistered   []ExecutableKey
+}
+
+func (r *processScopedGoProbeRecorder) RegisterProcessScopedGoProbe(
+	dev uint64,
+	ino uint64,
+	_ ebpfcommon.GoProbe,
+) {
+	r.registeredKeys = append(r.registeredKeys, ExecutableKey{Dev: dev, Ino: ino})
+}
+
+func (r *processScopedGoProbeRecorder) UnregisterProcessScopedGoProbes(dev, ino uint64) {
+	r.unregistered = append(r.unregistered, ExecutableKey{Dev: dev, Ino: ino})
+}
+
+func TestProcessScopedGoProbeRegistrationIsDeferred(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	recorder := &processScopedGoProbeRecorder{}
+	i := &instrumenter{
+		key: key,
+		processScopedGoProbes: []processScopedGoProbeRegistration{{
+			tracer: recorder,
+			probe: ebpfcommon.GoProbe{
+				Symbol:        "newSpan",
+				ProcessScoped: true,
+			},
+		}},
+	}
+
+	assert.Empty(t, recorder.registeredKeys)
+
+	i.registerProcessScopedGoProbes(key)
+
+	assert.Equal(t, []ExecutableKey{key}, recorder.registeredKeys)
+}
+
+func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
+	linkCloser := &countingCloser{}
+	groupCloser := &reverseCloser{closers: []io.Closer{linkCloser}}
+	i := &instrumenter{
+		optionalGoProbeGroupClosers: []io.Closer{groupCloser},
+	}
+
+	i.rollbackOptionalGoProbeGroups()
+	i.rollbackOptionalGoProbeGroups()
+
+	assert.Equal(t, int32(1), linkCloser.closes.Load())
+}
+
+func TestProcessTracerCanLogBeforeRun(t *testing.T) {
+	pt := NewProcessTracer(Generic, nil, &obi.Config{}, imetrics.NoopReporter{})
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	assert.NotPanics(t, func() {
+		pt.UnlinkExecutable(fileInfo, 1)
+	})
+}
+
+func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	fileInfo := exec.New(exec.Init{Dev: key.Dev, Ino: key.Ino})
+	oldCloser := &countingCloser{}
+	newCloser := &countingCloser{}
+	pt := &ProcessTracer{
+		log:             slog.Default(),
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	oldInstrumenter := &instrumenter{
+		key:       key,
+		closables: []io.Closer{oldCloser},
+		modules:   map[uint64]struct{}{},
+	}
+	newInstrumenter := &instrumenter{
+		key:       key,
+		closables: []io.Closer{newCloser},
+		modules:   map[uint64]struct{}{},
+	}
+	oldExecutable := &Instrumentable{FileInfo: fileInfo}
+	newExecutable := &Instrumentable{FileInfo: fileInfo}
+
+	pt.commitInstrumenter(oldInstrumenter, oldExecutable)
+	pt.commitInstrumenter(newInstrumenter, newExecutable)
+
+	assert.Equal(t, int32(1), oldCloser.closes.Load())
+	assert.Equal(t, int32(0), newCloser.closes.Load())
+	assert.NotEqual(t, oldExecutable.ExecutableGeneration, newExecutable.ExecutableGeneration)
+
+	pt.UnlinkExecutable(fileInfo, oldExecutable.ExecutableGeneration)
+
+	assert.Same(t, newInstrumenter, pt.Instrumentables[key])
+	assert.Equal(t, int32(0), newCloser.closes.Load())
+
+	pt.UnlinkExecutable(fileInfo, newExecutable.ExecutableGeneration)
+
+	assert.NotContains(t, pt.Instrumentables, key)
+	assert.Equal(t, int32(1), newCloser.closes.Load())
+}
+
+func TestUprobeTargetSharesInstrumenterUntilLastExecutableUnlinks(t *testing.T) {
+	firstKey := ExecutableKey{Dev: 5, Ino: 10}
+	secondKey := ExecutableKey{Dev: 6, Ino: 20}
+	uprobeKey := ExecutableKey{Dev: 7, Ino: 30}
+	closer := &countingCloser{}
+	shared := &instrumenter{
+		key:       firstKey,
+		uprobeKey: uprobeKey,
+		closables: []io.Closer{closer},
+		modules:   map[uint64]struct{}{},
+	}
+	pt := &ProcessTracer{
+		log:             slog.Default(),
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	first := &Instrumentable{FileInfo: exec.New(exec.Init{Dev: firstKey.Dev, Ino: firstKey.Ino})}
+	second := &Instrumentable{FileInfo: exec.New(exec.Init{Dev: secondKey.Dev, Ino: secondKey.Ino})}
+
+	pt.commitInstrumenter(shared, first)
+	assert.Same(t, shared, pt.instrumenterForUprobeTarget(uprobeKey))
+	pt.commitInstrumenterForKey(secondKey, shared, second)
+
+	pt.UnlinkExecutable(first.FileInfo, first.ExecutableGeneration)
+	assert.Equal(t, int32(0), closer.closes.Load())
+	assert.Same(t, shared, pt.Instrumentables[secondKey])
+
+	pt.UnlinkExecutable(second.FileInfo, second.ExecutableGeneration)
+	assert.Equal(t, int32(1), closer.closes.Load())
+}
+
+func TestDifferentUprobeTargetsDoNotShareInstrumenters(t *testing.T) {
+	firstTarget := ExecutableKey{Dev: 151, Ino: 2}
+	secondTarget := ExecutableKey{Dev: 162, Ino: 2}
+	first := &instrumenter{uprobeKey: firstTarget}
+	second := &instrumenter{uprobeKey: secondTarget}
+	pt := &ProcessTracer{
+		Instrumentables: map[ExecutableKey]*instrumenter{
+			{Dev: 1, Ino: 10}: first,
+			{Dev: 2, Ino: 10}: second,
+		},
+	}
+
+	assert.Same(t, first, pt.instrumenterForUprobeTarget(firstTarget))
+	assert.Same(t, second, pt.instrumenterForUprobeTarget(secondTarget))
+	assert.NotSame(t,
+		pt.instrumenterForUprobeTarget(firstTarget),
+		pt.instrumenterForUprobeTarget(secondTarget),
+	)
+}
+
+func TestResolveUprobeTarget(t *testing.T) {
+	resolver := &stubUprobeTargetResolver{dev: 7, ino: 11}
+	pt := &ProcessTracer{Type: Go, Programs: []Tracer{resolver}}
+	offsets := &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		goUprobeTargetProbeSymbol: {{Start: 123}},
+	}}
+
+	key, ok := pt.resolveUprobeTarget(nil, offsets)
+
+	require.True(t, ok)
+	assert.Equal(t, ExecutableKey{Dev: 7, Ino: 11}, key)
+	assert.Equal(t, uint64(123), resolver.offset)
+}
+
+func TestResolveUprobeTargetFallsBackToSeparateAttachment(t *testing.T) {
+	resolver := &stubUprobeTargetResolver{err: errors.New("resolver unavailable")}
+	pt := &ProcessTracer{Type: Go, Programs: []Tracer{resolver}}
+	offsets := &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		goUprobeTargetProbeSymbol: {{Start: 123}},
+	}}
+
+	_, ok := pt.resolveUprobeTarget(nil, offsets)
+
+	assert.False(t, ok)
 }
 
 type countingUSDTIPMap struct {
@@ -576,7 +1127,24 @@ func (r *countingReporter) InstrumentationError(_ string, errorType string) {
 }
 
 type stubTracer struct {
-	uprobes map[string]map[string][]*ebpfcommon.ProbeDesc
+	uprobes  map[string]map[string][]*ebpfcommon.ProbeDesc
+	goProbes map[string][]*ebpfcommon.ProbeDesc
+}
+
+type stubUprobeTargetResolver struct {
+	stubTracer
+	dev    uint64
+	ino    uint64
+	offset uint64
+	err    error
+}
+
+func (s *stubUprobeTargetResolver) ResolveUprobeTarget(
+	_ *link.Executable,
+	offset uint64,
+) (uint64, uint64, error) {
+	s.offset = offset
+	return s.dev, s.ino, s.err
 }
 
 func (s *stubTracer) AllowPID(app.PID, uint32, *exec.FileInfo)               {}
@@ -586,7 +1154,7 @@ func (s *stubTracer) AddCloser(...io.Closer)                                 {}
 func (s *stubTracer) SetupTailCalls()                                        {}
 func (s *stubTracer) KProbes() map[string]ebpfcommon.ProbeDesc               { return nil }
 func (s *stubTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
-func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return nil }
+func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return s.goProbes }
 func (s *stubTracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc { return s.uprobes }
 func (s *stubTracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc     { return nil }
 func (s *stubTracer) SocketFilters() []*ebpf.Program                         { return nil }
@@ -604,4 +1172,98 @@ func (s *stubTracer) Required() bool                                         { r
 func (s *stubTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
 func (s *stubTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
 func (s *stubTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
+}
+
+func TestDedupModuleProbes(t *testing.T) {
+	// Distinct programs act as identities; dedup compares pointer equality.
+	pA := &ebpf.Program{}
+	pB := &ebpf.Program{}
+	pC := &ebpf.Program{}
+
+	descA := &ebpfcommon.ProbeDesc{Start: pA}
+	descB := &ebpfcommon.ProbeDesc{Start: pB}
+	descC := &ebpfcommon.ProbeDesc{Start: pC}
+
+	t.Run("no existing modules keeps everything", func(t *testing.T) {
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA}}
+		got := dedupModuleProbes(nil, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descA}, got["uv_fs_access"])
+	})
+
+	t.Run("same symbol and program is dropped", func(t *testing.T) {
+		// "node" and "libuv.so" both resolve to the executable and carry the
+		// same probe on the same symbol: the second must be filtered out.
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA}}
+		got := dedupModuleProbes(existing, pMap)
+		assert.Empty(t, got)
+	})
+
+	t.Run("same symbol but different program is kept", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descB}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descB}, got["uv_fs_access"])
+	})
+
+	t.Run("different symbol is kept", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"SSL_read": {descA}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descA}, got["SSL_read"])
+	})
+
+	t.Run("partial overlap keeps only the new descriptors", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		// descA is a duplicate, descC is new for the same symbol.
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA, descC}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descC}, got["uv_fs_access"])
+	})
+}
+
+func TestSetupOtelBPFFSPathFallsBackToInternalMaps(t *testing.T) {
+	bpffsPath := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(bpffsPath, nil, 0o600))
+
+	const maxEntries = 1 << 14
+	spec := &ebpf.CollectionSpec{Maps: map[string]*ebpf.MapSpec{
+		"traces_ctx_v1": {
+			Type:       ebpf.LRUHash,
+			MaxEntries: maxEntries,
+			Pinning:    ebpf.PinByName,
+		},
+	}}
+	pt := &ProcessTracer{bpffsPath: bpffsPath}
+
+	assert.Empty(t, pt.setupOtelBPFFSPath([]*ebpfcommon.SpecBundle{{Spec: spec}}))
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["traces_ctx_v1"].Pinning)
+	assert.Equal(t, uint32(maxEntries), spec.Maps["traces_ctx_v1"].MaxEntries)
+}
+
+func TestMakeOtelBPFFSPathRejectsInaccessibleExistingDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+
+	bpffsPath := t.TempDir()
+	otelPath := filepath.Join(bpffsPath, "otel")
+	require.NoError(t, os.Mkdir(otelPath, 0o000))
+
+	pt := &ProcessTracer{bpffsPath: bpffsPath}
+	_, err := pt.makeOtelBPFFSPath()
+
+	require.ErrorContains(t, err, "accessing bpffs otel path")
 }

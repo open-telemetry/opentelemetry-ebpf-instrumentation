@@ -29,7 +29,6 @@ func testJavaNestedTraces(t *testing.T, slug string) {
 	// give enough time for the Java injector to finish and to
 	// harvest the routes
 	t.Log("checking proper server to client nesting for [/api/" + slug + "]")
-	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:8081/api/"+slug+"?url=https://httpbin.org/get", 200)
 
@@ -43,18 +42,24 @@ func testJavaNestedTraces(t *testing.T, slug string) {
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/api/" + slug})
 		require.GreaterOrEqual(ct, len(traces), 1)
-		trace = traces[0]
-		res := trace.FindByOperationName("GET /get", "client")
-		require.Len(ct, res, 1)
-		child := res[0]
-		require.NotEmpty(ct, child.TraceID)
+		// Client spans can arrive after their server span, leaving the newest trace incomplete.
+		for _, trace := range traces {
+			res := trace.FindByOperationName("GET /get", "client")
+			if len(res) == 0 {
+				continue
+			}
+			require.Len(ct, res, 1)
+			require.NotEmpty(ct, res[0].TraceID)
+			return
+		}
+		require.Fail(ct, "client span not found in matching traces")
 	}, 2*time.Minute, 5*time.Second)
 }
 
 func testJavaNestedTracesPlainHTTP(t *testing.T, slug string) {
 	t.Log("checking server to client nesting over plain HTTP for [/api/" + slug + "]")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			ti.DoHTTPGet(ct, "http://localhost:8081/api/"+slug+"?url=http://downstream:8086/rolldice/1", 200)
 		}
 

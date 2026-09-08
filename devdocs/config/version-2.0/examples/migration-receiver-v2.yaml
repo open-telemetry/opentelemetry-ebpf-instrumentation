@@ -1,0 +1,351 @@
+version: "2.0"
+policy:
+    default_action: exclude
+    match_order: first_match_wins
+    poll_interval: 0s
+    min_process_age: 5s
+rules:
+    - action: exclude
+      name: exclude-obi-and-collectors
+      description: Exclude OBI and collector binaries to avoid self-instrumentation and collector recursion.
+      match:
+        process:
+            exe_path_glob:
+                - '{*/obi,obi,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}'
+    - action: exclude
+      name: exclude-system-namespaces
+      description: Exclude common platform/system Kubernetes namespaces from instrumentation by default.
+      match:
+        kubernetes:
+            namespace_glob:
+                - kube-system
+                - kube-node-lease
+                - local-path-storage
+                - cert-manager
+                - monitoring
+                - gke-connect
+                - gke-gmp-system
+                - gke-managed-cim
+                - gke-managed-filestorecsi
+                - gke-managed-metrics-server
+                - gke-managed-system
+                - gke-system
+                - gke-managed-volumepopulator
+                - gatekeeper-system
+    - action: exclude
+      name: exclude-otlp-exporters
+      description: Exclude services that already export OTLP to prevent duplicate telemetry pipelines.
+      match:
+        process:
+            exports_otlp:
+                port: 4317
+                protocol: protobuf
+    - action: include
+      name: ""
+      description: ""
+      match:
+        process:
+            open_ports: "8080"
+            exe_path_glob:
+                - /srv/cart-*
+instrumentation:
+    http:
+        enabled:
+            traces: true
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+        track_request_headers: false
+        request_timeout: 0s
+        go_http_client_buffer_timeout: 1s
+        buffer_size: 0
+        routes:
+            incoming:
+                unmatched: heuristic
+                patterns:
+                    - /cart/{id}
+                ignored_patterns:
+                    - /health
+                ignore_mode: all
+                wildcard_char: '*'
+                max_path_segment_cardinality: 10
+            outgoing:
+                unmatched: heuristic
+                patterns:
+                    - /cart/{id}
+                ignored_patterns:
+                    - /health
+                ignore_mode: all
+                wildcard_char: '*'
+                max_path_segment_cardinality: 10
+            discovery:
+                timeout: 10s
+                disabled_languages: []
+                java:
+                    delay: 5s
+        payload_extraction:
+            enabled: []
+            sqlpp:
+                endpoint_patterns:
+                    - /query/service
+            enrichment:
+                policy:
+                    default_action:
+                        headers: exclude
+                        body: exclude
+                    obfuscation_string: '***'
+                rules: []
+            openai_compatible:
+                gateways: []
+    grpc:
+        enabled:
+            traces: true
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+    sql:
+        enabled:
+            traces: true
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+        heuristic_detect: false
+        mysql:
+            buffer_size: 0
+            prepared_statements_cache_size: 1024
+        postgres:
+            buffer_size: 0
+            prepared_statements_cache_size: 1024
+        mssql:
+            buffer_size: 0
+            prepared_statements_cache_size: 1024
+    redis:
+        enabled:
+            traces: true
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+        db_cache:
+            enabled: false
+            max_size: 1000
+    kafka:
+        enabled:
+            traces: true
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+        buffer_size: 0
+        topic_uuid_cache_size: 1024
+    mongo:
+        enabled:
+            traces: true
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+        requests_cache_size: 1024
+    couchbase:
+        enabled:
+            traces: true
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+        db_cache_size: 1024
+    dns:
+        enabled:
+            traces: false
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+        request_timeout: 5s
+    gpu:
+        enabled:
+            traces: false
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+        enabled_mode: auto
+    aerospike:
+        enabled:
+            traces: true
+            metrics: true
+        filters:
+            traces:
+                http.request.method:
+                    not_match: OPTIONS
+            metrics:
+                http.request.method:
+                    not_match: OPTIONS
+runtimes:
+    go:
+        enabled: true
+    nodejs:
+        enabled: true
+    java:
+        enabled: true
+        debug:
+            enabled: false
+            bytecode_instrumentation: false
+        attach_timeout: 10s
+network:
+    capture:
+        enabled: false
+        source: socket_filter
+        buffer_size: 0
+        endpoint_identity:
+            agent_ip: ""
+            agent_ip_interface: external
+            agent_ip_family: any
+        selection:
+            interfaces:
+                include: []
+                exclude:
+                    - lo
+            protocols:
+                include: []
+                exclude: []
+            direction: both
+            cidrs: []
+        filters:
+            traces: {}
+            metrics: {}
+        flow_lifecycle:
+            max_tracked_flows: 5000
+            active_timeout: 5s
+            deduplication:
+                strategy: first_come
+                first_come_ttl: 0s
+            sampling: 0
+            guess_ports: disable
+        interface_discovery:
+            mode: watch
+            poll_interval: 10s
+        enrichment:
+            geo_ip:
+                ipinfo:
+                    path: ""
+                maxmind:
+                    country_path: ""
+                    asn_path: ""
+                cache:
+                    size: 512
+                    ttl: 1h0m0s
+            reverse_dns:
+                mode: none
+                cache:
+                    size: 256
+                    ttl: 1h0m0s
+        diagnostics:
+            print_flows: false
+    stats:
+        enabled: false
+        features: []
+        endpoint_identity:
+            agent_ip: ""
+            agent_ip_interface: external
+            agent_ip_family: any
+        selection:
+            cidrs: []
+        filters:
+            traces: {}
+            metrics: {}
+        enrichment:
+            geo_ip:
+                ipinfo:
+                    path: ""
+                maxmind:
+                    country_path: ""
+                    asn_path: ""
+                cache:
+                    size: 512
+                    ttl: 1h0m0s
+            reverse_dns:
+                mode: none
+                cache:
+                    size: 256
+                    ttl: 1h0m0s
+        diagnostics:
+            print_stats: false
+limits:
+    network_packets: 5000
+    metric_span_names: 100
+engine:
+    debug:
+        bpf: false
+        protocol_print: false
+    pid_filter:
+        disabled: false
+    batching:
+        wakeup_len: 500
+        batch_length: 100
+        batch_timeout: 1s
+    propagation:
+        context_propagation: disabled
+        override_bpfloop_enabled: false
+        disable_black_box_cp: false
+    traffic:
+        control_backend: auto
+        high_request_volume: false
+        force_map_reader: auto
+    transactions:
+        max_duration: 5m0s
+    maps:
+        global_scale_factor: 0
+    bpf_filesystem:
+        path: /sys/fs/bpf/
+safety:
+    enforce_system_capabilities: false
+channels:
+    buffer_len: 50
+    send_timeout: 1m0s
+    panic_on_send_timeout: false
+telemetry:
+    traces:
+        reporters_cache_len: 256
+    metrics:
+        reporters_cache_len: 256
+        ttl: 5m0s

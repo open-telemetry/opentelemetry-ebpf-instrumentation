@@ -7,17 +7,19 @@ input:
 interval: 500ms
 expected:
   traces:
-  - traceql: '{ kind=producer && .messaging.system = "amqp" && .messaging.operation.type = "publish" }'
+  - traceql: '{ kind=producer && .messaging.system = "amqp" && .messaging.operation.type = "send" }'
     equals: publish
     attributes:
       messaging.system: amqp
-      messaging.operation.type: publish
+      messaging.operation.type: send
+      messaging.operation.name: publish
       server.port: '5672'
   - traceql: '{ kind=consumer && .messaging.system = "amqp" && .messaging.operation.type = "process" }'
     equals: process
     attributes:
       messaging.system: amqp
       messaging.operation.type: process
+      messaging.operation.name: process
       server.port: '5672'
   metrics:
   - promql: messaging_client_operation_duration_seconds_count{messaging_system="amqp"}

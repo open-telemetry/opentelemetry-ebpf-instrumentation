@@ -16,6 +16,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <bpfcore/utils.h>
+
+#include <common/pin_internal.h>
+#include <common/preempt_guard.h>
+
+#include <gotracer/go_offsets.h>
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, u32);
+    __type(value, go_executable_key_t);
+    __uint(max_entries, MAX_GO_PROGRAMS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} go_executable_identity_requests SEC(".maps");
+
+SEC("kprobe/uprobe_register")
+int GUARDED_PROG(obi_capture_go_executable_identity, struct pt_regs *, ctx) {
+    const u32 tid = (u32)bpf_get_current_pid_tgid();
+    go_executable_key_t *identity = bpf_map_lookup_elem(&go_executable_identity_requests, &tid);
+    if (!identity) {
+        return 0;
+    }
+
+    struct inode *inode = (struct inode *)PT_REGS_PARM1_CORE(ctx);
+    go_executable_key(inode, identity);
+    return 0;
+}
+
 #include "go_runtime.c"
 #include "go_net.c"
 #include "go_net_tls.c"

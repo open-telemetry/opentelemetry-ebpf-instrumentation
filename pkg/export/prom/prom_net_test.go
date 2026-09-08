@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-var mpConfig = &perapp.MetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone | export.FeatureNetworkFlowPackets}
+var mpConfig = &perapp.GlobalMetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone | export.FeatureNetworkFlowPackets}
 
 func TestMetricsExpiration(t *testing.T) {
 	now := syncedClock{now: time.Now()}

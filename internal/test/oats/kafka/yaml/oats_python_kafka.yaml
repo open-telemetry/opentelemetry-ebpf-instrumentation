@@ -13,13 +13,15 @@ expected:
     attributes:
       messaging.destination.name: my-topic
       messaging.operation.type: process
+      messaging.operation.name: process
       messaging.system: kafka
       server.port: '9092'
-  - traceql: '{ .messaging.operation.type = "publish" }'
-    equals: publish my-topic
+  - traceql: '{ .messaging.operation.type = "send" }'
+    equals: send my-topic
     attributes:
       messaging.destination.name: my-topic
-      messaging.operation.type: publish
+      messaging.operation.type: send
+      messaging.operation.name: send
       messaging.system: kafka
       server.port: '9092'
   metrics:

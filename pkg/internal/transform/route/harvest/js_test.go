@@ -4,6 +4,9 @@
 package harvest
 
 import (
+	"bytes"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -787,6 +790,74 @@ func TestHandleNestJS(t *testing.T) {
 	}
 }
 
+func TestNestJSQuotedStringsAreBounded(t *testing.T) {
+	extractor := NewRouteExtractor()
+	values := make([]string, maxNestDecoratorValues+1)
+	for i := range values {
+		values[i] = fmt.Sprintf("'route-%d'", i)
+	}
+
+	quoted := extractor.quotedStrings(strings.Join(values, ","))
+
+	require.Len(t, quoted, maxNestDecoratorValues)
+	assert.Equal(t, "route-0", quoted[0])
+	assert.Equal(t, fmt.Sprintf("route-%d", maxNestDecoratorValues-1), quoted[len(quoted)-1])
+}
+
+func TestFlushNestMethodCapsRouteVariants(t *testing.T) {
+	extractor := NewRouteExtractor()
+	var logs bytes.Buffer
+	extractor.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	extractor.nestPrefixes = make([]string, maxNestRouteVariants)
+	extractor.nestCtrlVersions = []string{"1", "2"}
+	for i := range extractor.nestPrefixes {
+		extractor.nestPrefixes[i] = fmt.Sprintf("prefix-%d", i)
+	}
+	extractor.pendingNestMethod = &RoutePattern{Method: "GET", Path: "item", File: "test.ts", Line: 1}
+
+	extractor.flushNestMethod()
+
+	require.Len(t, extractor.routes, maxNestRouteVariants)
+	assert.Equal(t, "/prefix-0/item", extractor.routes[0].Path)
+	assert.Equal(t, "1", extractor.routes[0].Version)
+	assert.Equal(t, "/prefix-127/item", extractor.routes[len(extractor.routes)-1].Path)
+	assert.Equal(t, "2", extractor.routes[len(extractor.routes)-1].Version)
+
+	extractor.pendingNestMethod = &RoutePattern{Method: "POST", Path: "other", File: "test.ts", Line: 2}
+	extractor.flushNestMethod()
+	require.Len(t, extractor.routes, maxNestRouteVariants)
+	assert.Equal(t, 1, strings.Count(logs.String(), "nestjs route variant limit reached"))
+	assert.Contains(t, logs.String(), "file=test.ts")
+	assert.Contains(t, logs.String(), fmt.Sprintf("limit=%d", maxNestRouteVariants))
+}
+
+func TestCompiledNestJSFragmentsAreCappedPerFile(t *testing.T) {
+	values := make([]string, maxNestDecoratorValues)
+	for i := range values {
+		values[i] = fmt.Sprintf("'route-%d'", i)
+	}
+	joinedValues := strings.Join(values, ",")
+
+	controller := NewCompiledRouteExtractor()
+	controllerLine := fmt.Sprintf("(0, common_1.Controller)([%s])", joinedValues)
+	for i := 0; i <= maxNestRouteVariants/maxNestDecoratorValues; i++ {
+		require.True(t, controller.handleCompiledNestController("test.js", controllerLine, i+1))
+	}
+	require.Len(t, controller.routes, maxNestRouteVariants)
+	assert.Equal(t, maxNestRouteVariants, controller.nestRouteVariants)
+
+	version := NewCompiledRouteExtractor()
+	versionLine := fmt.Sprintf("(0, common_1.Version)([%s])", joinedValues)
+	for i := 0; i <= maxNestRouteVariants/maxNestDecoratorValues; i++ {
+		require.True(t, version.handleCompiledNestVersion("test.js", versionLine, i+1))
+	}
+	require.Len(t, version.routes, maxNestRouteVariants)
+	assert.Equal(t, maxNestRouteVariants, version.nestRouteVariants)
+
+	require.True(t, version.handleCompiledNestMethod("test.js", "(0, common_1.Get)('item')", 10))
+	require.Len(t, version.routes, maxNestRouteVariants)
+}
+
 func TestHandleHTTPDispatcher(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -892,6 +963,269 @@ func TestHandleHTTPDispatcher(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandleURLPattern(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		paths []string
+	}{
+		{
+			name:  "init object with double quotes",
+			lines: []string{`  const userURL = new URLPattern({ pathname: "/users/:id" });`},
+			paths: []string{"/users/:id"},
+		},
+		{
+			name:  "init object with single quotes",
+			lines: []string{`  new URLPattern({pathname: '/books/:id'})`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "init object with backticks",
+			lines: []string{"  new URLPattern({ pathname: `/books/:id/pages` })"},
+			paths: []string{"/books/:id/pages"},
+		},
+		{
+			name:  "quoted property key",
+			lines: []string{`  new URLPattern({ "pathname": "/users/:id" })`},
+			paths: []string{"/users/:id"},
+		},
+		{
+			name:  "computed property key",
+			lines: []string{`  new URLPattern({ ["pathname"]: "/users/:id" })`},
+			paths: []string{"/users/:id"},
+		},
+		{
+			name: "init object spread over several lines",
+			lines: []string{
+				`const pattern = new URLPattern({`,
+				`  protocol: "https",`,
+				`  hostname: "example.com",`,
+				`  pathname: "/books/:id",`,
+				`});`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "spaces around the constructor call",
+			lines: []string{`  new   URLPattern (  { pathname : "/users/:id" } )`},
+			paths: []string{"/users/:id"},
+		},
+		{
+			name:  "namespaced constructor",
+			lines: []string{`  new urlpattern.URLPattern({ pathname: "/users/:id" })`},
+			paths: []string{"/users/:id"},
+		},
+		{
+			name:  "string pattern with origin",
+			lines: []string{`  new URLPattern("https://example.com/books/:id")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "string pattern relative to a base URL",
+			lines: []string{`  new URLPattern("/books/:id", "https://example.com")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "string pattern with search and hash components",
+			lines: []string{`  new URLPattern("https://example.com/books/:id\?view=:view#details")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "string pattern with a hash component",
+			lines: []string{`  new URLPattern("https://example.com/books/:id#details")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "optional modifier is not a search component",
+			lines: []string{`  new URLPattern("https://(sub.)?example.com/books/:id?")`},
+			paths: []string{"/books/:id?"},
+		},
+		{
+			name:  "relative string pattern resolved against the base URL path",
+			lines: []string{`  new URLPattern("books/:id", "https://example.com/api/")`},
+			paths: []string{"/api/books/:id"},
+		},
+		{
+			name:  "relative string pattern replaces the last base URL segment",
+			lines: []string{`  new URLPattern("books/:id", "https://example.com/api")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "relative string pattern with dot segments",
+			lines: []string{`  new URLPattern("../books/:id", "https://example.com/api/v1/")`},
+			paths: []string{"/api/books/:id"},
+		},
+		{
+			// the base is only known at runtime, so neither is the pathname
+			name:  "relative string pattern with a non-literal base URL",
+			lines: []string{`  new URLPattern("books/:id", base)`},
+		},
+		{
+			name:  "absolute string pattern with a non-literal base URL",
+			lines: []string{`  new URLPattern("/books/:id", base)`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "relative init pathname resolved against the baseURL member",
+			lines: []string{`  new URLPattern({ pathname: "books/:id", baseURL: "https://example.com/api/" })`},
+			paths: []string{"/api/books/:id"},
+		},
+		{
+			name:  "relative init pathname with a non-literal baseURL member",
+			lines: []string{`  new URLPattern({ pathname: "books/:id", baseURL: base })`},
+		},
+		{
+			// the second argument of the object overload holds the options of
+			// the call, not its base URL
+			name:  "second argument of the object form is not a base URL",
+			lines: []string{`  new URLPattern({ pathname: "books/:id" }, { ignoreCase: true })`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "relative string pattern with no base URL",
+			lines: []string{`  new URLPattern("books/:id")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "string pattern concatenated with an expression",
+			lines: []string{`  new URLPattern("/books/" + segment, "https://example.com")`},
+		},
+		{
+			name:  "init pathname concatenated with an expression",
+			lines: []string{`  new URLPattern({ pathname: "/books/" + segment })`},
+		},
+		{
+			name:  "template pattern with an interpolation",
+			lines: []string{"  new URLPattern(`/books/${segment}`)"},
+		},
+		{
+			name: "string pattern spread over several lines",
+			lines: []string{
+				`const pattern = new URLPattern(`,
+				`  "/books/:id",`,
+				`  base,`,
+				`)`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name: "parentheses of a component pattern do not close the call",
+			lines: []string{
+				`const pattern = new URLPattern({`,
+				`  protocol: "(https?)",`,
+				`  hostname: "(sub.)?example.com",`,
+				`  pathname: "/books/:id",`,
+				`});`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name: "unbalanced parenthesis inside a string does not swallow the call",
+			lines: []string{
+				`const pattern = new URLPattern({`,
+				`  search: "?q=\\(",`,
+				`  pathname: "/books/:id",`,
+				`});`,
+				`router.use(middleware);`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "regexp group in the pathname",
+			lines: []string{`  new URLPattern({ pathname: "/books/:id(\\d+)" })`},
+			paths: []string{`/books/:id(\\d+)`},
+		},
+		{
+			name:  "base URL is not the pattern",
+			lines: []string{`  new URLPattern(init, "https://example.com/base/")`},
+		},
+		{
+			name:  "options object is not the pattern",
+			lines: []string{`  new URLPattern(init, { ignoreCase: true })`},
+		},
+		{
+			name: "file ends before the call closes",
+			lines: []string{
+				`const pattern = new URLPattern({`,
+				`  pathname: "/books/:id",`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "string pattern with origin and no path",
+			lines: []string{`  new URLPattern("https://example.com")`},
+		},
+		{
+			name:  "two patterns in the same line",
+			lines: []string{`  [new URLPattern({pathname: "/a/:id"}), new URLPattern({pathname: "/b/:id"})]`},
+			paths: []string{"/a/:id", "/b/:id"},
+		},
+		{
+			name:  "pathname outside a URLPattern call",
+			lines: []string{`  const { pathname: "/users/:id" } = parsed;`},
+		},
+		{
+			name:  "not a URLPattern",
+			lines: []string{`  const url = new URL("/users/1", base);`},
+		},
+		{
+			name:  "helper whose name ends in URLPattern",
+			lines: []string{`  const pattern = createURLPattern("/not-a-route");`},
+		},
+		{
+			name:  "constructor of a type whose name ends in URLPattern",
+			lines: []string{`  const pattern = new MyURLPattern("/not-a-route");`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			for i, line := range tt.lines {
+				extractor.handleURLPattern("test.js", line, i+1)
+			}
+			// a file may end while a call is still open, as scanFile does
+			extractor.flushURLPattern()
+
+			var paths []string
+			for _, r := range extractor.routes {
+				assert.Equal(t, "ALL", r.Method)
+				assert.Equal(t, "test.js", r.File)
+				// the route is anchored at the line the call opens on
+				assert.Equal(t, 1, r.Line)
+				paths = append(paths, r.Path)
+			}
+			assert.Equal(t, tt.paths, paths)
+		})
+	}
+}
+
+// URLPattern calls spread over several lines must be harvested as framework
+// routes: as fallback guesses they would be discarded in favor of the partial
+// fragments of any compiled output.
+func TestRouteExtractorURLPatternMultiLineCall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "urlpattern.js")
+	content := `const books = new URLPattern(
+  "/books/:id",
+  base,
+);
+
+const users = new URLPattern({
+  protocol: "(https?)",
+  pathname: "/users/:id",
+});
+
+export default { books, users };
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(path))
+
+	assert.ElementsMatch(t, []string{"/books/:id", "/users/:id"}, extractor.GetHarvestedRoutes())
+	assert.Equal(t, 2, extractor.FrameworkRoutes())
 }
 
 func TestCleanupRegexPath(t *testing.T) {
@@ -1123,6 +1457,9 @@ func TestExtractNodejsRoutes(t *testing.T) {
 	tempDir := t.TempDir()
 	testAppDir := filepath.Join(tempDir, "app")
 	require.NoError(t, os.MkdirAll(testAppDir, 0o755))
+	configDir := filepath.Join(tempDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "runtime-config"), nil, 0o644))
 
 	// Create a simple test JavaScript file with routes
 	testFile := filepath.Join(testAppDir, "server.js")
@@ -1210,7 +1547,7 @@ app.get('/api/health', (req, res) => {
 			name:        "successful extraction",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "/app/server.js"},
+			mockCmdline: []string{"/app/server.js"},
 			mockCwd:     "/app",
 			expectedRoutes: []string{
 				"/api/users",
@@ -1231,7 +1568,7 @@ app.get('/api/health', (req, res) => {
 			name:        "cwd error",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "/app/server.js"},
+			mockCmdline: []string{"/app/server.js"},
 			mockCwd:     "",
 			cwdErr:      assert.AnError,
 			expectedErr: "error finding cwd",
@@ -1240,15 +1577,15 @@ app.get('/api/health', (req, res) => {
 			name:        "script directory not found",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "/nonexistent/script.js"},
+			mockCmdline: []string{"/nonexistent/script.js"},
 			mockCwd:     "/nonexistent",
-			expectedErr: "error scanning directory, error lstat",
+			expectedErr: "failed to find script directory",
 		},
 		{
 			name:        "relative path in args",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "server.js"},
+			mockCmdline: []string{"server.js"},
 			mockCwd:     "/app",
 			expectedRoutes: []string{
 				"/api/users",
@@ -1260,7 +1597,19 @@ app.get('/api/health', (req, res) => {
 			name:        "args with flags",
 			pid:         12345,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "--inspect", "/app/server.js"},
+			mockCmdline: []string{"--inspect", "/app/server.js"},
+			mockCwd:     "/app",
+			expectedRoutes: []string{
+				"/api/users",
+				"/api/users/:id",
+			},
+			expectedCount: 2,
+		},
+		{
+			name:        "config file before script",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"--experimental-config-file", "/config/runtime-config", "/app/server.js"},
 			mockCwd:     "/app",
 			expectedRoutes: []string{
 				"/api/users",
@@ -1272,7 +1621,7 @@ app.get('/api/health', (req, res) => {
 			name:        "prefers Next.js manifest and skips .next directory",
 			pid:         12346,
 			mockRootDir: tempDir,
-			mockCmdline: []string{"node", "/nextapp/server.js"},
+			mockCmdline: []string{"/nextapp/server.js"},
 			mockCwd:     "/nextapp",
 			expectedRoutes: []string{
 				"/about",        // from manifest (root "/" is filtered out by GetHarvestedRoutes)
@@ -1300,11 +1649,7 @@ app.get('/api/health', (req, res) => {
 				if tt.cmdlineErr != nil {
 					return "", nil, tt.cmdlineErr
 				}
-				var exe string
-				if len(tt.mockCmdline) > 0 {
-					exe = tt.mockCmdline[0]
-				}
-				return exe, tt.mockCmdline, nil
+				return "node", tt.mockCmdline, nil
 			}
 
 			cwdForPID = func(pid app.PID) (string, error) {
@@ -1343,6 +1688,67 @@ app.get('/api/health', (req, res) => {
 	}
 }
 
+func TestNormalizeFileEntry(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "file URL", path: "file:///opt/app/main.ts", want: "/opt/app/main.ts"},
+		{name: "file URL root", path: "file:///", want: "/"},
+		{name: "absolute path", path: "/opt/app/main.ts", want: "/opt/app/main.ts"},
+		{name: "relative path", path: "src/main.ts", want: "src/main.ts"},
+		{name: "HTTP URL", path: "https://example.com/main.ts", want: "https://example.com/main.ts"},
+		{name: "empty path", path: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, normalizeFileEntry(tt.path))
+		})
+	}
+}
+
+func TestFindDenoAppDir(t *testing.T) {
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+	origIsDir := isDirFunc
+	t.Cleanup(func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+		isDirFunc = origIsDir
+	})
+
+	tempDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
+
+	rootDirForPID = func(app.PID) string { return tempDir }
+	cmdlineForPID = func(app.PID) (string, []string, error) {
+		return "deno", []string{"run", "-A", "/app/server.ts"}, nil
+	}
+	cwdForPID = func(app.PID) (string, error) { return "/workdir", nil }
+	isDirFunc = isDir
+
+	dir, err := FindDenoAppDir(12345)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tempDir, "app")+string(filepath.Separator), dir)
+
+	t.Run("file URL", func(t *testing.T) {
+		cmdlineForPID = func(app.PID) (string, []string, error) {
+			return "deno", []string{"run", "-A", "file:///app/server.ts"}, nil
+		}
+
+		dir, err := FindDenoAppDir(12345)
+
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(tempDir, "app")+string(filepath.Separator), dir)
+	})
+}
+
 func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 	// Save original functions
 	origRootDir := rootDirForPID
@@ -1365,7 +1771,7 @@ func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 	}
 
 	cmdlineForPID = func(_ app.PID) (string, []string, error) {
-		return "node", []string{"node", "server.js"}, nil
+		return "node", []string{"server.js"}, nil
 	}
 
 	cwdForPID = func(_ app.PID) (string, error) {
@@ -1666,15 +2072,15 @@ func TestExtractNodejsRoutes_CompiledDistOnly(t *testing.T) {
 	}{
 		// cwd-anchored scan: the source walk skips dist/, finds nothing, and the
 		// compiled walk descends into it
-		{name: "relative entrypoint", cmdline: []string{"node", "dist/main.js"}},
+		{name: "relative entrypoint", cmdline: []string{"dist/main.js"}},
 		// script-anchored scan: the scan root itself is the dist directory
-		{name: "absolute entrypoint inside dist", cmdline: []string{"node", "/dist/main.js"}},
+		{name: "absolute entrypoint inside dist", cmdline: []string{"/dist/main.js"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rootDirForPID = func(_ app.PID) string { return distApp }
-			cmdlineForPID = func(_ app.PID) (string, []string, error) { return tt.cmdline[0], tt.cmdline, nil }
+			cmdlineForPID = func(_ app.PID) (string, []string, error) { return "node", tt.cmdline, nil }
 			cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
 
 			result, err := ExtractNodejsRoutes(4242)
@@ -1749,7 +2155,7 @@ func TestExtractNodejsRoutes_CompiledVersionedDist(t *testing.T) {
 
 	rootDirForPID = func(_ app.PID) string { return distApp }
 	cmdlineForPID = func(_ app.PID) (string, []string, error) {
-		return "node", []string{"node", "dist/main.js"}, nil
+		return "node", []string{"dist/main.js"}, nil
 	}
 	cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
 

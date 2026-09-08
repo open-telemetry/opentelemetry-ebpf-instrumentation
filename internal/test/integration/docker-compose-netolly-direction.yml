@@ -41,7 +41,7 @@ services:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly${OTEL_EBPF_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_NETWORK_SOURCE: ${OTEL_EBPF_NETWORK_SOURCE}
-      OTEL_EBPF_METRICS_FEATURES: "network" # implicitly enabling network metrics without a global enable
+      OTEL_EBPF_METRICS_FEATURES: "network,network_flow_packets,network_inter_zone" # implicitly enabling network metrics without a global enable
       OTEL_EBPF_NETWORK_PRINT_FLOWS: "true"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "1s"
@@ -56,7 +56,7 @@ services:
 
   # OpenTelemetry Collector for Metrics. For Traces, we use directly Jaeger
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
+    image: otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
     container_name: otel-col
     deploy:
       resources:
@@ -85,7 +85,7 @@ services:
     volumes:
       - ../../../schemas/obi:/obi-registry:ro
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config${PROM_CONFIG_SUFFIX}.yml

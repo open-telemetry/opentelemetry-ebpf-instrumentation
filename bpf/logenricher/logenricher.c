@@ -18,6 +18,7 @@
 
 #include <logenricher/maps/log_enricher_pids.h>
 #include <logenricher/maps/log_events.h>
+#include <logenricher/maps/log_pipes.h>
 #include <logenricher/maps/pid_fd.h>
 #include <logenricher/maps/zeros.h>
 
@@ -47,10 +48,7 @@ static __always_inline bool pid_tracked(const struct task_struct *task) {
     return tracked != NULL;
 }
 
-static __always_inline u32 consume_ubuf(log_event_t *e,
-                                        struct iov_iter *from,
-                                        void *ubuf,
-                                        const char *fill) {
+static __always_inline u32 copy_ubuf(log_event_t *e, struct iov_iter *from, void *ubuf) {
     const size_t count = BPF_CORE_READ(from, count);
     u32 to_copy = (u32)count;
 
@@ -60,19 +58,24 @@ static __always_inline u32 consume_ubuf(log_event_t *e,
     }
 
     bpf_probe_read_user(e->log, to_copy, ubuf);
-    bpf_clamp_umin(to_copy, 1);
-    bpf_probe_write_user(ubuf, fill, to_copy);
-    bpf_probe_write_user((char *)ubuf + to_copy - 1, &k_newline, 1);
-
     return to_copy;
 }
 
-static __always_inline u32 consume_iovec(log_event_t *e,
-                                         const struct iovec *iov,
-                                         unsigned long nr_segs,
-                                         const char *fill) {
+static __always_inline void suppress_ubuf(void *ubuf, const char *fill, u32 len) {
+    if (len == 0) {
+        return;
+    }
+
+    bpf_clamp_umax(len, k_log_event_max_log_len);
+    bpf_clamp_umin(len, 1);
+    bpf_probe_write_user(ubuf, fill, len);
+    bpf_probe_write_user((char *)ubuf + len - 1, &k_newline, 1);
+}
+
+static __always_inline u32 copy_iovec(log_event_t *e,
+                                      const struct iovec *iov,
+                                      unsigned long nr_segs) {
     u32 tot = 0;
-    void *last_end = NULL;
 
     bpf_clamp_umax(nr_segs, k_iov_max_segs);
 
@@ -93,7 +96,39 @@ static __always_inline u32 consume_iovec(log_event_t *e,
         }
 
         bpf_probe_read_user(&e->log[tot], to_copy, vec.iov_base);
+        tot += to_copy;
+    }
+
+    return tot;
+}
+
+static __always_inline void
+suppress_iovec(const struct iovec *iov, unsigned long nr_segs, const char *fill) {
+    u32 tot = 0;
+    void *last_end = NULL;
+
+    bpf_clamp_umax(nr_segs, k_iov_max_segs);
+
+    for (unsigned long i = 0; i < k_iov_max_segs && i < nr_segs; i++) {
+        struct iovec vec;
+        if (bpf_probe_read_kernel(&vec, sizeof(vec), &iov[i]) != 0) {
+            break;
+        }
+        if (!vec.iov_base || !vec.iov_len) {
+            continue;
+        }
+
+        u32 to_copy = (u32)vec.iov_len;
+        if (to_copy == 0) {
+            continue;
+        }
+        bpf_clamp_umax(to_copy, k_iov_seg_max_len);
         bpf_clamp_umin(to_copy, 1);
+        bpf_clamp_umax(tot, k_log_event_max_log_len);
+        if (tot + to_copy > k_log_event_max_log_len) {
+            break;
+        }
+
         bpf_probe_write_user(vec.iov_base, fill, to_copy);
         last_end = (char *)vec.iov_base + to_copy - 1;
         tot += to_copy;
@@ -102,11 +137,13 @@ static __always_inline u32 consume_iovec(log_event_t *e,
     if (last_end) {
         bpf_probe_write_user(last_end, &k_newline, 1);
     }
-    return tot;
 }
 
-static __always_inline int
-__write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct task_struct *task) {
+static __always_inline int __write(struct kiocb *iocb,
+                                   struct iov_iter *from,
+                                   const int fd,
+                                   const log_pipe_key_t *pipe,
+                                   const struct task_struct *task) {
     iovec_iter_ctx ictx;
     get_iovec_ctx(&ictx, (struct iov_iter___dummy *)from);
 
@@ -126,14 +163,16 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
     e->tgid = pid_tgid >> 32;
     e->ctx = obi_ctx ? *obi_ctx : (obi_ctx_info_t){0};
     e->fd = fd;
+    e->ino = pipe ? pipe->ino : 0;
+    e->dev = pipe ? (u32)pipe->dev : 0;
 
     u32 tot = 0;
 
     if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF) &&
         ictx.iter_type == bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF) && ictx.ubuf) {
-        tot = consume_ubuf(e, from, ictx.ubuf, fill);
+        tot = copy_ubuf(e, from, ictx.ubuf);
     } else if (ictx.iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) && ictx.iov) {
-        tot = consume_iovec(e, ictx.iov, ictx.nr_segs, fill);
+        tot = copy_iovec(e, ictx.iov, ictx.nr_segs);
     } else {
         bpf_dbg_printk("logenricher: unsupported iter_type %d", ictx.iter_type);
         return 0;
@@ -162,6 +201,14 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
     const long err = bpf_ringbuf_output(&log_events, e, out_size, log_events_flags());
     if (err < 0) {
         bpf_dbg_printk("logenricher: failed to write log event to ringbuf: %d", err);
+        return 0;
+    }
+
+    if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF) &&
+        ictx.iter_type == bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF) && ictx.ubuf) {
+        suppress_ubuf(ictx.ubuf, fill, tot);
+    } else if (ictx.iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) && ictx.iov) {
+        suppress_iovec(ictx.iov, ictx.nr_segs, fill);
     }
 
     return 0;
@@ -199,7 +246,7 @@ int BPF_KPROBE(obi_kprobe_tty_write, struct kiocb *iocb, struct iov_iter *from) 
         return 0;
     }
 
-    return __write(iocb, from, 0, task);
+    return __write(iocb, from, 0, NULL, task);
 }
 
 SEC("kprobe/pipe_write")
@@ -211,12 +258,22 @@ int BPF_KPROBE(obi_kprobe_pipe_write, struct kiocb *iocb, struct iov_iter *from)
         return 0;
     }
 
+    // only touch registered stdout/stderr pipes, anything else is app data
+    const struct inode *f_inode = BPF_CORE_READ(iocb, ki_filp, f_inode);
+    const log_pipe_key_t key = {
+        .ino = BPF_CORE_READ(f_inode, i_ino),
+        .dev = BPF_CORE_READ(f_inode, i_sb, s_dev),
+    };
+    if (!bpf_map_lookup_elem(&log_pipes, &key)) {
+        return 0;
+    }
+
     int *fdp = bpf_map_lookup_elem(&pid_fd, &(u64){bpf_get_current_pid_tgid()});
     if (!fdp) {
         return 0;
     }
 
-    return __write(iocb, from, *fdp, task);
+    return __write(iocb, from, *fdp, &key, task);
 }
 
 static __always_inline int __record_fd(unsigned int fd) {

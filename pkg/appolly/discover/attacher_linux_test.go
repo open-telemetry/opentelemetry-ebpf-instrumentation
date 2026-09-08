@@ -49,8 +49,8 @@ func TestCommonTracersPrunedAfterLoadFailure(t *testing.T) {
 		log:                slog.With("component", t.Name()),
 		Metrics:            imetrics.NoopReporter{},
 		commonTracers:      []ebpf.Tracer{okTracer, failedTracer},
-		existingTracers:    map[uint64]*ebpf.ProcessTracer{},
-		processInstances:   maps.MultiCounter[uint64]{},
+		existingTracers:    map[ebpf.ExecutableKey]executableTracer{},
+		processInstances:   maps.MultiCounter[ebpf.ExecutableKey]{},
 		OutputTracerEvents: tracerEvents,
 	}
 
@@ -70,8 +70,9 @@ func TestCommonTracersPrunedAfterLoadFailure(t *testing.T) {
 	assert.NotEmpty(t, okTracer.allowed)
 	assert.Empty(t, failedTracer.allowed)
 
-	ta.existingTracers[fileInfo.Ino()] = tracer
-	ta.processInstances.Inc(fileInfo.Ino())
+	key := executableKey(fileInfo)
+	ta.existingTracers[key] = executableTracer{tracer: tracer, generation: 1}
+	ta.processInstances.Inc(key)
 
 	ta.notifyProcessDeletion(ie)
 	assert.NotEmpty(t, okTracer.blocked)

@@ -83,6 +83,26 @@ go test -v -run <TestName> -timeout 10m ./internal/test/integration/
 
 Do not propose changes that fail local validation.
 
+## Telemetry schema
+
+OBI publishes an OpenTelemetry telemetry schema under `site/schemas/obi/` and
+emits a `schema_url` on its telemetry. Cutting a new version and bumping the
+emitted URL (`OBISchemaURL`) are automated at release prep (`make prerelease` runs
+`make generate-schema-next`), and `make check-schema-files` guards their
+consistency in CI.
+
+Reference docs for what OBI emits are rendered from the same registry into
+`site/docs/` by `make generate-schema-docs`, which `make prerelease` also runs so
+each release ships docs matching its registry. Between releases, rerun it and
+commit the result whenever the registry changes; it is not verified in CI.
+
+The one step that is not automated: recording **renames or removals** of emitted
+attributes or metrics as schema transformations. If a change renames or removes
+emitted telemetry, it must be recorded so consumers can convert across versions —
+add the transformation to the next schema version's block at release prep, per the
+procedure in `devdocs/telemetry-schema.md` ("Releasing a new version"). This cannot be enforced
+mechanically today, so it is the contributor's and release owner's responsibility.
+
 ## Code Guidelines
 
 These rules apply to all code in the repository.

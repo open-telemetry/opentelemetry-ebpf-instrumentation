@@ -75,11 +75,9 @@ func TestWithNetNSConcurrentCallsAllComplete(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, callers)
 	for i := range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs[i] = WithNetNS(os.Getpid(), func() error { return nil })
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -98,4 +96,35 @@ func TestSameNetNSReportsMissingTarget(t *testing.T) {
 	_, err := sameNetNS(netNSPath(1 << 23))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestIsIsolated_selfIsNotIsolated(t *testing.T) {
+	isolated, err := IsIsolated(os.Getpid())
+	require.NoError(t, err)
+	assert.False(t, isolated)
+}
+
+func TestIsIsolated_failsClosedWhenHostNetNSUnavailable(t *testing.T) {
+	orig := statNetNSInode
+	t.Cleanup(func() { statNetNSInode = orig })
+
+	const targetPID = 9999
+	statNetNSInode = func(path string) (uint64, error) {
+		switch path {
+		case netNSPath(targetPID):
+			return 100, nil
+		case netNSPath(os.Getpid()):
+			return 200, nil
+		case netNSPath(1):
+			return 0, os.ErrNotExist
+		default:
+			t.Fatalf("unexpected netns path %q", path)
+			return 0, nil
+		}
+	}
+
+	isolated, err := IsIsolated(targetPID)
+	require.Error(t, err)
+	assert.False(t, isolated)
+	assert.ErrorContains(t, err, "stat host netns")
 }

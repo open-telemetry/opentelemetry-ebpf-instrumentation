@@ -12,12 +12,14 @@ expected:
     regexp: ^process
     attributes:
       messaging.operation.type: process
+      messaging.operation.name: process
       messaging.system: kafka
       server.port: '9092'
-  - traceql: '{ .messaging.operation.type = "publish" }'
-    regexp: ^publish
+  - traceql: '{ .messaging.operation.type = "send" }'
+    regexp: ^send
     attributes:
-      messaging.operation.type: publish
+      messaging.operation.type: send
+      messaging.operation.name: send
       messaging.system: kafka
       server.port: '9092'
   metrics:

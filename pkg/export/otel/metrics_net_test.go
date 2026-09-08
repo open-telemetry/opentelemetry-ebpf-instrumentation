@@ -161,8 +161,8 @@ func TestMetricAttributes_Filter(t *testing.T) {
 func TestMetricsConfig_Enabled(t *testing.T) {
 	endpointCfg := &otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"}
 	noEndpointCfg := &otelcfg.MetricsConfig{}
-	networkFeatures := &perapp.MetricsConfig{Features: export.FeatureNetwork}
-	noFeatures := &perapp.MetricsConfig{}
+	networkFeatures := &perapp.GlobalMetricsConfig{Features: export.FeatureNetwork}
+	noFeatures := &perapp.GlobalMetricsConfig{}
 
 	for _, tt := range []struct {
 		name    string

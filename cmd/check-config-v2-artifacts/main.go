@@ -12,21 +12,33 @@ import (
 	"io"
 	"os"
 
+	"go.yaml.in/yaml/v3"
+
 	"go.opentelemetry.io/obi/internal/config/convert"
 	configschema "go.opentelemetry.io/obi/internal/config/schema"
 )
 
 const (
-	defaultSchemaPath     = "devdocs/config/version-2.0/obi-extension.schema.json"
-	defaultExamplePath    = "devdocs/config/version-2.0/examples/default-configuration.yaml"
-	logFieldNamePattern   = `^[^=\u0000-\u0020\u007F-\u00A0\u1680\u2000-\u200A\u2028-\u2029\u202F\u205F\u3000]+$`
-	logFieldNameMinLength = int64(1)
+	defaultSchemaPath          = "devdocs/config/version-2.0/obi-extension.schema.json"
+	defaultReferencePath       = "devdocs/config/version-2.0/examples/default-values-reference.fragment.yaml"
+	defaultRunnableExamplePath = "devdocs/config/version-2.0/examples/default-configuration.yaml"
+	logFieldNamePattern        = `^[^=\u0000-\u0020\u007F-\u00A0\u1680\u2000-\u200A\u2028-\u2029\u202F\u205F\u3000]+$`
+	logFieldNameMinLength      = int64(1)
 )
 
 func run(args []string) error {
 	flags := flag.NewFlagSet("check-config-v2-artifacts", flag.ContinueOnError)
 	schemaPath := flags.String("schema", defaultSchemaPath, "path to the hidden config v2 OBI extension schema")
-	examplePath := flags.String("example", defaultExamplePath, "path to the hidden config v2 default example")
+	referencePath := flags.String(
+		"default-reference",
+		defaultReferencePath,
+		"path to the config v2 default-values reference fragment",
+	)
+	runnableExamplePath := flags.String(
+		"runnable-example",
+		defaultRunnableExamplePath,
+		"path to the runnable standalone config v2 example",
+	)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -37,11 +49,19 @@ func run(args []string) error {
 	if err := checkSchemaArtifact(*schemaPath); err != nil {
 		return err
 	}
-	if err := checkExampleArtifact(*examplePath); err != nil {
+	if err := checkDefaultReferenceArtifact(*referencePath); err != nil {
+		return err
+	}
+	if err := checkRunnableExampleArtifact(*runnableExamplePath); err != nil {
 		return err
 	}
 
-	fmt.Printf("config v2 artifacts verified: %s, %s\n", *schemaPath, *examplePath)
+	fmt.Printf(
+		"config v2 artifacts verified: %s, %s, %s\n",
+		*schemaPath,
+		*referencePath,
+		*runnableExamplePath,
+	)
 	return nil
 }
 
@@ -123,7 +143,43 @@ func checkLogFieldNameSchema(root map[string]any) error {
 	return nil
 }
 
-func checkExampleArtifact(path string) error {
+func checkDefaultReferenceArtifact(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+
+	var root map[string]any
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("%s: parse config v2 default-values reference: %w", path, err)
+	}
+	if _, ok := root["file_format"]; ok {
+		return fmt.Errorf("%s: default-values reference must not be a standalone document", path)
+	}
+
+	document := append([]byte("file_format: \"1.0\"\n"), data...)
+	doc, ext, err := configschema.ParseStandaloneYAML(document)
+	if err != nil {
+		return fmt.Errorf("%s: parse config v2 default-values reference: %w", path, err)
+	}
+	if doc == nil || ext == nil {
+		return fmt.Errorf("%s: missing config v2 reference document or extension", path)
+	}
+	if ext.Version != configschema.SupportedVersion {
+		return fmt.Errorf("%s: unexpected extension version %q", path, ext.Version)
+	}
+	cfg, err := convert.DocumentToRuntime(doc)
+	if err != nil {
+		return fmt.Errorf("%s: import config v2 default-values reference: %w", path, err)
+	}
+	if cfg == nil {
+		return fmt.Errorf("%s: imported config v2 default-values reference produced nil runtime config", path)
+	}
+
+	return nil
+}
+
+func checkRunnableExampleArtifact(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
@@ -131,20 +187,20 @@ func checkExampleArtifact(path string) error {
 
 	doc, ext, err := configschema.ParseStandaloneYAML(data)
 	if err != nil {
-		return fmt.Errorf("%s: parse standalone config v2 example: %w", path, err)
+		return fmt.Errorf("%s: parse runnable standalone config v2 example: %w", path, err)
 	}
 	if doc == nil || ext == nil {
-		return fmt.Errorf("%s: missing standalone config v2 document or extension", path)
+		return fmt.Errorf("%s: missing runnable config v2 document or extension", path)
 	}
 	if ext.Version != configschema.SupportedVersion {
 		return fmt.Errorf("%s: unexpected extension version %q", path, ext.Version)
 	}
 	cfg, err := convert.DocumentToRuntime(doc)
 	if err != nil {
-		return fmt.Errorf("%s: import standalone config v2 example: %w", path, err)
+		return fmt.Errorf("%s: import runnable standalone config v2 example: %w", path, err)
 	}
-	if cfg == nil {
-		return fmt.Errorf("%s: imported standalone config v2 example produced nil runtime config", path)
+	if err := cfg.ValidateStatic(); err != nil {
+		return fmt.Errorf("%s: validate runnable standalone config v2 example: %w", path, err)
 	}
 
 	return nil

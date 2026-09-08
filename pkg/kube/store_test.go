@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"text/template"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1056,6 +1057,60 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 			tt.operations(t, store, tt.setupPIDs)
 		})
 	}
+}
+
+func waitForProcessMutation(t *testing.T, ch <-chan struct{}) bool {
+	t.Helper()
+	select {
+	case <-ch:
+		return true
+	case <-time.After(time.Second):
+		return assert.Fail(t, "timed out waiting for process mutation")
+	}
+}
+
+func TestStoreSerializesConcurrentProcessMutations(t *testing.T) {
+	originalInfoForPID := InfoForPID
+	t.Cleanup(func() { InfoForPID = originalInfoForPID })
+	pid, info := app.PID(4242), container.Info{ContainerID: "container", PIDNamespace: 40}
+	store := createTestStore()
+	entered, release, addDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	InfoForPID = func(app.PID) (container.Info, error) {
+		close(entered)
+		if !waitForProcessMutation(t, release) {
+			return container.Info{}, assert.AnError
+		}
+		return info, nil
+	}
+	go func() { store.AddProcess(pid); close(addDone) }()
+	require.True(t, waitForProcessMutation(t, entered))
+	locked := store.processAccess.TryLock()
+	if locked {
+		store.processAccess.Unlock()
+	}
+	assert.False(t, locked, "process lookup must hold the lifecycle lock")
+	close(release)
+	require.True(t, waitForProcessMutation(t, addDone))
+	require.Equal(t, info, *store.containerByPID[pid])
+	store.access.RLock()
+	deleteDone := make(chan struct{})
+	go func() { store.DeleteProcess(pid); close(deleteDone) }()
+	writerPending := assert.Eventually(t, func() bool {
+		if !store.access.TryRLock() {
+			return true
+		}
+		store.access.RUnlock()
+		return false
+	}, time.Second, time.Millisecond)
+	locked = store.processAccess.TryLock()
+	if locked {
+		store.processAccess.Unlock()
+	}
+	assert.True(t, writerPending, "delete must attempt the store write lock")
+	assert.False(t, locked, "delete must hold the lifecycle lock before writing")
+	store.access.RUnlock()
+	require.True(t, waitForProcessMutation(t, deleteDone))
+	assert.NotContains(t, store.containerByPID, pid)
 }
 
 func TestStore_MultiPID_CrossContainerScenarios(t *testing.T) {

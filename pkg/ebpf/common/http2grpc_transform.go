@@ -30,7 +30,8 @@ type BPFHTTP2Info BpfHttp2GrpcRequestT
 type Protocol uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	HTTP2 Protocol = iota + 1
 	GRPC
@@ -38,22 +39,64 @@ const (
 
 const initialHeaderTableSize = 4096
 
+const (
+	maxPendingH2Streams   = 128
+	maxCompletedH2Streams = 128
+)
+
+const (
+	h2HpackRequestUnreliable  = 0x1
+	h2HpackResponseUnreliable = 0x2
+	h2HpackNewConnection      = 0x4
+)
+
 var (
-	validPath        = regexp.MustCompile(`^[A-Za-z0-9\-/._~]+$`)
+	// anchored to '/': a desynced HPACK dynamic table can resolve :path to another
+	// field's value (e.g. a traceparent), which must degrade to "*", not a label
+	validPath        = regexp.MustCompile(`^/[A-Za-z0-9\-/._~]*$`)
 	validContentType = regexp.MustCompile(`^[A-Za-z\-/\+]+$`)
 )
 
 type h2Connection struct {
-	hdec     *bhpack.Decoder
-	hdecRet  *bhpack.Decoder
-	protocol Protocol
+	hdec      *bhpack.Decoder
+	hdecRet   *bhpack.Decoder
+	protocol  Protocol
+	streams   map[uint32]*h2StreamMeta
+	completed map[uint32]struct{}
+}
+
+type h2ResponseMeta struct {
+	status int
+	grpc   bool
+	ok     bool
+}
+
+type pendingH2Event struct {
+	event    BPFHTTP2Info
+	response h2ResponseMeta
+}
+
+type h2StreamMeta struct {
+	requestSeen  bool
+	request      h2RequestMeta
+	requestOK    bool
+	responseSeen bool
+	response     h2ResponseMeta
+}
+
+type h2RequestMeta struct {
+	method   string
+	path     string
+	fullPath string
+	grpc     bool
 }
 
 func byteFramer(data []uint8) *http2.Framer {
 	fr := http2.NewFramer(
 		// we never write. We can save some resources
 		io.Discard,
-		bytes.NewReader(data))
+		bytes.NewReader(data),
+	)
 
 	return fr
 }
@@ -62,7 +105,7 @@ func byteFramer(data []uint8) *http2.Framer {
 // we remember if we see grpc mentioned and tag the rest of the streams for
 // a given connection as grpc. default assumes plain HTTP2
 // this is why we need the h2c cache
-func getOrInitH2Conn(activeGRPCConnections *lru.Cache[uint64, h2Connection], connID uint64) *h2Connection {
+func getOrInitH2ConnWithTrust(activeGRPCConnections *lru.Cache[uint64, *h2Connection], connID uint64, trustedNew bool) *h2Connection {
 	v, ok := activeGRPCConnections.Get(connID)
 
 	dynamicTableSize := initialHeaderTableSize
@@ -71,22 +114,28 @@ func getOrInitH2Conn(activeGRPCConnections *lru.Cache[uint64, h2Connection], con
 	}
 
 	if !ok {
-		h := h2Connection{
-			hdec:     bhpack.NewDecoder(uint32(dynamicTableSize), nil),
-			hdecRet:  bhpack.NewDecoder(uint32(dynamicTableSize), nil),
-			protocol: HTTP2,
+		v = &h2Connection{
+			hdec:      bhpack.NewDecoder(uint32(dynamicTableSize), nil),
+			hdecRet:   bhpack.NewDecoder(uint32(dynamicTableSize), nil),
+			protocol:  HTTP2,
+			streams:   map[uint32]*h2StreamMeta{},
+			completed: map[uint32]struct{}{},
 		}
-		activeGRPCConnections.Add(connID, h)
-		v, ok = activeGRPCConnections.Get(connID)
-		if !ok {
-			return nil
+		if connID != 0 && !trustedNew {
+			v.hdec.MarkUnreliable()
+			v.hdecRet.MarkUnreliable()
 		}
+		activeGRPCConnections.Add(connID, v)
 	}
 
-	return &v
+	return v
 }
 
-func protocolIsGRPC(activeGRPCConnections *lru.Cache[uint64, h2Connection], connID uint64) {
+func getOrInitH2Conn(activeGRPCConnections *lru.Cache[uint64, *h2Connection], connID uint64) *h2Connection {
+	return getOrInitH2ConnWithTrust(activeGRPCConnections, connID, true)
+}
+
+func protocolIsGRPC(activeGRPCConnections *lru.Cache[uint64, *h2Connection], connID uint64) {
 	h2c := getOrInitH2Conn(activeGRPCConnections, connID)
 	if h2c != nil {
 		h2c.protocol = GRPC
@@ -341,8 +390,8 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 	defer h2c.hdecRet.SetEmitFunc(func(_ bhpack.HeaderField) {})
 	defer h2c.hdecRet.Close()
 
+	frag := hf.HeaderBlockFragment()
 	for {
-		frag := hf.HeaderBlockFragment()
 		if _, err := h2c.hdecRet.Write(frag); err != nil {
 			return status, grpc, ok
 		}
@@ -350,8 +399,20 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 		if hf.HeadersEnded() {
 			break
 		}
-		if _, err := fr.ReadFrame(); err != nil {
+		frame, err := fr.ReadFrame()
+		if err != nil {
 			return status, grpc, ok
+		}
+		continuation, ok := frame.(*http2.ContinuationFrame)
+		if !ok {
+			return status, grpc, ok
+		}
+		frag = continuation.HeaderBlockFragment()
+		if continuation.HeadersEnded() {
+			if _, err := h2c.hdecRet.Write(frag); err != nil {
+				return status, grpc, ok
+			}
+			break
 		}
 	}
 
@@ -360,23 +421,25 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 
 func http2InfoToSpan(info *BPFHTTP2Info, method, path, fullPath, peer, host string, status int, protocol Protocol) request.Span {
 	return request.Span{
-		Type:          info.eventType(protocol),
-		Method:        method,
-		Path:          removeQuery(path),
-		FullPath:      fullPath,
-		Peer:          peer,
-		PeerPort:      int(info.ConnInfo.S_port),
-		Host:          host,
-		HostPort:      int(info.ConnInfo.D_port),
-		ContentLength: int64(info.Len),
-		RequestStart:  int64(info.StartMonotimeNs),
-		Start:         int64(info.StartMonotimeNs),
-		End:           int64(info.EndMonotimeNs),
-		Status:        status,
-		TraceID:       trace.TraceID(info.Tp.TraceId),
-		SpanID:        trace.SpanID(info.Tp.SpanId),
-		ParentSpanID:  trace.SpanID(info.Tp.ParentId),
-		TraceFlags:    info.Tp.Flags,
+		Type:              info.eventType(protocol),
+		ProtoVersion:      request.ProtoVersionHTTP2,
+		Method:            method,
+		Path:              removeQuery(path),
+		FullPath:          fullPath,
+		Peer:              peer,
+		PeerPort:          int(info.ConnInfo.S_port),
+		Host:              host,
+		HostPort:          int(info.ConnInfo.D_port),
+		ContentLength:     int64(info.Len),
+		RequestStart:      int64(info.StartMonotimeNs),
+		Start:             int64(info.StartMonotimeNs),
+		End:               int64(info.EndMonotimeNs),
+		Status:            status,
+		TraceID:           trace.TraceID(info.Tp.TraceId),
+		SpanID:            trace.SpanID(info.Tp.SpanId),
+		ParentSpanID:      trace.SpanID(info.Tp.ParentId),
+		ParentConditional: info.ParentStatus == parentStatusConditional,
+		TraceFlags:        info.Tp.Flags,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(info.Pid.HostPid),
 			UserPID:   app.PID(info.Pid.UserPid),
@@ -418,15 +481,80 @@ func readFrameHeader(buf []byte) (http2.FrameHeader, error) {
 	}, nil
 }
 
+func capturedHeaderBlockComplete(buf []byte) bool {
+	framer := byteFramer(buf)
+	for {
+		frame, err := framer.ReadFrame()
+		if err != nil {
+			return false
+		}
+		headers, ok := frame.(*http2.HeadersFrame)
+		if !ok {
+			continue
+		}
+		if headers.HeadersEnded() {
+			return true
+		}
+		for {
+			frame, err = framer.ReadFrame()
+			if err != nil {
+				return false
+			}
+			continuation, ok := frame.(*http2.ContinuationFrame)
+			if !ok {
+				return false
+			}
+			if continuation.HeadersEnded() {
+				return true
+			}
+		}
+	}
+}
+
+func truncateCapturedFrame(buf []byte) []byte {
+	if len(buf) <= frameHeaderLen {
+		return buf
+	}
+	fh, err := readFrameHeader(buf)
+	if err != nil || fh.Length <= uint32(len(buf)-frameHeaderLen) {
+		return buf
+	}
+	truncated := append([]byte(nil), buf...)
+	newLen := len(truncated) - frameHeaderLen
+	truncated[0] = uint8(newLen >> 16)
+	truncated[1] = uint8(newLen >> 8)
+	truncated[2] = uint8(newLen)
+	return truncated
+}
+
+func readResponseMeta(parseContext *EBPFParseContext, connID uint64, event *BPFHTTP2Info) h2ResponseMeta {
+	bLen := len(event.RetData)
+	if event.Flags == EventTypeKHTTP2ResponseHeaders && event.Len >= 0 && event.Len < int32(bLen) {
+		bLen = int(event.Len)
+	}
+	retFramer := byteFramer(truncateCapturedFrame(event.RetData[:bLen]))
+	for {
+		frame, err := retFramer.ReadFrame()
+		if err != nil {
+			return h2ResponseMeta{}
+		}
+
+		if headers, ok := frame.(*http2.HeadersFrame); ok {
+			status, grpc, parsed := readRetMetaFrame(parseContext, connID, retFramer, headers)
+			return h2ResponseMeta{status: status, grpc: grpc, ok: parsed}
+		}
+	}
+}
+
 //nolint:cyclop
-func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (request.Span, bool, error) {
+func http2EventToSpan(parseContext *EBPFParseContext, pending *pendingH2Event) (request.Span, bool, error) {
+	event := &pending.event
 	bLen := len(event.Data)
 	if event.Len < int32(bLen) {
 		bLen = int(event.Len)
 	}
 
 	framer := byteFramer(event.Data[:bLen])
-	retFramer := byteFramer(event.RetData[:])
 
 	// We don't set the framer.ReadMetaHeaders function to hpack.NewDecoder because
 	// the http2.MetaHeadersFrame code wants a full grpc buffer with all the fields,
@@ -435,7 +563,7 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 	// we can and terminate without an error when things fail to decode because of
 	// partial buffers.
 
-	status := 0
+	status := pending.response.status
 	eventType := HTTP2
 	connID := event.NewConnId
 
@@ -448,16 +576,9 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 			// We don't care about what's all in this request, we want to see if we can
 			// find the method and path, so we attempt to adjust the frame size and re-read.
 			if strings.Contains(err.Error(), "unexpected EOF") && bLen > frameHeaderLen {
-				fh, err := readFrameHeader(event.Data[:bLen])
-				if err == nil && fh.Length > uint32(bLen-frameHeaderLen) {
-					newLen := min(
-						// If we ever use more than 256 for the buffers we have to
-						// change this to encode properly in more than 1 byte
-						bLen-frameHeaderLen, 255)
-					event.Data[0] = 0
-					event.Data[1] = 0
-					event.Data[2] = uint8(newLen)
-					framer = byteFramer(event.Data[:bLen])
+				truncated := truncateCapturedFrame(event.Data[:bLen])
+				if len(truncated) == bLen && !bytes.Equal(truncated, event.Data[:bLen]) {
+					framer = byteFramer(truncated)
 
 					f, err = framer.ReadFrame()
 					if err == nil {
@@ -471,7 +592,6 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 		}
 
 		if ff, ok := f.(*http2.HeadersFrame); ok {
-			rok := false
 			method, path, contentType, ok, isResponse := readMetaFrame(parseContext, connID, framer, ff)
 			if isResponse {
 				return request.Span{}, true, nil // response HEADERS misread as a request start
@@ -484,27 +604,13 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 				path = "*"
 			}
 
-			grpcInStatus := false
-
-			for {
-				retF, err := retFramer.ReadFrame()
-				if err != nil {
-					break
-				}
-
-				if ff, ok := retF.(*http2.HeadersFrame); ok {
-					status, grpcInStatus, rok = readRetMetaFrame(parseContext, connID, retFramer, ff)
-					break
-				}
-			}
-
 			// We read nothing of value
-			if !ok && !rok {
+			if !ok && !pending.response.ok {
 				return request.Span{}, true, nil
 			}
 
 			// if we don't have protocol, assume gRPC if it's not ssl. HTTP2 is almost always SSL.
-			if eventType != GRPC && (grpcInStatus || contentType == "application/grpc" || (contentType == "" && event.Ssl == 0)) {
+			if eventType != GRPC && (pending.response.grpc || contentType == "application/grpc" || (contentType == "" && event.Ssl == 0)) {
 				eventType = GRPC
 				status = http2grpcStatus(status)
 			}
@@ -522,6 +628,179 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 	}
 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
+}
+
+func markH2DecodersUnreliable(h2c *h2Connection, flags uint8) {
+	if flags&h2HpackRequestUnreliable != 0 {
+		h2c.hdec.MarkUnreliable()
+	}
+	if flags&h2HpackResponseUnreliable != 0 {
+		h2c.hdecRet.MarkUnreliable()
+	}
+}
+
+func getOrInitH2Stream(h2c *h2Connection, streamID uint32) *h2StreamMeta {
+	stream := h2c.streams[streamID]
+	if stream == nil {
+		if len(h2c.streams) >= maxPendingH2Streams {
+			clear(h2c.streams)
+			h2c.hdec.MarkUnreliable()
+			h2c.hdecRet.MarkUnreliable()
+		}
+		stream = &h2StreamMeta{}
+		h2c.streams[streamID] = stream
+	}
+	return stream
+}
+
+func h2HeaderCapture(event *BPFHTTP2Info) []byte {
+	var buf []byte
+	switch event.Flags {
+	case EventTypeKHTTP2RequestHeaders:
+		buf = event.Data[:]
+	case EventTypeKHTTP2ResponseHeaders:
+		buf = event.RetData[:]
+	}
+	if event.Len >= 0 && event.Len < int32(len(buf)) {
+		buf = buf[:event.Len]
+	}
+	return buf
+}
+
+func readHTTP2HeaderEvent(parseContext *EBPFParseContext, event *BPFHTTP2Info) error {
+	if event.Len < 0 {
+		return errors.New("invalid HTTP/2 record length")
+	}
+
+	connID := event.NewConnId
+	if connID == 0 {
+		return nil
+	}
+	h2c := getOrInitH2ConnWithTrust(
+		parseContext.h2c, connID, event.HpackFlags&h2HpackNewConnection != 0,
+	)
+	if h2c == nil {
+		return nil
+	}
+	markH2DecodersUnreliable(h2c, event.HpackFlags)
+	if !capturedHeaderBlockComplete(h2HeaderCapture(event)) {
+		switch event.Flags {
+		case EventTypeKHTTP2RequestHeaders:
+			h2c.hdec.MarkUnreliable()
+		case EventTypeKHTTP2ResponseHeaders:
+			h2c.hdecRet.MarkUnreliable()
+		}
+	}
+	stream := getOrInitH2Stream(h2c, event.StreamId)
+
+	switch event.Flags {
+	case EventTypeKHTTP2RequestHeaders:
+		stream.requestSeen = true
+		span, ignore, err := http2EventToSpan(parseContext, &pendingH2Event{event: *event})
+		if err != nil {
+			return err
+		}
+		if !ignore && !stream.requestOK {
+			stream.request = h2RequestMeta{
+				method:   span.Method,
+				path:     span.Path,
+				fullPath: span.FullPath,
+				grpc:     h2SpanIsGRPC(span),
+			}
+			stream.requestOK = true
+		}
+	case EventTypeKHTTP2ResponseHeaders:
+		stream.responseSeen = true
+		response := readResponseMeta(parseContext, connID, event)
+		if response.ok {
+			stream.response = response
+		}
+	}
+	return nil
+}
+
+func h2SpanIsGRPC(span request.Span) bool {
+	return span.Type == request.EventTypeGRPC || span.Type == request.EventTypeGRPCClient
+}
+
+func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (request.Span, bool, error) {
+	if event.Len < 0 {
+		return request.Span{}, true, errors.New("invalid HTTP/2 record length")
+	}
+
+	connID := event.NewConnId
+	h2c := getOrInitH2ConnWithTrust(parseContext.h2c, connID, event.StreamId == 0)
+	if h2c == nil {
+		return request.Span{}, true, nil
+	}
+	markH2DecodersUnreliable(h2c, event.HpackFlags)
+	if event.StreamId == 0 {
+		return http2EventToSpan(parseContext, &pendingH2Event{
+			event:    *event,
+			response: readResponseMeta(parseContext, connID, event),
+		})
+	}
+	stream := h2c.streams[event.StreamId]
+	if _, completed := h2c.completed[event.StreamId]; completed {
+		return request.Span{}, true, nil
+	}
+	if len(h2c.completed) >= maxCompletedH2Streams {
+		clear(h2c.completed)
+	}
+	h2c.completed[event.StreamId] = struct{}{}
+	if stream != nil {
+		delete(h2c.streams, event.StreamId)
+	}
+
+	var response h2ResponseMeta
+	if stream != nil && stream.responseSeen {
+		response = stream.response
+	} else {
+		h2c.hdecRet.MarkUnreliable()
+		response = readResponseMeta(parseContext, connID, event)
+	}
+
+	if stream == nil || !stream.requestSeen {
+		h2c.hdec.MarkUnreliable()
+		return http2EventToSpan(parseContext, &pendingH2Event{event: *event, response: response})
+	}
+	if !stream.requestOK {
+		stream.request = h2RequestMeta{
+			path: "*",
+			grpc: response.grpc || h2c.protocol == GRPC || event.Ssl == 0,
+		}
+	}
+
+	cached := stream.request
+	protocol := HTTP2
+	status := response.status
+	if cached.grpc || response.grpc || h2c.protocol == GRPC {
+		protocol = GRPC
+		status = http2grpcStatus(status)
+	}
+
+	peer := ""
+	host := ""
+	if event.ConnInfo.S_port != 0 || event.ConnInfo.D_port != 0 {
+		source, target := (*BPFConnInfo)(unsafe.Pointer(&event.ConnInfo)).reqHostInfo()
+		host = target
+		peer = source
+	}
+	span := http2InfoToSpan(
+		event, cached.method, cached.path, cached.fullPath, peer, host, status, protocol,
+	)
+	return span, false, nil
+}
+
+func ReadHTTP2HeaderEvent(parseContext *EBPFParseContext, record *ringbuf.Record, filter ServiceFilter) error {
+	event, err := ReinterpretCast[BPFHTTP2Info](record.RawSample)
+	if err != nil {
+		return err
+	}
+	if !filter.ValidPID(app.PID(event.Pid.UserPid), event.Pid.Ns, PIDTypeKProbes) {
+		return nil
+	}
+	return readHTTP2HeaderEvent(parseContext, event)
 }
 
 func ReadHTTP2InfoIntoSpan(parseContext *EBPFParseContext, record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {

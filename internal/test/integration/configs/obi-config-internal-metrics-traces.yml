@@ -1,0 +1,16 @@
+# OBI configuration for the internal-metrics traces weaver suite. In addition to
+# the OTEL metrics endpoint (required for internal metrics over OTLP), this suite
+# enables the OTEL traces endpoint and drives HTTP traffic so that OBI actually
+# exports spans. Exporting spans exercises instrumentedTracesExporter.ConsumeTraces
+# (obi.otel.trace.exports) and the ring-buffer forwarder flush path
+# (obi.ebpf.tracer.flushes), which the metrics-only suite cannot reach.
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+otel_traces_export:
+  endpoint: http://otelcol:4318
+internal_metrics:
+  exporter: otel
+attributes:
+  select:
+    "*":
+      include: ["*"]

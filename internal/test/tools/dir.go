@@ -40,7 +40,7 @@ func ProjectDir() string {
 		return true
 	}
 
-	for i := 0; i < 50; i++ { // Limit directory traversal to prevent infinite loops
+	for range 50 { // Limit directory traversal to prevent infinite loops
 		if isProjectRoot(thisDir) {
 			break
 		}

@@ -11,6 +11,7 @@
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/lw_thread.h>
+#include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
@@ -21,7 +22,9 @@
 #include <maps/tp_info_mem.h>
 
 #include <generictracer/failed_connect.h>
+#include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_common.h>
+#include <generictracer/tcp_trace_cleanup.h>
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
@@ -61,7 +64,7 @@ static __always_inline void set_tcp_trace_info(u32 type,
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->pid = pid; // used for avoiding finding stale server requests with client port reuse
-    tp_p->req_type = EVENT_TCP_REQUEST;
+    tp_p->req_type = k_event_type_tcp_request;
 
     set_trace_info_for_connection(conn, type, tp_p);
     dbg_print_http_connection_info(conn);
@@ -77,6 +80,7 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
     if (req->direction == TCP_SEND) { // Client
         const u8 found = find_trace_for_client_request(pid_conn, orig_dport, lw_thread, &req->tp);
         bpf_dbg_printk("Looking up client trace info, found=%d", found);
+        req->parent_status = found;
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
         } else {
@@ -92,7 +96,7 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
                            orig_dport);
     } else { // Server
         const u8 found =
-            find_trace_for_server_request(&pid_conn->conn, &req->tp, EVENT_TCP_REQUEST);
+            find_trace_for_server_request(&pid_conn->conn, &req->tp, k_event_type_tcp_request);
         bpf_dbg_printk("Looking up server trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
@@ -106,28 +110,6 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
                            pid_conn->pid,
                            ssl,
                            orig_dport);
-    }
-}
-
-static __always_inline void cleanup_trace_info(tcp_req_t *tcp, pid_connection_info_t *pid_conn) {
-    if (tcp->direction == TCP_RECV) {
-        trace_key_t t_key = {0};
-        task_tid(&t_key.p_key);
-        if (tcp->task_tid) {
-            t_key.p_key.tid = tcp->task_tid;
-        }
-        t_key.extra_id = tcp->extra_id;
-
-        delete_server_trace(pid_conn, &t_key);
-    } else {
-        delete_client_trace_info(pid_conn);
-    }
-}
-
-static __always_inline void cleanup_tcp_trace_info_if_needed(pid_connection_info_t *pid_conn) {
-    tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
-    if (existing) {
-        cleanup_trace_info(existing, pid_conn);
     }
 }
 
@@ -164,7 +146,7 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
         return;
     }
 
-    lb->type = EVENT_TCP_LARGE_BUFFER;
+    lb->type = k_event_type_tcp_large_buffer;
     lb->packet_type = packet_type;
     lb->action = action;
     lb->kind = k_large_buf_layer_wire;
@@ -224,6 +206,11 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     case k_protocol_type_sunrpc:
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;
+    case k_protocol_type_aerospike:
+        return aerospike_send_large_buffer(
+            req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
+    case k_protocol_type_nats:
+    case k_protocol_type_amqp:
     case k_protocol_type_unknown:
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;
@@ -243,7 +230,7 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
         const u64 event_ts = bpf_ktime_get_ns();
         const u64 extra_id = extra_runtime_id();
         init_failed_connect_tcp_req(
-            req, pid_conn, orig_dport, connect_ts, event_ts, event_ts, extra_id, &pid);
+            req, pid_conn, orig_dport, connect_ts, event_ts, extra_id, &pid);
 
         bpf_dbg_printk("TCP connect failed event");
 
@@ -278,9 +265,13 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
     }
     if (!existing) {
+        // must check the local port: the peer port may also have a local
+        // listener (docker-proxy), which would misclassify a client as a server
+        const u16 local_port =
+            pid_conn->conn.d_port == orig_dport ? pid_conn->conn.s_port : pid_conn->conn.d_port;
         // Determining the server information for unix sockets is only valid on request creation
-        const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
-                               is_unix_sock_server(direction, orig_dport);
+        const bool is_server =
+            is_listening(local_port, netns) || is_unix_sock_server(direction, orig_dport);
         if (direction == TCP_RECV) {
             cp_support_data_t *tk = bpf_map_lookup_elem(&cp_support_connect_info, pid_conn);
             if (tk && tk->real_client) {
@@ -325,7 +316,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);
-            req->flags = EVENT_TCP_REQUEST;
+            req->flags = k_event_type_tcp_request;
             req->conn_info = pid_conn->conn;
             fixup_connection_info(&req->conn_info, direction, orig_dport);
             req->ssl = ssl;
@@ -419,7 +410,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
 // k_tail_protocol_tcp
 SEC("kprobe/tcp")
-int obi_protocol_tcp(void *ctx) {
+int GUARDED_PROG(obi_protocol_tcp, void *, ctx) {
     (void)ctx;
 
     // it assumes that the actual protocol_args have been previously set

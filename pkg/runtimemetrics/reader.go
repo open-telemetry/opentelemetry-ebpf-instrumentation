@@ -6,30 +6,76 @@ package runtimemetrics // import "go.opentelemetry.io/obi/pkg/runtimemetrics"
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
-	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
+	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-const EventTypeGoRuntimeMetric = ebpfcommon.EventTypeGoRuntimeMetric
+const (
+	EventTypeGoRuntimeMetric     = ebpfcommon.EventTypeGoRuntimeMetric
+	EventTypeGoRuntimeHistogram  = ebpfcommon.EventTypeGoRuntimeHistogram
+	EventTypePythonRuntimeMetric = ebpfcommon.EventTypePythonRuntimeMetric
+)
 
 func IsGoRuntimeMetricRecord(record *ringbuf.Record) bool {
 	return ebpfcommon.IsGoRuntimeMetricRecord(record)
 }
 
 type RuntimeMetricSnapshot struct {
-	Service svc.Attrs
-	PID     app.PID
-	Time    time.Time
+	Service    svc.Attrs
+	PID        app.PID
+	Generation uint64
+	Time       time.Time
+	// Removed marks a tombstone; its runtime-kind payload remains non-nil for routing.
+	Removed bool
 
-	Go  *GoRuntimeMetricSnapshot
-	JVM *JVMRuntimeMetricSnapshot
+	Go              *GoRuntimeMetricSnapshot
+	JVM             *JVMRuntimeMetricSnapshot
+	Nodejs          *NodejsRuntimeMetricSnapshot
+	NodejsGC        *NodejsGCSnapshot
+	NodejsHeapSpace *NodejsHeapSpaceSnapshot
+	Python          *PythonRuntimeMetricSnapshot
+
+	Histogram *GoRuntimeHistogramSnapshot
+}
+
+// GoHistogramKind identifies a Go runtime timeHistogram source.
+type GoHistogramKind uint8
+
+const (
+	// GoHistogramKindGCPause identifies stop-the-world GC pause durations.
+	GoHistogramKindGCPause GoHistogramKind = iota
+	// GoHistogramKindSchedLatency identifies runnable-to-running scheduler latency.
+	GoHistogramKindSchedLatency
+)
+
+// GoRuntimeHistogramSnapshot contains the raw populations read from a Go runtime timeHistogram.
+type GoRuntimeHistogramSnapshot struct {
+	Kind      GoHistogramKind
+	Counts    []uint64
+	Underflow uint64
+	Overflow  uint64
+}
+
+// CPythonGCGenerationCount matches the entries returned by gc.get_stats.
+const CPythonGCGenerationCount = 3
+
+type PythonRuntimeMetricSnapshot struct {
+	Generations [CPythonGCGenerationCount]PythonGCGenerationMetrics
+}
+
+type PythonGCGenerationMetrics struct {
+	Collections          uint64
+	CollectedObjects     uint64
+	UncollectableObjects uint64
 }
 
 type GoRuntimeMetricSnapshot struct {
@@ -86,11 +132,26 @@ func GoRuntimeCPUTimeValues(cpu *GoRuntimeCPUTimeSnapshot) [goRuntimeCPUTimeValu
 }
 
 type JVMRuntimeMetricSnapshot struct {
-	Kind       jvmruntime.JVMRuntimeMetricKind
-	PoolName   string
-	MemoryType jvmruntime.JVMMemoryType
-	GCPhase    jvmruntime.JVMGCPhase
-	ValueBytes uint64
+	Kind          appruntime.JVMRuntimeMetricKind
+	PoolName      string
+	MemoryType    appruntime.JVMMemoryType
+	GCPhase       appruntime.JVMGCPhase
+	ValueBytes    uint64
+	RuntimeValues *appruntime.JVMRuntimeValues
+}
+
+type NodejsRuntimeMetricSnapshot struct {
+	appruntime.NodejsEventLoopValues
+}
+
+type NodejsGCSnapshot struct {
+	GCType     appruntime.NodejsGCType
+	DurationNs uint64
+}
+
+type NodejsHeapSpaceSnapshot struct {
+	SpaceName string
+	appruntime.NodejsHeapSpaceValues
 }
 
 type QueueSender struct {
@@ -118,7 +179,72 @@ func (s *QueueSender) SendGoRuntimeMetricRecord(
 	return nil
 }
 
-func (s *QueueSender) SendJVMRuntimeMetrics(ctx context.Context, events []jvmruntime.JVMRuntimeEvent) {
+func (s *QueueSender) SendPythonRuntimeMetricRecord(
+	ctx context.Context,
+	record *ringbuf.Record,
+	filter ebpfcommon.ServiceFilter,
+) error {
+	if s == nil || s.queue == nil {
+		return nil
+	}
+
+	snapshot, ignore, err := pythonSnapshotFromRingbuf(record, filter)
+	if err != nil || ignore {
+		return err
+	}
+	s.queue.SendCtx(ctx, []RuntimeMetricSnapshot{snapshot})
+	return nil
+}
+
+func (s *QueueSender) SendNodejsRuntimeMetrics(ctx context.Context, events []appruntime.NodejsRuntimeEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromNodejsRuntimeEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
+}
+
+func (s *QueueSender) SendNodejsGCMetrics(ctx context.Context, events []appruntime.NodejsGCEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromNodejsGCEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
+}
+
+func (s *QueueSender) SendNodejsHeapSpaceMetrics(ctx context.Context, events []appruntime.NodejsHeapSpaceEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromNodejsHeapSpaceEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
+}
+
+func (s *QueueSender) SendJVMGCMetrics(ctx context.Context, events []appruntime.JVMGCEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromJVMGCEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
+}
+
+func (s *QueueSender) SendJVMRuntimeMetrics(ctx context.Context, events []appruntime.JVMRuntimeEvent) {
 	if s == nil || s.queue == nil || len(events) == 0 {
 		return
 	}
@@ -130,17 +256,104 @@ func (s *QueueSender) SendJVMRuntimeMetrics(ctx context.Context, events []jvmrun
 	s.queue.SendCtx(ctx, snapshots)
 }
 
+// PythonRuntimeMetricsFromProcessEvent returns the final value before its tombstone.
+func PythonRuntimeMetricsFromProcessEvent(event exec.ProcessEvent) []RuntimeMetricSnapshot {
+	if event.Type != exec.ProcessEventTerminated || event.File == nil {
+		return nil
+	}
+	service := event.ServiceFile().ServiceAttrs()
+	snapshots := make([]RuntimeMetricSnapshot, 0, 2*len(event.FinalPythonRuntimeMetrics))
+	for _, final := range event.FinalPythonRuntimeMetrics {
+		processService := service
+		processService.SDKLanguage = svc.InstrumentablePython
+		processService.ProcPID = final.PID
+		if final.HasValue {
+			python := &PythonRuntimeMetricSnapshot{}
+			for generation := range python.Generations {
+				python.Generations[generation] = PythonGCGenerationMetrics{
+					Collections:          final.Generations[generation].Collections,
+					CollectedObjects:     final.Generations[generation].CollectedObjects,
+					UncollectableObjects: final.Generations[generation].UncollectableObjects,
+				}
+			}
+			snapshots = append(snapshots, RuntimeMetricSnapshot{
+				Service: processService, PID: final.PID, Generation: final.Generation,
+				Time: final.Time, Python: python,
+			})
+		}
+		snapshots = append(snapshots, RuntimeMetricSnapshot{
+			Service: processService, PID: final.PID, Generation: final.Generation,
+			Time: final.Time, Removed: true, Python: &PythonRuntimeMetricSnapshot{},
+		})
+	}
+	return snapshots
+}
+
 type goRuntimeMetricRawKey struct {
 	HostPID uint32
 	UserPID uint32
 	Ns      uint32
 }
 
-type goRuntimeMetricRawEvent struct {
+type pythonRuntimeMetricRawEvent struct {
 	Type     uint8
 	Pad      [3]uint8
 	PID      goRuntimeMetricRawKey
-	Snapshot goRuntimeMetricRawSnapshot
+	Snapshot pythonRuntimeMetricRawSnapshot
+}
+
+type pythonRuntimeMetricRawSnapshot struct {
+	Generation  uint64
+	Generations [CPythonGCGenerationCount]pythonGCGenerationRawMetrics
+}
+
+type pythonGCGenerationRawMetrics struct {
+	Collections   uint64
+	Collected     uint64
+	Uncollectable uint64
+}
+
+func pythonSnapshotFromRingbuf(
+	record *ringbuf.Record,
+	filter ebpfcommon.ServiceFilter,
+) (RuntimeMetricSnapshot, bool, error) {
+	if record == nil || filter == nil {
+		return RuntimeMetricSnapshot{}, true, nil
+	}
+	event, err := ebpfcommon.ReinterpretCast[pythonRuntimeMetricRawEvent](record.RawSample)
+	if err != nil {
+		return RuntimeMetricSnapshot{}, true, err
+	}
+	if event.Type != EventTypePythonRuntimeMetric {
+		return RuntimeMetricSnapshot{}, true, nil
+	}
+	service, ok := runtimeMetricService(filter.CurrentPIDs(ebpfcommon.PIDTypeKProbes), event.PID)
+	if !ok {
+		return RuntimeMetricSnapshot{}, true, nil
+	}
+
+	pid := app.PID(event.PID.HostPID)
+	service.SDKLanguage = svc.InstrumentablePython
+	service.ProcPID = pid
+	python := &PythonRuntimeMetricSnapshot{}
+	for generation, raw := range event.Snapshot.Generations {
+		python.Generations[generation] = PythonGCGenerationMetrics{
+			Collections:          raw.Collections,
+			CollectedObjects:     raw.Collected,
+			UncollectableObjects: raw.Uncollectable,
+		}
+	}
+	return RuntimeMetricSnapshot{
+		Service: service, PID: pid, Generation: event.Snapshot.Generation, Python: python,
+	}, false, nil
+}
+
+type goRuntimeMetricRawEvent struct {
+	Type       uint8
+	Pad        [3]uint8
+	PID        goRuntimeMetricRawKey
+	Generation uint64
+	Snapshot   goRuntimeMetricRawSnapshot
 }
 
 type goRuntimeMetricRawSnapshot struct {
@@ -166,7 +379,22 @@ type goRuntimeMetricRawSnapshot struct {
 	MemoryGCGoal          uint64
 }
 
-// Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h.
+const goRuntimeHistogramMaxBuckets = timeHistogramNumBuckets * timeHistogramNumSubBuckets
+
+type goRuntimeHistogramRawEvent struct {
+	Type        uint8
+	Kind        GoHistogramKind
+	Pad         [2]uint8
+	PID         goRuntimeMetricRawKey
+	BucketCount uint32
+	Pad2        uint32
+	Underflow   uint64
+	Overflow    uint64
+	Generation  uint64
+	Counts      [goRuntimeHistogramMaxBuckets]uint64
+}
+
+// Mirrors the scalar bits of go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h.
 // Check these bits before using raw values; zero can be a valid value.
 const (
 	goRuntimeMetricValidGCCycles       uint64 = 1 << 0
@@ -187,9 +415,21 @@ func SnapshotFromRingbuf(
 	if record == nil || len(record.RawSample) == 0 {
 		return RuntimeMetricSnapshot{}, true, errors.New("invalid Go runtime metric event size")
 	}
-	if record.RawSample[0] != EventTypeGoRuntimeMetric {
+
+	switch record.RawSample[0] {
+	case EventTypeGoRuntimeMetric:
+		return scalarSnapshotFromRingbuf(record, filter)
+	case EventTypeGoRuntimeHistogram:
+		return histogramSnapshotFromRingbuf(record, filter)
+	default:
 		return RuntimeMetricSnapshot{}, true, nil
 	}
+}
+
+func scalarSnapshotFromRingbuf(
+	record *ringbuf.Record,
+	filter ebpfcommon.ServiceFilter,
+) (RuntimeMetricSnapshot, bool, error) {
 	if filter == nil {
 		return RuntimeMetricSnapshot{}, true, nil
 	}
@@ -203,8 +443,52 @@ func SnapshotFromRingbuf(
 		return RuntimeMetricSnapshot{}, true, nil
 	}
 
-	snapshot := convertGoRuntimeMetricSnapshot(service, app.PID(event.PID.UserPID), event.Snapshot)
+	snapshot := convertGoRuntimeMetricSnapshot(service, app.PID(event.PID.HostPID), event.Snapshot)
+	snapshot.Generation = event.Generation
 	return snapshot, false, nil
+}
+
+func histogramSnapshotFromRingbuf(
+	record *ringbuf.Record,
+	filter ebpfcommon.ServiceFilter,
+) (RuntimeMetricSnapshot, bool, error) {
+	event, err := ebpfcommon.ReinterpretCast[goRuntimeHistogramRawEvent](record.RawSample)
+	if err != nil {
+		return RuntimeMetricSnapshot{}, true, fmt.Errorf("decode Go runtime histogram event: %w", err)
+	}
+	if event.BucketCount != goRuntimeHistogramMaxBuckets {
+		return RuntimeMetricSnapshot{}, true, fmt.Errorf(
+			"invalid Go runtime histogram bucket count %d (want %d)",
+			event.BucketCount,
+			goRuntimeHistogramMaxBuckets,
+		)
+	}
+	if event.Kind != GoHistogramKindGCPause && event.Kind != GoHistogramKindSchedLatency {
+		return RuntimeMetricSnapshot{}, true, fmt.Errorf("unsupported Go runtime histogram kind %d", event.Kind)
+	}
+	if filter == nil {
+		return RuntimeMetricSnapshot{}, true, nil
+	}
+
+	service, ok := runtimeMetricService(filter.CurrentPIDs(ebpfcommon.PIDTypeGo), event.PID)
+	if !ok {
+		return RuntimeMetricSnapshot{}, true, nil
+	}
+
+	counts := make([]uint64, int(event.BucketCount))
+	copy(counts, event.Counts[:event.BucketCount])
+	return RuntimeMetricSnapshot{
+		Service:    service,
+		PID:        app.PID(event.PID.HostPID),
+		Generation: event.Generation,
+		Time:       time.Now(),
+		Histogram: &GoRuntimeHistogramSnapshot{
+			Kind:      event.Kind,
+			Counts:    counts,
+			Underflow: event.Underflow,
+			Overflow:  event.Overflow,
+		},
+	}, false, nil
 }
 
 func runtimeMetricService(
@@ -314,7 +598,42 @@ func convertGoRuntimeMetricSnapshot(
 	}
 }
 
-func SnapshotFromJVMRuntimeEvent(event jvmruntime.JVMRuntimeEvent) RuntimeMetricSnapshot {
+func SnapshotFromNodejsGCEvent(event appruntime.NodejsGCEvent) RuntimeMetricSnapshot {
+	return RuntimeMetricSnapshot{
+		Service: event.Service,
+		PID:     event.PID,
+		Time:    event.Time,
+		NodejsGC: &NodejsGCSnapshot{
+			GCType:     event.GCType,
+			DurationNs: event.DurationNs,
+		},
+	}
+}
+
+func SnapshotFromNodejsHeapSpaceEvent(event appruntime.NodejsHeapSpaceEvent) RuntimeMetricSnapshot {
+	return RuntimeMetricSnapshot{
+		Service: event.Service,
+		PID:     event.PID,
+		Time:    event.Time,
+		NodejsHeapSpace: &NodejsHeapSpaceSnapshot{
+			SpaceName:             event.SpaceName,
+			NodejsHeapSpaceValues: event.NodejsHeapSpaceValues,
+		},
+	}
+}
+
+func SnapshotFromNodejsRuntimeEvent(event appruntime.NodejsRuntimeEvent) RuntimeMetricSnapshot {
+	return RuntimeMetricSnapshot{
+		Service: event.Service,
+		PID:     event.PID,
+		Time:    event.Time,
+		Nodejs: &NodejsRuntimeMetricSnapshot{
+			NodejsEventLoopValues: event.NodejsEventLoopValues,
+		},
+	}
+}
+
+func SnapshotFromJVMGCEvent(event appruntime.JVMGCEvent) RuntimeMetricSnapshot {
 	return RuntimeMetricSnapshot{
 		Service: event.Service,
 		PID:     event.PID,
@@ -325,6 +644,19 @@ func SnapshotFromJVMRuntimeEvent(event jvmruntime.JVMRuntimeEvent) RuntimeMetric
 			MemoryType: event.MemoryType,
 			GCPhase:    event.GCPhase,
 			ValueBytes: event.ValueBytes,
+		},
+	}
+}
+
+func SnapshotFromJVMRuntimeEvent(event appruntime.JVMRuntimeEvent) RuntimeMetricSnapshot {
+	values := event.Values
+	return RuntimeMetricSnapshot{
+		Service:    event.Service,
+		PID:        event.PID,
+		Generation: event.Generation,
+		Time:       event.Time,
+		JVM: &JVMRuntimeMetricSnapshot{
+			RuntimeValues: &values,
 		},
 	}
 }

@@ -75,6 +75,7 @@ const (
 	exportsOTelMetrics     idFlags = 0x2
 	exportsOTelTraces      idFlags = 0x4
 	exportsOTelMetricsSpan idFlags = 0x8
+	autoNamespace          idFlags = 0x10
 )
 
 type ServiceNameNamespace struct {
@@ -195,6 +196,14 @@ func (i *Attrs) SetAutoName() {
 
 func (i *Attrs) AutoName() bool {
 	return i.getFlag(autoName)
+}
+
+func (i *Attrs) SetAutoNamespace() {
+	i.setFlag(autoNamespace)
+}
+
+func (i *Attrs) AutoNamespace() bool {
+	return i.getFlag(autoNamespace)
 }
 
 func (i *Attrs) SetExportsOTelMetrics() {

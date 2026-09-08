@@ -1,0 +1,983 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+// Unconnected-UDP DNS classification in generictracer/dns.h: obi_msg_name_port,
+// is_dns_msg and the unconn_dns_socks helpers. An unconnected resolver socket
+// carries no peer in its tuple (d_port == 0), so :53 is only in msg_name.
+//
+// Run from repo root:
+//   make -C bpf/tests bpf_dns_unconnected && bpf/tests/bpf_dns_unconnected
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_helpers.h>
+// included ahead of the override below, so the include chain does not redefine it
+#include <bpfcore/bpf_core_read.h>
+
+// Called by the dns.h include chain, omitted by the shared stub
+#define BPF_ANY 0
+
+// The shared stub's clock, which this test drives so the answer-timeout
+// boundary can be pinned
+#define test_now_ns bpf_ktime_ns_value
+
+static inline u32 bpf_get_prandom_u32(void) {
+    return 0;
+}
+
+static inline long bpf_loop(u32 nr_loops, void *cb, void *ctx, u64 flags) {
+    return 0;
+}
+
+static inline long bpf_skb_load_bytes(const void *skb, u32 offset, void *to, u32 len) {
+    return 0;
+}
+
+// The shared stubs no-op every read and map lookup, so the classifier is given
+// live mocks below and they are macro-shadowed over the include.
+
+// Host-resident structs, so a direct field access stands in for the CO-RE read.
+// The shared stub copies a zero value instead, which would leave msg_name unread.
+#undef BPF_CORE_READ_INTO
+#define BPF_CORE_READ_INTO(dst, src, field) (*(dst) = (src)->field)
+
+// Returns an error on a NULL source rather than faulting the test process
+static long test_probe_read_kernel(void *dst, u32 size, const void *src) {
+    if (!src) {
+        return -1;
+    }
+    memcpy(dst, src, size);
+    return 0;
+}
+
+// Stands in for the unconn_dns_socks LRU map; no eviction. Defined after the
+// include, where the map's value type is visible.
+static void *test_map_lookup(void *map, const void *key);
+static long test_map_update(void *map, const void *key, const void *value, u64 flags);
+static long test_map_delete(void *map, const void *key);
+
+#define bpf_probe_read_kernel test_probe_read_kernel
+#define bpf_map_lookup_elem test_map_lookup
+#define bpf_map_update_elem test_map_update
+#define bpf_map_delete_elem test_map_delete
+
+#include <generictracer/dns.h>
+
+#undef bpf_probe_read_kernel
+#undef bpf_map_lookup_elem
+#undef bpf_map_update_elem
+#undef bpf_map_delete_elem
+
+enum { k_mock_map_capacity = 8 };
+
+static struct {
+    u64 keys[k_mock_map_capacity];
+    unconn_dns_sock_t values[k_mock_map_capacity];
+    bool used[k_mock_map_capacity];
+} test_map;
+
+static void mock_map_reset(void) {
+    memset(&test_map, 0, sizeof(test_map));
+    test_now_ns = 0;
+}
+
+static void *test_map_lookup(void *map, const void *key) {
+    (void)map;
+    const u64 k = *(const u64 *)key;
+
+    for (int i = 0; i < k_mock_map_capacity; i++) {
+        if (test_map.used[i] && test_map.keys[i] == k) {
+            return &test_map.values[i];
+        }
+    }
+
+    return NULL;
+}
+
+static long test_map_update(void *map, const void *key, const void *value, u64 flags) {
+    (void)map;
+    (void)flags;
+    const u64 k = *(const u64 *)key;
+
+    for (int i = 0; i < k_mock_map_capacity; i++) {
+        if (test_map.used[i] && test_map.keys[i] == k) {
+            test_map.values[i] = *(const unconn_dns_sock_t *)value;
+            return 0;
+        }
+    }
+
+    for (int i = 0; i < k_mock_map_capacity; i++) {
+        if (!test_map.used[i]) {
+            test_map.used[i] = true;
+            test_map.keys[i] = k;
+            test_map.values[i] = *(const unconn_dns_sock_t *)value;
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
+static long test_map_delete(void *map, const void *key) {
+    (void)map;
+    const u64 k = *(const u64 *)key;
+
+    for (int i = 0; i < k_mock_map_capacity; i++) {
+        if (test_map.used[i] && test_map.keys[i] == k) {
+            test_map.used[i] = false;
+            memset(&test_map.values[i], 0, sizeof(test_map.values[i]));
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
+// obi_msg_name_port rejects a shorter msg_namelen, so a stub disagreeing with
+// the kernel layout would move the boundary the msg_namelen cases pin
+_Static_assert(sizeof(struct sockaddr_in) == 16, "sockaddr_in must match the kernel layout");
+
+// Test harness
+
+static int failures = 0;
+
+static void check_u16(const char *name, u16 expected, u16 actual) {
+    if (expected != actual) {
+        fprintf(stderr, "FAIL: %s\n  expected %u, got %u\n", name, expected, actual);
+        failures++;
+        return;
+    }
+    printf("ok: %s\n", name);
+}
+
+static void check_u8(const char *name, u8 expected, u8 actual) {
+    if (expected != actual) {
+        fprintf(stderr, "FAIL: %s\n  expected %u, got %u\n", name, expected, actual);
+        failures++;
+        return;
+    }
+    printf("ok: %s\n", name);
+}
+
+// msg_name as the kernel presents it: the sockaddr passed to sendto(), or the
+// source address filled in on recvmsg() return
+static struct msghdr msg_with_addr(struct sockaddr_in *sa, int namelen) {
+    struct msghdr msg = {
+        .msg_name = sa,
+        .msg_namelen = namelen,
+    };
+    return msg;
+}
+
+static struct sockaddr_in inet_addr_port(u16 family, u16 port) {
+    struct sockaddr_in sa = {0};
+    sa.sin_family = family;
+    sa.sin_port = bpf_htons(port);
+    return sa;
+}
+
+// obi_msg_name_port
+
+static void test_msg_name_port_reads_ipv4_peer_port(void) {
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 53);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u16("msg_name port is read in host order", 53, obi_msg_name_port(&msg));
+}
+
+static void test_msg_name_port_reads_non_dns_port_unchanged(void) {
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 8080);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u16("a non-DNS peer port is reported as-is", 8080, obi_msg_name_port(&msg));
+}
+
+static void test_msg_name_port_rejects_null_msghdr(void) {
+    check_u16("a NULL msghdr yields no port", 0, obi_msg_name_port(NULL));
+}
+
+static void test_msg_name_port_rejects_absent_name(void) {
+    // empty recv-side msg_name, as Netty leaves it; the socket-identity tier
+    // covers this case
+    struct msghdr msg = msg_with_addr(NULL, sizeof(struct sockaddr_in));
+
+    check_u16("an absent msg_name yields no port", 0, obi_msg_name_port(&msg));
+}
+
+static void test_msg_name_port_rejects_short_namelen(void) {
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 53);
+    struct msghdr msg = msg_with_addr(&sa, (int)sizeof(sa) - 1);
+
+    check_u16("a short msg_namelen yields no port", 0, obi_msg_name_port(&msg));
+}
+
+static void test_msg_name_port_rejects_negative_namelen(void) {
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 53);
+    struct msghdr msg = msg_with_addr(&sa, -1);
+
+    check_u16("a negative msg_namelen yields no port", 0, obi_msg_name_port(&msg));
+}
+
+static void test_msg_name_port_rejects_non_ipv4_family(void) {
+    // stated scope limit: IPv6 DNS transport is not handled
+    struct sockaddr_in sa = inet_addr_port(AF_INET6, 53);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u16("a non-AF_INET msg_name yields no port", 0, obi_msg_name_port(&msg));
+}
+
+// is_dns_msg
+
+static void test_is_dns_msg_uses_tuple_fast_path(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 53};
+
+    // tuple already names :53, so msg_name is never consulted
+    check_u8("a connected socket is classified from the tuple", 1, is_dns_msg(&conn, NULL));
+}
+
+static void test_is_dns_msg_classifies_unconnected_query(void) {
+    // musl's resolver: bind() + sendto(), so :53 is only in msg_name
+    connection_info_t conn = {.s_port = 40100, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 53);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("an unconnected DNS query is classified via msg_name", 1, is_dns_msg(&conn, &msg));
+}
+
+static void test_is_dns_msg_classifies_mdns_port(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 5353);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("port 5353 is classified as DNS", 1, is_dns_msg(&conn, &msg));
+}
+
+static void test_is_dns_msg_rejects_unconnected_non_dns(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 8125);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("unconnected non-DNS UDP is not classified", 0, is_dns_msg(&conn, &msg));
+}
+
+static void test_is_dns_msg_ignores_msg_name_when_peer_is_known(void) {
+    // a connected socket, so :53 in msg_name must not override the tuple
+    connection_info_t conn = {.s_port = 40100, .d_port = 8080};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 53);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("msg_name is not consulted for a connected socket", 0, is_dns_msg(&conn, &msg));
+}
+
+static void test_is_dns_msg_rejects_unconnected_without_msg_name(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 0};
+
+    check_u8("an unclassifiable answer falls through", 0, is_dns_msg(&conn, NULL));
+}
+
+// classify_dns_msg tri-state
+
+static void test_classify_reports_unknown_without_msg_name(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 0};
+
+    check_u8("an unclassifiable unconnected receive is unknown",
+             k_dns_msg_unknown,
+             classify_dns_msg(&conn, NULL));
+}
+
+static void test_classify_reports_no_for_explicit_non_dns_peer(void) {
+    // a positive non-DNS answer, which must veto the socket tier
+    connection_info_t conn = {.s_port = 40100, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 8125);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("an explicit non-DNS msg_name port is a positive no",
+             k_dns_msg_no,
+             classify_dns_msg(&conn, &msg));
+}
+
+static void test_classify_reports_no_for_connected_non_dns_peer(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 8080};
+
+    check_u8(
+        "a connected non-DNS peer is a positive no", k_dns_msg_no, classify_dns_msg(&conn, NULL));
+}
+
+// is_mdns_exchange
+//
+// Multicast DNS runs 5353 to 5353, and only that relaxes what a query may
+// carry. Holding 5353 at one end proves nothing: the port is unprivileged, and
+// a site that widens ip_local_port_range down to 1024 lets the kernel hand it
+// to an arbitrary client as an ephemeral source port.
+
+static void test_mdns_exchange_accepts_both_ends_on_the_mdns_port(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 5353};
+
+    check_u8("5353 at both ends is multicast DNS", 1, is_mdns_exchange(&conn, NULL));
+}
+
+// a compliant querier's sendto(), where the socket carries no peer
+static void test_mdns_exchange_accepts_an_unconnected_peer_on_the_mdns_port(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 5353);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("an unconnected socket whose msg_name names 5353 is multicast DNS",
+             1,
+             is_mdns_exchange(&conn, &msg));
+}
+
+// the case the tightening exists for: 5353 held locally, peer somewhere else
+static void test_mdns_exchange_rejects_a_local_port_with_an_unrelated_peer(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 9999);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("holding 5353 locally while talking to another port is not multicast DNS",
+             0,
+             is_mdns_exchange(&conn, &msg));
+}
+
+static void test_mdns_exchange_rejects_a_connected_non_mdns_peer(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 9999};
+
+    check_u8(
+        "a tuple naming a non-mDNS peer is not multicast DNS", 0, is_mdns_exchange(&conn, NULL));
+}
+
+// RFC 6762 §5.1: a one-shot querier must not send from 5353, and is explicitly
+// not a compliant querier, so it does not emit the forms the relaxation admits
+static void test_mdns_exchange_rejects_a_one_shot_querier(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 0};
+    struct sockaddr_in sa = inet_addr_port(AF_INET, 5353);
+    struct msghdr msg = msg_with_addr(&sa, sizeof(sa));
+
+    check_u8("an ephemeral source port querying 5353 is not multicast DNS",
+             0,
+             is_mdns_exchange(&conn, &msg));
+}
+
+// a receive that gave the kernel no address buffer, so the peer is unknowable
+static void test_mdns_exchange_rejects_an_unnamed_peer(void) {
+    connection_info_t conn = {.s_port = 5353, .d_port = 0};
+
+    check_u8("an unnamed peer leaves the exchange unproven, so it is not multicast DNS",
+             0,
+             is_mdns_exchange(&conn, NULL));
+}
+
+static void test_mdns_exchange_rejects_ordinary_unicast_dns(void) {
+    connection_info_t conn = {.s_port = 40100, .d_port = 53};
+
+    check_u8("a unicast resolver exchange is not multicast DNS", 0, is_mdns_exchange(&conn, NULL));
+}
+
+// dns_header_is_plausible
+//
+// The socket-identity tier admits payloads whose only evidence is the socket
+// they arrived on, and qr is a single bit, so this is the only thing standing
+// between arbitrary bytes on a resolver socket and a reported lookup.
+
+enum : u16 {
+    k_flags_query = 0x0100,      // qr=0, opcode=0, rd=1
+    k_flags_response = 0x8180,   // qr=1, opcode=0, rd=1, ra=1, rcode=0
+    k_flags_mdns_query = 0x0000, // qr=0, opcode=0; a multicast query sets no rd
+    k_flag_tc = 1 << 9,
+};
+
+// whether the message is multicast DNS, which decides how much a query may carry
+enum : u8 { k_unicast = 0, k_mdns = 1 };
+
+// counts as they sit in a real header, in network byte order
+static struct dnshdr dns_header(u16 flags, u16 qd, u16 an, u16 ns, u16 ar) {
+    struct dnshdr hdr = {
+        .id = bpf_htons(0x4242),
+        .flags = bpf_htons(flags),
+        .qdcount = bpf_htons(qd),
+        .ancount = bpf_htons(an),
+        .nscount = bpf_htons(ns),
+        .arcount = bpf_htons(ar),
+    };
+    return hdr;
+}
+
+// a datagram whose sections comfortably fit whatever the counts claim
+static u32 roomy_size(void) {
+    return sizeof(struct dnshdr) + 512;
+}
+
+static void test_header_accepts_a_real_query(void) {
+    struct dnshdr hdr = dns_header(k_flags_query, 1, 0, 0, 0);
+
+    check_u8("an ordinary query is plausible",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size(), k_unicast));
+}
+
+static void test_header_accepts_a_real_response(void) {
+    struct dnshdr hdr = dns_header(k_flags_response, 1, 1, 0, 0);
+
+    check_u8("an ordinary response is plausible",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size(), k_unicast));
+}
+
+// NXDOMAIN and SERVFAIL are lookups worth reporting, so rcode is not a filter
+static void test_header_accepts_an_nxdomain_response(void) {
+    const u16 flags = k_flags_response | 3;
+    struct dnshdr hdr = dns_header(flags, 1, 0, 1, 0);
+
+    check_u8("an NXDOMAIN response is plausible",
+             1,
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_unicast));
+}
+
+// A DNSSEC-aware resolver sets AD and CD on ordinary traffic. RFC 1035 called
+// these part of Z, so treating Z as three bits would drop this answer.
+static void test_header_accepts_dnssec_ad_and_cd(void) {
+    const u16 flags = k_flags_response | (1 << 5) | (1 << 4);
+    struct dnshdr hdr = dns_header(flags, 1, 1, 0, 0);
+
+    check_u8("AD and CD do not make a response implausible",
+             1,
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_unicast));
+}
+
+// mDNS responses may omit the question section
+static void test_header_accepts_a_response_without_a_question(void) {
+    struct dnshdr hdr = dns_header(k_flags_response, 0, 1, 0, 0);
+
+    check_u8("a response with answers but no question is plausible",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size(), k_unicast));
+}
+
+static void test_header_rejects_a_non_query_opcode(void) {
+    const u16 flags = k_flags_query | (5 << 11); // UPDATE
+    struct dnshdr hdr = dns_header(flags, 1, 0, 0, 0);
+
+    check_u8("a non-standard opcode is not a lookup",
+             0,
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_unicast));
+}
+
+static void test_header_rejects_a_set_reserved_bit(void) {
+    const u16 flags = k_flags_response | (1 << 6);
+    struct dnshdr hdr = dns_header(flags, 1, 1, 0, 0);
+
+    check_u8("the reserved bit must be zero",
+             0,
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_unicast));
+}
+
+static void test_header_rejects_a_query_that_asks_nothing(void) {
+    struct dnshdr hdr = dns_header(k_flags_query, 0, 0, 0, 0);
+
+    check_u8("a query with no question is implausible",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size(), k_unicast));
+}
+
+static void test_header_rejects_a_query_carrying_answers(void) {
+    struct dnshdr hdr = dns_header(k_flags_query, 1, 1, 0, 0);
+
+    check_u8("a query does not answer itself",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_query, roomy_size(), k_unicast));
+}
+
+static void test_header_rejects_an_empty_response(void) {
+    struct dnshdr hdr = dns_header(k_flags_response, 0, 0, 0, 0);
+
+    check_u8("a response with no sections carries no lookup",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_response, roomy_size(), k_unicast));
+}
+
+// The check that does most of the work against arbitrary bytes: random counts
+// describe far more records than the datagram could hold.
+static void test_header_rejects_counts_that_cannot_fit(void) {
+    struct dnshdr hdr = dns_header(k_flags_response, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF);
+
+    check_u8(
+        "counts larger than the datagram are implausible",
+        0,
+        dns_header_is_plausible(&hdr, k_flags_response, sizeof(struct dnshdr) + 32, k_unicast));
+}
+
+static void test_header_accepts_counts_that_exactly_fit(void) {
+    // two questions and one answer, and not a byte to spare
+    const u32 size = sizeof(struct dnshdr) + (2 * k_dns_min_question_bytes) + k_dns_min_rr_bytes;
+    struct dnshdr hdr = dns_header(k_flags_response, 2, 1, 0, 0);
+
+    check_u8("sections that exactly fit are plausible",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_response, size, k_unicast));
+}
+
+// A truncated response describes records it never sent, so its counts cannot be
+// held against the bytes on hand
+static void test_header_accepts_a_truncated_response(void) {
+    const u16 flags = k_flags_response | (1 << 9); // TC
+    struct dnshdr hdr = dns_header(flags, 1, 0xFFFF, 0, 0);
+
+    check_u8("a truncated response is not judged on its counts",
+             1,
+             dns_header_is_plausible(&hdr, flags, sizeof(struct dnshdr) + 16, k_unicast));
+}
+
+// Multicast DNS, which puts records in sections a unicast query leaves empty.
+// The port is recognized as DNS, so rejecting these forms would drop lookups
+// this code claims to report.
+
+// RFC 6762 §7.1: a querier that already knows some answers populates the Answer
+// Section with them, so that responders holding the same records stay quiet
+static void test_header_accepts_an_mdns_known_answer_query(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 1, 2, 0, 0);
+
+    check_u8("a known-answer suppression query is plausible over mDNS",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_mdns));
+
+    check_u8("the same query is implausible over unicast DNS",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_unicast));
+}
+
+// RFC 6762 §7.2: a known-answer list too large for one packet is continued in
+// further query packets, which carry no question at all. Every packet but the
+// last sets TC.
+static void test_header_accepts_an_mdns_continuation_packet(void) {
+    const u16 flags = k_flags_mdns_query | k_flag_tc;
+    struct dnshdr hdr = dns_header(flags, 0, 2, 0, 0);
+
+    check_u8("a continuation packet with more to follow is plausible over mDNS",
+             1,
+             dns_header_is_plausible(&hdr, flags, roomy_size(), k_mdns));
+}
+
+static void test_header_accepts_a_final_mdns_continuation_packet(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 0, 2, 0, 0);
+
+    check_u8("the last continuation packet, which clears TC, is plausible over mDNS",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_mdns));
+
+    check_u8("a question-less query is implausible over unicast DNS",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_unicast));
+}
+
+// RFC 6762 §8.1: a probe proposes its records in the Authority Section
+static void test_header_accepts_an_mdns_probe(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 1, 0, 1, 0);
+
+    check_u8("a probe query is plausible over mDNS",
+             1,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_mdns));
+}
+
+// The relaxation is about which sections may be occupied, not about whether the
+// message has to describe anything at all
+static void test_header_rejects_an_empty_mdns_query(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 0, 0, 0, 0);
+
+    check_u8("an mDNS query describing no records is implausible",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, roomy_size(), k_mdns));
+}
+
+// The size check is what stands between arbitrary bytes and a reported lookup,
+// and admitting answers into a query must not exempt a query from it
+static void test_header_rejects_an_mdns_query_that_cannot_fit(void) {
+    struct dnshdr hdr = dns_header(k_flags_mdns_query, 0, 0xFFFF, 0, 0);
+
+    check_u8("an mDNS query claiming more answers than it can hold is implausible",
+             0,
+             dns_header_is_plausible(&hdr, k_flags_mdns_query, sizeof(struct dnshdr) + 32, k_mdns));
+}
+
+// unconn_dns_socks
+
+// the local endpoint of an unconnected resolver socket, as parse_sock_info
+// reports it before the tuple is sorted
+static connection_info_t local_endpoint(u16 port, u8 last_octet) {
+    connection_info_t conn = {.s_port = port, .d_port = 0};
+    conn.s_addr[15] = last_octet;
+    return conn;
+}
+
+static void test_unconn_sock_has_no_expected_answer_by_default(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    check_u8("no answer is expected on an unseen socket",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+static void test_unconn_sock_answer_is_expected_after_a_query(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    check_u8("an answer is expected after a query",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// musl resolves A and AAAA in parallel on one socket, so consuming the window on
+// the first answer would leave the second unclassified
+static void test_unconn_sock_expects_every_parallel_answer(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    check_u8("the first parallel answer is expected",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+    check_u8("the second parallel answer is still expected",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// A datagram too short to parse, or one whose iovec could not be read, must not
+// spend the window that the real answer still needs
+static void test_unconn_sock_unparsed_receive_does_not_spend_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    // the caller looked, then failed to read or parse the payload
+    obi_unconn_dns_answer_expected((void *)0x1000, &conn);
+
+    check_u8("the window survives a receive that never parsed",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// A staged query is one that parsed as DNS on the way into udp_sendmsg. Until
+// the return probe says it left the host, it opens no window.
+
+enum : u64 { k_test_pid_tid = 0x2a2a };
+
+static void test_unconn_staged_query_opens_no_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+
+    check_u8("a staged query alone expects no answer",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+static void test_unconn_committed_query_opens_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("a committed query expects an answer",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The case the return probe exists for: sendto() returned an error, so the
+// resolver asked nothing and is owed nothing.
+static void test_unconn_failed_send_opens_no_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+    obi_discard_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("a failed DNS send expects no answer",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The commit consumes the staged query, so a later send whose return probe
+// fires without staging anything cannot reopen the window
+static void test_unconn_commit_does_not_repeat(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+    obi_forget_unconn_dns_sock((void *)0x1000);
+
+    // the socket was destroyed and its window retired; a second return probe
+    // for the same thread has nothing left to commit
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("a second commit reopens nothing",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The window is timed from the commit, not from the entry probe, so a send that
+// blocks in the kernel does not spend part of its own answer window
+static void test_unconn_window_is_timed_from_the_commit(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+
+    // the send blocks for longer than the whole answer window before returning
+    test_now_ns = k_unconn_dns_answer_timeout_ns * 2;
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("the window starts when the datagram went out",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The staged record carries the socket, so a commit reaching the map applies to
+// the socket that sent the query rather than to whatever sent last
+static void test_unconn_commit_applies_to_the_staged_socket(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+
+    obi_stage_unconn_dns_query(k_test_pid_tid, (void *)0x1000, &conn);
+    obi_commit_unconn_dns_query(k_test_pid_tid);
+
+    check_u8("the staged socket got the window",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+    check_u8(
+        "an unrelated socket did not", 0, obi_unconn_dns_answer_expected((void *)0x2000, &conn));
+}
+
+static void test_unconn_sock_does_not_match_other_sockets(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    check_u8("a different socket is unaffected",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x2000, &conn));
+}
+
+// A resolver socket carries unrelated traffic while a query is still
+// outstanding: DNS query -> non-DNS send -> nameless DNS answer. The
+// intervening send says nothing about the query already in flight, so the
+// window has to survive it or the answer is lost.
+static void test_unconn_sock_non_dns_send_preserves_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    // classify_dns_msg returns k_dns_msg_no for the intervening send, and the
+    // send path acts on that by declining to report it, nothing more
+    struct sockaddr_in statsd = inet_addr_port(AF_INET, 8125);
+    struct msghdr non_dns = msg_with_addr(&statsd, sizeof(statsd));
+    check_u8("the intervening send is a positive non-DNS",
+             k_dns_msg_no,
+             classify_dns_msg(&conn, &non_dns));
+
+    check_u8("the answer is still expected after an unrelated send",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+// The symmetric loss on the receive path: DNS query -> non-DNS receive that
+// names its peer -> nameless DNS answer. The named receive is classified and
+// discarded on its own merits, and must not take the outstanding query with it.
+static void test_unconn_sock_non_dns_receive_preserves_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    struct sockaddr_in statsd = inet_addr_port(AF_INET, 8125);
+    struct msghdr non_dns = msg_with_addr(&statsd, sizeof(statsd));
+    check_u8("the intervening receive is a positive non-DNS",
+             k_dns_msg_no,
+             classify_dns_msg(&conn, &non_dns));
+
+    check_u8("the answer is still expected after an unrelated receive",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+static void test_unconn_sock_query_refreshes_the_window(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    // a second lookup, issued just before the first window would lapse
+    test_now_ns = k_unconn_dns_answer_timeout_ns;
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    test_now_ns += k_unconn_dns_answer_timeout_ns;
+
+    check_u8("a later query extends the window",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+static void test_unconn_sock_rejects_a_recycled_pointer(void) {
+    // the kernel freed the resolver socket and handed the same address to an
+    // unrelated socket, which binds a different local endpoint
+    mock_map_reset();
+    connection_info_t resolver = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &resolver);
+
+    connection_info_t recycled = local_endpoint(51000, 10);
+
+    check_u8("a recycled sock pointer does not inherit the classification",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &recycled));
+
+    // the stale entry is dropped, so the original endpoint expects nothing either
+    check_u8("the stale entry is retired on the mismatch",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &resolver));
+}
+
+// The endpoint check cannot see this one: the replacement socket binds exactly
+// what the resolver had, so only retiring the entry when the socket is destroyed
+// keeps the new socket from inheriting the classification. obi_kprobe_udp_destroy_sock
+// is what calls obi_forget_unconn_dns_sock in the tracer.
+static void test_unconn_sock_rejects_a_recycled_pointer_at_the_same_endpoint(void) {
+    mock_map_reset();
+    connection_info_t resolver = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &resolver);
+
+    // the resolver socket is destroyed, and a new socket lands on the same
+    // address and rebinds the identical local endpoint inside the window
+    obi_forget_unconn_dns_sock((void *)0x1000);
+
+    check_u8("a socket recycled at the identical endpoint expects nothing",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &resolver));
+}
+
+static void test_unconn_sock_rejects_a_different_local_address(void) {
+    mock_map_reset();
+    connection_info_t resolver = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &resolver);
+
+    connection_info_t other_addr = local_endpoint(40100, 11);
+
+    check_u8("a matching port on a different local address expects nothing",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &other_addr));
+}
+
+static void test_unconn_sock_answer_expires(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    test_now_ns = k_unconn_dns_answer_timeout_ns + 1;
+
+    check_u8("an answer arriving after the timeout is not expected",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+static void test_unconn_sock_answer_within_timeout_is_expected(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+
+    test_now_ns = k_unconn_dns_answer_timeout_ns;
+
+    check_u8("an answer arriving on the timeout boundary is expected",
+             1,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+static void test_unconn_sock_is_forgotten_on_demand(void) {
+    mock_map_reset();
+    connection_info_t conn = local_endpoint(40100, 10);
+    obi_note_unconn_dns_query((void *)0x1000, &conn);
+    obi_forget_unconn_dns_sock((void *)0x1000);
+
+    check_u8("a forgotten socket expects nothing",
+             0,
+             obi_unconn_dns_answer_expected((void *)0x1000, &conn));
+}
+
+int main(void) {
+    test_msg_name_port_reads_ipv4_peer_port();
+    test_msg_name_port_reads_non_dns_port_unchanged();
+    test_msg_name_port_rejects_null_msghdr();
+    test_msg_name_port_rejects_absent_name();
+    test_msg_name_port_rejects_short_namelen();
+    test_msg_name_port_rejects_negative_namelen();
+    test_msg_name_port_rejects_non_ipv4_family();
+
+    test_is_dns_msg_uses_tuple_fast_path();
+    test_is_dns_msg_classifies_unconnected_query();
+    test_is_dns_msg_classifies_mdns_port();
+    test_is_dns_msg_rejects_unconnected_non_dns();
+    test_is_dns_msg_ignores_msg_name_when_peer_is_known();
+    test_is_dns_msg_rejects_unconnected_without_msg_name();
+
+    test_classify_reports_unknown_without_msg_name();
+    test_classify_reports_no_for_explicit_non_dns_peer();
+    test_classify_reports_no_for_connected_non_dns_peer();
+
+    test_mdns_exchange_accepts_both_ends_on_the_mdns_port();
+    test_mdns_exchange_accepts_an_unconnected_peer_on_the_mdns_port();
+    test_mdns_exchange_rejects_a_local_port_with_an_unrelated_peer();
+    test_mdns_exchange_rejects_a_connected_non_mdns_peer();
+    test_mdns_exchange_rejects_a_one_shot_querier();
+    test_mdns_exchange_rejects_an_unnamed_peer();
+    test_mdns_exchange_rejects_ordinary_unicast_dns();
+
+    test_header_accepts_a_real_query();
+    test_header_accepts_a_real_response();
+    test_header_accepts_an_nxdomain_response();
+    test_header_accepts_dnssec_ad_and_cd();
+    test_header_accepts_a_response_without_a_question();
+    test_header_rejects_a_non_query_opcode();
+    test_header_rejects_a_set_reserved_bit();
+    test_header_rejects_a_query_that_asks_nothing();
+    test_header_rejects_a_query_carrying_answers();
+    test_header_rejects_an_empty_response();
+    test_header_rejects_counts_that_cannot_fit();
+    test_header_accepts_counts_that_exactly_fit();
+    test_header_accepts_a_truncated_response();
+    test_header_accepts_an_mdns_known_answer_query();
+    test_header_accepts_an_mdns_continuation_packet();
+    test_header_accepts_a_final_mdns_continuation_packet();
+    test_header_accepts_an_mdns_probe();
+    test_header_rejects_an_empty_mdns_query();
+    test_header_rejects_an_mdns_query_that_cannot_fit();
+
+    test_unconn_sock_has_no_expected_answer_by_default();
+    test_unconn_sock_answer_is_expected_after_a_query();
+    test_unconn_sock_expects_every_parallel_answer();
+    test_unconn_sock_unparsed_receive_does_not_spend_the_window();
+    test_unconn_staged_query_opens_no_window();
+    test_unconn_committed_query_opens_the_window();
+    test_unconn_failed_send_opens_no_window();
+    test_unconn_commit_does_not_repeat();
+    test_unconn_window_is_timed_from_the_commit();
+    test_unconn_commit_applies_to_the_staged_socket();
+
+    test_unconn_sock_does_not_match_other_sockets();
+    test_unconn_sock_non_dns_send_preserves_the_window();
+    test_unconn_sock_non_dns_receive_preserves_the_window();
+    test_unconn_sock_query_refreshes_the_window();
+    test_unconn_sock_rejects_a_recycled_pointer();
+    test_unconn_sock_rejects_a_recycled_pointer_at_the_same_endpoint();
+    test_unconn_sock_rejects_a_different_local_address();
+    test_unconn_sock_answer_expires();
+    test_unconn_sock_answer_within_timeout_is_expected();
+    test_unconn_sock_is_forgotten_on_demand();
+
+    if (failures > 0) {
+        fprintf(stderr, "%d test(s) failed\n", failures);
+        return 1;
+    }
+    printf("all unconnected DNS classification tests passed\n");
+    return 0;
+}

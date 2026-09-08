@@ -16,7 +16,7 @@ services:
     command: ["/app/backend"]
 
   loadgen:
-    image: curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13
+    image: curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777
     depends_on:
       - frontend
     command:
@@ -38,15 +38,13 @@ services:
         done
 
   jaeger:
-    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
     ports:
       - "16686:16686"
       - "4317:4317"
 
   obi:
-    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.10.0@sha256:9c66cdb920202b9502e6f1b8e9b238757848eded40a0aad262976d6ebea23b02}
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.13.0@sha256:5e89d7478b5feeb8ee73881c58bfe5bb0ccb6dcd4f8cd62e30457aa6e6426adb}
     privileged: true
     pid: "host"
     environment:

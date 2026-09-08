@@ -4,6 +4,7 @@
 package prom
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -11,8 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	appexec "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
@@ -269,4 +276,346 @@ func assertGoRuntimeCPUTime(t *testing.T, registry *prometheus.Registry, nanosec
 	})
 	require.NotNil(t, metric)
 	assert.InDelta(t, float64(nanoseconds)/float64(time.Second), metric.GetCounter().GetValue(), 1e-12)
+}
+
+func TestPythonRuntimeCountersByGenerationAndRetention(t *testing.T) {
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+	}
+	reporter := &metricsReporter{userAttribSelection: selection}
+	reporter.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(
+		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
+		time.Now,
+		time.Minute,
+	)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(reporter.pythonRuntimeMetrics.collectors()...)
+
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		PID:     123,
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}},
+		Python: &runtimemetrics.PythonRuntimeMetricSnapshot{Generations: [3]runtimemetrics.PythonGCGenerationMetrics{
+			{Collections: 10, CollectedObjects: 20, UncollectableObjects: 1},
+			{Collections: 11, CollectedObjects: 21, UncollectableObjects: 2},
+			{Collections: 12, CollectedObjects: 22, UncollectableObjects: 3},
+		}},
+	}
+	reporter.collectPythonRuntimeMetrics(snapshot)
+
+	labels := map[string]string{"service_name": "orders", "cpython_gc_generation": "1"}
+	metric := gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 11, metric.GetCounter().GetValue(), 0)
+
+	snapshot.Python.Generations[1].Collections = 14
+	reporter.collectPythonRuntimeMetrics(snapshot)
+	metric = gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 14, metric.GetCounter().GetValue(), 0)
+
+	snapshot.Python.Generations[1].Collections = 3
+	reporter.collectPythonRuntimeMetrics(snapshot)
+	metric = gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 17, metric.GetCounter().GetValue(), 0)
+
+	reporter.deleteRuntimeMetrics(&snapshot.Service)
+	metric = gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 17, metric.GetCounter().GetValue(), 0)
+}
+
+func TestPythonRuntimeIgnoresSnapshotAfterProcessTermination(t *testing.T) {
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+	}
+	reporter := &metricsReporter{
+		pidsTracker:         otel.NewPidServiceTracker(),
+		userAttribSelection: selection,
+	}
+	reporter.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(
+		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
+		time.Now,
+		time.Minute,
+	)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(reporter.pythonRuntimeMetrics.collectors()...)
+
+	exportModes := services.NewExportModes()
+	exportModes.AllowMetrics()
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders"},
+		SDKLanguage: svc.InstrumentablePython,
+		Features:    export.FeatureApplicationRuntime,
+		ExportModes: exportModes,
+	}
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 123, Generation: 7, Service: service,
+		Python: &runtimemetrics.PythonRuntimeMetricSnapshot{},
+	}
+	snapshot.Python.Generations[1].Collections = 11
+	reporter.pidsTracker.AddPIDWithGeneration(snapshot.PID, service.UID, snapshot.Generation)
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+
+	labels := map[string]string{"service_name": "orders", "cpython_gc_generation": "1"}
+	require.NotNil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels))
+
+	reporter.deleteRuntimeMetrics(&service)
+	reporter.pidsTracker.RemovePID(snapshot.PID)
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+	metric := gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 11, metric.GetCounter().GetValue(), 0)
+}
+
+func TestPythonRuntimeCollectorFiltersGenerationFromExtraLabels(t *testing.T) {
+	collector := newPythonRuntimeMetricsCollector([]string{
+		"service_name",
+		"cpython_gc_generation",
+	}, time.Now, time.Minute)
+	registry := prometheus.NewRegistry()
+	assert.NotPanics(t, func() {
+		registry.MustRegister(collector.collectors()...)
+	})
+}
+
+func TestPythonRuntimeCountersAggregatePerPIDBaselines(t *testing.T) {
+	now := time.Now()
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+	}
+	reporter := &metricsReporter{userAttribSelection: selection}
+	reporter.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(
+		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
+		func() time.Time { return now },
+		time.Minute,
+	)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(reporter.pythonRuntimeMetrics.collectors()...)
+
+	service := svc.Attrs{UID: svc.UID{Name: "workers"}}
+	first := runtimemetrics.RuntimeMetricSnapshot{PID: 101, Service: service, Python: &runtimemetrics.PythonRuntimeMetricSnapshot{}}
+	first.Python.Generations[1].Collections = 11
+	second := runtimemetrics.RuntimeMetricSnapshot{PID: 202, Service: service, Python: &runtimemetrics.PythonRuntimeMetricSnapshot{}}
+	second.Python.Generations[1].Collections = 21
+	reporter.collectPythonRuntimeMetrics(first)
+	reporter.collectPythonRuntimeMetrics(second)
+
+	labels := map[string]string{"service_name": "workers", "cpython_gc_generation": "1"}
+	metric := gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 32, metric.GetCounter().GetValue(), 0)
+
+	first.Python.Generations[1].Collections = 14
+	reporter.collectPythonRuntimeMetrics(first)
+	metric = gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 35, metric.GetCounter().GetValue(), 0)
+
+	first.Removed = true
+	reporter.collectPythonRuntimeMetrics(first)
+	metric = gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 35, metric.GetCounter().GetValue(), 0)
+	second.Removed = true
+	reporter.collectPythonRuntimeMetrics(second)
+	metric = gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 35, metric.GetCounter().GetValue(), 0)
+
+	now = now.Add(2 * time.Minute)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels))
+
+	reporter.deleteRuntimeMetrics(&service)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels))
+}
+
+func TestPythonRuntimeCountersRefreshTTLWithUnchangedSnapshot(t *testing.T) {
+	now := time.Now()
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+	}
+	reporter := &metricsReporter{userAttribSelection: selection}
+	reporter.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(
+		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
+		func() time.Time { return now },
+		5*time.Second,
+	)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(reporter.pythonRuntimeMetrics.collectors()...)
+
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		PID:     123,
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}},
+		Python:  &runtimemetrics.PythonRuntimeMetricSnapshot{},
+	}
+	snapshot.Python.Generations[0].Collections = 10
+	reporter.collectPythonRuntimeMetrics(snapshot)
+
+	now = now.Add(4 * time.Second)
+	reporter.collectPythonRuntimeMetrics(snapshot)
+	now = now.Add(4 * time.Second)
+	labels := map[string]string{"service_name": "orders", "cpython_gc_generation": "0"}
+	require.NotNil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels))
+
+	now = now.Add(2 * time.Second)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels))
+}
+
+func TestPythonRuntimeCountersSurviveWorkerDiscovery(t *testing.T) {
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+	}
+	reporter := &metricsReporter{
+		serviceMap:          map[svc.UID]svc.Attrs{},
+		pidsTracker:         otel.NewPidServiceTracker(),
+		userAttribSelection: selection,
+	}
+	reporter.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(
+		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
+		time.Now,
+		time.Minute,
+	)
+	reporter.targetInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{Name: "test_python_worker_target_info"},
+		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
+	)
+	reporter.createEventMetrics = func(*svc.Attrs) {}
+	reporter.deleteEventMetrics = reporter.deleteMetricsForService
+	reporter.deleteEventMetricsPreservingHistograms = reporter.deleteMetricsForServicePreservingRuntimeHistograms
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(reporter.pythonRuntimeMetrics.collectors()...)
+	service := svc.Attrs{UID: svc.UID{Name: "workers"}}
+	for _, pid := range []app.PID{101, 202} {
+		reporter.handleProcessEvent(appexec.ProcessEvent{
+			Type: appexec.ProcessEventCreated,
+			File: appexec.New(appexec.Init{Pid: pid, Service: service}),
+		}, slog.Default())
+		if pid == 101 {
+			snapshot := runtimemetrics.RuntimeMetricSnapshot{
+				PID: pid, Service: service, Python: &runtimemetrics.PythonRuntimeMetricSnapshot{},
+			}
+			snapshot.Python.Generations[1].Collections = 11
+			reporter.collectPythonRuntimeMetrics(snapshot)
+		}
+	}
+
+	labels := map[string]string{"service_name": "workers", "cpython_gc_generation": "1"}
+	metric := gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, 11, metric.GetCounter().GetValue(), 0)
+}
+
+func TestPythonRuntimeWorkerGenerationUsesParentService(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "workers"},
+		SDKLanguage: svc.InstrumentablePython,
+	}
+	reporter := &metricsReporter{
+		serviceMap:  map[svc.UID]svc.Attrs{},
+		pidsTracker: otel.NewPidServiceTracker(),
+	}
+	reporter.createEventMetrics = func(*svc.Attrs) {}
+	reporter.deleteEventMetrics = func(*svc.Attrs) {}
+	reporter.deleteEventMetricsPreservingHistograms = func(*svc.Attrs) {}
+	parent := appexec.New(appexec.Init{Pid: 100, Service: service})
+	workerLifecycle := func(generation uint64) *appexec.FileInfo {
+		worker := appexec.New(appexec.Init{Pid: 101})
+		worker.SetRuntimeMetricServiceSource(parent)
+		worker.SetRuntimeMetricGeneration(worker.Pid(), generation)
+		return worker
+	}
+	snapshot := func(generation uint64) runtimemetrics.RuntimeMetricSnapshot {
+		return runtimemetrics.RuntimeMetricSnapshot{
+			PID: 101, Service: service, Generation: generation,
+			Python: &runtimemetrics.PythonRuntimeMetricSnapshot{},
+		}
+	}
+
+	first := workerLifecycle(1)
+	reporter.handleProcessEvent(appexec.ProcessEvent{Type: appexec.ProcessEventCreated, File: first}, slog.Default())
+	assert.True(t, reporter.runtimeSnapshotProcessLive(snapshot(1)))
+	reporter.handleProcessEvent(appexec.ProcessEvent{Type: appexec.ProcessEventTerminated, File: first}, slog.Default())
+	assert.False(t, reporter.runtimeSnapshotProcessLive(snapshot(1)))
+
+	second := workerLifecycle(2)
+	reporter.handleProcessEvent(appexec.ProcessEvent{Type: appexec.ProcessEventCreated, File: second}, slog.Default())
+	assert.False(t, reporter.runtimeSnapshotProcessLive(snapshot(1)))
+	assert.True(t, reporter.runtimeSnapshotProcessLive(snapshot(2)))
+}
+
+func TestPythonRuntimeCountersDeleteStaleMetadataLabels(t *testing.T) {
+	t.Run("same PID", func(t *testing.T) {
+		testPythonRuntimeMetadataRefresh(t, 101)
+	})
+	t.Run("new worker PID", func(t *testing.T) {
+		testPythonRuntimeMetadataRefresh(t, 202)
+	})
+}
+
+func TestPythonRuntimeDeleteMatchesExactBaseLabels(t *testing.T) {
+	collector := newPythonRuntimeMetricsCollector([]string{"service_name"}, time.Now, time.Minute)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(collector.collectors()...)
+
+	collector.addCounter(101, collector.collections, attributes.CPythonGCCollections.Prom, []string{"prod", "0"}, 10)
+	collector.addCounter(202, collector.collections, attributes.CPythonGCCollections.Prom, []string{"production", "0"}, 20)
+
+	collector.delete([]string{"prod"})
+	assert.Nil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, map[string]string{
+		"service_name": "prod", "cpython_gc_generation": "0",
+	}))
+
+	collector.addCounter(202, collector.collections, attributes.CPythonGCCollections.Prom, []string{"production", "0"}, 25)
+	metric := gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, map[string]string{
+		"service_name": "production", "cpython_gc_generation": "0",
+	})
+	require.NotNil(t, metric)
+	assert.InDelta(t, 25, metric.GetCounter().GetValue(), 0)
+}
+
+func testPythonRuntimeMetadataRefresh(t *testing.T, eventPID app.PID) {
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name", "host.name"}},
+	}
+	labelNames := labelNamesTargetInfo(false, false, &meta.NodeMeta{}, nil, selection)
+	reporter := &metricsReporter{
+		serviceMap:          map[svc.UID]svc.Attrs{},
+		pidsTracker:         otel.NewPidServiceTracker(),
+		userAttribSelection: selection,
+	}
+	reporter.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(labelNames, time.Now, time.Minute)
+	reporter.targetInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{Name: "test_python_metadata_target_info"},
+		labelNames,
+	)
+	reporter.createEventMetrics = func(*svc.Attrs) {}
+	reporter.deleteEventMetrics = reporter.deleteMetricsForService
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(reporter.pythonRuntimeMetrics.collectors()...)
+	uid := svc.UID{Name: "workers"}
+	oldService := svc.Attrs{UID: uid, HostName: "old-host"}
+	newService := svc.Attrs{UID: uid, HostName: "new-host"}
+	pid := app.PID(101)
+	reporter.handleProcessEvent(appexec.ProcessEvent{
+		Type: appexec.ProcessEventCreated,
+		File: appexec.New(appexec.Init{Pid: pid, Service: oldService}),
+	}, slog.Default())
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		PID: pid, Service: oldService, Python: &runtimemetrics.PythonRuntimeMetricSnapshot{},
+	}
+	snapshot.Python.Generations[1].Collections = 11
+	reporter.collectPythonRuntimeMetrics(snapshot)
+
+	oldLabels := map[string]string{
+		"service_name": "workers", "host_name": "old-host", "cpython_gc_generation": "1",
+	}
+	require.NotNil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, oldLabels))
+	reporter.handleProcessEvent(appexec.ProcessEvent{
+		Type: appexec.ProcessEventCreated,
+		File: appexec.New(appexec.Init{Pid: eventPID, Service: newService}),
+	}, slog.Default())
+	assert.Nil(t, gatheredMetric(t, registry, attributes.CPythonGCCollections.Prom, oldLabels))
 }

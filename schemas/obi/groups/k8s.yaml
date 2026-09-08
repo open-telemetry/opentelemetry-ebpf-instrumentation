@@ -1,0 +1,27 @@
+groups:
+  - id: registry.obi.k8s
+    type: attribute_group
+    display_name: OBI Kubernetes Decoration
+    brief: >
+      Kubernetes metadata OBI's k8s decorator (pkg/transform/k8s.go) attaches
+      to the resource attributes of every decorated signal, beyond the
+      upstream `k8s.*` semconv attributes (`k8s.pod.name`,
+      `k8s.namespace.name`, …) it also sets. Declared here because upstream
+      semconv has no equivalent for the "top-level owner" abstraction OBI
+      uses to name the workload independently of its kind.
+    attributes:
+      - id: k8s.owner.name
+        type: string
+        stability: development
+        brief: >
+          Name of the top-level Kubernetes owner (Deployment, StatefulSet,
+          DaemonSet, CronJob, …) of the Pod OBI decorated the signal with.
+        examples: ["frontend"]
+      - id: k8s.kind
+        type: string
+        stability: development
+        brief: >
+          Kind of the top-level Kubernetes owner of the decorated Pod
+          (falls back to the direct owner's kind when no top-level owner is
+          resolved). Deliberately never `Pod`, to bound label cardinality.
+        examples: ["Deployment", "StatefulSet"]

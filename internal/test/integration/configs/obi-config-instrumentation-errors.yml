@@ -1,0 +1,23 @@
+# OBI configuration for the instrumentation-errors weaver suite. OBI runs with
+# the BPF capability dropped (see the compose file) so every attempt to attach a
+# probe to the discovered testserver fails, emitting obi.instrumentation.errors.
+# internal_metrics.exporter=otel routes that metric over OTLP to the collector,
+# which fans it out to weaver (semconv live-check) and to Prometheus (presence
+# assertion) — so the metric is both sent and weaver-validated.
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+internal_metrics:
+  exporter: otel
+discovery:
+  services:
+    - namespace: error-test
+      name: testserver
+      open_ports: 8080
+      exe_path: "testserver"
+ebpf:
+  context_propagation: all
+  track_request_headers: true
+attributes:
+  select:
+    "*":
+      include: ["*"]

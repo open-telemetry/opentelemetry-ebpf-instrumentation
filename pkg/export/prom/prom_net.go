@@ -26,13 +26,13 @@ import (
 type NetPrometheusConfig struct {
 	Config      *PrometheusConfig
 	SelectorCfg *attributes.SelectorConfig
-	CommonCfg   *perapp.MetricsConfig
+	CommonCfg   *perapp.GlobalMetricsConfig
 	GuessPorts  flowdef.PortGuessPolicy
 }
 
 // Enabled returns whether the node needs to be activated
 func (p NetPrometheusConfig) Enabled() bool {
-	return p.Config != nil && p.Config.EndpointEnabled() && (p.CommonCfg.Features.AnyNetwork())
+	return p.Config != nil && p.Config.EndpointEnabled() && p.CommonCfg.Features.AnyNetwork()
 }
 
 type netMetricsReporter struct {

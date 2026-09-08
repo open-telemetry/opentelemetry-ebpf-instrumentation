@@ -7,6 +7,7 @@ package generictracer
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 	"unsafe"
@@ -49,6 +50,18 @@ func TestBitPositionCalculation(t *testing.T) {
 
 func makeKey(first, second uint32) uint64 {
 	return (uint64(first) << 32) | uint64(second)
+}
+
+// Mirrors the _Static_assert in bpf/pid/pid.h.
+func TestPidFilterIndexSpaceFitsMap(t *testing.T) {
+	highestSegment := (primeHash - 1) / 64
+
+	assert.Less(t, highestSegment, maxConcurrentPids,
+		"primeHash %d needs %d segments but valid_pids holds %d",
+		primeHash, highestSegment+1, maxConcurrentPids)
+
+	// buildPidFilter must allocate a slot for every reachable segment.
+	assert.Len(t, (&Tracer{pidsFilter: fakeServiceFilter{}}).buildPidFilter(), maxConcurrentPids)
 }
 
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
@@ -138,6 +151,36 @@ func TestProcessSharedRingbufRecordConsumesJVMRuntimeMetricRecordsWithoutForward
 			assert.Empty(t, span)
 		})
 	}
+}
+
+func TestProcessSharedRingbufRecordDispatchesRegisteredInternalEvent(t *testing.T) {
+	const testInternalEventType uint8 = 0xfe
+
+	eventContext := ebpfcommon.NewEBPFEventContext()
+	handled := false
+	eventContext.RegisterInternalEventHandler(
+		testInternalEventType,
+		func(*ringbuf.Record) error {
+			handled = true
+			return nil
+		},
+	)
+	tracer := &Tracer{
+		cfg:      &obi.Config{},
+		eventCtx: eventContext,
+	}
+
+	span, ignore, err := tracer.processSharedRingbufRecord(
+		context.Background(),
+		nil,
+		&tracer.cfg.EBPF,
+		&ringbuf.Record{RawSample: []byte{testInternalEventType}},
+	)
+
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.True(t, ignore)
+	assert.Empty(t, span)
 }
 
 func TestProcessSharedRingbufRecordDispatchesJVMMemoryPoolRecord(t *testing.T) {
@@ -274,6 +317,75 @@ func TestJVMRuntimeMetricsConstantOverridesUseApplicationRuntimeAsFeatureGate(t 
 
 func TestRawJVMEventLayoutsUseGeneratedBPFStructs(t *testing.T) {
 	assert.Equal(t, 200, int(unsafe.Sizeof(BpfJvmMemPoolGcEvent{})))
+	assert.Equal(t, 104, int(unsafe.Sizeof(BpfJvmRuntimeMetricsEvent{})))
+}
+
+func TestParseJVMRuntimeRecordUsesGeneratedBPFStruct(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders", Namespace: "prod"},
+		SDKLanguage: svc.InstrumentableJava,
+	}
+	tracer := &Tracer{pidsFilter: fakeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}}
+	tracer.jvmGenerations.Store(app.PID(101), uint64(17))
+
+	event, ignore, err := tracer.parseJVMRuntimeRecord(&ringbuf.Record{RawSample: rawPayload(
+		BpfJvmRuntimeMetricsEvent{
+			Timestamp:                12345,
+			GlobalPid:                101,
+			NsPid:                    55,
+			PidNsId:                  99,
+			LoadedClassCount:         11,
+			TotalLoadedClassCount:    12,
+			UnloadedClassCount:       13,
+			ThreadCount:              14,
+			DaemonThreadCount:        15,
+			AvailableProcessorCount:  16,
+			ProcessCpuTimeNs:         ^uint64(0),
+			RecentCpuUtilizationBits: math.Float64bits(0.25),
+		},
+	)})
+
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, service, event.Service)
+	assert.Equal(t, app.PID(55), event.PID)
+	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, uint64(17), event.Generation)
+	assert.Equal(t, jvmruntime.JVMRuntimeValues{
+		LoadedClassCount:        11,
+		TotalLoadedClassCount:   12,
+		UnloadedClassCount:      13,
+		ThreadCount:             14,
+		DaemonThreadCount:       15,
+		AvailableProcessorCount: 16,
+		ProcessCPUTimeNS:        -1,
+		RecentCPUUtilization:    0.25,
+	}, event.Values)
+	assert.False(t, event.Time.IsZero())
+}
+
+func TestEnsureJVMRuntimeMetricGeneration(t *testing.T) {
+	file := exec.New(exec.Init{
+		Pid:     101,
+		Service: svc.Attrs{SDKLanguage: svc.InstrumentableJava},
+	})
+
+	ensureJVMRuntimeMetricGeneration(file)
+	first := file.RuntimeMetricGeneration(101)
+	second := ensureJVMRuntimeMetricGeneration(file)
+
+	assert.NotZero(t, first)
+	assert.Equal(t, first, second)
+}
+
+// Ties the clang-compiled layout of struct nodejs_eventloop_event (via the
+// bpf2go-generated type) to the size the hand-written mirror in
+// pkg/ebpf/common assumes; TestNodejsEventLoopRawABI pins the same number on
+// the Go side.
+func TestRawNodejsEventLayoutUsesGeneratedBPFStruct(t *testing.T) {
+	assert.Equal(t, 120, int(unsafe.Sizeof(BpfNodejsEventloopEvent{})))
 }
 
 func rawMemoryPoolPayload(t *testing.T, raw BpfJvmMemPoolGcEvent) []byte {
@@ -315,7 +427,9 @@ type fakeServiceFilter struct {
 func (f fakeServiceFilter) AllowPID(app.PID, uint32, *exec.FileInfo, ebpfcommon.PIDType) {}
 func (f fakeServiceFilter) BlockPID(app.PID, uint32)                                     {}
 func (f fakeServiceFilter) ValidPID(app.PID, uint32, ebpfcommon.PIDType) bool            { return false }
-func (f fakeServiceFilter) Filter(inputSpans []request.Span) []request.Span              { return inputSpans }
+
+func (f fakeServiceFilter) Filter(inputSpans []request.Span) []request.Span { return inputSpans }
+
 func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
 	if f.currentPIDsCalls != nil {
 		(*f.currentPIDsCalls)++

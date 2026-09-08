@@ -23,7 +23,7 @@ services:
   obi:
     build:
       context: ../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile-with-javaagent
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
@@ -38,7 +38,7 @@ services:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
@@ -46,7 +46,7 @@ services:
       OTEL_EBPF_EXECUTABLE_PATH: "java"
       OTEL_SERVICE_NAME: "jvm-runtime"
       OTEL_EBPF_PROMETHEUS_PORT: "8999"
-      OTEL_EBPF_PROMETHEUS_TTL: "250ms"
+      OTEL_EBPF_PROMETHEUS_TTL: "30s"
     depends_on:
       testserver:
         condition: service_started
@@ -54,10 +54,10 @@ services:
       - "${OTEL_EBPF_PROMETHEUS_HOST_PORT:-8999}:8999"
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus
     command:
-      - --config.file=/etc/prometheus/prometheus-config-promscrape.yml
+      - --config.file=/etc/prometheus/prometheus-config-promscrape-jvm.yml
       - --web.enable-lifecycle
       - --web.route-prefix=/
     volumes:
@@ -66,7 +66,7 @@ services:
       - "9090:9090"
 
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
+    image: otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
     container_name: otel-col
     deploy:
       resources:

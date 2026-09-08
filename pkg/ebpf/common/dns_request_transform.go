@@ -51,26 +51,41 @@ func readDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 
 	dnsID := dnsparser.DNSId{HostPID: event.Pid.HostPid, ID: event.Id}
 
+	curName := ""
+	if len(msg.Questions) > 0 {
+		curName = msg.Questions[0].Name.String()
+	}
+
 	span, ok := parseCtx.dnsEvents.Get(dnsID)
+
+	// The transaction ID is 0 in the unconnected resolver case, so the pairing key
+	// degenerates to (HostPID, 0) and collides across a process's concurrent DNS
+	// transactions. A different question name means a collision rather than a
+	// retransmit, so start a fresh span: otherwise the stale occupant suppresses
+	// this answer at the duplicate guard below.
+	if ok && span.Path != "" && curName != "" && span.Path != curName {
+		ok = false
+	}
 
 	if !ok {
 		span = &request.Span{
-			Type:          request.EventTypeDNS,
-			Method:        "",
-			Statement:     "",
-			Path:          "",
-			Peer:          peer,
-			PeerPort:      int(event.Conn.S_port),
-			Host:          hostname,
-			HostPort:      hostPort,
-			ContentLength: 0,
-			RequestStart:  int64(event.Tp.Ts),
-			Start:         int64(event.Tp.Ts),
-			End:           int64(event.Tp.Ts + 1),
-			TraceID:       trace.TraceID(event.Tp.TraceId),
-			SpanID:        trace.SpanID(event.Tp.SpanId),
-			ParentSpanID:  trace.SpanID(event.Tp.ParentId),
-			Status:        int(-1),
+			Type:              request.EventTypeDNS,
+			Method:            "",
+			Statement:         "",
+			Path:              "",
+			Peer:              peer,
+			PeerPort:          int(event.Conn.S_port),
+			Host:              hostname,
+			HostPort:          hostPort,
+			ContentLength:     0,
+			RequestStart:      int64(event.Tp.Ts),
+			Start:             int64(event.Tp.Ts),
+			End:               int64(event.Tp.Ts + 1),
+			TraceID:           trace.TraceID(event.Tp.TraceId),
+			SpanID:            trace.SpanID(event.Tp.SpanId),
+			ParentSpanID:      trace.SpanID(event.Tp.ParentId),
+			ParentConditional: event.ParentStatus == parentStatusConditional,
+			Status:            int(-1),
 			Pid: request.PidInfo{
 				HostPID:   app.PID(event.Pid.HostPid),
 				UserPID:   app.PID(event.Pid.UserPid),
@@ -80,9 +95,8 @@ func readDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	}
 
 	if len(msg.Questions) > 0 {
-		question := msg.Questions[0]
-		span.Method = dnsparser.Type(question.Type).String()
-		span.Path = question.Name.String()
+		span.Method = dnsparser.Type(msg.Questions[0].Type).String()
+		span.Path = curName
 	}
 
 	var addresses []string

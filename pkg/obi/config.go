@@ -35,8 +35,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -80,15 +82,15 @@ const (
 )
 
 // ExtraGroupAttributesMap defines additional attributes for attribute groups.
-// Currently only "k8s_app_meta" is supported as a key.
+// Supported keys are "app" and "k8s_app_meta".
 type ExtraGroupAttributesMap map[string][]attr.Name
 
 func (ExtraGroupAttributesMap) JSONSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type:        "object",
-		Description: "Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key.",
+		Description: "Map of attribute group names to arrays of attribute names. Supported keys are 'app' and 'k8s_app_meta'.",
 		PropertyNames: &jsonschema.Schema{
-			Enum: []any{"k8s_app_meta"},
+			Enum: []any{"app", "k8s_app_meta"},
 		},
 		AdditionalProperties: &jsonschema.Schema{
 			Type: "array",
@@ -137,12 +139,13 @@ var DefaultConfig = Config{
 			MaxSize: 1000,
 		},
 		BufferSizes: config.EBPFBufferSizes{
-			HTTP:     0,
-			MySQL:    0,
-			Postgres: 0,
-			Kafka:    0,
-			MSSQL:    0,
-			TCP:      0,
+			HTTP:      0,
+			MySQL:     0,
+			Postgres:  0,
+			Kafka:     0,
+			MSSQL:     0,
+			TCP:       0,
+			Aerospike: 0,
 		},
 		MySQLPreparedStatementsCacheSize:    1024,
 		PostgresPreparedStatementsCacheSize: 1024,
@@ -225,7 +228,7 @@ var DefaultConfig = Config{
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
 	},
-	Metrics: perapp.MetricsConfig{
+	Metrics: perapp.GlobalMetricsConfig{
 		Features: export.FeatureApplicationRED,
 	},
 	OTELMetrics: otelcfg.MetricsConfig{
@@ -285,7 +288,7 @@ var DefaultConfig = Config{
 		AvoidedServices: imetrics.AvoidedServicesConfig{
 			Limit: avoidedsvc.DefaultLimit,
 		},
-		Prometheus: imetrics.PrometheusConfig{
+		Prometheus: imetrics.PrometheusEndpointConfig{
 			Port: 0, // disabled by default
 			Path: "/internal/metrics",
 		},
@@ -334,9 +337,10 @@ var DefaultConfig = Config{
 				Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 			},
 		},
-		MinProcessAge:         5 * time.Second,
-		DefaultOtlpGRPCPort:   4317,
-		RouteHarvesterTimeout: 10 * time.Second,
+		MinProcessAge:              5 * time.Second,
+		ProcessContextPollInterval: time.Second,
+		DefaultOtlpGRPCPort:        4317,
+		RouteHarvesterTimeout:      10 * time.Second,
 		RouteHarvestConfig: services.RouteHarvestingConfig{
 			JavaHarvestDelay: 5 * time.Second,
 		},
@@ -353,7 +357,8 @@ var DefaultConfig = Config{
 		SamplingInterval: time.Second,
 	},
 	HealthCheck: HealthCheckConfig{
-		Port: 0,
+		Port:          0,
+		ListenAddress: health.DefaultListenAddress,
 	},
 }
 
@@ -412,7 +417,7 @@ type Config struct {
 	ServiceNamespace string `yaml:"service_namespace" env:"OTEL_EBPF_SERVICE_NAMESPACE"`
 
 	// Metrics configures the progressive support of the OTEL declarative configuration.
-	Metrics perapp.MetricsConfig `yaml:"metrics"`
+	Metrics perapp.GlobalMetricsConfig `yaml:"metrics"`
 
 	// Discovery configuration
 	Discovery services.DiscoveryConfig `yaml:"discovery"`
@@ -454,9 +459,9 @@ type Config struct {
 // It is used to initialize resources that should be available if they are enabled
 // for any possible service match. Per-service features still decide whether each
 // service emits the corresponding metrics.
-func (c *Config) JoinMetricsConfig() *perapp.MetricsConfig {
+func (c *Config) JoinMetricsConfig() *perapp.GlobalMetricsConfig {
 	if c == nil {
-		return &perapp.MetricsConfig{}
+		return &perapp.GlobalMetricsConfig{}
 	}
 
 	mc := c.Metrics
@@ -469,9 +474,16 @@ func (c *Config) JoinMetricsConfig() *perapp.MetricsConfig {
 	return &mc
 }
 
+func (c *Config) AppRuntimeMetricsEnabled() bool {
+	return c != nil && c.JoinMetricsConfig().Features.AppRuntime()
+}
+
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`
+	// IP address the TCP health endpoint binds to. Defaults to 127.0.0.1. Set to 0.0.0.0
+	// or :: only when external probes require access.
+	ListenAddress string `yaml:"listen_address" env:"OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS" validate:"omitempty,ip" jsonschema:"type=string,format=ip"`
 	// when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@'
 	// abstract name) instead of the TCP port
 	UnixSocketPath string `yaml:"unix_socket_path" env:"OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"`
@@ -490,8 +502,11 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 		WeaklyTypedInput: true,
 		DecodeHook: mapstructure.ComposeDecodeHookFunc(
 			mapstructure.StringToTimeDurationHookFunc(),
-			mapstructure.TextUnmarshallerHookFunc(),
+			// ComposeDecodeHookFunc feeds each hook the previous hook's output, so the
+			// slice-joining hook must run before TextUnmarshallerHookFunc, which only
+			// fires on strings.
 			stringSliceToTextUnmarshalerHookFunc(),
+			mapstructure.TextUnmarshallerHookFunc(),
 			inlineMetadataHookFunc(),
 		),
 	})
@@ -544,11 +559,11 @@ func (c *Config) Log() {
 func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
 		// Check if target implements TextUnmarshaler
-		if to.Kind() == reflect.Ptr {
+		if to.Kind() == reflect.Pointer {
 			to = to.Elem()
 		}
 		toPtr := reflect.New(to)
-		if _, ok := toPtr.Interface().(encoding.TextUnmarshaler); !ok {
+		if _, ok := reflect.TypeAssert[encoding.TextUnmarshaler](toPtr); !ok {
 			return data, nil
 		}
 
@@ -588,7 +603,7 @@ func inlineMetadataHookFunc() mapstructure.DecodeHookFunc {
 
 		// Check if target type is GlobAttributes or RegexSelector
 		switch to {
-		case reflect.TypeOf(services.GlobAttributes{}), reflect.TypeOf(services.RegexSelector{}):
+		case reflect.TypeFor[services.GlobAttributes](), reflect.TypeFor[services.RegexSelector]():
 			// continue processing
 		default:
 			return data, nil
@@ -656,10 +671,20 @@ type HostIDConfig struct {
 }
 
 type NodeJSConfig struct {
+	// Enabled turns on the Node.js injector agent, used for trace-context
+	// propagation and runtime metrics. Setting it to false disables the
+	// injection entirely, runtime metrics included.
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_NODEJS_ENABLED"`
+	// ManualSpans injects the span bridge (spanbridge.js) into Node.js
+	// processes, capturing spans the application creates through the
+	// OpenTelemetry API when no OpenTelemetry SDK is registered.
+	ManualSpans bool `yaml:"manual_spans" env:"OTEL_EBPF_NODEJS_MANUAL_SPANS"`
 }
 
 type JavaConfig struct {
+	// Enabled turns on the Java injector agent, used for TLS tracing, virtual thread
+	// correlation, and agent-backed runtime metrics. Setting it to false disables
+	// class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.
 	Enabled              bool          `yaml:"enabled" env:"OTEL_EBPF_JAVAAGENT_ENABLED"`
 	Debug                bool          `yaml:"debug" env:"OTEL_EBPF_JAVAAGENT_DEBUG"`
 	DebugInstrumentation bool          `yaml:"debug_instrumentation" env:"OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"`
@@ -667,6 +692,8 @@ type JavaConfig struct {
 }
 
 type JVMRuntimeMetricsConfig struct {
+	// SamplingInterval controls HotSpot memory event sampling and Java agent
+	// class, thread, and CPU snapshot collection.
 	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 
@@ -733,7 +760,6 @@ func (c *Config) validate(context validationContext) error {
 	if c.JVMRuntimeMetrics.SamplingInterval <= 0 {
 		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0")
 	}
-
 	if err := c.Discovery.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}
@@ -801,13 +827,12 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if applicationEnabled && (c.Prometheus.EndpointEnabled() || otelMetricsEnabled) {
-		if c.Metrics.Features.InvalidSpanMetricsConfig() {
-			return ConfigError("you can only enable one format of span metrics," +
-				" application_span or application_span_otel")
+		if err := c.resolveSpanMetricsFormats(); err != nil {
+			return err
 		}
-		if c.Metrics.Features.ResolveSpanMetricsConflict() {
-			slog.Warn("application_span and application_span_otel cannot be used together, application_span_otel is selected automatically")
-		}
+		// Per-service sections can enable features the top-level list does not, and they
+		// drive the exporters through JoinMetricsConfig, so report against the same set.
+		c.warnDeprecatedMetricsFeatures()
 	}
 
 	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && c.InternalMetrics.Prometheus.Port != 0 {
@@ -818,6 +843,77 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	return nil
+}
+
+// spanMetricsFeatureMasks returns every feature list that feeds the span-metrics exporters:
+// the top-level one plus each per-service one. JoinMetricsConfig ORs them together, so a
+// format conflict left unresolved in any of them decides the naming for all services.
+func (c *Config) spanMetricsFeatureMasks() []*export.Features {
+	masks := make([]*export.Features, 0, 1+len(c.Discovery.Instrument)+len(c.Discovery.Services))
+	masks = append(masks, &c.Metrics.Features)
+	for i := range c.Discovery.Instrument {
+		masks = append(masks, &c.Discovery.Instrument[i].Metrics.Features)
+	}
+	for i := range c.Discovery.Services {
+		masks = append(masks, &c.Discovery.Services[i].Metrics.Features)
+	}
+	return masks
+}
+
+// resolveSpanMetricsFormats rejects an explicit legacy + OTel combination and resolves the
+// implicit one coming from "all"/"*" in favor of OTel, for every feature list that reaches
+// the exporters. Resolving only the top-level list would let a per-service "all" put every
+// span-metrics service back on the legacy names.
+func (c *Config) resolveSpanMetricsFormats() error {
+	resolved := false
+	legacyEnabled := false
+	otelEnabled := false
+	for _, features := range c.spanMetricsFeatureMasks() {
+		if features.InvalidSpanMetricsConfig() {
+			return ConfigError("you can only enable one format of span metrics," +
+				" application_span or application_span_otel")
+		}
+		if features.ResolveSpanMetricsConflict() {
+			resolved = true
+		}
+		if features.LegacySpanMetrics() {
+			legacyEnabled = true
+		} else if features.SpanMetrics() {
+			otelEnabled = true
+		}
+	}
+
+	// The exporters choose the metric names from the OR of all masks, so a legacy format in
+	// one list and OTel in another would silently select legacy names for every service.
+	// Track each format separately because joining an "all" mask with an explicit legacy
+	// mask reconstructs FeatureAll and makes InvalidSpanMetricsConfig exempt the conflict.
+	if legacyEnabled && otelEnabled {
+		return ConfigError("you can only enable one format of span metrics across the" +
+			" top-level and per-service metrics features, application_span or" +
+			" application_span_otel")
+	}
+
+	// Reachable only through "all"/"*": an explicit combination is rejected above. The user
+	// did not pick the legacy format, so report the resolution without a deprecation notice.
+	if resolved {
+		slog.Warn("application_span and application_span_otel cannot be used together," +
+			" application_span_otel is selected automatically")
+	}
+	return nil
+}
+
+// warnDeprecatedMetricsFeatures reports every deprecated metrics feature that is still
+// enabled, across the top-level and per-service configurations.
+func (c *Config) warnDeprecatedMetricsFeatures() {
+	for _, deprecated := range c.JoinMetricsConfig().Features.DeprecatedEnabled() {
+		if deprecated.Replacement == "" {
+			slog.Warn("metrics feature is deprecated and will be removed in a future release",
+				"feature", deprecated.Name)
+			continue
+		}
+		slog.Warn("metrics feature is deprecated and will be removed in a future release",
+			"feature", deprecated.Name, "use", deprecated.Replacement)
+	}
 }
 
 func (c *Config) enabledForValidation(feature Feature, context validationContext) bool {
@@ -882,6 +978,7 @@ func (c *Config) SpanMetricsEnabledForTraces() bool {
 // TODO: maybe this method has too many responsibilities, as it affects the global logger.
 func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	slog.SetDefault(slog.New(handler))
+	klogbridge.Install()
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
 		c.EBPF.BpfDebug = true

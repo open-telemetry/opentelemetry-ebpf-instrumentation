@@ -9,6 +9,7 @@ attributes:
       - gen_ai.output.messages
       - gen_ai.metadata
       - gen_ai.tool.definitions
+      - error.type
 ebpf:
   buffer_sizes:
     http: 65536

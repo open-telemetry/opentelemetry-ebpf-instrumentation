@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -104,14 +104,14 @@ var DefaultNativeHistogramConfig = NativeHistogramConfig{
 type PrometheusConfig struct {
 	// 0 means disabled
 	Port int    `yaml:"port" env:"OTEL_EBPF_PROMETHEUS_PORT" validate:"gte=0,lte=65535"`
-	Path string `yaml:"path" env:"OTEL_EBPF_PROMETHEUS_PATH"`
+	Path string `yaml:"path" env:"OTEL_EBPF_PROMETHEUS_PATH" validate:"startswith=/"`
 
 	DisableBuildInfo bool `yaml:"disable_build_info" env:"OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"`
 
 	// Features specifies which metric features to export. Accepted values: application, network,
 	// application_span, application_service_graph, ...
 	//
-	// Deprecated: use top-level MetricsConfig.Features instead.
+	// Deprecated: use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.
 	DeprFeatures export.Features `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
@@ -174,6 +174,7 @@ type metricsReporter struct {
 	grpcDuration           *Expirer[prometheus.Histogram]
 	grpcClientDuration     *Expirer[prometheus.Histogram]
 	dbClientDuration       *Expirer[prometheus.Histogram]
+	dbServerDuration       *Expirer[prometheus.Histogram]
 	msgPublishDuration     *Expirer[prometheus.Histogram]
 	msgProcessDuration     *Expirer[prometheus.Histogram]
 	httpRequestSize        *Expirer[prometheus.Histogram]
@@ -188,6 +189,7 @@ type metricsReporter struct {
 	attrGRPCDuration           []attributes.Field[*request.Span, string]
 	attrGRPCClientDuration     []attributes.Field[*request.Span, string]
 	attrDBClientDuration       []attributes.Field[*request.Span, string]
+	attrDBServerDuration       []attributes.Field[*request.Span, string]
 	attrMsgPublishDuration     []attributes.Field[*request.Span, string]
 	attrMsgProcessDuration     []attributes.Field[*request.Span, string]
 	attrHTTPRequestSize        []attributes.Field[*request.Span, string]
@@ -235,8 +237,11 @@ type metricsReporter struct {
 	genAIClientDuration *Expirer[prometheus.Histogram]
 	genAITokenUsage     *Expirer[prometheus.Histogram]
 
-	goRuntimeMetrics  goRuntimeMetricsCollector
-	jvmRuntimeMetrics jvmRuntimeMetricsCollector
+	goRuntimeMetrics     goRuntimeMetricsCollector
+	goRuntimeHistograms  *goRuntimeHistogramCollector
+	jvmRuntimeMetrics    jvmRuntimeMetricsCollector
+	nodejsRuntimeMetrics nodejsRuntimeMetricsCollector
+	pythonRuntimeMetrics pythonRuntimeMetricsCollector
 
 	promConnect *connector.PrometheusManager
 
@@ -253,16 +258,18 @@ type metricsReporter struct {
 
 	serviceMap  map[svc.UID]svc.Attrs
 	pidsTracker otel.PidServiceTracker
+	runtimeMu   sync.Mutex
 
 	// for testing purposes
-	createEventMetrics func(service *svc.Attrs)
-	deleteEventMetrics func(service *svc.Attrs)
+	createEventMetrics                     func(service *svc.Attrs)
+	deleteEventMetrics                     func(service *svc.Attrs)
+	deleteEventMetricsPreservingHistograms func(service *svc.Attrs)
 }
 
 func PrometheusEndpoint(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
-	jointMetricsConfig *perapp.MetricsConfig,
+	jointMetricsConfig *perapp.GlobalMetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
@@ -294,14 +301,14 @@ func PrometheusEndpoint(
 	}
 }
 
-func spanMetricsLatencyName(mp *perapp.MetricsConfig) string {
+func spanMetricsLatencyName(mp *perapp.GlobalMetricsConfig) string {
 	if mp.Features.LegacySpanMetrics() {
 		return SpanMetricsLatency
 	}
 	return SpanMetricsLatencyOTel
 }
 
-func spanMetricsCallsName(mp *perapp.MetricsConfig) string {
+func spanMetricsCallsName(mp *perapp.GlobalMetricsConfig) string {
 	if mp.Features.LegacySpanMetrics() {
 		return SpanMetricsCalls
 	}
@@ -313,7 +320,7 @@ func newReporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
-	jointMetricsConfig *perapp.MetricsConfig,
+	jointMetricsConfig *perapp.GlobalMetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
@@ -359,10 +366,17 @@ func newReporter(
 	}
 
 	var attrDBClientDuration []attributes.Field[*request.Span, string]
+	var attrDBServerDuration []attributes.Field[*request.Span, string]
 
 	if is.DBEnabled() {
-		attrDBClientDuration = attributes.PrometheusGetters(attributeGetters,
+		// server.port on db.client metrics is reported conditionally per the
+		// DB semconv, unless the user explicitly includes it
+		explicitPort := attrsProvider.ExplicitlyIncluded(attributes.DBClientDuration, attr.ServerPort)
+		attrDBClientDuration = attributes.PrometheusGetters(
+			request.SpanPromGettersForDBClient(unresolved, explicitPort),
 			attrsProvider.For(attributes.DBClientDuration))
+		attrDBServerDuration = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.DBServerDuration))
 	}
 
 	var attrMessagingProcessDuration, attrMessagingPublishDuration []attributes.Field[*request.Span, string]
@@ -463,6 +477,7 @@ func newReporter(
 		attrGRPCDuration:           attrGRPCDuration,
 		attrGRPCClientDuration:     attrGRPCClientDuration,
 		attrDBClientDuration:       attrDBClientDuration,
+		attrDBServerDuration:       attrDBServerDuration,
 		attrMsgPublishDuration:     attrMessagingPublishDuration,
 		attrMsgProcessDuration:     attrMessagingProcessDuration,
 		attrHTTPRequestSize:        attrHTTPRequestSize,
@@ -513,7 +528,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrHTTPClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
-		grpcDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
+		grpcDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled() || is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCServerDuration.Prom,
 				Help:                            "duration of RPC service calls from the server side, in seconds",
@@ -523,7 +538,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrGRPCDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
-		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
+		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled() || is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCClientDuration.Prom,
 				Help:                            "duration of RPC service calls from the client side, in seconds",
@@ -543,7 +558,17 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrDBClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
-		msgPublishDuration: optionalHistogramProvider(is.MQEnabled(), func() *Expirer[prometheus.Histogram] {
+		dbServerDuration: optionalHistogramProvider(is.DBEnabled(), func() *Expirer[prometheus.Histogram] {
+			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+				Name:                            attributes.DBServerDuration.Prom,
+				Help:                            "duration of db server operations, in seconds",
+				Buckets:                         cfg.Buckets.DurationHistogram,
+				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
+				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
+				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
+			}, labelNames(attrDBServerDuration)).MetricVec, timeNow, cfg.TTL)
+		}),
+		msgPublishDuration: optionalHistogramProvider(is.MQEnabled() || is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.MessagingPublishDuration.Prom,
 				Help:                            "duration of messaging client publish operations, in seconds",
@@ -553,7 +578,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrMessagingPublishDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
-		msgProcessDuration: optionalHistogramProvider(is.MQEnabled(), func() *Expirer[prometheus.Histogram] {
+		msgProcessDuration: optionalHistogramProvider(is.MQEnabled() || is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.MessagingProcessDuration.Prom,
 				Help:                            "duration of messaging client process operations, in seconds",
@@ -761,14 +786,23 @@ func newReporter(
 	}
 
 	if runtimeMetricsEnabled.Runtime {
-		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(
-			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg),
+		runtimeLabelNames := labelNamesTargetInfo(
+			kubeEnabled,
+			dockerEnabled,
+			&ctxInfo.NodeMeta,
+			extraMetadataLabels,
+			selectorCfg.SelectionCfg,
 		)
+		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(runtimeLabelNames)
+		mr.goRuntimeHistograms = newGoRuntimeHistogramCollector(runtimeLabelNames)
 		mr.jvmRuntimeMetrics = newJVMRuntimeMetricsCollector(cfg)
+		mr.nodejsRuntimeMetrics = newNodejsRuntimeMetricsCollector(cfg)
+		mr.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(runtimeLabelNames, timeNow, cfg.TTL)
 	}
 
 	// testing aid
 	mr.deleteEventMetrics = mr.deleteMetricsForService
+	mr.deleteEventMetricsPreservingHistograms = mr.deleteMetricsForServicePreservingRuntimeHistograms
 	mr.createEventMetrics = mr.createTargetInfos
 
 	registeredMetrics := []prometheus.Collector{mr.targetInfo}
@@ -799,6 +833,7 @@ func newReporter(
 		if is.DBEnabled() {
 			registeredMetrics = append(registeredMetrics,
 				mr.dbClientDuration,
+				mr.dbServerDuration,
 			)
 		}
 
@@ -852,7 +887,10 @@ func newReporter(
 
 	if runtimeMetricsEnabled.Runtime {
 		registeredMetrics = append(registeredMetrics, mr.goRuntimeMetrics.collectors()...)
+		registeredMetrics = append(registeredMetrics, mr.goRuntimeHistograms)
 		registeredMetrics = append(registeredMetrics, mr.jvmRuntimeMetrics.collectors()...)
+		registeredMetrics = append(registeredMetrics, mr.nodejsRuntimeMetrics.collectors()...)
+		registeredMetrics = append(registeredMetrics, mr.pythonRuntimeMetrics.collectors()...)
 	}
 
 	if is.GPUEnabled() {
@@ -974,6 +1012,18 @@ func traceExemplar(span *request.Span) prometheus.Labels {
 	}
 }
 
+// rpcClientRecorded and msgPublishRecorded mirror the enablement conditions the
+// corresponding histograms are created under. An HTTP client subtype routed to
+// another domain's histogram must check the owning domain, not its own: with
+// none of these features enabled the histogram is nil.
+func (r *metricsReporter) rpcClientRecorded() bool {
+	return r.is.GRPCEnabled() || r.is.SunRPCEnabled() || r.is.HTTPEnabled()
+}
+
+func (r *metricsReporter) msgPublishRecorded() bool {
+	return r.is.MQEnabled() || r.is.HTTPEnabled()
+}
+
 // observeHistogram observes a value into a histogram, attaching an exemplar when applicable.
 func (r *metricsReporter) observeHistogram(h prometheus.Histogram, value float64, span *request.Span) {
 	if r.shouldAddExemplar(span) {
@@ -1030,8 +1080,11 @@ func (r *metricsReporter) observe(span *request.Span) {
 			case r.is.DBEnabled() && (span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch):
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
 			case span.SubType == request.HTTPSubtypeJSONRPC && r.is.GRPCEnabled():
-				// JSON-RPC client calls over HTTP get recorded as RPC client metrics
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
+			case span.SubType == request.HTTPSubtypeAWSS3 && r.rpcClientRecorded():
+				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
+			case span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && r.msgPublishRecorded():
+				r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 			case r.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType):
 				r.observeHistogram(r.genAIClientDuration.WithLabelValues(labelValues(span, r.attrGenAIClientDuration)...).Metric, duration, span)
 				if tokens, reported := span.GenAIInputTokenCount(); reported {
@@ -1063,14 +1116,46 @@ func (r *metricsReporter) observe(span *request.Span) {
 			if r.is.SunRPCEnabled() {
 				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
 			}
-		case request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeRedisServer, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer, request.EventTypeAerospikeClient:
-			if r.is.DBEnabled() {
+		case request.EventTypeRedisClient:
+			if r.is.RedisEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeRedisServer:
+			if r.is.RedisEnabled() {
+				r.observeHistogram(r.dbServerDuration.WithLabelValues(labelValues(span, r.attrDBServerDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeSQLClient:
+			if r.is.SQLEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeSQLServer:
+			if r.is.SQLEnabled() {
+				r.observeHistogram(r.dbServerDuration.WithLabelValues(labelValues(span, r.attrDBServerDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeMongoClient:
+			if r.is.MongoEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeCouchbaseClient:
+			if r.is.CouchbaseEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeMemcachedClient:
+			if r.is.MemcachedEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeMemcachedServer:
+			if r.is.MemcachedEnabled() {
+				r.observeHistogram(r.dbServerDuration.WithLabelValues(labelValues(span, r.attrDBServerDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeAerospikeClient:
+			if r.is.AerospikeEnabled() {
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
 			}
 		case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
 			if r.is.KafkaEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 				case request.MessagingProcess:
 					r.observeHistogram(r.msgProcessDuration.WithLabelValues(labelValues(span, r.attrMsgProcessDuration)...).Metric, duration, span)
@@ -1078,8 +1163,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
 			if r.is.MQTTEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 				case request.MessagingProcess:
 					r.observeHistogram(r.msgProcessDuration.WithLabelValues(labelValues(span, r.attrMsgProcessDuration)...).Metric, duration, span)
@@ -1087,8 +1172,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeNATSClient, request.EventTypeNATSServer:
 			if r.is.NATSEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					r.msgPublishDuration.WithLabelValues(
 						labelValues(span, r.attrMsgPublishDuration)...,
 					).Metric.Observe(duration)
@@ -1100,8 +1185,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeAMQPClient:
 			if r.is.AMQPEnabled() {
-				switch span.Method {
-				case request.MessagingPublish:
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
 					r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 				case request.MessagingProcess:
 					r.observeHistogram(r.msgProcessDuration.WithLabelValues(labelValues(span, r.attrMsgProcessDuration)...).Metric, duration, span)
@@ -1206,7 +1291,7 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 		values = append(values, span.Service.Metadata[k])
 	}
 
-	return values
+	return sanitizeValues(values)
 }
 
 type targetInfoResourceLabel struct {
@@ -1337,7 +1422,7 @@ func (r *metricsReporter) labelValuesForNodeMeta(service *svc.Attrs, nodeMeta *m
 		}
 	}
 
-	return values
+	return sanitizeValues(values)
 }
 
 func labelNames[T any](getters []attributes.Field[T, string]) []string {
@@ -1359,20 +1444,16 @@ func labelValuesSvcGraph(span *request.Span, getters []attributes.Field[*request
 func labelValues[T any](s T, getters []attributes.Field[T, string]) []string {
 	values := make([]string, 0, len(getters))
 	for _, getter := range getters {
-		rawValue := getter.Get(s)
-		sanitizedValue := sanitizeUTF8ForPrometheus(rawValue)
-		values = append(values, sanitizedValue)
+		values = append(values, getter.Get(s))
 	}
-	return values
+	return sanitizeValues(values)
 }
 
-// sanitizeUTF8ForPrometheus sanitizes a string to ensure it contains only valid UTF-8 characters.
-// Invalid UTF-8 sequences are removed entirely.
-func sanitizeUTF8ForPrometheus(s string) string {
-	if utf8.ValidString(s) {
-		return s
+func sanitizeValues(values []string) []string {
+	for i := range values {
+		values[i] = attributes.SanitizeUTF8(values[i])
 	}
-	return strings.ToValidUTF8(s, "")
+	return values
 }
 
 func (r *metricsReporter) createTargetInfo(service *svc.Attrs) {
@@ -1438,6 +1519,23 @@ func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
 func (r *metricsReporter) deleteMetricsForService(service *svc.Attrs) {
 	r.deleteTargetInfoMetrics(service)
 	r.deleteRuntimeMetrics(service)
+	r.deleteRuntimeHistograms(service)
+}
+
+func (r *metricsReporter) deleteMetricsForServicePreservingRuntimeHistograms(service *svc.Attrs) {
+	r.deleteTargetInfoMetrics(service)
+	r.deleteRuntimeMetrics(service)
+}
+
+func (r *metricsReporter) deleteMetricsForAttributeUpdate(previous, current *svc.Attrs) {
+	previousLabels := runtimeMetricLabelTuple(r.labelValuesTargetInfo(previous))
+	currentLabels := runtimeMetricLabelTuple(r.labelValuesTargetInfo(current))
+	if previousLabels == currentLabels && r.deleteEventMetricsPreservingHistograms != nil {
+		r.deleteEventMetricsPreservingHistograms(previous)
+		return
+	}
+	r.pythonRuntimeMetrics.delete(r.labelValuesTargetInfo(previous))
+	r.deleteEventMetrics(previous)
 }
 
 func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
@@ -1450,21 +1548,28 @@ func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
 }
 
 func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Logger) {
-	snap := pe.File.ServiceAttrs()
+	r.runtimeMu.Lock()
+	defer r.runtimeMu.Unlock()
+	if pe.Type == exec.ProcessEventTerminated {
+		r.collectRuntimeMetricsLocked(runtimemetrics.PythonRuntimeMetricsFromProcessEvent(pe))
+	}
+
+	snap := pe.ServiceFile().ServiceAttrs()
 	pid := pe.File.Pid()
 	log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "attrs", snap.UID)
 	uid := snap.UID
 
 	if pe.Type == exec.ProcessEventCreated {
+		trackedUID, pidTracked := r.pidsTracker.TracksPID(pid)
 		// Handle the case when the PID changed its feathers, e.g. got new metadata impacting the service name.
 		// There's no new PID, just an update to the metadata.
-		if staleUID, exists := r.pidsTracker.TracksPID(pid); exists && !staleUID.Equals(&uid) {
-			log.Debug("updating older service definition", "from", staleUID, "new", uid)
-			r.pidsTracker.ReplaceUID(staleUID, uid)
-			if origAttrs, ok := r.serviceMap[staleUID]; ok {
+		if pidTracked && !trackedUID.Equals(&uid) {
+			log.Debug("updating older service definition", "from", trackedUID, "new", uid)
+			r.pidsTracker.ReplaceUID(trackedUID, uid)
+			if origAttrs, ok := r.serviceMap[trackedUID]; ok {
 				log.Debug("updating service attributes for", "service", uid)
-				r.deleteEventMetrics(&origAttrs)
-				delete(r.serviceMap, staleUID)
+				r.deleteMetricsForAttributeUpdate(&origAttrs, &snap)
+				delete(r.serviceMap, trackedUID)
 				r.serviceMap[uid] = snap
 				r.createEventMetrics(&snap)
 				// we don't setup the pid again, we just replaced the metrics it's associated with
@@ -1477,13 +1582,23 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 		// the old target info
 		if origAttrs, ok := r.serviceMap[uid]; ok {
 			log.Debug("updating stale attributes for", "service", uid)
-			r.deleteEventMetrics(&origAttrs)
+			r.deleteMetricsForAttributeUpdate(&origAttrs, &snap)
 		}
 
 		r.createEventMetrics(&snap)
 		r.serviceMap[uid] = snap
-		r.setupPIDToServiceRelationship(pid, uid)
+		r.pidsTracker.AddPIDWithGeneration(pid, uid, pe.File.RuntimeMetricGeneration(pid))
 	} else {
+		if r.goRuntimeHistograms != nil {
+			r.goRuntimeHistograms.DeletePID(pid)
+		}
+		if origUID, exists := r.pidsTracker.TracksPID(pid); exists {
+			r.jvmRuntimeMetrics.deleteSource(
+				r.origService(origUID, &snap),
+				pid,
+				pe.File.RuntimeMetricGeneration(pid),
+			)
+		}
 		if deleted, origUID := r.disassociatePIDFromService(pid); deleted {
 			mlog().Debug("deleting infos for", "pid", pid, "attrs", uid)
 			r.deleteTargetInfos(origUID, &snap)

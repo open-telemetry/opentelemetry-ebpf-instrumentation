@@ -86,7 +86,7 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeRedisClient}:                           "SPAN_KIND_CLIENT",
 		{Type: EventTypeMemcachedClient}:                       "SPAN_KIND_CLIENT",
 		{Type: EventTypeMongoClient}:                           "SPAN_KIND_CLIENT",
-		{Type: EventTypeKafkaClient, Method: MessagingPublish}: "SPAN_KIND_PRODUCER",
+		{Type: EventTypeKafkaClient, Method: MessagingSend}:    "SPAN_KIND_PRODUCER",
 		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
 		{Type: EventTypeMQTTClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
 		{Type: EventTypeMQTTClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
@@ -116,7 +116,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		{name: "Elasticsearch client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch}, expected: "database"},
 
 		// Messaging client spans should return "messaging_system"
-		{name: "Kafka client producer", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish}, expected: "messaging_system"},
+		{name: "Kafka client producer", span: &Span{Type: EventTypeKafkaClient, Method: MessagingSend}, expected: "messaging_system"},
 		{name: "Kafka client consumer", span: &Span{Type: EventTypeKafkaClient, Method: MessagingProcess}, expected: "messaging_system"},
 		{name: "MQTT client publisher", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish}, expected: "messaging_system"},
 		{name: "MQTT client subscriber", span: &Span{Type: EventTypeMQTTClient, Method: MessagingProcess}, expected: "messaging_system"},
@@ -179,10 +179,10 @@ func TestTraceName(t *testing.T) {
 		{name: "Memcached empty", span: &Span{Type: EventTypeMemcachedClient}, expected: "MEMCACHED"},
 
 		// Kafka spans
-		{name: "Kafka client publish", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish, Path: "orders"}, expected: "publish orders"},
+		{name: "Kafka client send", span: &Span{Type: EventTypeKafkaClient, Method: MessagingSend, Path: "orders"}, expected: "send orders"},
 		{name: "Kafka client process", span: &Span{Type: EventTypeKafkaClient, Method: MessagingProcess, Path: "events"}, expected: "process events"},
 		{name: "Kafka server", span: &Span{Type: EventTypeKafkaServer, Method: MessagingProcess, Path: "topic"}, expected: "process topic"},
-		{name: "Kafka no topic", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish}, expected: "publish"},
+		{name: "Kafka no topic", span: &Span{Type: EventTypeKafkaClient, Method: MessagingSend}, expected: "send"},
 
 		// MQTT spans
 		{name: "MQTT client publish", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish, Path: "sensors/temperature"}, expected: "publish sensors/temperature"},
@@ -854,6 +854,32 @@ func TestDetectsOTelExport(t *testing.T) {
 			span:    Span{Type: EventTypeGRPCClient, HostPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0},
 			exports: false,
 		},
+		{
+			name: fmt.Sprintf("undecoded path on the default %d port doesn't identify the signal", defaultOtlpGRPCPort),
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+			},
+			exports: false,
+		},
+		{
+			name: "undecoded path on a generic OTEL_EXPORTER_OTLP_ENDPOINT doesn't identify the signal",
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:9090"}},
+			},
+			exports: false,
+		},
+		{
+			name: "signal endpoints on distinct ports export",
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{
+					"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4317",
+					"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "http://localhost:4318",
+				}},
+			},
+			exports: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -985,6 +1011,32 @@ func TestDetectsOTelExport(t *testing.T) {
 			name:    fmt.Sprintf("no otel environment sends to anything other the %d doesn't export", defaultOtlpGRPCPort),
 			span:    Span{Type: EventTypeGRPCClient, HostPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0},
 			exports: false,
+		},
+		{
+			name: fmt.Sprintf("undecoded path on the default %d port doesn't identify the signal", defaultOtlpGRPCPort),
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+			},
+			exports: false,
+		},
+		{
+			name: "undecoded path on a generic OTEL_EXPORTER_OTLP_ENDPOINT doesn't identify the signal",
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:9090"}},
+			},
+			exports: false,
+		},
+		{
+			name: "signal endpoints on distinct ports export",
+			span: Span{
+				Type: EventTypeGRPCClient, HostPort: 4318, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{
+					"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4317",
+					"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "http://localhost:4318",
+				}},
+			},
+			exports: true,
 		},
 	}
 
@@ -2066,6 +2118,23 @@ func TestSpan_GenAIResponseModel_OpenAICompatible(t *testing.T) {
 				},
 			}
 			assert.Equal(t, tt.want, span.GenAIResponseModel())
+		})
+	}
+}
+
+func TestMessagingOperationTypeOf(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		operationName string
+		expected      string
+	}{
+		{name: "publish maps to send", operationName: MessagingPublish, expected: MessagingSend},
+		{name: "send is unchanged", operationName: MessagingSend, expected: MessagingSend},
+		{name: "process is unchanged", operationName: MessagingProcess, expected: MessagingProcess},
+		{name: "unknown stays empty", operationName: "", expected: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, MessagingOperationTypeOf(tc.operationName))
 		})
 	}
 }

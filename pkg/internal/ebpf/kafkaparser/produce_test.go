@@ -432,6 +432,33 @@ func TestParseProduceRequestTruncatedLargeTopicCount(t *testing.T) {
 	require.ErrorIs(t, err, errNoTopicsInProduce)
 }
 
+func TestParseProduceRequestLimitsTopics(t *testing.T) {
+	const declaredTopicCount = 1_000_000
+
+	pkt := make([]byte, Int8Len+Int16Len+Int32Len+binary.MaxVarintLen32+(maxProduceTopics+1)*3)
+	offset := 0
+	pkt[offset] = 0 // null transactional ID
+	offset++
+	binary.BigEndian.PutUint16(pkt[offset:], 1)
+	offset += Int16Len
+	binary.BigEndian.PutUint32(pkt[offset:], 30000)
+	offset += Int32Len
+	offset += binary.PutUvarint(pkt[offset:], declaredTopicCount+1)
+	for range maxProduceTopics + 1 {
+		pkt[offset] = 1 // empty compact topic name
+		offset++
+		pkt[offset] = 1 // empty compact partitions array
+		offset++
+		pkt[offset] = 0 // empty tagged fields
+		offset++
+	}
+
+	r := largebuf.NewLargeBufferFrom(pkt[:offset]).NewReader()
+	req, err := ParseProduceRequest(&r, newTestHeader(APIKeyProduce, 9))
+	require.NoError(t, err)
+	require.Len(t, req.Topics, maxProduceTopics)
+}
+
 func TestProduceRequestSkipUntilTopics(t *testing.T) {
 	tests := []struct {
 		name           string

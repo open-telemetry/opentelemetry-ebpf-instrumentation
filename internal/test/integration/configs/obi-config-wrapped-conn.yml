@@ -1,0 +1,17 @@
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+attributes:
+  select:
+    "*":
+      include: ["*"]
+discovery:
+  instrument:
+    - exe_path: "*vmagent*"
+    - exe_path: "*httppinger*"
+# context propagation makes the sock_msg program hand the outgoing payload to the
+# tcp_sendmsg kprobe, so the generic pipeline can report requests the Go uprobes
+# already report
+ebpf:
+  context_propagation: all

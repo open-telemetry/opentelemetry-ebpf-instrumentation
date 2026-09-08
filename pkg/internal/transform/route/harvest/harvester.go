@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/internal/langtools"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 )
 
@@ -31,6 +32,7 @@ type RouteHarvester struct {
 	// testing related
 	javaExtractRoutes func(ctx context.Context, fileInfo *exec.FileInfo) (*RouteHarvesterResult, error)
 	nodeExtractRoutes func(pid app.PID) (*RouteHarvesterResult, error)
+	denoExtractRoutes func(pid app.PID) (*RouteHarvesterResult, error)
 }
 
 type RouteHarvesterResultKind uint8
@@ -57,12 +59,11 @@ func (e *HarvestError) Error() string {
 func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []services.RouteHarvesterLanguage, timeout time.Duration) *RouteHarvester {
 	dMap := map[svc.InstrumentableType]struct{}{}
 	for _, lang := range disabled {
-		switch lang {
-		case services.RouteHarvesterLanguageJava:
+		if lang == services.RouteHarvesterLanguageJava {
 			dMap[svc.InstrumentableJava] = struct{}{}
-		case services.RouteHarvesterLanguageNodejs:
+		}
+		if lang == services.RouteHarvesterLanguageNodejs {
 			dMap[svc.InstrumentableNodejs] = struct{}{}
-		case services.RouteHarvesterLanguageDeno:
 			dMap[svc.InstrumentableDeno] = struct{}{}
 		}
 	}
@@ -78,6 +79,7 @@ func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []services.
 
 	h.javaExtractRoutes = h.java.ExtractRoutes
 	h.nodeExtractRoutes = ExtractNodejsRoutes
+	h.denoExtractRoutes = ExtractDenoRoutes
 
 	return h
 }
@@ -108,7 +110,8 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			}
 		}()
 
-		switch lang := fileInfo.SDKLanguage(); lang {
+		runtime := fileInfo.SDKLanguage()
+		switch runtime {
 		case svc.InstrumentableJava:
 			if _, ok := h.disabled[svc.InstrumentableJava]; !ok {
 				r, err := h.javaExtractRoutes(ctx, fileInfo)
@@ -120,14 +123,27 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			} else {
 				resultChan <- result{r: nil}
 			}
-		case svc.InstrumentableNodejs, svc.InstrumentableDeno:
-			if _, ok := h.disabled[lang]; !ok {
+		case svc.InstrumentableNodejs:
+			if _, ok := h.disabled[runtime]; !ok {
 				r, err := h.nodeExtractRoutes(fileInfo.Pid())
 				if err != nil {
 					resultChan <- result{err: err}
 					return
 				}
-				h.log.Debug("found js application routes", "runtime", lang, "routes", r.Routes)
+				h.log.Debug("found application routes", "runtime", runtime.String(), "routes", r.Routes)
+
+				resultChan <- result{r: r}
+			} else {
+				resultChan <- result{r: nil}
+			}
+		case svc.InstrumentableDeno:
+			if _, ok := h.disabled[runtime]; !ok {
+				r, err := h.denoExtractRoutes(fileInfo.Pid())
+				if err != nil {
+					resultChan <- result{err: err}
+					return
+				}
+				h.log.Debug("found application routes", "runtime", "deno", "routes", r.Routes)
 
 				resultChan <- result{r: r}
 			} else {
@@ -181,25 +197,28 @@ var isDirFunc = isDir
 
 func FindScriptDirectory(root, firstArg, cwd string) string {
 	if strings.HasPrefix(firstArg, "/") {
-		path := filepath.Join(root, firstArg)
-		if isDirFunc(path) {
-			return path + string(filepath.Separator)
+		if dir := resolveProcessDirectory(root, firstArg); dir != "" {
+			return dir
 		}
 
 		lastSlashPos := strings.LastIndex(firstArg, "/")
 		if lastSlashPos > 1 {
-			path := filepath.Join(root, firstArg[:lastSlashPos])
-
-			if isDirFunc(path) {
-				return path + string(filepath.Separator)
+			if dir := resolveProcessDirectory(root, firstArg[:lastSlashPos]); dir != "" {
+				return dir
 			}
 		}
 	}
 
-	result := filepath.Join(root, cwd)
-	if result != "" && result[len(result)-1] != filepath.Separator {
+	return resolveProcessDirectory(root, cwd)
+}
+
+func resolveProcessDirectory(root, path string) string {
+	result, ok := langtools.ResolveProcessPath(root, "/", path)
+	if !ok || !isDirFunc(result) {
+		return ""
+	}
+	if result[len(result)-1] != filepath.Separator {
 		result += string(filepath.Separator)
 	}
-
 	return result
 }

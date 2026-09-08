@@ -1,0 +1,11 @@
+# Scrapes the collector's Prometheus exporter (fed by OBI's OTLP internal
+# metrics) so the test can assert the obi.* internal surface is present.
+global:
+  evaluation_interval: 250ms
+  scrape_interval: 250ms
+scrape_configs:
+  - job_name: obi-internal-metrics
+    honor_labels: true
+    static_configs:
+      - targets:
+          - 'otelcol:9464'

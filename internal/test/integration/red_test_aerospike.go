@@ -27,7 +27,7 @@ func testREDMetricsForAerospikeLibrary(t *testing.T, testCase TestCase) {
 	namespace := testCase.Namespace
 
 	// Drive the instrumented service a few times so each Aerospike operation runs.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, baseURL+"/"+urlPath, 200)
 	}
 
@@ -86,13 +86,22 @@ func testREDMetricsAerospikeOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8390",
 			Subpath:   "aerospike",
-			Comm:      "java",
+			Comm:      "javaaerospike",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				// PUT sends the key (sendKey), so db.query.text carries the primary key.
 				{Name: "PUT test.demo", Attributes: []attribute.KeyValue{
 					attribute.String("db.operation.name", "PUT"),
 					attribute.String("db.query.text", "obi"),
+				}},
+				// The create-only PUT on an existing record fails with KEY_EXISTS_ERROR.
+				// The Java client reads the response header and body in separate recv()
+				// calls, so this status is only visible with kernel-side response
+				// reassembly (OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE in the compose file).
+				{Name: "PUT test.demo", Attributes: []attribute.KeyValue{
+					attribute.String("db.operation.name", "PUT"),
+					attribute.String("db.response.status_code", "KEY_EXISTS_ERROR"),
+					attribute.String("error.type", "KEY_EXISTS_ERROR"),
 				}},
 				{Name: "GET test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "GET")}},
 				{Name: "DELETE test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "DELETE")}},

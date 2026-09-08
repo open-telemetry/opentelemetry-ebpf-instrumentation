@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -91,8 +92,8 @@ var labeledLineRE = regexp.MustCompile(`^\s+(Error Trace|Error|Test|Messages):\s
 // the test framework didn't emit testify-style output.
 func extractErrorBlock(output []string) (errorMsg, traceSite string) {
 	msgIdx := -1
-	for i := len(output) - 1; i >= 0; i-- {
-		if errorMsgRE.MatchString(output[i]) {
+	for i, o := range slices.Backward(output) {
+		if errorMsgRE.MatchString(o) {
 			msgIdx = i
 			break
 		}
@@ -122,8 +123,8 @@ func extractErrorBlock(output []string) (errorMsg, traceSite string) {
 		}
 	}
 
-	for i := len(output) - 1; i >= 0; i-- {
-		if m := errorTraceRE.FindStringSubmatch(output[i]); len(m) >= 2 {
+	for _, o := range slices.Backward(output) {
+		if m := errorTraceRE.FindStringSubmatch(o); len(m) >= 2 {
 			traceSite = m[1]
 			break
 		}
@@ -189,7 +190,7 @@ func fingerprintFromTestOutput(errorMsg, snippet, traceSite string) string {
 		h := sha256.Sum256([]byte(traceSite))
 		return fmt.Sprintf("unknown-%x", h[:4])
 	}
-	for _, line := range strings.Split(snippet, "\n") {
+	for line := range strings.SplitSeq(snippet, "\n") {
 		if t := strings.TrimSpace(line); t != "" {
 			h := sha256.Sum256([]byte(t))
 			return fmt.Sprintf("unknown-%x", h[:4])
@@ -302,10 +303,7 @@ func parseDockerLogForError(r io.Reader) (logError, bool) {
 		return logError{}, false
 	}
 
-	start := len(lines) - 200
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(lines)-200, 0)
 	for i := len(lines) - 1; i >= start; i-- {
 		for _, ep := range errorPatterns {
 			if ep.regex.MatchString(lines[i]) {
@@ -333,8 +331,8 @@ func generateLogCandidates(testName string) []string {
 	name = strings.Trim(name, "-")
 
 	candidates := []string{"test-suite-" + name + ".log"}
-	if strings.HasPrefix(name, "suite-") {
-		candidates = append(candidates, "test-suite-"+strings.TrimPrefix(name, "suite-")+".log")
+	if after, ok := strings.CutPrefix(name, "suite-"); ok {
+		candidates = append(candidates, "test-suite-"+after+".log")
 	}
 	return candidates
 }

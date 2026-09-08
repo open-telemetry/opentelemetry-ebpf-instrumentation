@@ -17,6 +17,7 @@ const (
 	protocolCouchbase protocolName = "couchbase"
 	protocolDNS       protocolName = "dns"
 	protocolGPU       protocolName = "gpu"
+	protocolAerospike protocolName = "aerospike"
 )
 
 type protocolMapping struct {
@@ -55,4 +56,5 @@ var protocolMappings = []protocolMapping{
 	{name: protocolCouchbase, instr: instrumentations.InstrumentationCouchbase, appMetrics: true, metricWildcard: true},
 	{name: protocolDNS, instr: instrumentations.InstrumentationDNS, appMetrics: false},
 	{name: protocolGPU, instr: instrumentations.InstrumentationGPU, appMetrics: true, metricWildcard: true},
+	{name: protocolAerospike, instr: instrumentations.InstrumentationAerospike, appMetrics: true, metricWildcard: true},
 }

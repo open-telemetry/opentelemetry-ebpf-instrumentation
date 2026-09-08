@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -27,14 +28,15 @@ type Instrumentable struct {
 	InstrumentationError error
 
 	// in some runtimes, like python gunicorn, we need to allow
-	// tracing both the parent pid and all of its children pid
+	// tracing both the parent PID and all of its child PIDs
 	ChildPids []app.PID
 
 	FileInfo *exec.FileInfo
 	Offsets  *goexec.Offsets
 	Tracer   *ProcessTracer
 
-	LogEnricherEnabled bool
+	LogEnricherEnabled   bool
+	ExecutableGeneration uint64
 }
 
 func (ie *Instrumentable) CopyToServiceAttributes() {
@@ -50,6 +52,12 @@ type PIDsAccounter interface {
 	// with the provided PID. After receiving them via ringbuffer, it should
 	// discard them.
 	BlockPID(app.PID, uint32)
+}
+
+// LifecyclePIDBlocker receives the exact process identity when PID-only removal
+// could remove state belonging to a reused PID.
+type LifecyclePIDBlocker interface {
+	BlockPIDLifecycle(app.PID, uint32, *exec.FileInfo)
 }
 
 type CommonTracer interface {
@@ -135,19 +143,25 @@ const (
 	Generic
 )
 
+// ExecutableKey identifies an executable across filesystems.
+type ExecutableKey struct {
+	Dev uint64
+	Ino uint64
+}
+
 // ProcessTracer instruments an executable with eBPF and provides the eBPF readers
 // that will forward the traces to later stages in the pipeline
-// TODO: We need to pass the ELFInfo from this ProcessTracker to inside a Tracer
-// so that the GPU kernel event listener can find symbols names from addresses
-// in the ELF file.
 type ProcessTracer struct {
-	log             *slog.Logger
-	metrics         imetrics.Reporter
-	shutdownTimeout time.Duration
-	bpffsPath       string
+	log                       *slog.Logger
+	metrics                   imetrics.Reporter
+	shutdownTimeout           time.Duration
+	bpffsPath                 string
+	instrumentablesMu         sync.Mutex
+	nextExecutableGeneration  uint64
+	instrumentableGenerations map[ExecutableKey]uint64
 
 	Type            ProcessTracerType
-	Instrumentables map[uint64]*instrumenter
+	Instrumentables map[ExecutableKey]*instrumenter
 	Programs        []Tracer
 }
 
@@ -164,5 +178,19 @@ func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 func (pt *ProcessTracer) BlockPID(pid app.PID, ns uint32) {
 	for i := range pt.Programs {
 		pt.Programs[i].BlockPID(pid, ns)
+	}
+}
+
+func (pt *ProcessTracer) BlockPIDLifecycle(
+	pid app.PID,
+	ns uint32,
+	lifecycle *exec.FileInfo,
+) {
+	for i := range pt.Programs {
+		if lifecycleTracer, ok := pt.Programs[i].(LifecyclePIDBlocker); ok {
+			lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle)
+		} else {
+			pt.Programs[i].BlockPID(pid, ns)
+		}
 	}
 }

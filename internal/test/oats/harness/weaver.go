@@ -18,13 +18,12 @@ import (
 
 const (
 	// weaverAdminURL is where a weaver-wired OATS group publishes weaver's admin
-	// /stop endpoint on the test host; weaverReportPath is the host path weaver
-	// writes its live-check report to. Every group is expected to wire weaver
-	// (append `weaver/docker-compose-weaver.yml` to the test case's compose file
-	// list); an unreachable admin port fails the spec so a new group can't
+	// /stop endpoint on the test host; the POST both stops weaver and returns its
+	// live-check report in the response body. Every group is expected to wire
+	// weaver (append `weaver/docker-compose-weaver.yml` to the test case's compose
+	// file list); an unreachable admin port fails the spec so a new group can't
 	// silently skip semantic-convention validation.
-	weaverAdminURL   = "http://localhost:4320/stop"
-	weaverReportPath = "/tmp/obi-weaver-out/live_check.json"
+	weaverAdminURL = "http://localhost:4320/stop"
 
 	// skipWeaverEnv opts a run out of weaver validation entirely — intended
 	// only for local debugging of a compose setup, never for CI.
@@ -38,7 +37,7 @@ const (
 // shared weaver compose fragment), unless the run explicitly opts out via
 // TESTCASE_SKIP_WEAVER=true.
 func validateWeaver() {
-	if os.Getenv(skipWeaverEnv) == "true" || true {
+	if os.Getenv(skipWeaverEnv) == "true" {
 		ginkgo.GinkgoWriter.Printf("%s=true — skipping weaver validation\n", skipWeaverEnv)
 		return
 	}
@@ -46,7 +45,7 @@ func validateWeaver() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	report, err := weavercheck.FetchReport(ctx, weaverAdminURL, weaverReportPath)
+	report, err := weavercheck.FetchReport(ctx, weaverAdminURL)
 	if err != nil {
 		if errors.Is(err, syscall.ECONNREFUSED) {
 			ginkgo.Fail(fmt.Sprintf(

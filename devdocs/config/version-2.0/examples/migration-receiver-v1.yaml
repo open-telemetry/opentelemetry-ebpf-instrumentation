@@ -1,0 +1,18 @@
+discovery:
+  instrument:
+    - exe_path: "${CART_ROOT:-/srv}/cart-*"
+      open_ports: "8080"
+filter:
+  application:
+    http.request.method:
+      not_match: OPTIONS
+routes:
+  unmatched: heuristic
+  patterns:
+    - "/cart/{id}"
+  ignored_patterns:
+    - "/health"
+  ignore_mode: all
+metrics:
+  features:
+    - application

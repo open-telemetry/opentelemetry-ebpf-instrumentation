@@ -2,6 +2,7 @@ receivers:
   obi:
     version: "2.0"
     policy:
+      default_action: exclude
       poll_interval: 1s
       min_process_age: 1s
     rules:

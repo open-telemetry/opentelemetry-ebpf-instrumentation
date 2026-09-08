@@ -66,6 +66,52 @@ func TestPayloadExtractionMembershipMismatch(t *testing.T) {
 	}
 }
 
+func TestLanguageDetectionSkipsCannotBecomeCaptureExclusions(t *testing.T) {
+	tests := []struct {
+		name    string
+		process map[string]any
+	}{
+		{
+			name: "glob",
+			process: map[string]any{
+				"exe_path_glob": []any{"/usr/sbin/*"},
+			},
+		},
+		{
+			name: "regex",
+			process: map[string]any{
+				"exe_path_regex": `^/usr/sbin/`,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cur, ex := loadCurrentAndExample(t)
+
+			extensions := ex["extensions"].(map[string]any)
+			obiExtension := extensions["obi"].(map[string]any)
+			capture := obiExtension["capture"].(map[string]any)
+			rules := capture["rules"].([]any)
+			capture["rules"] = append(rules, map[string]any{
+				"action": "exclude",
+				"name":   "system-services",
+				"match": map[string]any{
+					"process": test.process,
+				},
+			})
+
+			err := mustKeepLanguageDetectionSkipsOutOfCaptureRules(cur, ex)
+			if err == nil {
+				t.Fatal("expected language-detection skip exclusion to fail")
+			}
+			if !strings.Contains(err.Error(), "must not be a capture exclusion") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestVerifyDefaultsCurrentExample(t *testing.T) {
 	cur, ex := loadCurrentAndExample(t)
 
@@ -93,6 +139,42 @@ func TestVerifyDefaultsDetectsMappedDefaultMismatch(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected batch_length failure, got: %v", failures)
+}
+
+func TestVerifyDefaultsRejectsLanguageSkipAsCaptureExclusion(t *testing.T) {
+	cur, ex := loadCurrentAndExample(t)
+	rules, ok := get(ex, "obi", "capture", "rules")
+	if !ok {
+		t.Fatal("missing capture rules")
+	}
+	existing, ok := rules.([]any)
+	if !ok {
+		t.Fatal("capture rules are not a list")
+	}
+	capture, ok := get(ex, "obi", "capture")
+	if !ok {
+		t.Fatal("missing capture")
+	}
+	captureMap, ok := capture.(map[string]any)
+	if !ok {
+		t.Fatal("capture is not a map")
+	}
+	captureMap["rules"] = append(existing, map[string]any{
+		"action": "exclude",
+		"match": map[string]any{
+			"process": map[string]any{
+				"exe_path_glob": []any{"/usr/sbin/*"},
+			},
+		},
+	})
+
+	failures, _ := verifyDefaults(cur, ex)
+	for _, failure := range failures {
+		if strings.Contains(failure.Error(), "language-detection skip") {
+			return
+		}
+	}
+	t.Fatalf("expected language-detection skip failure, got: %v", failures)
 }
 
 func loadCurrentAndExample(t *testing.T) (map[string]any, map[string]any) {

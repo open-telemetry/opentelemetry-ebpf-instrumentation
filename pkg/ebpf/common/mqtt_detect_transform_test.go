@@ -258,6 +258,33 @@ func TestProcessMQTTEvent(t *testing.T) {
 	}
 }
 
+func TestProcessMQTTEventDoesNotReadPastPacketBody(t *testing.T) {
+	segment := []byte{
+		0x30, 0x02, 0x00, 0x01, // Truncated PUBLISH topic body.
+		0x30, 0x05, 0x00, 0x03, 'a', '/', 'b', // Complete PUBLISH packet.
+	}
+
+	info, ignore, err := ProcessMQTTEvent(segment)
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, "a/b", info.Topic)
+}
+
+func TestProcessMQTTPacketDoesNotReadPastConnectBody(t *testing.T) {
+	segment := []byte{
+		0x10, 0x02, 0x00, 0x04, // CONNECT declares only the protocol-name length.
+		'M', 'Q', 'T', 'T', 0x04, 0x02, 0x00, 0x3c,
+		0x00, 0x03, 'c', 'l', 'i', // Adjacent bytes complete a valid CONNECT.
+	}
+	packet, err := mqttparser.NewMQTTControlPacket(segment)
+	require.NoError(t, err)
+
+	info, ignore, err := processMQTTPacket(segment, 0, packet)
+	require.Error(t, err)
+	assert.Nil(t, info)
+	assert.True(t, ignore)
+}
+
 func TestProcessPossibleMQTTEvent(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -31,7 +31,7 @@ import (
 // NetMetricsConfig extends MetricsConfig for Network Metrics
 type NetMetricsConfig struct {
 	Metrics     *otelcfg.MetricsConfig
-	CommonCfg   *perapp.MetricsConfig
+	CommonCfg   *perapp.GlobalMetricsConfig
 	SelectorCfg *attributes.SelectorConfig
 	GuessPorts  flowdef.PortGuessPolicy
 }
@@ -62,7 +62,7 @@ func getFilteredNetworkResourceAttrs(hostID string, attrSelector attributes.Sele
 
 func createFilteredNetworkResource(hostID string, attrSelector attributes.Selection) *resource.Resource {
 	attrs := getFilteredNetworkResourceAttrs(hostID, attrSelector)
-	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
+	return resource.NewWithAttributes(attr.OBISchemaURL, attrs...)
 }
 
 func newMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration) *metric.MeterProvider {
@@ -136,7 +136,7 @@ func newMetricsExporter(
 		log := log.With("metricFamily", "FlowBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkFlow.OTEL,
 			metric2.WithDescription("total bytes_sent value of network flows observed by probe since its launch"),
-			metric2.WithUnit("{bytes}"), // TODO: By?
+			metric2.WithUnit(attributes.NetworkFlow.Unit), // TODO: By?
 		)
 		if err != nil {
 			log.Error("creating observable counter", "error", err)
@@ -155,7 +155,7 @@ func newMetricsExporter(
 		log := log.With("metricFamily", "FlowPackets")
 		packetsMetric, err := ebpfEvents.Int64Counter(attributes.NetworkFlowPackets.OTEL,
 			metric2.WithDescription("packets sent from a source network endpoint to a destination network endpoint"),
-			metric2.WithUnit("{packets}"),
+			metric2.WithUnit(attributes.NetworkFlowPackets.Unit),
 		)
 		if err != nil {
 			log.Error("creating observable counter", "error", err)
@@ -174,7 +174,7 @@ func newMetricsExporter(
 		log := log.With("metricFamily", "InterZoneBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkInterZone.OTEL,
 			metric2.WithDescription("total bytes_sent value between Cloud availability zones"),
-			metric2.WithUnit("{bytes}"), // TODO: By?
+			metric2.WithUnit(attributes.NetworkInterZone.Unit), // TODO: By?
 		)
 		if err != nil {
 			log.Error("creating observable counter", "error", err)

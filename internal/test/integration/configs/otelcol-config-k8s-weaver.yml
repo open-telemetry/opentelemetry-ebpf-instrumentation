@@ -1,0 +1,74 @@
+# otelcol config for the Kubernetes / kind suites with a weaver tap.
+#
+# Mirrors the base k8s `otelcol-config.yml` (OTLP receiver -> prometheus
+# exporter, which the suites poll; same collector image pin) and additionally
+# forwards every metric and trace batch to the intermediate `weavercol`
+# collector (otelcol-config-k8s-weavercol.yml), which aggregates and relays
+# to the weaver pod.
+#
+# Why the extra hop instead of exporting to weaver directly: weaver validates
+# every sample and is slow at netolly-scale cardinality. When THIS collector
+# exported straight to weaver, its sending queue filled and the enqueue
+# failure propagated synchronously through the shared OTLP receiver back to
+# OBI (observed: OBI logging "sending queue is full" while the suite's
+# prometheus queries returned empty). weavercol ingests instantly, so this
+# side's queue never fills; weaver back-pressure surfaces at weavercol, and
+# reaches this collector only as an asynchronous send failure on an already
+# dequeued item — dropped and logged, never failing OBI's export. Sample
+# Export losses on either hop make validation fail: a dropped batch may carry
+# weaver's only copy of a metric or span shape.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 100
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
+exporters:
+  prometheus:
+    endpoint: "otelcol:9464"
+    resource_to_telemetry_conversion:
+      enabled: true
+    enable_open_metrics: true
+  # Forward traces to jaeger so suites that route OBI traces through this
+  # collector (instead of straight to jaeger) keep their jaeger-based trace
+  # assertions working. Harmless for metrics-only suites (no traces flow).
+  otlphttp/jaeger:
+    endpoint: http://jaeger:4318
+    tls:
+      insecure: true
+  otlp/weavercol:
+    endpoint: weavercol:4317
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      queue_size: 500
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 15s
+service:
+  # own telemetry exposed for validateWeaver's first-hop drop check (00-kind*.yml)
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheus]
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/jaeger]
+    metrics/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weavercol]
+    traces/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weavercol]

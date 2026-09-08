@@ -7,17 +7,28 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"runtime"
 	runtimemetrics "runtime/metrics"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
 var runtimeMetricsReadLoopActive uint32
 
-const runtimeMetricMaxProcessors = 256
+const (
+	runtimeMetricMaxProcessors = 256
+	runtimeHistogramGoroutines = 256
+	runtimeHistogramYields     = 8
+)
+
+type runtimeHistogramSnapshot struct {
+	Counts []uint64  `json:"counts"`
+	Bounds []float64 `json:"bounds"`
+}
 
 func main() {
 	go serve(":8081")
@@ -56,9 +67,16 @@ func handleConnection(conn net.Conn) {
 	case "SET_GOMAXPROCS_ABOVE_RUNTIME_METRIC_LIMIT":
 		runtime.GOMAXPROCS(runtimeMetricMaxProcessors + 1)
 		runtime.GC()
+	case "GENERATE_RUNTIME_HISTOGRAMS":
+		generateRuntimeHistograms()
 	case "RUNTIME_METRICS":
 		if err := json.NewEncoder(conn).Encode(runtimeMetricValues()); err != nil {
 			fmt.Printf("Failed to encode runtime metrics: %v\n", err)
+		}
+		return
+	case "RUNTIME_HISTOGRAMS":
+		if err := json.NewEncoder(conn).Encode(runtimeHistogramValues()); err != nil {
+			fmt.Printf("Failed to encode runtime histograms: %v\n", err)
 		}
 		return
 	case "START_RUNTIME_METRICS_READ_LOOP":
@@ -127,4 +145,62 @@ func runtimeMetricValues() map[string]float64 {
 		values["/memory/classes/heap/released:bytes"] -
 		values["/memory/classes/heap/stacks:bytes"]
 	return values
+}
+
+func generateRuntimeHistograms() {
+	start := make(chan struct{})
+	ready := make(chan struct{}, runtimeHistogramGoroutines)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(runtimeHistogramGoroutines)
+	for i := 0; i < runtimeHistogramGoroutines; i++ {
+		go func() {
+			defer waitGroup.Done()
+			ready <- struct{}{}
+			<-start
+			for i := 0; i < runtimeHistogramYields; i++ {
+				runtime.Gosched()
+			}
+		}()
+	}
+	for i := 0; i < runtimeHistogramGoroutines; i++ {
+		<-ready
+	}
+	close(start)
+	waitGroup.Wait()
+	runtime.GC()
+}
+
+func runtimeHistogramValues() map[string]runtimeHistogramSnapshot {
+	names := []string{
+		"/sched/pauses/total/gc:seconds",
+		"/sched/latencies:seconds",
+	}
+	samples := make([]runtimemetrics.Sample, len(names))
+	for i, name := range names {
+		samples[i].Name = name
+	}
+	runtimemetrics.Read(samples)
+
+	values := make(map[string]runtimeHistogramSnapshot, len(samples))
+	for _, sample := range samples {
+		if sample.Value.Kind() != runtimemetrics.KindFloat64Histogram {
+			continue
+		}
+		values[sample.Name] = snapshotRuntimeHistogram(sample.Value.Float64Histogram())
+	}
+	return values
+}
+
+func snapshotRuntimeHistogram(histogram *runtimemetrics.Float64Histogram) runtimeHistogramSnapshot {
+	counts := append([]uint64(nil), histogram.Counts...)
+	bounds := make([]float64, 0, len(histogram.Buckets)-1)
+	for i := 0; i+1 < len(histogram.Buckets); i++ {
+		upperBound := histogram.Buckets[i+1]
+		if math.IsInf(upperBound, 0) {
+			continue
+		}
+		bounds = append(bounds, math.Nextafter(upperBound, histogram.Buckets[i]))
+	}
+
+	return runtimeHistogramSnapshot{Counts: counts, Bounds: bounds}
 }

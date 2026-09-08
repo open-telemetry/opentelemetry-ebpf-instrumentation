@@ -5,6 +5,7 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -170,6 +171,13 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		EnabledMode: cfg.EBPF.InstrumentCuda,
 	}
 
+	aerospike := protocols[protocolAerospike]
+	aerospikeInstrumentation := schema.AerospikeInstrumentation{
+		Enabled:    aerospike.Enabled,
+		Filters:    aerospike.Filters,
+		BufferSize: cfg.EBPF.BufferSizes.Aerospike,
+	}
+
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
 		GRPC:      protocols[protocolGRPC],
@@ -180,6 +188,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		Couchbase: couchbaseInstrumentation,
 		DNS:       dnsInstrumentation,
 		GPU:       gpuInstrumentation,
+		Aerospike: &aerospikeInstrumentation,
 	}
 }
 
@@ -192,7 +201,7 @@ func protocolInstrumentation(
 ) schema.ProtocolInstrumentation {
 	return schema.ProtocolInstrumentation{
 		Enabled: protocolEnabled(tracesInstrumentations, metricsInstrumentations, appMetricsEnabled, mapping),
-		Filters: signalFilters(cfg.Filters.Application),
+		Filters: applicationSignalFilters(cfg.Filters, mapping.instr),
 	}
 }
 
@@ -225,12 +234,7 @@ func appendMetricInstrumentations(
 }
 
 func containsInstrumentation(list []instrumentations.Instrumentation, needle instrumentations.Instrumentation) bool {
-	for _, item := range list {
-		if item == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, needle)
 }
 
 func protocolEnabled(

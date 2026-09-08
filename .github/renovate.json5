@@ -9,6 +9,7 @@
     // so we don't want to get them updated
     "internal/test/integration/components/testserver_1.17",
     "internal/test/integration/components/old_grpc",
+    "internal/test/integration/components/goautosdk/v1.33",
     // github.com/Shopify/sarama has been moved to github.com/IBM/sarama
     // but we keep supporting the go-offsets for the outdated library, which must not
     // be updated.
@@ -72,6 +73,21 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "regex:^(?:(?<compatibility>.+?)-)?v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      // internal/test/integration/components/weaver/service.yml is a Compose
+      // service fragment, but its filename doesn't match the docker-compose
+      // manager's compose*.yml pattern, so its digest-pinned image would
+      // otherwise never be updated (it silently lagged a version behind the
+      // other weaver pins). Track it with the same generic image-ref shape used
+      // for the Go files above.
+      "customType": "regex",
+      "managerFilePatterns": ["/^internal\\/test\\/integration\\/components\\/weaver\\/service\\.yml$/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9.\\-]*(?:/[a-z0-9][a-z0-9._\\-]*)+):(?<currentValue>[a-zA-Z0-9][a-zA-Z0-9._\\-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?:(?<compatibility>.+?)-)?v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
     }
   ],
   "packageRules": [
@@ -79,23 +95,6 @@
       "description": "Run `go mod tidy` and rewrite import paths on any Go module update",
       "matchManagers": ["gomod"],
       "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"]
-    },
-    {
-      "description": "Block Go dependency updates that outpace the generator toolchain (currently Go 1.25.x) until the generator image is upgraded",
-      "matchManagers": ["gomod"],
-      "matchPackageNames": [
-        "k8s.io/api",
-        "k8s.io/apiextensions-apiserver",
-        "k8s.io/apimachinery",
-        "k8s.io/client-go",
-        "k8s.io/component-base",
-        "k8s.io/kube-openapi",
-        "k8s.io/utils",
-        "sigs.k8s.io/controller-runtime",
-        "sigs.k8s.io/controller-runtime/tools/setup-envtest",
-        "sigs.k8s.io/e2e-framework"
-      ],
-      "enabled": false
     },
     {
       "matchManagers": ["gomod"],
@@ -206,14 +205,14 @@
       "enabled": false
     },
     {
-      "description": "Block golang Docker image major upgrades (these require coordinated manual changes)",
+      "description": "Block golang Docker image minor and major upgrades (these require coordinated manual changes)",
       "matchDatasources": ["docker"],
       "matchPackageNames": [
         "golang",
         "docker.io/library/golang",
         "library/golang"
       ],
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": ["minor", "major"],
       "enabled": false
     },
     {
@@ -303,9 +302,13 @@
       "schedule": ["before 6am on Thursday"]
     },
     {
-      "description": "Disable raw pip_requirements handling for integration component requirements files",
+      "description": "Disable raw pip_requirements handling for pip-compile lockfiles",
       "matchManagers": ["pip_requirements"],
-      "matchFileNames": ["internal/test/integration/components/**"],
+      "matchFileNames": [
+        "internal/test/integration/components/**",
+        ".github/*-requirements.txt",
+        "examples/store-demo/app/src/**/requirements.txt"
+      ],
       "enabled": false
     },
     {
@@ -313,6 +316,18 @@
       "matchFileNames": ["internal/test/**"],
       "matchUpdateTypes": ["patch", "digest"],
       "enabled": false
+    },
+    {
+      "description": "Keep the Go Auto SDK latest fixture on rolling OpenTelemetry releases",
+      "groupName": "Go Auto SDK latest fixture",
+      "matchManagers": ["gomod"],
+      "matchFileNames": ["internal/test/integration/components/goautosdk/latest/**"],
+      "matchPackageNames": [
+        "go.opentelemetry.io/auto/sdk",
+        "go.opentelemetry.io/otel{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "minor"],
+      "enabled": true
     },
     {
       "description": "Re-enable LVH kernel image updates: kernels.yaml is supply-chain-critical, must stay pinned to current dated tag + digest",
@@ -433,6 +448,58 @@
       "matchPackageNames": ["org.graalvm.buildtools:native-maven-plugin"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      // OBI's own image publishes a mostly-disposable tag namespace: every merge
+      // pushes a short-SHA tag and moves `main`, a nightly job pushes `nightly`
+      // and `nightly-<date>`, and only 13 of its 319 tags are releases. Renovate
+      // must follow releases and nothing else, so updates are off by default
+      // here and re-enabled below for release refs only. A denylist does not
+      // work: chasing `main` produced one digest PR per commit, and `nightly`
+      // would do the same daily.
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "otel/ebpf-instrument",
+        "ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument"
+      ],
+      "enabled": false
+    },
+    {
+      // Re-enable refs already on a release tag, and keep their target on one
+      // too: matchCurrentValue gates which refs are tracked, allowedVersions
+      // gates what they may move to, so no ref can slide onto a nightly or
+      // short-SHA tag. Every OBI release to date matches this shape. The
+      // examples/ Compose files all document the same release, so they move
+      // together in one PR — a partial bump leaves them on different versions.
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "otel/ebpf-instrument",
+        "ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument"
+      ],
+      "matchCurrentValue": "/^v\\d+\\.\\d+\\.\\d+$/",
+      "allowedVersions": "/^v\\d+\\.\\d+\\.\\d+$/",
+      "groupName": "OBI example images",
+      "enabled": true,
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      // Pin every otel/weaver reference to one version in a single PR. The refs
+      // live across four managers: dependencies.Dockerfile (dockerfile — the
+      // image `make lint-schema` reads), the OATS/integration compose fragments
+      // (docker-compose), the Go test pin (custom regex), and service.yml
+      // (custom regex). Without this, each bumps in its own PR on its own
+      // schedule, so lint-schema and the live-check suites validate against
+      // different weaver builds until the last PR merges — the exact drift #2784
+      // caused (it moved only the three compose files). This rule is LAST on
+      // purpose: packageRules resolve last-match-wins, so its groupName and
+      // schedule override the "Docker" and "integration test pinned images"
+      // rules that also match these refs, and enabled:true re-includes the ones
+      // the "internal/test/**" patch/digest disable rule would otherwise drop.
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["otel/weaver"],
+      "groupName": "otel/weaver image",
+      "enabled": true,
+      "schedule": ["before 6am on Tuesday"]
     }
   ],
   "labels": [

@@ -18,6 +18,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/common.h>
+#include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
@@ -34,7 +35,7 @@
 
 // Code for the produce messages path
 SEC("uprobe/writer_write_messages")
-int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writer_write_messages, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     void *w_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("=== uprobe/writer_write_messages ===");
@@ -58,7 +59,7 @@ int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/writer_write_messages_ret")
-int obi_uprobe_writer_write_messages_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writer_write_messages_ret, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/writer_write_messages_ret ===");
     bpf_dbg_printk("goroutine_addr=%llx", goroutine_addr);
@@ -75,7 +76,7 @@ int obi_uprobe_writer_write_messages_ret(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/writer_produce")
-int obi_uprobe_writer_produce(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_writer_produce, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/writer_produce ===");
     bpf_dbg_printk("goroutine_addr=%llx", goroutine_addr);
@@ -124,7 +125,7 @@ int obi_uprobe_writer_produce(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/client_roundTrip")
-int obi_uprobe_client_roundTrip(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_client_roundTrip, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/client_roundTrip  ===");
     bpf_dbg_printk("goroutine_addr=%llx", goroutine_addr);
@@ -151,7 +152,7 @@ int obi_uprobe_client_roundTrip(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/protocol_RoundTrip")
-int obi_uprobe_protocol_roundtrip(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_protocol_roundtrip, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/protocol_RoundTrip ===");
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     void *rw_ptr = (void *)GO_PARAM2(ctx);
@@ -184,7 +185,7 @@ int obi_uprobe_protocol_roundtrip(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/protocol_RoundTrip_ret")
-int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_protocol_roundtrip_ret, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/protocol_RoundTrip_ret ===");
     bpf_dbg_printk("goroutine_addr=%llx", goroutine_addr);
@@ -208,7 +209,7 @@ int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
         if (topic_ptr) {
             kafka_go_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(kafka_go_req_t), 0);
             if (trace) {
-                trace->type = EVENT_GO_KAFKA_SEG;
+                trace->type = k_event_type_go_kafka_seg;
                 trace->op = k_kafka_api_produce;
                 trace->start_monotime_ns = p_ptr->start_monotime_ns;
                 trace->end_monotime_ns = bpf_ktime_get_ns();
@@ -241,7 +242,7 @@ int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
 
 // Code for the fetch messages path
 SEC("uprobe/reader_read")
-int obi_uprobe_reader_read(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_reader_read, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     void *r_ptr = (void *)GO_PARAM1(ctx);
     void *conn = (void *)GO_PARAM5(ctx);
@@ -255,7 +256,7 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
 
     if (r_ptr) {
         kafka_go_req_t r = {
-            .type = EVENT_GO_KAFKA_SEG,
+            .type = k_event_type_go_kafka_seg,
             .op = k_kafka_api_fetch,
             .start_monotime_ns = 0,
         };
@@ -290,7 +291,7 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/reader_send_message")
-int obi_uprobe_reader_send_message(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_reader_send_message, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/reader_send_message ===");
     bpf_dbg_printk("goroutine_addr=%llx", goroutine_addr);
@@ -309,7 +310,7 @@ int obi_uprobe_reader_send_message(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/reader_read")
-int obi_uprobe_reader_read_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_uprobe_reader_read_ret, struct pt_regs *, ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/reader_read goroutine_addr=%llx ===", goroutine_addr);
     go_addr_key_t g_key = {};

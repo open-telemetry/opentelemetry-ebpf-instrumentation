@@ -197,11 +197,13 @@ type fakeInternalMetrics struct {
 }
 
 type InstrTest struct {
-	name       string
-	instr      []instrumentations.Instrumentation
-	expected   []string
-	unexpected []string
-	extraColl  int
+	name                 string
+	instr                []instrumentations.Instrumentation
+	expected             []string
+	unexpected           []string
+	expectedOperations   []string
+	unexpectedOperations []string
+	extraColl            int
 }
 
 func TestAppMetrics_ByInstrumentation(t *testing.T) {
@@ -218,9 +220,13 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc.server.call.duration",
 				"rpc.client.call.duration",
 				"db.client.operation.duration",        // SQL client SELECT
+				"db.server.operation.duration",        // SQL server SELECT
 				"db.client.operation.duration",        // REDIS client SET
-				"db.client.operation.duration",        // Redis server GET (TODO is this a bug?)
+				"db.server.operation.duration",        // Redis server GET
+				"db.client.operation.duration",        // Memcached client SET
+				"db.server.operation.duration",        // Memcached server GET
 				"db.client.operation.duration",        // MongoDB client find
+				"db.client.operation.duration",        // Aerospike client get
 				"messaging.client.operation.duration", // Kafka client
 				"messaging.client.operation.duration", // MQTT client
 				"messaging.client.operation.duration", // NATS client
@@ -269,7 +275,16 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			extraColl: 0,
 			expected: []string{
 				"db.client.operation.duration",
+				"db.server.operation.duration",
+			},
+		},
+		{
+			name:      "memcached only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationMemcached},
+			extraColl: 0,
+			expected: []string{
 				"db.client.operation.duration",
+				"db.server.operation.duration",
 			},
 		},
 		{
@@ -278,6 +293,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			extraColl: 0,
 			expected: []string{
 				"db.client.operation.duration",
+				"db.server.operation.duration",
 			},
 		},
 		{
@@ -326,6 +342,16 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:      "aerospike only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationAerospike},
+			extraColl: 0,
+			expected: []string{
+				"db.client.operation.duration",
+			},
+			expectedOperations:   []string{"aerospike_get"},
+			unexpectedOperations: []string{"SELECT", "SET", "GET", "find"},
+		},
+		{
 			name:      "none",
 			instr:     nil,
 			extraColl: 0,
@@ -338,8 +364,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"db.client.operation.duration",
 				"db.client.operation.duration",
-				"db.client.operation.duration",
+				"db.server.operation.duration",
+				"db.server.operation.duration",
 			},
+			unexpectedOperations: []string{"aerospike_get"},
 		},
 		{
 			name:      "kafka and grpc",
@@ -387,11 +415,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Path: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Method: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLServer, Method: "SELECT", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedClient, Method: "SET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedServer, Method: "GET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAerospikeClient, Method: "aerospike_get", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: request.MessagingSend, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
@@ -418,6 +450,16 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			}
 			assert.Len(t, m, len(tt.expected))
 
+			operations := make([]string, 0, len(m))
+			for _, record := range m {
+				operations = append(operations, record.Attributes["db.operation.name"])
+			}
+			for _, operation := range tt.expectedOperations {
+				assert.Contains(t, operations, operation)
+			}
+			for _, operation := range tt.unexpectedOperations {
+				assert.NotContains(t, operations, operation)
+			}
 			for i := 0; i < len(m); i++ {
 				assert.Contains(t, tt.expected, m[i].Name)
 			}
@@ -486,7 +528,7 @@ func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
 				ctx,
 				&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
 				mcfg,
-				&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 				&attributes.SelectorConfig{},
 				request.UnresolvedNames{},
 				metrics,
@@ -551,7 +593,7 @@ func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
 	}
 }
 
-func TestAppMetrics_DBCollectionName(t *testing.T) {
+func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -568,11 +610,11 @@ func TestAppMetrics_DBCollectionName(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
 		mcfg,
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.DBClientDuration.Section: attributes.InclusionLists{
-					Include: []string{string(attr.DBCollectionName)},
+					Include: []string{string(attr.DBCollectionName), string(attr.ServerPort), string(attr.DBNamespace)},
 				},
 			},
 		},
@@ -586,8 +628,11 @@ func TestAppMetrics_DBCollectionName(t *testing.T) {
 	metrics.Send([]request.Span{{
 		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}},
 		Type:         request.EventTypeSQLClient,
+		SubType:      int(request.DBPostgres),
 		Path:         "customers",
 		Method:       "SELECT",
+		HostPort:     5432,
+		DBNamespace:  "testdb",
 		RequestStart: 100,
 		End:          200,
 	}})
@@ -595,6 +640,83 @@ func TestAppMetrics_DBCollectionName(t *testing.T) {
 	records := readMetricsByName(t, metricRecords, timeout, attributes.DBClientDuration.OTEL)
 	require.Len(t, records, 1)
 	assert.Equal(t, "customers", records[0].Attributes[string(attr.DBCollectionName)])
+	assert.Equal(t, "testdb", records[0].Attributes[string(attr.DBNamespace)])
+	// the DBMS default port is still reported because the user explicitly
+	// included server.port in the selection
+	assert.Equal(t, "5432", records[0].Attributes[string(attr.ServerPort)])
+}
+
+func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 10)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	postgresSpan := func(operation string, port int, host string) request.Span {
+		return request.Span{
+			Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}},
+			Type:         request.EventTypeSQLClient,
+			SubType:      int(request.DBPostgres),
+			Method:       operation,
+			Host:         host,
+			HostPort:     port,
+			RequestStart: 100,
+			End:          200,
+		}
+	}
+	failedSpan := postgresSpan("FAILED", 5433, "dbhost")
+	failedSpan.Status = 1
+	failedSpan.SQLError = &request.SQLError{Code: 1146}
+	metrics.Send([]request.Span{
+		postgresSpan("NONDEFAULT", 5433, "dbhost"),
+		postgresSpan("DEFAULTPORT", 5432, "dbhost"),
+		postgresSpan("NOADDRESS", 5433, ""),
+		postgresSpan("UNKNOWNPORT", 0, "dbhost"),
+		failedSpan,
+	})
+
+	records := map[string]collector.MetricRecord{}
+	deadline := time.After(timeout)
+	for len(records) < 5 {
+		select {
+		case item := <-metricRecords:
+			if item.Name != attributes.DBClientDuration.OTEL {
+				continue
+			}
+			records[item.Attributes[string(attr.DBOperation)]] = item
+		case <-deadline:
+			t.Fatalf("timeout waiting for db.client datapoints, got %v", records)
+		}
+	}
+
+	assert.Equal(t, "5433", records["NONDEFAULT"].Attributes[string(attr.ServerPort)])
+	assert.NotContains(t, records["DEFAULTPORT"].Attributes, string(attr.ServerPort))
+	assert.NotContains(t, records["NOADDRESS"].Attributes, string(attr.ServerPort))
+	assert.NotContains(t, records["UNKNOWNPORT"].Attributes, string(attr.ServerPort))
+
+	// db.response.status_code is reported only for failed operations
+	assert.Equal(t, "1146", records["FAILED"].Attributes[string(attr.DBResponseStatusCode)])
+	assert.NotContains(t, records["NONDEFAULT"].Attributes, string(attr.DBResponseStatusCode))
 }
 
 func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
@@ -622,7 +744,7 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
 		mcfg,
-		&perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureSpanOTel},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},
 		metrics,
@@ -670,6 +792,34 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 	assert.Empty(t, expected)
 }
 
+func TestSpanMetricsNames(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		features        export.Features
+		expectedLatency string
+		expectedCalls   string
+	}{
+		{
+			name:            "otel naming",
+			features:        export.FeatureSpanOTel,
+			expectedLatency: "traces.span.metrics.duration",
+			expectedCalls:   "traces.span.metrics.calls",
+		},
+		{
+			name:            "legacy naming",
+			features:        export.FeatureSpanLegacy,
+			expectedLatency: "traces_spanmetrics_latency",
+			expectedCalls:   "traces_spanmetrics_calls_total",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := &MetricsReporter{jointMetricsCfg: &perapp.GlobalMetricsConfig{Features: tc.features}}
+			assert.Equal(t, tc.expectedLatency, mr.spanMetricsLatencyName())
+			assert.Equal(t, tc.expectedCalls, mr.spanMetricsCallsName())
+		})
+	}
+}
+
 func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 
@@ -695,7 +845,7 @@ func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
 		mcfg,
-		&perapp.MetricsConfig{Features: export.FeatureSpanSizes},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureSpanSizes},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},
 		metrics,
@@ -863,7 +1013,7 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 func TestProcessPIDEvents(t *testing.T) {
 	mr := MetricsReporter{
 		cfg:             &otelcfg.MetricsConfig{},
-		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		jointMetricsCfg: &perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		pidTracker:      NewPidServiceTracker(),
 	}
 
@@ -997,7 +1147,7 @@ func makeMetricsReporter(
 	mr, err := newMetricsReporter(
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg, &perapp.MetricsConfig{Features: features},
+		mcfg, &perapp.GlobalMetricsConfig{Features: features},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -1325,7 +1475,7 @@ func TestConnectionTypeForSpan(t *testing.T) {
 		},
 		{
 			name:     "Kafka producer",
-			span:     &request.Span{Type: request.EventTypeKafkaClient, Method: request.MessagingPublish, HostName: "kafka-broker"},
+			span:     &request.Span{Type: request.EventTypeKafkaClient, Method: request.MessagingSend, HostName: "kafka-broker"},
 			expected: "messaging_system",
 		},
 		{
@@ -1636,7 +1786,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			reporter := &MetricsReporter{
 				cfg:                &otelcfg.MetricsConfig{},
 				log:                slog.Default(),
-				jointMetricsCfg:    &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				jointMetricsCfg:    &perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 				targetMetrics:      make(map[svc.UID]*TargetMetrics),
 				pidTracker:         NewPidServiceTracker(),
 				createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1697,7 +1847,7 @@ func TestHandleProcessEventCreatedMetricsExportDisabled(t *testing.T) {
 			reporter := &MetricsReporter{
 				cfg:                &otelcfg.MetricsConfig{},
 				log:                slog.Default(),
-				jointMetricsCfg:    &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				jointMetricsCfg:    &perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 				targetMetrics:      make(map[svc.UID]*TargetMetrics),
 				pidTracker:         NewPidServiceTracker(),
 				createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1743,7 +1893,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
-			jointMetricsCfg:    &perapp.MetricsConfig{},
+			jointMetricsCfg:    &perapp.GlobalMetricsConfig{},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1778,7 +1928,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
-			jointMetricsCfg:    &perapp.MetricsConfig{},
+			jointMetricsCfg:    &perapp.GlobalMetricsConfig{},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,

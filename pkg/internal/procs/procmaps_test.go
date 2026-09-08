@@ -98,3 +98,19 @@ func TestExeLoadBiasMatchesMappingOffset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(0x7f0000000000), bias)
 }
+
+func TestFindMappingLoadBias(t *testing.T) {
+	maps := []*procfs.ProcMap{{
+		StartAddr: 0x7f0000401000,
+		Offset:    0x1000,
+		Dev:       42,
+		Inode:     99,
+	}}
+	progs := []*elf.Prog{{ProgHeader: elf.ProgHeader{
+		Type: elf.PT_LOAD, Off: 0x1000, Vaddr: 0x401000,
+	}}}
+
+	bias, err := FindMappingLoadBias(maps, progs, 42, 99)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0x7f0000000000), bias)
+}

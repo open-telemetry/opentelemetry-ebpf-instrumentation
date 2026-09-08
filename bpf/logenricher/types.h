@@ -33,15 +33,27 @@ enum {
 static const char k_newline = '\n';
 
 typedef struct log_event {
+    u64 ino;
     u32 tgid;
     u32 len;
     u32 fd;
+    u32 dev; // kernel dev_t of the pipe's superblock, disambiguates ino across filesystems
     obi_ctx_info_t ctx;
     u8 file_path[k_pts_file_path_len_max];
     u8 log[];
 } log_event_t;
 
 const log_event_t *log_event__unused __attribute__((unused));
+
+// bare inode numbers collide across filesystems (pipefs vs on-disk FIFOs,
+// and get_next_ino() wraps at 32 bits), so pipes are keyed by (ino, dev).
+// dev holds a 32-bit kernel dev_t; u64 keeps the key free of implicit padding
+typedef struct log_pipe_key {
+    u64 ino;
+    u64 dev;
+} log_pipe_key_t;
+
+const log_pipe_key_t *log_pipe_key__unused __attribute__((unused));
 
 enum tty_driver_type___new {
     TTY_DRIVER_TYPE_SYSTEM,

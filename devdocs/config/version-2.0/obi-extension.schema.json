@@ -588,22 +588,6 @@
               }
             }
           }
-        },
-        {
-          "action": "exclude",
-          "name": "exclude-linux-system-paths",
-          "description": "Exclude Linux system/service executable paths that are not typical application workloads.",
-          "match": {
-            "process": {
-              "exe_path_glob": [
-                "/lib/systemd/*",
-                "/usr/lib/systemd/*",
-                "/usr/libexec/*",
-                "/sbin/*",
-                "/usr/sbin/*"
-              ]
-            }
-          }
         }
       ],
       "items": {
@@ -1510,6 +1494,27 @@
         }
       }
     },
+    "AerospikeInstrumentation": {
+      "type": "object",
+      "description": "Aerospike instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable Aerospike traces/metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific Aerospike filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "buffer_size": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Aerospike capture buffer size, enabling response reassembly.\nIf omitted, `0` is used.\n"
+        }
+      }
+    },
     "KafkaInstrumentation": {
       "type": "object",
       "description": "Kafka instrumentation controls.",
@@ -1754,6 +1759,17 @@
         "gpu": {
           "$ref": "#/$defs/GpuInstrumentation",
           "description": "GPU event instrumentation controls.\nIf omitted, GPU defaults are used.\n"
+        },
+        "aerospike": {
+          "$ref": "#/$defs/AerospikeInstrumentation",
+          "description": "Aerospike instrumentation controls.\nIf omitted, Aerospike defaults are used.\n",
+          "default": {
+            "enabled": {
+              "traces": true,
+              "metrics": true
+            },
+            "filters": {}
+          }
         }
       },
       "default": {
@@ -1814,6 +1830,13 @@
           "filters": {}
         },
         "gpu": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "aerospike": {
           "enabled": {
             "traces": true,
             "metrics": true

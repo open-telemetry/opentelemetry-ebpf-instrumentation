@@ -20,6 +20,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
+	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/selection"
 	"go.opentelemetry.io/obi/pkg/transform"
@@ -34,21 +35,35 @@ type dummyCriterion struct {
 	features  export.Features
 }
 
-func (d dummyCriterion) GetName() string                                                { return d.name }
-func (d dummyCriterion) GetOpenPorts() *services.IntEnum                                { return nil }
-func (d dummyCriterion) GetPath() services.StringMatcher                                { return nil }
-func (d dummyCriterion) GetLanguages() services.StringMatcher                           { return nil }
-func (d dummyCriterion) RangeMetadata() iter.Seq2[string, services.StringMatcher]       { return nil }
+func (d dummyCriterion) GetName() string { return d.name }
+
+func (d dummyCriterion) GetOpenPorts() *services.IntEnum { return nil }
+
+func (d dummyCriterion) GetPath() services.StringMatcher { return nil }
+
+func (d dummyCriterion) GetLanguages() services.StringMatcher { return nil }
+
+func (d dummyCriterion) RangeMetadata() iter.Seq2[string, services.StringMatcher] { return nil }
+
 func (d dummyCriterion) RangePodAnnotations() iter.Seq2[string, services.StringMatcher] { return nil }
-func (d dummyCriterion) RangePodLabels() iter.Seq2[string, services.StringMatcher]      { return nil }
-func (d dummyCriterion) IsContainersOnly() bool                                         { return false }
-func (d dummyCriterion) GetPathRegexp() services.StringMatcher                          { return nil }
-func (d dummyCriterion) GetCmdArgs() services.StringMatcher                             { return nil }
-func (d dummyCriterion) GetPIDs() ([]app.PID, bool)                                     { return nil, false }
-func (d dummyCriterion) GetNamespace() string                                           { return d.namespace }
-func (d dummyCriterion) GetExportModes() services.ExportModes                           { return d.export }
-func (d dummyCriterion) GetSamplerConfig() *services.SamplerConfig                      { return d.sampler }
-func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig                  { return d.routes }
+
+func (d dummyCriterion) RangePodLabels() iter.Seq2[string, services.StringMatcher] { return nil }
+
+func (d dummyCriterion) IsContainersOnly() bool { return false }
+
+func (d dummyCriterion) GetPathRegexp() services.StringMatcher { return nil }
+
+func (d dummyCriterion) GetCmdArgs() services.StringMatcher { return nil }
+
+func (d dummyCriterion) GetPIDs() ([]app.PID, bool) { return nil, false }
+
+func (d dummyCriterion) GetNamespace() string { return d.namespace }
+
+func (d dummyCriterion) GetExportModes() services.ExportModes { return d.export }
+
+func (d dummyCriterion) GetSamplerConfig() *services.SamplerConfig { return d.sampler }
+
+func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig { return d.routes }
 
 func (d dummyCriterion) MetricsConfig() perapp.SvcMetricsConfig {
 	return perapp.SvcMetricsConfig{Features: d.features}
@@ -64,6 +79,24 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 	for _, symbol := range gotracer.GoRuntimeMetricProbeSymbols() {
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}
+	for _, symbol := range gotracer.GoAutoSDKActivationProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
+	for _, symbol := range gotracer.GoH2OwnershipProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
+}
+
+func TestContextWithValueDoesNotQualifyGoProxy(t *testing.T) {
+	assert.True(t, isGoProxy(&goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		"runtime.chansend1": {},
+		"context.WithValue": {},
+	}}))
+	assert.False(t, isGoProxy(&goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		"runtime.chansend1":                {},
+		"context.WithValue":                {},
+		"net/http.serverHandler.ServeHTTP": {},
+	}}))
 }
 
 func TestMakeServiceAttrs(t *testing.T) {
@@ -98,6 +131,20 @@ func TestMakeServiceAttrs(t *testing.T) {
 	assert.NotNil(t, attrs2.Sampler)
 	assert.NotNil(t, attrs2.CustomInRouteMatcher)
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
+}
+
+func TestMakeServiceAttrsDefaultsSDKLanguageToGeneric(t *testing.T) {
+	pi := services.ProcessInfo{Pid: 1234}
+	proc := &ProcessMatch{
+		Process:  &pi,
+		Criteria: []services.Selector{dummyCriterion{name: "svc1"}},
+	}
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+
+	attrs := ty.makeServiceAttrs(proc)
+
+	assert.Equal(t, svc.InstrumentableGeneric, attrs.SDKLanguage)
+	assert.Equal(t, "generic", attrs.SDKLanguage.String())
 }
 
 func TestMakeServiceAttrs_DynamicPIDOptions(t *testing.T) {
@@ -295,7 +342,7 @@ func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
 			}
 			ty := typer{cfg: &obi.Config{
 				Routes:  &transform.RoutesConfig{},
-				Metrics: perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+				Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureSpanOTel},
 			}}
 			attrs := ty.makeServiceAttrs(proc)
 			assert.Equal(t, "svc1", attrs.UID.Name)
@@ -351,4 +398,30 @@ func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
 	_, cacheHit := instrumentableCache.Get(key)
 	assert.False(t, cacheHit,
 		"instrumentableCache should not contain a stale entry for dev:ino %v after the process owning it is deleted", key)
+}
+
+func TestAsInstrumentable_CachedPythonWorkerUsesParentServiceSource(t *testing.T) {
+	instrumentableCache, err := lru.New[cacheKey, instrumentedExecutable](100)
+	require.NoError(t, err)
+
+	parent := exec.New(exec.Init{
+		Pid: 100, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
+	})
+	worker := exec.New(exec.Init{
+		Pid: 101, Ppid: 100, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
+	})
+	instrumentableCache.Add(cacheKey{Dev: worker.Dev(), Ino: worker.Ino()}, instrumentedExecutable{
+		Type: svc.InstrumentablePython,
+	})
+	ty := typer{
+		log:                 slog.Default(),
+		currentPids:         map[app.PID]*exec.FileInfo{parent.Pid(): parent, worker.Pid(): worker},
+		instrumentableCache: instrumentableCache,
+	}
+
+	instrumentable := ty.asInstrumentable(worker)
+
+	assert.Same(t, worker, instrumentable.FileInfo)
+	assert.Same(t, parent, worker.RuntimeMetricServiceSource())
+	assert.Empty(t, instrumentable.ChildPids)
 }

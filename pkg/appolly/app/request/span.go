@@ -30,7 +30,8 @@ import (
 type EventType uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	// EventTypeProcessAlive is an internal signal. It will be ignored by the metrics exporters.
 	EventTypeProcessAlive EventType = iota
@@ -63,6 +64,7 @@ const (
 	EventTypeSunRPCClient
 	EventTypeSunRPCServer
 	EventTypeAerospikeClient
+	EventTypeAerospikeServer
 )
 
 const (
@@ -116,13 +118,17 @@ const (
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
 )
 
+// IsGenAISubtype reports whether a subtype is recorded on the GenAI client
+// metrics. MCP is deliberately absent: it is a tool and resource protocol
+// rather than a model provider, so it has no `gen_ai.provider.name` to report,
+// and semantic conventions give it its own `mcp.client.*` / `mcp.server.*`
+// metrics. Its spans still carry the GenAI attributes it does define.
 func IsGenAISubtype(subtype int) bool {
 	return subtype == HTTPSubtypeOpenAI ||
 		subtype == HTTPSubtypeAnthropic ||
 		subtype == HTTPSubtypeGemini ||
 		subtype == HTTPSubtypeQwen ||
 		subtype == HTTPSubtypeAWSBedrock ||
-		subtype == HTTPSubtypeMCP ||
 		subtype == HTTPSubtypeEmbedding ||
 		subtype == HTTPSubtypeRerank ||
 		subtype == HTTPSubtypeRetrieval ||
@@ -193,6 +199,8 @@ func (t EventType) String() string {
 		return "MemcachedServer"
 	case EventTypeAerospikeClient:
 		return "AerospikeClient"
+	case EventTypeAerospikeServer:
+		return "AerospikeServer"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -203,9 +211,34 @@ func (t EventType) MarshalText() ([]byte, error) {
 }
 
 const (
+	MessagingSend    = "send"
+	MessagingReceive = "receive"
 	MessagingPublish = "publish"
 	MessagingProcess = "process"
+	MessagingSettle  = "settle"
 )
+
+func MessagingOperationTypeOf(operationName string) string {
+	if operationName == MessagingPublish {
+		return MessagingSend
+	}
+	return operationName
+}
+
+// IsSQSMessagingClientOperation reports whether an AWS SQS span describes a
+// producer or consumer operation. Queue administration calls carry no
+// messaging.operation.type and are not messaging client operations.
+func IsSQSMessagingClientOperation(span *Span) bool {
+	if span.SubType != HTTPSubtypeAWSSQS || span.AWS == nil {
+		return false
+	}
+	switch span.AWS.SQS.OperationType {
+	case MessagingSend, MessagingReceive, MessagingSettle:
+		return true
+	default:
+		return false
+	}
+}
 
 type converter struct {
 	clock     func() time.Time
@@ -234,6 +267,16 @@ type SQLError struct {
 	Code     uint16 `json:"code"`
 	SQLState string `json:"sqlState"`
 	Message  string `json:"message"`
+}
+
+// ResponseStatusCode returns the db.response.status_code value for the error:
+// the vendor error code when the protocol provides one (MySQL, SQL Server),
+// else the SQLSTATE (PostgreSQL, whose protocol carries no vendor code).
+func (e *SQLError) ResponseStatusCode() string {
+	if e.Code != 0 {
+		return strconv.Itoa(int(e.Code))
+	}
+	return e.SQLState
 }
 
 type MessagingInfo struct {
@@ -306,9 +349,9 @@ type GenAI struct {
 }
 
 type OpenAIInputTokensDetails struct {
-	CachedTokens        TokenCount `json:"cached_tokens,omitempty"`
-	CacheCreationTokens TokenCount `json:"cache_creation_tokens,omitempty"`
-	AudioTokens         TokenCount `json:"audio_tokens,omitempty"`
+	CachedTokens        TokenCount `json:"cached_tokens"`
+	CacheCreationTokens TokenCount `json:"cache_creation_tokens"`
+	AudioTokens         TokenCount `json:"audio_tokens"`
 }
 
 type OpenAIUsage struct {
@@ -322,10 +365,10 @@ type OpenAIUsage struct {
 }
 
 type OpenAIOutputTokensDetails struct {
-	ReasoningTokens          TokenCount `json:"reasoning_tokens,omitempty"`
-	AudioTokens              TokenCount `json:"audio_tokens,omitempty"`
-	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens,omitempty"`
-	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens,omitempty"`
+	ReasoningTokens          TokenCount `json:"reasoning_tokens"`
+	AudioTokens              TokenCount `json:"audio_tokens"`
+	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens"`
+	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens"`
 }
 
 type OpenAIError struct {
@@ -517,6 +560,10 @@ type OpenAIInput struct {
 	Tools            json.RawMessage `json:"tools,omitempty"`
 	ServiceTier      string          `json:"service_tier,omitempty"`
 	Parameters       json.RawMessage `json:"parameters,omitempty"`
+	// InputItems retains the Responses API `input` array (function_call /
+	// function_call_output items), which cannot be held by the string Input
+	// field. Populated only for /v1/responses traffic.
+	InputItems json.RawMessage `json:"-"`
 }
 
 // ParameterDimension extracts the requested embedding dimension from the
@@ -550,6 +597,10 @@ func (air *OpenAIInput) GetStopSequences() []string {
 }
 
 func (air *OpenAIInput) GetInput() string {
+	if len(air.InputItems) > 0 {
+		return normalizeOpenAIResponsesInput(air.InputItems)
+	}
+
 	if len(air.Input) > 0 {
 		return wrapTextAsInputMessage(air.Input)
 	}
@@ -600,17 +651,17 @@ type AnthropicResponse struct {
 type AnthropicUsage struct {
 	InputTokens              TokenCount              `json:"input_tokens"`
 	OutputTokens             TokenCount              `json:"output_tokens"`
-	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens,omitempty"`
-	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens,omitempty"`
+	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens"`
+	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens"`
 	CacheCreation            *AnthropicCacheCreation `json:"cache_creation,omitempty"`
 	ServiceTier              string                  `json:"service_tier"`
 	InferenceGeo             string                  `json:"inference_geo"`
 }
 
 type AnthropicCacheCreation struct {
-	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens,omitempty"`
-	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens,omitempty"`
+	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens"`
 }
 
 type AnthropicError struct {
@@ -676,9 +727,9 @@ type GeminiUsage struct {
 	PromptTokenCount           TokenCount                 `json:"promptTokenCount"`
 	CandidatesTokenCount       TokenCount                 `json:"candidatesTokenCount"`
 	TotalTokenCount            TokenCount                 `json:"totalTokenCount"`
-	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount,omitempty"`
-	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount,omitempty"`
-	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount,omitempty"`
+	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount"`
+	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount"`
+	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount"`
 	PromptTokensDetails        []GeminiModalityTokenCount `json:"promptTokensDetails,omitempty"`
 	CacheTokensDetails         []GeminiModalityTokenCount `json:"cacheTokensDetails,omitempty"`
 	CandidatesTokensDetails    []GeminiModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
@@ -775,14 +826,14 @@ type BedrockResponse struct {
 	// Anthropic Claude format
 	Content    json.RawMessage `json:"content,omitempty"`
 	StopReason string          `json:"stop_reason,omitempty"`
-	Usage      BedrockUsage    `json:"usage,omitempty"`
+	Usage      BedrockUsage    `json:"usage"`
 	// Amazon Nova format
 	Output         *NovaOutput `json:"output,omitempty"`
 	StopReasonNova string      `json:"stopReason,omitempty"`
 	// Meta Llama format
 	Generation           string     `json:"generation,omitempty"`
-	PromptTokenCount     TokenCount `json:"prompt_token_count,omitempty"`
-	GenerationTokenCount TokenCount `json:"generation_token_count,omitempty"`
+	PromptTokenCount     TokenCount `json:"prompt_token_count"`
+	GenerationTokenCount TokenCount `json:"generation_token_count"`
 	// Amazon Titan format
 	Results []TitanResult `json:"results,omitempty"`
 	// Error fields appear at the top level of the Bedrock error response body
@@ -794,11 +845,11 @@ type BedrockResponse struct {
 }
 
 type BedrockUsage struct {
-	InputTokens           TokenCount              `json:"inputTokens,omitempty"`
-	OutputTokens          TokenCount              `json:"outputTokens,omitempty"`
-	TotalTokens           TokenCount              `json:"totalTokens,omitempty"`
-	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens,omitempty"`
-	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens,omitempty"`
+	InputTokens           TokenCount              `json:"inputTokens"`
+	OutputTokens          TokenCount              `json:"outputTokens"`
+	TotalTokens           TokenCount              `json:"totalTokens"`
+	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens"`
+	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens"`
 	CacheDetails          []BedrockCacheDetail    `json:"cacheDetails,omitempty"`
 	CacheCreation         *AnthropicCacheCreation `json:"cache_creation,omitempty"`
 }
@@ -1272,14 +1323,14 @@ func (r *RetrievalRequest) GetTopK() int {
 type RetrievalResponse struct {
 	ID    string         `json:"id,omitempty"`
 	Model string         `json:"model,omitempty"`
-	Usage RetrievalUsage `json:"usage,omitempty"`
+	Usage RetrievalUsage `json:"usage"`
 }
 
 // RetrievalUsage captures optional token usage information returned by
 // embedding-aware vector stores.
 type RetrievalUsage struct {
-	TotalTokens  TokenCount `json:"total_tokens,omitempty"`
-	PromptTokens TokenCount `json:"prompt_tokens,omitempty"`
+	TotalTokens  TokenCount `json:"total_tokens"`
+	PromptTokens TokenCount `json:"prompt_tokens"`
 }
 
 type SpanLink struct {
@@ -1294,28 +1345,33 @@ type SpanLink struct {
 // and SpanPromGetters in pkg/appolly/app/request/span_getters_providers.go and
 // getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
-	Type              EventType      `json:"type"`
-	SpanKind          trace.SpanKind `json:"-"`
-	Flags             uint8          `json:"-"`
-	Method            string         `json:"-"`
-	Path              string         `json:"-"`
-	FullPath          string         `json:"-"`
-	Route             string         `json:"-"`
-	Peer              string         `json:"peer"`
-	PeerPort          int            `json:"peerPort,string"`
-	Host              string         `json:"host"`
-	HostPort          int            `json:"hostPort,string"`
-	Status            int            `json:"-"`
-	ResponseLength    int64          `json:"-"`
-	ContentLength     int64          `json:"-"`
-	DBBatchSize       int            `json:"-"`
-	RequestStart      int64          `json:"-"`
-	Start             int64          `json:"-"`
-	End               int64          `json:"-"`
-	Service           svc.Attrs      `json:"-"`
-	TraceID           trace.TraceID  `json:"traceID"`
-	SpanID            trace.SpanID   `json:"spanID"`
-	ParentSpanID      trace.SpanID   `json:"parentSpanID"`
+	Type           EventType      `json:"type"`
+	SpanKind       trace.SpanKind `json:"-"`
+	Flags          uint8          `json:"-"`
+	ProtoVersion   ProtoVersion   `json:"-"`
+	Method         string         `json:"-"`
+	Path           string         `json:"-"`
+	FullPath       string         `json:"-"`
+	Route          string         `json:"-"`
+	Peer           string         `json:"peer"`
+	PeerPort       int            `json:"peerPort,string"`
+	Host           string         `json:"host"`
+	HostPort       int            `json:"hostPort,string"`
+	Status         int            `json:"-"`
+	ResponseLength int64          `json:"-"`
+	ContentLength  int64          `json:"-"`
+	DBBatchSize    int            `json:"-"`
+	RequestStart   int64          `json:"-"`
+	Start          int64          `json:"-"`
+	End            int64          `json:"-"`
+	Service        svc.Attrs      `json:"-"`
+	TraceID        trace.TraceID  `json:"traceID"`
+	SpanID         trace.SpanID   `json:"spanID"`
+	ParentSpanID   trace.SpanID   `json:"parentSpanID"`
+	// ParentConditional marks a parent that may already have finished when this
+	// span started: BPF cannot tell at that moment, so the pipeline settles the
+	// link against the parent span's real end timestamp before export.
+	ParentConditional bool           `json:"-"`
 	TraceFlags        uint8          `json:"traceFlags,string"`
 	Links             []SpanLink     `json:"links,omitempty"`
 	Pid               PidInfo        `json:"-"`
@@ -1556,7 +1612,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"operation":  s.Method,
 			"table":      s.Path,
 		}
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		attrs := SpanAttributes{
 			"serverAddr":      SpanHost(s),
 			"serverPort":      strconv.Itoa(s.HostPort),
@@ -1709,7 +1765,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient:
+	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient, EventTypeAerospikeServer:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -1737,7 +1793,7 @@ func SpanDBStatusMessage(span *Span, dbError string) string {
 
 func (s *Span) IsDBSpan() bool {
 	switch s.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient:
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return true
 	case EventTypeHTTPClient:
 		if s.SubType == HTTPSubtypeSQLPP {
@@ -1785,28 +1841,10 @@ func HTTPSpanStatusCode(span *Span) string {
 
 	if span.Type == EventTypeHTTPClient {
 		if span.Status < 400 {
-			// this is possibly not needed, because in my experiments they
-			// respond with 429, but just to be correct according to the OTel
+			// A provider can report a failure inside a 2xx response, per the OTel
 			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
-			if span.GenAI != nil {
-				if span.GenAI.OpenAI != nil && span.GenAI.OpenAI.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Qwen != nil && span.GenAI.Qwen.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil && span.GenAI.Rerank.Output.Error.Type != "" {
-					return StatusCodeError
-				}
+			if span.GenAIFailed() {
+				return StatusCodeError
 			}
 
 			return StatusCodeUnset
@@ -1878,13 +1916,13 @@ func (s *Span) ServiceGraphKind() string {
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
-		switch s.Method {
-		case MessagingPublish:
+		switch MessagingOperationTypeOf(s.Method) {
+		case MessagingSend:
 			return "SPAN_KIND_PRODUCER"
 		case MessagingProcess:
 			return "SPAN_KIND_CONSUMER"
@@ -2171,7 +2209,7 @@ func (s *Span) TraceName() string {
 			return s.Method + " " + s.Path
 		}
 		return s.Method
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		if s.Method == "" {
 			return "AEROSPIKE"
 		}
@@ -2209,6 +2247,16 @@ func (s *Span) isMetricsExportURL() bool {
 
 func (s *Span) IsDNSSpan() bool {
 	return s.Type == EventTypeDNS
+}
+
+// DNSAnswerList returns the addresses a DNS lookup resolved to, which the BPF
+// side accumulates into Statement as a comma-separated list.
+func (s *Span) DNSAnswerList() []string {
+	if s.Statement == "" {
+		return nil
+	}
+
+	return strings.Split(s.Statement, ",")
 }
 
 func (s *Span) isTracesExportURL() bool {
@@ -2264,6 +2312,17 @@ func (s *Span) sendsTracesOnOtelPort(defaultOtlpGRPCPort int) bool {
 	}
 }
 
+// A single OTLP endpoint carries every signal, so a port match alone cannot tell
+// which signal a span exports. Attributing an ambiguous export to both would
+// suppress the one the SDK never sends, and nothing else would produce it.
+func (s *Span) sendsOnlyMetricsOnOtelPort(defaultOtlpGRPCPort int) bool {
+	return s.sendsMetricsOnOtelPort(defaultOtlpGRPCPort) && !s.sendsTracesOnOtelPort(defaultOtlpGRPCPort)
+}
+
+func (s *Span) sendsOnlyTracesOnOtelPort(defaultOtlpGRPCPort int) bool {
+	return s.sendsTracesOnOtelPort(defaultOtlpGRPCPort) && !s.sendsMetricsOnOtelPort(defaultOtlpGRPCPort)
+}
+
 func (s *Span) sendsMetricsOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	otlpMetricsProtocol, ok := s.Service.EnvVars[envOTLPMetricsProtocol]
 	if ok && otlpMetricsProtocol != otlpGrpcProtocol {
@@ -2302,7 +2361,7 @@ func (s *Span) IsExportMetricsSpan(defaultOtlpGRPCPort int) bool {
 		return false
 	}
 
-	return s.isMetricsExportURL() || s.sendsMetricsOnOtelPort(defaultOtlpGRPCPort)
+	return s.isMetricsExportURL() || s.sendsOnlyMetricsOnOtelPort(defaultOtlpGRPCPort)
 }
 
 func (s *Span) IsExportTracesSpan(defaultOtlpGRPCPort int) bool {
@@ -2311,7 +2370,7 @@ func (s *Span) IsExportTracesSpan(defaultOtlpGRPCPort int) bool {
 		return false
 	}
 
-	return s.isTracesExportURL() || s.sendsTracesOnOtelPort(defaultOtlpGRPCPort)
+	return s.isTracesExportURL() || s.sendsOnlyTracesOnOtelPort(defaultOtlpGRPCPort)
 }
 
 func (s *Span) IsSelfReferenceSpan() bool {
@@ -2498,6 +2557,40 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Retrieval != nil {
 		return s.GenAI.Retrieval.Provider
 	}
+	return ""
+}
+
+// GenAIFailed reports whether a GenAI provider returned an error in its
+// response payload, which can happen inside a 2xx.
+func (s *Span) GenAIFailed() bool {
+	return s.GenAIErrorType() != ""
+}
+
+// GenAIErrorType returns the provider-reported error, mirroring the per-provider
+// shapes the trace exporter reads. Providers that carry no error field yield "".
+func (s *Span) GenAIErrorType() string {
+	if s.GenAI == nil {
+		return ""
+	}
+
+	for _, ai := range []*VendorOpenAI{s.GenAI.OpenAI, s.GenAI.Qwen, s.GenAI.OpenAICompatible} {
+		if ai != nil && ai.Error.Type != "" {
+			return ai.Error.Type
+		}
+	}
+	if ai := s.GenAI.Anthropic; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+	if ai := s.GenAI.Gemini; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Status
+	}
+	if ai := s.GenAI.Bedrock; ai != nil && ai.Output.ErrorType != "" {
+		return ai.Output.ErrorType
+	}
+	if ai := s.GenAI.Rerank; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+
 	return ""
 }
 

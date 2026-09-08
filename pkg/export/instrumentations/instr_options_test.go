@@ -11,6 +11,10 @@ import (
 
 func TestInstrumentationSelection(t *testing.T) {
 	is := NewInstrumentationSelection([]Instrumentation{InstrumentationHTTP, InstrumentationSQL, InstrumentationRedis, InstrumentationMemcached})
+	assert.True(t, is.Enabled(InstrumentationHTTP))
+	assert.False(t, is.Enabled(InstrumentationGRPC))
+	assert.False(t, is.Enabled(InstrumentationALL))
+	assert.False(t, is.Enabled(Instrumentation("unknown")))
 	assert.True(t, is.HTTPEnabled())
 	assert.True(t, is.SQLEnabled())
 	assert.True(t, is.DBEnabled())
@@ -69,6 +73,8 @@ func TestInstrumentationSelection(t *testing.T) {
 
 func TestInstrumentationSelection_All(t *testing.T) {
 	is := NewInstrumentationSelection([]Instrumentation{InstrumentationALL})
+	assert.True(t, is.Enabled(InstrumentationALL))
+	assert.True(t, is.Enabled(InstrumentationAerospike))
 	assert.True(t, is.HTTPEnabled())
 	assert.True(t, is.SQLEnabled())
 	assert.True(t, is.DBEnabled())

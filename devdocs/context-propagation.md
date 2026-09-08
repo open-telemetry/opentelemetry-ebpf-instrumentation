@@ -22,6 +22,7 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
 - [The outgoing_trace_map](#the-outgoing_trace_map)
   - [tp_info_pid_t::valid (u8)](#tp_info_pid_tvalid-u8)
   - [tp_info_pid_t::written (u8)](#tp_info_pid_twritten-u8)
+- [The server_traces Map](#the-server_traces-map)
 - [The incoming_trace_map](#the-incoming_trace_map)
 - [The sock_dir sockmap](#the-sock_dir-sockmap)
 - [Summary](#summary)
@@ -30,10 +31,11 @@ For trace-log correlation (log enricher / `traces_ctx_v1` map), see [trace-log-c
 
 ## Overview
 
-Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports two injection methods:
+Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports three injection methods:
 
-1. **HTTP headers** (L7) - `Traceparent:` header in plaintext HTTP requests
-2. **TCP options** (L4) - Custom TCP option (kind 25) for any TCP traffic
+1. **HTTP/1 headers** (L7) - `Traceparent:` header in plaintext HTTP requests
+2. **HTTP/2 / gRPC HPACK** (L7) - per-stream `traceparent` field in HEADERS frames. This is the only network mechanism for multiplexed HTTP/2. See [gRPC/HTTP2 Context Propagation](grpc-context-propagation.md).
+3. **TCP options** (L4) - Custom TCP option (kind 25) for HTTP/1 and non-multiplexed TCP. **Not used for HTTP/2 or gRPC** — a connection-scoped option cannot represent N concurrent stream contexts.
 
 ## Configuration
 
@@ -49,6 +51,23 @@ Examples:
 - `headers,tcp` - HTTP headers for plaintext HTTP, TCP options otherwise
 - `tcp` - TCP options only
 - `headers` - HTTP headers only
+
+> **⚠️ TCP options and middleboxes.** TCP-option propagation writes an unknown
+> TCP option (kind 25) onto the connection's segments. On SSL/TLS connections
+> this is the *only* channel, since the payload is ciphertext (see Case 1). An
+> unknown TCP option on an established connection is not preserved end-to-end
+> across many network paths: L7 proxies and load balancers discard and replay
+> the original packets, and some middleboxes and managed endpoints drop or reset
+> the segment that carries it. The client then sees `connection reset by peer`,
+> typically on the first request after connect. The effect is path-dependent, so
+> it appears intermittently.
+>
+> If your instrumented services talk through such intermediaries, use
+> `headers` and do not enable `tcp`. HTTP-header propagation is unaffected;
+> only cross-service linking over paths that require the TCP-option channel
+> (chiefly non-Go SSL/TLS clients) is lost. TCP options are safe only when OBI
+> is on both ends and the path preserves them (typically a direct L2/L3 network
+> with no option-stripping middlebox).
 
 ## Egress (Sending) Flow
 
@@ -110,6 +129,10 @@ The `written` flag implements mutual exclusion through the natural execution ord
    - Lookup fails (entry deleted), skips
 Result: TCP options only ✓
 ```
+
+TCP options are the only channel here, and they only reach the peer on paths
+that preserve the option (see the middlebox warning under
+[Configuration](#configuration)). Where they do not, prefer `headers`.
 
 **For Go HTTP (plaintext):**
 
@@ -213,27 +236,21 @@ This creates a natural priority hierarchy:
 
 ### tp_info_pid_t::valid (u8)
 
-State machine tracking the injection lifecycle:
+Boolean indicating whether the trace context can be used:
 
 - **0**: Invalid/SSL (don't inject)
-- **1**: First packet seen, needs L4 span ID setup
-- **2**: L4 span ID setup done, ready for injection
+- **1**: Valid
 
 **Set to 0:**
 
 - Go uprobes: SSL connections (`go_nethttp.c`)
 - Kprobes: SSL connections (`trace_lifecycle.h`)
-- trace_lifecycle: Conflicting requests or timeouts (`trace_lifecycle.h`)
 
 **Set to 1:**
 
 - tpinjector: Creating new trace (`tpinjector.c::create_trace_info`)
 - protocol_http: Creating new trace (`protocol_http.h::protocol_http`)
 - protocol_tcp: Creating new trace (`protocol_tcp.h`)
-
-**Set to 2:**
-
-- tpinjector: After populating span ID from TCP seq/ack
 
 **Checked:**
 
@@ -263,6 +280,23 @@ Coordination flag for mutual exclusion between egress injection layers:
 
 - protocol_http: Skip processing if tpinjector handled it (`protocol_http.h::protocol_http`)
 
+## The server_traces Map
+
+`server_traces` stores the server trace associated with a thread. Its `valid`
+field remains boolean: invalid entries cannot parent children, while valid
+entries can.
+
+For delayed plaintext HTTP responses, `response_sent` separates trace validity
+from slot ownership:
+
+- **0**: The request is active. Another HTTP request on the same thread is a
+  conflict, so the existing entry is invalidated.
+- **1**: Response headers were observed. The entry remains valid for late
+  same-thread children, but the next request can replace it.
+
+The entry is deleted when the request finishes. Invalid and response-sent
+entries can be replaced immediately.
+
 ## The incoming_trace_map
 
 `incoming_trace_map` is a BPF map (type: `BPF_MAP_TYPE_HASH`) that stores parsed trace context from incoming packets. It stores `tp_info_pid_t` structs keyed by connection info.
@@ -290,10 +324,11 @@ Sockets are added to `sock_dir` in two ways:
    - Later layers overwrite earlier layers
    - Result: Most reliable method takes precedence
 
-3. **SSL/TLS uses TCP options, not HTTP headers**:
+3. **HTTP/1 TLS uses TCP options, not HTTP headers**:
    - Can't inject into encrypted payload
    - TCP options work before TLS handshake
    - tpinjector deletes entry early to skip HTTP detection
+   - HTTP/2 / gRPC TLS never uses TCP options (multiplexing). Generic TLS HTTP/2 cannot splice HPACK into ciphertext. Go TLS injects via uprobe before encrypt.
 
 4. **Execution order varies by scenario**:
    - Go/SSL: uprobes → tpinjector → kprobe

@@ -7,8 +7,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 )
 
 func tocstr(s string) []byte {
@@ -70,6 +73,50 @@ func assertMatches(
 	assert.Equal(t, responseLength, span.ResponseLength)
 	assert.Equal(t, int64(durationMs*1000000), span.End-span.Start)
 	assert.Equal(t, int64(durationMs*1000000), span.Start-span.RequestStart)
+}
+
+func TestHTTPRequestTraceToSpan_FullPath(t *testing.T) {
+	t.Run("RawQuery appended to FullPath with separator", func(t *testing.T) {
+		p := [100]uint8{}
+		copy(p[:], tocstr("/search"))
+		q := [100]uint8{}
+		copy(q[:], tocstr("q=hello&sig=secret"))
+
+		tr := HTTPRequestTrace{Type: 1, Path: p, RawQuery: q, Status: 200}
+		s := HTTPRequestTraceToSpan(nil, &tr)
+
+		assert.Equal(t, "/search", s.Path)
+		assert.Equal(t, "/search?q=hello&sig=secret", s.FullPath)
+	})
+
+	t.Run("empty RawQuery leaves FullPath equal to Path", func(t *testing.T) {
+		p := [100]uint8{}
+		copy(p[:], tocstr("/health"))
+
+		tr := HTTPRequestTrace{Type: 1, Path: p, Status: 200}
+		s := HTTPRequestTraceToSpan(nil, &tr)
+
+		assert.Equal(t, "/health", s.Path)
+		assert.Equal(t, "/health", s.FullPath)
+	})
+
+	t.Run("sensitive query params redacted at trace export", func(t *testing.T) {
+		p := [100]uint8{}
+		copy(p[:], tocstr("/search"))
+		q := [100]uint8{}
+		copy(q[:], tocstr("q=hello&sig=secret"))
+
+		tr := HTTPRequestTrace{Type: 1, Path: p, RawQuery: q, Status: 200}
+		s := HTTPRequestTraceToSpan(nil, &tr)
+
+		defaultAttrs, err := tracesgen.UserSelectedAttributes(&attributes.SelectorConfig{})
+		require.NoError(t, err)
+
+		selected := tracesgen.AttrsToMap(tracesgen.TraceAttributesSelector(&s, defaultAttrs, "sig"))
+		val, ok := selected.Get("url.query")
+		require.True(t, ok)
+		assert.Equal(t, "q=hello&sig=REDACTED", val.Str())
+	})
 }
 
 func TestRequestTraceParsing(t *testing.T) {

@@ -15,8 +15,10 @@
 // limitations under the License.
 
 #include <common/common.h>
+#include <common/event_defs.h>
 
-// Force emitting struct http_request_trace into the ELF for automatic creation of Golang struct
+// Force emitting these types into the ELF so bpf2go generates their Go
+// counterparts (structs, and constants for enums)
 const http_request_trace_t *unused_4 __attribute__((unused));
 const sql_request_trace_t *unused_3 __attribute__((unused));
 const tcp_req_t *unused_5 __attribute__((unused));
@@ -29,3 +31,6 @@ const mongo_go_client_req_t *unused_11 __attribute__((unused));
 const dns_req_t *unused_12 __attribute__((unused));
 const channel_link_trace_t *unused_13 __attribute__((unused));
 const go_auto_span_t *unused_14 __attribute__((unused));
+const node_span_event_t *unused_15 __attribute__((unused));
+const enum protocol_type *unused_16 __attribute__((unused));
+const enum event_type *unused_17 __attribute__((unused));

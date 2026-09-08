@@ -449,7 +449,3 @@ func TestMCPCall_OperationName(t *testing.T) {
 		})
 	}
 }
-
-func TestIsGenAISubtype_MCP(t *testing.T) {
-	assert.True(t, request.IsGenAISubtype(request.HTTPSubtypeMCP))
-}

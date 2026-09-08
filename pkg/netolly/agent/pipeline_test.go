@@ -48,7 +48,7 @@ func TestFilter(t *testing.T) {
 				Port: promPort,
 				TTL:  time.Hour,
 			},
-			Metrics: perapp.MetricsConfig{Features: export.FeatureNetwork},
+			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureNetwork},
 			Filters: filter.AttributesConfig{
 				Network: map[string]filter.MatchDefinition{"transport": {Match: "TCP"}},
 			},

@@ -1,14 +1,21 @@
 # Documentation for developers
 
-This directory contains documentation that is not useful for our users but might be useful for developers.
+This directory contains developer documentation and repository-hosted design
+references. It also contains the operator-facing Config migration guide linked
+from the repository README. General setup documentation lives on the
+OpenTelemetry website.
 
 ## Table Of Contents
 
 - [Pipeline Map](pipeline-map.md): explanation of pipeline map.
+- [Config v1 to v2 migration](config/version-2.0/migration.md): operator guide
+  for migrating and validating standalone and Collector receiver
+  configurations.
 - [Profiling](profiling.md): how to profile OBI.
 - [Features](features.md): features supported by OBI.
 - [Context Propagation Architecture](context-propagation.md): how OpenTelemetry context propagation works in the eBPF instrumentation.
-- [gRPC Context Propagation](grpc-context-propagation.md): HTTP/2 gRPC context propagation via sk_msg HPACK injection and TCP options.
+- [gRPC Context Propagation](grpc-context-propagation.md): HTTP/2 and gRPC context propagation via sk_msg HPACK injection (TCP options are not used).
+- [Node.js manual spans](nodejs-manual-spans.md): capturing `@opentelemetry/api` spans when no Node.js SDK is registered.
 - [Protocols](protocols/README.md): documentation about supported protocols.
 - [Java TLS IOCTL Security Notes](java-tls-ioctl-security.md): rationale for the localized Java TLS `ioctl` hardening and why OBI keeps this fix in `java_tls.c`.
 - [AI Tooling](ai-tooling.md): recommendations for configuring agent tooling for this repository.
@@ -19,4 +26,5 @@ This directory contains documentation that is not useful for our users but might
 - [Trace-Profile Correlation](trace-profile-correlation.md): standard communication channel for correlating profiles to OBI traces.
 - [Kubernetes Metadata Cache Service (`k8s-cache`)](k8s-cache.md): what the standalone metadata cache service is, why it exists, and how to deploy it alongside OBI.
 - [Metrics](./metrics.md): how the NetO11y, AppO11y, and StatsO11y pipelines turn eBPF events into exported metrics, and where to edit when adding a new one.
+- [BPF Metrics Collection](bpf-metrics-collection.md): how OBI discovers all existing supported probes and LRU hash maps on the host and reports their metrics.
 - [Runtime Metrics](runtimes/README.md): developer notes for the `application_runtime` feature and per-runtime coverage.

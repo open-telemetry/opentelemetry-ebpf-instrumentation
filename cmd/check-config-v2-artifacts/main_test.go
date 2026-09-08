@@ -14,7 +14,8 @@ import (
 func TestRunCurrentArtifacts(t *testing.T) {
 	err := run([]string{
 		"-schema", filepath.Join("..", "..", defaultSchemaPath),
-		"-example", filepath.Join("..", "..", defaultExamplePath),
+		"-default-reference", filepath.Join("..", "..", defaultReferencePath),
+		"-runnable-example", filepath.Join("..", "..", defaultRunnableExamplePath),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -77,15 +78,51 @@ func TestCheckLogFieldNameSchemaRejectsControlGap(t *testing.T) {
 	}
 }
 
-func TestCheckExampleArtifactRejectsReceiverShape(t *testing.T) {
+func TestCheckDefaultReferenceArtifactRejectsStandaloneDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reference.yaml")
+	writeFile(t, path, `
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+`)
+
+	err := checkDefaultReferenceArtifact(path)
+	if err == nil {
+		t.Fatal("expected standalone document failure")
+	}
+	if !strings.Contains(err.Error(), "must not be a standalone document") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckRunnableExampleArtifactRejectsReceiverShape(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receiver.yaml")
 	writeFile(t, path, "version: \"2.0\"\ncapture: {}\n")
 
-	err := checkExampleArtifact(path)
+	err := checkRunnableExampleArtifact(path)
 	if err == nil {
 		t.Fatal("expected standalone parser failure")
 	}
 	if !strings.Contains(err.Error(), "missing extensions.obi.version") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckRunnableExampleArtifactRejectsMissingExporter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "standalone.yaml")
+	writeFile(t, path, `
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+`)
+
+	err := checkRunnableExampleArtifact(path)
+	if err == nil {
+		t.Fatal("expected runtime validation failure")
+	}
+	if !strings.Contains(err.Error(), "you need to define at least one exporter") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

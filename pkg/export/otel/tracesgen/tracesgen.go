@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -122,7 +123,10 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 		if responseErrorSelected {
 			exportAttrs = append(slices.Clone(samplerAttrs), genAIResponseErrorControlKey.Bool(true))
 		}
-		group = append(group, TraceSpanAndAttributes{Span: span, Attributes: exportAttrs})
+		group = append(group, TraceSpanAndAttributes{
+			Span:       span,
+			Attributes: exportAttrs,
+		})
 		spanGroups[span.Service.UID] = group
 	}
 
@@ -167,6 +171,7 @@ func generateTracesWithAttributes(
 ) ptrace.Traces {
 	traces := ptrace.NewTraces()
 	rs := traces.ResourceSpans().AppendEmpty()
+	rs.SetSchemaUrl(attr.OBISchemaURL)
 	resourceAttrs := TraceAppResourceAttrs(cache, nodeMeta, svc)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
 	resourceAttrs = otelcfg.FilterResourceAttrs(resourceAttrs, attrSelector)
@@ -257,11 +262,6 @@ func generateTracesWithAttributes(
 			appendSpanLinks(s, span.Links)
 		}
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
-
-		// Create individual execute_tool child spans per tool call (OTel GenAI semconv compliance)
-		if toolCalls := getSpanToolCalls(span); len(toolCalls) > 0 {
-			createToolCallSpans(toolCalls, spanID, traceID, &ss, start, t.End)
-		}
 	}
 	return traces
 }
@@ -414,41 +414,18 @@ func CodeToStatusCode(code string) ptrace.StatusCode {
 
 func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span) bool {
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeHTTPClient:
-		return is.HTTPEnabled()
-	case request.EventTypeGRPC, request.EventTypeGRPCClient:
-		return is.GRPCEnabled()
-	case request.EventTypeSQLClient, request.EventTypeSQLServer:
-		return is.SQLEnabled()
-	case request.EventTypeRedisClient, request.EventTypeRedisServer:
-		return is.RedisEnabled()
-	case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
-		return is.KafkaEnabled()
-	case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
-		return is.MQTTEnabled()
-	case request.EventTypeNATSClient, request.EventTypeNATSServer:
-		return is.NATSEnabled()
-	case request.EventTypeAMQPClient:
-		return is.AMQPEnabled()
-	case request.EventTypeSunRPCClient, request.EventTypeSunRPCServer:
-		return is.SunRPCEnabled()
-	case request.EventTypeMongoClient:
-		return is.MongoEnabled()
-	case request.EventTypeManualSpan:
+	case request.EventTypeManualSpan, request.EventTypeFailedConnect:
 		return true
-	case request.EventTypeFailedConnect:
-		return true
-	case request.EventTypeDNS:
-		return is.DNSEnabled()
-	case request.EventTypeCouchbaseClient:
-		return is.CouchbaseEnabled()
-	case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
-		return is.MemcachedEnabled()
-	case request.EventTypeAerospikeClient:
-		return is.AerospikeEnabled()
+	case request.EventTypeGPUCudaKernelLaunch,
+		request.EventTypeGPUCudaGraphLaunch,
+		request.EventTypeGPUCudaMalloc,
+		request.EventTypeGPUCudaMemcpy:
+		// GPU events currently feed metrics only.
+		return false
 	}
 
-	return false
+	instrumentation, ok := span.Type.Instrumentation()
+	return ok && is.Enabled(instrumentation)
 }
 
 var (
@@ -457,55 +434,6 @@ var (
 	messagingSystemAMQP = attribute.String(string(attr.MessagingSystem), "amqp")
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
-
-// getSpanToolCalls extracts tool calls from a GenAI span regardless of vendor.
-func getSpanToolCalls(span *request.Span) []request.ToolCall {
-	if span.GenAI == nil {
-		return nil
-	}
-	switch {
-	case span.GenAI.OpenAI != nil:
-		return span.GenAI.OpenAI.ToolCalls
-	case span.GenAI.Anthropic != nil:
-		return span.GenAI.Anthropic.ToolCalls
-	case span.GenAI.Gemini != nil:
-		return span.GenAI.Gemini.ToolCalls
-	case span.GenAI.Qwen != nil:
-		return span.GenAI.Qwen.ToolCalls
-	case span.GenAI.Ollama != nil:
-		return span.GenAI.Ollama.ToolCalls
-	case span.GenAI.OpenAICompatible != nil:
-		return span.GenAI.OpenAICompatible.ToolCalls
-	default:
-		return nil
-	}
-}
-
-// createToolCallSpans creates individual execute_tool child spans for each tool call,
-// following the OTel GenAI semantic conventions where gen_ai.tool.name is a single string
-// per span rather than an aggregated string array.
-func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, start, end time.Time) {
-	for _, tc := range toolCalls {
-		if tc.Name == "" {
-			continue
-		}
-		sp := ss.Spans().AppendEmpty()
-		sp.SetName("execute_tool " + tc.Name)
-		sp.SetKind(ptrace.SpanKindInternal)
-		sp.SetTraceID(traceID)
-		sp.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
-		sp.SetParentSpanID(parentSpanID)
-		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(start))
-		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(end))
-
-		attrs := sp.Attributes()
-		attrs.PutStr(string(semconv.GenAIOperationNameKey), "execute_tool")
-		attrs.PutStr(string(attr.GenAIToolName), tc.Name)
-		if tc.ID != "" {
-			attrs.PutStr(string(attr.GenAIToolCallID), tc.ID)
-		}
-	}
-}
 
 // mcpAttributes returns MCP span attributes following the OTEL MCP semantic conventions.
 // Tool call arguments and results are gated behind their own optionalAttrs
@@ -608,6 +536,41 @@ func appendGenAITokenCount(attrs []attribute.KeyValue, key attribute.Key, count 
 	return attrs
 }
 
+func messagingOperationAttrs(method string) []attribute.KeyValue {
+	if method == "" {
+		return nil
+	}
+	return []attribute.KeyValue{
+		request.MessagingOperationName(method),
+		request.MessagingOperationType(request.MessagingOperationTypeOf(method)),
+	}
+}
+
+type httpTransportScope int
+
+const (
+	httpTransportAll httpTransportScope = iota
+	httpTransportRequestOnly
+	httpTransportNone
+)
+
+// httpClientTransportScope decides how much of the HTTP exchange a client span
+// describes alongside its own convention. It is deliberately default-deny: a
+// new subtype sheds the HTTP attributes unless it is listed here, so adding a
+// protocol needs no change unless its span group requires them. Elasticsearch
+// is the exception — `span.db.elasticsearch.client` marks `url.full` and
+// `http.request.method` as required.
+func httpClientTransportScope(subType int) httpTransportScope {
+	switch subType {
+	case request.HTTPSubtypeNone, request.HTTPSubtypeGraphQL:
+		return httpTransportAll
+	case request.HTTPSubtypeElasticsearch:
+		return httpTransportRequestOnly
+	default:
+		return httpTransportNone
+	}
+}
+
 //nolint:cyclop
 func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
@@ -690,7 +653,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, request.DBOperationName(span.Method))
 			}
 			if span.DBError.ErrorCode != "" {
-				attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
 				attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
 				attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
 			}
@@ -719,23 +681,32 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			url = request.URLFull(scheme, host, urlPath)
 		}
 
+		transport := httpClientTransportScope(span.SubType)
+
 		attrs = []attribute.KeyValue{
-			request.HTTPResponseStatusCode(span.Status),
-			request.HTTPUrlFull(url),
-			semconv.URLScheme(scheme),
 			request.ServerAddr(host),
 			request.PeerService(request.PeerServiceFromSpan(span)),
 			request.ServerPort(span.HostPort),
-			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
-			request.HTTPResponseBodySize(span.ResponseBodyLength()),
-		}
-		if span.Method != "" {
-			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
 		}
 
-		if scrubbedQS != "" {
-			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
-				attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
+		if transport != httpTransportNone {
+			attrs = append(attrs, request.HTTPUrlFull(url))
+			if span.Method != "" {
+				attrs = append(attrs, request.HTTPRequestMethod(span.Method))
+			}
+		}
+
+		if transport == httpTransportAll {
+			attrs = append(attrs,
+				request.HTTPResponseStatusCode(span.Status),
+				semconv.URLScheme(scheme),
+				request.HTTPRequestBodySize(int(span.RequestBodyLength())),
+				request.HTTPResponseBodySize(span.ResponseBodyLength()),
+			)
+			if scrubbedQS != "" {
+				if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+					attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
+				}
 			}
 		}
 
@@ -743,15 +714,21 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = append(attrs, request.DBCollectionName(span.Elasticsearch.DBCollectionName))
 			attrs = append(attrs, request.ElasticsearchNodeName(span.Elasticsearch.NodeName))
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+			// semconv: for Elasticsearch, db.response.status_code is the HTTP
+			// response code, reported whenever a response was received
+			if span.Status != 0 {
+				attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(span.Status)))
+			}
 			if _, ok := optionalAttrs[attr.DBQueryText]; ok {
 				attrs = append(attrs, request.DBQueryText(span.Elasticsearch.DBQueryText))
 			}
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
 			attrs = append(attrs, request.DBSystemName(span.Elasticsearch.DBSystemName))
-			// error.type only applies to failed requests: omit it instead of
-			// emitting an empty string on successful spans.
-			if span.DBError.ErrorCode != "" {
-				attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
+			attrs = append(attrs, request.HTTPResponseBodySize(span.ResponseBodyLength()))
+			// Semconv defines this as the HTTP code the cluster returned, and
+			// requires it only when a response was received.
+			if span.Status != 0 {
+				attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(span.Status)))
 			}
 		}
 
@@ -768,6 +745,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 		if span.SubType == request.HTTPSubtypeAWSSQS && span.AWS != nil {
 			sqs := span.AWS.SQS
+			attrs = append(attrs, semconv.MessagingSystemAWSSQS)
 			attrs = append(attrs, request.MessagingOperationName(sqs.OperationName))
 			// messaging.operation.type is a semconv enum: omit it instead of
 			// emitting an empty (invalid) variant when the type is unknown.
@@ -873,9 +851,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 					attrs = append(attrs, request.Metadata(string(ai.Metadata)))
 				}
 			}
-			if ai.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
-			}
 			if ai.OperationName == request.EmbeddingOperationName {
 				if dims := ai.GetEmbeddingDimensions(); dims > 0 {
 					attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(dims))
@@ -945,9 +920,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				}
 			}
 			// add error info
-			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeGemini && span.GenAI != nil && span.GenAI.Gemini != nil {
@@ -1022,9 +994,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				if len(ai.Input.Tools) > 0 {
 					attrs = append(attrs, semconv.GenAIToolDefinitionsKey.String(request.NormalizeToolDefinitions(ai.Input.Tools)))
 				}
-			}
-			if ai.Output.Error != nil && ai.Output.Error.Status != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Status))
 			}
 		}
 
@@ -1116,9 +1085,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				if ai.Request.EncodingFormat != "" {
 					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
 				}
-			}
-			if ai.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
 			}
 		}
 
@@ -1241,9 +1207,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
 				}
 			}
-			if ai.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
@@ -1297,9 +1260,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 					attrs = append(attrs, semconv.GenAIToolDefinitionsKey.String(request.NormalizeToolDefinitions(ai.Input.Tools)))
 				}
 			}
-			if ai.Output.ErrorType != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.ErrorType))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeRerank && span.GenAI != nil && span.GenAI.Rerank != nil {
@@ -1328,9 +1288,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			if ai.Input.GetTopN() > 0 {
 				attrs = append(attrs, attribute.Int("gen_ai.rerank.top_n", ai.Input.GetTopN()))
-			}
-			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
-				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
 			}
 		}
 
@@ -1427,12 +1384,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 		}
 		if span.Status == 1 && span.SQLError != nil {
-			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
-			// omit error.type when the SQLSTATE was not captured, instead of
-			// emitting an empty string.
-			if span.SQLError.SQLState != "" {
-				attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
-			}
+			attrs = append(attrs, request.DBResponseStatusCode(span.SQLError.ResponseStatusCode()))
 			attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.SQLErrorDescription())...)
 		}
 		if span.DBNamespace != "" {
@@ -1472,11 +1424,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
 		}
-		// messaging.operation.type is a semconv enum: omit it instead of
-		// emitting an empty (invalid) variant when the operation is unknown.
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeKafkaClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1496,9 +1444,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeMQTTClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1512,9 +1458,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			semconv.MessagingClientID(span.Statement),
 			semconv.MessagingMessageEnvelopeSize(int(span.ContentLength)),
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeNATSClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -1525,9 +1469,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 			messagingSystemAMQP,
 		}
-		if span.Method != "" {
-			attrs = append(attrs, request.MessagingOperationType(span.Method))
-		}
+		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
 	case request.EventTypeSunRPCServer, request.EventTypeSunRPCClient:
@@ -1604,7 +1546,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.DBNamespace != "" {
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 		}
-	case request.EventTypeAerospikeClient:
+	case request.EventTypeAerospikeClient, request.EventTypeAerospikeServer:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
@@ -1666,7 +1608,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ClientAddr(request.SpanHost(span)),
 			request.ServerAddr(request.PeerAsClient(span)),
 			request.ServerPort(span.HostPort),
-			request.DNSAnswers(span.Statement),
+		}
+		if answers := span.DNSAnswerList(); len(answers) > 0 {
+			attrs = append(attrs, request.DNSAnswers(answers))
 		}
 		// Include DNSQuestionName only when selected via attribute config.
 		if _, ok := optionalAttrs[attr.DNSQuestionName]; ok {
@@ -1675,8 +1619,86 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 	}
 
+	attrs = append(attrs, networkPeerAttributes(span, optionalAttrs)...)
+
+	// SQL++ is the one subtype that replaces the HTTP attribute set with a
+	// DB-only one, so HTTP transport attributes do not belong on its span. Every
+	// other subtype keeps its HTTP attributes and is still an HTTP span.
+	if span.SubType != request.HTTPSubtypeSQLPP {
+		if _, ok := optionalAttrs[attr.NetworkProtocolVersion]; ok {
+			if version := span.ProtoVersion.String(); version != "" {
+				attrs = append(attrs, semconv.NetworkProtocolVersion(version))
+			}
+		}
+	}
+
+	// A manual span may already carry a caller-supplied error.type; duplicate
+	// keys are invalid OTLP.
+	if _, ok := optionalAttrs[attr.ErrorType]; ok && !hasAttribute(attrs, semconv.ErrorTypeKey) {
+		if errType := request.SpanErrorType(span); errType != "" {
+			attrs = append(attrs, request.ErrorType(errType))
+		}
+	}
+
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {
 		attrs = append(attrs, spanMetricsSkip)
+	}
+
+	return attrs
+}
+
+func hasAttribute(attrs []attribute.KeyValue, key attribute.Key) bool {
+	for i := range attrs {
+		if attrs[i].Key == key {
+			return true
+		}
+	}
+
+	return false
+}
+
+// networkPeerAttributes reports the socket address of the connection's remote
+// end, which server.address/client.address discard when name resolution wins.
+func networkPeerAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+	var addr string
+	var port int
+
+	switch span.Type {
+	case request.EventTypeHTTP, request.EventTypeGRPC,
+		request.EventTypeSQLServer, request.EventTypeRedisServer,
+		request.EventTypeMemcachedServer, request.EventTypeSunRPCServer,
+		request.EventTypeKafkaServer, request.EventTypeMQTTServer,
+		request.EventTypeNATSServer:
+		addr, port = span.Peer, span.PeerPort
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient,
+		request.EventTypeSQLClient, request.EventTypeRedisClient,
+		request.EventTypeMongoClient, request.EventTypeCouchbaseClient,
+		request.EventTypeMemcachedClient, request.EventTypeAerospikeClient,
+		request.EventTypeSunRPCClient, request.EventTypeKafkaClient,
+		request.EventTypeMQTTClient, request.EventTypeNATSClient,
+		request.EventTypeAMQPClient:
+		addr, port = span.Host, span.HostPort
+	default:
+		return nil
+	}
+
+	if addr == "" {
+		return nil
+	}
+
+	// Semconv defines this as an IP or Unix socket address. Some paths fall back
+	// to the Host header, which is a name, and server.address already carries that.
+	if net.ParseIP(addr) == nil {
+		return nil
+	}
+
+	if _, ok := optionalAttrs[attr.NetworkPeerAddress]; !ok {
+		return nil
+	}
+
+	attrs := []attribute.KeyValue{semconv.NetworkPeerAddress(addr)}
+	if _, ok := optionalAttrs[attr.NetworkPeerPort]; ok && port > 0 {
+		attrs = append(attrs, semconv.NetworkPeerPort(port))
 	}
 
 	return attrs
@@ -1749,13 +1771,13 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	}
 
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
+	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer, request.EventTypeAerospikeServer:
 		return trace2.SpanKindServer
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient, request.EventTypeMQTTClient, request.EventTypeNATSClient, request.EventTypeAMQPClient:
-		switch span.Method {
-		case request.MessagingPublish:
+		switch request.MessagingOperationTypeOf(span.Method) {
+		case request.MessagingSend:
 			return trace2.SpanKindProducer
 		case request.MessagingProcess:
 			return trace2.SpanKindConsumer

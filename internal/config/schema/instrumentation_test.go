@@ -54,3 +54,37 @@ metrics:
 	require.NotNil(t, latency.LessThan)
 	require.Equal(t, 100, *latency.LessThan)
 }
+
+func TestAerospikeInstrumentationDefaultsOmittedSignals(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		config  string
+		traces  bool
+		metrics bool
+	}{
+		{config: "{}", traces: true, metrics: true},
+		{config: "{enabled: {metrics: false}}", traces: true, metrics: false},
+		{config: "{enabled: {traces: false, metrics: false}}", traces: false, metrics: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.config, func(t *testing.T) {
+			var instrumentation Instrumentation
+			err := yaml.Unmarshal([]byte("aerospike: "+test.config+"\n"), &instrumentation)
+			require.NoError(t, err)
+			require.NotNil(t, instrumentation.Aerospike)
+			require.Equal(t, test.traces, instrumentation.Aerospike.Enabled.Traces)
+			require.Equal(t, test.metrics, instrumentation.Aerospike.Enabled.Metrics)
+		})
+	}
+}
+
+func TestAerospikeInstrumentationRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	var instrumentation Instrumentation
+	err := yaml.Unmarshal([]byte("aerospike: {enabledd: {traces: false}}\n"), &instrumentation)
+
+	require.ErrorContains(t, err, "field enabledd not found")
+}

@@ -4,8 +4,10 @@
 package health
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -42,6 +44,75 @@ func TestServeHTTPAdvancesTime(t *testing.T) {
 
 	assert.Greater(t, r2.NowUnixNs, r1.NowUnixNs)
 	assert.GreaterOrEqual(t, r2.ProcessUptimeNs, r1.ProcessUptimeNs)
+}
+
+func TestTCPListenAddr(t *testing.T) {
+	tests := map[string]struct {
+		address string
+		want    string
+	}{
+		"default":       {want: "127.0.0.1:8080"},
+		"loopback":      {address: "127.0.0.1", want: "127.0.0.1:8080"},
+		"wildcard IPv4": {address: "0.0.0.0", want: "0.0.0.0:8080"},
+		"wildcard IPv6": {address: "::", want: "[::]:8080"},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.want, tcpListenAddr(test.address, 8080))
+		})
+	}
+}
+
+func TestNewServerHardening(t *testing.T) {
+	server := newServer()
+
+	assert.Equal(t, readHeaderTimeout, server.ReadHeaderTimeout)
+	assert.Equal(t, readTimeout, server.ReadTimeout)
+	assert.Equal(t, writeTimeout, server.WriteTimeout)
+	assert.Equal(t, idleTimeout, server.IdleTimeout)
+}
+
+func TestIdleConnectionsExpire(t *testing.T) {
+	server := newServer()
+	server.IdleTimeout = 25 * time.Millisecond
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.Serve(lis)
+	}()
+
+	t.Cleanup(func() {
+		require.NoError(t, server.Close())
+		assert.ErrorIs(t, <-serverErr, http.ErrServerClosed)
+	})
+
+	conn, err := net.Dial("tcp", lis.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, conn.Close())
+	})
+
+	const request = "GET /healthz HTTP/1.1\r\nHost: localhost\r\n\r\n"
+	_, err = io.WriteString(conn, request)
+	require.NoError(t, err)
+
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodGet})
+	require.NoError(t, err)
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	time.Sleep(2 * server.IdleTimeout)
+	require.NoError(t, conn.SetDeadline(time.Now().Add(time.Second)))
+
+	_, _ = io.WriteString(conn, request)
+	_, err = http.ReadResponse(reader, &http.Request{Method: http.MethodGet})
+	require.Error(t, err)
 }
 
 func TestServeEndToEnd(t *testing.T) {

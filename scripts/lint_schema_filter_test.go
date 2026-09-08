@@ -99,12 +99,33 @@ const expectedEnumOverrideDuplicates = `[{
 		"attribute_id": "error.type",
 		"group_ids": ["registry.error", "x.obi.error"]
 	}}
+}, {
+	"diagnostic": {"severity": "Error"},
+	"error": {"DuplicateAttributeId": {
+		"attribute_id": "network.type",
+		"group_ids": ["registry.network", "x.obi.network"]
+	}}
 }]`
 
 func TestLintSchemaFilterAllowsExpectedEnumOverrideDuplicates(t *testing.T) {
 	remaining := runLintSchemaFilter(t, expectedEnumOverrideDuplicates)
 	if len(remaining) != 0 {
 		t.Fatalf("expected the documented enum-override attribute duplicates to be filtered, got %d diagnostics", len(remaining))
+	}
+}
+
+// expectedDeprecatedIncludeUnreferenced mirrors the diagnostic weaver 0.25
+// emits (promoted to Error by --future) for OBI's use of the deprecated
+// --include-unreferenced flag, which OBI still needs.
+const expectedDeprecatedIncludeUnreferenced = `[{
+	"diagnostic": {"severity": "Error"},
+	"error": {"DeprecatedIncludeUnreferencedWarning": {}}
+}]`
+
+func TestLintSchemaFilterAllowsDeprecatedIncludeUnreferenced(t *testing.T) {
+	remaining := runLintSchemaFilter(t, expectedDeprecatedIncludeUnreferenced)
+	if len(remaining) != 0 {
+		t.Fatalf("expected the deprecated include-unreferenced warning to be filtered, got %d diagnostics", len(remaining))
 	}
 }
 

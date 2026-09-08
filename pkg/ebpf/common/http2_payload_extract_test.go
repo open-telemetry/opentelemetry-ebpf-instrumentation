@@ -378,6 +378,28 @@ func TestExtractHTTP2DecodesContinuedHeaders(t *testing.T) {
 	assert.Equal(t, strings.Repeat("value-", 20), header.Get("X-Long-Header"))
 }
 
+func TestExtractHTTP2ResetsDecoderBetweenHeaderBlocks(t *testing.T) {
+	payload := makeHTTP2Payload(t, false, func(framer *http2.Framer) {
+		require.NoError(t, framer.WriteHeaders(http2.HeadersFrameParam{
+			StreamID:      1,
+			BlockFragment: []byte{0x82},
+			EndHeaders:    true,
+		}))
+		require.NoError(t, framer.WriteHeaders(http2.HeadersFrameParam{
+			StreamID:      3,
+			BlockFragment: []byte{0x20, 0x00, 0x01, 'x', 0x01, 'y'},
+			EndHeaders:    true,
+		}))
+		require.NoError(t, framer.WriteData(3, true, []byte("body")))
+	})
+
+	body, header, ok := extractHTTP2(largebuf.NewLargeBufferFrom(payload))
+
+	require.True(t, ok)
+	assert.Equal(t, []byte("body"), body)
+	assert.Equal(t, "y", header.Get("X"))
+}
+
 func TestExtractHTTP2ReturnsCapturedBodyAtEOF(t *testing.T) {
 	payload := makeHTTP2Payload(t, false, func(framer *http2.Framer) {
 		require.NoError(t, framer.WriteData(1, false, []byte("partial body")))

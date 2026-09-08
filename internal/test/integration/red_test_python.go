@@ -20,7 +20,7 @@ func testREDMetricsForPythonHTTPLibrary(t *testing.T, url, comm, namespace strin
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
@@ -76,7 +76,7 @@ func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespac
 }
 
 func testREDMetricsDNSForPython(t *testing.T, url, comm, namespace string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/ok_dns", 200)
 		ti.DoHTTPGet(t, url+"/bad_dns", 200)
 	}
@@ -113,7 +113,7 @@ func testREDMetricsPythonHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python3.14", "integration-test")
+			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python-testserver", "integration-test")
 		})
 	}
 }
@@ -124,7 +124,7 @@ func testREDMetricsTimeoutPythonHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsTimeoutForPythonHTTPLibrary(t, testCaseURL, "python3.14", "integration-test")
+			testREDMetricsTimeoutForPythonHTTPLibrary(t, testCaseURL, "python-testserver", "integration-test")
 		})
 	}
 }
@@ -135,7 +135,7 @@ func testREDMetricsDNSPython(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsDNSForPython(t, testCaseURL, "python3.14", "integration-test")
+			testREDMetricsDNSForPython(t, testCaseURL, "python-testserver", "integration-test")
 		})
 	}
 }
@@ -146,7 +146,7 @@ func testREDMetricsPythonHTTPS(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python3.14", "integration-test")
+			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python-testserver", "integration-test")
 		})
 	}
 }

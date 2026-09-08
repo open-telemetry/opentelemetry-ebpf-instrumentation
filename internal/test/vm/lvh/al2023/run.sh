@@ -78,7 +78,7 @@ cat > "${IRD}/init" <<'INIT'
 /bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null
 ulimit -l unlimited 2>/dev/null
 echo "OBI-VERIFIER-BEGIN"
-/verifier.test -test.timeout=20m -test.parallel=8
+/verifier.test -test.timeout=50m -test.parallel=8
 RESULT=$?
 /bin/busybox sync
 printf '%s\n' "${RESULT}" > /dev/ttyS1 2>/dev/null
@@ -105,7 +105,7 @@ rm -f "${RESULT_FILE}"
 echo "run.sh: launching qemu" >&2
 # ttyS0: console + kernel printk + test stdout.
 # ttyS1: dedicated result channel — only init writes to it, never the kernel.
-timeout 1500 qemu-system-x86_64 ${ACCEL} -m 4G -smp 2 \
+timeout 3300 qemu-system-x86_64 ${ACCEL} -m 4G -smp 2 \
     -kernel "${VMLINUZ}" \
     -initrd "${IRD_IMG}" \
     -append "earlyprintk=ttyS0 console=ttyS0 loglevel=0 quiet panic=3 rdinit=/init" \

@@ -50,8 +50,9 @@ type EBPFTracer struct {
 	// before sending a wakeup request.
 	// High values of WakeupLen could add a noticeable metric delay in services with low
 	// requests/second.
-	// Must be at least 0
-	// TODO: see if there is a way to force eBPF to wakeup userspace on timeout
+	// Must be at least 0.
+	// The userspace ring buffer reader periodically flushes pending events regardless,
+	// so wakeup_len bounds wakeup overhead rather than maximum delivery delay.
 	WakeupLen int `yaml:"wakeup_len" env:"OTEL_EBPF_BPF_WAKEUP_LEN" validate:"gte=0"`
 
 	// StatsWakeupDataBytes specifies the minimum number of bytes that must be available in the
@@ -180,12 +181,13 @@ func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 //
 // Default: 0 (disabled).
 type EBPFBufferSizes struct {
-	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=262144"`
-	MySQL    uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL" validate:"lte=65536"`
-	Kafka    uint32 `yaml:"kafka" env:"OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA" validate:"lte=65536"`
-	Postgres uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES" validate:"lte=65536"`
-	MSSQL    uint32 `yaml:"mssql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL" validate:"lte=65536"`
-	TCP      uint32 `yaml:"tcp" env:"OTEL_EBPF_BPF_BUFFER_SIZE_TCP" validate:"lte=65536"`
+	HTTP      uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=262144"`
+	MySQL     uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL" validate:"lte=65536"`
+	Kafka     uint32 `yaml:"kafka" env:"OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA" validate:"lte=65536"`
+	Postgres  uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES" validate:"lte=65536"`
+	MSSQL     uint32 `yaml:"mssql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL" validate:"lte=65536"`
+	TCP       uint32 `yaml:"tcp" env:"OTEL_EBPF_BPF_BUFFER_SIZE_TCP" validate:"lte=65536"`
+	Aerospike uint32 `yaml:"aerospike" env:"OTEL_EBPF_BPF_BUFFER_SIZE_AEROSPIKE" validate:"lte=65536"`
 }
 
 // HasHeaders returns true if HTTP headers context propagation is enabled

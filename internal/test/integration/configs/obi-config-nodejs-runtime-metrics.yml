@@ -1,0 +1,14 @@
+prometheus_export:
+  port: 8999
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+metrics:
+  features:
+    - application_runtime
+# nodejs.enabled is deliberately NOT set: the application_runtime metrics
+# feature plus the flag's default (true) must be enough to enable the
+# injected fdextractor.js, the source of the runtime metrics
+attributes:
+  select:
+    "*":
+      include: ["*"]

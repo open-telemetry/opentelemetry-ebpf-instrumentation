@@ -18,6 +18,7 @@
 #include <logger/bpf_dbg.h>
 
 #include <pid/pid.h>
+#include <common/preempt_guard.h>
 
 const cuda_kernel_launch_t *unused_gpu __attribute__((unused));
 const cuda_malloc_t *unused_gpu1 __attribute__((unused));
@@ -32,7 +33,8 @@ enum {
 };
 
 SEC("uprobe/cudaLaunchKernel")
-int BPF_KPROBE(obi_cuda_launch, u64 func_off, u64 grid_xy, u64 grid_z, u64 block_xy, u64 block_z) {
+int BPF_KPROBE_GUARDED(
+    obi_cuda_launch, u64 func_off, u64 grid_xy, u64 grid_z, u64 block_xy, u64 block_z) {
     (void)ctx;
     const u64 id = bpf_get_current_pid_tgid();
 
@@ -64,7 +66,7 @@ int BPF_KPROBE(obi_cuda_launch, u64 func_off, u64 grid_xy, u64 grid_z, u64 block
 }
 
 SEC("uprobe/cudaMalloc")
-int BPF_KPROBE(obi_cuda_malloc, void **devPtr, size_t size) {
+int BPF_KPROBE_GUARDED(obi_cuda_malloc, void **devPtr, size_t size) {
     (void)ctx;
     (void)devPtr;
 
@@ -91,7 +93,7 @@ int BPF_KPROBE(obi_cuda_malloc, void **devPtr, size_t size) {
 }
 
 SEC("uprobe/cudaMemcpyAsync")
-int BPF_KPROBE(obi_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
+int BPF_KPROBE_GUARDED(obi_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
     (void)ctx;
     (void)dst;
     (void)src;
@@ -120,7 +122,7 @@ int BPF_KPROBE(obi_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
 }
 
 SEC("uprobe/cudaGraphLaunch")
-int BPF_KPROBE(obi_graph_launch) {
+int BPF_KPROBE_GUARDED(obi_graph_launch) {
     (void)ctx;
     const u64 id = bpf_get_current_pid_tgid();
 

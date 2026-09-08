@@ -8,6 +8,7 @@
 
 #include <common/fd_info.h>
 #include <common/connection_info.h>
+#include <common/preempt_guard.h>
 #include <common/sockaddr.h>
 
 #include <generictracer/maps/upstream_init_args.h>
@@ -26,7 +27,7 @@ volatile const s32 ngx_http_rev_s_conn = 0x8;
 volatile const s32 ngx_connection_s_sockaddr = 0x68;
 
 SEC("uprobe/nginx:ngx_http_upstream_init")
-int obi_ngx_http_upstream_init(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_ngx_http_upstream_init, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -56,7 +57,7 @@ static __always_inline void get_sock_info(u64 id, void *conn_ptr, connection_inf
 }
 
 SEC("uprobe/nginx:ngx_event_connect_peer_ret")
-int obi_ngx_event_connect_peer_ret(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_ngx_event_connect_peer_ret, struct pt_regs *, ctx) {
     (void)ctx;
 
     const u64 id = bpf_get_current_pid_tgid();

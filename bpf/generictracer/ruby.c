@@ -8,6 +8,7 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/connection_info.h>
+#include <common/preempt_guard.h>
 #include <common/puma_task_id.h>
 #include <common/strings.h>
 
@@ -83,7 +84,7 @@ the array:item pair for the work, rather than the file descriptors.
  */
 
 SEC("uprobe/ruby:rb_obj_call_init_kw")
-int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_rb_obj_call_init_kw, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -128,7 +129,7 @@ int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/ruby:rb_ary_shift")
-int obi_rb_ary_shift(struct pt_regs *ctx) {
+int GUARDED_PROG(obi_rb_ary_shift, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {

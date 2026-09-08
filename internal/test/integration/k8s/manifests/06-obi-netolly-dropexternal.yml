@@ -9,7 +9,7 @@ data:
         enable: true
         drop_external: true
         resource_labels:
-          deployment.environment: ["${DEPLOYMENT_ENVIRONMENT:-error-not-replaced}"]
+          deployment.environment.name: ["${DEPLOYMENT_ENVIRONMENT:-error-not-replaced}"]
       select:
         obi.network.flow.bytes:
           include:
@@ -72,11 +72,11 @@ spec:
             - name: OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS
               value: "20"
             - name: OTEL_EBPF_METRICS_INTERVAL
-              value: "10ms"
+              value: "1s"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
             - name: OTEL_EBPF_KUBE_CLUSTER_NAME
               value: "obi"
             # expecting to be replaced during the configuration YAML load
             - name: DEPLOYMENT_ENVIRONMENT
-              value: "deployment.environment"
+              value: "deployment.environment.name"

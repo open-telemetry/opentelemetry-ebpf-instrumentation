@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,16 +34,16 @@ import (
 )
 
 const (
-	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893")
-	imgJaeger      = img.Docker("jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e")
-	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6")
+	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0")
+	imgJaeger      = img.Docker("jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8")
+	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6")
 	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
-	imgNginx       = img.Docker("library/nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942")
+	imgNginx       = img.Docker("library/nginx:1.31.5@sha256:05b8cb60c354a44ab824ea6e7dc69b46d50762cdbe728a347a5b656e6fb3d7c4")
 	// imgWeaver MUST match the digest pinned in
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
-	imgWeaver = img.Docker("otel/weaver:v0.25.0@sha256:bef6000b4a4be46f81242f9ee785e0ebf0604606c15f92cb54a59893a741ec0c")
+	imgWeaver = img.Docker("otel/weaver:v0.25.1@sha256:9ad46ca9cd4fa5974b121f886aa3e9946a8ef8ea905001a96c018d21f9db87ca")
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -193,8 +194,7 @@ func setupContainerCollector(t *testing.T, net dockertest.Network, configFile st
 // alongside the otelcol container. Mirrors the shared compose snippet at
 // `components/weaver/service.yml`: same image digest.
 // The container is named exactly "weaver" — matching `weaverContainer` in
-// `weaver.go` — because `runWeaverValidation` `docker wait` / `docker cp`
-// by name.
+// `weaver.go` — because the cleanup path force-removes it by name.
 func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 	t.Helper()
 
@@ -208,13 +208,13 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 			"--include-unreferenced",
 			"--inactivity-timeout", "300",
 			"--admin-port", "4320",
-			"--format", "json",
+			"--format", "compact",
+			"--templates", "/obi-registry/.live_check_templates",
 			"--diagnostic-format", "json",
-			"--output", "/tmp/weaver-out",
+			"--output", "http",
 		}),
 		dockertest.WithMounts([]string{
 			filepath.Join(pathRoot, "schemas/obi") + ":/obi-registry:ro",
-			"/tmp/obi-weaver-out:/tmp/weaver-out",
 		}),
 		dockertest.WithPortBindings(portBindings("4320/tcp", "4320")),
 		dockertest.WithContainerConfig(func(config *container.Config) {
@@ -227,7 +227,7 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 	require.NoError(t, err, "could not start weaver container")
 	t.Cleanup(func() {
 		// Best-effort: `runWeaverValidation` may have already removed it via
-		// `docker wait` + `docker rm -f`; ignore the error in that case.
+		// `docker rm -f`; ignore the error in that case.
 		_ = w.Close(context.Background())
 	})
 
@@ -239,14 +239,22 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 	t.Log("Weaver container started")
 }
 
-// buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set, the image
-// has been pre-built for the VM workflow prior to QEMU startup.
+// buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set (VM
+// workflow) or PREBUILT_IMAGES lists it (CI shards), the image was loaded
+// into the Docker daemon before the run.
 func buildOBIImage(ctx context.Context) error {
-	if os.Getenv("SKIP_DOCKER_BUILD") != "" {
+	prebuilt := slices.Contains(strings.Split(os.Getenv("PREBUILT_IMAGES"), ","), "hatest-obi")
+
+	if os.Getenv("SKIP_DOCKER_BUILD") != "" || prebuilt {
 		_, err := dockerPool.Client().ImageInspect(ctx, "hatest-obi")
 		if err == nil {
 			fmt.Println("Skipping OBI image build (pre-built image found)")
 			return nil
+		}
+		if prebuilt {
+			// the workflow loads the image before the run: reaching this
+			// means broken wiring, not a slow path to fall back onto
+			return fmt.Errorf("PREBUILT_IMAGES lists hatest-obi but the image is not loaded: %w", err)
 		}
 		fmt.Println("SKIP_DOCKER_BUILD set but hatest-obi image not found, building...")
 	}

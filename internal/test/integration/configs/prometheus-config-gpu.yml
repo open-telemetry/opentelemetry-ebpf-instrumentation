@@ -1,0 +1,11 @@
+# Scrapes the collector's Prometheus exporter (fed by OBI's OTLP metrics) so the
+# test can assert the gpu.cuda.* surface is present alongside weaver validation.
+global:
+  evaluation_interval: 250ms
+  scrape_interval: 250ms
+scrape_configs:
+  - job_name: obi-gpu-metrics
+    honor_labels: true
+    static_configs:
+      - targets:
+          - 'otelcol:9464'

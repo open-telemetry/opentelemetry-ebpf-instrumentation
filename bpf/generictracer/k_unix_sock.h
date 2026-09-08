@@ -8,6 +8,7 @@
 
 #include <common/iov_iter.h>
 #include <common/http_types.h>
+#include <common/preempt_guard.h>
 #include <common/tracing.h>
 
 #include <generictracer/k_send_receive.h>
@@ -53,11 +54,11 @@ pid_connection_info_for_inode(u64 id, pid_connection_info_t *p_conn, u32 inode, 
 }
 
 SEC("kprobe/unix_stream_recvmsg")
-int BPF_KPROBE(obi_kprobe_unix_stream_recvmsg,
-               struct socket *sock,
-               struct msghdr *msg,
-               size_t size,
-               int flags) {
+int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_recvmsg,
+                       struct socket *sock,
+                       struct msghdr *msg,
+                       size_t size,
+                       int flags) {
     (void)ctx;
     (void)size;
     (void)flags;
@@ -213,7 +214,7 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
 }
 
 SEC("kretprobe/unix_stream_recvmsg")
-int BPF_KRETPROBE(obi_kretprobe_unix_stream_recvmsg, size_t copied) {
+int BPF_KRETPROBE_GUARDED(obi_kretprobe_unix_stream_recvmsg, size_t copied) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -226,10 +227,10 @@ int BPF_KRETPROBE(obi_kretprobe_unix_stream_recvmsg, size_t copied) {
 }
 
 SEC("kprobe/unix_stream_sendmsg")
-int BPF_KPROBE(obi_kprobe_unix_stream_sendmsg,
-               struct socket *sock,
-               struct msghdr *msg,
-               size_t size) {
+int BPF_KPROBE_GUARDED(obi_kprobe_unix_stream_sendmsg,
+                       struct socket *sock,
+                       struct msghdr *msg,
+                       size_t size) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -277,7 +278,7 @@ int BPF_KPROBE(obi_kprobe_unix_stream_sendmsg,
 }
 
 SEC("kretprobe/unix_stream_sendmsg")
-int BPF_KRETPROBE(obi_kretprobe_unix_stream_sendmsg, int sent_len) {
+int BPF_KRETPROBE_GUARDED(obi_kretprobe_unix_stream_sendmsg, int sent_len) {
     (void)ctx;
 
     const u64 id = bpf_get_current_pid_tgid();

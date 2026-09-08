@@ -6,8 +6,8 @@ package tracesgen
 import (
 	"encoding/json"
 	"math"
+	"strconv"
 	"testing"
-	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +29,37 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
 
+func TestAcceptSpanUsesEventInstrumentation(t *testing.T) {
+	selection := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{
+		instrumentations.InstrumentationHTTP,
+		instrumentations.InstrumentationSQL,
+		instrumentations.InstrumentationGPU,
+	})
+
+	tests := []struct {
+		eventType request.EventType
+		accepted  bool
+	}{
+		{eventType: request.EventTypeHTTP, accepted: true},
+		{eventType: request.EventTypeHTTPClient, accepted: true},
+		{eventType: request.EventTypeSQLClient, accepted: true},
+		{eventType: request.EventTypeRedisClient, accepted: false},
+		{eventType: request.EventTypeManualSpan, accepted: true},
+		{eventType: request.EventTypeFailedConnect, accepted: true},
+		{eventType: request.EventTypeGPUCudaKernelLaunch, accepted: false},
+		{eventType: request.EventTypeGPUCudaGraphLaunch, accepted: false},
+		{eventType: request.EventTypeGPUCudaMalloc, accepted: false},
+		{eventType: request.EventTypeGPUCudaMemcpy, accepted: false},
+		{eventType: request.EventTypeProcessAlive, accepted: false},
+		{eventType: request.EventType(255), accepted: false},
+	}
+
+	for _, test := range tests {
+		span := request.Span{Type: test.eventType}
+		assert.Equal(t, test.accepted, acceptSpan(selection, &span), test.eventType)
+	}
+}
+
 func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
 	span := &request.Span{
 		Type:   request.EventTypeDNS,
@@ -49,6 +80,34 @@ func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
 
 	optInAttrs := TraceAttributesSelector(span, defaultAttrs)
 	assert.Contains(t, optInAttrs, semconv.DNSQuestionName("example.com"))
+}
+
+func TestTraceAttributesSelector_DNSAnswers(t *testing.T) {
+	dnsSpan := func(statement string) *request.Span {
+		return &request.Span{
+			Type:      request.EventTypeDNS,
+			Method:    "A",
+			Path:      "example.com",
+			Statement: statement,
+		}
+	}
+
+	t.Run("emitted as a string array", func(t *testing.T) {
+		attrs := TraceAttributesSelector(dnsSpan("10.0.0.1,10.0.0.2"), map[attr.Name]struct{}{})
+		assert.Contains(t, attrs, attribute.StringSlice(string(attr.DNSAnswers), []string{"10.0.0.1", "10.0.0.2"}))
+	})
+
+	t.Run("single answer is still an array", func(t *testing.T) {
+		attrs := TraceAttributesSelector(dnsSpan("10.0.0.1"), map[attr.Name]struct{}{})
+		assert.Contains(t, attrs, attribute.StringSlice(string(attr.DNSAnswers), []string{"10.0.0.1"}))
+	})
+
+	t.Run("omitted when the lookup resolved nothing", func(t *testing.T) {
+		attrs := TraceAttributesSelector(dnsSpan(""), map[attr.Name]struct{}{})
+		for _, kv := range attrs {
+			assert.NotEqual(t, attr.DNSAnswers, attr.Name(kv.Key))
+		}
+	})
 }
 
 func TestTraceAttributesSelector_GraphQLDocumentSelection(t *testing.T) {
@@ -304,104 +363,6 @@ func TestHTTPRequestMethodOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestCreateToolCallSpans(t *testing.T) {
-	t.Run("nil tool calls creates no spans", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		now := time.Now()
-		createToolCallSpans(nil, parentSpanID, traceID, &ss, now, now)
-		assert.Equal(t, 0, ss.Spans().Len())
-	})
-
-	t.Run("empty tool calls creates no spans", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		now := time.Now()
-		createToolCallSpans([]request.ToolCall{}, parentSpanID, traceID, &ss, now, now)
-		assert.Equal(t, 0, ss.Spans().Len())
-	})
-
-	t.Run("single tool call with ID", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		start := time.Now()
-		end := start.Add(100 * time.Millisecond)
-		createToolCallSpans([]request.ToolCall{
-			{ID: "call_1", Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, start, end)
-
-		require.Equal(t, 1, ss.Spans().Len())
-		sp := ss.Spans().At(0)
-		assert.Equal(t, "execute_tool get_weather", sp.Name())
-		assert.Equal(t, ptrace.SpanKindInternal, sp.Kind())
-		assert.Equal(t, traceID, sp.TraceID())
-		assert.Equal(t, parentSpanID, sp.ParentSpanID())
-		assert.Equal(t, pcommon.NewTimestampFromTime(start), sp.StartTimestamp())
-		assert.Equal(t, pcommon.NewTimestampFromTime(end), sp.EndTimestamp())
-
-		attrs := sp.Attributes()
-		opName, ok := attrs.Get("gen_ai.operation.name")
-		require.True(t, ok)
-		assert.Equal(t, "execute_tool", opName.Str())
-
-		toolName, ok := attrs.Get("gen_ai.tool.name")
-		require.True(t, ok)
-		assert.Equal(t, "get_weather", toolName.Str())
-
-		toolCallID, ok := attrs.Get("gen_ai.tool.call.id")
-		require.True(t, ok)
-		assert.Equal(t, "call_1", toolCallID.Str())
-	})
-
-	t.Run("multiple tool calls", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		start := time.Now()
-		end := start.Add(100 * time.Millisecond)
-		createToolCallSpans([]request.ToolCall{
-			{ID: "call_1", Name: "get_weather"},
-			{ID: "call_2", Name: "get_time"},
-		}, parentSpanID, traceID, &ss, start, end)
-
-		require.Equal(t, 2, ss.Spans().Len())
-		assert.Equal(t, "execute_tool get_weather", ss.Spans().At(0).Name())
-		assert.Equal(t, "execute_tool get_time", ss.Spans().At(1).Name())
-	})
-
-	t.Run("skips empty names", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		now := time.Now()
-		createToolCallSpans([]request.ToolCall{
-			{ID: "call_1", Name: ""},
-			{ID: "call_2", Name: "get_time"},
-		}, parentSpanID, traceID, &ss, now, now)
-
-		require.Equal(t, 1, ss.Spans().Len())
-		assert.Equal(t, "execute_tool get_time", ss.Spans().At(0).Name())
-	})
-
-	t.Run("tool call without ID omits gen_ai.tool.call.id", func(t *testing.T) {
-		ss := ptrace.NewScopeSpans()
-		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		now := time.Now()
-		createToolCallSpans([]request.ToolCall{
-			{Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, now, now)
-
-		require.Equal(t, 1, ss.Spans().Len())
-		sp := ss.Spans().At(0)
-		_, ok := sp.Attributes().Get("gen_ai.tool.call.id")
-		assert.False(t, ok, "gen_ai.tool.call.id should not be present when ID is empty")
-	})
-}
-
 func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
 	require.NoError(t, err)
@@ -630,7 +591,7 @@ func TestGenAIResponseErrorStatusMessage(t *testing.T) {
 				GenAI:   tt.genAI,
 			}
 
-			defaultSpan := generateSingleTraceSpan(t, span, nil)
+			defaultSpan := generateSingleTraceSpan(t, span, defaultTraceAttrs(t))
 			assert.Equal(t, ptrace.StatusCodeError, defaultSpan.Status().Code())
 			assert.Empty(t, defaultSpan.Status().Message())
 			assertSpanStringAttribute(t, defaultSpan, semconv.ErrorTypeKey, tt.errorType)
@@ -639,6 +600,7 @@ func TestGenAIResponseErrorStatusMessage(t *testing.T) {
 
 			selectedSpan := generateSingleTraceSpan(t, span, map[attr.Name]struct{}{
 				attr.GenAIResponseError: {},
+				attr.ErrorType:          {},
 			})
 			assert.Equal(t, ptrace.StatusCodeError, selectedSpan.Status().Code())
 			assert.Equal(t, rawMessage, selectedSpan.Status().Message())
@@ -829,6 +791,7 @@ func TestGenAIResponseErrorPreservesProtocolStatusMessages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			exported := generateSingleTraceSpan(t, tt.span, map[attr.Name]struct{}{
 				attr.GenAIResponseError: {},
+				attr.ErrorType:          {},
 			})
 			assert.Equal(t, ptrace.StatusCodeError, exported.Status().Code())
 			assert.Equal(t, tt.message, exported.Status().Message())
@@ -1435,4 +1398,395 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	transportKeys := []string{
+		"url.full", "url.scheme", "url.query", "http.request.method",
+		"http.response.status_code", "http.request.body.size", "http.response.body.size",
+	}
+
+	for _, tt := range []struct {
+		name    string
+		subType int
+		payload func(*request.Span)
+		present []string
+	}{
+		{
+			name:    "plain http client keeps the full transport surface",
+			subType: request.HTTPSubtypeNone,
+			present: transportKeys,
+		},
+		{
+			name:    "elasticsearch keeps the db conventions plus the response size",
+			subType: request.HTTPSubtypeElasticsearch,
+			payload: func(s *request.Span) {
+				s.Elasticsearch = &request.Elasticsearch{DBSystemName: "elasticsearch", DBOperationName: "search"}
+			},
+			present: []string{"url.full", "http.request.method", "http.response.body.size"},
+		},
+		{
+			name:    "aws s3 carries no http transport attributes",
+			subType: request.HTTPSubtypeAWSS3,
+			payload: func(s *request.Span) { s.AWS = &request.AWS{} },
+		},
+		{
+			name:    "aws sqs carries no http transport attributes",
+			subType: request.HTTPSubtypeAWSSQS,
+			payload: func(s *request.Span) { s.AWS = &request.AWS{} },
+		},
+		{
+			name:    "openai carries no http transport attributes",
+			subType: request.HTTPSubtypeOpenAI,
+			payload: func(s *request.Span) { s.GenAI = &request.GenAI{OpenAI: &request.VendorOpenAI{ID: "chatcmpl-1"}} },
+		},
+		{
+			name:    "mcp carries no http transport attributes",
+			subType: request.HTTPSubtypeMCP,
+			payload: func(s *request.Span) { s.GenAI = &request.GenAI{MCP: &request.MCPCall{Method: "tools/call"}} },
+		},
+		{
+			name:    "json-rpc carries no http transport attributes",
+			subType: request.HTTPSubtypeJSONRPC,
+			payload: func(s *request.Span) { s.JSONRPC = &request.JSONRPC{Method: "subtract", Version: "2.0"} },
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:     request.EventTypeHTTPClient,
+				SubType:  tt.subType,
+				Method:   "POST",
+				Path:     "/v1/things",
+				FullPath: "/v1/things?q=1",
+				Host:     "api.example.com",
+				HostPort: 443,
+				Status:   200,
+			}
+			if tt.payload != nil {
+				tt.payload(span)
+			}
+
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+
+			expected := map[string]bool{}
+			for _, k := range tt.present {
+				expected[k] = true
+			}
+			for _, key := range transportKeys {
+				_, ok := selected.Get(key)
+				assert.Equal(t, expected[key], ok, key)
+			}
+
+			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
+				_, ok := selected.Get(key)
+				assert.True(t, ok, "%s must survive on every http client subtype", key)
+			}
+		})
+	}
+}
+
+func defaultTraceAttrs(t *testing.T) map[attr.Name]struct{} {
+	t.Helper()
+	selected, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+	return selected
+}
+
+func errorTypeValue(attrs []attribute.KeyValue) (attribute.Value, bool) {
+	for _, kv := range attrs {
+		if kv.Key == semconv.ErrorTypeKey {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
+}
+
+func attrValue(attrs []attribute.KeyValue, key string) (attribute.Value, bool) {
+	for _, kv := range attrs {
+		if string(kv.Key) == key {
+			return kv.Value, true
+		}
+	}
+	return attribute.Value{}, false
+}
+
+func countAttr(attrs []attribute.KeyValue, key string) int {
+	n := 0
+	for _, kv := range attrs {
+		if string(kv.Key) == key {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTraceAttributesSelector_ErrorType(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("omitted when the span did not fail", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
+		_, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		assert.False(t, ok)
+	})
+
+	t.Run("http carries the status code", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 503}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "503", v.AsString())
+	})
+
+	t.Run("grpc carries the status code name", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeGRPC, Path: "/pkg.Svc/M", Status: 14}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "UNAVAILABLE", v.AsString())
+	})
+
+	t.Run("db carries the server error code", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeRedisClient,
+			Method:  "GET",
+			Status:  1,
+			DBError: request.DBError{ErrorCode: "WRONGTYPE"},
+		}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "WRONGTYPE", v.AsString())
+	})
+
+	t.Run("falls back to _OTHER with no classification", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeRedisClient, Method: "GET", Status: 1}
+		v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+		require.True(t, ok)
+		assert.Equal(t, "_OTHER", v.AsString())
+	})
+
+	// A subtype is a different protocol over HTTP, so the HTTP status is not
+	// its error. With nothing parsed, it reports nothing.
+	// These subtypes keep the full HTTP attribute set, so they are HTTP spans and
+	// the status code classifies a failure semconv requires a value for.
+	t.Run("http subtypes fall back to the status code", func(t *testing.T) {
+		for _, sub := range []int{
+			request.HTTPSubtypeAWSSQS,
+			request.HTTPSubtypeAWSS3,
+			request.HTTPSubtypeGraphQL,
+			request.HTTPSubtypeMCP,
+			request.HTTPSubtypeElasticsearch,
+		} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: sub,
+				Method: "POST", Path: "/", Status: 503,
+			}
+			v, ok := errorTypeValue(TraceAttributesSelector(span, noOpts))
+			require.True(t, ok, "subtype %d reported no error.type", sub)
+			assert.Equal(t, "503", v.AsString(), "subtype %d", sub)
+		}
+	})
+
+	// A parsed error is reported wherever it was parsed into DBError, without
+	// SpanErrorType needing a case for the subtype.
+	t.Run("http subtype reports its parsed error", func(t *testing.T) {
+		for _, sub := range []int{
+			request.HTTPSubtypeSQLPP,
+			request.HTTPSubtypeElasticsearch,
+			request.HTTPSubtypeAWSSQS,
+		} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: sub,
+				Method: "POST", Path: "/", Status: 503,
+				DBError: request.DBError{ErrorCode: "index_not_found_exception"},
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			v, ok := errorTypeValue(attrs)
+			require.True(t, ok, "subtype %d", sub)
+			assert.Equal(t, "index_not_found_exception", v.AsString())
+			assert.Equal(t, 1, countAttr(attrs, "error.type"))
+		}
+	})
+
+	t.Run("not duplicated when the protocol branch already set it", func(t *testing.T) {
+		span := &request.Span{
+			Type:     request.EventTypeSQLClient,
+			Method:   "SELECT",
+			Status:   1,
+			SQLError: &request.SQLError{Code: 1064, SQLState: "42000"},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		assert.Equal(t, 1, countAttr(attrs, "error.type"))
+		v, _ := errorTypeValue(attrs)
+		assert.Equal(t, "42000", v.AsString())
+	})
+}
+
+func TestTraceAttributesSelector_NetworkPeer(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("server span reports the client socket", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200,
+			Peer: "10.0.0.5", PeerPort: 54321,
+			Host: "10.0.0.9", HostPort: 8080,
+			PeerName: "frontend",
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		addr, ok := attrValue(attrs, "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.5", addr.AsString())
+		port, ok := attrValue(attrs, "network.peer.port")
+		require.True(t, ok)
+		assert.Equal(t, int64(54321), port.AsInt64())
+	})
+
+	t.Run("client span reports the server socket", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+			Peer: "10.0.0.5", PeerPort: 54321,
+			Host: "10.0.0.9", HostPort: 8080,
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		addr, ok := attrValue(attrs, "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.9", addr.AsString())
+		port, ok := attrValue(attrs, "network.peer.port")
+		require.True(t, ok)
+		assert.Equal(t, int64(8080), port.AsInt64())
+	})
+
+	// semconv defines the attribute as an IP or Unix socket address, but some
+	// paths fall back to the Host header, which is a name.
+	t.Run("omitted when the address is not an IP", func(t *testing.T) {
+		for _, addr := range []string{"localhost", "api.example.com", "svc.default.svc.cluster.local"} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+				Host: addr, HostPort: 8443,
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			_, ok := attrValue(attrs, "network.peer.address")
+			assert.False(t, ok, "addr %q", addr)
+			_, ok = attrValue(attrs, "network.peer.port")
+			assert.False(t, ok, "port must not survive without the address (addr %q)", addr)
+		}
+	})
+
+	t.Run("reported for IPv6", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTPClient, Method: "GET", Path: "/x", Status: 200,
+			Host: "2001:db8::1", HostPort: 443,
+		}
+		v, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+		require.True(t, ok)
+		assert.Equal(t, "2001:db8::1", v.AsString())
+	})
+
+	t.Run("omitted where the client/server mapping is ambiguous", func(t *testing.T) {
+		for _, et := range []request.EventType{request.EventTypeDNS, request.EventTypeFailedConnect} {
+			span := &request.Span{Type: et, Peer: "10.0.0.5", PeerPort: 5, Host: "10.0.0.9", HostPort: 53}
+			_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+			assert.False(t, ok, "event type %v", et)
+		}
+	})
+
+	t.Run("omitted with no socket address", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.peer.address")
+		assert.False(t, ok)
+	})
+}
+
+func TestTraceAttributesSelector_NetworkProtocolVersion(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("reported for every protocol that carries a version", func(t *testing.T) {
+		cases := []struct {
+			et      request.EventType
+			version request.ProtoVersion
+			want    string
+		}{
+			{request.EventTypeHTTP, request.ProtoVersionHTTP11, "1.1"},
+			{request.EventTypeHTTP, request.ProtoVersionHTTP10, "1.0"},
+			{request.EventTypeHTTP, request.ProtoVersionHTTP2, "2"},
+			{request.EventTypeHTTPClient, request.ProtoVersionHTTP11, "1.1"},
+			{request.EventTypeGRPC, request.ProtoVersionHTTP2, "2"},
+			{request.EventTypeGRPCClient, request.ProtoVersionHTTP2, "2"},
+		}
+		for _, c := range cases {
+			span := &request.Span{Type: c.et, ProtoVersion: c.version, Method: "GET", Path: "/x", Status: 200}
+			v, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.version")
+			require.True(t, ok, "event type %v", c.et)
+			assert.Equal(t, c.want, v.AsString())
+		}
+	})
+
+	t.Run("omitted when the version was never determined", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.version")
+		assert.False(t, ok)
+	})
+
+	t.Run("protocol name is not reported", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, ProtoVersion: request.ProtoVersionHTTP11, Method: "GET", Path: "/x", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "network.protocol.name")
+		assert.False(t, ok)
+	})
+}
+
+func TestTraceAttributesSelector_DBResponseStatusCode(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	t.Run("mysql failure reports the vendor error code", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeSQLClient, Method: "SELECT", Status: 1,
+			SQLError: &request.SQLError{Code: 1146, SQLState: "#42S02"},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		v, ok := attrValue(attrs, "db.response.status_code")
+		require.True(t, ok)
+		assert.Equal(t, "1146", v.AsString())
+	})
+
+	t.Run("elasticsearch reports the HTTP status code whenever a response was received", func(t *testing.T) {
+		for _, status := range []int{200, 404} {
+			span := &request.Span{
+				Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+				Method: "GET", Path: "/products/_search", Status: status,
+				Elasticsearch: &request.Elasticsearch{DBSystemName: "elasticsearch"},
+			}
+			attrs := TraceAttributesSelector(span, noOpts)
+			v, ok := attrValue(attrs, "db.response.status_code")
+			require.True(t, ok, "status %d", status)
+			assert.Equal(t, strconv.Itoa(status), v.AsString())
+		}
+	})
+
+	t.Run("postgres failure reports the SQLSTATE (protocol has no vendor code)", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeSQLClient, Method: "SELECT", Status: 1,
+			SQLError: &request.SQLError{SQLState: "42P01"},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+		v, ok := attrValue(attrs, "db.response.status_code")
+		require.True(t, ok)
+		assert.Equal(t, "42P01", v.AsString())
+	})
+}
+
+func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", Status: 200}
+
+	traces := GenerateTracesWithAttributes(
+		cache,
+		&span.Service,
+		nil,
+		&meta.NodeMeta{},
+		[]TraceSpanAndAttributes{{Span: &span, Attributes: TraceAttributesSelector(&span, map[attr.Name]struct{}{})}},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	assert.Equal(t, attr.OBISchemaURL, traces.ResourceSpans().At(0).SchemaUrl())
 }

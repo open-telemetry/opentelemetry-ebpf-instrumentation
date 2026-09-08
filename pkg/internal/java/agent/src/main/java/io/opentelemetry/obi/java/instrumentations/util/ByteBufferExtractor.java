@@ -58,7 +58,23 @@ public class ByteBufferExtractor {
   // This deals with buffers that are about to be read, they are freshly made for
   // the Java program to consume. We want to read from their pos to the limit.
   public static ByteBuffer flattenFreshByteBufferArray(ByteBuffer[] srcs) {
-    ByteBuffer dstBuffer = ByteBuffer.allocate(MAX_SIZE);
+    int bufSize = 0;
+    if (srcs != null) {
+      for (ByteBuffer src : srcs) {
+        if (src == null) {
+          continue;
+        }
+
+        int remaining = b(src).remaining();
+        if (remaining >= MAX_SIZE - bufSize) {
+          bufSize = MAX_SIZE;
+          break;
+        }
+        bufSize += remaining;
+      }
+    }
+
+    ByteBuffer dstBuffer = ByteBuffer.allocate(bufSize);
     if (srcs == null) {
       return dstBuffer;
     }

@@ -130,3 +130,113 @@ func TestDynamicFlowAttrs_rebuild_doesNotTrackPIDWithoutDecoration(t *testing.T)
 	assert.Empty(t, tracker.registeredPIDs)
 	tracker.mu.RUnlock()
 }
+
+func TestDynamicFlowAttrs_rebuild_netnsFallbackWithoutStore(t *testing.T) {
+	stubIsolatedProcessIPs(t, func(pid app.PID) []string {
+		if pid == 42 {
+			return []string{"10.0.0.5"}
+		}
+		return nil
+	})
+
+	sel := &stubMultiPIDSelector{
+		stubPIDSelector: stubPIDSelector{pids: []app.PID{42}},
+		entries: map[app.PID]DynamicPIDEntry{
+			42: {PID: 42, ServiceName: "coupon", ServiceNamespace: "demo"},
+		},
+	}
+	tracker := NewDynamicFlowAttrs(sel, sel, nil)
+	tracker.rebuild()
+
+	tracker.mu.RLock()
+	dec, ok := tracker.ipDecor["10.0.0.5"]
+	assert.Empty(t, tracker.registeredPIDs) // no kube store → no DeleteProcess tracking
+	tracker.mu.RUnlock()
+
+	require.True(t, ok)
+	assert.Equal(t, "coupon", dec.serviceName)
+	assert.Equal(t, "demo", dec.serviceNamespace)
+}
+
+func TestDynamicFlowAttrs_rebuild_sharedHostNetNS_doesNotDecorate(t *testing.T) {
+	stubSharedHostNetNS(t)
+
+	sel := &stubMultiPIDSelector{
+		stubPIDSelector: stubPIDSelector{pids: []app.PID{100}},
+		entries: map[app.PID]DynamicPIDEntry{
+			100: {PID: 100, ServiceName: "sshd"},
+		},
+	}
+	tracker := NewDynamicFlowAttrs(sel, sel, nil)
+	tracker.rebuild()
+
+	flow := &pipe.CommonAttrs{
+		SrcAddr: pipe.IPAddr(net.ParseIP("192.168.1.10")),
+		DstAddr: pipe.IPAddr(net.ParseIP("8.8.8.8")),
+	}
+	tracker.Apply(flow)
+	assert.Nil(t, flow.Metadata)
+}
+
+func TestDynamicFlowAttrs_rebuild_twoSelectedSharedNetNS_noLastWriterWins(t *testing.T) {
+	stubSharedHostNetNS(t)
+
+	sel := &stubMultiPIDSelector{
+		stubPIDSelector: stubPIDSelector{pids: []app.PID{10, 20}},
+		entries: map[app.PID]DynamicPIDEntry{
+			10: {PID: 10, ServiceName: "sshd"},
+			20: {PID: 20, ServiceName: "nginx"},
+		},
+	}
+	tracker := NewDynamicFlowAttrs(sel, sel, nil)
+	tracker.rebuild()
+
+	tracker.mu.RLock()
+	assert.Empty(t, tracker.ipDecor)
+	tracker.mu.RUnlock()
+
+	flow := &pipe.CommonAttrs{
+		SrcAddr: pipe.IPAddr(net.ParseIP("192.168.1.10")),
+		DstAddr: pipe.IPAddr(net.ParseIP("8.8.8.8")),
+	}
+	tracker.Apply(flow)
+	assert.Nil(t, flow.Metadata)
+}
+
+func TestDynamicFlowAttrs_rebuild_twoIsolatedNetNS_eachKeepsOwnAttrs(t *testing.T) {
+	stubIsolatedProcessIPs(t, func(pid app.PID) []string {
+		switch pid {
+		case 1:
+			return []string{"172.17.0.2"}
+		case 2:
+			return []string{"172.17.0.3"}
+		}
+		return nil
+	})
+
+	sel := &stubMultiPIDSelector{
+		stubPIDSelector: stubPIDSelector{pids: []app.PID{1, 2}},
+		entries: map[app.PID]DynamicPIDEntry{
+			1: {PID: 1, ServiceName: "payments"},
+			2: {PID: 2, ServiceName: "checkout"},
+		},
+	}
+	tracker := NewDynamicFlowAttrs(sel, sel, nil)
+	tracker.rebuild()
+
+	payments := &pipe.CommonAttrs{
+		SrcAddr: pipe.IPAddr(net.ParseIP("172.17.0.2")),
+		DstAddr: pipe.IPAddr(net.ParseIP("8.8.8.8")),
+	}
+	tracker.Apply(payments)
+	require.NotNil(t, payments.Metadata)
+	assert.Equal(t, "payments", payments.Metadata[attr.ServiceName])
+
+	checkout := &pipe.CommonAttrs{
+		SrcAddr: pipe.IPAddr(net.ParseIP("172.17.0.3")),
+		DstAddr: pipe.IPAddr(net.ParseIP("8.8.8.8")),
+	}
+	tracker.Apply(checkout)
+	require.NotNil(t, checkout.Metadata)
+	assert.Equal(t, "checkout", checkout.Metadata[attr.ServiceName])
+}

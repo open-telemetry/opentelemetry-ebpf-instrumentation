@@ -86,7 +86,7 @@ func setupGoOTelTestServer(t *testing.T, net dockertest.Network, env []string) {
 }
 
 func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
@@ -142,7 +142,7 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 }
 
 func testInstrumentationMissing(t *testing.T, route, svcNs string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
@@ -322,7 +322,7 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {
@@ -366,7 +366,7 @@ func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4317`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4317`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4317`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4317`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {

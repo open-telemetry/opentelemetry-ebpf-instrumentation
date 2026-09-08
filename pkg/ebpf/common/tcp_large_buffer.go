@@ -44,6 +44,9 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	if err != nil {
 		return request.Span{}, true, err
 	}
+	if uint64(hdrSize)+uint64(event.Len) > uint64(len(record.RawSample)) {
+		return request.Span{}, true, fmt.Errorf("invalid large buffer record size: %d-byte payload exceeds %d-byte record", event.Len, len(record.RawSample))
+	}
 
 	key := largeBufferKey{
 		traceID:    event.Tp.TraceId,
@@ -139,7 +142,7 @@ func containsTCPLargeBuffer(
 	traceID [16]uint8,
 	packetType, direction uint8,
 	connInfo BpfConnectionInfoT,
-	protocolType uint8,
+	protocolType BpfProtocolType,
 ) bool {
 	key := largeBufferKey{
 		traceID:    traceID,
@@ -151,9 +154,9 @@ func containsTCPLargeBuffer(
 	return parseCtx.largeBuffers.Contains(key)
 }
 
-func protocolToLargeBufferKind(protocolType uint8) largeBufferKind {
+func protocolToLargeBufferKind(protocolType BpfProtocolType) largeBufferKind {
 	switch protocolType {
-	case ProtocolTypeKafka, ProtocolTypeMySQL, ProtocolTypePostgres, ProtocolTypeMSSQL, ProtocolTypeHTTP:
+	case ProtocolTypeKafka, ProtocolTypeMySQL, ProtocolTypePostgres, ProtocolTypeMSSQL, ProtocolTypeHTTP, ProtocolTypeAerospike:
 		return KindLayerApp
 	}
 	// No large buffers for MQTT the rest are generic TCP buffers
@@ -165,7 +168,7 @@ func extractTCPLargeBuffer(
 	traceID [16]uint8,
 	packetType, direction uint8,
 	connInfo BpfConnectionInfoT,
-	protocolType uint8,
+	protocolType BpfProtocolType,
 ) (*largebuf.LargeBuffer, bool) {
 	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, protocolToLargeBufferKind(protocolType))
 }

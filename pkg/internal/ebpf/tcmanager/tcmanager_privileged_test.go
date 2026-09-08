@@ -116,7 +116,6 @@ func TestTCXManagerNoErrOnMissingIface(t *testing.T) {
 	defer progs.Egress.Close()
 
 	tcx := NewTCXManager().(*tcxManager)
-	tcx.errorCh = make(chan error, 1)
 
 	tcx.attachProgramToIfaceLocked(&attachedProg{
 		Program:    progs.Ingress,
@@ -125,12 +124,11 @@ func TestTCXManagerNoErrOnMissingIface(t *testing.T) {
 	}, missingIfaceIndex)
 
 	assert.Empty(t, tcx.links)
-	assert.Empty(t, tcx.errorCh)
+	assert.Empty(t, tcx.Errors())
 }
 
 func TestNetlinkManagerNoErrOnMissingIfaceQdisc(t *testing.T) {
 	tc := NewNetlinkManager().(*netlinkManager)
-	tc.errorCh = make(chan error, 1)
 
 	qdisc := tc.installQdisc(&ifaces.Interface{
 		Index: missingIfaceIndex,
@@ -138,7 +136,7 @@ func TestNetlinkManagerNoErrOnMissingIfaceQdisc(t *testing.T) {
 	})
 
 	assert.Nil(t, qdisc)
-	assert.Empty(t, tc.errorCh)
+	assert.Empty(t, tc.Errors())
 }
 
 func TestNetlinkManagerNoErrOnMissingIface(t *testing.T) {
@@ -147,7 +145,6 @@ func TestNetlinkManagerNoErrOnMissingIface(t *testing.T) {
 	defer progs.Egress.Close()
 
 	tc := NewNetlinkManager().(*netlinkManager)
-	tc.errorCh = make(chan error, 1)
 
 	iface := &netlinkIface{
 		Interface: &ifaces.Interface{
@@ -163,7 +160,7 @@ func TestNetlinkManagerNoErrOnMissingIface(t *testing.T) {
 	}, iface)
 
 	assert.Empty(t, iface.filters)
-	assert.Empty(t, tc.errorCh)
+	assert.Empty(t, tc.Errors())
 }
 
 func isBpfProgLoaded(name string) (bool, error) {

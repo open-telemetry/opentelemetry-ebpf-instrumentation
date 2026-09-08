@@ -51,13 +51,17 @@ func TestMain(m *testing.M) {
 		kube.LocalImage("grpcpinger:dev"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
 		kube.Deploy(testpath.Manifests+"/01-serviceaccount.yml"),
-		kube.Deploy(testpath.Manifests+"/03-otelcol.yml"),
+		// weaver-tapped otelcol + in-cluster weaver pod, validated at suite
+		// teardown (enforcing)
+		kube.WeaverValidation(kube.WeaverRequireSpans()),
+		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver.yml"),
 		kube.Deploy(testpath.Manifests+"/04-jaeger.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-statefulset.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-daemonset.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-job.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-cronjob.yml"),
 		kube.Deploy(testpath.Manifests+"/06-obi-daemonset.yml"),
+		kube.Deploy(testpath.Manifests+"/08-weaver.yml"),
 	)
 
 	cluster.Run(m)
