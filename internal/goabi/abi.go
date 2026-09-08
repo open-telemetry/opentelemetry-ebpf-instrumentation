@@ -18,26 +18,57 @@ import (
 // SizeField is the generated offset field used to store a DWARF type size.
 const SizeField = "$size"
 
-// Kind identifies how an ABI fact is represented in DWARF.
-type Kind uint8
-
-const (
-	// Field is a struct field byte offset.
-	Field Kind = iota
-	// Size is a type's byte size.
-	Size
-	// Constant is an integer constant value.
-	Constant
-)
-
 // Definition describes one versioned ABI fact and its generated output key.
 type Definition struct {
-	Kind        Kind
-	DwarfName   string
-	DwarfField  string
+	query       dwarfQuery
 	OutputType  string
 	OutputField string
 	Since       string
+}
+
+type dwarfQuery interface {
+	name() string
+	extract(*dwarf.Data, *dwarf.Entry) (uint64, bool, error)
+}
+
+type fieldQuery struct {
+	typeName  string
+	fieldName string
+}
+
+type sizeQuery struct {
+	typeName string
+}
+
+type constantQuery struct {
+	constantName string
+}
+
+func fieldDefinition(typeName, fieldName, since string) Definition {
+	return Definition{
+		query:       fieldQuery{typeName: typeName, fieldName: fieldName},
+		OutputType:  typeName,
+		OutputField: fieldName,
+		Since:       since,
+	}
+}
+
+func sizeDefinition(typeName string) Definition {
+	return Definition{
+		query:       sizeQuery{typeName: typeName},
+		OutputType:  typeName,
+		OutputField: SizeField,
+		Since:       go127,
+	}
+}
+
+func constantDefinition(constantName, outputField string) Definition {
+	return Definition{
+		query:       constantQuery{constantName: constantName},
+		OutputType:  "internal/abi",
+		OutputField: outputField,
+		Since:       go127,
+	}
 }
 
 // Key returns the generated type-and-field key for a definition.
@@ -122,49 +153,49 @@ const (
 )
 
 var definitions = []Definition{
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "pcHeader", OutputType: "runtime.moduledata", OutputField: "pcHeader", Since: go117},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "pclntable", OutputType: "runtime.moduledata", OutputField: "pclntable", Since: go117},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "minpc", OutputType: "runtime.moduledata", OutputField: "minpc", Since: go117},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "maxpc", OutputType: "runtime.moduledata", OutputField: "maxpc", Since: go117},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "text", OutputType: "runtime.moduledata", OutputField: "text", Since: go117},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "etext", OutputType: "runtime.moduledata", OutputField: "etext", Since: go117},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "types", OutputType: "runtime.moduledata", OutputField: "types", Since: go127},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "typedesclen", OutputType: "runtime.moduledata", OutputField: "typedesclen", Since: go127},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "itaboffset", OutputType: "runtime.moduledata", OutputField: "itaboffset", Since: go127},
-	{Kind: Field, DwarfName: "runtime.moduledata", DwarfField: "itabsize", OutputType: "runtime.moduledata", OutputField: "itabsize", Since: go127},
-	{Kind: Field, DwarfName: "internal/abi.Type", DwarfField: "TFlag", OutputType: "internal/abi.Type", OutputField: "TFlag", Since: go127},
-	{Kind: Field, DwarfName: "internal/abi.Type", DwarfField: "Kind_", OutputType: "internal/abi.Type", OutputField: "Kind_", Since: go127},
-	{Kind: Field, DwarfName: "internal/abi.Type", DwarfField: "Str", OutputType: "internal/abi.Type", OutputField: "Str", Since: go127},
-	{Kind: Field, DwarfName: "internal/abi.InterfaceType", DwarfField: "Methods", OutputType: "internal/abi.InterfaceType", OutputField: "Methods", Since: go127},
-	{Kind: Field, DwarfName: "internal/abi.ITab", DwarfField: "Inter", OutputType: "internal/abi.ITab", OutputField: "Inter", Since: go127},
-	{Kind: Field, DwarfName: "internal/abi.ITab", DwarfField: "Type", OutputType: "internal/abi.ITab", OutputField: "Type", Since: go127},
-	{Kind: Field, DwarfName: "internal/abi.ITab", DwarfField: "Fun", OutputType: "internal/abi.ITab", OutputField: "Fun", Since: go127},
-	{Kind: Field, DwarfName: "internal/abi.UncommonType", DwarfField: "PkgPath", OutputType: "internal/abi.UncommonType", OutputField: "PkgPath", Since: go127},
-	{Kind: Field, DwarfName: "[]internal/abi.Imethod", DwarfField: "len", OutputType: "[]internal/abi.Imethod", OutputField: "len", Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.Type", OutputType: "internal/abi.Type", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.ArrayType", OutputType: "internal/abi.ArrayType", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.ChanType", OutputType: "internal/abi.ChanType", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.FuncType", OutputType: "internal/abi.FuncType", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.InterfaceType", OutputType: "internal/abi.InterfaceType", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.MapType", OutputType: "internal/abi.MapType", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.PtrType", OutputType: "internal/abi.PtrType", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.SliceType", OutputType: "internal/abi.SliceType", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.StructType", OutputType: "internal/abi.StructType", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.ITab", OutputType: "internal/abi.ITab", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.TFlag", OutputType: "internal/abi.TFlag", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.Kind", OutputType: "internal/abi.Kind", OutputField: SizeField, Since: go127},
-	{Kind: Size, DwarfName: "internal/abi.NameOff", OutputType: "internal/abi.NameOff", OutputField: SizeField, Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.TFlagUncommon", OutputType: "internal/abi", OutputField: "TFlagUncommon", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.TFlagExtraStar", OutputType: "internal/abi", OutputField: "TFlagExtraStar", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.KindDirectIface", OutputType: "internal/abi", OutputField: "KindDirectIface", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.Array", OutputType: "internal/abi", OutputField: "Array", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.Chan", OutputType: "internal/abi", OutputField: "Chan", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.Func", OutputType: "internal/abi", OutputField: "Func", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.Interface", OutputType: "internal/abi", OutputField: "Interface", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.Map", OutputType: "internal/abi", OutputField: "Map", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.Pointer", OutputType: "internal/abi", OutputField: "Pointer", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.Slice", OutputType: "internal/abi", OutputField: "Slice", Since: go127},
-	{Kind: Constant, DwarfName: "internal/abi.Struct", OutputType: "internal/abi", OutputField: "Struct", Since: go127},
+	fieldDefinition("runtime.moduledata", "pcHeader", go117),
+	fieldDefinition("runtime.moduledata", "pclntable", go117),
+	fieldDefinition("runtime.moduledata", "minpc", go117),
+	fieldDefinition("runtime.moduledata", "maxpc", go117),
+	fieldDefinition("runtime.moduledata", "text", go117),
+	fieldDefinition("runtime.moduledata", "etext", go117),
+	fieldDefinition("runtime.moduledata", "types", go127),
+	fieldDefinition("runtime.moduledata", "typedesclen", go127),
+	fieldDefinition("runtime.moduledata", "itaboffset", go127),
+	fieldDefinition("runtime.moduledata", "itabsize", go127),
+	fieldDefinition("internal/abi.Type", "TFlag", go127),
+	fieldDefinition("internal/abi.Type", "Kind_", go127),
+	fieldDefinition("internal/abi.Type", "Str", go127),
+	fieldDefinition("internal/abi.InterfaceType", "Methods", go127),
+	fieldDefinition("internal/abi.ITab", "Inter", go127),
+	fieldDefinition("internal/abi.ITab", "Type", go127),
+	fieldDefinition("internal/abi.ITab", "Fun", go127),
+	fieldDefinition("internal/abi.UncommonType", "PkgPath", go127),
+	fieldDefinition("[]internal/abi.Imethod", "len", go127),
+	sizeDefinition("internal/abi.Type"),
+	sizeDefinition("internal/abi.ArrayType"),
+	sizeDefinition("internal/abi.ChanType"),
+	sizeDefinition("internal/abi.FuncType"),
+	sizeDefinition("internal/abi.InterfaceType"),
+	sizeDefinition("internal/abi.MapType"),
+	sizeDefinition("internal/abi.PtrType"),
+	sizeDefinition("internal/abi.SliceType"),
+	sizeDefinition("internal/abi.StructType"),
+	sizeDefinition("internal/abi.ITab"),
+	sizeDefinition("internal/abi.TFlag"),
+	sizeDefinition("internal/abi.Kind"),
+	sizeDefinition("internal/abi.NameOff"),
+	constantDefinition("internal/abi.TFlagUncommon", "TFlagUncommon"),
+	constantDefinition("internal/abi.TFlagExtraStar", "TFlagExtraStar"),
+	constantDefinition("internal/abi.KindDirectIface", "KindDirectIface"),
+	constantDefinition("internal/abi.Array", "Array"),
+	constantDefinition("internal/abi.Chan", "Chan"),
+	constantDefinition("internal/abi.Func", "Func"),
+	constantDefinition("internal/abi.Interface", "Interface"),
+	constantDefinition("internal/abi.Map", "Map"),
+	constantDefinition("internal/abi.Pointer", "Pointer"),
+	constantDefinition("internal/abi.Slice", "Slice"),
+	constantDefinition("internal/abi.Struct", "Struct"),
 }
 
 var goVersionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
@@ -391,15 +422,63 @@ func distinctValuesWithin(maximum uint64, values ...uint64) bool {
 	return true
 }
 
-func readDWARF(data *dwarf.Data, requested []Definition) (map[string]uint64, error) {
-	typeQueries := map[string][]Definition{}
-	constantQueries := map[string]Definition{}
-	for _, definition := range requested {
-		if definition.Kind == Constant {
-			constantQueries[definition.DwarfName] = definition
-		} else {
-			typeQueries[definition.DwarfName] = append(typeQueries[definition.DwarfName], definition)
+func (q fieldQuery) name() string {
+	return q.typeName
+}
+
+func (q fieldQuery) extract(data *dwarf.Data, entry *dwarf.Entry) (uint64, bool, error) {
+	typeInfo, err := data.Type(entry.Offset)
+	if err != nil {
+		return 0, false, nil
+	}
+	structInfo, ok := typeInfo.(*dwarf.StructType)
+	if !ok {
+		return 0, false, nil
+	}
+	for _, field := range structInfo.Field {
+		if field.Name != q.fieldName {
+			continue
 		}
+		if field.ByteOffset < 0 {
+			return 0, false, fmt.Errorf("negative offset for %s.%s", q.typeName, q.fieldName)
+		}
+		return uint64(field.ByteOffset), true, nil
+	}
+	return 0, false, nil
+}
+
+func (q sizeQuery) name() string {
+	return q.typeName
+}
+
+func (q sizeQuery) extract(_ *dwarf.Data, entry *dwarf.Entry) (uint64, bool, error) {
+	value, err := unsignedValue(entry.Val(dwarf.AttrByteSize))
+	if err != nil {
+		return 0, false, nil
+	}
+	return value, true, nil
+}
+
+func (q constantQuery) name() string {
+	return q.constantName
+}
+
+func (q constantQuery) extract(_ *dwarf.Data, entry *dwarf.Entry) (uint64, bool, error) {
+	if entry.Tag != dwarf.TagConstant {
+		return 0, false, nil
+	}
+	value, err := unsignedValue(entry.Val(dwarf.AttrConstValue))
+	if err != nil {
+		return 0, false, fmt.Errorf("reading constant %s: %w", q.constantName, err)
+	}
+	return value, true, nil
+}
+
+func readDWARF(data *dwarf.Data, requested []Definition) (map[string]uint64, error) {
+	queries := map[string][]Definition{}
+	for _, definition := range requested {
+		name := definition.query.name()
+		queries[name] = append(queries[name], definition)
 	}
 
 	values := map[string]uint64{}
@@ -413,50 +492,16 @@ func readDWARF(data *dwarf.Data, requested []Definition) (map[string]uint64, err
 			break
 		}
 		name, _ := entry.Val(dwarf.AttrName).(string)
-		if definition, ok := constantQueries[name]; ok && entry.Tag == dwarf.TagConstant {
-			value, err := unsignedValue(entry.Val(dwarf.AttrConstValue))
+		for _, definition := range queries[name] {
+			value, found, err := definition.query.extract(data, entry)
 			if err != nil {
-				return nil, fmt.Errorf("reading constant %s: %w", name, err)
+				return nil, err
+			}
+			if !found {
+				continue
 			}
 			if err := storeValue(values, definition.Key(), value); err != nil {
 				return nil, err
-			}
-		}
-
-		queries := typeQueries[name]
-		if len(queries) == 0 {
-			continue
-		}
-		for _, definition := range queries {
-			switch definition.Kind {
-			case Size:
-				value, err := unsignedValue(entry.Val(dwarf.AttrByteSize))
-				if err != nil {
-					continue
-				}
-				if err := storeValue(values, definition.Key(), value); err != nil {
-					return nil, err
-				}
-			case Field:
-				typeInfo, err := data.Type(entry.Offset)
-				if err != nil {
-					continue
-				}
-				structInfo, ok := typeInfo.(*dwarf.StructType)
-				if !ok {
-					continue
-				}
-				for _, field := range structInfo.Field {
-					if field.Name != definition.DwarfField {
-						continue
-					}
-					if field.ByteOffset < 0 {
-						return nil, fmt.Errorf("negative offset for %s.%s", name, definition.DwarfField)
-					}
-					if err := storeValue(values, definition.Key(), uint64(field.ByteOffset)); err != nil {
-						return nil, err
-					}
-				}
 			}
 		}
 	}
