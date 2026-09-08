@@ -721,6 +721,167 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_MCPAttributes(t *testing.T) {
+	mcpSpan := func(call *MCPCall) *Span {
+		return &Span{
+			Type:    EventTypeHTTP,
+			SubType: HTTPSubtypeMCP,
+			GenAI:   &GenAI{MCP: call},
+		}
+	}
+
+	// The parser fills ProtocolVer only for initialize, so every other method
+	// carries the zero value. That is the dominant shape, not an edge case.
+	toolsCall := mcpSpan(&MCPCall{Method: "tools/call", ToolName: "get-weather"})
+	initialize := mcpSpan(&MCPCall{Method: "initialize", ProtocolVer: "2025-06-18"})
+	resourceRead := mcpSpan(&MCPCall{
+		Method:      "resources/read",
+		ResourceURI: "file:///report.pdf",
+	})
+	promptGet := mcpSpan(&MCPCall{Method: "prompts/get", PromptName: "summarize"})
+	failedCall := mcpSpan(&MCPCall{Method: "tools/call", ErrorCode: -32602})
+
+	// MCP() returns nil unless the span is an MCP subtype carrying a parsed
+	// call, so each of these must omit every MCP attribute.
+	nonMCPSpan := &Span{Type: EventTypeHTTP}
+	noGenAISpan := &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeMCP}
+	noCallSpan := &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeMCP, GenAI: &GenAI{}}
+
+	tests := []struct {
+		name     string
+		attrName attr.Name
+		span     *Span
+		expected string
+		// omitted asserts the getter returns an invalid (zero) KeyValue so
+		// the attribute is dropped instead of being emitted empty.
+		omitted bool
+	}{
+		{
+			name:     "method name - MCP span",
+			attrName: attr.MCPMethodName,
+			span:     toolsCall,
+			expected: "tools/call",
+		},
+		{
+			name:     "method name - non-MCP span",
+			attrName: attr.MCPMethodName,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "method name - MCP subtype without GenAI",
+			attrName: attr.MCPMethodName,
+			span:     noGenAISpan,
+			omitted:  true,
+		},
+		{
+			name:     "method name - MCP subtype without a parsed call",
+			attrName: attr.MCPMethodName,
+			span:     noCallSpan,
+			omitted:  true,
+		},
+		{
+			name:     "protocol version - initialize",
+			attrName: attr.MCPProtocolVersion,
+			span:     initialize,
+			expected: "2025-06-18",
+		},
+		{
+			name:     "protocol version - method that does not negotiate one",
+			attrName: attr.MCPProtocolVersion,
+			span:     toolsCall,
+			omitted:  true,
+		},
+		{
+			name:     "protocol version - non-MCP span",
+			attrName: attr.MCPProtocolVersion,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "resource URI - resources/read",
+			attrName: attr.MCPResourceURI,
+			span:     resourceRead,
+			expected: "file:///report.pdf",
+		},
+		{
+			name:     "resource URI - method that names no resource",
+			attrName: attr.MCPResourceURI,
+			span:     toolsCall,
+			omitted:  true,
+		},
+		{
+			name:     "resource URI - non-MCP span",
+			attrName: attr.MCPResourceURI,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "tool name - tools/call",
+			attrName: attr.GenAIToolName,
+			span:     toolsCall,
+			expected: "get-weather",
+		},
+		{
+			name:     "tool name - method that names no tool",
+			attrName: attr.GenAIToolName,
+			span:     resourceRead,
+			omitted:  true,
+		},
+		{
+			name:     "tool name - non-MCP span",
+			attrName: attr.GenAIToolName,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "prompt name - prompts/get",
+			attrName: attr.GenAIPromptName,
+			span:     promptGet,
+			expected: "summarize",
+		},
+		{
+			name:     "prompt name - method that names no prompt",
+			attrName: attr.GenAIPromptName,
+			span:     toolsCall,
+			omitted:  true,
+		},
+		{
+			name:     "prompt name - non-MCP span",
+			attrName: attr.GenAIPromptName,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "response status code - MCP span with error",
+			attrName: attr.RPCResponseStatusCode,
+			span:     failedCall,
+			expected: "-32602",
+		},
+		{
+			name:     "response status code - MCP span without error",
+			attrName: attr.RPCResponseStatusCode,
+			span:     toolsCall,
+			omitted:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getter, ok := spanOTELGetters(tt.attrName)
+			require.True(t, ok, "getter should be found for %s", tt.attrName)
+
+			kv := getter(tt.span)
+			if tt.omitted {
+				assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+				return
+			}
+			assert.Equal(t, string(tt.attrName), string(kv.Key))
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
+}
+
 func TestSpanOTELGetters_DBQueryText(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.DBQueryText)
 	require.True(t, ok, "getter should be found for DBQueryText")

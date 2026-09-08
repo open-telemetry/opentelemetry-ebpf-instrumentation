@@ -43,6 +43,8 @@ func TestPrometheusNames(t *testing.T) {
 		{GenAIClientInputTokenUsage, "gen_ai_client_token_usage"},
 		{GenAIClientOutputTokenUsage, "gen_ai_client_token_usage"},
 		{GenAIClientOperationDuration, "gen_ai_client_operation_duration_seconds"},
+		{MCPClientOperationDuration, "mcp_client_operation_duration_seconds"},
+		{MCPServerOperationDuration, "mcp_server_operation_duration_seconds"},
 		{GoRuntimeMemoryLimit, "go_memory_limit_bytes"},
 		{GoRuntimeMemoryGCGoal, "go_memory_gc_goal_bytes"},
 		{GoRuntimeMemoryGCCycles, "go_memory_gc_cycles_total"},
