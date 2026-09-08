@@ -12,7 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
 type (
@@ -62,10 +65,19 @@ func sqsRequestWithData[T sqsQueueURL | sqsMessages](t *testing.T, url string) T
 	return data
 }
 
+func sqsSpanKind(operationType string) string {
+	kind, ok := request.MessagingSpanKind(operationType)
+	if !ok {
+		kind = trace.SpanKindClient
+	}
+
+	return kind.String()
+}
+
 func assertSQSOperation(t require.TestingT, op, expectedQueueURL, expectedMessageID, expectedOperationType string) {
 	opName := "sqs." + op
 
-	span := fetchAWSSpanByOP(t, opName)
+	span := fetchAWSSpanByOP(t, opName, sqsSpanKind(expectedOperationType))
 	require.Equal(t, opName, span.OperationName)
 
 	tag, found := jaeger.FindIn(span.Tags, "aws.request_id")

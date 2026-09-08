@@ -133,6 +133,28 @@ func TestMessagingSpanKind(t *testing.T) {
 	}
 }
 
+func TestSQSServiceGraphKind(t *testing.T) {
+	sqsSpan := func(operationType string) *Span {
+		return &Span{
+			Type:    EventTypeHTTPClient,
+			SubType: HTTPSubtypeAWSSQS,
+			AWS:     &AWS{SQS: AWSSQS{OperationType: operationType}},
+		}
+	}
+
+	// The service graph kind must match the span kind traces report, or the
+	// same SQS exchange is a producer in the trace and a client in the metric.
+	assert.Equal(t, "SPAN_KIND_PRODUCER", sqsSpan(MessagingSend).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingReceive).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingSettle).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan("").ServiceGraphKind())
+
+	assert.Equal(t, "SPAN_KIND_CLIENT", (&Span{
+		Type:    EventTypeHTTPClient,
+		SubType: HTTPSubtypeAWSS3,
+	}).ServiceGraphKind())
+}
+
 func TestServiceGraphConnectionType(t *testing.T) {
 	tests := []struct {
 		name     string

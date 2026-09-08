@@ -47,7 +47,7 @@ func waitAWSProxy(t *testing.T) {
 	}, testTimeout, 1*time.Second)
 }
 
-func fetchAWSSpanByOP(t require.TestingT, op string) jaeger.Span {
+func fetchAWSSpanByOP(t require.TestingT, op, spanKind string) jaeger.Span {
 	var tq jaeger.TracesQuery
 
 	params := neturl.Values{}
@@ -63,7 +63,7 @@ func fetchAWSSpanByOP(t require.TestingT, op string) jaeger.Span {
 	require.GreaterOrEqual(t, len(tq.Data), 1, op)
 
 	for _, tr := range tq.Data {
-		spans := tr.FindByOperationName(op, "client")
+		spans := tr.FindByOperationName(op, spanKind)
 		if len(spans) > 0 {
 			return spans[0]
 		}
