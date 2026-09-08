@@ -11,6 +11,10 @@ inputs:
   lvh-tag:
     description: 'Pinned LVH tag (e.g. 6.12-20260504.013701). Used as cache key.'
     required: true
+  arch:
+    description: 'Kernel architecture (amd64 or arm64). Must be listed on the kernels.yaml entry.'
+    required: false
+    default: 'amd64'
 
 outputs:
   kernel:
@@ -27,19 +31,20 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
-          internal/test/vm/lvh/out/vmlinuz-${{ inputs.kernel-id }}-amd64
-          internal/test/vm/lvh/out/vmlinuz-${{ inputs.kernel-id }}-amd64.config
-          internal/test/vm/lvh/out/vmlinuz-${{ inputs.kernel-id }}-amd64.buildinfo
-          internal/test/vm/lvh/out/modules-${{ inputs.kernel-id }}-amd64
-        key: lvh-${{ inputs.lvh-tag }}-amd64
+          internal/test/vm/lvh/out/vmlinuz-${{ inputs.kernel-id }}-${{ inputs.arch }}
+          internal/test/vm/lvh/out/vmlinuz-${{ inputs.kernel-id }}-${{ inputs.arch }}.config
+          internal/test/vm/lvh/out/vmlinuz-${{ inputs.kernel-id }}-${{ inputs.arch }}.buildinfo
+          internal/test/vm/lvh/out/modules-${{ inputs.kernel-id }}-${{ inputs.arch }}
+        key: lvh-${{ inputs.lvh-tag }}-${{ inputs.arch }}
 
     - name: Resolve kernel (pull from LVH if needed)
       id: resolve
       shell: bash
       env:
         KERNEL_ID: ${{ inputs.kernel-id }}
+        ARCH: ${{ inputs.arch }}
       run: |
-        eval "$(bash internal/test/vm/prepare-kernel.sh "$KERNEL_ID" amd64)"
+        eval "$(bash internal/test/vm/prepare-kernel.sh "$KERNEL_ID" "$ARCH")"
         echo "kernel=$KERNEL" >> "$GITHUB_OUTPUT"
         echo "modules-dir=$MODULES_DIR" >> "$GITHUB_OUTPUT"
         echo "Kernel:  $KERNEL"

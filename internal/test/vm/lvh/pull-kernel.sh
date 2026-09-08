@@ -7,7 +7,7 @@
 #
 # Usage: pull-kernel.sh <kernel_id> <arch>
 #   kernel_id: entry id from kernels.yaml (must declare lvh_tag)
-#   arch:      amd64 (arm64 also supported by LVH but not exercised by CI)
+#   arch:      amd64 or arm64 (must be listed on the kernels.yaml entry)
 #
 # Env (optional):
 #   OBI_KERNELS_YAML  path to kernels.yaml (default: ../kernels.yaml relative to this script)
@@ -61,6 +61,12 @@ if [ -z "$LVH_DIGEST" ] || [ "$LVH_DIGEST" = "null" ]; then
 fi
 if ! [[ "$LVH_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
     echo "pull-kernel.sh: invalid digest format for kernel id '${KERNEL_ID}': '${LVH_DIGEST}' (want sha256:<64-hex>)" >&2
+    exit 1
+fi
+
+ARCH_OK=$(yq ".kernels[] | select(.id == \"${KERNEL_ID}\") | (.arch // [\"amd64\"]) | contains([\"${ARCH}\"])" "$OBI_KERNELS_YAML")
+if [ "$ARCH_OK" != "true" ]; then
+    echo "pull-kernel.sh: kernel id '${KERNEL_ID}' does not list arch '${ARCH}' in ${OBI_KERNELS_YAML}" >&2
     exit 1
 fi
 

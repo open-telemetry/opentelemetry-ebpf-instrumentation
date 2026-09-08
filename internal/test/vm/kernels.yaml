@@ -1,4 +1,4 @@
-# Kernel matrix for OBI VM integration tests.
+# Kernel matrix for OBI VM integration tests and BPF verifier jobs.
 #
 # All entries come from cilium/little-vm-helper-images
 # (quay.io/lvh-images/kernel-images:<lvh_tag>).
@@ -6,22 +6,34 @@
 # (human-readable, used in paths/keys) and `digest` (what docker actually
 # resolves). This defends against an attacker re-pushing a dated LVH tag.
 # Renovate keeps both fields in sync; do not hand-edit one without the other.
+# Keep `digest` on the line immediately after `lvh_tag` — Renovate's regex
+# manager matches that pair.
 #
 # Fields:
 #   id              human-readable identifier (used in matrix output + paths)
 #   lvh_tag         exact LVH tag, e.g. "6.12-20260504.013701"
-#   digest          REQUIRED sha256 manifest digest for <lvh_tag> on quay.io,
-#                   format "sha256:<64-hex>". To regenerate manually:
+#   digest          REQUIRED sha256 OCI *index* digest for <lvh_tag> on quay.io,
+#                   format "sha256:<64-hex>". Covers every arch listed below.
+#                   To regenerate manually:
 #                     docker buildx imagetools inspect \
 #                       quay.io/lvh-images/kernel-images:<lvh_tag> \
 #                       --format '{{json .Manifest.Digest}}'
+#   arch            architectures LVH publishes for this tag (`amd64` and/or
+#                   `arm64`). RHEL images are amd64-only. pull-kernel.sh
+#                   selects the platform with `docker pull --platform`.
 #   pr_integration  include in PR VM integration matrix
 #   pr_verifier     include in PR BPF verifier matrix
+#
+# Matrix generation (scripts/kernel-matrix-json.sh):
+#   --kind=verifier|integration   honour the matching pr_* flag
+#   --arch=amd64|arm64            keep only entries whose arch list contains it
+#   --all                         ignore pr_* (still honours --arch)
 
 kernels:
   - id: "5.10-lts"
     lvh_tag: "5.10-20260824.013042"
     digest: "sha256:ab5500095973b874e0d01d258d5644f098e86e0f69630f964015c0b2ae8deb83"
+    arch: [amd64, arm64]
     pr_integration: false
     pr_verifier: true
 
@@ -29,6 +41,7 @@ kernels:
   - id: "5.10-lts-cgv1"
     lvh_tag: "5.10-20260824.013042"
     digest: "sha256:ab5500095973b874e0d01d258d5644f098e86e0f69630f964015c0b2ae8deb83"
+    arch: [amd64, arm64]
     pr_integration: false
     pr_verifier: false
     cgroup_mode: "legacy"
@@ -36,59 +49,70 @@ kernels:
   - id: "5.15-lts"
     lvh_tag: "5.15-20260824.013042"
     digest: "sha256:967dfafd8bcbd56d913f8c9c7c06d4d98d8526feeb8af7573a05a7e6b35ea822"
+    arch: [amd64, arm64]
     pr_integration: true
     pr_verifier: true
 
   - id: "6.1-lts"
     lvh_tag: "6.1-20260824.013042"
     digest: "sha256:b251b3a60570a73751732b4c89091276fddbf72574386fc68dc529a8e7ce3426"
+    arch: [amd64, arm64]
     pr_integration: false
     pr_verifier: true
 
   - id: "6.6-lts"
     lvh_tag: "6.6-20260824.013042"
     digest: "sha256:c8f9d9b881b0c0202c87fed85c87f3354fd3129cbb01817e40dc4a29f896028f"
+    arch: [amd64, arm64]
     pr_integration: false
     pr_verifier: true
 
   - id: "6.12-lts"
     lvh_tag: "6.12-20260824.013042"
     digest: "sha256:2ba514be39c7f676a8140c4b376554c59ff4926406072b63d341bae8c26d753d"
+    arch: [amd64, arm64]
     pr_integration: false
     pr_verifier: true
 
   - id: "6.18-lts"
     lvh_tag: "6.18-20260824.013042"
     digest: "sha256:8b4ab0d82601c896a5f7ab195c9a3ad938173dfb12dd486448f597b5eb341487"
+    arch: [amd64, arm64]
     pr_integration: true
     pr_verifier: true
 
   - id: "bpf"
     lvh_tag: "bpf-20260824.013042"
     digest: "sha256:d7cdafdb9111bcf8a50177751f5c94335a671439752f48ccb4d92491e256dda1"
+    arch: [amd64, arm64]
     pr_integration: false
     pr_verifier: true
 
   - id: "bpf-next"
     lvh_tag: "bpf-next-20260824.013042"
     digest: "sha256:94b66f00c06c5e7e7591d5c97d35fce144b547e1237a9f77410286b0981c342a"
+    arch: [amd64, arm64]
     pr_integration: false
     pr_verifier: true
 
+  # RHEL kernel-images are published amd64-only by LVH.
   - id: "rhel8.9"
     lvh_tag: "rhel8.9-20260824.013042"
     digest: "sha256:a97f89b48ac3c00b0cf4d7e8b17afad84f03420013a8b742ad4a865cdef63b7d"
+    arch: [amd64]
     pr_integration: false
     pr_verifier: true
 
   - id: "rhel8.10"
     lvh_tag: "rhel8.10-20260824.013042"
     digest: "sha256:86bdbc78ea58177c84920be4e31628361d002384890502adcd4c9d69dd13c09c"
+    arch: [amd64]
     pr_integration: false
     pr_verifier: true
 
   - id: "rhel9.6"
     lvh_tag: "rhel9.6-20260824.013042"
     digest: "sha256:b1a280960224e895ffba7d95429a66082f24c1b28b00bafa7b5005cfdc32ccb1"
+    arch: [amd64]
     pr_integration: false
     pr_verifier: true

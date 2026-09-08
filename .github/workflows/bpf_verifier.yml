@@ -2,11 +2,19 @@ name: BPF verifier
 run-name: >-
   BPF verifier${{ inputs.pr_number && format(' · PR #{0}', inputs.pr_number) || '' }}${{ inputs.ref && format(' @ {0}', inputs.ref) || '' }}
 
-# Not run per-PR: comment /verifier-tests on a PR to dispatch it (see
-# slash_command_verifier_tests.yml). Still runs on push to main/release-*.
+# Not run on every PR: comment /verifier-tests to dispatch it (see
+# slash_command_verifier_tests.yml). Still runs on push to main/release-*,
+# and on PRs that touch this workflow or the VM harness it launches.
 on:
   push:
     branches: [main, release-*]
+  pull_request:
+    branches: [main, release-*]
+    paths:
+      - ".github/workflows/bpf_verifier.yml"
+      - ".github/actions/setup-lvh-kernel/**"
+      - "internal/test/vm/**"
+      - "scripts/kernel-matrix-json.sh"
   workflow_call:
     inputs:
       ref:
@@ -58,10 +66,10 @@ jobs:
       - id: k
         run: |
           echo -n "kernels=" >> "$GITHUB_OUTPUT"
-          bash scripts/kernel-matrix-json.sh --kind=verifier >> "$GITHUB_OUTPUT"
+          bash scripts/kernel-matrix-json.sh --kind=verifier --arch=amd64 >> "$GITHUB_OUTPUT"
 
   test:
-    name: Kernel ${{ matrix.kernel.id }}
+    name: Kernel ${{ matrix.kernel.id }} (${{ matrix.kernel.arch }})
     needs: [matrix, generate-bpf]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -85,15 +93,14 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
 
       - id: kernel
         uses: $/.github/actions/setup-lvh-kernel
         with:
           kernel-id: ${{ matrix.kernel.id }}
           lvh-tag: ${{ matrix.kernel.lvh_tag }}
+          arch: amd64
 
       - name: Run BPF verifier tests in VM
         env:
@@ -151,13 +158,46 @@ jobs:
         run: sudo -E bash internal/test/vm/lvh/al2023/run.sh "${{ matrix.nvr }}" "${{ matrix.pkg }}"
 
   host-arm64:
-    name: Host kernel (arm64)
-    # Runs verifier suite directly on the runner's own kernel — no VM, no
-    # kernel matrix. Cheapest way to keep arm64 in the PR-blocking set.
+    name: Host kernel (${{ matrix.runner }})
+    # Native ARM, full constant matrix. kernels.yaml still lists LVH arm64.
+    # cncf-ubuntu-2-8-arm is a CNCF-hosted OCI Ampere VM (2 OCPU / 8 GiB).
     needs: generate-bpf
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-22.04-arm
+          - ubuntu-24.04-arm
+          - ubuntu-26.04-arm
+          - cncf-ubuntu-2-8-arm
     steps:
+      - name: Host kernel and KVM
+        run: |
+          echo "HOST_RUNNER=${{ matrix.runner }}"
+          echo "HOST_UNAME=$(uname -a)"
+          echo "HOST_KERNEL=$(uname -r)"
+          echo "HOST_MACHINE=$(uname -m)"
+          echo "HOST_NPROC=$(nproc)"
+          if [ -e /dev/kvm ]; then
+            echo "KVM_DEV=present $(ls -l /dev/kvm)"
+            if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+              echo "KVM_RW=yes"
+            else
+              echo "KVM_RW=no id=$(id)"
+            fi
+          else
+            echo "KVM_DEV=absent"
+            echo "KVM_RW=no"
+          fi
+          echo "KVM_LSMOD=$(lsmod 2>/dev/null | awk '/kvm/ {print $1}' | paste -sd, - || true)"
+          echo "KVM_NESTED=$(cat /sys/module/kvm/parameters/nested 2>/dev/null || echo n/a)"
+          echo "=== lscpu ==="
+          lscpu 2>/dev/null || true
+          echo "=== /proc/cpuinfo (kvm-related) ==="
+          grep -E '^(Features|flags|CPU architecture|CPU implementer|CPU part|model name)' /proc/cpuinfo | sort -u || true
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
