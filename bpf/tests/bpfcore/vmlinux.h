@@ -62,6 +62,7 @@ struct task_struct {
     struct task_struct *real_parent;
     struct nsproxy *nsproxy;
     struct pid *thread_pid;
+    struct mm_struct *mm;
 };
 
 enum {
