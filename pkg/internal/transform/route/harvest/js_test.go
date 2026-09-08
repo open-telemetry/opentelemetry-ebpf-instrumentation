@@ -168,6 +168,24 @@ func TestRouteExtractor_HttpDispatcherApp(t *testing.T) {
 	}
 }
 
+func TestRouteExtractor_VariableRoutesApp(t *testing.T) {
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(filepath.Join("nodejs", "test_files", "variable-routes-app.js")))
+
+	assert.ElementsMatch(t, []string{
+		"/users",
+		"/api/users",
+		"/api/v1/users",
+		"/api/v1/users/:id",
+		"/api/users/{id}",
+		"/api/items/{itemId}",
+		"/second",
+		"/api/books",
+		"/api/items/:id",
+		"/api/multi",
+	}, extractor.GetHarvestedRoutes())
+}
+
 func TestRouteExtractor_NextJSManifest(t *testing.T) {
 	extractor := NewRouteExtractor()
 	// The routes-manifest.json is in test_files/.next/
@@ -356,11 +374,31 @@ func TestExpressPendingRoute(t *testing.T) {
 			line:  "  app.route(apiPath)",
 			found: false,
 		},
+		{
+			name:  "route() with known variable",
+			line:  "  app.route(booksPath)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "ALL",
+				Path:   "/books",
+			},
+		},
+		{
+			name:  "route() with concatenation",
+			line:  "  app.route(apiBase + '/books/:id')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "ALL",
+				Path:   "/api/books/:id",
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			extractor := NewRouteExtractor()
+			extractor.jsConsts["booksPath"] = "/books"
+			extractor.jsConsts["apiBase"] = "/api"
 			found := extractor.expressPendingRoute("test.js", tt.line, 10)
 
 			assert.Equal(t, tt.found, found, "found status should match")
@@ -454,11 +492,47 @@ func TestHandleTypicalRoute(t *testing.T) {
 			line:  "  console.log('test')",
 			found: false,
 		},
+		{
+			name:  "unknown variable",
+			line:  "  app.get(usersPath, handler)",
+			found: false,
+		},
+		{
+			name:  "handler as the only argument",
+			line:  "  .get((req, res) => res.send('ok'))",
+			found: false,
+		},
+		{
+			name:  "known variable",
+			line:  "  app.get(itemsPath, handler)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/items",
+			},
+		},
+		{
+			name:  "template literal with known interpolation",
+			line:  "  app.post(`${apiBase}/${version}/items/${id}`, handler)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "POST",
+				Path:   "/api/v2/items/${id}",
+			},
+		},
+		{
+			name:  "concatenation with unknown variable",
+			line:  "  app.get(prefix + '/items', handler)",
+			found: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			extractor := NewRouteExtractor()
+			extractor.jsConsts["itemsPath"] = "/items"
+			extractor.jsConsts["apiBase"] = "/api"
+			extractor.jsConsts["version"] = "v2"
 			found := extractor.handleTypicalRoute("test.js", tt.line, 15)
 
 			assert.Equal(t, tt.found, found)
@@ -667,11 +741,21 @@ func TestHandleRestify(t *testing.T) {
 			line:  "  server.listen(3000)",
 			found: false,
 		},
+		{
+			name:  "restify server.del with concatenation",
+			line:  "  server.del(apiBase + '/items/:id', deleteItem)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "DELETE",
+				Path:   "/api/items/:id",
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			extractor := NewRouteExtractor()
+			extractor.jsConsts["apiBase"] = "/api"
 			found := extractor.handleRestify("test.js", tt.line, 30)
 
 			assert.Equal(t, tt.found, found)
@@ -1428,6 +1512,11 @@ func TestCleanupRegexPath(t *testing.T) {
 			name:     "template literal with multiple variables",
 			input:    "/votes/${tenantId}/${eventId}",
 			expected: "/votes/{tenantId}/{eventId}",
+		},
+		{
+			name:     "template literal with member access",
+			input:    "/users/${req.params.id}/posts/${ctx.params.postId}",
+			expected: "/users/{id}/posts/{postId}",
 		},
 	}
 
