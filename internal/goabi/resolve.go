@@ -11,10 +11,10 @@ import (
 
 // FromLookup loads and validates a complete ABI using lookup as its source.
 func FromLookup(
-	goVersion goversion.Version,
+	targetVersion goversion.Version,
 	lookup func(Requirement) (uint64, error),
 ) (ABI, error) {
-	requested, err := requiredDefinitions(goVersion)
+	requested, err := requiredDefinitions(targetVersion)
 	if err != nil {
 		return ABI{}, err
 	}

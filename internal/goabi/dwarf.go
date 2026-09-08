@@ -30,11 +30,11 @@ type constantQuery struct {
 }
 
 // Extract discovers and validates a complete ABI from DWARF.
-func Extract(data *dwarf.Data, goVersion goversion.Version) (ABI, error) {
+func Extract(data *dwarf.Data, targetVersion goversion.Version) (ABI, error) {
 	if data == nil {
 		return ABI{}, errors.New("missing DWARF data")
 	}
-	requested, err := requiredDefinitions(goVersion)
+	requested, err := requiredDefinitions(targetVersion)
 	if err != nil {
 		return ABI{}, err
 	}

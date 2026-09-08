@@ -147,10 +147,10 @@ var requirementDefinitions = []definition{
 	typeMetadataConstant("internal/abi.Struct", "Struct", func(m *TypeMetadata, v uint64) { m.StructKind = v }),
 }
 
-// Requirements returns the ABI facts known to be required for goVersion.
+// Requirements returns the ABI facts known to be required for the target version.
 // The version selects facts; it does not establish ABI compatibility.
-func Requirements(goVersion goversion.Version) ([]Requirement, error) {
-	definitions, err := requiredDefinitions(goVersion)
+func Requirements(targetVersion goversion.Version) ([]Requirement, error) {
+	definitions, err := requiredDefinitions(targetVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -162,14 +162,14 @@ func Requirements(goVersion goversion.Version) ([]Requirement, error) {
 	return result, nil
 }
 
-func requiredDefinitions(goVersion goversion.Version) ([]definition, error) {
-	if goVersion.Compare(go117) < 0 {
-		return nil, fmt.Errorf("unsupported Go version %q", goVersion)
+func requiredDefinitions(targetVersion goversion.Version) ([]definition, error) {
+	if targetVersion.Compare(go117) < 0 {
+		return nil, fmt.Errorf("unsupported Go version %q", targetVersion)
 	}
 
 	result := make([]definition, 0, len(requirementDefinitions))
 	for _, definition := range requirementDefinitions {
-		if goVersion.Compare(definition.Since) >= 0 {
+		if targetVersion.Compare(definition.Since) >= 0 {
 			result = append(result, definition)
 		}
 	}

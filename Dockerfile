@@ -70,6 +70,7 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY internal/goabi/ internal/goabi/
+COPY internal/goversion/ internal/goversion/
 COPY internal/config/ internal/config/
 COPY pkg/ pkg/
 COPY Makefile ./

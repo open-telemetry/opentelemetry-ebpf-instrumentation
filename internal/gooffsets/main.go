@@ -238,14 +238,14 @@ func parseVersionedField(configured string) (field, minimum, maximum string, err
 	if closing < 0 || closing == len(configured)-1 {
 		return "", "", "", fmt.Errorf("invalid versioned field %q", configured)
 	}
-	versions := strings.Split(configured[1:closing], ",")
-	if len(versions) == 0 || len(versions) > 2 || versions[0] == "" {
+	bounds := strings.Split(configured[1:closing], ",")
+	if len(bounds) == 0 || len(bounds) > 2 || bounds[0] == "" {
 		return "", "", "", fmt.Errorf("invalid versioned field %q", configured)
 	}
-	if len(versions) == 2 {
-		maximum = versions[1]
+	if len(bounds) == 2 {
+		maximum = bounds[1]
 	}
-	return configured[closing+1:], versions[0], maximum, nil
+	return configured[closing+1:], bounds[0], maximum, nil
 }
 
 func collectABIFacts(config abiInput, cacheFile string) (*target.Result, error) {
@@ -396,14 +396,14 @@ func factCoverage(track *offsets.Track, typeName, factName string) (offsets.Vers
 
 func cachedFacts(
 	track *offsets.Track,
-	release goversion.Version,
+	releaseVersion goversion.Version,
 	requirements []goabi.Requirement,
 ) ([]*binary.DataMemberOffset, bool) {
 	if track == nil {
 		return nil, false
 	}
 
-	abi, err := goabi.FromLookup(release, func(requirement goabi.Requirement) (uint64, error) {
+	abi, err := goabi.FromLookup(releaseVersion, func(requirement goabi.Requirement) (uint64, error) {
 		fields, ok := track.Data[requirement.OutputType]
 		if !ok {
 			return 0, errors.New("type not found")
@@ -413,10 +413,10 @@ func cachedFacts(
 			return 0, errors.New("fact not found")
 		}
 		newest, err := goversion.Parse(field.Versions.Newest)
-		if err != nil || release.Compare(newest) > 0 {
+		if err != nil || releaseVersion.Compare(newest) > 0 {
 			return 0, errors.New("version not covered")
 		}
-		value, ok := track.Find(requirement.OutputType, requirement.OutputField, release.Release())
+		value, ok := track.Find(requirement.OutputType, requirement.OutputField, releaseVersion.Release())
 		if !ok {
 			return 0, errors.New("versioned fact not found")
 		}
@@ -434,10 +434,10 @@ func cachedFacts(
 }
 
 func collectRelease(
-	release goversion.Version,
+	releaseVersion goversion.Version,
 	inspectFile string,
 ) ([]*binary.DataMemberOffset, error) {
-	executable, directory, err := downloader.DownloadBinaryFromRemote(inspectFile, release.Release())
+	executable, directory, err := downloader.DownloadBinaryFromRemote(inspectFile, releaseVersion.Release())
 	if err != nil {
 		return nil, err
 	}
@@ -453,9 +453,9 @@ func collectRelease(
 	if err != nil {
 		return nil, err
 	}
-	abi, err := goabi.Extract(dwarfData, release)
+	abi, err := goabi.Extract(dwarfData, releaseVersion)
 	if err != nil {
-		return nil, fmt.Errorf("reading Go %s ABI: %w", release, err)
+		return nil, fmt.Errorf("reading Go %s ABI: %w", releaseVersion, err)
 	}
 
 	facts := make([]*binary.DataMemberOffset, 0, len(abi.Facts()))

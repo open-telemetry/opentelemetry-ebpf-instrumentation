@@ -57,16 +57,16 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 		}
 	}
 
-	goVersion, _, err := getGoDetails(ef)
+	versionString, _, err := getGoDetails(ef)
 	if err != nil {
 		return implementations, nil
 	}
-	target, err := goversion.Parse(goVersion)
-	if err != nil || target.Compare(minGoRuntimeTypeMetadataVersion) < 0 {
+	targetVersion, err := goversion.Parse(versionString)
+	if err != nil || targetVersion.Compare(minGoRuntimeTypeMetadataVersion) < 0 {
 		return implementations, nil
 	}
 
-	moduleImplementations, err := findInterfaceImplsFromModuledata(ef, target)
+	moduleImplementations, err := findInterfaceImplsFromModuledata(ef, targetVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 	return implementations, nil
 }
 
-func findInterfaceImplsFromModuledata(ef *elf.File, goVersion goversion.Version) (map[string]uint64, error) {
+func findInterfaceImplsFromModuledata(ef *elf.File, targetVersion goversion.Version) (map[string]uint64, error) {
 	if ef.Class != elf.ELFCLASS64 {
 		return nil, errors.New("go runtime metadata discovery only supports 64-bit ELF")
 	}
@@ -84,7 +84,7 @@ func findInterfaceImplsFromModuledata(ef *elf.File, goVersion goversion.Version)
 		return nil, errors.New("no .gopclntab section")
 	}
 
-	runtimeABI, err := loadGoRuntimeABI(ef, goVersion)
+	runtimeABI, err := loadGoRuntimeABI(ef, targetVersion)
 	if err != nil {
 		return nil, err
 	}
