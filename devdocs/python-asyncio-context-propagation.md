@@ -142,8 +142,7 @@ Runs when Python activates a `Context` on a thread.
 Responsibilities:
 
 - track which `PyContext*` is active on the current thread,
-- resolve the context's owner task from `python_context_task` and cache it in
-  `python_thread_state.current_context_task`,
+- resolve the context's owner task to refresh the thread's trace context,
 - preserve the rest of the thread snapshot while updating the current context.
 
 This is the bridge for cases where there is no direct task identity on the
@@ -159,9 +158,10 @@ When a Python client request needs a trace parent, lookup happens in two phases.
 `resolve_python_current_task()` checks:
 
 1. `python_thread_state.current_task`
-2. `python_thread_state.current_context_task` — the owner of the currently
-   entered context, resolved (with a `resolve_python_context_task()` generation
-   check against stale task pointers) and cached when the context was entered
+2. `python_thread_state.current_context` — when no task is active,
+   `resolve_python_task_from_context()` looks up the context's owner in
+   `python_context_task` on each use and checks the context identity and task
+   generation.
 
 If the current thread is executing a normal task step, the first path wins. If
 the current thread is a `to_thread` worker, the second path resolves the task

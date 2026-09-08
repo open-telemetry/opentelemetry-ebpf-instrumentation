@@ -6,6 +6,10 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/testserver/Dockerfile
     image: hatest-testserver
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 8192
     ports:
       - "8085:8080"
 
@@ -14,6 +18,10 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/pythonasync-generic/Dockerfile-3.9
     image: hatest-pythonasync-generic
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 8192
     ports:
       - "8392:8392"
     environment:

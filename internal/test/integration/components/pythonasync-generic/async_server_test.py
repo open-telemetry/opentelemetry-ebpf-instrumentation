@@ -43,11 +43,13 @@ async def handle_sequential(req_id: str):
 
 
 async def handle_concurrent(req_id: str):
-    r1, r2, r3 = await asyncio.gather(
-        http_client.get(f"{BACKEND_URL}/conc/{req_id}/1"),
-        http_client.get(f"{BACKEND_URL}/conc/{req_id}/2"),
-        http_client.get(f"{BACKEND_URL}/conc/{req_id}/3"),
-    )
+    # Keep pool bookkeeping local to each request under concurrent load.
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r1, r2, r3 = await asyncio.gather(
+            client.get(f"{BACKEND_URL}/conc/{req_id}/1"),
+            client.get(f"{BACKEND_URL}/conc/{req_id}/2"),
+            client.get(f"{BACKEND_URL}/conc/{req_id}/3"),
+        )
     return {
         "id": req_id,
         "calls": 3,
@@ -121,7 +123,7 @@ async def handle_connection(reader: asyncio.StreamReader, writer: asyncio.Stream
             try:
                 status, body = await dispatch(path)
             except Exception as exc:  # noqa: BLE001
-                status, body = 500, {"error": str(exc)}
+                status, body = 500, {"error": repr(exc)}
 
             writer.write(_response(status, body, keep_alive))
             await writer.drain()

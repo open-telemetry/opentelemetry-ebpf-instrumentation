@@ -7,6 +7,7 @@ import requests
 
 TASK_REUSE_BATCHES = 1_563
 TASK_REUSE_BATCH_SIZE = 64
+TASK_CHURN_INTERVAL_SECONDS = 0.001
 WORKER_TIMEOUT_SECONDS = 30
 WORKER_POLL_INTERVAL_SECONDS = 0.01
 
@@ -30,6 +31,15 @@ class CancelledToThreadReuse:
             state["worker_status"] = response.status_code
         finally:
             state["worker_finished"].set()
+
+    async def _churn_tasks(self, stop: asyncio.Event):
+        while not stop.is_set():
+            tasks = [
+                asyncio.create_task(asyncio.sleep(0))
+                for _ in range(TASK_REUSE_BATCH_SIZE)
+            ]
+            await asyncio.gather(*tasks)
+            await asyncio.sleep(TASK_CHURN_INTERVAL_SECONDS)
 
     async def start(self, req_id: str):
         state = {
@@ -62,6 +72,8 @@ class CancelledToThreadReuse:
 
         reused_tasks = []
         reuse_attempt = 0
+        churn_stop = None
+        churn_task = None
         try:
             current_task = asyncio.current_task()
             if id(current_task) == state["task_address"]:
@@ -84,6 +96,10 @@ class CancelledToThreadReuse:
             if not reused_tasks:
                 raise RuntimeError("cancelled task address was not reused")
 
+            churn_stop = asyncio.Event()
+            churn_task = asyncio.create_task(self._churn_tasks(churn_stop))
+            await asyncio.sleep(0)
+
             state["release_worker"].set()
             loop = asyncio.get_running_loop()
             deadline = loop.time() + WORKER_TIMEOUT_SECONDS
@@ -102,6 +118,10 @@ class CancelledToThreadReuse:
             return {"id": req_id, "task_reused_after": reuse_attempt}
         finally:
             state["release_worker"].set()
+            if churn_stop is not None:
+                churn_stop.set()
+            if churn_task is not None:
+                await churn_task
             self.states.pop(req_id, None)
             tasks = [task for task in reused_tasks if task is not asyncio.current_task()]
             if tasks:

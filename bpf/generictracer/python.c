@@ -303,10 +303,11 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
         .generation = generation,
     };
 
-    const python_task_state_t *parent_state = NULL;
+    python_task_state_t parent_state = {};
+    u8 parent_state_found = 0;
     if (parent_ref.addr) {
-        parent_state = lookup_python_task_state(id, &parent_ref);
-        if (!parent_state) {
+        parent_state_found = copy_python_task_state(id, &parent_ref, &parent_state);
+        if (!parent_state_found) {
             parent_resolution = PYTHON_TASK_STALE;
         }
     }
@@ -315,8 +316,8 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     // connection yet, fall back to pid_tid_to_conn for the current thread.
     // pid_tid_to_conn is only thread-local and may already point to another
     // request by the time the child task is initialized.
-    if (parent_state && parent_state->conn.port) {
-        task_state.conn = parent_state->conn;
+    if (parent_state_found && parent_state.conn.port) {
+        task_state.conn = parent_state.conn;
     } else if (parent_resolution != PYTHON_TASK_STALE) {
         const ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         if (info) {

@@ -52,20 +52,29 @@ static __always_inline u8 resolve_python_task_ref(u64 pid_tgid,
     return 1;
 }
 
-static __always_inline const python_task_state_t *
-lookup_python_task_state(u64 pid_tgid, const python_task_ref_t *task_ref) {
-    if (!task_ref || !task_ref->addr || !task_ref->generation) {
-        return NULL;
+static __always_inline u8 copy_python_task_state(u64 pid_tgid,
+                                                 const python_task_ref_t *task_ref,
+                                                 python_task_state_t *state_copy) {
+    if (!task_ref || !task_ref->addr || !task_ref->generation || !state_copy) {
+        return 0;
     }
 
     const python_addr_key_t task_key = python_addr_key(pid_tgid, task_ref->addr);
     const python_task_state_t *task_state =
         (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_key);
     if (!task_state || task_state->generation != task_ref->generation) {
-        return NULL;
+        return 0;
     }
 
-    return task_state;
+    *state_copy = *task_state;
+
+    task_state = (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_key);
+    if (!task_state || task_state->generation != task_ref->generation ||
+        state_copy->generation != task_ref->generation) {
+        return 0;
+    }
+
+    return 1;
 }
 
 static __always_inline u64 allocate_python_task_generation(void) {
@@ -92,12 +101,14 @@ static __always_inline u8 resolve_python_context_task(u64 pid_tgid,
         return 0;
     }
 
-    if (!lookup_python_task_state(pid_tgid, &context_task->task)) {
+    const python_task_ref_t context_task_ref = context_task->task;
+    python_task_state_t task_state = {};
+    if (!copy_python_task_state(pid_tgid, &context_task_ref, &task_state)) {
         return 0;
     }
 
     if (task_ref) {
-        *task_ref = context_task->task;
+        *task_ref = context_task_ref;
     }
     return 1;
 }
@@ -137,15 +148,15 @@ static __always_inline tp_info_pid_t *find_python_owning_server_trace(
 
     enum { k_max_depth = 4 };
     for (u8 i = 0; i < k_max_depth; ++i) {
-        const python_task_state_t *task_state = lookup_python_task_state(pid_tgid, &task_ref);
-        if (!task_state) {
+        python_task_state_t task_state = {};
+        if (!copy_python_task_state(pid_tgid, &task_ref, &task_state)) {
             if (resolution) {
                 *resolution = PYTHON_TASK_STALE;
             }
             return NULL;
         }
-        if (task_state->conn.port) {
-            tp_info_pid_t *tp = bpf_map_lookup_elem(&server_traces_aux, &task_state->conn);
+        if (task_state.conn.port) {
+            tp_info_pid_t *tp = bpf_map_lookup_elem(&server_traces_aux, &task_state.conn);
             if (tp) {
                 if (resolution) {
                     *resolution = PYTHON_TASK_RESOLVED;
@@ -153,10 +164,10 @@ static __always_inline tp_info_pid_t *find_python_owning_server_trace(
                 return tp;
             }
         }
-        if (!task_state->parent.addr) {
+        if (!task_state.parent.addr) {
             return NULL;
         }
-        task_ref = task_state->parent;
+        task_ref = task_state.parent;
     }
     return NULL;
 }

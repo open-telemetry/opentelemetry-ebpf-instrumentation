@@ -99,7 +99,7 @@ The following runtime and server baselines are currently documented or enforced 
 | Go applications | Go `1.17+` for library-level instrumentation |
 | Java applications | JDK `8+` |
 | Node.js async-hooks context propagation | Node.js `8.0+` |
-| Python asyncio context propagation | Python `3.9+` with `uvloop` |
+| Python asyncio context propagation | Python `3.9+`, using the default asyncio loop or `uvloop` |
 | Ruby applications | Ruby `3.0.2+` when served by Puma `5.0+` |
 | nginx | HTTP server and reverse-proxy tracing validated on nginx `1.27.5` and `1.29.7` |
 
@@ -208,7 +208,7 @@ OBI currently documents the following asynchronous or runtime-specific context p
 | Ruby Puma server | Ruby | Ruby applications served by Puma | Only works with Puma server | Stable |
 | Java thread pool | Java | JDK `8+` | None documented | Stable |
 | Java virtual threads | Java | JDK `21+` | Log enrichment is skipped for requests handled on virtual threads | Stable |
-| Python asyncio | Python | Python `3.9+` with `uvloop` | Only works with the `uvloop` event loop | Stable |
+| Python asyncio | Python | Python `3.9+` | `asyncio.start_server()` is not correlated under uvloop; mutated contexts and cancelled `to_thread` tasks may lose correlation | Stable |
 
 ## GPU Instrumentation
 

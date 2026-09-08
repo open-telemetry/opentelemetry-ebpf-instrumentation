@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1784,9 +1785,29 @@ func testPythonAsyncGenericEndpoint(t *testing.T, endpoint, downstreamPrefix str
 	waitForTestComponentsSub(t, "http://localhost:8392", "/health")
 
 	const requests = 20
+	client := &http.Client{Timeout: testTimeout}
+	defer client.CloseIdleConnections()
+	results := make(chan error, requests)
 	for i := 1; i <= requests; i++ {
-		go ti.DoHTTPGet(t, "http://localhost:8392"+endpoint+strconv.Itoa(i), 200)
+		go func() {
+			url := "http://localhost:8392" + endpoint + strconv.Itoa(i)
+			resp, err := client.Get(url)
+			if err == nil {
+				body, readErr := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				err = readErr
+				if resp.StatusCode != http.StatusOK {
+					err = fmt.Errorf("%s: HTTP %d: %s", url, resp.StatusCode, body)
+				}
+			}
+			results <- err
+		}()
 	}
+	var requestErr error
+	for range requests {
+		requestErr = errors.Join(requestErr, <-results)
+	}
+	require.NoError(t, requestErr)
 
 	for i := 1; i <= requests; i++ {
 		slug := strconv.Itoa(i)
