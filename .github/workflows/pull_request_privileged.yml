@@ -64,6 +64,12 @@ jobs:
           restore-keys: |
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Upstream semconv registry cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] pinned upstream semconv tarball, keyed on the version in schemas/obi/manifest.yaml
+        with:
+          path: schemas/obi/.deps
+          key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
+
       - name: Generate BPF + build test tools
         run: make prereqs docker-generate
 
