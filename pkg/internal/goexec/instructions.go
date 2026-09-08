@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/obi/internal/goabi"
+	"go.opentelemetry.io/obi/internal/goversion"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
@@ -39,7 +40,7 @@ type relocationInfo struct {
 func isSupportedGoBinary(elfF *elf.File) error {
 	goVersion, _, err := getGoDetails(elfF)
 	if err == nil && !supportedGoVersion(goVersion) {
-		return fmt.Errorf("unsupported Go version: %v. Minimum supported version is %v", goVersion, minGoVersion)
+		return fmt.Errorf("unsupported Go version: %v. Minimum supported version is %v", goVersion, minGoVersion.Release())
 	}
 	return nil
 }
@@ -365,19 +366,20 @@ func loadModuledataOffsets(elfF *elf.File) (goabi.Moduledata, error) {
 	if err != nil {
 		return goabi.Moduledata{}, fmt.Errorf("getting Go version: %w", err)
 	}
-	if !supportedGoVersion(goVersion) {
-		return goabi.Moduledata{}, fmt.Errorf("unsupported Go version: %v. Minimum supported version is %v", goVersion, minGoVersion)
+	target, err := goversion.Parse(goVersion)
+	if err != nil || target.Compare(minGoVersion) < 0 {
+		return goabi.Moduledata{}, fmt.Errorf("unsupported Go version: %v. Minimum supported version is %v", goVersion, minGoVersion.Release())
 	}
 
-	if !goVersionAtLeast(goVersion, "1.27.0") {
-		abi, err := loadGeneratedGoRuntimeABI(goVersion)
+	if target.Compare(minGoRuntimeTypeMetadataVersion) < 0 {
+		abi, err := loadGeneratedGoRuntimeABI(target)
 		if err != nil {
 			return goabi.Moduledata{}, err
 		}
 		return abi.Moduledata, nil
 	}
 
-	abi, err := loadGoRuntimeABI(elfF, goVersion)
+	abi, err := loadGoRuntimeABI(elfF, target)
 	if err != nil {
 		return goabi.Moduledata{}, err
 	}

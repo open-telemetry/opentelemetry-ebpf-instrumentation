@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/obi/internal/goversion"
 )
 
-func loadGoRuntimeABI(ef *elf.File, goVersion string) (goabi.ABI, error) {
+func loadGoRuntimeABI(ef *elf.File, goVersion goversion.Version) (goabi.ABI, error) {
 	return resolveGoRuntimeABI(
 		func() (goabi.ABI, error) {
 			data, err := ef.DWARF()
@@ -52,16 +52,12 @@ func resolveGoRuntimeABI(
 	)
 }
 
-func loadGeneratedGoRuntimeABI(goVersion string) (goabi.ABI, error) {
-	target, err := goversion.Parse(goVersion)
-	if err != nil {
-		return goabi.ABI{}, err
-	}
+func loadGeneratedGoRuntimeABI(target goversion.Version) (goabi.ABI, error) {
 	track, err := trackeroffsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	if err != nil {
 		return goabi.ABI{}, fmt.Errorf("reading generated Go ABI facts: %w", err)
 	}
-	return goabi.FromLookup(target.String(), func(requirement goabi.Requirement) (uint64, error) {
+	return goabi.FromLookup(target, func(requirement goabi.Requirement) (uint64, error) {
 		return generatedABIFact(track, requirement.OutputType, requirement.OutputField, target)
 	})
 }
@@ -89,8 +85,7 @@ func generatedABIFact(
 		return 0, fmt.Errorf("runtime ABI is not generated for %s", target.String())
 	}
 
-	release := strings.TrimPrefix(target.String(), "go")
-	value, ok := track.Find(typeName, factName, release)
+	value, ok := track.Find(typeName, factName, target.Release())
 	if !ok {
 		return 0, fmt.Errorf("missing generated Go ABI fact %s.%s for %s", typeName, factName, target.String())
 	}

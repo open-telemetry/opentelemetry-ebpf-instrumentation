@@ -9,32 +9,34 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 func TestFromLookupRequiresCompleteABI(t *testing.T) {
 	values := validValues(t)
 	delete(values, "runtime.moduledata.itabsize")
 
-	_, err := FromLookup("go1.27.0", mapLookup(values))
+	_, err := FromLookup(goversion.MustParse("go1.27.0"), mapLookup(values))
 	require.ErrorContains(t, err, "runtime.moduledata.itabsize")
 }
 
 func TestFromLookupLeavesUnrequiredTypeMetadataAbsent(t *testing.T) {
-	requirements, err := Requirements("go1.26.9")
+	requirements, err := Requirements(goversion.MustParse("go1.26.9"))
 	require.NoError(t, err)
 	values := make(map[string]uint64, len(requirements))
 	for _, requirement := range requirements {
 		values[requirement.Key()] = 1
 	}
 
-	abi, err := FromLookup("go1.26.9", mapLookup(values))
+	abi, err := FromLookup(goversion.MustParse("go1.26.9"), mapLookup(values))
 	require.NoError(t, err)
 	assert.Nil(t, abi.TypeMetadata)
 }
 
 func TestFromLookupBuildsABI(t *testing.T) {
 	values := validValues(t)
-	abi, err := FromLookup("go1.27.0", mapLookup(values))
+	abi, err := FromLookup(goversion.MustParse("go1.27.0"), mapLookup(values))
 	require.NoError(t, err)
 
 	assert.Equal(t, Moduledata{
@@ -56,7 +58,7 @@ func TestFromLookupBuildsABI(t *testing.T) {
 
 func validValues(t *testing.T) map[string]uint64 {
 	t.Helper()
-	requirements, err := Requirements("go1.27.0")
+	requirements, err := Requirements(goversion.MustParse("go1.27.0"))
 	require.NoError(t, err)
 	values := make(map[string]uint64, len(requirements))
 	for _, requirement := range requirements {

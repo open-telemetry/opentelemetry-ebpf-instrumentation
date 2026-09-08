@@ -7,13 +7,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 func TestFromLookupValidatesABI(t *testing.T) {
 	values := validValues(t)
 	values["internal/abi.TFlag."+sizeField] = 8
 
-	_, err := FromLookup("go1.27.0", mapLookup(values))
+	_, err := FromLookup(goversion.MustParse("go1.27.0"), mapLookup(values))
 	require.ErrorContains(t, err, "unsupported Go runtime ABI scalar sizes")
 }
 
@@ -34,7 +36,7 @@ func TestFromLookupRejectsInvalidITabLayout(t *testing.T) {
 			values := validValues(t)
 			values[test.key] = test.value
 
-			_, err := FromLookup("go1.27.0", mapLookup(values))
+			_, err := FromLookup(goversion.MustParse("go1.27.0"), mapLookup(values))
 			require.ErrorContains(t, err, "invalid Go runtime ABI layout")
 		})
 	}
@@ -58,7 +60,7 @@ func TestFromLookupRejectsInvalidConstants(t *testing.T) {
 			values := validValues(t)
 			values[test.key] = test.value
 
-			_, err := FromLookup("go1.27.0", mapLookup(values))
+			_, err := FromLookup(goversion.MustParse("go1.27.0"), mapLookup(values))
 			require.ErrorContains(t, err, test.message)
 		})
 	}

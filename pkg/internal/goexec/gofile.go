@@ -16,13 +16,14 @@ import (
 	"go.opentelemetry.io/obi/internal/goversion"
 )
 
-const (
+var (
 	// minGoVersion defines the minimum instrumentable Go version. If the target binary was
 	// compiled using an older Go version, it will be treated as a non-Go program.
-	minGoVersion                                    = "1.17"
-	minGoRuntimeMemoryMetricVersion                 = "1.23"
-	minGoRuntimeGCGoalArgumentVersion               = "1.19"
-	minGoRuntimeGoroutineCountIncludesSystemVersion = "1.26"
+	minGoVersion                                    = goversion.MustParse("1.17")
+	minGoRuntimeMemoryMetricVersion                 = goversion.MustParse("1.23")
+	minGoRuntimeGCGoalArgumentVersion               = goversion.MustParse("1.19")
+	minGoRuntimeGoroutineCountIncludesSystemVersion = goversion.MustParse("1.26")
+	minGoRuntimeTypeMetadataVersion                 = goversion.MustParse("1.27.0")
 )
 
 // supportedGoVersion checks if the given Go version string is equal or greater than the
@@ -46,13 +47,12 @@ func SupportsGoRuntimeMemoryMetrics(elfFile *elf.File) (bool, error) {
 	return goVersionAtLeast(goVersion, minGoRuntimeMemoryMetricVersion), nil
 }
 
-func goVersionAtLeast(version, minimum string) bool {
+func goVersionAtLeast(version string, minimum goversion.Version) bool {
 	target, err := goversion.Parse(version)
 	if err != nil {
 		return false
 	}
-	minimumVersion, err := goversion.Parse(minimum)
-	return err == nil && target.Compare(minimumVersion) >= 0
+	return target.Compare(minimum) >= 0
 }
 
 type moduleVersions struct {
@@ -63,10 +63,11 @@ type moduleVersions struct {
 }
 
 func runtimeMetricGoroutineCountModeVersion(version string) (includesSystem, known bool) {
-	if _, err := goversion.Parse(version); err != nil {
+	target, err := goversion.Parse(version)
+	if err != nil {
 		return false, false
 	}
-	return goVersionAtLeast(version, minGoRuntimeGoroutineCountIncludesSystemVersion), true
+	return target.Compare(minGoRuntimeGoroutineCountIncludesSystemVersion) >= 0, true
 }
 
 func runtimeMetricGCGoalArgumentSupportedVersion(version string) bool {

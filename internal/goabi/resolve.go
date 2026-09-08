@@ -3,11 +3,15 @@
 
 package goabi // import "go.opentelemetry.io/obi/internal/goabi"
 
-import "fmt"
+import (
+	"fmt"
+
+	"go.opentelemetry.io/obi/internal/goversion"
+)
 
 // FromLookup loads and validates a complete ABI using lookup as its source.
 func FromLookup(
-	goVersion string,
+	goVersion goversion.Version,
 	lookup func(Requirement) (uint64, error),
 ) (ABI, error) {
 	requested, err := requiredDefinitions(goVersion)

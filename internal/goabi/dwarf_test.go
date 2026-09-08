@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 func TestExtractCompleteRuntimeABI(t *testing.T) {
@@ -28,15 +30,15 @@ func TestExtractCompleteRuntimeABI(t *testing.T) {
 	data, err := file.DWARF()
 	require.NoError(t, err)
 
-	abi, err := Extract(data, "go1.27.0")
+	abi, err := Extract(data, goversion.MustParse("go1.27.0"))
 	require.NoError(t, err)
-	requirements, err := Requirements("go1.27.0")
+	requirements, err := Requirements(goversion.MustParse("go1.27.0"))
 	require.NoError(t, err)
 	assert.Len(t, abi.Facts(), len(requirements))
 	require.NotNil(t, abi.TypeMetadata)
 	assert.Equal(t, uint64(0), abi.TypeMetadata.ITabInterOffset)
 
-	legacyABI, err := Extract(data, "go1.26.9")
+	legacyABI, err := Extract(data, goversion.MustParse("go1.26.9"))
 	require.NoError(t, err)
 	assert.Nil(t, legacyABI.TypeMetadata)
 	assert.Len(t, legacyABI.Facts(), 6)

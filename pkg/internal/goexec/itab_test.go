@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/goabi"
+	"go.opentelemetry.io/obi/internal/goversion"
 	"go.opentelemetry.io/obi/internal/test/tools"
 )
 
@@ -58,7 +59,7 @@ func TestITabType(t *testing.T) {
 func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
 	goVersion, _, err := getGoDetails(smallELF)
 	require.NoError(t, err)
-	if !goVersionAtLeast(goVersion, "1.27.0") {
+	if !goVersionAtLeast(goVersion, minGoRuntimeTypeMetadataVersion) {
 		t.Skip("Go 1.27 moduledata is not available")
 	}
 
@@ -89,7 +90,7 @@ func TestFindInterfaceImplsFromGo127Moduledata(t *testing.T) {
 func TestFindInterfaceImplsWithUngeneratedVersionAndCompatibleDWARF(t *testing.T) {
 	goVersion, _, err := getGoDetails(smallELF)
 	require.NoError(t, err)
-	if !goVersionAtLeast(goVersion, "1.27.0") {
+	if !goVersionAtLeast(goVersion, minGoRuntimeTypeMetadataVersion) {
 		t.Skip("Go 1.27 moduledata is not available")
 	}
 
@@ -98,7 +99,7 @@ func TestFindInterfaceImplsWithUngeneratedVersionAndCompatibleDWARF(t *testing.T
 
 	// The future label verifies that dynamic discovery does not depend on generated
 	// coverage. The DWARF comes from the current toolchain, so this does not model a future ABI.
-	implementations, err := findInterfaceImplsFromModuledata(elfFile, "go999.0.0")
+	implementations, err := findInterfaceImplsFromModuledata(elfFile, goversion.MustParse("go999.0.0"))
 	require.NoError(t, err)
 	assert.NotZero(t, implementations["*main.workerImpl"])
 	assert.NotZero(t, implementations["go.opentelemetry.io/otel/trace.attributeOption"])
@@ -107,20 +108,17 @@ func TestFindInterfaceImplsWithUngeneratedVersionAndCompatibleDWARF(t *testing.T
 func TestLoadGeneratedGoRuntimeABI(t *testing.T) {
 	for _, goVersion := range []string{"1.27.1", "go1.27.1"} {
 		t.Run(goVersion, func(t *testing.T) {
-			_, err := loadGeneratedGoRuntimeABI(goVersion)
+			_, err := loadGeneratedGoRuntimeABI(goversion.MustParse(goVersion))
 			require.NoError(t, err)
 		})
 	}
 
 	for _, goVersion := range []string{"go1.27.999", "go999.0.0"} {
 		t.Run(goVersion, func(t *testing.T) {
-			_, err := loadGeneratedGoRuntimeABI(goVersion)
+			_, err := loadGeneratedGoRuntimeABI(goversion.MustParse(goVersion))
 			require.ErrorContains(t, err, "runtime ABI is not generated")
 		})
 	}
-
-	_, err := loadGeneratedGoRuntimeABI("devel go1.29-abcdef")
-	require.ErrorContains(t, err, "invalid Go version")
 }
 
 func TestFindInterfaceImplsRejectsUngeneratedVersionWithoutDWARF(t *testing.T) {
@@ -130,14 +128,14 @@ func TestFindInterfaceImplsRejectsUngeneratedVersionWithoutDWARF(t *testing.T) {
 	)
 	t.Cleanup(func() { require.NoError(t, elfFile.Close()) })
 
-	_, err := findInterfaceImplsFromModuledata(elfFile, "go999.0.0")
+	_, err := findInterfaceImplsFromModuledata(elfFile, goversion.MustParse("go999.0.0"))
 	require.ErrorContains(t, err, "DWARF discovery")
 	require.ErrorContains(t, err, "generated fallback")
 	require.ErrorContains(t, err, "runtime ABI is not generated")
 }
 
 func TestResolveGoRuntimeABI(t *testing.T) {
-	generated, err := loadGeneratedGoRuntimeABI("go1.27.0")
+	generated, err := loadGeneratedGoRuntimeABI(goversion.MustParse("go1.27.0"))
 	require.NoError(t, err)
 
 	dynamic := generated
@@ -169,7 +167,7 @@ func TestResolveGoRuntimeABI(t *testing.T) {
 func TestFindGRPCInterfaceImplsFromGo127Moduledata(t *testing.T) {
 	goVersion, _, err := getGoDetails(smallGRPCElf)
 	require.NoError(t, err)
-	if !goVersionAtLeast(goVersion, "1.27.0") {
+	if !goVersionAtLeast(goVersion, minGoRuntimeTypeMetadataVersion) {
 		t.Skip("Go 1.27 moduledata is not available")
 	}
 

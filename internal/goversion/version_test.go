@@ -4,6 +4,7 @@
 package goversion
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +28,7 @@ func TestParse(t *testing.T) {
 			actual, err := Parse(test.input)
 			require.NoError(t, err)
 			assert.Equal(t, test.want, actual.String())
+			assert.Equal(t, strings.TrimPrefix(test.want, "go"), actual.Release())
 		})
 	}
 }
@@ -44,4 +46,9 @@ func TestParseRejectsNonToolchainVersions(t *testing.T) {
 			require.ErrorContains(t, err, "invalid Go version")
 		})
 	}
+}
+
+func TestMustParse(t *testing.T) {
+	assert.Equal(t, "go1.27.0", MustParse("1.27.0").String())
+	assert.Panics(t, func() { MustParse("invalid") })
 }

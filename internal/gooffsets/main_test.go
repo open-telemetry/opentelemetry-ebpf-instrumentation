@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/goabi"
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 func TestValidateCoverage(t *testing.T) {
@@ -29,10 +30,10 @@ func TestValidateCoverage(t *testing.T) {
 
 func TestCachedFactsRejectInvalidABI(t *testing.T) {
 	track := coverageTrack(t)
-	requirements, err := goabi.Requirements("go1.27.0")
+	requirements, err := goabi.Requirements(goversion.MustParse("go1.27.0"))
 	require.NoError(t, err)
 
-	_, ok := cachedFacts(track, "1.27.0", requirements)
+	_, ok := cachedFacts(track, goversion.MustParse("1.27.0"), requirements)
 	assert.False(t, ok)
 }
 
@@ -136,11 +137,11 @@ func TestGeneratedOffsetsCoverage(t *testing.T) {
 func coverageTrack(t *testing.T) *offsets.Track {
 	t.Helper()
 	track := &offsets.Track{Data: map[string]offsets.Struct{}}
-	requirements, err := goabi.Requirements("go999.0.0")
+	requirements, err := goabi.Requirements(goversion.MustParse("go999.0.0"))
 	require.NoError(t, err)
 	for _, requirement := range requirements {
 		addCoverage(track, requirement.OutputType, requirement.OutputField, offsets.VersionInfo{
-			Oldest: requirement.Since,
+			Oldest: requirement.Since.Release(),
 			Newest: "999.0.0",
 		})
 	}
@@ -151,7 +152,7 @@ func generatedABIResult(t *testing.T) *target.Result {
 	t.Helper()
 	result := &target.Result{ModuleName: offsets.GoStdLib}
 	for _, version := range []string{"1.17.0", "1.27.0"} {
-		requirements, err := goabi.Requirements(version)
+		requirements, err := goabi.Requirements(goversion.MustParse(version))
 		require.NoError(t, err)
 		facts := make([]*binary.DataMemberOffset, 0, len(requirements))
 		for _, requirement := range requirements {

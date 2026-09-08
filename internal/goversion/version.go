@@ -27,9 +27,23 @@ func Parse(value string) (Version, error) {
 	return Version{value: normalized}, nil
 }
 
+// MustParse is like Parse but panics when value is not a valid Go version.
+func MustParse(value string) Version {
+	version, err := Parse(value)
+	if err != nil {
+		panic(err)
+	}
+	return version
+}
+
 // String returns the normalized, go-prefixed toolchain version.
 func (v Version) String() string {
 	return v.value
+}
+
+// Release returns the normalized version without the go prefix.
+func (v Version) Release() string {
+	return strings.TrimPrefix(v.value, "go")
 }
 
 // Compare returns -1, 0, or +1 when v is less than, equal to, or greater than other.

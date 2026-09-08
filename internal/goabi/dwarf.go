@@ -7,6 +7,8 @@ import (
 	"debug/dwarf"
 	"errors"
 	"fmt"
+
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 type dwarfQuery interface {
@@ -28,7 +30,7 @@ type constantQuery struct {
 }
 
 // Extract discovers and validates a complete ABI from DWARF.
-func Extract(data *dwarf.Data, goVersion string) (ABI, error) {
+func Extract(data *dwarf.Data, goVersion goversion.Version) (ABI, error) {
 	if data == nil {
 		return ABI{}, errors.New("missing DWARF data")
 	}

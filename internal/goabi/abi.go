@@ -4,11 +4,13 @@
 // Package goabi discovers the private Go runtime ABI used by OBI.
 package goabi // import "go.opentelemetry.io/obi/internal/goabi"
 
+import "go.opentelemetry.io/obi/internal/goversion"
+
 // Requirement describes one versioned ABI fact and its generated output key.
 type Requirement struct {
 	OutputType  string
 	OutputField string
-	Since       string
+	Since       goversion.Version
 }
 
 // Key returns the generated type-and-field key for a requirement.

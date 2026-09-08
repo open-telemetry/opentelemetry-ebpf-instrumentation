@@ -22,9 +22,10 @@ import (
 	"github.com/grafana/go-offsets-tracker/pkg/target"
 	"github.com/grafana/go-offsets-tracker/pkg/versions"
 	"github.com/grafana/go-offsets-tracker/pkg/writer"
-	goversion "github.com/hashicorp/go-version"
+	semver "github.com/hashicorp/go-version"
 
 	"go.opentelemetry.io/obi/internal/goabi"
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 type abiInput struct {
@@ -142,7 +143,7 @@ func collectFieldOffsets(libraries offsets.InputLibs, cacheFile string) ([]*targ
 		if library.Branch != "" {
 			targetData = targetData.Branch(library.Branch)
 		} else if library.Versions != "" {
-			constraint, err := goversion.NewConstraint(library.Versions)
+			constraint, err := semver.NewConstraint(library.Versions)
 			if err != nil {
 				return nil, fmt.Errorf("invalid %s version constraint: %w", name, err)
 			}
@@ -179,7 +180,7 @@ func collectStandardLibraryOffsets(library offsets.LibQuery, cacheFile string) (
 		if group.maximum != "" {
 			constraints = append(constraints, "<= "+group.maximum)
 		}
-		constraint, err := goversion.NewConstraint(strings.Join(constraints, ", "))
+		constraint, err := semver.NewConstraint(strings.Join(constraints, ", "))
 		if err != nil {
 			return nil, fmt.Errorf("invalid Go field version constraint: %w", err)
 		}
@@ -248,7 +249,7 @@ func parseVersionedField(configured string) (field, minimum, maximum string, err
 }
 
 func collectABIFacts(config abiInput, cacheFile string) (*target.Result, error) {
-	constraint, err := goversion.NewConstraint(config.Versions)
+	constraint, err := semver.NewConstraint(config.Versions)
 	if err != nil {
 		return nil, fmt.Errorf("invalid ABI Go version constraint: %w", err)
 	}
@@ -258,9 +259,9 @@ func collectABIFacts(config abiInput, cacheFile string) (*target.Result, error) 
 		return nil, err
 	}
 	sort.Slice(available, func(i, j int) bool {
-		left, leftErr := goversion.NewVersion(available[i])
-		right, rightErr := goversion.NewVersion(available[j])
-		return leftErr == nil && rightErr == nil && left.LessThan(right)
+		left, leftErr := goversion.Parse(available[i])
+		right, rightErr := goversion.Parse(available[j])
+		return leftErr == nil && rightErr == nil && left.Compare(right) < 0
 	})
 
 	var cache *offsets.Track
@@ -270,19 +271,23 @@ func collectABIFacts(config abiInput, cacheFile string) (*target.Result, error) 
 
 	result := &target.Result{ModuleName: offsets.GoStdLib}
 	for _, release := range available {
-		parsed, parseErr := goversion.NewVersion(release)
+		parsed, parseErr := semver.NewVersion(release)
 		if parseErr != nil || !constraint.Check(parsed) {
 			continue
 		}
-
-		requirements, err := goabi.Requirements(release)
+		goRelease, err := goversion.Parse(release)
 		if err != nil {
 			return nil, err
 		}
-		facts, ok := cachedFacts(cache, release, requirements)
+
+		requirements, err := goabi.Requirements(goRelease)
+		if err != nil {
+			return nil, err
+		}
+		facts, ok := cachedFacts(cache, goRelease, requirements)
 		if !ok {
 			log.Printf("collecting Go %s runtime ABI facts", release)
-			facts, err = collectRelease(release, config.Inspect)
+			facts, err = collectRelease(goRelease, config.Inspect)
 			if err != nil {
 				return nil, err
 			}
@@ -352,25 +357,21 @@ func writeResultsAtomic(outputFile string, results []*target.Result) (retErr err
 }
 
 func validateCoverage(track *offsets.Track) error {
-	requirements, err := goabi.Requirements("go999.0.0")
+	requirements, err := goabi.Requirements(goversion.MustParse("go999.0.0"))
 	if err != nil {
 		return err
 	}
-	references := map[string]offsets.VersionInfo{}
+	references := map[goversion.Version]offsets.VersionInfo{}
 	for _, requirement := range requirements {
 		coverage, err := factCoverage(track, requirement.OutputType, requirement.OutputField)
 		if err != nil {
 			return err
 		}
-		oldest, err := goversion.NewVersion(coverage.Oldest)
+		oldest, err := goversion.Parse(coverage.Oldest)
 		if err != nil {
 			return fmt.Errorf("invalid oldest version for ABI fact %s: %w", requirement.Key(), err)
 		}
-		since, err := goversion.NewVersion(requirement.Since)
-		if err != nil {
-			return fmt.Errorf("invalid minimum version for ABI fact %s: %w", requirement.Key(), err)
-		}
-		if !oldest.Equal(since) {
+		if oldest.Compare(requirement.Since) != 0 {
 			return fmt.Errorf("ABI fact %s starts at %s, expected %s", requirement.Key(), coverage.Oldest, requirement.Since)
 		}
 		if reference, ok := references[requirement.Since]; ok && coverage != reference {
@@ -395,14 +396,10 @@ func factCoverage(track *offsets.Track, typeName, factName string) (offsets.Vers
 
 func cachedFacts(
 	track *offsets.Track,
-	release string,
+	release goversion.Version,
 	requirements []goabi.Requirement,
 ) ([]*binary.DataMemberOffset, bool) {
 	if track == nil {
-		return nil, false
-	}
-	targetVersion, err := goversion.NewVersion(release)
-	if err != nil {
 		return nil, false
 	}
 
@@ -415,11 +412,11 @@ func cachedFacts(
 		if !ok {
 			return 0, errors.New("fact not found")
 		}
-		newest, err := goversion.NewVersion(field.Versions.Newest)
-		if err != nil || targetVersion.GreaterThan(newest) {
+		newest, err := goversion.Parse(field.Versions.Newest)
+		if err != nil || release.Compare(newest) > 0 {
 			return 0, errors.New("version not covered")
 		}
-		value, ok := track.Find(requirement.OutputType, requirement.OutputField, release)
+		value, ok := track.Find(requirement.OutputType, requirement.OutputField, release.Release())
 		if !ok {
 			return 0, errors.New("versioned fact not found")
 		}
@@ -437,10 +434,10 @@ func cachedFacts(
 }
 
 func collectRelease(
-	release string,
+	release goversion.Version,
 	inspectFile string,
 ) ([]*binary.DataMemberOffset, error) {
-	executable, directory, err := downloader.DownloadBinaryFromRemote(inspectFile, release)
+	executable, directory, err := downloader.DownloadBinaryFromRemote(inspectFile, release.Release())
 	if err != nil {
 		return nil, err
 	}

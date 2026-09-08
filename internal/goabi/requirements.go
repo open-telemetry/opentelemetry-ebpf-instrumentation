@@ -10,10 +10,11 @@ import (
 	"go.opentelemetry.io/obi/internal/goversion"
 )
 
-const (
-	sizeField = "$size"
-	go117     = "1.17.0"
-	go127     = "1.27.0"
+const sizeField = "$size"
+
+var (
+	go117 = goversion.MustParse("1.17.0")
+	go127 = goversion.MustParse("1.27.0")
 )
 
 type definition struct {
@@ -31,7 +32,7 @@ func (a *ABI) typeMetadata() *TypeMetadata {
 
 func moduledataField(
 	fieldName string,
-	since string,
+	since goversion.Version,
 	assign func(*Moduledata, uint64),
 ) definition {
 	return definition{
@@ -148,7 +149,7 @@ var requirementDefinitions = []definition{
 
 // Requirements returns the ABI facts known to be required for goVersion.
 // The version selects facts; it does not establish ABI compatibility.
-func Requirements(goVersion string) ([]Requirement, error) {
+func Requirements(goVersion goversion.Version) ([]Requirement, error) {
 	definitions, err := requiredDefinitions(goVersion)
 	if err != nil {
 		return nil, err
@@ -161,26 +162,14 @@ func Requirements(goVersion string) ([]Requirement, error) {
 	return result, nil
 }
 
-func requiredDefinitions(goVersion string) ([]definition, error) {
-	version, err := goversion.Parse(goVersion)
-	if err != nil {
-		return nil, err
-	}
-	minimum, err := goversion.Parse(go117)
-	if err != nil {
-		return nil, err
-	}
-	if version.Compare(minimum) < 0 {
+func requiredDefinitions(goVersion goversion.Version) ([]definition, error) {
+	if goVersion.Compare(go117) < 0 {
 		return nil, fmt.Errorf("unsupported Go version %q", goVersion)
 	}
 
 	result := make([]definition, 0, len(requirementDefinitions))
 	for _, definition := range requirementDefinitions {
-		since, err := goversion.Parse(definition.Since)
-		if err != nil {
-			return nil, err
-		}
-		if version.Compare(since) >= 0 {
+		if goVersion.Compare(definition.Since) >= 0 {
 			result = append(result, definition)
 		}
 	}
