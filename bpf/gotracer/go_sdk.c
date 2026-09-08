@@ -187,7 +187,7 @@ static __always_inline u8 go_auto_target_matches(u64 generation) {
 
 static __always_inline void notify_go_auto_activation(u64 generation) {
     go_auto_activation_event_t event = {
-        .type = EVENT_GO_AUTO_ACTIVATED,
+        .type = k_event_type_go_auto_activated,
         .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
         .generation = generation,
     };
@@ -694,7 +694,7 @@ int GUARDED_PROG(obi_uprobe_nonRecordingSpan_End, struct pt_regs *, ctx) {
         return 0;
     }
 
-    span->type = EVENT_GO_SPAN;
+    span->type = k_event_type_go_span;
     span->end_time = bpf_ktime_get_ns();
     task_pid(&span->pid);
 
@@ -753,7 +753,7 @@ int GUARDED_PROG(obi_uprobe_auto_sdk_span_Ended, struct pt_regs *, ctx) {
     }
 
     __builtin_memset(event, 0, offsetof(go_auto_span_t, buf));
-    event->type = EVENT_GO_AUTO_SPAN;
+    event->type = k_event_type_go_auto_span;
     event->size = (u32)len;
     task_pid(&event->pid);
 

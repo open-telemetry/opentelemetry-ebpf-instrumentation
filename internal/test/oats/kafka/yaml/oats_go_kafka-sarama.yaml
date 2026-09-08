@@ -13,20 +13,23 @@ expected:
     attributes:
       messaging.destination.name: important
       messaging.operation.type: process
+      messaging.operation.name: process
       messaging.system: kafka
       server.port: '9092'
-  - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="important"}'
-    equals: publish important
+  - traceql: '{ .messaging.operation.type = "send" && .messaging.destination.name="important"}'
+    equals: send important
     attributes:
       messaging.destination.name: important
-      messaging.operation.type: publish
+      messaging.operation.type: send
+      messaging.operation.name: send
       messaging.system: kafka
       server.port: '9092'
-  - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="access_log"}'
-    equals: publish access_log
+  - traceql: '{ .messaging.operation.type = "send" && .messaging.destination.name="access_log"}'
+    equals: send access_log
     attributes:
       messaging.destination.name: access_log
-      messaging.operation.type: publish
+      messaging.operation.type: send
+      messaging.operation.name: send
       messaging.system: kafka
       server.port: '9092'
   metrics:

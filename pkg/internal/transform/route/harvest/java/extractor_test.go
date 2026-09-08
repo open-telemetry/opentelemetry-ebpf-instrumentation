@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/internal/langtools"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 )
 
@@ -152,7 +153,7 @@ func TestResolveProcessPathRejectsSymlinkEscape(t *testing.T) {
 	require.NoError(t, os.WriteFile(outside, []byte("not a jar"), 0o644))
 	require.NoError(t, os.Symlink(outside, filepath.Join(root, "escape.jar")))
 
-	path, ok := resolveProcessPath(root, "/", "/escape.jar")
+	path, ok := langtools.ResolveProcessPath(root, "/", "/escape.jar")
 
 	assert.False(t, ok)
 	assert.Empty(t, path)

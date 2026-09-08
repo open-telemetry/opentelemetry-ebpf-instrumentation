@@ -12,7 +12,8 @@ public enum OperationType {
   // virtual thread mounted on the calling carrier; payload = its logical id
   VT_MOUNT((byte) 4),
   // virtual thread unmounted from the calling carrier; payload unused
-  VT_UNMOUNT((byte) 5);
+  VT_UNMOUNT((byte) 5),
+  JVM_RUNTIME_SNAPSHOT((byte) 6);
 
   public final byte code;
 

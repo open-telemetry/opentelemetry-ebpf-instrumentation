@@ -77,3 +77,92 @@ func TestQueueSenderNodejsNilSafety(_ *testing.T) {
 	sender.SendNodejsRuntimeMetrics(context.Background(), []nodejsruntime.NodejsRuntimeEvent{testNodejsRuntimeEvent()})
 	NewQueueSender(nil).SendNodejsRuntimeMetrics(context.Background(), nil)
 }
+
+func testNodejsGCEvent() nodejsruntime.NodejsGCEvent {
+	return nodejsruntime.NodejsGCEvent{
+		PID:            app.PID(55),
+		PIDNamespaceID: 99,
+		Service:        svc.Attrs{UID: svc.UID{Name: "node-svc"}},
+		Time:           time.Now(),
+		GCType:         nodejsruntime.NodejsGCTypeMajor,
+		DurationNs:     350_000_000,
+	}
+}
+
+func testNodejsHeapSpaceEvent() nodejsruntime.NodejsHeapSpaceEvent {
+	return nodejsruntime.NodejsHeapSpaceEvent{
+		PID:            app.PID(55),
+		PIDNamespaceID: 99,
+		Service:        svc.Attrs{UID: svc.UID{Name: "node-svc"}},
+		Time:           time.Now(),
+		SpaceName:      "old_space",
+		NodejsHeapSpaceValues: nodejsruntime.NodejsHeapSpaceValues{
+			SpaceSize:          200 << 20,
+			SpaceUsedSize:      150 << 20,
+			SpaceAvailableSize: 30 << 20,
+			PhysicalSpaceSize:  200 << 20,
+		},
+	}
+}
+
+func TestSnapshotFromNodejsGCEvent(t *testing.T) {
+	event := testNodejsGCEvent()
+
+	snapshot := SnapshotFromNodejsGCEvent(event)
+
+	assert.Equal(t, event.Service, snapshot.Service)
+	assert.Equal(t, event.PID, snapshot.PID)
+	assert.Equal(t, event.Time, snapshot.Time)
+	require.NotNil(t, snapshot.NodejsGC)
+	assert.Equal(t, nodejsruntime.NodejsGCTypeMajor, snapshot.NodejsGC.GCType)
+	assert.Equal(t, uint64(350_000_000), snapshot.NodejsGC.DurationNs)
+	assert.Nil(t, snapshot.Nodejs)
+	assert.Nil(t, snapshot.NodejsHeapSpace)
+}
+
+func TestSnapshotFromNodejsHeapSpaceEvent(t *testing.T) {
+	event := testNodejsHeapSpaceEvent()
+
+	snapshot := SnapshotFromNodejsHeapSpaceEvent(event)
+
+	assert.Equal(t, event.Service, snapshot.Service)
+	assert.Equal(t, event.PID, snapshot.PID)
+	assert.Equal(t, event.Time, snapshot.Time)
+	require.NotNil(t, snapshot.NodejsHeapSpace)
+	assert.Equal(t, "old_space", snapshot.NodejsHeapSpace.SpaceName)
+	assert.Equal(t, event.NodejsHeapSpaceValues, snapshot.NodejsHeapSpace.NodejsHeapSpaceValues)
+	assert.Nil(t, snapshot.Nodejs)
+	assert.Nil(t, snapshot.NodejsGC)
+}
+
+func TestQueueSenderSendsNodejsV8Metrics(t *testing.T) {
+	queue := msg.NewQueue[[]RuntimeMetricSnapshot](msg.ChannelBufferLen(2))
+	input := queue.Subscribe()
+	sender := NewQueueSender(queue)
+
+	sender.SendNodejsGCMetrics(context.Background(), []nodejsruntime.NodejsGCEvent{testNodejsGCEvent()})
+	sender.SendNodejsHeapSpaceMetrics(context.Background(), []nodejsruntime.NodejsHeapSpaceEvent{testNodejsHeapSpaceEvent()})
+
+	select {
+	case snapshots := <-input:
+		require.Len(t, snapshots, 1)
+		require.NotNil(t, snapshots[0].NodejsGC)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for nodejs gc snapshot")
+	}
+	select {
+	case snapshots := <-input:
+		require.Len(t, snapshots, 1)
+		require.NotNil(t, snapshots[0].NodejsHeapSpace)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for nodejs heap-space snapshot")
+	}
+}
+
+func TestQueueSenderNodejsV8NilSafety(_ *testing.T) {
+	var sender *QueueSender
+	sender.SendNodejsGCMetrics(context.Background(), []nodejsruntime.NodejsGCEvent{testNodejsGCEvent()})
+	sender.SendNodejsHeapSpaceMetrics(context.Background(), []nodejsruntime.NodejsHeapSpaceEvent{testNodejsHeapSpaceEvent()})
+	NewQueueSender(nil).SendNodejsGCMetrics(context.Background(), nil)
+	NewQueueSender(nil).SendNodejsHeapSpaceMetrics(context.Background(), nil)
+}

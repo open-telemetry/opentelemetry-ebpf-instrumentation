@@ -40,6 +40,10 @@ static __always_inline u32 memchar_pos(unsigned char *haystack,
                                        char needle,
                                        const unsigned char *end,
                                        u32 size) {
+    if (!haystack) {
+        return INVALID_POS;
+    }
+
     for (u32 i = 0; i < size; ++i) {
         unsigned char *ptr = haystack + i;
 

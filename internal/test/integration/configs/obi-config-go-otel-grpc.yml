@@ -1,9 +1,11 @@
 routes:
   unmatched: path
+open_port: 8080
 prometheus_export:
   port: 8999
 otel_traces_export:
-  endpoint: http://jaeger:4318
+  endpoint: http://jaeger:4317
+  protocol: grpc
 metrics:
   features:
     - application

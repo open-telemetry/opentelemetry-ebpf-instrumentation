@@ -406,7 +406,7 @@ func TestHPACKOpensResponseExhaustive(t *testing.T) {
 		varintMore  = 15
 	)
 
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		idx, isField := hpackReference(byte(b))
 		fourBit := b&0x80 == 0 && b&0xc0 != 0x40 && b&0xe0 != 0x20
 
@@ -433,7 +433,7 @@ func TestHPACKOpenersAreDisjoint(t *testing.T) {
 		return idx >= 1 && idx <= 7
 	}
 
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		if hpackOpensResponse([]byte{byte(b)}) {
 			assert.False(t, opensRequest(byte(b)), "byte 0x%02x opens both", b)
 		}

@@ -20,6 +20,9 @@
 // Temporary tracking of tcp_recvmsg arguments
 typedef struct recv_args {
     u64 sock_ptr; // linux sock or socket address
+    // stashed at recv entry so the kretprobe can read msg_name, which the kernel
+    // fills with the source address on return, to classify unconnected UDP DNS
+    u64 msg_ptr;
     // this is done because bpf2go cannot generate the go bindings of this
     // struct containing a 'iovec_iter_ctx iovec_ctx' member
     unsigned char iovec_ctx[sizeof(iovec_iter_ctx)];

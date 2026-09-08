@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 )
 
@@ -60,6 +61,23 @@ func TestEnabledShouldReportNodejsRuntimeMetrics(t *testing.T) {
 	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 }
 
+func TestEnabledShouldReportNodejsV8Metrics(t *testing.T) {
+	service := svc.Attrs{Features: export.FeatureApplicationRuntime}
+
+	gc := RuntimeMetricSnapshot{Service: service, NodejsGC: &NodejsGCSnapshot{}}
+	require.True(t, Enabled{Runtime: true}.ShouldReport(gc))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(gc))
+
+	heap := RuntimeMetricSnapshot{Service: service, NodejsHeapSpace: &NodejsHeapSpaceSnapshot{}}
+	require.True(t, Enabled{Runtime: true}.ShouldReport(heap))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(heap))
+
+	gc.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(gc))
+	heap.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(heap))
+}
+
 func TestEnabledShouldReportJVMRuntimeMetrics(t *testing.T) {
 	snapshot := RuntimeMetricSnapshot{
 		Service: svc.Attrs{
@@ -71,6 +89,31 @@ func TestEnabledShouldReportJVMRuntimeMetrics(t *testing.T) {
 	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
 
+	snapshot.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+}
+
+func TestEnabledShouldReportPythonRuntimeMetrics(t *testing.T) {
+	snapshot := RuntimeMetricSnapshot{
+		Service: svc.Attrs{
+			SDKLanguage: svc.InstrumentablePython,
+			ExportModes: services.ExportModeUnset,
+			Features:    export.FeatureApplicationRuntime,
+		},
+		Python: &PythonRuntimeMetricSnapshot{},
+	}
+
+	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
+
+	snapshot.Service.SDKLanguage = svc.InstrumentableGolang
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+
+	snapshot.Service.SDKLanguage = svc.InstrumentablePython
+	snapshot.Service.ExportModes = services.NewExportModes()
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+
+	snapshot.Service.ExportModes = services.ExportModeUnset
 	snapshot.Service.Features = export.FeatureApplicationRED
 	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 }

@@ -1,5 +1,5 @@
 'use strict';
-// External-parent flagging (Tyler / MrAlias): when the app supplies a parent
+// External-parent flagging: when the app supplies a parent
 // context the bridge does NOT own (a remote/app SpanContext set via
 // trace.setSpan / setSpanContext), the emitted record must carry
 // `extParent: true` so user space can flatten the span under the OBI request

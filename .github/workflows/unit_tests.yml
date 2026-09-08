@@ -43,7 +43,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/generate-bpf
+      - uses: $/.github/actions/generate-bpf
 
   matrix:
     name: Build test matrix

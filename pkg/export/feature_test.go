@@ -212,6 +212,36 @@ func TestInvalidSpanMetricsConfig(t *testing.T) {
 	}
 }
 
+func TestFeatureJSONSchemaFlagsDeprecatedNames(t *testing.T) {
+	items := Features(0).JSONSchema().Items
+	require.Len(t, items.OneOf, 2)
+
+	assert.False(t, items.OneOf[0].Deprecated)
+	assert.Contains(t, items.OneOf[0].Enum, "application_span_otel")
+	assert.Contains(t, items.OneOf[0].Enum, "*")
+	assert.NotContains(t, items.OneOf[0].Enum, "application_span")
+	assert.NotContains(t, items.OneOf[0].Enum, "application_span_sizes")
+
+	assert.True(t, items.OneOf[1].Deprecated)
+	assert.Equal(t, []any{"application_span", "application_span_sizes"}, items.OneOf[1].Enum)
+
+	// the schema names the migration target instead of pointing elsewhere for it
+	assert.Contains(t, items.OneOf[1].Description, "application_span (use application_span_otel)")
+	assert.Contains(t, items.OneOf[1].Description, "application_span_sizes (no direct replacement)")
+}
+
+func TestDeprecatedEnabled(t *testing.T) {
+	assert.Equal(t,
+		[]DeprecatedFeature{{Name: "application_span", Replacement: "application_span_otel"}},
+		mustLoadFeatures(t, "application", "application_span").DeprecatedEnabled())
+
+	assert.Equal(t,
+		[]DeprecatedFeature{{Name: "application_span_sizes"}},
+		mustLoadFeatures(t, "application_span_sizes").DeprecatedEnabled())
+
+	assert.Empty(t, mustLoadFeatures(t, "application", "application_span_otel").DeprecatedEnabled())
+}
+
 func TestFeatureUndefined(t *testing.T) {
 	t.Run("undefined YAML", func(t *testing.T) {
 		doc := struct {
@@ -230,4 +260,54 @@ func TestFeatureUndefined(t *testing.T) {
 		require.False(t, doc.Features.Empty())
 		require.True(t, doc.Features.Undefined())
 	})
+}
+
+func TestFeatureMarshalYAML(t *testing.T) {
+	type doc struct {
+		Features Features `yaml:"features"`
+	}
+	for _, tc := range []struct {
+		name     string
+		features Features
+		expected string
+	}{
+		{name: "undefined", features: 0, expected: "features: null\n"},
+		{name: "explicitly empty", features: FeatureEmpty, expected: "features: []\n"},
+		{
+			name:     "single feature",
+			features: FeatureApplicationRuntime,
+			expected: "features:\n    - application_runtime\n",
+		},
+		{
+			name:     "combined features follow the declaration order",
+			features: FeatureApplicationRuntime | FeatureApplicationRED,
+			expected: "features:\n    - application\n    - application_runtime\n",
+		},
+		{
+			name:     "aggregate feature keeps its name",
+			features: FeatureStats,
+			expected: "features:\n    - stats\n",
+		},
+		{
+			name:     "aggregate name comes before the remaining single features",
+			features: FeatureStats | FeatureNetwork,
+			expected: "features:\n    - stats\n    - network\n",
+		},
+		{
+			name:     "partial aggregate expands to its bits",
+			features: FeatureStatsTCPRtt | FeatureStatsTCPRetransmits,
+			expected: "features:\n    - stats_tcp_rtt\n    - stats_tcp_retransmits\n",
+		},
+		{name: "all features", features: FeatureAll, expected: "features:\n    - all\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := yaml.Marshal(doc{Features: tc.features})
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, string(out))
+
+			var reparsed doc
+			require.NoError(t, yaml.Unmarshal(out, &reparsed))
+			require.Equal(t, tc.features, reparsed.Features)
+		})
+	}
 }

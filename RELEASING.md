@@ -133,66 +133,23 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
 
 Once the workflow completes successfully, a draft release is automatically created with auto-generated release notes from GitHub, which includes a list of changes since the previous release.
 
-1. Navigate to the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
-2. Locate the draft release for your version
-3. Review the artifacts:
-   - Download and verify checksums for the release artifacts you fetched: `sha256sum -c --ignore-missing SHA256SUMS`
-   - Confirm checksum verification reports `OK` for every downloaded asset that was checked before publication
-   - Verify the Cosign signatures for every release archive, SBOM, and the checksum file. Replace `vX.Y.Z` with the release tag:
+1. Locate the draft release on the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
+2. Verify the artifacts, signatures, and container images (requires `gh` and `cosign`); the script must end with `ALL CHECKS PASSED`:
 
-     ```console
-     set -e
+   ```console
+   ./scripts/verify-draft-release.sh vX.Y.Z
+   ```
 
-     release_tag=vX.Y.Z
-     repository=open-telemetry/opentelemetry-ebpf-instrumentation
-     certificate_identity="https://github.com/${repository}/.github/workflows/release.yml"
-     certificate_identity="${certificate_identity}@refs/tags/${release_tag}"
-     release_dir="$(mktemp -d)"
-
-     gh release download "${release_tag}" \
-       --repo "${repository}" \
-       --dir "${release_dir}" \
-       --pattern '*.tar.gz' \
-       --pattern '*.cyclonedx.json' \
-       --pattern SHA256SUMS \
-       --pattern '*.bundle.json'
-
-     for artifact in \
-       "${release_dir}"/*.tar.gz \
-       "${release_dir}"/*.cyclonedx.json \
-       "${release_dir}"/SHA256SUMS; do
-       cosign verify-blob "${artifact}" \
-         --bundle "${artifact}.bundle.json" \
-         --certificate-identity "${certificate_identity}" \
-         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
-     done
-
-     rm -rf "${release_dir}"
-     ```
-
-     Every `cosign verify-blob` command must report `Verified OK`.
-   - Extract archives and test binaries if needed
-   - Open the published CycloneDX SBOMs with your preferred SBOM tooling if you want to inspect release dependencies
-   - Use the dedicated Java agent SBOM when you need the full Java dependency graph for the JAR embedded inside `obi`
-   - Verify signed container images from both registries before publication:
-     `cosign verify --certificate-identity 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/<tag>' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:<tag>`
-   - Verify the matching GHCR image as well:
-     `cosign verify --certificate-identity 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/<tag>' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:<tag>`
-   - Review auto-generated release notes for accuracy
-   - When the supported configuration contract changes, link the
-     [Config v1 to v2 migration guide](devdocs/config/version-2.0/migration.md)
-     and state:
-     - the first release that can load the new version in standalone and
-       Collector receiver modes;
-     - whether the previous configuration version remains supported;
-     - any migration limitations that affect compatibility.
-   - Link those release notes back from the
-     [Config v2 release gate](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2251)
-     and the
-     [stable v1.0 release epic](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1133)
-     before publishing the release.
-4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
-5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
+3. Review and edit the auto-generated release notes for accuracy and clarity.
+   When the supported configuration contract changes, link the
+   [Config v1 to v2 migration guide](devdocs/config/version-2.0/migration.md),
+   state the first release that can load the new version in standalone and
+   Collector receiver modes, whether the previous configuration version remains
+   supported, and any migration limitations; link the notes back from the
+   [Config v2 release gate](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2251)
+   and the
+   [stable v1.0 release epic](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1133).
+4. Click "Publish release" to make it immutable and publicly available
 
 > [!IMPORTANT]
 > Once published, GitHub releases are immutable. Artifacts and checksums cannot be modified or replaced. Review carefully before publishing.

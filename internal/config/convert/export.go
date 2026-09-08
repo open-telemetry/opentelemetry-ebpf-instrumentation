@@ -5,6 +5,7 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -233,12 +234,7 @@ func appendMetricInstrumentations(
 }
 
 func containsInstrumentation(list []instrumentations.Instrumentation, needle instrumentations.Instrumentation) bool {
-	for _, item := range list {
-		if item == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, needle)
 }
 
 func protocolEnabled(

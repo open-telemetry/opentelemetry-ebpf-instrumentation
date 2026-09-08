@@ -270,7 +270,7 @@ func TestConcurrentLifecycleOperationsAreSafe(t *testing.T) {
 			iface := &ifaces.Interface{Index: 42, Name: "test"}
 
 			operations := make([]func(), 0, 64)
-			for i := 0; i < 16; i++ {
+			for i := range 16 {
 				programName := fmt.Sprintf("program-%d", i)
 				operations = append(operations,
 					func() { manager.AddProgram(programName, nil, AttachmentType(255)) },

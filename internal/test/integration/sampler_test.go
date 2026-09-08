@@ -32,7 +32,7 @@ func testSampler(t *testing.T) {
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
 	}
 

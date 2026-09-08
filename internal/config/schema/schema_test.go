@@ -118,7 +118,7 @@ extensions:
 	require.Len(t, doc.MeterProvider.Readers, 1)
 	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic)
 	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic.Interval)
-	require.Equal(t, int((time.Second).Milliseconds()), *doc.MeterProvider.Readers[0].Periodic.Interval)
+	require.Equal(t, int(time.Second.Milliseconds()), *doc.MeterProvider.Readers[0].Periodic.Interval)
 	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc)
 	require.Equal(t, "http://localhost:4317", *doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc.Endpoint)
 	require.Equal(t, CaptureActionInclude, cfg.Capture.Policy.DefaultAction)

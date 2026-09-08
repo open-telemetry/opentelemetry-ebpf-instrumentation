@@ -454,10 +454,13 @@ func TestDecorationProcessEvents(t *testing.T) {
 	})
 
 	// When we send 34 we first get naked PID info, the kubernetes metadata was delayed
-	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 34, Ns: 1034, Service: autoNameSvc}), Type: exec.ProcessEventCreated})
+	autoPackageSvc := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "acme"}}
+	autoPackageSvc.SetAutoName()
+	autoPackageSvc.SetAutoNamespace()
+	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 34, Ns: 1034, Service: autoPackageSvc}), Type: exec.ProcessEventCreated})
 	deco := testutil.ReadChannel(t, outputCh, timeout)
-	assert.Empty(t, deco.File.ServiceAttrs().UID.Namespace)
-	assert.Empty(t, deco.File.ServiceAttrs().UID.Name)
+	assert.Equal(t, "acme", deco.File.ServiceAttrs().UID.Namespace)
+	assert.Equal(t, "orders", deco.File.ServiceAttrs().UID.Name)
 	assert.Empty(t, deco.File.ServiceAttrs().UID.Instance)
 	assert.Empty(t, deco.File.ServiceAttrs().Metadata)
 

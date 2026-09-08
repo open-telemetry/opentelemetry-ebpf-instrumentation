@@ -26,7 +26,7 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
 	// - returning a 204 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		for _, url := range urls {
 			ti.DoHTTPGet(t, url+path+"?delay=30&response=204", 204)
 		}

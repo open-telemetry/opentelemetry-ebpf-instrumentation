@@ -19,7 +19,7 @@ func TestProcessWatchEventRejectsTruncatedRecords(t *testing.T) {
 	events := make(chan Event, 1)
 	w := New(&obi.Config{}, events)
 	sample := watchSample(1)
-	for length := 0; length < 8; length++ {
+	for length := range 8 {
 		_, _, err := w.processWatchEvent(t.Context(), &ringbuf.Record{RawSample: sample[:length]})
 		if err == nil {
 			t.Errorf("flags length %d: expected error", length)

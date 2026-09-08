@@ -20,8 +20,8 @@
 static __always_inline u8 same_direction(pid_connection_info_t *p_conn, u8 direction) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, p_conn);
     if (info && !info->submitted) {
-        return ((info->type == EVENT_HTTP_REQUEST) && (direction == TCP_SEND)) ||
-               ((info->type == EVENT_HTTP_CLIENT) && (direction == TCP_RECV));
+        return ((info->type == k_event_type_http_request) && (direction == TCP_SEND)) ||
+               ((info->type == k_event_type_http_client) && (direction == TCP_RECV));
     }
     return false;
 }

@@ -133,9 +133,12 @@ func testInterZoneMetric(ctx context.Context, t *testing.T, _ *envconf.Config) c
 			`dst_zone="client-zone", src_zone="server-zone"}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
-		// AND the reported attributes are different from the flow bytes attributes
-		require.NotContains(ct, results, "k8s_src_type")
-		require.NotContains(ct, results, "iface_direction")
+		// AND they carry the kubernetes decoration selected for this metric
+		for _, res := range results {
+			assert.Equal(ct, "my-kube", res.Metric["k8s_cluster_name"])
+			assert.NotEmpty(ct, res.Metric["k8s_src_type"])
+			assert.NotEmpty(ct, res.Metric["k8s_dst_type"])
+		}
 	}, testTimeout, 100*time.Millisecond)
 
 	// BUT same-zone bytes are not reported in this metric

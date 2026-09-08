@@ -157,7 +157,7 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(grpcElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(0x148),
+		GrpcServerStreamStPtr:  uint64(0x168),
 		GrpcStreamMethodPtrPos: uint64(0x10),
 		GrpcStatusSPos:         uint64(0),
 		ConnFdPos:              uint64(0),
@@ -183,6 +183,45 @@ func TestGoOffsetsWithoutDwarf(t *testing.T) {
 		RuntimeGCControllerMemoryLimitPos: uint64(8),
 		RuntimeGCControllerGCPercentPos:   uint64(0),
 	}, offsets)
+}
+
+func TestHTTP2ClientConnTLSStateOffsets(t *testing.T) {
+	offs, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name       string
+		structName string
+		version    string
+		want       uint64
+	}{
+		{
+			name:       "x/net before tconnClosed removal",
+			structName: "golang.org/x/net/http2.ClientConn",
+			version:    "0.12.0",
+			want:       32,
+		},
+		{
+			name:       "x/net after tconnClosed removal",
+			structName: "golang.org/x/net/http2.ClientConn",
+			version:    "0.15.0",
+			want:       24,
+		},
+		{
+			name:       "vendored standard library",
+			structName: "net/http.http2ClientConn",
+			version:    "1.26.4",
+			want:       24,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := offs.Find(tc.structName, "tlsState", tc.version)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestGoRuntimeGCGoalFieldUnavailableAfterTrackedRange(t *testing.T) {
@@ -230,7 +269,8 @@ func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsets(smallGRPCElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(0x148),
+		GrpcServerStreamStPtr:  uint64(0x168),
+		GrpcStreamStPtrPos:     uint64(0x168),
 		GrpcStreamMethodPtrPos: uint64(0x10),
 		GrpcStatusSPos:         uint64(0),
 		GrpcStatusCodePtrPos:   uint64(40),
@@ -312,6 +352,19 @@ func TestPrefetchedGoAutoSDKSpanContextOffsets(t *testing.T) {
 		)
 		require.True(t, found, "missing Auto SDK %s spanContext offset", sdkVersion)
 		assert.Equal(t, uint64(80), offset)
+	}
+}
+
+func TestPrefetchedGrpcStreamOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, structName := range []string{
+		"google.golang.org/grpc/internal/transport.ServerStream",
+		"google.golang.org/grpc/internal/transport.Stream",
+	} {
+		assertPrefetchedOffset(t, track, structName, "st", "1.83.0", 0x148)
+		assertPrefetchedOffset(t, track, structName, "st", "1.83.1", 0x168)
 	}
 }
 

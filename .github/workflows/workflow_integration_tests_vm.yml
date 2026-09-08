@@ -121,7 +121,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/free-disk
+      - uses: $/.github/actions/free-disk
 
       - name: Check for Docker Hub token
         id: check-docker-token
@@ -285,7 +285,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/free-disk
+      - uses: $/.github/actions/free-disk
         with:
           docker-prune: 'false'
 
@@ -317,7 +317,7 @@ jobs:
           ls -lh ./rootfs.qcow2
 
       - id: kernel
-        uses: ./.github/actions/setup-lvh-kernel
+        uses: $/.github/actions/setup-lvh-kernel
         with:
           kernel-id: ${{ matrix.kernel.id }}
           lvh-tag: ${{ matrix.kernel.lvh_tag }}

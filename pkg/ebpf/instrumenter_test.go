@@ -12,6 +12,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,8 +29,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -310,6 +314,42 @@ func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, closers)
 	assert.False(t, attached["skipped_optional_symbol"])
+}
+
+func TestNoGoProbeAttached(t *testing.T) {
+	assert.False(t, noGoProbeAttached(nil))
+	assert.False(t, noGoProbeAttached(map[string]bool{"a": false, "b": true}))
+	assert.True(t, noGoProbeAttached(map[string]bool{"a": false, "b": false}))
+}
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	var logs bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+	return &logs
+}
+
+func TestGoProbesWarnsWhenNoSymbolAttached(t *testing.T) {
+	logs := captureLogs(t)
+	i := &instrumenter{offsets: &goexec.Offsets{}, processName: "svc"}
+	tracer := &stubTracer{goProbes: map[string][]*ebpfcommon.ProbeDesc{
+		"net/http.serverHandler.ServeHTTP": {{Start: &ebpf.Program{}}},
+	}}
+
+	require.NoError(t, i.goprobes(tracer))
+
+	assert.Contains(t, logs.String(), "no Go probes attached to executable")
+	assert.Contains(t, logs.String(), "process=svc")
+}
+
+func TestGoProbesDoesNotWarnWithoutProbes(t *testing.T) {
+	logs := captureLogs(t)
+	i := &instrumenter{offsets: &goexec.Offsets{}}
+
+	require.NoError(t, i.goprobes(&stubTracer{}))
+
+	assert.NotContains(t, logs.String(), "no Go probes attached")
 }
 
 func TestGoProbeGroupRequiresAttachedPrerequisites(t *testing.T) {
@@ -749,11 +789,9 @@ func TestUSDTLinkCloserCloseIsConcurrentSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
 	for range cap(errs) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs <- closer.Close()
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -883,6 +921,15 @@ func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
 	i.rollbackOptionalGoProbeGroups()
 
 	assert.Equal(t, int32(1), linkCloser.closes.Load())
+}
+
+func TestProcessTracerCanLogBeforeRun(t *testing.T) {
+	pt := NewProcessTracer(Generic, nil, &obi.Config{}, imetrics.NoopReporter{})
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	assert.NotPanics(t, func() {
+		pt.UnlinkExecutable(fileInfo, 1)
+	})
 }
 
 func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
@@ -1080,7 +1127,8 @@ func (r *countingReporter) InstrumentationError(_ string, errorType string) {
 }
 
 type stubTracer struct {
-	uprobes map[string]map[string][]*ebpfcommon.ProbeDesc
+	uprobes  map[string]map[string][]*ebpfcommon.ProbeDesc
+	goProbes map[string][]*ebpfcommon.ProbeDesc
 }
 
 type stubUprobeTargetResolver struct {
@@ -1106,7 +1154,7 @@ func (s *stubTracer) AddCloser(...io.Closer)                                 {}
 func (s *stubTracer) SetupTailCalls()                                        {}
 func (s *stubTracer) KProbes() map[string]ebpfcommon.ProbeDesc               { return nil }
 func (s *stubTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
-func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return nil }
+func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return s.goProbes }
 func (s *stubTracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc { return s.uprobes }
 func (s *stubTracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc     { return nil }
 func (s *stubTracer) SocketFilters() []*ebpf.Program                         { return nil }
@@ -1184,4 +1232,38 @@ func TestDedupModuleProbes(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, []*ebpfcommon.ProbeDesc{descC}, got["uv_fs_access"])
 	})
+}
+
+func TestSetupOtelBPFFSPathFallsBackToInternalMaps(t *testing.T) {
+	bpffsPath := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(bpffsPath, nil, 0o600))
+
+	const maxEntries = 1 << 14
+	spec := &ebpf.CollectionSpec{Maps: map[string]*ebpf.MapSpec{
+		"traces_ctx_v1": {
+			Type:       ebpf.LRUHash,
+			MaxEntries: maxEntries,
+			Pinning:    ebpf.PinByName,
+		},
+	}}
+	pt := &ProcessTracer{bpffsPath: bpffsPath}
+
+	assert.Empty(t, pt.setupOtelBPFFSPath([]*ebpfcommon.SpecBundle{{Spec: spec}}))
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["traces_ctx_v1"].Pinning)
+	assert.Equal(t, uint32(maxEntries), spec.Maps["traces_ctx_v1"].MaxEntries)
+}
+
+func TestMakeOtelBPFFSPathRejectsInaccessibleExistingDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+
+	bpffsPath := t.TempDir()
+	otelPath := filepath.Join(bpffsPath, "otel")
+	require.NoError(t, os.Mkdir(otelPath, 0o000))
+
+	pt := &ProcessTracer{bpffsPath: bpffsPath}
+	_, err := pt.makeOtelBPFFSPath()
+
+	require.ErrorContains(t, err, "accessing bpffs otel path")
 }

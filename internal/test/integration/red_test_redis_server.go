@@ -27,7 +27,7 @@ func testREDMetricsRedisServerSide(t *testing.T) {
 	urlPath := "redis"
 	namespace := "integration-test"
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/"+urlPath, 200)
 	}
 

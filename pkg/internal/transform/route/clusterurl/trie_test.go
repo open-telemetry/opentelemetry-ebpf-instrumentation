@@ -193,7 +193,7 @@ func BenchmarkPathTrie_Insert(b *testing.B) {
 	}
 
 	for b.Loop() {
-		for i := 0; i < len(paths); i++ {
+		for i := range paths {
 			trie.Insert(paths[i])
 		}
 	}

@@ -31,7 +31,7 @@
 #include <maps/tp_info_mem.h>
 
 static __always_inline enum parent_status parent_kind(const tp_info_pid_t *server_tp) {
-    if (server_tp->req_type == EVENT_TCP_REQUEST) {
+    if (server_tp->req_type == k_event_type_tcp_request) {
         return k_parent_status_conditional;
     }
 
@@ -295,7 +295,7 @@ static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_
             tp_p->written = 0;
             tp_p->pid = pid;
             // if we found it in the go_trace_map, it's always a server request
-            tp_p->req_type = EVENT_HTTP_REQUEST;
+            tp_p->req_type = k_event_type_http_request;
 
             return tp_p;
         }
@@ -381,10 +381,12 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
         bpf_dbg_printk("Found existing server tp for client call");
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
-            bpf_dbg_printk("Parent and child are too far apart, marking server trace as invalid");
+            bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
             bpf_dbg_printk(
                 "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
-            server_tp->valid = 0;
+            if (parent_trace_is_stale(&server_tp->tp, tp)) {
+                server_tp->valid = 0;
+            }
             return 0;
         }
 
@@ -422,10 +424,12 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
         bpf_dbg_printk("Found existing server tp for client call");
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
-            bpf_dbg_printk("Parent and child are too far apart, marking server trace as invalid");
+            bpf_dbg_printk("Parent and child are too far apart, discarding the parent trace");
             bpf_dbg_printk(
                 "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
-            server_tp->valid = 0;
+            if (parent_trace_is_stale(&server_tp->tp, tp)) {
+                server_tp->valid = 0;
+            }
             return 0;
         }
 

@@ -14,7 +14,8 @@ OpenTelemetry website.
 - [Profiling](profiling.md): how to profile OBI.
 - [Features](features.md): features supported by OBI.
 - [Context Propagation Architecture](context-propagation.md): how OpenTelemetry context propagation works in the eBPF instrumentation.
-- [gRPC Context Propagation](grpc-context-propagation.md): HTTP/2 gRPC context propagation via sk_msg HPACK injection and TCP options.
+- [gRPC Context Propagation](grpc-context-propagation.md): HTTP/2 and gRPC context propagation via sk_msg HPACK injection (TCP options are not used).
+- [Node.js manual spans](nodejs-manual-spans.md): capturing `@opentelemetry/api` spans when no Node.js SDK is registered.
 - [Protocols](protocols/README.md): documentation about supported protocols.
 - [Java TLS IOCTL Security Notes](java-tls-ioctl-security.md): rationale for the localized Java TLS `ioctl` hardening and why OBI keeps this fix in `java_tls.c`.
 - [AI Tooling](ai-tooling.md): recommendations for configuring agent tooling for this repository.

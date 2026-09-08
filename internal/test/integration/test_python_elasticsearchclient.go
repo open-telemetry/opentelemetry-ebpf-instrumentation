@@ -57,9 +57,10 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	if index != "" {
 		operationName = op + " " + index
 		params.Add("operation", operationName)
+		params.Add("tags", fmt.Sprintf("{\"db.system.name\":\"%s\"}", dbSystemName))
 	} else {
 		operationName = op
-		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\"}", op))
+		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\",\"db.system.name\":\"%s\"}", op, dbSystemName))
 	}
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
@@ -106,6 +107,12 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 			tag, found = jaeger.FindIn(span.Tags, "db.system.name")
 			assert.True(ct, found)
 			assert.Equal(ct, dbSystemName, tag.Value)
+
+			// for Elasticsearch, db.response.status_code is the HTTP response
+			// code, reported whenever a response was received
+			tag, found = jaeger.FindIn(span.Tags, "db.response.status_code")
+			assert.True(ct, found)
+			assert.NotEmpty(ct, tag.Value)
 
 			tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
 			assert.True(ct, found)

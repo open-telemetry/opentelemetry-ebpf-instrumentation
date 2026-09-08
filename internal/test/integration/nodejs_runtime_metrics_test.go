@@ -47,6 +47,15 @@ func TestNodejsRuntimeMetrics(t *testing.T) {
 	t.Run("exported values match the app's perf_hooks ground truth", func(t *testing.T) {
 		testNodejsGroundTruth(t, pq)
 	})
+	t.Run("v8js heap space metrics", func(t *testing.T) {
+		testV8HeapSpaceMetrics(t, pq)
+	})
+	t.Run("v8js heap used grows after retained allocations", func(t *testing.T) {
+		testV8HeapGrowth(t, pq)
+	})
+	t.Run("v8js gc duration histogram counts forced major collections", func(t *testing.T) {
+		testV8GCDuration(t, pq)
+	})
 	runWeaverValidation(t)
 }
 
@@ -104,6 +113,13 @@ func testNodejsEventLoopDelay(t *testing.T, pq promtest.Client) {
 	}, testTimeout, 250*time.Millisecond)
 }
 
+type nodejsHeapSpaceTruth struct {
+	Size      float64 `json:"size"`
+	Used      float64 `json:"used"`
+	Available float64 `json:"available"`
+	Physical  float64 `json:"physical"`
+}
+
 type nodejsGroundTruth struct {
 	ELU struct {
 		IdleS   float64 `json:"idle_s"`
@@ -112,6 +128,8 @@ type nodejsGroundTruth struct {
 	Delay struct {
 		P50S float64 `json:"p50_s"`
 	} `json:"delay"`
+	HeapSpaces map[string]nodejsHeapSpaceTruth `json:"heap_spaces"`
+	GCCounts   map[string]float64              `json:"gc_counts"`
 }
 
 // testNodejsGroundTruth compares the exported metrics against the
@@ -143,6 +161,81 @@ func testNodejsGroundTruth(t *testing.T, pq promtest.Client) {
 			require.Greater(ct, promP50, gt.Delay.P50S/3)
 			require.Less(ct, promP50, gt.Delay.P50S*3)
 		}
+	}, testTimeout, time.Second)
+}
+
+// testV8HeapSpaceMetrics asserts the per-space heap gauges exist and are
+// coherent: old_space is present in every V8 version, its used size is
+// positive, and used never exceeds the pre-allocated size. Space names are
+// engine-defined and version-dependent, so only old_space is pinned.
+func testV8HeapSpaceMetrics(t *testing.T, pq promtest.Client) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		used := queryNodejsValue(ct, pq,
+			`v8js_memory_heap_used_bytes{`+nodejsRuntimeServiceLabels+`,v8js_heap_space_name="old_space"}`)
+		require.Positive(ct, used, "old_space used must be positive")
+
+		limit := queryNodejsValue(ct, pq,
+			`v8js_memory_heap_limit_bytes{`+nodejsRuntimeServiceLabels+`,v8js_heap_space_name="old_space"}`)
+		require.GreaterOrEqual(ct, limit, used, "old_space pre-allocated size must be >= used")
+
+		// the in-process truth pins the values, not just their existence
+		gt := fetchNodejsGroundTruth(ct)
+		gtOldSpace, ok := gt.HeapSpaces["old_space"]
+		require.True(ct, ok, "ground truth must report old_space")
+		// both readings move (allocations, GC) between the two samples:
+		// same order of magnitude is enough to catch unit or field-order bugs
+		require.Greater(ct, used, gtOldSpace.Used/3)
+		require.Less(ct, used, gtOldSpace.Used*3)
+	}, testTimeout, time.Second)
+}
+
+// testV8HeapGrowth retains ~30 MB of heap objects and expects the total used
+// heap (summed over spaces — V8 decides which space the arrays land in) to
+// grow accordingly.
+func testV8HeapGrowth(t *testing.T, pq promtest.Client) {
+	var baseline float64
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		baseline = queryNodejsValue(ct, pq,
+			`sum(v8js_memory_heap_used_bytes{`+nodejsRuntimeServiceLabels+`})`)
+		require.Positive(ct, baseline)
+	}, testTimeout, time.Second)
+
+	ti.DoHTTPGet(t, "http://localhost:"+nodejsRuntimeMetricsHostPort+"/alloc?mb=30", http.StatusOK)
+
+	const twentyMB = 20 * 1024 * 1024
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		used := queryNodejsValue(ct, pq,
+			`sum(v8js_memory_heap_used_bytes{`+nodejsRuntimeServiceLabels+`})`)
+		require.Greater(ct, used, baseline+twentyMB,
+			"retaining 30MB must grow the exported used heap by at least 20MB")
+	}, testTimeout, time.Second)
+}
+
+// testV8GCDuration forces major collections and expects the gc duration
+// histogram to count them under v8js_gc_type="major", in step with the
+// app's own PerformanceObserver counts.
+func testV8GCDuration(t *testing.T, pq promtest.Client) {
+	majorCount := func(t require.TestingT) float64 {
+		results, err := pq.Query(
+			`v8js_gc_duration_seconds_count{` + nodejsRuntimeServiceLabels + `,v8js_gc_type="major"}`)
+		require.NoError(t, err)
+		if len(results) == 0 {
+			return 0 // no major GC observed yet: series absent
+		}
+		return promResultValue(t, results[0])
+	}
+
+	baseline := majorCount(t)
+
+	ti.DoHTTPGet(t, "http://localhost:"+nodejsRuntimeMetricsHostPort+"/gc", http.StatusOK)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.Greater(ct, majorCount(ct), baseline,
+			"a forced global.gc() must be counted as a major collection")
+
+		gt := fetchNodejsGroundTruth(ct)
+		require.Positive(ct, gt.GCCounts["major"],
+			"the app's own observer must have seen the major GC")
 	}, testTimeout, time.Second)
 }
 

@@ -22,12 +22,12 @@ import (
 // left the integration suite vulnerable to a compromise of the OBI ghcr
 // publish workflow swapping in a malicious image.
 const (
-	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.1@sha256:063c5013cc4cccfd015a054d2595a4a09105eba549cb96e1a2aac7456f831b5b"
-	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.1@sha256:474c4c5a836c99aa023ca8fb16693cd5f9edb5c22501c17069992fd4e87aaf48"
-	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.1@sha256:c818c207ff40f474e8f7cd183f58d47a0dce8030c89cf1b44bfc18a7f625da28"
-	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.1@sha256:52868bb841454f657a3797c4d7cd255d5fa25e84e1d97be0c9ef6c59502a0a9b"
-	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.1@sha256:d51943f3b10e73a8e924c4cf2f06815172a7332ecfa4618765b2ba342dd7c10f"
-	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.1@sha256:770361b1480c2301829951c83230caa268a0761de255cdd2ef79885180f3245f"
+	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.2@sha256:29071ef19d2e1ba185d37740063620451238dad152ee4ad1667e2f53bea84ac3"
+	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.2@sha256:9c6f5aa45ad87858c708c74fa1f57d62ed7d3d4084c031ca389a4c5efce44766"
+	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.2@sha256:0ef752a0e3718b1fb8a6039d8c34b642b328c7304ce840047f23e030fa2c5116"
+	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.2@sha256:4061eed69880e06012287e8750a58f5220e0ff6c73f33c656615c98535601b98"
+	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.2@sha256:ea4b000400f06ba09e7e0e5cbaa09c04da8417024ecc163ef942f657b5ef4266"
+	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.2@sha256:a3099e869dcbc41c9e2a2bd048718d774f765599483fc67d361147418c0f6ef5"
 )
 
 func TestSuite_Go(t *testing.T) {
@@ -131,6 +131,42 @@ func TestSuiteGoGeneric(t *testing.T) {
 	t.Run("Generic Go HTTP/TCP traces (all spans nested)", testGoGenericHTTPTraces)
 	t.Run("Generic Go HTTPS/TCP(TLS) traces (all spans nested)", testGoGenericHTTPSTraces)
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// Alpine workload, so name resolution goes through musl's unconnected UDP socket
+func TestSuite_DNSUnconnectedResolver(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-dns-unconnected.yml", path.Join(pathOutput, "test-suite-dns-unconnected.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=python`,
+		`OTEL_EBPF_OPEN_PORT=`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-dns`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("DNS RED metrics over an unconnected resolver socket", testDNSUnconnectedResolver)
+	t.Run("every DNS lookup is counted", testDNSEveryLookupCounted)
+	t.Run("non-DNS UDP is not reported as DNS", testDNSNoFalsePositive)
+	t.Run("unrelated traffic does not lose an outstanding lookup", testDNSInterleavedTraffic)
+	t.Run("DNS spans report every resolved address", testDNSSpanAnswers)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// A JVM that cannot be attached to must not delay capture of its own traffic
+func TestSuite_JavaDiscoveryEarlyTraffic(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-discovery.yml", path.Join(pathOutput, "test-suite-java-discovery.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=java`,
+		`OTEL_EBPF_OPEN_PORT=`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("early JVM traffic is captured", testJavaDiscoveryEarlyTraffic)
 	require.NoError(t, compose.Close())
 }
 
@@ -316,7 +352,7 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
+	compose.Env = append(compose.Env, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 
@@ -379,8 +415,8 @@ func TestSuite_NodeJS(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
-	t.Run("NodeJS RED metrics", testREDMetricsJSHTTP)
-	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("NodeJS RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "testserver") })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver", true) })
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
 	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	t.Run("HTTP manual spans (background span isolation)", testHTTPTracesNodeManualBackgroundSpan)
@@ -394,8 +430,8 @@ func TestSuite_Deno(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
 	require.NoError(t, compose.Up())
-	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
-	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("Deno RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "denoserver") })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver", false) })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -855,6 +891,20 @@ func TestSuite_Aerospike(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_AerospikeServerSide(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-aerospike-server.yml", path.Join(pathOutput, "test-suite-aerospike-server.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3000`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8392:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Aerospike server-side traces", func(t *testing.T) {
+		waitForAerospikeServerTestComponents(t, "http://localhost:8392")
+		testREDTracesAerospikeServerSide(t)
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonMongo(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-mongo.yml", path.Join(pathOutput, "test-suite-python-mongo.log"))
 	require.NoError(t, err)
@@ -862,6 +912,19 @@ func TestSuite_PythonMongo(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Mongo metrics", testREDMetricsPythonMongoOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// mongo shares the client's network namespace, so the client sees a local
+// listener on the server port
+func TestSuite_PythonMongoSameNetNS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mongo-samenet.yml", path.Join(pathOutput, "test-suite-python-mongo-samenet.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Mongo same-netns metrics", testREDMetricsPythonMongoOnly)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -954,6 +1017,8 @@ func TestSuite_PythonMCP(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python MCP server span", testPythonMCPServer)
 	t.Run("Python MCP initialize", testPythonMCPInitialize)
+	t.Run("Python MCP client span", testPythonMCPClient)
+	t.Run("Python MCP client resource span", testPythonMCPClientResource)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1057,7 +1122,7 @@ func TestSuiteNodeClient(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
-		testNodeClientWithMethodAndStatusCode(t, "GET", 301, 80, "0000000000000000")
+		testNodeClientWithMethodAndStatusCode(t, "GET", 301, 80, "0000000000000000", "client")
 	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -1070,7 +1135,7 @@ func TestSuiteNodeClientTLS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client_tls`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
-		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001")
+		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001", "client_tls")
 	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -1269,6 +1334,19 @@ func TestSuite_LogEnricherPythonAsync(t *testing.T) {
 	// container's lifetime.
 	t.Run("Log Enricher Python async OTel-instrumented", func(t *testing.T) {
 		testLogEnricherPythonAsyncOTelInstrumented(t)
+	})
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricherShellSubstitution(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-shellsubst.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=substsh`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher shell command substitution", func(t *testing.T) {
+		testLogEnricherShellSubstitution(t)
 	})
 	require.NoError(t, compose.Close())
 }

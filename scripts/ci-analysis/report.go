@@ -108,10 +108,7 @@ func writeFlakyTestsTable(p func(string, ...any), tests []*testStats) {
 	p("| Workflow | Test | Runs | Failures | Retries | Failure rate | Primary error |")
 	p("|---------|------|------|----------|---------|-------------|--------------|")
 
-	limit := maxFlakyTestsShown
-	if len(flaky) < limit {
-		limit = len(flaky)
-	}
+	limit := min(len(flaky), maxFlakyTestsShown)
 	for _, ts := range flaky[:limit] {
 		failPct := 0.0
 		if ts.totalRuns > 0 {
@@ -200,10 +197,7 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 	p("| Run | Workflow | Test | Fingerprint | Error |")
 	p("|-----|---------|------|-------------|-------|")
 
-	limit := maxRecentFailuresShown
-	if len(failures) < limit {
-		limit = len(failures)
-	}
+	limit := min(len(failures), maxRecentFailuresShown)
 	for _, rf := range failures[:limit] {
 		snippet := rf.snippet
 		if len(snippet) > maxSnippetDisplay {
@@ -250,10 +244,7 @@ func formatTestList(ids []pkgTest) string {
 		rendered[i] = displayTestName(id.pkg, id.test)
 	}
 	sort.Strings(rendered)
-	limit := len(rendered)
-	if limit > maxTestsInList {
-		limit = maxTestsInList
-	}
+	limit := min(len(rendered), maxTestsInList)
 	backticked := make([]string, limit)
 	for i := range limit {
 		backticked[i] = "`" + rendered[i] + "`"

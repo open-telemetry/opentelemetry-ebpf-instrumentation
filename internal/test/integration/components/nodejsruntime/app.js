@@ -1,12 +1,20 @@
-// Test application for Node.js runtime metrics (nodejs.eventloop.*).
+// Test application for Node.js runtime metrics (nodejs.eventloop.* and
+// v8js.*).
 //
 // Self-contained (no npm dependencies). Exposes endpoints that drive the
-// event loop into known states (busy, idle, mixed) and a ground-truth
-// endpoint that reports Node's own perf_hooks readings, so eBPF-derived
-// values can be compared against the in-process reference.
+// event loop and the V8 heap into known states, plus a ground-truth endpoint
+// that reports Node's own perf_hooks/v8 readings, so eBPF-derived values can
+// be compared against the in-process reference. Run with --expose-gc (the
+// /gc endpoint needs global.gc).
 
 const http = require("http");
-const { monitorEventLoopDelay, performance } = require("perf_hooks");
+const v8 = require("v8");
+const {
+  monitorEventLoopDelay,
+  performance,
+  PerformanceObserver,
+  constants,
+} = require("perf_hooks");
 
 // Synchronously block the event loop for `ms` milliseconds.
 function spin(ms) {
@@ -22,6 +30,26 @@ histogram.enable();
 
 const NS_PER_SEC = 1e9;
 const MS_PER_SEC = 1e3;
+
+// Independent GC observation for the ground truth: counts per semconv
+// v8js.gc.type value, so the exported histogram counts can be compared
+// against an in-process reference.
+const gcCounts = { major: 0, minor: 0, incremental: 0, weakcb: 0 };
+const gcKindNames = {
+  [constants.NODE_PERFORMANCE_GC_MAJOR]: "major",
+  [constants.NODE_PERFORMANCE_GC_MINOR]: "minor",
+  [constants.NODE_PERFORMANCE_GC_INCREMENTAL]: "incremental",
+  [constants.NODE_PERFORMANCE_GC_WEAKCB]: "weakcb",
+};
+new PerformanceObserver((list) => {
+  for (const entry of list.getEntries()) {
+    const name = gcKindNames[entry.detail && entry.detail.kind];
+    if (name) gcCounts[name]++;
+  }
+}).observe({ entryTypes: ["gc"] });
+
+// Objects retained by /alloc so the allocated heap memory survives GC.
+const retained = [];
 
 function groundTruth() {
   const elu = performance.eventLoopUtilization(); // ms since loop start
@@ -44,6 +72,19 @@ function groundTruth() {
       p99_s: histogram.percentile(99) / NS_PER_SEC,
       samples: histogram.count,
     },
+    // v8js.* ground truth: per-space heap statistics (bytes) and GC counts
+    heap_spaces: Object.fromEntries(
+      v8.getHeapSpaceStatistics().map((s) => [
+        s.space_name,
+        {
+          size: s.space_size,
+          used: s.space_used_size,
+          available: s.space_available_size,
+          physical: s.physical_space_size,
+        },
+      ]),
+    ),
+    gc_counts: { ...gcCounts },
   };
 }
 
@@ -74,6 +115,27 @@ const server = http.createServer((req, res) => {
       const waitMs = Number.isFinite(ms) && ms > 0 ? ms : 100;
       setTimeout(() => json(res, 200, { waited_ms: waitMs }), waitMs);
       return;
+    }
+
+    // Retain `mb` megabytes of heap objects (arrays of numbers, so the
+    // memory lives in the V8 heap — Buffers would be external memory and
+    // invisible to the heap-space metrics).
+    case "/alloc": {
+      const mb = Number(url.searchParams.get("mb")) || 10;
+      for (let i = 0; i < mb; i++) {
+        // ~1 MB of doubles per array
+        retained.push(new Array(128 * 1024).fill(i + Math.random()));
+      }
+      return json(res, 200, { retained_mb: retained.length });
+    }
+
+    // Force a full (major) collection; requires --expose-gc.
+    case "/gc": {
+      if (typeof global.gc !== "function") {
+        return json(res, 500, { error: "run node with --expose-gc" });
+      }
+      global.gc();
+      return json(res, 200, { gc: "done", counts: gcCounts });
     }
 
     // Ground truth: Node's own readings of the target metrics.

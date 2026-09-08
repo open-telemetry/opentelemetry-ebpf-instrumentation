@@ -54,7 +54,7 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
     off_table_t *ot = get_offsets_table();
 
     mongo_go_client_req_t req = {0};
-    req.type = EVENT_GO_MONGO;
+    req.type = k_event_type_go_mongo;
     req.start_monotime_ns = bpf_ktime_get_ns();
 
     if (!read_go_str("name",
@@ -144,7 +144,7 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
     off_table_t *ot = get_offsets_table();
 
     mongo_go_client_req_t fresh_req = {0};
-    fresh_req.type = EVENT_GO_MONGO;
+    fresh_req.type = k_event_type_go_mongo;
     fresh_req.start_monotime_ns = bpf_ktime_get_ns();
 
     go_addr_key_t g_key = {};

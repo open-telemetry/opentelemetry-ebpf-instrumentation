@@ -221,7 +221,7 @@ class ByteBufferExtractorTest {
   void testFlattenFreshByteBufferArray_NullInput() {
     ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(null);
     assertEquals(0, result.position());
-    assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
+    assertEquals(0, result.capacity());
   }
 
   @Test
@@ -229,7 +229,7 @@ class ByteBufferExtractorTest {
     ByteBuffer[] srcs = new ByteBuffer[0];
     ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
     assertEquals(0, result.position());
-    assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
+    assertEquals(0, result.capacity());
   }
 
   @Test
@@ -242,6 +242,7 @@ class ByteBufferExtractorTest {
     ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
     assertEquals(5, buf.limit());
     assertEquals(1, buf.position());
+    assertEquals(4, result.capacity());
 
     result.flip();
     byte[] out = new byte[result.limit()];
@@ -284,6 +285,7 @@ class ByteBufferExtractorTest {
     assertEquals(3, buf1.limit());
     assertEquals(1, buf2.position());
     assertEquals(3, buf2.limit());
+    assertEquals(5, result.capacity());
 
     result.flip();
     byte[] out = new byte[5];
@@ -456,7 +458,7 @@ class ByteBufferExtractorTest {
 
     ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
     assertEquals(0, result.position());
-    assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
+    assertEquals(0, result.capacity());
   }
 
   @Test

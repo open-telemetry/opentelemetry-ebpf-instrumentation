@@ -181,6 +181,14 @@ func TestValuesString(t *testing.T) {
 		assert.Equal(t, "`a`, `b`", g.valuesString(s, s))
 	})
 
+	t.Run("items oneOf tags deprecated branches", func(t *testing.T) {
+		s := &Schema{Type: "array", Items: &Schema{OneOf: []*Schema{
+			{Enum: []any{"a", "b"}},
+			{Enum: []any{"old"}, Deprecated: true},
+		}}}
+		assert.Equal(t, "`a`, `b`, `old` (deprecated)", g.valuesString(s, s))
+	})
+
 	t.Run("nil", func(t *testing.T) {
 		assert.Empty(t, g.valuesString(nil, nil))
 	})

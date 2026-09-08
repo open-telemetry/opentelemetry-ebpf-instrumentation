@@ -158,11 +158,12 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.Regexp(ct, containsInstance, exported)
 	}, timeout, 100*time.Millisecond)
 
-	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
-	// advance the clock before sending so the consumer observes the final time (the cached
-	// clock only updates on span consumption); sending after advancing avoids a flaky race
-	now.Advance(4 * time.Minute)
-	// WHEN it receives metrics
+	// AND WHEN /foo keeps being received while /baz goes silent.
+	// Refresh /foo within its TTL so its entry is never expirable at the instant it is
+	// refreshed; the counter then accumulates to 246 deterministically. A single jump past
+	// the TTL would race the scrape-driven expiry, which could delete /foo and recreate it
+	// from zero (246 vs 123).
+	now.Advance(2 * time.Minute)
 	promInput.Send([]request.Span{
 		{
 			Type:    request.EventTypeHTTP,
@@ -172,12 +173,23 @@ func TestAppMetricsExpiration(t *testing.T) {
 		},
 	})
 
-	// THEN THE metrics that have been received during the timeout period are still visible
+	// THEN /foo shows the value accumulated from both observations, and /baz is still
+	// within its TTL
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
 		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.Regexp(ct, containsTargetInfo, exported)
+	}, timeout, 100*time.Millisecond)
 
-		// BUT not the metrics that haven't been received during that time
+	// AND WHEN further time passes so /baz crosses its TTL while /foo, refreshed 2 minutes
+	// ago, stays within its own
+	now.Advance(2 * time.Minute)
+
+	// THEN /foo is still visible but /baz has expired
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
 		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
@@ -192,7 +204,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
 		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
-		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"}`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
 
@@ -513,7 +525,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedClient, Method: "SET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedServer, Method: "GET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: request.MessagingSend, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
@@ -590,7 +602,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}
@@ -633,7 +645,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelSpanMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelSpanMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}
@@ -676,7 +688,7 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !(mr.otelSpanMetricsObserved(&tt.span)), tt.name)
+			assert.Equal(t, tt.discarded, !mr.otelSpanMetricsObserved(&tt.span), tt.name)
 			assert.False(t, mr.otelSpanFiltered(&tt.span), tt.name)
 		})
 	}

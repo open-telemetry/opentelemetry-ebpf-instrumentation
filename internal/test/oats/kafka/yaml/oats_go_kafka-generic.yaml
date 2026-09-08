@@ -8,11 +8,12 @@ input:
 interval: 500ms
 expected:
   traces:
-  - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="my-topic"}'
-    equals: publish my-topic
+  - traceql: '{ .messaging.operation.type = "send" && .messaging.destination.name="my-topic"}'
+    equals: send my-topic
     attributes:
       messaging.destination.name: my-topic
-      messaging.operation.type: publish
+      messaging.operation.type: send
+      messaging.operation.name: send
       messaging.system: kafka
       server.port: '9093'
   - traceql: '{ .http.route = "/produce" }'

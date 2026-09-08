@@ -1,0 +1,64 @@
+version: "3.8"
+
+services:
+  idlepeer:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/failedconnectclient/Dockerfile
+    image: hatest-failedconnectclient
+    environment:
+      ROLE: "peer"
+      PEER_PORT: "7000"
+
+  failedconnectclient:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/failedconnectclient/Dockerfile
+    image: hatest-failedconnectclient
+    ports:
+      - "8080:8080"
+    environment:
+      IDLE_PEER: "idlepeer:7000"
+      # Nothing listens here, so every attempt is refused
+      UNREACHABLE_PEER: "idlepeer:7001"
+      IDLE_FOR_SECONDS: "3"
+    depends_on:
+      idlepeer:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-failed-connect.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-failed-connect:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    network_mode: "service:failedconnectclient"
+    pid: "service:failedconnectclient"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+    depends_on:
+      failedconnectclient:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317" # OTEL GRPC traces collector
+      - "4318" # OTEL HTTP traces collector
+    command:
+      - "--set=service.telemetry.logs.level=debug"

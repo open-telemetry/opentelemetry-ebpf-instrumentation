@@ -263,17 +263,20 @@ func TestDispatchAerospikeIgnoresNoise(t *testing.T) {
 	assert.True(t, ignore, "noise frames must not produce a span")
 }
 
-// TestDispatchAerospikeServerSideIgnored mirrors the matchAerospike server-side
-// guard on the kernel-classified path.
-func TestDispatchAerospikeServerSideIgnored(t *testing.T) {
+// TestDispatchAerospikeServerSpan covers the kernel-classified path for an
+// exchange observed from the server process: it must produce a server span.
+func TestDispatchAerospikeServerSpan(t *testing.T) {
 	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
 	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
 
 	event := &TCPRequestInfo{ProtocolType: ProtocolTypeAerospike, IsServer: true}
-	_, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
+	span, ignore, matched, err := dispatchKernelAssignedProtocol(nil, event, req, resp)
 	require.NoError(t, err)
-	assert.True(t, matched)
-	assert.True(t, ignore, "server-side exchange must not produce a client span")
+	require.True(t, matched)
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeAerospikeServer, span.Type)
+	assert.Equal(t, "PUT", span.Method)
+	assert.Equal(t, "PUT test.s_put", span.TraceName())
 }
 
 // TestDispatchAerospikeUnknownFallsThrough ensures unclassified events are left
@@ -288,19 +291,43 @@ func TestDispatchAerospikeUnknownFallsThrough(t *testing.T) {
 	assert.False(t, matched, "unknown protocol must fall through to the detection stages")
 }
 
-// TestMatchAerospikeServerSideSkipped ensures a valid Aerospike exchange observed
-// from the server process (IsServer) does not produce a span, so an operation
-// instrumented on both peers is reported only once (client-side).
-func TestMatchAerospikeServerSideSkipped(t *testing.T) {
+// TestMatchAerospikeSpanTypeByRole ensures the same exchange produces a client
+// span on the client process and a server span on the server process, so an
+// operation instrumented on both peers is reported once per role, never twice
+// with the same type (redis/SQL precedent).
+func TestMatchAerospikeSpanTypeByRole(t *testing.T) {
 	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
 	resp := largebuf.NewLargeBufferFrom(mustHex(t, aerospikeWriteOKResp))
 
-	_, _, matched, err := matchAerospike(&TCPRequestInfo{IsServer: true}, req, resp)
+	span, _, matched, err := matchAerospike(&TCPRequestInfo{IsServer: false}, req, resp)
 	require.NoError(t, err)
-	assert.False(t, matched, "server-side Aerospike exchange must not produce a client span")
+	require.True(t, matched)
+	assert.Equal(t, request.EventTypeAerospikeClient, span.Type)
+	assert.Equal(t, "SPAN_KIND_CLIENT", span.ServiceGraphKind())
 
-	// the same exchange on the client side still matches
-	_, _, matched, err = matchAerospike(&TCPRequestInfo{IsServer: false}, req, resp)
+	span, _, matched, err = matchAerospike(&TCPRequestInfo{IsServer: true}, req, resp)
 	require.NoError(t, err)
-	assert.True(t, matched, "client-side Aerospike exchange must still match")
+	require.True(t, matched)
+	assert.Equal(t, request.EventTypeAerospikeServer, span.Type)
+	assert.Equal(t, "SPAN_KIND_SERVER", span.ServiceGraphKind())
+	assert.Equal(t, "PUT test.s_put", span.TraceName(), "server span keeps the same name convention")
+}
+
+// TestMatchAerospikeServerErrorStatus ensures the server role reports the
+// response result_code like the client role does.
+func TestMatchAerospikeServerErrorStatus(t *testing.T) {
+	req := largebuf.NewLargeBufferFrom(mustHex(t, fixtureHex(t, "put")))
+
+	// KEY_EXISTS_ERROR response: as_msg header with result_code 5 at body offset 5.
+	body := make([]byte, 22)
+	body[0] = 22
+	body[5] = 5
+	resp := largebuf.NewLargeBufferFrom(append([]byte{2, 3, 0, 0, 0, 0, 0, 22}, body...))
+
+	span, _, matched, err := matchAerospike(&TCPRequestInfo{IsServer: true}, req, resp)
+	require.NoError(t, err)
+	require.True(t, matched)
+	assert.Equal(t, request.EventTypeAerospikeServer, span.Type)
+	assert.Equal(t, 1, span.Status)
+	assert.Equal(t, "KEY_EXISTS_ERROR", span.DBError.ErrorCode)
 }

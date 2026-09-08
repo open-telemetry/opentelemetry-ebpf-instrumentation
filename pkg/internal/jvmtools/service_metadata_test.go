@@ -42,6 +42,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "spring-orders", service.UID.Name)
+		assert.True(t, service.AutoName())
 		assert.Equal(t, "1.2.3", service.Metadata[serviceVersion])
 	})
 
@@ -75,6 +76,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
 		assert.Equal(t, "explicit-orders", service.UID.Name)
+		assert.False(t, service.AutoName())
 		assert.Equal(t, "2.0", service.Metadata[serviceVersion])
 	})
 

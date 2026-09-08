@@ -69,7 +69,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 		time.Sleep(15 * time.Second)
 
 		// Make additional requests to ensure OTLP endpoints are hit
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			ti.DoHTTPGet(t, "http://localhost:8080/rolldice", 200)
 			time.Sleep(1 * time.Second)
 		}

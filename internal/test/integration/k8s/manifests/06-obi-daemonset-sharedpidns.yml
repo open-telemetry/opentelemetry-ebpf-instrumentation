@@ -20,7 +20,8 @@ data:
     # jaeger, keeping the jaeger-based assertions working) so weaver can
     # validate them — OBI exports nothing else in this suite.
     otel_traces_export:
-      endpoint: http://otelcol:4318
+      endpoint: http://otelcol:4317
+      protocol: grpc
 ---
 apiVersion: apps/v1
 kind: DaemonSet

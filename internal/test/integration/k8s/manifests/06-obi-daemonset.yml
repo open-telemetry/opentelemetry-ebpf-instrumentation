@@ -31,9 +31,11 @@ data:
         - /metrics
       ignore_mode: traces
     otel_metrics_export:
-      endpoint: http://otelcol:4318
+      endpoint: http://otelcol:4317
+      protocol: grpc
     otel_traces_export:
-      endpoint: http://jaeger:4318
+      endpoint: http://jaeger:4317
+      protocol: grpc
     internal_metrics:
       exporter: otel
 ---
@@ -83,7 +85,7 @@ spec:
             - name: OTEL_EBPF_METRICS_INTERVAL
               value: "1s"
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-              value: "http://otelcol:4318"
+              value: "http://otelcol:4317"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
             - name: OTEL_EBPF_METRICS_TTL

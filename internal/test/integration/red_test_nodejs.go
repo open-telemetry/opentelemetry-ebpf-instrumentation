@@ -25,7 +25,7 @@ func testREDMetricsForNodeHTTPLibrary(t *testing.T, url, urlPath, comm, namespac
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPPost(t, url+urlPath, 200, jsonBody)
 	}
 
@@ -56,7 +56,7 @@ func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace s
 	slug := "/users/u"
 	// Call 3 times the instrumented service, forcing it to:
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		ti.DoHTTPGet(t, url+slug+strconv.Itoa(i), 200)
 	}
 
@@ -83,14 +83,14 @@ func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace s
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsJSHTTP(t *testing.T) {
+func testREDMetricsJSHTTP(t *testing.T, serviceName string) {
 	for _, testCaseURL := range []string{
 		"http://localhost:3031",
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForNodeHTTPLibrary(t, testCaseURL, "/greeting", "testserver", "integration-test")
-			testREDMetricsForNodeHTTPLibraryRoutes(t, testCaseURL, "testserver", "integration-test")
+			testREDMetricsForNodeHTTPLibrary(t, testCaseURL, "/greeting", serviceName, "integration-test")
+			testREDMetricsForNodeHTTPLibraryRoutes(t, testCaseURL, serviceName, "integration-test")
 		})
 	}
 }

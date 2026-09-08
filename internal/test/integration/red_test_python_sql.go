@@ -121,7 +121,9 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=1049 sql_state=#42000 message=Unknown database 'obi'",
 		},
 		"postgresql": {
-			"db.response.status_code": "0",
+			// the postgres protocol carries no vendor error code, so the
+			// SQLSTATE is reported (matching error.type, per semconv)
+			"db.response.status_code": "42P01",
 			"error.type":              "42P01",
 			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=NA sql_state=42P01 message=relation \"obi.nonexisting\" does not exist",
 		},
@@ -319,7 +321,7 @@ func testPythonPostgres(t *testing.T) {
 }
 
 func testPythonPostgresAfterHeaders(t *testing.T, testCaseURL string) {
-	comm := "python3.14"
+	comm := "main_sync"
 	table := "accounting.contacts"
 	db := "postgresql"
 
@@ -403,7 +405,7 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
@@ -459,7 +461,7 @@ func testREDMetricsPythonSQLSSL(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponentsSub(t, testCaseURL, "/query")
-			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
+			testREDMetricsForPythonSQLSSL(t, testCaseURL, "main_ssl", "integration-test")
 		})
 	}
 }

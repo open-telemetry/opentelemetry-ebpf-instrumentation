@@ -137,6 +137,66 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 	assert.Equal(t, 7, metrics.flushedLen)
 }
 
+// spans are filtered and decorated when parsed, so a process going away before
+// its batch flushes does not strip the attributes of spans already waiting in it
+func TestForwardRingbuf_FiltersBeforeBatching(t *testing.T) {
+	ringBuf := replaceTestRingBuf()
+	forwardedMessagesQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100))
+	forwardedMessages := forwardedMessagesQueue.Subscribe()
+
+	var filtered atomic.Int32
+	var allowed atomic.Bool
+	allowed.Store(true)
+	filter := func(spans []request.Span) []request.Span {
+		defer filtered.Add(int32(len(spans)))
+		if !allowed.Load() {
+			return spans[:0]
+		}
+		for i := range spans {
+			spans[i].Service = svc.Attrs{UID: svc.UID{Name: "myService"}}
+		}
+		return spans
+	}
+	validPIDs := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
+	go ForwardRingbuf(
+		cfg,
+		nil,
+		func(r *ringbuf.Record) (request.Span, bool, error) {
+			return ReadBPFTraceAsSpan(nil, cfg, r, &validPIDs)
+		},
+		filter,
+		slog.With("test", "TestForwardRingbuf_FiltersBeforeBatching"),
+		&metricsReporter{},
+	)(t.Context(), forwardedMessagesQueue)
+
+	get := [7]byte{'G', 'E', 'T', 0, 0, 0, 0}
+	send := func(n int) {
+		for i := range n {
+			tr := HTTPRequestTrace{Type: 1, Method: get, ContentLength: int64(i)}
+			tr.Pid.HostPid = 1
+			ringBuf.events <- tr
+		}
+	}
+
+	// half a batch is parsed while the process is allowed
+	send(5)
+	require.Eventually(t, func() bool { return filtered.Load() == 5 }, testTimeout, time.Millisecond)
+
+	// the process goes away before the batch is full
+	allowed.Store(false)
+	send(5)
+
+	batch := testutil.ReadChannel(t, forwardedMessages, testTimeout)
+	for len(batch) < 5 {
+		batch = append(batch, testutil.ReadChannel(t, forwardedMessages, testTimeout)...)
+	}
+	require.Len(t, batch, 5, "only the spans parsed while the process was allowed are forwarded")
+	for i := range batch {
+		assert.Equal(t, "myService", batch[i].Service.UID.Name, "spans keep the attributes they got when parsed")
+	}
+}
+
 func TestForwardRingbuf_Close(t *testing.T) {
 	// GIVEN a ring buffer forwarder
 	ringBuf := replaceTestRingBuf()
@@ -262,6 +322,97 @@ func TestRingbufLastReadAtRace(t *testing.T) {
 	cancel()
 	eventsReader.Close()
 	<-readDone
+}
+
+// A producer that submitted with BPF_RB_NO_WAKEUP leaves bytes pending without
+// waking the reader, so the reader only makes progress when it is flushed on its
+// own behalf. Each flush therefore has to be issued on the tick that follows the
+// previous one: while the idle window matched the tick period, the reads caused
+// by one flush suppressed the next tick, so records waited two intervals and a
+// DNS answer could reach the pairing stage past its request timeout.
+func TestRingbufStalledReaderIsFlushedOnConsecutiveTicks(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	rbf := &ringBufForwarder[HTTPRequestTrace]{
+		cfg:    &config.EBPFTracer{BatchLength: 1},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		parse: func(*ringbuf.Record) (HTTPRequestTrace, bool, error) {
+			return HTTPRequestTrace{}, true, nil
+		},
+	}
+
+	eventsReader := newStalledReader()
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		rbf.readAndForwardInner(ctx, eventsReader, msg.NewQueue[[]HTTPRequestTrace](msg.ChannelBufferLen(1)))
+	}()
+
+	// Two flushes land within two ticks once each one is issued on the tick
+	// following the last. Skipping every other tick needs four.
+	require.Eventually(t, func() bool {
+		return eventsReader.FlushCount() >= 2
+	}, 2*flushInterval+time.Second, 50*time.Millisecond)
+
+	cancel()
+	eventsReader.Close()
+	<-readDone
+}
+
+// stalledReader always reports pending bytes and only lets a read through once
+// it has been flushed, so that every flush advances lastReadAt exactly the way a
+// woken reader does.
+type stalledReader struct {
+	flushCount atomic.Int64
+	readTokens chan struct{}
+	closed     chan struct{}
+}
+
+func newStalledReader() *stalledReader {
+	return &stalledReader{
+		readTokens: make(chan struct{}, 1),
+		closed:     make(chan struct{}),
+	}
+}
+
+func (r *stalledReader) FlushCount() int { return int(r.flushCount.Load()) }
+
+func (r *stalledReader) Close() error {
+	select {
+	case <-r.closed:
+	default:
+		close(r.closed)
+	}
+	return nil
+}
+
+func (r *stalledReader) Read() (ringbuf.Record, error) {
+	record := ringbuf.Record{}
+	err := r.ReadInto(&record)
+	return record, err
+}
+
+func (r *stalledReader) ReadInto(record *ringbuf.Record) error {
+	select {
+	case <-r.readTokens:
+		record.RawSample = nil
+		return nil
+	case <-r.closed:
+		return ringbuf.ErrClosed
+	}
+}
+
+func (r *stalledReader) AvailableBytes() int { return 1 }
+
+func (r *stalledReader) Flush() error {
+	r.flushCount.Add(1)
+	// the woken reader drains one record, which is what moves lastReadAt
+	select {
+	case r.readTokens <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // replaces the original ring buffer factory by a fake ring buffer creator and returns it

@@ -26,6 +26,16 @@
         __r;                                                                                       \
     })
 
+// Copies a zero value of the field's type, so an array field lands in an array
+// destination the way the real macro's bpf_probe_read() does.
+#define BPF_CORE_READ_INTO(dst, src, ...)                                                          \
+    do {                                                                                           \
+        __typeof__(___bpf_apply(___bpf_arrow, ___bpf_narg(__VA_ARGS__))(src,                       \
+                                                                        ##__VA_ARGS__)) __v = {};  \
+        (void)(src);                                                                               \
+        __builtin_memcpy((dst), &__v, sizeof(__v));                                                \
+    } while (0)
+
 #define BPF_CORE_READ_STR_INTO(dst, src, ...) ((void)(src), 0)
 #define bpf_core_field_exists(field) (0)
 #define bpf_core_enum_value_exists(t, v) (0)

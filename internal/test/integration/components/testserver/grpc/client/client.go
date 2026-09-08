@@ -38,7 +38,7 @@ import (
 
 var (
 	logs    = slog.With("component", "grpc.Client")
-	counter int64
+	counter atomic.Int64
 )
 
 type pingOpts struct {
@@ -140,7 +140,7 @@ func printFeatures(client pb.RouteGuideClient, rect *pb.Rectangle) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cnt := atomic.AddInt64(&counter, 1)
+	cnt := counter.Add(1)
 
 	var traceID [16]byte
 	var spanID [8]byte

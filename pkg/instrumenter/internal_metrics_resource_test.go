@@ -4,7 +4,6 @@
 package instrumenter
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -18,8 +17,7 @@ import (
 )
 
 func TestInternalMetricsResourceHasHostMetadata(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	coll, err := collector.Start(ctx)
 	require.NoError(t, err)

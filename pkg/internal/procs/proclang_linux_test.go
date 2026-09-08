@@ -85,6 +85,7 @@ func TestFindExeSymbolsExactLookup(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, symbolName, sym.Name)
 	assert.NotZero(t, sym.Off)
+	assert.NotZero(t, sym.Value)
 	assert.NotZero(t, sym.Len)
 	assert.NotNil(t, sym.Prog)
 }

@@ -31,10 +31,11 @@ For trace-log correlation (log enricher / `traces_ctx_v1` map), see [trace-log-c
 
 ## Overview
 
-Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports two injection methods:
+Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports three injection methods:
 
-1. **HTTP headers** (L7) - `Traceparent:` header in plaintext HTTP requests
-2. **TCP options** (L4) - Custom TCP option (kind 25) for any TCP traffic
+1. **HTTP/1 headers** (L7) - `Traceparent:` header in plaintext HTTP requests
+2. **HTTP/2 / gRPC HPACK** (L7) - per-stream `traceparent` field in HEADERS frames. This is the only network mechanism for multiplexed HTTP/2. See [gRPC/HTTP2 Context Propagation](grpc-context-propagation.md).
+3. **TCP options** (L4) - Custom TCP option (kind 25) for HTTP/1 and non-multiplexed TCP. **Not used for HTTP/2 or gRPC** — a connection-scoped option cannot represent N concurrent stream contexts.
 
 ## Configuration
 
@@ -50,6 +51,23 @@ Examples:
 - `headers,tcp` - HTTP headers for plaintext HTTP, TCP options otherwise
 - `tcp` - TCP options only
 - `headers` - HTTP headers only
+
+> **⚠️ TCP options and middleboxes.** TCP-option propagation writes an unknown
+> TCP option (kind 25) onto the connection's segments. On SSL/TLS connections
+> this is the *only* channel, since the payload is ciphertext (see Case 1). An
+> unknown TCP option on an established connection is not preserved end-to-end
+> across many network paths: L7 proxies and load balancers discard and replay
+> the original packets, and some middleboxes and managed endpoints drop or reset
+> the segment that carries it. The client then sees `connection reset by peer`,
+> typically on the first request after connect. The effect is path-dependent, so
+> it appears intermittently.
+>
+> If your instrumented services talk through such intermediaries, use
+> `headers` and do not enable `tcp`. HTTP-header propagation is unaffected;
+> only cross-service linking over paths that require the TCP-option channel
+> (chiefly non-Go SSL/TLS clients) is lost. TCP options are safe only when OBI
+> is on both ends and the path preserves them (typically a direct L2/L3 network
+> with no option-stripping middlebox).
 
 ## Egress (Sending) Flow
 
@@ -111,6 +129,10 @@ The `written` flag implements mutual exclusion through the natural execution ord
    - Lookup fails (entry deleted), skips
 Result: TCP options only ✓
 ```
+
+TCP options are the only channel here, and they only reach the peer on paths
+that preserve the option (see the middlebox warning under
+[Configuration](#configuration)). Where they do not, prefer `headers`.
 
 **For Go HTTP (plaintext):**
 
@@ -302,10 +324,11 @@ Sockets are added to `sock_dir` in two ways:
    - Later layers overwrite earlier layers
    - Result: Most reliable method takes precedence
 
-3. **SSL/TLS uses TCP options, not HTTP headers**:
+3. **HTTP/1 TLS uses TCP options, not HTTP headers**:
    - Can't inject into encrypted payload
    - TCP options work before TLS handshake
    - tpinjector deletes entry early to skip HTTP detection
+   - HTTP/2 / gRPC TLS never uses TCP options (multiplexing). Generic TLS HTTP/2 cannot splice HPACK into ciphertext. Go TLS injects via uprobe before encrypt.
 
 4. **Execution order varies by scenario**:
    - Go/SSL: uprobes → tpinjector → kprobe

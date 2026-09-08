@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM --platform=$BUILDPLATFORM gradle:8.14.5-jdk21-noble@sha256:b03fcc25d5be98dd0738d4e095804fad2365fb9ad9e50fa10492dcfcf413c750 AS builder
+FROM --platform=$BUILDPLATFORM gradle:8.14.5-jdk21-noble@sha256:94452354d9218922457d82e85a343391bab351e7f518f6f5ab1db996967d238b AS builder
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ RUN gradle downloadRepos
 COPY . .
 RUN gradle installDist
 
-FROM eclipse-temurin:25.0.3_9-jre-alpine@sha256:28db6fdf60e38945e43d840c0333aeaec66c15943070104f7586fd3c9d1665b0
+FROM eclipse-temurin:25.0.4_7-jre-alpine@sha256:3137541deb3cac6626b5d9a4a2187bc0d6a34312f858bd2c67dd01e732e6b682
 
 WORKDIR /app
 COPY --from=builder /app .

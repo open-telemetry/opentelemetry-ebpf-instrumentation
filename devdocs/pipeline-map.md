@@ -63,6 +63,19 @@ flowchart TD
         POTEL("OTEL exporter"):::optional
         PPROM("Prometheus exporter"):::optional
     end
+    TA -.-> |Python PID lifecycle| PYTHON
+    subgraph Python runtime metrics pipeline
+        PYTHON("Generic tracer Python controller"):::optional -.-> |Attaches PID probe| PYBPF("Python GC eBPF probe"):::optional
+        PYBPF --> |Ring-buffer snapshots| PYQUEUE("Runtime metrics queue"):::optional
+        PYBPF --> PYMAP("Latest snapshot map"):::optional
+        PYMAP -.-> |Read on process exit| PYTHON
+        PYTHON -.-> |Final snapshot| PYQUEUE
+        PYQUEUE --> RMGATE
+        RMGATE("Dynamic PID gate"):::optional --> PYOTEL
+        RMGATE --> PYPROM
+        PYOTEL("OTEL runtime metrics exporter"):::optional
+        PYPROM("Prometheus endpoint"):::optional
+    end
 ```
 
 ## Network metrics pipeline

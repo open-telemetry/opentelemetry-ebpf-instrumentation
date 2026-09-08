@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -1463,8 +1464,6 @@ otel_traces_export:
 }
 
 func TestMigrateIntegrationConfigurations(t *testing.T) {
-	// Docker suites select their target through OTEL_EBPF_OPEN_PORT. Materialize
-	// that setting in the input because config migrate operates on YAML files.
 	tests := []struct {
 		name   string
 		input  func(t *testing.T) []byte
@@ -1473,17 +1472,15 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 		{
 			name: "Docker Go OTEL gRPC",
 			input: func(t *testing.T) []byte {
-				return withV1GRPCProtocol(withV1OpenPort(
-					integrationConfig(t, "internal/test/integration/configs/obi-config-go-otel-grpc.yml"),
-					8080,
-				), "http://jaeger:4318")
+				return integrationConfig(t, "internal/test/integration/configs/obi-config-go-otel-grpc.yml")
 			},
 			verify: func(t *testing.T, cfg *obi.Config) {
 				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
 				require.Len(t, cfg.Discovery.Instrument, 1)
 				require.True(t, cfg.Discovery.Instrument[0].OpenPorts.Matches(8080))
 				require.Equal(t, 8999, cfg.Prometheus.Port)
-				require.Equal(t, "http://jaeger:4318", cfg.Traces.TracesEndpoint)
+				require.Equal(t, "http://jaeger:4317", cfg.Traces.TracesEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.Traces.TracesProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()
 				require.Equal(t, "path", string(routes.Incoming.Unmatch))
@@ -1493,16 +1490,14 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 		{
 			name: "Docker Java",
 			input: func(t *testing.T) []byte {
-				return withV1GRPCProtocol(withV1OpenPort(
-					integrationConfig(t, "internal/test/integration/configs/obi-config-java.yml"),
-					8085,
-				), "http://otelcol:4318")
+				return integrationConfig(t, "internal/test/integration/configs/obi-config-java.yml")
 			},
 			verify: func(t *testing.T, cfg *obi.Config) {
 				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
 				require.Len(t, cfg.Discovery.Instrument, 1)
 				require.True(t, cfg.Discovery.Instrument[0].OpenPorts.Matches(8085))
-				require.Equal(t, "http://otelcol:4318", cfg.OTELMetrics.MetricsEndpoint)
+				require.Equal(t, "http://otelcol:4317", cfg.OTELMetrics.MetricsEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.OTELMetrics.MetricsProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()
 				require.Equal(t, []string{"/greeting"}, routes.Incoming.Patterns)
@@ -1512,18 +1507,21 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 		{
 			name: "Kubernetes daemonset",
 			input: func(t *testing.T) []byte {
-				config := kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset.yml")
-				config = withV1GRPCProtocol(config, "http://otelcol:4318")
-				return withV1GRPCProtocol(config, "http://jaeger:4318")
+				return kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset.yml")
 			},
 			verify: func(t *testing.T, cfg *obi.Config) {
 				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
 				require.Equal(t, obi.LogLevelDebug, cfg.LogLevel)
 				require.Equal(t, "true", string(cfg.Attributes.Kubernetes.Enable))
+				require.Equal(t, []string{"deployment.environment.name"}, cfg.Attributes.Kubernetes.ResourceLabels["deployment.environment.name"])
 				require.Len(t, cfg.Discovery.Instrument, 5)
 				require.GreaterOrEqual(t, len(cfg.Discovery.ExcludeInstrument), 1)
 				require.True(t, cfg.Discovery.Instrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
 				require.True(t, cfg.Discovery.ExcludeInstrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
+				require.Equal(t, "http://otelcol:4317", cfg.OTELMetrics.MetricsEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.OTELMetrics.MetricsProtocol)
+				require.Equal(t, "http://jaeger:4317", cfg.Traces.TracesEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.Traces.TracesProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()
 				require.Equal(t, []string{"/metrics"}, routes.Incoming.IgnorePatterns)
@@ -1533,8 +1531,7 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 		{
 			name: "Kubernetes shared PID namespace daemonset",
 			input: func(t *testing.T) []byte {
-				config := kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset-sharedpidns.yml")
-				return withV1GRPCProtocol(config, "http://otelcol:4318")
+				return kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset-sharedpidns.yml")
 			},
 			verify: func(t *testing.T, cfg *obi.Config) {
 				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
@@ -1543,6 +1540,8 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 				require.Len(t, cfg.Discovery.Instrument, 2)
 				require.True(t, cfg.Discovery.Instrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
 				require.True(t, cfg.Discovery.Instrument[1].Metadata["k8s_daemonset_name"].MatchString("hostpid-httpserver"))
+				require.Equal(t, "http://otelcol:4317", cfg.Traces.TracesEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.Traces.TracesProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()
 				require.Equal(t, []string{"/pingpong"}, routes.Incoming.Patterns)
@@ -1601,16 +1600,6 @@ func integrationConfig(t *testing.T, relativePath string) []byte {
 	contents, err := os.ReadFile(filepath.Join(repositoryRoot(t), relativePath))
 	require.NoError(t, err)
 	return contents
-}
-
-func withV1OpenPort(config []byte, port int) []byte {
-	return append(config, fmt.Sprintf("\nopen_port: %d\n", port)...)
-}
-
-func withV1GRPCProtocol(config []byte, endpoint string) []byte {
-	oldEndpoint := []byte("  endpoint: " + endpoint)
-	newEndpoint := append(append([]byte{}, oldEndpoint...), []byte("\n  protocol: grpc")...)
-	return bytes.Replace(config, oldEndpoint, newEndpoint, 1)
 }
 
 func kubernetesConfig(t *testing.T, relativePath string) []byte {

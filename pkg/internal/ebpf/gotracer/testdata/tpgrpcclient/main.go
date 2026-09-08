@@ -8,13 +8,16 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net"
 	"os"
 	"strings"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/metadata"
@@ -60,7 +63,14 @@ var service = grpc.ServiceDesc{
 	}},
 }
 
+var (
+	useTLS   = flag.Bool("tls", false, "use TLS for the loopback connection")
+	certFile = flag.String("cert", "", "server certificate")
+	keyFile  = flag.String("key", "", "server private key")
+)
+
 func main() {
+	flag.Parse()
 	encoding.RegisterCodec(jsonCodec{})
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -68,7 +78,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "listen error: %v\n", err)
 		os.Exit(1)
 	}
-	server := grpc.NewServer(grpc.ForceServerCodec(jsonCodec{}))
+	serverOptions := []grpc.ServerOption{grpc.ForceServerCodec(jsonCodec{})}
+	if *useTLS {
+		serverCredentials, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "server TLS error: %v\n", err)
+			os.Exit(1)
+		}
+		serverOptions = append(serverOptions, grpc.Creds(serverCredentials))
+	}
+	server := grpc.NewServer(serverOptions...)
 	server.RegisterService(&service, struct{}{})
 	go func() { _ = server.Serve(listener) }()
 
@@ -92,9 +111,15 @@ func main() {
 
 func call(address string, conn **grpc.ClientConn) (string, error) {
 	if *conn == nil {
+		transportCredentials := credentials.TransportCredentials(insecure.NewCredentials())
+		if *useTLS {
+			transportCredentials = credentials.NewTLS(&tls.Config{ //nolint:gosec
+				InsecureSkipVerify: true,
+			})
+		}
 		client, err := grpc.NewClient(
 			address,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithTransportCredentials(transportCredentials),
 			grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
 		)
 		if err != nil {
