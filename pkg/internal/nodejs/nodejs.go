@@ -9,22 +9,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"slices"
 	"strings"
 	"syscall"
 
-	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
-	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/netns"
-	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
-)
-
-var (
-	cmdlineForPID = ebpfcommon.CMDLineForPID
-	envVarsForPID = procs.EnvVars
 )
 
 type NodeInjector struct {
@@ -95,18 +86,16 @@ func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
 // it checks for a custom SIGUSR1 handler and either sends SIGUSR1 to open the
 // inspector or bails out.
 func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
-	// An inspector the process asked for belongs to whoever started it, and
-	// closing it would break their debugging session. Anything else listening
-	// was opened by OBI, here or in an earlier attempt that failed to clean up.
-	mayClose := !processRequestedInspector(pid)
-
 	conn, err := connect(inspectorHost, inspectorPort)
 	if err == nil {
 		// Validate this is actually a Node.js inspector, not some other
 		// service that happens to listen on port 9229.
 		if i.isNodeInspector(conn) {
+			// Already listening before OBI got here, so it belongs to whoever
+			// opened it - the operator via --inspect, another tool, or a
+			// previous attach. Inject over it, but never close it.
 			i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
-			return i.injectViaConn(pid, conn, mayClose)
+			return i.injectViaConn(pid, conn, false)
 		}
 		conn.Close()
 	}
@@ -134,44 +123,18 @@ func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
 		return fmt.Errorf("error enabling node inspector: %w", err)
 	}
 
+	// Past this point the inspector is ours: SIGUSR1 has been delivered and
+	// cannot be taken back.
 	conn, err = connectWait(inspectorHost, inspectorPort, inspectorConnectWait, inspectorConnectInterval)
 	if err != nil {
-		// SIGUSR1 has already been delivered and cannot be taken back: the
-		// inspector may still be coming up, in which case it would stay open
-		// with nobody left to close it.
-		if mayClose {
-			i.closeInspector(pid)
-		}
+		// It may still be coming up, in which case it would stay open with
+		// nobody left to close it.
+		i.closeInspector(pid)
 
 		return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
 	}
 
-	return i.injectViaConn(pid, conn, mayClose)
-}
-
-// processRequestedInspector reports whether the process itself asked for the
-// inspector, either on its command line or through NODE_OPTIONS. When the
-// answer cannot be determined OBI assumes it did not, keeping the existing
-// behavior of closing the inspector after injecting.
-func processRequestedInspector(pid int) bool {
-	if _, args, err := cmdlineForPID(app.PID(pid)); err == nil {
-		if slices.ContainsFunc(args, isInspectorFlag) {
-			return true
-		}
-	}
-
-	env, err := envVarsForPID(app.PID(pid))
-	if err != nil {
-		return false
-	}
-
-	return isInspectorFlag(env["NODE_OPTIONS"])
-}
-
-// isInspectorFlag matches the whole --inspect family: --inspect,
-// --inspect-brk, --inspect-wait, --inspect-port and their =value forms.
-func isInspectorFlag(arg string) bool {
-	return strings.Contains(arg, "--inspect")
+	return i.injectViaConn(pid, conn, true)
 }
 
 // isNodeInspector validates that a connection to port 9229 is actually a

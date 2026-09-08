@@ -486,16 +486,16 @@ type evalRequest struct {
 	Params evalParams `json:"params"`
 }
 
-// The inspector is a debugging interface, so OBI closes the one it opened
-// itself with SIGUSR1 and leaves an inspector the process asked for alone.
+// The inspector is a debugging interface, so OBI closes only the one it opened
+// itself with SIGUSR1 and leaves an already-listening one alone.
 func TestInjectionClosesOnlyAnInspectorOBIOpened(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
-		mayClose     bool
+		openedByOBI  bool
 		wantDebugEnd bool
 	}{
-		{name: "opened by OBI", mayClose: true, wantDebugEnd: true},
-		{name: "opened by the process", mayClose: false, wantDebugEnd: false},
+		{name: "opened by OBI", openedByOBI: true, wantDebugEnd: true},
+		{name: "already open when OBI arrived", openedByOBI: false, wantDebugEnd: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			expressions := make(chan string, 2)
@@ -526,12 +526,12 @@ func TestInjectionClosesOnlyAnInspectorOBIOpened(t *testing.T) {
 				t.Fatalf("marshaling evaluate request: %v", err)
 			}
 
-			if err := injector.injectFileWS(1, wsConn, payload, tc.mayClose); err != nil {
+			if err := injector.injectFileWS(1, wsConn, payload, tc.openedByOBI); err != nil {
 				t.Fatalf("injecting: %v", err)
 			}
 
-			// injectFileWS closes the inspector from a defer, so by the time it
-			// returns every message it sends has already been answered
+			// injectFileWS sends every message synchronously, so by the time it
+			// returns each one has already been answered
 			if got := <-expressions; got != "void 0;" {
 				t.Fatalf("expected the agent payload first, got %q", got)
 			}
@@ -756,8 +756,9 @@ func TestFailedInjectionClosesTheInspector(t *testing.T) {
 	}
 }
 
-// An inspector the process asked for stays open even when the injection fails.
-func TestFailedInjectionLeavesAProcessOwnedInspectorOpen(t *testing.T) {
+// An inspector that was already listening stays open even when the injection
+// fails: OBI did not open it and cannot know who did.
+func TestFailedInjectionLeavesAnAlreadyOpenInspectorAlone(t *testing.T) {
 	expressions := make(chan string, 1)
 	srv := newScriptedInspectorServer(t, inspectorScript{emptyLists: 1, expressions: expressions})
 	pointInjectorAtServer(t, srv)
@@ -778,18 +779,18 @@ func TestFailedInjectionLeavesAProcessOwnedInspectorOpen(t *testing.T) {
 	}
 }
 
-// injectFile reaches the inspector two ways - finding it already open, or
-// opening it with SIGUSR1 - and a failed injection has to close it in both.
-func TestInjectFileClosesTheInspectorAfterAFailedInjection(t *testing.T) {
+// injectFile reaches the inspector two ways, and only one of them is OBI's to
+// close: an inspector already listening was opened by someone else.
+func TestInjectFileClosesOnlyTheInspectorItOpened(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		notAnInspector bool
+		wantDebugEnd   bool
 	}{
 		{name: "inspector already open"},
-		{name: "inspector opened by SIGUSR1", notAnInspector: true},
+		{name: "inspector opened by SIGUSR1", notAnInspector: true, wantDebugEnd: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stubProcessWithoutInspectorFlag(t)
 			catchSIGUSR1(t)
 
 			expressions := make(chan string, 1)
@@ -805,6 +806,16 @@ func TestInjectFileClosesTheInspectorAfterAFailedInjection(t *testing.T) {
 				t.Fatal("expected the injection to fail")
 			}
 
+			if !tc.wantDebugEnd {
+				select {
+				case got := <-expressions:
+					t.Fatalf("expected no evaluation, got %q", got)
+				case <-time.After(testInspectorTimeout):
+				}
+
+				return
+			}
+
 			if got := awaitExpression(t, expressions); got != debugEndExpression {
 				t.Fatalf("expected %q, got %q", debugEndExpression, got)
 			}
@@ -815,7 +826,6 @@ func TestInjectFileClosesTheInspectorAfterAFailedInjection(t *testing.T) {
 // When the inspector never answers after SIGUSR1 there is nothing to close,
 // and the cleanup attempt must not turn that into a hang or a panic.
 func TestInjectFileReportsAnInspectorThatNeverOpens(t *testing.T) {
-	stubProcessWithoutInspectorFlag(t)
 	catchSIGUSR1(t)
 
 	// a port nothing listens on: closed by the time the injector dials it

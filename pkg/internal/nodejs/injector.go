@@ -43,12 +43,8 @@ const inspectorRequestTimeout = 5 * time.Second
 
 const inspectorHost = "127.0.0.1"
 
-// The inspector's fixed port. A variable so tests can dial a local stand-in,
-// following the cmdlineForPID pattern used elsewhere in this package.
 var inspectorPort = 9229
 
-// The inspector protocol is the only way to close the inspector again: SIGUSR1
-// opens it and no signal closes it.
 const debugEndExpression = "process._debugEnd();"
 
 const (
@@ -61,11 +57,8 @@ const (
 	inspectorCloseInterval   = 200 * time.Millisecond
 )
 
-// How long the injection waits for the inspector to come up after SIGUSR1,
-// and how long a cleanup attempt waits for one that opened later than that.
 // The cleanup budget is kept short: the injector runs synchronously from the
 // attacher loop, so it delays every other process being instrumented.
-// Variables for the same reason as inspectorPort.
 var (
 	inspectorConnectWait = 5 * time.Second
 	inspectorCloseWait   = 2 * time.Second
@@ -307,17 +300,20 @@ func sendMessageWithTimeout(wsConn *websocket.Conn, data []byte, timeout time.Du
 	return nil
 }
 
-// injectFileWS evaluates the agent and, when OBI opened the inspector, closes
-// it again. A failed injection is left to the caller: it cleans up over a
-// fresh connection, which this stalled or broken session cannot do.
-func (i *NodeInjector) injectFileWS(pid int, wsConn *websocket.Conn, payload []byte, mayClose bool) error {
+// injectFileWS evaluates the agent, then always closes the WebSocket and, when
+// OBI opened the inspector, closes that too. A failed injection is left to the
+// caller: it cleans up over a fresh connection, which this stalled or broken
+// session cannot do.
+func (i *NodeInjector) injectFileWS(pid int, wsConn *websocket.Conn, payload []byte, openedByOBI bool) error {
+	defer wsConn.Close()
+
 	if err := sendMessageWithTimeout(wsConn, payload, inspectorRequestTimeout); err != nil {
 		return err
 	}
 
 	i.log.Info("Script successfully injected")
 
-	if mayClose {
+	if openedByOBI {
 		if err := sendEvaluate(wsConn, debugEndExpression, debugEndRequestID); err != nil {
 			i.logInspectorStaysOpen(pid, err)
 		}
@@ -330,9 +326,9 @@ func (i *NodeInjector) injectFileWS(pid int, wsConn *websocket.Conn, payload []b
 // connection. Every failure after the inspector is open would otherwise leave
 // the debugging interface listening, so a failed attempt closes it again when
 // OBI is the one that opened it.
-func (i *NodeInjector) injectViaConn(pid int, conn net.Conn, mayClose bool) (err error) {
+func (i *NodeInjector) injectViaConn(pid int, conn net.Conn, openedByOBI bool) (err error) {
 	defer func() {
-		if err != nil && mayClose {
+		if err != nil && openedByOBI {
 			i.closeInspector(pid)
 		}
 	}()
@@ -348,7 +344,7 @@ func (i *NodeInjector) injectViaConn(pid int, conn net.Conn, mayClose bool) (err
 		return err
 	}
 
-	return i.injectFileWS(pid, wsConn, payload, mayClose)
+	return i.injectFileWS(pid, wsConn, payload, openedByOBI)
 }
 
 // dialInspectorWS opens the debugger session that carries payload, taking
