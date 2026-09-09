@@ -687,7 +687,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
         return false;
     }
 
-    if (!msg->data || msg->data >= msg->data_end) {
+    if (!msg->data || msg->data + 1 > msg->data_end) {
         invalidate_msg_buffers(e_key);
         return false;
     }
@@ -928,7 +928,7 @@ extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
 
     unsigned char *ptr = msg->data + offset;
 
-    if ((void *)ptr + TP_SIZE >= msg->data_end) {
+    if ((void *)ptr + TP_SIZE + 1 > msg->data_end) {
         bpf_d_printk("not enough space [%s]", __FUNCTION__);
         return false;
     }
@@ -1299,7 +1299,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
     const unsigned char *e = msg->data_end;
     unsigned char *ptr = b + (niter * k_max_chunk_size);
 
-    if (ptr >= e) {
+    if (ptr + 1 > e) {
         return SK_PASS;
     }
 
@@ -1312,7 +1312,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
     }
 
     for (u32 i = 0; i < data_size; ++i) {
-        if ((ptr + TP_SIZE >= e) || is_eoh(ptr)) {
+        if ((ptr + TP_SIZE + 1 > e) || is_eoh(ptr)) {
             bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
             break;
         }
