@@ -30,6 +30,8 @@ func glog() *slog.Logger {
 type Definition struct {
 	CIDR string `yaml:"cidr" json:"cidr"`
 	Name string `yaml:"name" json:"name"`
+	// Mapping preserves mapping form for definitions without a name.
+	Mapping bool `yaml:"-" json:"-"`
 }
 
 // Label returns the name if set, otherwise the CIDR string.
@@ -44,11 +46,15 @@ func (d Definition) Label() string {
 // recurse back into MarshalYAML.
 type plainDefinition Definition
 
-// MarshalYAML emits back the shape the definition was written in: a plain CIDR
-// string when no name was given, a "cidr"/"name" mapping otherwise.
+// MarshalYAML emits each definition in the form it was configured in.
 func (d Definition) MarshalYAML() (any, error) {
 	if d.Name == "" {
-		return d.CIDR, nil
+		if !d.Mapping {
+			return d.CIDR, nil
+		}
+		return struct {
+			CIDR string `yaml:"cidr"`
+		}{CIDR: d.CIDR}, nil
 	}
 	return plainDefinition(d), nil
 }
@@ -83,6 +89,7 @@ func (c *Definitions) UnmarshalYAML(value *yaml.Node) error {
 			if d.CIDR == "" {
 				return fmt.Errorf("cidrs[%d]: missing required 'cidr' field", i)
 			}
+			d.Mapping = d.Name == ""
 			defs = append(defs, d)
 		default:
 			return fmt.Errorf("cidrs[%d]: unexpected YAML node kind %v", i, item.Kind)

@@ -158,7 +158,7 @@ func TestUnmarshalYAML_NamedCIDRs(t *testing.T) {
 	require.Len(t, d, 3)
 	assert.Equal(t, Definition{CIDR: "10.0.0.0/8", Name: "cluster-internal"}, d[0])
 	assert.Equal(t, Definition{CIDR: "192.168.0.0/16", Name: "private"}, d[1])
-	assert.Equal(t, Definition{CIDR: "172.16.0.0/12"}, d[2])
+	assert.Equal(t, Definition{CIDR: "172.16.0.0/12", Mapping: true}, d[2])
 }
 
 func TestUnmarshalYAML_MixedFormats(t *testing.T) {
@@ -221,6 +221,21 @@ func TestValidate(t *testing.T) {
 func TestDefinition_Label(t *testing.T) {
 	assert.Equal(t, "my-network", Definition{CIDR: "10.0.0.0/8", Name: "my-network"}.Label())
 	assert.Equal(t, "10.0.0.0/8", Definition{CIDR: "10.0.0.0/8"}.Label())
+}
+
+func TestMarshalYAML_PreservesDefinitionShape(t *testing.T) {
+	input := `- 10.0.0.0/8
+- cidr: 192.168.0.0/16
+  name: private
+- cidr: 172.16.0.0/12
+`
+
+	var definitions Definitions
+	require.NoError(t, yaml.Unmarshal([]byte(input), &definitions))
+
+	output, err := yaml.Marshal(definitions)
+	require.NoError(t, err)
+	assert.Equal(t, input, string(output))
 }
 
 func TestEnvironmentVariableHandling(t *testing.T) {
