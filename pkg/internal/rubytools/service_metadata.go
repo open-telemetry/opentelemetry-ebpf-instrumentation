@@ -123,6 +123,7 @@ func findRailsProject(start, boundary string) (string, bool, error) {
 		if err != nil {
 			return true, err
 		}
+
 		if !rails {
 			return false, nil
 		}
@@ -143,12 +144,15 @@ func inspectRailsProjectDirectory(dir string) (string, bool, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return "", false, nil
 	}
+
 	if err != nil {
 		return "", false, fmt.Errorf("checking Rails config directory %q: %w", configPath, err)
 	}
+
 	if configInfo.Mode()&os.ModeSymlink != 0 {
-		return "", true, nil
+		return "", false, nil
 	}
+
 	if !configInfo.IsDir() {
 		return "", false, nil
 	}
@@ -158,9 +162,11 @@ func inspectRailsProjectDirectory(dir string) (string, bool, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return "", false, nil
 	}
+
 	if err != nil {
 		return "", false, fmt.Errorf("checking Rails application file %q: %w", applicationPath, err)
 	}
+
 	if !applicationInfo.Mode().IsRegular() {
 		return "", true, nil
 	}

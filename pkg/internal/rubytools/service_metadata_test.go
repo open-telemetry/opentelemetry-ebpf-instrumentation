@@ -70,6 +70,19 @@ end
 		assert.Equal(t, "app", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("symlinked config directory is not treated as Rails", func(t *testing.T) {
+		root := t.TempDir()
+		sharedConfig := filepath.Join(root, "shared-config")
+		require.NoError(t, os.MkdirAll(sharedConfig, 0o755))
+		appDir := filepath.Join(root, "app")
+		require.NoError(t, os.MkdirAll(appDir, 0o755))
+		require.NoError(t, os.Symlink(sharedConfig, filepath.Join(appDir, "config")))
+		fileInfo := mockRubyProcess(t, root, "/app", "puma", nil, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("entrypoint searches parent directories for a Rails root", func(t *testing.T) {
 		root := t.TempDir()
 		writeRailsApplication(t, root, "orders", `
