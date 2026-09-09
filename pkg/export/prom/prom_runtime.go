@@ -135,6 +135,11 @@ func (r *metricsReporter) collectRuntimeMetricsLocked(snapshots []runtimemetrics
 		if snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil || snapshot.NodejsResource != nil {
 			r.collectNodejsV8Metrics(snapshot)
 		}
+		if snapshot.Dotnet != nil {
+			if snapshot.Removed || r.runtimeSnapshotProcessLive(snapshot) {
+				r.collectDotnetRuntimeMetrics(snapshot)
+			}
+		}
 		if snapshot.Python != nil {
 			if snapshot.Removed || r.runtimeSnapshotProcessLive(snapshot) {
 				r.collectPythonRuntimeMetrics(snapshot)
@@ -161,7 +166,8 @@ func (r *metricsReporter) runtimeMetricsEnabled() runtimemetrics.Enabled {
 		Runtime: r.goRuntimeMetrics.memoryLimit != nil ||
 			r.jvmRuntimeMetrics.memoryUsed != nil ||
 			r.nodejsRuntimeMetrics.eventLoopTime != nil ||
-			r.pythonRuntimeMetrics.collections != nil,
+			r.pythonRuntimeMetrics.collections != nil ||
+			r.dotnetRuntimeMetrics.collections != nil,
 	}
 }
 

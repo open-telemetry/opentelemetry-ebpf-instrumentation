@@ -296,6 +296,12 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	DotnetGCCollections = metric(Name{
+		Section: "dotnet.gc.collections",
+		OTEL:    "dotnet.gc.collections",
+		Unit:    "{collection}",
+		Type:    InstrumentCounter,
+	})
 	CPythonGCCollections = metric(Name{
 		Section: "cpython.gc.collections",
 		OTEL:    "cpython.gc.collections",

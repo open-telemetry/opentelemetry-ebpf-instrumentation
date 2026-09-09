@@ -23,6 +23,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/denotools"
+	"go.opentelemetry.io/obi/pkg/internal/dotnet"
 	"go.opentelemetry.io/obi/pkg/internal/dotnettools"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
@@ -132,6 +133,12 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
 
+		var dotnetSessions *dotnet.SessionManager
+		if ta.RuntimeMetrics != nil && ta.Cfg.AppRuntimeMetricsEnabled() {
+			dotnetSessions = dotnet.NewSessionManager(ctx, ta.Cfg.DotnetRuntimeMetrics.SamplingInterval, ta.Cfg.DotnetRuntimeMetrics.Timeout, ta.RuntimeMetrics)
+			defer dotnetSessions.Close()
+		}
+
 		var javaInjections *javaInjectionQueue
 		if ta.javaInjector != nil {
 			javaInjections = newJavaInjectionQueue(ta.log, ta.javaInjector.NewExecutable)
@@ -161,6 +168,13 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 
 					ta.processInstances.Inc(executableKey(instr.Obj.FileInfo))
 					if ok := ta.getTracer(&instr.Obj); ok {
+						if dotnetSessions != nil && instr.Obj.Type == svc.InstrumentableDotnet &&
+							instr.Obj.FileInfo.ServiceAttrs().Features.AppRuntime() &&
+							instr.Obj.FileInfo.ServiceAttrs().ExportModes.CanExportMetrics() {
+							if err := dotnetSessions.Start(instr.Obj.FileInfo); err != nil {
+								ta.log.Warn("unable to start .NET runtime metrics", "pid", instr.Obj.FileInfo.Pid(), "error", err)
+							}
+						}
 						ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
 					}
 
@@ -177,6 +191,9 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 						_ = instr.Obj.FileInfo.ELF().Close()
 					}
 				case EventDeleted:
+					if dotnetSessions != nil {
+						dotnetSessions.Remove(instr.Obj.FileInfo)
+					}
 					ta.notifyProcessDeletion(&instr.Obj)
 				}
 			}

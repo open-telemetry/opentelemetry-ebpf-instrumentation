@@ -139,6 +139,15 @@ func TestServiceAttributesAreNotMetricDefaults(t *testing.T) {
 	})
 }
 
+func TestDotnetRuntimeDefinitions(t *testing.T) {
+	definitions := getDefinitions(0, NewGroupAttributes(nil))
+	definition, ok := definitions[DotnetGCCollections.Section]
+	require.True(t, ok)
+	assert.Contains(t, definition.All(), attr.ServiceName)
+	assert.Contains(t, definition.All(), attr.ServiceNamespace)
+	assert.Contains(t, definition.Default(), attr.DotnetGCHeapGeneration)
+}
+
 func TestCPythonRuntimeDefinitions(t *testing.T) {
 	tests := []Name{
 		CPythonGCCollections,
