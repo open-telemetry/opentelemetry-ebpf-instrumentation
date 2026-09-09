@@ -1738,6 +1738,7 @@ func verifyPythonAsyncGenericTrace(ct *assert.CollectT, endpoint, slug, downstre
 	if resp == nil {
 		return
 	}
+	defer resp.Body.Close()
 	require.Equal(ct, http.StatusOK, resp.StatusCode)
 	var tq jaeger.TracesQuery
 	require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))

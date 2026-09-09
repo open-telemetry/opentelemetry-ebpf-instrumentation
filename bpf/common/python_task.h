@@ -14,7 +14,8 @@
 #include <pid/pid_helpers.h>
 
 // ctx_vars offset in struct _pycontextobject: PyObject_HEAD + ctx_prev.
-// Layout is identical across CPython 3.9-3.14 standard 64-bit builds.
+// Layout is identical across GIL-enabled, 64-bit CPython 3.9-3.14 builds.
+// Free-threaded builds are unsupported.
 // See https://github.com/python/cpython/blob/3.14/Include/internal/pycore_context.h#L21-L27
 enum { k_python_context_vars_offset = 16 + 8 };
 
@@ -114,7 +115,7 @@ static __always_inline u8 resolve_python_context_task(u64 pid_tgid,
 }
 
 // Resolve a context owner and tell callers whether another parent lookup is safe.
-// Callers may continue fallback only when no context binding was found.
+// Callers may continue fallback only when there is no active context.
 static __always_inline python_task_resolution_t
 resolve_python_task_from_context(u64 pid_tgid, u64 context, python_task_ref_t *task_ref) {
     if (!context) {
@@ -125,7 +126,7 @@ resolve_python_task_from_context(u64 pid_tgid, u64 context, python_task_ref_t *t
     const python_context_task_t *context_task =
         (const python_context_task_t *)bpf_map_lookup_elem(&python_context_task, &context_key);
     if (!context_task) {
-        return PYTHON_TASK_NOT_FOUND;
+        return PYTHON_TASK_STALE;
     }
 
     if (context_task->vars != read_python_context_vars(context)) {

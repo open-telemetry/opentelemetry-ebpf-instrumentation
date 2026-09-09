@@ -172,7 +172,7 @@ resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid, python_task_
                            thread_state->current_task);
             return PYTHON_TASK_RESOLVED;
         }
-        return PYTHON_TASK_NOT_FOUND;
+        return PYTHON_TASK_STALE;
     }
 
     if (!thread_state->current_context) {

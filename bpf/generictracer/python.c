@@ -288,6 +288,8 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     if (thread_state->current_task != k_python_state_none) {
         if (resolve_python_task_ref(id, thread_state->current_task, &parent_ref)) {
             parent_resolution = PYTHON_TASK_RESOLVED;
+        } else {
+            parent_resolution = PYTHON_TASK_STALE;
         }
     } else {
         parent_resolution =

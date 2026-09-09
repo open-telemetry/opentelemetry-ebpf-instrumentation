@@ -16,6 +16,9 @@ context propagation for `asyncio` workloads, including applications running on
 
 ## Current State
 
+Supported builds are GIL-enabled, 64-bit CPython 3.9 through 3.14.
+Free-threaded builds are unsupported.
+
 | Execution pattern | Python runtime behavior | OBI correlation path |
 |-------------------|-------------------------|----------------------|
 | `await` in the current task | The event-loop thread is executing a single `asyncio.Task` | `task_step` records `current_task`, and parent lookup resolves the request directly from that task |
@@ -252,7 +255,7 @@ Two defenses:
    lifetime.
 2. **Identity fallback**: bindings also record the context's `ctx_vars`
    (`PyHamtObject*`, read at offset 24 of `struct _pycontextobject`, a layout
-   stable across CPython 3.9-3.14 standard builds). Activation re-reads and
+   stable across GIL-enabled, 64-bit CPython 3.9-3.14 builds). Activation re-reads and
    compares it, rejecting most stale bindings on builds where the dealloc
    symbol cannot be attached. Contexts sharing the empty-HAMT singleton are
    indistinguishable to this check, which is why the dealloc probe is the
