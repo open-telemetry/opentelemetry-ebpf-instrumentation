@@ -24,12 +24,12 @@ var (
 		`^\s*class\s+((?:::)?[A-Z][A-Za-z\d_]*(?:::[A-Z][A-Za-z\d_]*)*)\s*<\s*(?:::)?Rails::Application\b`,
 	)
 	rubyScopeDeclaration = regexp.MustCompile(
-		`^\s*(?:class|def|if|unless|case|while|until|for|begin)\b`,
+		`^(?:class|def|if|unless|case|while|until|for|begin)\b`,
 	)
 	rubyDoBlockDeclaration = regexp.MustCompile(
 		`\bdo(?:\s*\|[^|]*\|)?\s*(?:#.*)?$`,
 	)
-	rubyScopeEnd = regexp.MustCompile(`^\s*end\s*(?:#.*)?$`)
+	rubyScopeEnd = regexp.MustCompile(`^end(?:\s*#.*)?$`)
 )
 
 type rubyScope struct {
