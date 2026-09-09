@@ -1190,6 +1190,82 @@ func TestManualSpanKind(t *testing.T) {
 	}))
 }
 
+func TestMessagingSpanKindFollowsTheOperationNotTheDirection(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType request.EventType
+		operation string
+		want      trace2.SpanKind
+	}{
+		{"kafka send", request.EventTypeKafkaClient, request.MessagingSend, trace2.SpanKindProducer},
+		{"kafka publish", request.EventTypeKafkaClient, request.MessagingPublish, trace2.SpanKindProducer},
+		{"kafka process", request.EventTypeKafkaClient, request.MessagingProcess, trace2.SpanKindConsumer},
+		{"kafka receive", request.EventTypeKafkaClient, request.MessagingReceive, trace2.SpanKindClient},
+		{"kafka settle", request.EventTypeKafkaClient, request.MessagingSettle, trace2.SpanKindClient},
+		{"kafka receive observed from the receiving side", request.EventTypeKafkaServer, request.MessagingReceive, trace2.SpanKindClient},
+		{"kafka send observed from the receiving side", request.EventTypeKafkaServer, request.MessagingSend, trace2.SpanKindProducer},
+		{"kafka process observed from the receiving side", request.EventTypeKafkaServer, request.MessagingProcess, trace2.SpanKindConsumer},
+		{"nats send observed from the receiving side", request.EventTypeNATSServer, request.MessagingSend, trace2.SpanKindProducer},
+		{"mqtt process observed from the receiving side", request.EventTypeMQTTServer, request.MessagingProcess, trace2.SpanKindConsumer},
+		{"amqp send", request.EventTypeAMQPClient, request.MessagingSend, trace2.SpanKindProducer},
+		{"an unmapped operation stays internal", request.EventTypeKafkaServer, "Metadata", trace2.SpanKindInternal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, spanKind(&request.Span{Type: tt.eventType, Method: tt.operation}))
+		})
+	}
+}
+
+func TestNoMessagingSpanIsReportedAsServerKind(t *testing.T) {
+	messaging := []request.EventType{
+		request.EventTypeKafkaClient, request.EventTypeKafkaServer,
+		request.EventTypeMQTTClient, request.EventTypeMQTTServer,
+		request.EventTypeNATSClient, request.EventTypeNATSServer,
+		request.EventTypeAMQPClient,
+	}
+	operations := []string{
+		request.MessagingSend, request.MessagingPublish,
+		request.MessagingReceive, request.MessagingProcess,
+		request.MessagingSettle, "",
+	}
+
+	for _, et := range messaging {
+		for _, op := range operations {
+			kind := spanKind(&request.Span{Type: et, Method: op})
+			assert.NotEqualf(t, trace2.SpanKindServer, kind,
+				"%v with operation %q reported server kind; semantic conventions define no server-kind messaging span", et, op)
+		}
+	}
+}
+
+func TestSQSSpanKindWithoutMessageContext(t *testing.T) {
+	sqsSpan := func(operationType string) *request.Span {
+		return &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAWSSQS,
+			AWS:     &request.AWS{SQS: request.AWSSQS{OperationType: operationType}},
+		}
+	}
+
+	// OBI does not inject the span context into SQS messages, so the observed
+	// exchanges remain client spans regardless of their messaging operation.
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingSend)))
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingReceive)))
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingSettle)))
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan("")))
+
+	assert.Equal(t, trace2.SpanKindClient, spanKind(&request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeAWSSQS,
+	}))
+	assert.Equal(t, trace2.SpanKindClient, spanKind(&request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeAWSS3,
+	}))
+}
+
 func manualOTelPayload(t *testing.T) []byte {
 	t.Helper()
 
@@ -1395,6 +1471,94 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 			for _, key := range tt.keys {
 				_, ok := selected.Get(key)
 				assert.False(t, ok, key)
+			}
+		})
+	}
+}
+
+func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	transportKeys := []string{
+		"url.full", "url.scheme", "url.query", "http.request.method",
+		"http.response.status_code", "http.request.body.size", "http.response.body.size",
+	}
+
+	for _, tt := range []struct {
+		name    string
+		subType int
+		payload func(*request.Span)
+		present []string
+	}{
+		{
+			name:    "plain http client keeps the full transport surface",
+			subType: request.HTTPSubtypeNone,
+			present: transportKeys,
+		},
+		{
+			name:    "elasticsearch keeps the db conventions plus the response size",
+			subType: request.HTTPSubtypeElasticsearch,
+			payload: func(s *request.Span) {
+				s.Elasticsearch = &request.Elasticsearch{DBSystemName: "elasticsearch", DBOperationName: "search"}
+			},
+			present: []string{"url.full", "http.request.method", "http.response.body.size"},
+		},
+		{
+			name:    "aws s3 carries no http transport attributes",
+			subType: request.HTTPSubtypeAWSS3,
+			payload: func(s *request.Span) { s.AWS = &request.AWS{} },
+		},
+		{
+			name:    "aws sqs carries no http transport attributes",
+			subType: request.HTTPSubtypeAWSSQS,
+			payload: func(s *request.Span) { s.AWS = &request.AWS{} },
+		},
+		{
+			name:    "openai carries no http transport attributes",
+			subType: request.HTTPSubtypeOpenAI,
+			payload: func(s *request.Span) { s.GenAI = &request.GenAI{OpenAI: &request.VendorOpenAI{ID: "chatcmpl-1"}} },
+		},
+		{
+			name:    "mcp carries no http transport attributes",
+			subType: request.HTTPSubtypeMCP,
+			payload: func(s *request.Span) { s.GenAI = &request.GenAI{MCP: &request.MCPCall{Method: "tools/call"}} },
+		},
+		{
+			name:    "json-rpc carries no http transport attributes",
+			subType: request.HTTPSubtypeJSONRPC,
+			payload: func(s *request.Span) { s.JSONRPC = &request.JSONRPC{Method: "subtract", Version: "2.0"} },
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:     request.EventTypeHTTPClient,
+				SubType:  tt.subType,
+				Method:   "POST",
+				Path:     "/v1/things",
+				FullPath: "/v1/things?q=1",
+				Host:     "api.example.com",
+				HostPort: 443,
+				Status:   200,
+			}
+			if tt.payload != nil {
+				tt.payload(span)
+			}
+
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+
+			expected := map[string]bool{}
+			for _, k := range tt.present {
+				expected[k] = true
+			}
+			for _, key := range transportKeys {
+				_, ok := selected.Get(key)
+				assert.Equal(t, expected[key], ok, key)
+			}
+
+			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
+				_, ok := selected.Get(key)
+				assert.True(t, ok, "%s must survive on every http client subtype", key)
 			}
 		})
 	}
@@ -1684,4 +1848,21 @@ func TestTraceAttributesSelector_DBResponseStatusCode(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "42P01", v.AsString())
 	})
+}
+
+func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", Status: 200}
+
+	traces := GenerateTracesWithAttributes(
+		cache,
+		&span.Service,
+		nil,
+		&meta.NodeMeta{},
+		[]TraceSpanAndAttributes{{Span: &span, Attributes: TraceAttributesSelector(&span, map[attr.Name]struct{}{})}},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	assert.Equal(t, attr.OBISchemaURL, traces.ResourceSpans().At(0).SchemaUrl())
 }

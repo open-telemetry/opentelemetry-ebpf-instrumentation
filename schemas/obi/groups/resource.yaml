@@ -15,8 +15,10 @@
 # This file declares only attributes OBI itself SETS. Attributes OBI merely
 # forwards from the workload (deployment.environment.name and any other
 # OTEL_RESOURCE_ATTRIBUTES / app-emitted keys) are passthrough, not part of
-# OBI's contract, and are tolerated by live-check policy (.weaver.toml)
-# instead. service.version is NOT passthrough: OBI derives it from the
+# OBI's contract. Only deployment.environment.name is tolerated by live-check
+# policy (.weaver.toml); any other forwarded key still surfaces as a finding,
+# which is deliberate — a key OBI does not set should be visible rather than
+# silently absorbed. service.version is NOT passthrough: OBI derives it from the
 # app.kubernetes.io/version label and from the Java application manifest, so
 # it is declared alongside service.name / service.namespace on the target.info
 # carriers in obi_internal/metrics.yaml.

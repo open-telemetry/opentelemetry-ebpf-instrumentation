@@ -168,18 +168,6 @@ jobs:
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
-  integration-tests-arm:
-    name: Integration tests ARM
-    uses: $/.github/workflows/pull_request_integration_tests_arm.yml
-    needs: validate-tag
-    permissions:
-      contents: read
-      checks: write
-      pull-requests: write
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    with:
-      ref: ${{ inputs.tag || github.ref_name }}
-
   k8s-integration-tests:
     name: K8s integration tests
     uses: $/.github/workflows/pull_request_k8s_integration_tests.yml
@@ -286,7 +274,6 @@ jobs:
       - bpf-verifier
       - bpf-unit-tests
       - integration-tests
-      - integration-tests-arm
       - k8s-integration-tests
       - oats-tests
       - vm-integration-tests
@@ -371,7 +358,7 @@ jobs:
 
       - name: Install Syft
         id: syft
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           run: download-syft
           syft-version: v1.42.2

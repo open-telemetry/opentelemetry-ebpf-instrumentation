@@ -31,12 +31,7 @@ groups:
     brief: OBI Elasticsearch client span, detected from HTTP client traffic.
     attributes:
       - ref: http.request.method
-      - ref: http.response.status_code
       - ref: url.full
-      - ref: url.scheme
-      - ref: url.query
-      - ref: http.request.body.size
-      - ref: http.response.body.size
       - ref: db.system.name
       - ref: db.namespace
       - ref: db.collection.name

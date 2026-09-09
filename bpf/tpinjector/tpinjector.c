@@ -5,6 +5,7 @@
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
+#include <bpfcore/utils.h>
 
 #include <common/algorithm.h>
 #include <common/connection_info.h>
@@ -44,6 +45,7 @@
 
 #include <tpinjector/h2_parse.h>
 #include <tpinjector/inject_policy.h>
+#include <tpinjector/h2_write_transaction.h>
 #include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
@@ -191,6 +193,7 @@ typedef struct tailcall_ctx {
 
 SCRATCH_MEM(tailcall_ctx);
 SCRATCH_MEM_SIZED(tp_str_buf, 64);
+SCRATCH_MEM_SIZED(h2_write_expected, k_h2_tp_hpack_size);
 
 // Resume detect_h2 at next_pos for the next batched HEADERS frame.
 // Bumps the per-packet frame counter, then tail-calls back into detect_h2.
@@ -658,6 +661,14 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     return 1;
 }
 
+// A bail must not leave the previous send's buffers behind. Deleting the keyed
+// entry cuts off the tcp_sendmsg kprobe; msg_buffer_mem itself needs no
+// clearing because every reader is gated on fill_msg_buffers success or on the
+// msg_buffers entry deleted here — keep it that way
+static __always_inline void invalidate_msg_buffers(const egress_key_t *e_key) {
+    bpf_map_delete_elem(&msg_buffers, e_key);
+}
+
 // This code is copied from the kprobe on tcp_sendmsg and it's called from
 // the sock_msg program, which does the packet extension for injecting the
 // Traceparent. Since the sock_msg runs before the kprobe on tcp_sendmsg, we
@@ -672,28 +683,43 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
                                              const pid_connection_info_t *p_conn,
                                              const egress_key_t *e_key) {
     if (msg->size == 0 || is_ssl_connection(p_conn)) {
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
+    if (!msg->data || msg->data >= msg->data_end) {
+        invalidate_msg_buffers(e_key);
+        return false;
+    }
+
+    // The mapped [data, data_end) window is always a sub-range of the message, so
+    // bounding every read by it is sufficient on its own — msg->size can't add
+    // information a failed bpf_msg_pull_data() has already invalidated.
+    u32 window = (unsigned char *)msg->data_end - (unsigned char *)msg->data;
+    bpf_clamp_umax(window, k_msg_buffer_size_max);
+
     msg_buffer_t msg_buf = {
         .pos = 0,
-        .real_size = min(msg->size, k_msg_buffer_size_max),
+        .real_size = window,
         .cpu_id = bpf_get_smp_processor_id(),
     };
 
-    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
+    // fallback_buf is a fixed k_kprobes_http2_buf_size array, smaller than window's
+    // ceiling, so it needs its own, tighter clamp.
+    u32 fallback_bytes = window;
+    bpf_clamp_umax(fallback_bytes, k_kprobes_http2_buf_size);
+    bpf_probe_read_kernel(msg_buf.fallback_buf, fallback_bytes, msg->data);
 
-    const u16 copy_bytes = max(msg_buf.real_size, k_kprobes_http2_buf_size);
-
-    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+    unsigned char *msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
     if (!msg_ptr) {
         bpf_d_printk("failed to reserve msg_buffer space [%s]", __FUNCTION__);
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
     msg_ptr[0] = 0;
-    bpf_probe_read_kernel(msg_ptr, copy_bytes & k_msg_buffer_size_max_mask, msg->data);
+    bpf_probe_read_kernel(msg_ptr, window, msg->data);
     bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
 
     // We setup any call that looks like HTTP request to be extended.
@@ -704,6 +730,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
 
     if (bpf_map_update_elem(&msg_buffers, e_key, &msg_buf, BPF_ANY)) {
         // fail if we can't setup a msg buffer
+        invalidate_msg_buffers(e_key);
         return false;
     }
 
@@ -727,7 +754,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
         return 0;
     }
 
-    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+    unsigned char *msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
     if (!msg_ptr) {
         return 0;
@@ -1096,7 +1123,11 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    fill_msg_buffers(msg, p_conn, e_key);
+
+    if (!fill_msg_buffers(msg, p_conn, e_key)) {
+        clear_tp_info_pid(e_key);
+        return false;
+    }
 
     const bool is_http = protocol_detector(msg, id, &p_conn->conn);
     if (is_http) {
@@ -1796,14 +1827,11 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
 
     if (have_existing) {
         bpf_memcpy(tp_p, existing, sizeof(*tp_p));
-        tp_p->written = 1;
-        set_tp_info_pid(&t_ctx->e_key, tp_p);
     } else {
         init_tp_ctx_parent_tp(t_ctx);
         if (!create_trace_info(t_ctx, tp_p)) {
             return SK_PASS;
         }
-        tp_p->written = 1;
         if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_NOEXIST) != 0) {
             existing = get_tp_info_pid(&t_ctx->e_key);
             if (existing) {
@@ -1816,35 +1844,6 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_h2_traceparent);
     }
     return SK_PASS;
-}
-
-// Rewrites the 3-byte length field of the frame at frame_offset.
-static __always_inline bool h2_write_frame_len(struct sk_msg_md *msg, u32 frame_offset, u32 len) {
-    enum { k_h2_frame_len_field = 3 };
-
-    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + k_h2_frame_len_field, 0) != 0) {
-        return false;
-    }
-
-    unsigned char *data = msg->data;
-    if (!data || (void *)data + k_h2_frame_len_field > msg->data_end) {
-        return false;
-    }
-
-    data[0] = (len >> 16) & 0xFF;
-    data[1] = (len >> 8) & 0xFF;
-    data[2] = len & 0xFF;
-
-    return true;
-}
-
-// Undoes a push whose bytes were never filled: leftover bytes are a COMPRESSION_ERROR and a
-// restored length alone leaves a bogus frame header behind, both connection-level (RFC 7540 4.3)
-static __always_inline void
-h2_undo_tp_push(struct sk_msg_md *msg, u32 frame_offset, u32 inject_offset, u32 payload_len) {
-    if (bpf_msg_pop_data(msg, inject_offset, k_h2_tp_hpack_size, 0) == 0) {
-        h2_write_frame_len(msg, frame_offset, payload_len);
-    }
 }
 
 // k_tail_write_h2_traceparent — push k_h2_tp_hpack_size bytes of HPACK at
@@ -1873,36 +1872,27 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
 
     const u32 inject_offset = t_ctx->h2_hpack_offset + t_ctx->h2_hpack_len;
 
-    // linearize before push, as the HTTP/1 path does
-    bpf_msg_pull_data(msg, 0, msg->size, 0);
-
-    // length before push: a failed push then changes nothing on the wire
-    if (!h2_write_frame_len(msg, frame_offset, payload_len + k_h2_tp_hpack_size)) {
+    unsigned char *expected = h2_write_expected_mem();
+    if (!expected) {
         return SK_PASS;
     }
-    if (bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
-        // a failed push leaves the message untouched, so restoring the length cannot fail
-        h2_write_frame_len(msg, frame_offset, payload_len);
-        return SK_PASS;
-    }
+    make_h2_tp_hpack(expected, &tp_p->tp, expected + k_h2_tp_hpack_size);
 
-    // past the push the inserted bytes exist but hold no field, so every exit has to undo
-    if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
-        h2_undo_tp_push(msg, frame_offset, inject_offset, payload_len);
-        return SK_PASS;
+    const h2_socket_transaction_outcome_t outcome =
+        h2_write_socket_transaction(msg, frame_offset, payload_len, inject_offset, expected);
+    if (outcome == k_h2_socket_transaction_rollback_uncertain) {
+        bpf_d_printk("dropping message after uncertain h2 rollback [%s]", __FUNCTION__);
+        return SK_DROP;
     }
-
-    unsigned char *data = msg->data;
-    const unsigned char *end = msg->data_end;
-    if (!data || (void *)data + k_h2_tp_hpack_size > (void *)end) {
-        h2_undo_tp_push(msg, frame_offset, inject_offset, payload_len);
+    if (outcome != k_h2_socket_transaction_committed) {
+        h2_resume_after(msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + payload_len);
         return SK_PASS;
     }
 
-    make_h2_tp_hpack(data, &tp_p->tp, end);
-
-    bpf_msg_pull_data(msg, 0, msg->size, 0);
-
+    tp_p->written = 1;
+    if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_ANY) != 0) {
+        bpf_d_printk("failed to publish committed h2 traceparent [%s]", __FUNCTION__);
+    }
     print_tp("h2: written TP to HPACK", &tp_p->tp);
 
     // bpf_msg_push_data shifted bytes after inject_offset right by
@@ -1912,5 +1902,17 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
                     t_ctx,
                     t_ctx->h2_frame_offset + k_h2_frame_header_len + payload_len +
                         k_h2_tp_hpack_size);
+    return SK_PASS;
+}
+
+// Kernels that cannot verify bpf_msg_pop_data load this program in place of the mutator.
+SEC("sk_msg")
+int obi_packet_extender_write_h2_tp_no_rollback(struct sk_msg_md *msg) {
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+    h2_resume_after(
+        msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
     return SK_PASS;
 }

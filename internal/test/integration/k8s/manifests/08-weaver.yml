@@ -79,6 +79,8 @@ spec:
         - /obi-registry
         - --inactivity-timeout
         - "300"
+        - --otlp-grpc-address
+        - "0.0.0.0"
         - --admin-port
         - "4320"
         - --format

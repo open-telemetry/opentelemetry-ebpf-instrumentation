@@ -1,4 +1,4 @@
-schema_url: https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2
+schema_url: https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.13.0
 description: |
   Schema registry for the OpenTelemetry eBPF instrumentation (OBI).
 
@@ -7,7 +7,8 @@ description: |
   the standard semconv set:
 
   - The `target.info` meta-metric family (Prometheus / OpenMetrics
-    `target_info` heritage, emitted in OTel dot notation over OTLP)
+    `target_info` heritage, emitted in OTel dot notation over OTLP) and the
+    `instance` / `job` scrape-convention attributes it carries
   - Span metrics matching the OTel collector-contrib `spanmetricsconnector`
     output, in both naming schemes: the OTel-canonical
     `traces.span.metrics.*` names (emitted when the `application_span_otel`

@@ -118,13 +118,17 @@ const (
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
 )
 
+// IsGenAISubtype reports whether a subtype is recorded on the GenAI client
+// metrics. MCP is deliberately absent: it is a tool and resource protocol
+// rather than a model provider, so it has no `gen_ai.provider.name` to report,
+// and semantic conventions give it its own `mcp.client.*` / `mcp.server.*`
+// metrics. Its spans still carry the GenAI attributes it does define.
 func IsGenAISubtype(subtype int) bool {
 	return subtype == HTTPSubtypeOpenAI ||
 		subtype == HTTPSubtypeAnthropic ||
 		subtype == HTTPSubtypeGemini ||
 		subtype == HTTPSubtypeQwen ||
 		subtype == HTTPSubtypeAWSBedrock ||
-		subtype == HTTPSubtypeMCP ||
 		subtype == HTTPSubtypeEmbedding ||
 		subtype == HTTPSubtypeRerank ||
 		subtype == HTTPSubtypeRetrieval ||
@@ -211,6 +215,7 @@ const (
 	MessagingReceive = "receive"
 	MessagingPublish = "publish"
 	MessagingProcess = "process"
+	MessagingSettle  = "settle"
 )
 
 func MessagingOperationTypeOf(operationName string) string {
@@ -218,6 +223,51 @@ func MessagingOperationTypeOf(operationName string) string {
 		return MessagingSend
 	}
 	return operationName
+}
+
+// IsSQSMessagingClientOperation reports whether an AWS SQS span describes a
+// producer or consumer operation. Queue administration calls carry no
+// messaging.operation.type and are not messaging client operations.
+func IsSQSMessagingClientOperation(span *Span) bool {
+	if span.SubType != HTTPSubtypeAWSSQS || span.AWS == nil {
+		return false
+	}
+	switch span.AWS.SQS.OperationType {
+	case MessagingSend, MessagingReceive, MessagingSettle:
+		return true
+	default:
+		return false
+	}
+}
+
+// MessagingSpanKind maps a messaging operation to its span kind. A receive or a
+// settle is a client operation rather than a consumer one: OBI observes the
+// exchange with the broker, not what the application afterwards does with the
+// message, which is what a consumer span describes.
+func MessagingSpanKind(operationName string) (trace.SpanKind, bool) {
+	switch MessagingOperationTypeOf(operationName) {
+	case MessagingSend:
+		return trace.SpanKindProducer, true
+	case MessagingProcess:
+		return trace.SpanKindConsumer, true
+	case MessagingReceive, MessagingSettle:
+		return trace.SpanKindClient, true
+	}
+	return trace.SpanKindUnspecified, false
+}
+
+func spanKindString(kind trace.SpanKind) string {
+	switch kind {
+	case trace.SpanKindServer:
+		return "SPAN_KIND_SERVER"
+	case trace.SpanKindClient:
+		return "SPAN_KIND_CLIENT"
+	case trace.SpanKindProducer:
+		return "SPAN_KIND_PRODUCER"
+	case trace.SpanKindConsumer:
+		return "SPAN_KIND_CONSUMER"
+	}
+	return "SPAN_KIND_INTERNAL"
 }
 
 type converter struct {
@@ -1883,29 +1933,20 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	if s.Type == EventTypeManualSpan {
-		switch s.SpanKind {
-		case trace.SpanKindServer:
-			return "SPAN_KIND_SERVER"
-		case trace.SpanKindClient:
-			return "SPAN_KIND_CLIENT"
-		case trace.SpanKindProducer:
-			return "SPAN_KIND_PRODUCER"
-		case trace.SpanKindConsumer:
-			return "SPAN_KIND_CONSUMER"
-		}
+		return spanKindString(s.SpanKind)
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
 		return "SPAN_KIND_CLIENT"
-	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
-		switch MessagingOperationTypeOf(s.Method) {
-		case MessagingSend:
-			return "SPAN_KIND_PRODUCER"
-		case MessagingProcess:
-			return "SPAN_KIND_CONSUMER"
+	case EventTypeKafkaClient, EventTypeKafkaServer,
+		EventTypeMQTTClient, EventTypeMQTTServer,
+		EventTypeNATSClient, EventTypeNATSServer,
+		EventTypeAMQPClient:
+		if kind, ok := MessagingSpanKind(s.Method); ok {
+			return spanKindString(kind)
 		}
 	}
 	return "SPAN_KIND_INTERNAL"
@@ -2500,6 +2541,30 @@ func (s *Span) GenAIOperationName() string {
 	return ""
 }
 
+// genAIProviderNames is the value space of `gen_ai.provider.name`, mirroring the
+// enum declared in schemas/obi/groups/gen_ai/registry.yaml. Adding a provider
+// requires adding its member there too; a test asserts the two agree.
+var genAIProviderNames = map[string]struct{}{
+	"openai": {}, "gcp.gen_ai": {}, "gcp.vertex_ai": {}, "gcp.gemini": {},
+	"anthropic": {}, "cohere": {}, "azure.ai.inference": {}, "azure.ai.openai": {},
+	"ibm.watsonx.ai": {}, "aws.bedrock": {}, "perplexity": {}, "x_ai": {},
+	"deepseek": {}, "groq": {}, "mistral_ai": {}, "qwen": {}, "voyage": {},
+	"jina": {}, "pinecone": {}, "qdrant": {}, "milvus": {}, "zilliz": {},
+	"chroma": {}, "weaviate": {}, "generic": {}, "ollama": {}, "litellm": {},
+	"vllm": {}, "localai": {}, "openrouter": {}, "custom": {},
+}
+
+// openAICompatibleProviderName maps a configured gateway provider onto the
+// attribute's value space. The name is free-form configuration and the
+// attribute is a closed enum, so a gateway with no member reports as `custom`;
+// the gateway itself stays identifiable through `server.address`.
+func openAICompatibleProviderName(configured string) string {
+	if _, ok := genAIProviderNames[configured]; ok {
+		return configured
+	}
+	return "custom"
+}
+
 func (s *Span) GenAIProviderName() string {
 	if s.GenAI == nil {
 		return ""
@@ -2520,10 +2585,7 @@ func (s *Span) GenAIProviderName() string {
 		return "ollama"
 	}
 	if s.GenAI.OpenAICompatible != nil {
-		if s.GenAI.OpenAICompatible.ProviderName != "" {
-			return s.GenAI.OpenAICompatible.ProviderName
-		}
-		return "custom"
+		return openAICompatibleProviderName(s.GenAI.OpenAICompatible.ProviderName)
 	}
 	if s.GenAI.Bedrock != nil {
 		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()

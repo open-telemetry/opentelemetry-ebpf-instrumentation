@@ -1,7 +1,8 @@
 groups:
   # Overrides `telemetry.sdk.language`: extends the upstream enum with
   # `generic`, which pkg/appolly/app/svc/svc.go (InstrumentableType.String)
-  # reports for executables with no recognized language runtime — OBI
+  # reports for executables with no recognized language runtime; and
+  # `deno-rust`, which is based in Deno's own telemetry conventions — OBI
   # instruments processes that carry no SDK at all, a case the upstream enum
   # has no member for.
   #
@@ -60,6 +61,11 @@ groups:
               brief: >
                 A process with no recognized language runtime, instrumented
                 at the eBPF level without any telemetry SDK.
+              stability: development
+            - id: deno-rust
+              value: "deno-rust"
+              brief: >
+                A JavaScript application running in the Deno runtime.
               stability: development
         stability: stable
         brief: >

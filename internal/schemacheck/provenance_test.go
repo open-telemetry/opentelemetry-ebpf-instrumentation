@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,9 @@ const (
 	registryDir = "../../schemas/obi"
 
 	resolveTimeout = 2 * time.Minute
+
+	// Probing the runtime must not hang a test run when a daemon is wedged.
+	runtimeProbeTimeout = 15 * time.Second
 )
 
 type resolvedGroup struct {
@@ -71,14 +75,17 @@ func resolveRegistry(t *testing.T) resolveOutput {
 	if ociBin == "" {
 		ociBin = "docker"
 	}
-	if !lookPathOK(ociBin) {
-		// Skipping keeps `go test ./...` usable on a machine without a
-		// container runtime, but in CI a missing runtime would silently
-		// void the guarantee, so fail there instead.
+	// The binary existing is not enough: Docker Desktop leaves its CLI on PATH
+	// with the daemon stopped, which would fail the check for a reason that
+	// says nothing about the registry.
+	if err := runtimeUsable(t, ociBin); err != nil {
+		// Skipping keeps `go test ./...` usable on a machine with no reachable
+		// container runtime, but in CI that would silently void the guarantee,
+		// so fail there instead.
 		if os.Getenv("CI") != "" {
-			t.Fatalf("%s is required for the provenance check in CI", ociBin)
+			t.Fatalf("%s is required for the provenance check in CI: %v", ociBin, err)
 		}
-		t.Skipf("%s is not available; skipping provenance check", ociBin)
+		t.Skipf("%s is not usable (%v); skipping provenance check", ociBin, err)
 	}
 	// Without the pinned upstream registry weaver cannot resolve, and the
 	// failure says nothing about the registry under test. Skip as the drift
@@ -122,9 +129,22 @@ func resolveRegistry(t *testing.T) resolveOutput {
 	return res
 }
 
-func lookPathOK(bin string) bool {
-	_, err := exec.LookPath(bin)
-	return err == nil
+// runtimeUsable reports whether the container runtime can actually run
+// something, not merely whether its CLI is installed.
+func runtimeUsable(t *testing.T, bin string) error {
+	t.Helper()
+
+	if _, err := exec.LookPath(bin); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), runtimeProbeTimeout)
+	defer cancel()
+
+	if out, err := exec.CommandContext(ctx, bin, "info").CombinedOutput(); err != nil {
+		return fmt.Errorf("%s info: %w: %s", bin, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // TestOBIMetricOverridesResolveToLocalNarrowedDefinition verifies that every

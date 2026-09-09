@@ -27,13 +27,15 @@ groups:
         type: string
         stability: development
         brief: >
-          Instance identifier of the reporting service, carried on target.info.
+          Instance identifier of the reporting service, carried on target.info
+          and on every Prometheus span-metrics series.
         examples: ["host.local:9090"]
       - id: job
         type: string
         stability: development
         brief: >
-          Job identifier of the reporting service, carried on target.info.
+          Job identifier of the reporting service, carried on target.info and
+          on every Prometheus span-metrics series.
         examples: ["my-service"]
       - id: obi.version
         type: string
@@ -77,12 +79,6 @@ groups:
       (`process.executable.name`, `error.type`) the metrics reference it
       directly rather than declaring an OBI-specific alias.
     attributes:
-      - id: obi.error
-        type: string
-        stability: development
-        brief: >
-          Raw error message from a failed OTLP export.
-        examples: ["context deadline exceeded"]
       - id: obi.goarch
         type: string
         stability: development

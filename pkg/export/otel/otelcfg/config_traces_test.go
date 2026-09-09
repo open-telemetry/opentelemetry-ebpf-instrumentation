@@ -382,3 +382,34 @@ func TestNormalizeQueueConfig_EnvVar(t *testing.T) {
 	assert.Equal(t, 75, cfg.BatchMaxSize)
 	assert.Equal(t, 600, cfg.QueueSize)
 }
+
+func TestGetCompression(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		common string
+		traces string
+		want   string
+	}{
+		{name: "neither set", common: "", traces: "", want: ""},
+		{name: "common only", common: "gzip", traces: "", want: "gzip"},
+		{name: "traces only", common: "", traces: "gzip", want: "gzip"},
+		{name: "traces wins over common", common: "none", traces: "gzip", want: "gzip"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := TracesConfig{CommonCompression: tc.common, TracesCompression: tc.traces}
+			assert.Equal(t, tc.want, cfg.GetCompression())
+		})
+	}
+}
+
+func TestCompression_EnvVar(t *testing.T) {
+	defer RestoreEnvAfterExecution()()
+	t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_COMPRESSION", "none")
+
+	var cfg TracesConfig
+	require.NoError(t, env.Parse(&cfg))
+	assert.Equal(t, "gzip", cfg.CommonCompression)
+	assert.Equal(t, "none", cfg.TracesCompression)
+	assert.Equal(t, "none", cfg.GetCompression())
+}

@@ -848,7 +848,7 @@
         },
         "wakeup_len": {
           "type": "integer",
-          "description": "Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0 TODO: see if there is a way to force eBPF to wakeup userspace on timeout",
+          "description": "Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0. The userspace ring buffer reader periodically flushes pending events regardless, so wakeup_len bounds wakeup overhead rather than maximum delivery delay.",
           "default": 500,
           "x-env-var": "OTEL_EBPF_BPF_WAKEUP_LEN"
         }
@@ -2350,7 +2350,7 @@
         },
         "provider": {
           "type": "string",
-          "description": "Name reported in the gen_ai.system span attribute"
+          "description": "Name reported in the gen_ai.provider.name span attribute. A name the attribute's enum has no member for is reported as `custom`."
         }
       },
       "type": "object"
@@ -3010,6 +3010,15 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
+        },
+        "compression": {
+          "type": "string",
+          "enum": [
+            "gzip",
+            "none"
+          ],
+          "description": "Sets the compression applied to exported OTLP payloads.",
+          "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"
         },
         "endpoint": {
           "type": "string",

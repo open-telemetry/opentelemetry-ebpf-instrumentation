@@ -135,7 +135,7 @@ groups:
     stability: development
     brief: Error count on each failed OTEL metric export.
     attributes:
-      - ref: obi.error
+      - ref: error.type
 
   - id: metric.obi.obi.otel.trace.exports
     type: metric
@@ -153,7 +153,7 @@ groups:
     stability: development
     brief: Error count on each failed OTEL trace export.
     attributes:
-      - ref: obi.error
+      - ref: error.type
 
   # --- Instrumentation accounting ----------------------------------------
   - id: metric.obi.obi.instrumented.processes
@@ -295,7 +295,7 @@ groups:
       it is forwarded to the subscribers.
 
   # --- Pipeline queues ----------------------------------------------------
-  - id: metric.obi.queue.capacity.ratio
+  - id: metric.obi.obi.queue.capacity.ratio
     type: metric
     metric_name: obi.queue.capacity.ratio
     instrument: gauge

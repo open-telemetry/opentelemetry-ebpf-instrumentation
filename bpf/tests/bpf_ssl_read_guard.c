@@ -8,8 +8,6 @@
 
 #include <bpfcore/bpf_helpers.h>
 
-enum { BPF_ANY = 0, BPF_NOEXIST = 1 };
-
 struct bpf_test_map {
     int id;
 };

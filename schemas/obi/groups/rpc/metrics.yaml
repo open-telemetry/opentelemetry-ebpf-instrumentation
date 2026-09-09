@@ -10,6 +10,7 @@ groups:
     unit: "s"
     stability: release_candidate
     attributes:
+      - ref: error.type
       - ref: rpc.method
       - ref: rpc.response.status_code
       - ref: rpc.system.name

@@ -2,12 +2,22 @@ groups:
   # Overrides two `gen_ai.*` attributes:
   #
   # - `gen_ai.provider.name`: extends the upstream enum with the GenAI,
-  #   embedding, rerank, and vector-retrieval providers OBI detects that
-  #   upstream semconv has no member for. The extension members mirror the
-  #   provider-detection tables in
-  #   pkg/ebpf/common/http/{embedding,rerank,retrieval}.go and the
-  #   Qwen/DashScope parser; adding a provider to those tables requires adding
-  #   its member here (the weaver-validated suites fail otherwise).
+  #   embedding, rerank, vector-retrieval and OpenAI-compatible-gateway
+  #   providers OBI detects that upstream semconv has no member for. The
+  #   extension members mirror the provider-detection tables in
+  #   pkg/ebpf/common/http/{embedding,rerank,retrieval}.go, the Qwen/DashScope
+  #   and Ollama parsers, and the gateways listed in SUPPORT_MATRIX.md; adding
+  #   a provider to those tables requires adding its member here (the
+  #   weaver-validated suites fail otherwise).
+  #
+  #   One value is user-configured rather than detected:
+  #   `payload_extraction.http.genai.openai_compatible.gateways[].provider`.
+  #   It is free-form, so `openAICompatibleProviderName` in
+  #   pkg/appolly/app/request/span.go normalizes it onto this enum: a name with
+  #   no member below reports as `custom`, the same shape upstream gives
+  #   `http.request.method`, whose `_OTHER` absorbs methods the instrumentation
+  #   does not know. Adding a member here requires adding it to
+  #   `GenAIProviderNames` too; a test asserts the two agree.
   # - `gen_ai.operation.name`: re-typed as a plain string. Upstream's note
   #   explicitly recommends system-specific operation names, and OBI emits the
   #   provider's own vocabulary ('invoke_model' for Bedrock, 'message' for
@@ -139,6 +149,34 @@ groups:
               brief: >
                 A vector-retrieval provider OBI identified from the request
                 shape without recognizing the vendor.
+            - id: ollama
+              stability: development
+              value: "ollama"
+              brief: '[Ollama](https://ollama.com/) native API'
+            - id: litellm
+              stability: development
+              value: "litellm"
+              brief: '[LiteLLM](https://litellm.ai/) OpenAI-compatible gateway'
+            - id: vllm
+              stability: development
+              value: "vllm"
+              brief: '[vLLM](https://docs.vllm.ai/) OpenAI-compatible server'
+            - id: localai
+              stability: development
+              value: "localai"
+              brief: '[LocalAI](https://localai.io/) OpenAI-compatible server'
+            - id: openrouter
+              stability: development
+              value: "openrouter"
+              brief: '[OpenRouter](https://openrouter.ai/) OpenAI-compatible gateway'
+            - id: custom
+              stability: development
+              value: "custom"
+              brief: >
+                An OpenAI-compatible gateway OBI has no member for. Reported
+                when a configured gateway names no provider, and the value a
+                gateway SHOULD be configured with when none of the members
+                above fit.
         brief: The Generative AI provider as identified by the client
           or server instrumentation.
         note: |

@@ -22,3 +22,4 @@ imports:
     - v8js.memory.heap.used
     - v8js.memory.heap.space.available_size
     - v8js.memory.heap.space.physical_size
+    - v8js.resource.active

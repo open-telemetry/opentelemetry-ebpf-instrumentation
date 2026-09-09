@@ -63,6 +63,7 @@ var goAutoSDKActivationModules = [...]activationModule{
 			"v1.43.0": "h1:mYIM03dnh5zfN7HautFE4ieIig9amkNANT+xcVxAj9I=",
 			"v1.44.0": "h1:JjwHmHpA4iZ3wBxluu2fbbE7j4kqlE8jXyAyPXH7HqU=",
 			"v1.45.0": "h1:pdrWmLHofpubmArBv1LgFSv1Z0Ie/ppdZzu+kUN5EeU=",
+			"v1.46.0": "h1:FHt5/CDyVxi/8IM1CH7VE/rRgq3kLHa2mSTVMO8AWyc=",
 		},
 	},
 	{
@@ -81,6 +82,7 @@ var goAutoSDKActivationModules = [...]activationModule{
 			"v1.43.0": "h1:BkNrHpup+4k4w+ZZ86CZoHHEkohws8AY+WTX09nk+3A=",
 			"v1.44.0": "h1:jxF5CsGYCe74MCRx2X4g7WsY/VBKRqqpNvXlX/6gtIk=",
 			"v1.45.0": "h1:l/mP6Uv7oNO7/TblbhpbgMidxhq1uO/rPsikOyVhxag=",
+			"v1.46.0": "h1:OULy7ccdJnZtJ0UDYFOIGaCmiWzJ8Vi2G/Rsu60qs1c=",
 		},
 	},
 }

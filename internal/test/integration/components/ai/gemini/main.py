@@ -34,6 +34,7 @@ async def generate():
         "generationConfig": {
             "temperature": 0.7,
             "maxOutputTokens": 128,
+            "responseMimeType": "application/json",
         },
     }
     resp = requests.post(url, json=payload, headers=_headers())

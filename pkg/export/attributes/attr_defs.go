@@ -307,6 +307,15 @@ func getDefinitions(
 		nil,
 	)
 
+	v8jsResourceAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.V8JSResourceType: true,
+		},
+		nil,
+	)
+
 	httpRoutes := NewAttrReportGroup(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
@@ -366,6 +375,7 @@ func getDefinitions(
 			attr.MessagingDestination: true,
 			attr.MessagingOpName:      true,
 			attr.ServerAddr:           true,
+			attr.ErrorType:            true,
 		},
 		extraGroupAttributes[GroupMessaging],
 	)
@@ -404,6 +414,7 @@ func getDefinitions(
 				attr.RPCMethod:             true,
 				attr.RPCSystem:             true,
 				attr.RPCResponseStatusCode: true,
+				attr.ErrorType:             true,
 			},
 		},
 		RPCServerDuration.Section: {
@@ -638,6 +649,10 @@ func getDefinitions(
 		},
 		V8JSMemoryHeapSpacePhysicalSize.Section: {
 			SubGroups:  []*AttrReportGroup{&v8jsHeapSpaceAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		V8JSResourceActive.Section: {
+			SubGroups:  []*AttrReportGroup{&v8jsResourceAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {

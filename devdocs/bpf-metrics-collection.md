@@ -39,8 +39,9 @@ If both paths are active, each path owns a separate collector.
 
 | Metric | Type | Labels |
 | --- | --- | --- |
-| `bpf_probe_latency_seconds` | Histogram | `probe_id`, `probe_type`, `probe_name` |
-| `bpf_map_entries_total` | Counter | `map_id`, `map_name`, `map_type`, `max_entries` |
+| `bpf_probe_latency_seconds` | Histogram | `bpf_probe_id`, `bpf_probe_type`, `bpf_probe_name` |
+| `bpf_map_entries` | Gauge | `bpf_map_id`, `bpf_map_name`, `bpf_map_type` |
+| `bpf_map_max_entries` | Gauge | `bpf_map_id`, `bpf_map_name`, `bpf_map_type` |
 
 ### Internal metrics
 
@@ -52,7 +53,9 @@ If both paths are active, each path owns a separate collector.
 | `obi_bpf_map_max_entries` | `obi.bpf.map.max_entries` | Configured maximum map entries |
 
 Probe metrics use the program ID, type, and function name as attributes or
-labels. Map metrics use the map ID, type, and name.
+labels. Map metrics use the map ID, type, and name. Both endpoints take these
+from one declaration, so the OTLP attribute key and the Prometheus label name
+cannot drift apart.
 
 ## Program discovery and statistics
 

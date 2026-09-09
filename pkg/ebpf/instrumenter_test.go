@@ -316,6 +316,42 @@ func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 	assert.False(t, attached["skipped_optional_symbol"])
 }
 
+func TestNoGoProbeAttached(t *testing.T) {
+	assert.False(t, noGoProbeAttached(nil))
+	assert.False(t, noGoProbeAttached(map[string]bool{"a": false, "b": true}))
+	assert.True(t, noGoProbeAttached(map[string]bool{"a": false, "b": false}))
+}
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	var logs bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+	return &logs
+}
+
+func TestGoProbesWarnsWhenNoSymbolAttached(t *testing.T) {
+	logs := captureLogs(t)
+	i := &instrumenter{offsets: &goexec.Offsets{}, processName: "svc"}
+	tracer := &stubTracer{goProbes: map[string][]*ebpfcommon.ProbeDesc{
+		"net/http.serverHandler.ServeHTTP": {{Start: &ebpf.Program{}}},
+	}}
+
+	require.NoError(t, i.goprobes(tracer))
+
+	assert.Contains(t, logs.String(), "no Go probes attached to executable")
+	assert.Contains(t, logs.String(), "process=svc")
+}
+
+func TestGoProbesDoesNotWarnWithoutProbes(t *testing.T) {
+	logs := captureLogs(t)
+	i := &instrumenter{offsets: &goexec.Offsets{}}
+
+	require.NoError(t, i.goprobes(&stubTracer{}))
+
+	assert.NotContains(t, logs.String(), "no Go probes attached")
+}
+
 func TestGoProbeGroupRequiresAttachedPrerequisites(t *testing.T) {
 	group := ebpfcommon.GoProbeGroup{
 		Name:          "activation",
@@ -1091,7 +1127,8 @@ func (r *countingReporter) InstrumentationError(_ string, errorType string) {
 }
 
 type stubTracer struct {
-	uprobes map[string]map[string][]*ebpfcommon.ProbeDesc
+	uprobes  map[string]map[string][]*ebpfcommon.ProbeDesc
+	goProbes map[string][]*ebpfcommon.ProbeDesc
 }
 
 type stubUprobeTargetResolver struct {
@@ -1117,7 +1154,7 @@ func (s *stubTracer) AddCloser(...io.Closer)                                 {}
 func (s *stubTracer) SetupTailCalls()                                        {}
 func (s *stubTracer) KProbes() map[string]ebpfcommon.ProbeDesc               { return nil }
 func (s *stubTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
-func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return nil }
+func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return s.goProbes }
 func (s *stubTracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc { return s.uprobes }
 func (s *stubTracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc     { return nil }
 func (s *stubTracer) SocketFilters() []*ebpf.Program                         { return nil }

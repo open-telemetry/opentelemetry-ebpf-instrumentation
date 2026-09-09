@@ -10,6 +10,7 @@ groups:
     unit: "s"
     stability: development
     attributes:
+      - ref: error.type
       - ref: messaging.destination.name
       - ref: messaging.operation.name
       - ref: messaging.system
@@ -26,6 +27,7 @@ groups:
     unit: "s"
     stability: development
     attributes:
+      - ref: error.type
       - ref: messaging.destination.name
       - ref: messaging.operation.name
       - ref: messaging.system
