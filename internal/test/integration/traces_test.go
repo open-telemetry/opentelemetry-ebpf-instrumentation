@@ -343,7 +343,7 @@ func testGRPCKProbeTraces(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 }
 
-func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID bool) {
+func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID bool, sdkLanguage string) {
 	var traceID string
 	var parentID string
 
@@ -404,15 +404,15 @@ func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID 
 		assert.Regexp(t, `^integration-test\.`+serviceName+`\.`, serviceInstance.Value)
 	}
 
-	jaeger.Diff([]jaeger.Tag{
+	pd := jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
-		{Key: "telemetry.sdk.language", Type: "string", Value: "nodejs"},
+		{Key: "telemetry.sdk.language", Type: "string", Value: sdkLanguage},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
 		serviceInstance,
 	}, process.Tags)
-	assert.Empty(t, sd, sd.String())
+	assert.Empty(t, pd, pd.String())
 }
 
 func testHTTPTracesNestedCalls(t *testing.T) {

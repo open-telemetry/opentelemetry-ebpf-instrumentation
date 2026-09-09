@@ -13,8 +13,6 @@ static unsigned int write_calls;
 static unsigned int failed_writes;
 static unsigned int partial_writes;
 
-#define BPF_ANY 0
-
 static u32 bpf_get_prandom_u32(void) {
     return 0;
 }
