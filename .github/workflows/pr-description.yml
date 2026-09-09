@@ -17,9 +17,12 @@ permissions: {}
 jobs:
   check:
     name: Length and readability
-    # bot PRs (Renovate, Dependabot) carry generated release notes; the policy
-    # is about human communication
-    if: github.event.pull_request.user.type != 'Bot'
+    # bot PRs (Renovate, Dependabot) carry generated release notes and release
+    # PRs ("Release vX.Y.Z") carry changelogs; the policy is about human
+    # communication
+    if: >-
+      github.event.pull_request.user.type != 'Bot' &&
+      !startsWith(github.event.pull_request.title, 'Release v')
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
