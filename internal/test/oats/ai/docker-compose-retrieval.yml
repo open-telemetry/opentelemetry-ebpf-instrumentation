@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   qdrant:
-    image: qdrant/qdrant:v1.12.4@sha256:241edb9d7778327516ef218f8c74e1bd61b5ea42cd4f193cb8d0896199705636
+    image: qdrant/qdrant:v1.19.1@sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10
     networks:
       default:
         aliases:
