@@ -15,7 +15,14 @@
 #    id `x.obi.<ns>`) — either an enum extended with the values OBI
 #    intentionally emits, or an open-ended enum re-typed as string.
 #
-# 3. DeprecatedIncludeUnreferencedWarning: weaver 0.25 deprecated the
+# 3. DuplicateMetricName for dns.lookup.duration: OBI declares a narrowed copy
+#    in `schemas/obi/groups/dns.yaml` while `--include-unreferenced` keeps the
+#    upstream definition in the resolved registry, so weaver sees the name
+#    twice. live-check resolves it in OBI's favor. Scoped to exactly two
+#    provenances — OBI's dns file and the upstream dns model — so a third
+#    declaration, a different metric, or an unexpected file still fails.
+#
+# 4. DeprecatedIncludeUnreferencedWarning: weaver 0.25 deprecated the
 #    `--include-unreferenced` flag, which OBI still needs — its override and
 #    marker groups are standalone (not referenced by a signal), so without it
 #    they drop out of resolution. `--future` promotes the deprecation to an
@@ -45,6 +52,16 @@ map(select(
              | ($groups | length) == 2
                and ($groups[0] | startswith("registry."))
                and $groups[1] == ("x.obi." + ($groups[0] | ltrimstr("registry."))))
+    )
+    or
+    (
+      (.error.DuplicateMetricName? // null) as $dupmetric
+      | $dupmetric != null
+        and $dupmetric.metric_name == "dns.lookup.duration"
+        and (($dupmetric.provenances // []) | map(.path)) as $paths
+            | ($paths | length) == 2
+              and ($paths | any(. == "/obi-registry/groups/dns.yaml"))
+              and ($paths | any(startswith(".deps/") and endswith("/dns/metrics.yaml")))
     )
     or
     (
