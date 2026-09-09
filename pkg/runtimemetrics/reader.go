@@ -138,6 +138,9 @@ type JVMRuntimeMetricSnapshot struct {
 	MemoryType    appruntime.JVMMemoryType
 	GCPhase       appruntime.JVMGCPhase
 	ValueBytes    uint64
+	GCName        string
+	GCAction      string
+	DurationNS    uint64
 	RuntimeValues *appruntime.JVMRuntimeValues
 }
 
@@ -674,6 +677,9 @@ func SnapshotFromJVMGCEvent(event appruntime.JVMGCEvent) RuntimeMetricSnapshot {
 			MemoryType: event.MemoryType,
 			GCPhase:    event.GCPhase,
 			ValueBytes: event.ValueBytes,
+			GCName:     event.GCName,
+			GCAction:   event.GCAction,
+			DurationNS: event.DurationNS,
 		},
 	}
 }
