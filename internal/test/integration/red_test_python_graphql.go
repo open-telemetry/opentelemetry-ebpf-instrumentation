@@ -48,7 +48,8 @@ func testPythonGraphQL(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "graphql.operation.type", Type: "string", Value: "query"})
 		require.GreaterOrEqual(ct, len(traces), 1)
 		lastTrace := traces[len(traces)-1]
-		spans := lastTrace.FindByOperationName(operationName, "")
+		// GraphQL spans are HTTP spans with a subtype, so their kind is server.
+		spans := lastTrace.FindByOperationName(operationName, "server")
 		require.Len(ct, spans, 1)
 		span := spans[0]
 
