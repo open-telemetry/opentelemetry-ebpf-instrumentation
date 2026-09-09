@@ -20,9 +20,6 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-// Called by the go_common.h include chain, omitted by the shared stub
-#define BPF_ANY 0
-
 static inline u32 bpf_get_prandom_u32(void) {
     return 0x5a5a5a5a;
 }

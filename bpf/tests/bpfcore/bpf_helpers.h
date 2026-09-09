@@ -28,6 +28,9 @@
 #define BPF_MAP_TYPE_LRU_PERCPU_HASH 13
 #define BPF_MAP_TYPE_RINGBUF 27
 
+#define BPF_ANY 0
+#define BPF_NOEXIST 1
+
 static void *(*bpf_map_lookup_elem_hook)(void *map, const void *key);
 static inline void *bpf_map_lookup_elem(void *map, const void *key) {
     return bpf_map_lookup_elem_hook ? bpf_map_lookup_elem_hook(map, key) : NULL;

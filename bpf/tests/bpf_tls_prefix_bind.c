@@ -18,8 +18,6 @@
 
 #include <bpfcore/bpf_helpers.h>
 
-enum { BPF_ANY = 0, BPF_NOEXIST = 1 };
-
 enum { k_max_entries = 32, k_max_key = 48, k_max_val = 128 };
 
 typedef struct mock_entry {
