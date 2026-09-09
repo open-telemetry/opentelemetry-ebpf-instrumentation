@@ -120,6 +120,8 @@ func TestYAMLParse_IntEnum_Errors(t *testing.T) {
 	assertError("unstarted range", "12,-13")
 	assertError("wrong symbols", "1,2,*3,4")
 	assertError("inverted range", "9000-1000")
+	assertError("overflowing range start", "999999999999999999999-1")
+	assertError("overflowing range end", "1-999999999999999999999")
 }
 
 func TestYAMLParse_OtherAttrs(t *testing.T) {
