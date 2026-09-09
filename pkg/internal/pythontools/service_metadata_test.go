@@ -373,7 +373,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
-		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("missing exact script does not borrow project metadata", func(t *testing.T) {
