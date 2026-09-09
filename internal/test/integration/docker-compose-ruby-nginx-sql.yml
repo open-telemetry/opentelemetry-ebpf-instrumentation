@@ -9,7 +9,10 @@ services:
       - nginx_certs:/out/nginx
 
   testserver:
-    image: ghcr.io/open-telemetry/obi-testimg:rails-sql-0.0.1@sha256:6d3777a979af47d99b90d7d3f891332ee6b469964b1abf0af9f8c57df0711583
+    build:
+      context: ./components/nginx-rails-sql/testapi
+      dockerfile: Dockerfile
+    image: hatest-testserver-rails-sql
     command: bash -c "sleep 10 && bundle exec rails db:create db:migrate db:seed && rails server -p 3040 -b 0.0.0.0"
     container_name: rails_app
     ports:

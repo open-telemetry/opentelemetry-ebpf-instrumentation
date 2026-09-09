@@ -231,6 +231,8 @@ func TestSuite_StaticCompilation(t *testing.T) {
 }
 
 func TestSuite_OldestGoVersion(t *testing.T) {
+	skipIfNotAmd64(t, "Go 1.17 uprobes do not report executable identity on arm64")
+
 	compose, err := docker.ComposeSuite("docker-compose-1.17.yml", path.Join(pathOutput, "test-suite-oldest-go.log"))
 	require.NoError(t, err)
 	compose.Env = append(compose.Env, `OTEL_GO_AUTO_TARGET_EXE=*testserver`, `PROM_CONFIG_SUFFIX=`)
@@ -654,6 +656,8 @@ func TestSuite_PythonMySQL(t *testing.T) {
 }
 
 func TestSuite_PythonMSSQL(t *testing.T) {
+	skipIfNotAmd64(t, "mcr.microsoft.com/mssql/server is published amd64-only")
+
 	compose, err := docker.ComposeSuite("docker-compose-python-mssql.yml", path.Join(pathOutput, "test-suite-python-mssql.log"))
 	require.NoError(t, err)
 
