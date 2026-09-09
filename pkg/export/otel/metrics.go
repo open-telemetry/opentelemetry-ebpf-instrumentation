@@ -939,296 +939,260 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 
 	ctx := trace.ContextWithSpanContext(r.ctx, trace.SpanContext{}.WithTraceID(span.TraceID).WithSpanID(span.SpanID).WithTraceFlags(trace.TraceFlags(span.TraceFlags)))
 
-	// A record finished without its response ends when something other than the
-	// response ended it, so its duration describes more than the request it names.
-	// Every instrument reached through recordDuration stands on that duration; the
-	// body sizes do not, and are recorded on their own terms.
+	// A record finished without its response ends when something other than the response
+	// ended it, so its duration and response size describe more than the request they
+	// name. Only HTTP marks a span this way; every instrument below still gets the
+	// duration and body sizes it always did for every other event type.
 	measured := !request.IgnoreDurations(span)
 
+	// Data point timestamps are the collection time, not the span end time: the OTel
+	// metrics API takes no per-measurement timestamp. Span-accurate timing lives in
+	// traces and in the exemplars attached through ctx.
 	if otelMetricsAccepted(span) {
-		if measured {
-			r.recordDuration(span, mr, ctx, duration)
-		}
+		switch span.Type {
+		case request.EventTypeHTTP:
+			// JSON-RPC over HTTP gets recorded as RPC server metrics
+			if span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled() {
+				if measured {
+					grpcDuration, attrs := r.grpcDuration.ForRecord(span)
+					grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			} else if mr.is.HTTPEnabled() {
+				if measured {
+					httpDuration, attrs := r.httpDuration.ForRecord(span)
+					httpDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
 
-		r.recordBodySizes(span, mr, ctx)
-	}
+				httpRequestSize, attrs := r.httpRequestSize.ForRecord(span)
+				httpRequestSize.Record(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
 
-	if measured {
-		r.recordSpanMetrics(span, mr, ctx, duration)
-	}
-}
-
-// recordSpanMetrics publishes the span-metrics family. The calls counter is separable
-// from the latency histogram, but the two are read together, so feeding one alone makes
-// the pair disagree. Both stay out when the duration is withheld.
-func (r *Metrics) recordSpanMetrics(span *request.Span, mr *MetricsReporter, ctx context.Context, duration float64) {
-	if !otelSpanMetricsAccepted(span) {
-		return
-	}
-
-	var extraAttrs []attribute.KeyValue
-
-	for _, l := range mr.spanExtraAttrs {
-		if v, ok := span.Service.Metadata[l]; ok {
-			extraAttrs = append(extraAttrs, l.OTEL().String(v))
-		}
-	}
-
-	if span.Service.Features.SpanMetrics() {
-		sml, attrs := r.spanMetricsLatency.ForRecord(span, extraAttrs...)
-		sml.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-
-		smct, attrs := r.spanMetricsCallsTotal.ForRecord(span, extraAttrs...)
-		smct.Add(ctx, 1, instrument.WithAttributeSet(attrs))
-	}
-
-	if span.Service.Features.SpanSizes() {
-		smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span, extraAttrs...)
-		smst.Add(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
-
-		smst, attr := r.spanMetricsResponseSizeTotal.ForRecord(span, extraAttrs...)
-		smst.Add(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attr))
-	}
-}
-
-// recordedAsNonHTTPClient reports whether an HTTP client span is published under the
-// database, RPC, or GenAI instruments rather than the HTTP ones. Those families carry no
-// body-size instrument, so such a span has no size to publish. It mirrors the dispatch
-// in recordDuration.
-func recordedAsNonHTTPClient(span *request.Span, mr *MetricsReporter) bool {
-	switch {
-	case mr.is.DBEnabled() &&
-		(span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch):
-		return true
-	case span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled():
-		return true
-	case mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType):
-		return true
-	default:
-		return false
-	}
-}
-
-// recordBodySizes publishes what the exchange carried. The request size is known
-// whatever came of the response, so it is published even when the duration is not. The
-// response size is not known: a record finished without its response carries a zeroed
-// length, and publishing that would report an empty response for a call whose response
-// was never seen.
-func (r *Metrics) recordBodySizes(span *request.Span, mr *MetricsReporter, ctx context.Context) {
-	if !mr.is.HTTPEnabled() {
-		return
-	}
-
-	var requestSize, responseSize *Expirer[*request.Span, instrument.Float64Histogram, float64]
-
-	switch span.Type {
-	case request.EventTypeHTTP:
-		// JSON-RPC over HTTP is recorded as an RPC call, which has no size instrument.
-		if span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled() {
-			return
-		}
-		requestSize, responseSize = r.httpRequestSize, r.httpResponseSize
-	case request.EventTypeHTTPClient:
-		if recordedAsNonHTTPClient(span, mr) {
-			return
-		}
-		requestSize, responseSize = r.httpClientRequestSize, r.httpClientResponseSize
-	default:
-		return
-	}
-
-	size, attrs := requestSize.ForRecord(span)
-	size.Record(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
-
-	if request.IgnoreDurations(span) {
-		return
-	}
-
-	size, attrs = responseSize.ForRecord(span)
-	size.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
-}
-
-//nolint:cyclop
-func (r *Metrics) recordDuration(span *request.Span, mr *MetricsReporter, ctx context.Context, duration float64) {
-	switch span.Type {
-	case request.EventTypeHTTP:
-		// JSON-RPC over HTTP gets recorded as RPC server metrics
-		if span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled() {
-			grpcDuration, attrs := r.grpcDuration.ForRecord(span)
-			grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		} else if mr.is.HTTPEnabled() {
-			httpDuration, attrs := r.httpDuration.ForRecord(span)
-			httpDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeGRPC:
-		if mr.is.GRPCEnabled() {
-			grpcDuration, attrs := r.grpcDuration.ForRecord(span)
-			grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeGRPCClient:
-		if mr.is.GRPCEnabled() {
-			grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
-			grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeSunRPCClient:
-		if mr.is.SunRPCEnabled() {
-			grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
-			grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeSunRPCServer:
-		if mr.is.SunRPCEnabled() {
-			grpcDuration, attrs := r.grpcDuration.ForRecord(span)
-			grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeHTTPClient:
-		// HTTP client subtypes that are database calls get recorded as db client metrics
-		if mr.is.DBEnabled() && (span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch) {
-			dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
-			dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		} else if span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled() {
-			// JSON-RPC client calls over HTTP get recorded as RPC client metrics
-			grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
-			grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		} else if span.SubType == request.HTTPSubtypeAWSS3 && mr.rpcClientRecorded() {
-			grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
-			grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		} else if span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && mr.msgPublishRecorded() {
-			msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
-			msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {
-			genAIClientDuration, attrs := r.genAIClientDuration.ForRecord(span)
-			genAIClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			if tokens, reported := span.GenAIInputTokenCount(); reported {
-				genAIInputTokenUsage, attrs := r.genAIInputTokenUsage.ForRecord(span)
-				genAIInputTokenUsage.Record(ctx, float64(tokens), instrument.WithAttributeSet(attrs))
+				// The response size is not known: a record finished without its
+				// response carries a zeroed length, and publishing that would
+				// report an empty response for a call whose response was never
+				// seen.
+				if measured {
+					httpResponseSize, attrs := r.httpResponseSize.ForRecord(span)
+					httpResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
+				}
 			}
-			if tokens, reported := span.GenAIOutputTokenCount(); reported {
-				genAIOutputTokenUsage, attrs := r.genAIOutputTokenUsage.ForRecord(span)
-				genAIOutputTokenUsage.Record(ctx, float64(tokens), instrument.WithAttributeSet(attrs))
+		case request.EventTypeGRPC:
+			if mr.is.GRPCEnabled() {
+				grpcDuration, attrs := r.grpcDuration.ForRecord(span)
+				grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
-		} else if mr.is.HTTPEnabled() {
-			httpClientDuration, attrs := r.httpClientDuration.ForRecord(span)
-			httpClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeRedisClient:
-		if mr.is.RedisEnabled() {
-			dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
-			dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeRedisServer:
-		if mr.is.RedisEnabled() {
-			dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
-			dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeSQLClient:
-		if mr.is.SQLEnabled() {
-			dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
-			dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeSQLServer:
-		if mr.is.SQLEnabled() {
-			dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
-			dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeMongoClient:
-		if mr.is.MongoEnabled() {
-			dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
-			dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeCouchbaseClient:
-		if mr.is.CouchbaseEnabled() {
-			dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
-			dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeMemcachedClient:
-		if mr.is.MemcachedEnabled() {
-			dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
-			dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeMemcachedServer:
-		if mr.is.MemcachedEnabled() {
-			dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
-			dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeAerospikeClient:
-		if mr.is.AerospikeEnabled() {
-			dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
-			dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
-		if mr.is.KafkaEnabled() {
-			switch request.MessagingOperationTypeOf(span.Method) {
-			case request.MessagingSend:
-				msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
-				msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			case request.MessagingProcess:
-				msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
-				msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+		case request.EventTypeGRPCClient:
+			if mr.is.GRPCEnabled() {
+				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSunRPCClient:
+			if mr.is.SunRPCEnabled() {
+				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSunRPCServer:
+			if mr.is.SunRPCEnabled() {
+				grpcDuration, attrs := r.grpcDuration.ForRecord(span)
+				grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeHTTPClient:
+			// HTTP client subtypes that are database calls get recorded as db client metrics
+			if mr.is.DBEnabled() && (span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch) {
+				if measured {
+					dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
+					dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			} else if span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled() {
+				if measured {
+					grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+					grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			} else if span.SubType == request.HTTPSubtypeAWSS3 && mr.rpcClientRecorded() {
+				if measured {
+					grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+					grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			} else if span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && mr.msgPublishRecorded() {
+				if measured {
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {
+				if measured {
+					genAIClientDuration, attrs := r.genAIClientDuration.ForRecord(span)
+					genAIClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+					if tokens, reported := span.GenAIInputTokenCount(); reported {
+						genAIInputTokenUsage, attrs := r.genAIInputTokenUsage.ForRecord(span)
+						genAIInputTokenUsage.Record(ctx, float64(tokens), instrument.WithAttributeSet(attrs))
+					}
+					if tokens, reported := span.GenAIOutputTokenCount(); reported {
+						genAIOutputTokenUsage, attrs := r.genAIOutputTokenUsage.ForRecord(span)
+						genAIOutputTokenUsage.Record(ctx, float64(tokens), instrument.WithAttributeSet(attrs))
+					}
+				}
+			} else if mr.is.HTTPEnabled() {
+				if measured {
+					httpClientDuration, attrs := r.httpClientDuration.ForRecord(span)
+					httpClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+
+				httpClientRequestSize, attrs := r.httpClientRequestSize.ForRecord(span)
+				httpClientRequestSize.Record(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
+
+				if measured {
+					httpClientResponseSize, attrs := r.httpClientResponseSize.ForRecord(span)
+					httpClientResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
+				}
+			}
+		case request.EventTypeRedisClient:
+			if mr.is.RedisEnabled() {
+				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
+				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeRedisServer:
+			if mr.is.RedisEnabled() {
+				dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
+				dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSQLClient:
+			if mr.is.SQLEnabled() {
+				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
+				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSQLServer:
+			if mr.is.SQLEnabled() {
+				dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
+				dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeMongoClient:
+			if mr.is.MongoEnabled() {
+				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
+				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeCouchbaseClient:
+			if mr.is.CouchbaseEnabled() {
+				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
+				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeMemcachedClient:
+			if mr.is.MemcachedEnabled() {
+				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
+				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeMemcachedServer:
+			if mr.is.MemcachedEnabled() {
+				dbServerDuration, attrs := r.dbServerDuration.ForRecord(span)
+				dbServerDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeAerospikeClient:
+			if mr.is.AerospikeEnabled() {
+				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
+				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
+			if mr.is.KafkaEnabled() {
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				case request.MessagingProcess:
+					msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
+					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			}
+		case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
+			if mr.is.MQTTEnabled() {
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				case request.MessagingProcess:
+					msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
+					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			}
+		case request.EventTypeNATSClient, request.EventTypeNATSServer:
+			if mr.is.NATSEnabled() {
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				case request.MessagingProcess:
+					msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
+					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			}
+		case request.EventTypeAMQPClient:
+			if mr.is.AMQPEnabled() {
+				switch request.MessagingOperationTypeOf(span.Method) {
+				case request.MessagingSend:
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				case request.MessagingProcess:
+					msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
+					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			}
+		case request.EventTypeGPUCudaKernelLaunch:
+			if mr.is.GPUEnabled() {
+				gcalls, attrs := r.gpuKernelCallsTotal.ForRecord(span)
+				gcalls.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+
+				ggrid, attrs := r.gpuKernelGridSize.ForRecord(span)
+				ggrid.Record(ctx, float64(span.ContentLength), instrument.WithAttributeSet(attrs))
+
+				gblock, attrs := r.gpuKernelBlockSize.ForRecord(span)
+				gblock.Record(ctx, float64(span.SubType), instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeGPUCudaMalloc:
+			if mr.is.GPUEnabled() {
+				gmem, attrs := r.gpuMemoryAllocsTotal.ForRecord(span)
+				gmem.Add(ctx, span.ContentLength, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeGPUCudaGraphLaunch:
+			if mr.is.GPUEnabled() {
+				ggraph, attrs := r.gpuGraphCallsTotal.ForRecord(span)
+				ggraph.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeGPUCudaMemcpy:
+			if mr.is.GPUEnabled() {
+				gmem, attrs := r.gpuMemoryCopySize.ForRecord(span)
+				gmem.Record(r.ctx, float64(span.ContentLength), instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeDNS:
+			if mr.is.DNSEnabled() {
+				dnsDuration, attrs := r.dnsLookupDuration.ForRecord(span)
+				dnsDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		}
-	case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
-		if mr.is.MQTTEnabled() {
-			switch request.MessagingOperationTypeOf(span.Method) {
-			case request.MessagingSend:
-				msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
-				msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			case request.MessagingProcess:
-				msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
-				msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			}
-		}
-	case request.EventTypeNATSClient, request.EventTypeNATSServer:
-		if mr.is.NATSEnabled() {
-			switch request.MessagingOperationTypeOf(span.Method) {
-			case request.MessagingSend:
-				msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
-				msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			case request.MessagingProcess:
-				msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
-				msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			}
-		}
-	case request.EventTypeAMQPClient:
-		if mr.is.AMQPEnabled() {
-			switch request.MessagingOperationTypeOf(span.Method) {
-			case request.MessagingSend:
-				msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
-				msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			case request.MessagingProcess:
-				msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
-				msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			}
-		}
-	case request.EventTypeGPUCudaKernelLaunch:
-		if mr.is.GPUEnabled() {
-			gcalls, attrs := r.gpuKernelCallsTotal.ForRecord(span)
-			gcalls.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+	}
 
-			ggrid, attrs := r.gpuKernelGridSize.ForRecord(span)
-			ggrid.Record(ctx, float64(span.ContentLength), instrument.WithAttributeSet(attrs))
+	// The calls counter is separable from the latency histogram, but the two are read
+	// together, so feeding one alone makes the pair disagree. Both stay out when the
+	// duration is withheld.
+	if measured && otelSpanMetricsAccepted(span) {
+		var extraAttrs []attribute.KeyValue
 
-			gblock, attrs := r.gpuKernelBlockSize.ForRecord(span)
-			gblock.Record(ctx, float64(span.SubType), instrument.WithAttributeSet(attrs))
+		for _, l := range mr.spanExtraAttrs {
+			if v, ok := span.Service.Metadata[l]; ok {
+				extraAttrs = append(extraAttrs, l.OTEL().String(v))
+			}
 		}
-	case request.EventTypeGPUCudaMalloc:
-		if mr.is.GPUEnabled() {
-			gmem, attrs := r.gpuMemoryAllocsTotal.ForRecord(span)
-			gmem.Add(ctx, span.ContentLength, instrument.WithAttributeSet(attrs))
+
+		if span.Service.Features.SpanMetrics() {
+			sml, attrs := r.spanMetricsLatency.ForRecord(span, extraAttrs...)
+			sml.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+
+			smct, attrs := r.spanMetricsCallsTotal.ForRecord(span, extraAttrs...)
+			smct.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 		}
-	case request.EventTypeGPUCudaGraphLaunch:
-		if mr.is.GPUEnabled() {
-			ggraph, attrs := r.gpuGraphCallsTotal.ForRecord(span)
-			ggraph.Add(ctx, 1, instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeGPUCudaMemcpy:
-		if mr.is.GPUEnabled() {
-			gmem, attrs := r.gpuMemoryCopySize.ForRecord(span)
-			gmem.Record(r.ctx, float64(span.ContentLength), instrument.WithAttributeSet(attrs))
-		}
-	case request.EventTypeDNS:
-		if mr.is.DNSEnabled() {
-			dnsDuration, attrs := r.dnsLookupDuration.ForRecord(span)
-			dnsDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+
+		if span.Service.Features.SpanSizes() {
+			smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span, extraAttrs...)
+			smst.Add(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
+
+			smst, attr := r.spanMetricsResponseSizeTotal.ForRecord(span, extraAttrs...)
+			smst.Add(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attr))
 		}
 	}
 }
