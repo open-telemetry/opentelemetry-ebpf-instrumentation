@@ -1940,11 +1940,6 @@ func (s *Span) ServiceGraphKind() string {
 	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
-		if s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
-			if kind, ok := MessagingSpanKind(s.AWS.SQS.OperationType); ok {
-				return spanKindString(kind)
-			}
-		}
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeKafkaServer,
 		EventTypeMQTTClient, EventTypeMQTTServer,

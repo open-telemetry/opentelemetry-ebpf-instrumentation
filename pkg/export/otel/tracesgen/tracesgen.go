@@ -1339,7 +1339,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.GenAIDataSourceID(collection))
 			}
 			if topK := ai.Input.GetTopK(); topK > 0 {
-				attrs = append(attrs, attribute.Int("gen_ai.retrieval.top_k", topK))
+				attrs = append(attrs, semconv.GenAIRequestTopK(float64(topK)))
 			}
 		}
 
@@ -1774,11 +1774,6 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer, request.EventTypeAerospikeServer:
 		return trace2.SpanKindServer
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
-		if span.SubType == request.HTTPSubtypeAWSSQS && span.AWS != nil {
-			if kind, ok := request.MessagingSpanKind(span.AWS.SQS.OperationType); ok {
-				return kind
-			}
-		}
 		return trace2.SpanKindClient
 	// A messaging span is a producer, a consumer or a client, decided by the
 	// operation rather than by the side OBI observed it from. Semantic

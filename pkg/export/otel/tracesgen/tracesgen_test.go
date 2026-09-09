@@ -1240,7 +1240,7 @@ func TestNoMessagingSpanIsReportedAsServerKind(t *testing.T) {
 	}
 }
 
-func TestSQSSpanKind(t *testing.T) {
+func TestSQSSpanKindWithoutMessageContext(t *testing.T) {
 	sqsSpan := func(operationType string) *request.Span {
 		return &request.Span{
 			Type:    request.EventTypeHTTPClient,
@@ -1249,7 +1249,9 @@ func TestSQSSpanKind(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, trace2.SpanKindProducer, spanKind(sqsSpan(request.MessagingSend)))
+	// OBI does not inject the span context into SQS messages, so the observed
+	// exchanges remain client spans regardless of their messaging operation.
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingSend)))
 	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingReceive)))
 	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingSettle)))
 	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan("")))
