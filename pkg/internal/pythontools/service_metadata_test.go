@@ -373,7 +373,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
-		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("missing exact script does not borrow project metadata", func(t *testing.T) {
@@ -388,6 +388,34 @@ func TestResolveServiceMetadata(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("uvicorn with metadata on command line", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		fileInfo := mockPythonProcess(t, root, root+"/"+"python", []string{root + "/" + "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8080"}, nil, "/app")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
+		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("gunicorn with metadata on command line", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		fileInfo := mockPythonProcess(t, root, root+"/"+"python", []string{root + "/" + "gunicorn", "-w", "4", "-b", "0.0.0.0:8380", "main:app"}, nil, "/app")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
 		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
 	})
 

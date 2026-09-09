@@ -43,7 +43,6 @@ var genericModuleNames = map[string]struct{}{
 	"config":      {},
 	"entrypoint":  {},
 	"index":       {},
-	"main":        {},
 	"manage":      {},
 	"models":      {},
 	"project":     {},

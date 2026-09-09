@@ -307,7 +307,7 @@ func testPythonSQLPipeline(t *testing.T, comm, url, db string) {
 
 func testPythonPostgres(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
-	comm := "python3.14"
+	comm := "main"
 	table := "accounting.contacts"
 	db := "postgresql"
 
@@ -386,7 +386,7 @@ func testPythonSQLBigQuery(t *testing.T, comm, url, table, db string) {
 
 func testPythonMySQL(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
-	comm := "python3.14"
+	comm := "main"
 	table := "actor"
 	db := "mysql"
 
@@ -476,7 +476,7 @@ func testPythonSQLMultiPacketResponse(t *testing.T, comm, url, table, db string)
 
 func testPythonMSSQL(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
-	comm := "python3.14"
+	comm := "main"
 	table := "actor"
 	db := "microsoft.sql_server"
 
