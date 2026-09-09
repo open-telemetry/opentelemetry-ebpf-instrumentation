@@ -1454,7 +1454,8 @@ func TestExtractNodejsRoutes(t *testing.T) {
 	}()
 
 	// Create test directory structure
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	testAppDir := filepath.Join(tempDir, "app")
 	require.NoError(t, os.MkdirAll(testAppDir, 0o755))
 	configDir := filepath.Join(tempDir, "config")
@@ -1721,7 +1722,8 @@ func TestFindDenoAppDir(t *testing.T) {
 		isDirFunc = origIsDir
 	})
 
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
 
@@ -1762,7 +1764,8 @@ func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 	}()
 
 	// Create empty directory
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	emptyDir := filepath.Join(tempDir, "empty")
 	require.NoError(t, os.MkdirAll(emptyDir, 0o755))
 
@@ -1945,7 +1948,8 @@ func TestExtractNextJSRoutesFromManifest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create temporary directory structure
-			tempDir := t.TempDir()
+			tempDir, err := filepath.EvalSymlinks(t.TempDir())
+			require.NoError(t, err)
 			nextDir := filepath.Join(tempDir, ".next")
 			require.NoError(t, os.MkdirAll(nextDir, 0o755))
 
@@ -1966,7 +1970,7 @@ func TestExtractNextJSRoutesFromManifest(t *testing.T) {
 
 			// Create extractor and run the method
 			extractor := NewRouteExtractor()
-			err := extractor.extractNextJSRoutesFromManifest(tempDir)
+			err = extractor.extractNextJSRoutesFromManifest(tempDir)
 
 			if tt.shouldError {
 				require.Error(t, err)

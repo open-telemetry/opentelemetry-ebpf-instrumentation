@@ -16,6 +16,7 @@
 //go:build obi_bpf_ignore
 
 #include <bpfcore/utils.h>
+#include <bpfcore/bpf_builtins.h>
 
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
@@ -35,8 +36,9 @@ static __always_inline void setup_request(void *goroutine_addr) {
     redis_client_req_t *req = req_client_mem();
 
     if (req) {
+        bpf_memset(req, 0, sizeof(*req));
+
         req->type = k_event_type_go_redis;
-        req->buf_len = 0;
         req->start_monotime_ns = bpf_ktime_get_ns();
 
         go_addr_key_t g_key = {};

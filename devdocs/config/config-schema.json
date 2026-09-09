@@ -3011,6 +3011,15 @@
           ],
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
         },
+        "compression": {
+          "type": "string",
+          "enum": [
+            "gzip",
+            "none"
+          ],
+          "description": "Sets the compression applied to exported OTLP payloads.",
+          "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"
+        },
         "endpoint": {
           "type": "string",
           "format": "uri",

@@ -91,7 +91,7 @@ func checkInstrumentationErrorMetrics(t *testing.T) {
 		totalErrors := 0
 		for _, result := range results {
 			labels := result.Metric
-			require.Contains(ct, labels, "process_name", "process_name label should be present")
+			require.Contains(ct, labels, "process_executable_name", "process_executable_name label should be present")
 			require.Contains(ct, labels, "error_type", "error_type label should be present")
 
 			value, err := strconv.Atoi(result.Value[1].(string))

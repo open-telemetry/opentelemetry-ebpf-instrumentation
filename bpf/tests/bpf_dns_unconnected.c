@@ -17,9 +17,6 @@
 // included ahead of the override below, so the include chain does not redefine it
 #include <bpfcore/bpf_core_read.h>
 
-// Called by the dns.h include chain, omitted by the shared stub
-#define BPF_ANY 0
-
 // The shared stub's clock, which this test drives so the answer-timeout
 // boundary can be pinned
 #define test_now_ns bpf_ktime_ns_value

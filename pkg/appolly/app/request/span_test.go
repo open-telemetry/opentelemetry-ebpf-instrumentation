@@ -133,6 +133,28 @@ func TestMessagingSpanKind(t *testing.T) {
 	}
 }
 
+func TestSQSServiceGraphKindWithoutMessageContext(t *testing.T) {
+	sqsSpan := func(operationType string) *Span {
+		return &Span{
+			Type:    EventTypeHTTPClient,
+			SubType: HTTPSubtypeAWSSQS,
+			AWS:     &AWS{SQS: AWSSQS{OperationType: operationType}},
+		}
+	}
+
+	// OBI does not inject the span context into SQS messages, so the observed
+	// exchanges remain client spans regardless of their messaging operation.
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingSend).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingReceive).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingSettle).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan("").ServiceGraphKind())
+
+	assert.Equal(t, "SPAN_KIND_CLIENT", (&Span{
+		Type:    EventTypeHTTPClient,
+		SubType: HTTPSubtypeAWSS3,
+	}).ServiceGraphKind())
+}
+
 func TestServiceGraphConnectionType(t *testing.T) {
 	tests := []struct {
 		name     string

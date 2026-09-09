@@ -51,6 +51,10 @@ new PerformanceObserver((list) => {
 // Objects retained by /alloc so the allocated heap memory survives GC.
 const retained = [];
 
+// Intervals retained by /resources: each pending interval is one live
+// "Timeout" entry in process.getActiveResourcesInfo().
+const resourceTimers = [];
+
 function groundTruth() {
   const elu = performance.eventLoopUtilization(); // ms since loop start
   return {
@@ -85,6 +89,12 @@ function groundTruth() {
       ]),
     ),
     gc_counts: { ...gcCounts },
+    // v8js.resource.active ground truth: one array entry per live resource,
+    // folded into a type -> count map
+    resource_counts: process.getActiveResourcesInfo().reduce((counts, name) => {
+      counts[name] = (counts[name] || 0) + 1;
+      return counts;
+    }, {}),
   };
 }
 
@@ -136,6 +146,20 @@ const server = http.createServer((req, res) => {
       }
       global.gc();
       return json(res, 200, { gc: "done", counts: gcCounts });
+    }
+
+    // Retain `timers` never-firing intervals, clearing any previous batch,
+    // so the live "Timeout" resource count can be driven up and back down.
+    case "/resources": {
+      const timers = Number(url.searchParams.get("timers")) || 0;
+      while (resourceTimers.length > 0) {
+        clearInterval(resourceTimers.pop());
+      }
+      for (let i = 0; i < timers; i++) {
+        // max timer delay (~24.8 days): never fires during a test run
+        resourceTimers.push(setInterval(() => {}, 2 ** 31 - 1));
+      }
+      return json(res, 200, { timers: resourceTimers.length });
     }
 
     // Ground truth: Node's own readings of the target metrics.

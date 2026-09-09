@@ -14,7 +14,8 @@ import (
 
 func TestResolveProcessPath(t *testing.T) {
 	t.Run("rejects symlink components for proc roots", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "app"), 0o755))
 
 		outside := filepath.Join(t.TempDir(), "outside")
@@ -74,7 +75,8 @@ func TestPathWithinBoundary(t *testing.T) {
 }
 
 func TestStatProcessPath(t *testing.T) {
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "config"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "app", "service.js"), nil, 0o644))
 
