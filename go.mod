@@ -6,7 +6,7 @@ toolchain go1.27.1
 
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
-	github.com/andybalholm/brotli v1.2.2
+	github.com/andybalholm/brotli v1.2.3
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cilium/ebpf v0.22.0
 	github.com/containers/common v0.64.2
@@ -52,6 +52,7 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1
 	go.opentelemetry.io/collector/component v1.64.0
 	go.opentelemetry.io/collector/component/componenttest v0.158.0
+	go.opentelemetry.io/collector/config/configcompression v1.64.0
 	go.opentelemetry.io/collector/config/configgrpc v1.64.0
 	go.opentelemetry.io/collector/config/confighttp v0.151.0
 	go.opentelemetry.io/collector/config/configmiddleware v1.64.0
@@ -214,7 +215,6 @@ require (
 	go.opentelemetry.io/collector v0.159.0 // indirect
 	go.opentelemetry.io/collector/client v1.64.0 // indirect
 	go.opentelemetry.io/collector/config/configauth v1.64.0 // indirect
-	go.opentelemetry.io/collector/config/configcompression v1.64.0 // indirect
 	go.opentelemetry.io/collector/config/confignet v1.64.0 // indirect
 	go.opentelemetry.io/collector/confmap/xconfmap v0.158.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror v0.158.0 // indirect

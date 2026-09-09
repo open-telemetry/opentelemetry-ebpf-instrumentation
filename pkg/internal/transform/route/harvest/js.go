@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"maps"
 	"net/url"
@@ -28,17 +27,6 @@ import (
 // MaxJSFileScanBytes caps opportunistic JS/TS source scans to avoid spending
 // unbounded work on large application files.
 const MaxJSFileScanBytes int64 = 10 * 1024 * 1024
-
-// MaxJSLineScanBytes caps a single scanned line. Minified bundles put a whole
-// module on one line, which overruns the bufio.Scanner default and makes the
-// scan fail rather than return the matches the line contains.
-const MaxJSLineScanBytes = 1024 * 1024
-
-func newJSLineScanner(file io.Reader) *bufio.Scanner {
-	scanner := bufio.NewScanner(io.LimitReader(file, MaxJSFileScanBytes))
-	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), MaxJSLineScanBytes)
-	return scanner
-}
 
 const (
 	maxNestDecoratorValues = 64
@@ -1277,7 +1265,7 @@ func ScanJSFileLines(path string, fn func(line string) bool) error {
 	defer file.Close()
 
 	inBlockComment := false
-	scanner := newJSLineScanner(file)
+	scanner := bufio.NewScanner(io.LimitReader(file, MaxJSFileScanBytes))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
@@ -1317,7 +1305,7 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	}
 	defer file.Close()
 
-	scanner := newJSLineScanner(file)
+	scanner := bufio.NewScanner(io.LimitReader(file, MaxJSFileScanBytes))
 	lineNum := 0
 	var line string
 	var save string
@@ -1668,130 +1656,6 @@ func WalkCompiledJSFiles(root string, fn func(path string) error) error {
 	return filepath.Walk(root, newJSFileWalker(root, compiledSkipDirs, true, fn))
 }
 
-// ErrFileTooLarge reports a file left unscanned because it exceeds
-// MaxJSFileScanBytes.
-var ErrFileTooLarge = errors.New("file exceeds the scan size limit")
-
-// ErrWalkTooDeep reports a directory left unwalked because the tree is nested
-// past maxJSWalkDepth.
-var ErrWalkTooDeep = errors.New("directory tree is nested too deeply to scan")
-
-// maxJSWalkDepth bounds recursion for trees made arbitrarily deep by symlinks
-// that the cycle check cannot catch, such as a chain of distinct directories.
-const maxJSWalkDepth = 64
-
-// CompiledScanSkipDirs returns the directories the compiled-output scan skips.
-// The copy is the caller's to adjust.
-func CompiledScanSkipDirs() map[string]string {
-	return maps.Clone(compiledSkipDirs)
-}
-
-// WalkAppJSFiles walks an application tree for JS/TS files, differing from
-// WalkJSFiles in the three ways a caller needs when an unread tree must not
-// pass for an empty one: symlinked files and directories are resolved, an
-// entry that cannot be examined is passed to report and the walk continues
-// rather than aborting, and the skip list is the caller's.
-//
-// report also receives files skipped for exceeding MaxJSFileScanBytes. It may
-// be nil, in which case those entries are simply skipped.
-func WalkAppJSFiles(root string, skip map[string]string, fn func(path string) error, report func(path string, err error)) error {
-	if report == nil {
-		report = func(string, error) {}
-	}
-
-	err := walkAppJSDir(root, root, skip, fn, report, map[string]struct{}{}, 0)
-	if errors.Is(err, filepath.SkipAll) {
-		return nil
-	}
-	return err
-}
-
-func walkAppJSDir(
-	root, dir string,
-	skip map[string]string,
-	fn func(path string) error,
-	report func(path string, err error),
-	visited map[string]struct{},
-	depth int,
-) error {
-	if depth > maxJSWalkDepth {
-		report(dir, ErrWalkTooDeep)
-		return nil
-	}
-
-	resolved, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		report(dir, err)
-		return nil
-	}
-	if _, seen := visited[resolved]; seen {
-		return nil
-	}
-	visited[resolved] = struct{}{}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		report(dir, err)
-		return nil
-	}
-
-	for _, entry := range entries {
-		path := filepath.Join(dir, entry.Name())
-
-		info, err := os.Stat(path)
-		if err != nil {
-			report(path, err)
-			continue
-		}
-
-		if info.IsDir() {
-			if entry.Name() == "root" && path != root {
-				continue
-			}
-			if _, skipped := skip[entry.Name()]; skipped {
-				continue
-			}
-			if err := walkAppJSDir(root, path, skip, fn, report, visited, depth+1); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if !info.Mode().IsRegular() || !isJSFileExtension(path) {
-			continue
-		}
-		if info.Size() > MaxJSFileScanBytes {
-			report(path, ErrFileTooLarge)
-			continue
-		}
-
-		// Scanning opens with O_NOFOLLOW, so a symlink has to be resolved
-		// here for its target to be read at all.
-		scanPath := path
-		if entry.Type()&fs.ModeSymlink != 0 {
-			scanPath, err = filepath.EvalSymlinks(path)
-			if err != nil {
-				report(path, err)
-				continue
-			}
-		}
-
-		if err := fn(scanPath); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func isJSFileExtension(path string) bool {
-	switch filepath.Ext(path) {
-	case ".js", ".ts", ".mjs", ".cjs":
-		return true
-	}
-	return false
-}
-
 func newJSFileWalker(root string, skip map[string]string, scanRoot bool, fn func(path string) error) filepath.WalkFunc {
 	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -1816,7 +1680,8 @@ func newJSFileWalker(root string, skip map[string]string, scanRoot bool, fn func
 			return nil
 		}
 
-		if isJSFileExtension(path) {
+		ext := filepath.Ext(path)
+		if ext == ".js" || ext == ".ts" || ext == ".mjs" || ext == ".cjs" {
 			return fn(path)
 		}
 

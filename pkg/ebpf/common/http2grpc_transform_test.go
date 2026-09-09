@@ -26,7 +26,7 @@ import (
 func TestHTTP2InfoToSpanSetsFullPath(t *testing.T) {
 	var info BPFHTTP2Info
 	info.Type = uint8(request.EventTypeHTTP)
-	span := http2InfoToSpan(&info, "GET", "/users", "/users?x=1", "peer", "host", 200, HTTP2)
+	span := http2InfoToSpan(&info, "GET", "/users", "/users?x=1", "peer", "host", 8080, 200, HTTP2)
 	assert.Equal(t, "/users", span.Path)
 	assert.Equal(t, "/users?x=1", span.FullPath)
 }
@@ -201,7 +201,7 @@ func TestHTTP2Parsing(t *testing.T) {
 				}
 
 				if ff, ok := f.(*http2.HeadersFrame); ok {
-					method, path, contentType, _, _ := readMetaFrame(parseContext, 0, framer, ff)
+					method, path, contentType, _, _, _ := readMetaFrame(parseContext, 0, framer, ff)
 					assert.Equal(t, tt.method, method)
 					assert.Equal(t, tt.path, path)
 					assert.Equal(t, tt.contentType, contentType)
@@ -238,7 +238,7 @@ func TestHTTP2ResponseDetection(t *testing.T) {
 	parseContext := NewEBPFParseContext(nil, nil, nil)
 	framer := byteFramer(nil)
 
-	_, _, _, _, isResponse := readMetaFrame(parseContext, 1, framer, headersFrame(t, payload))
+	_, _, _, _, _, isResponse := readMetaFrame(parseContext, 1, framer, headersFrame(t, payload))
 	assert.True(t, isResponse, "HEADERS opening with :status must be flagged as a response")
 }
 
@@ -280,25 +280,25 @@ func TestHTTP2ResponseDoesNotPolluteRequestTable(t *testing.T) {
 
 			// peer inserts (:path, /p1)
 			first := append([]byte{0x82}, indexedNameField(pathStaticIdx, "/p1")...)
-			_, path, _, _, isResponse := readMetaFrame(parseContext, 1, framer, headersFrame(t, first))
+			_, path, _, _, _, isResponse := readMetaFrame(parseContext, 1, framer, headersFrame(t, first))
 			require.False(t, isResponse)
 			require.Equal(t, "/p1", path)
 
 			// a response lands on the same connection, inserting (:path, /bad) if it is decoded here
 			resp := append(append([]byte{}, tc.opener...), indexedNameField(pathStaticIdx, "/bad")...)
-			_, _, _, _, isResponse = readMetaFrame(parseContext, 1, framer, headersFrame(t, resp))
+			_, _, _, _, _, isResponse = readMetaFrame(parseContext, 1, framer, headersFrame(t, resp))
 			require.True(t, isResponse)
 
 			// peer inserts (:path, /p2), so its own table holds /p2 at 62 and /p1 at 63
 			second := append([]byte{0x82}, indexedNameField(pathStaticIdx, "/p2")...)
-			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer, headersFrame(t, second))
+			_, path, _, _, _, _ = readMetaFrame(parseContext, 1, framer, headersFrame(t, second))
 			require.Equal(t, "/p2", path)
 
-			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer,
+			_, path, _, _, _, _ = readMetaFrame(parseContext, 1, framer,
 				headersFrame(t, []byte{0x82, mostRecentIdx}))
 			assert.Equal(t, "/p2", path, "entry 62 must be the peer's most recent insertion")
 
-			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer,
+			_, path, _, _, _, _ = readMetaFrame(parseContext, 1, framer,
 				headersFrame(t, []byte{0x82, secondIdx}))
 			assert.Equal(t, "/p1", path, "entry 63 must be the peer's previous insertion, not the response")
 		})
@@ -1043,6 +1043,25 @@ func TestSequentialRequestsKeepResolvingMethods(t *testing.T) {
 	observeH2Headers(t, parseContext, third, EventTypeKHTTP2RequestHeaders)
 	span = completeH2(t, parseContext, third)
 	require.Equal(t, pathB, span.Path)
+}
+
+// When the connection tuple can't be resolved (both ports zero), the span should still
+// get a peer address and port by recovering them from the :authority pseudo-header, the
+// HTTP/2 equivalent of the HTTP/1.x Host: header fallback. Unlike Host:, gRPC clients
+// (e.g. grpc-go) typically set :authority to host:port, so the port is recovered too.
+func TestUnresolvedConnFallsBackToAuthority(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	event := h2Event(enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01")), nil, 810, 1)
+	event.ConnInfo.S_port = 0
+	event.ConnInfo.D_port = 0
+
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	span := completeH2(t, parseContext, event)
+	require.Equal(t, "ipservice.ipservice.svc.cluster.local", span.Host)
+	require.Equal(t, 9090, span.HostPort)
 }
 
 func TestCoalescedDataDoesNotPoisonHeaderState(t *testing.T) {

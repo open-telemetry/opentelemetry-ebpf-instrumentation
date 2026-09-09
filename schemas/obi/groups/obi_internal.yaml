@@ -137,12 +137,6 @@ groups:
       (`process.executable.name`, `error.type`) the metrics reference it
       directly rather than declaring an OBI-specific alias.
     attributes:
-      - id: obi.error
-        type: string
-        stability: development
-        brief: >
-          Raw error message from a failed OTLP export.
-        examples: ["context deadline exceeded"]
       - id: obi.goarch
         type: string
         stability: development
@@ -227,7 +221,7 @@ groups:
     stability: development
     brief: Error count on each failed OTEL metric export.
     attributes:
-      - ref: obi.error
+      - ref: error.type
 
   - id: metric.obi.otel.trace.exports
     type: metric
@@ -245,7 +239,7 @@ groups:
     stability: development
     brief: Error count on each failed OTEL trace export.
     attributes:
-      - ref: obi.error
+      - ref: error.type
 
   # --- Instrumentation accounting ----------------------------------------
   - id: metric.obi.instrumented.processes

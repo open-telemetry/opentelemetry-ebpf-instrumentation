@@ -65,6 +65,21 @@ versions:
 Released files are immutable — never edit a `<version>` file once it has shipped;
 only add new ones.
 
+### Pending transformations
+
+A change that renames or removes emitted telemetry lands before the version that
+ships it exists, so it records the transformation here and the release owner drains
+this list into the new `<version>:` block at release prep. Leave the section empty
+once drained.
+
+```yaml
+all:
+  changes:
+    - rename_attributes:
+        attribute_map:
+          obi.error: error.type
+```
+
 ## Hosting notes
 
 `site/` is published as static files with no markdown processing, so the generated

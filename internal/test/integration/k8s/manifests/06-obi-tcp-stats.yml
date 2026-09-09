@@ -57,9 +57,6 @@ spec:
         - name: tracefs
           hostPath:
             path: /sys/kernel/tracing
-        - name: debugfs
-          hostPath:
-            path: /sys/kernel/debug
       containers:
         - name: obi
           image: obi:dev
@@ -74,8 +71,6 @@ spec:
               name: testoutput
             - mountPath: /sys/kernel/tracing
               name: tracefs
-            - mountPath: /sys/kernel/debug
-              name: debugfs
           env:
             - name: GOCOVERDIR
               value: "/testoutput"

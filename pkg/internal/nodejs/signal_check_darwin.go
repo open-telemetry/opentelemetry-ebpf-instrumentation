@@ -3,10 +3,28 @@
 
 package nodejs // import "go.opentelemetry.io/obi/pkg/internal/nodejs"
 
-import "debug/elf"
+import (
+	"debug/elf"
+	"errors"
+
+	"go.opentelemetry.io/obi/pkg/internal/procs"
+)
+
+// nodeSymbols is empty on non-Linux platforms.
+type nodeSymbols struct{}
+
+// readNodeSymbols is a no-op on non-Linux platforms.
+func readNodeSymbols(_ *elf.File) nodeSymbols {
+	return nodeSymbols{}
+}
+
+// sendSIGUSR1 is a no-op on non-Linux platforms.
+var sendSIGUSR1 = func(_ *procs.ProcessHandle) error {
+	return errors.New("signaling a pinned process is only supported on Linux")
+}
 
 // isNodeRuntime is a no-op on non-Linux platforms.
-func isNodeRuntime(_ int, _ *elf.File) bool {
+func isNodeRuntime(_ int, _ nodeSymbols) bool {
 	return true
 }
 
@@ -16,11 +34,11 @@ func sigusr1Disposition(_ int) signalDisposition {
 }
 
 // hasUserSIGUSR1Handler is a no-op on non-Linux platforms.
-func hasUserSIGUSR1Handler(_ int, _ *elf.File) signalCheckResult {
+func hasUserSIGUSR1Handler(_ int, _ *elf.File, _ nodeSymbols) signalCheckResult {
 	return signalCheckNotFound
 }
 
-// sourceSIGUSR1Reference is a no-op on non-Linux platforms.
-func sourceSIGUSR1Reference(_ int) sourceScanResult {
-	return sourceScanClean
+// sourceHasSIGUSR1Reference is a no-op on non-Linux platforms.
+func sourceHasSIGUSR1Reference(_ int) bool {
+	return false
 }

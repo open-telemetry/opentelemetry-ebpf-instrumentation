@@ -11,14 +11,6 @@ const (
 	signalCheckFailed                            // detection failed (e.g. stripped symbols)
 )
 
-type sourceScanResult int
-
-const (
-	sourceScanClean       sourceScanResult = iota // scanned, no SIGUSR1 reference
-	sourceScanFound                               // a SIGUSR1 reference was found
-	sourceScanUnavailable                         // the application files could not be scanned
-)
-
 type signalDisposition int
 
 const (

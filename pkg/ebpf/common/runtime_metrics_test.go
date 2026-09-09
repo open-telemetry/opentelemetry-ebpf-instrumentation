@@ -153,6 +153,7 @@ type fakeRuntimeMetricsSender struct {
 	nodejsEvents          []appruntime.NodejsRuntimeEvent
 	nodejsGCEvents        []appruntime.NodejsGCEvent
 	nodejsHeapSpaceEvents []appruntime.NodejsHeapSpaceEvent
+	nodejsResourceEvents  []appruntime.NodejsResourceEvent
 	goRecords             int
 	pythonRecords         int
 	goFilter              ServiceFilter
@@ -168,6 +169,10 @@ func (s *fakeRuntimeMetricsSender) SendNodejsGCMetrics(_ context.Context, events
 
 func (s *fakeRuntimeMetricsSender) SendNodejsHeapSpaceMetrics(_ context.Context, events []appruntime.NodejsHeapSpaceEvent) {
 	s.nodejsHeapSpaceEvents = append(s.nodejsHeapSpaceEvents, events...)
+}
+
+func (s *fakeRuntimeMetricsSender) SendNodejsResourceMetrics(_ context.Context, events []appruntime.NodejsResourceEvent) {
+	s.nodejsResourceEvents = append(s.nodejsResourceEvents, events...)
 }
 
 func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, filter ServiceFilter) error {
