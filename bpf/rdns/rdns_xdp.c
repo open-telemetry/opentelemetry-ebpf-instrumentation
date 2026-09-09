@@ -220,7 +220,7 @@ static __always_inline __u32 validate_qsection(struct xdp_md *ctx, const unsigne
 
     // try at most 16 sections
     for (__u8 i = 0; i < 16; ++i) {
-        if ((void *)data >= ctx_xdp_data_end(ctx)) {
+        if ((void *)(data + 1) > ctx_xdp_data_end(ctx)) {
             return 0;
         }
 
@@ -232,7 +232,7 @@ static __always_inline __u32 validate_qsection(struct xdp_md *ctx, const unsigne
         if (len == 0) {
             size += sizeof(__u32); // account for QTYPE and QCLASS
 
-            if ((void *)(data + sizeof(__u32)) < ctx_xdp_data_end(ctx)) {
+            if ((void *)(data + sizeof(__u32) + 1) <= ctx_xdp_data_end(ctx)) {
                 return size;
             } else {
                 return 0;
@@ -386,7 +386,7 @@ int dns_response_tracker(struct xdp_md *ctx) {
         return XDP_PASS;
     }
 
-    if ((void *)udp + UDP_HDR_SIZE + DNS_HDR_SIZE >= ctx_xdp_data_end(ctx)) {
+    if ((void *)udp + UDP_HDR_SIZE + DNS_HDR_SIZE + 1 > ctx_xdp_data_end(ctx)) {
         return XDP_PASS;
     }
 
