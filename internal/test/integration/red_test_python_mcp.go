@@ -102,7 +102,7 @@ func mcpInitSession(t *testing.T, address string) string {
 
 func testPythonMCPServer(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 
@@ -202,7 +202,7 @@ func testPythonMCPServer(t *testing.T) {
 
 func testPythonMCPInitialize(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 
@@ -253,7 +253,7 @@ func testPythonMCPInitialize(t *testing.T) {
 // MCP span and the peer attributes that come with it.
 func testPythonMCPClient(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 
@@ -313,7 +313,7 @@ func testPythonMCPClient(t *testing.T) {
 // reading a resource from the remote server is what carries mcp.resource.uri.
 func testPythonMCPClientResource(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 

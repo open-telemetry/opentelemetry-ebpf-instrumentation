@@ -20,7 +20,7 @@ import (
 
 func testPythonGraphQL(t *testing.T) {
 	const (
-		comm          = "python3.14"
+		comm          = "main"
 		address       = "http://localhost:8381/graphql/"
 		query         = `{"query": "query TestMe { testme }"}`
 		operationName = "GraphQL query"
