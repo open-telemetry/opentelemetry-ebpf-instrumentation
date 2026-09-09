@@ -1571,7 +1571,7 @@ static __always_inline void
 make_http2_traceparent_field(unsigned char field[k_h2_tp_hpack_huffman_size], const tp_info_t *tp) {
     field[0] = 0;
     field[1] = sizeof(tp_encoded) | 0x80;
-    bpf_memcpy(field + 2, tp_encoded, sizeof(tp_encoded));
+    __builtin_memcpy(field + 2, tp_encoded, sizeof(tp_encoded));
     field[2 + sizeof(tp_encoded)] = TP_MAX_VAL_LENGTH;
     make_tp_string(field + 3 + sizeof(tp_encoded), tp);
 }
