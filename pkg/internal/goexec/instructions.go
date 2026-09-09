@@ -153,12 +153,20 @@ func storeFunctionOffset(
 	offs FuncOffsets,
 ) {
 	offs.Returns = sortedUniqueOffsets(offs.Returns)
+	offs.CallTargets = sortedUniqueOffsets(offs.CallTargets)
 	for index, existing := range allOffsets[fName] {
 		if existing.Start != offs.Start {
 			continue
 		}
 
 		existing.Returns = sortedUniqueOffsets(append(existing.Returns, offs.Returns...))
+		existing.CallTargets = sortedUniqueOffsets(append(existing.CallTargets, offs.CallTargets...))
+		if existing.PadStart == 0 {
+			existing.PadStart = offs.PadStart
+		}
+		if existing.PadOffset == 0 {
+			existing.PadOffset = offs.PadOffset
+		}
 		if offs.Symbol == fName || (existing.Symbol != fName && offs.Symbol < existing.Symbol) {
 			existing.Symbol = offs.Symbol
 		}
@@ -200,12 +208,12 @@ func staticSymbolOffsets(fName string, allSyms map[string]procs.Sym, ilog *slog.
 			return FuncOffsets{}, false
 		}
 
-		returns, err := FindReturnOffsets(s.Off, data)
+		offs, err := analyzeFunctionOffsets(s.Off, data)
 		if err != nil {
-			ilog.Error("error finding returns for symbol", "symbol", fName, "offset", s.Off-s.Prog.Off, "size", s.Len, "error", err)
+			ilog.Error("error analyzing instructions for symbol", "symbol", fName, "offset", s.Off-s.Prog.Off, "size", s.Len, "error", err)
 			return FuncOffsets{}, false
 		}
-		return FuncOffsets{Start: s.Off, Returns: returns}, true
+		return offs, true
 	} else {
 		ilog.Debug("can't find in elf symbol table", "symbol", fName, "ok", ok, "prog", s.Prog)
 	}
@@ -237,15 +245,44 @@ func findFuncOffset(f *gosym.Func, elfF *elf.File) (FuncOffsets, bool, error) {
 				return FuncOffsets{}, false, fmt.Errorf("finding function return: %w", err)
 			}
 
-			returns, err := FindReturnOffsets(off, data)
+			offs, err := analyzeFunctionOffsets(off, data)
 			if err != nil {
-				return FuncOffsets{}, false, fmt.Errorf("finding function return: %w", err)
+				return FuncOffsets{}, false, err
 			}
-			return FuncOffsets{Start: off, Returns: returns}, true, nil
+			return offs, true, nil
 		}
 	}
 
 	return FuncOffsets{}, false, nil
+}
+
+func analyzeFunctionOffsets(baseOffset uint64, data []byte) (FuncOffsets, error) {
+	returns, err := FindReturnOffsets(baseOffset, data)
+	if err != nil {
+		return FuncOffsets{}, fmt.Errorf("finding function returns: %w", err)
+	}
+
+	callTargets, err := FindCallTargets(baseOffset, data)
+	if err != nil {
+		return FuncOffsets{}, fmt.Errorf("finding function call targets: %w", err)
+	}
+
+	padStart, padOffset, err := FindPadStartOffset(baseOffset, data)
+	if err != nil {
+		return FuncOffsets{}, fmt.Errorf("finding function stack offsets: %w", err)
+	}
+	if padStart <= baseOffset {
+		padStart = 0
+		padOffset = 0
+	}
+
+	return FuncOffsets{
+		Start:       baseOffset,
+		Returns:     returns,
+		CallTargets: callTargets,
+		PadStart:    padStart,
+		PadOffset:   padOffset,
+	}, nil
 }
 
 func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {
