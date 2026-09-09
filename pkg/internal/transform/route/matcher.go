@@ -11,8 +11,11 @@ import (
 // wildcard format. By now, we will suppport wildcards in the form:
 // - /user/:userId/details (Gin)
 // - /user/{userId}/details (Gorilla)
-// More formats will be appended at some point
-var wildcard = regexp.MustCompile(`^((:\w*)|(\{\w*}))$`)
+// The new anyPath regex distinguishes ASP.NET catchall paths, like {*path} and {**path}. These match the remaining path, not one segment.
+var (
+	wildcard = regexp.MustCompile(`^((:\w*)|(\{[A-Za-z_][^/{}]*\}))$`)
+	anyPath  = regexp.MustCompile(`^\{\*{1,2}[A-Za-z_][^/{}]*\}$`)
+)
 
 type Matcher interface {
 	Find(string) string
@@ -124,6 +127,11 @@ func appendRoute(fullRoute string, path []string, pathNode *node) {
 		return
 	}
 	currentName := path[0]
+	if anyPath.MatchString(currentName) {
+		pathNode.FullRoute = fullRoute
+		pathNode.AnyPath = &node{Child: map[string]*node{}}
+		return
+	}
 	// if the current token is a full-folder wildcard (":id"/"{id}"), register it as a
 	// catch-all pattern (empty prefix)
 	if wildcard.MatchString(currentName) {

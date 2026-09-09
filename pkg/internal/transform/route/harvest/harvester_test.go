@@ -297,6 +297,37 @@ func TestHarvestDenoRoutes_DisabledWithNodejs(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+func TestHarvestDotnetRoutes(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, time.Second)
+	harvester.dotnetExtract = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
+		return &RouteHarvesterResult{Routes: []string{"/api/{id:int}"}, Kind: PartialRoutes}, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentableDotnet))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"/api/{id:int}"}, result.Routes)
+	assert.Equal(t, PartialRoutes, result.Kind)
+}
+
+func TestHarvestDotnetRoutesDisabled(t *testing.T) {
+	harvester := NewRouteHarvester(
+		&services.RouteHarvestingConfig{},
+		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguageDotnet},
+		time.Second,
+	)
+	harvester.dotnetExtract = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
+		t.Fatal("disabled .NET route harvester was called")
+		return nil, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentableDotnet))
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
 func TestHarvestNodejsRoutes_Error(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.nodeExtractRoutes = errorNodeExtractRoutes
