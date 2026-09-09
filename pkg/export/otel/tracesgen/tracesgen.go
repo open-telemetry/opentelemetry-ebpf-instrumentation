@@ -439,10 +439,10 @@ var (
 // Tool call arguments and results are gated behind their own optionalAttrs
 // because they may be large or contain sensitive data.
 func mcpAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
-	if span.SubType != request.HTTPSubtypeMCP || span.GenAI == nil || span.GenAI.MCP == nil {
+	mcp := span.MCP()
+	if mcp == nil {
 		return nil
 	}
-	mcp := span.GenAI.MCP
 	attrs := []attribute.KeyValue{
 		attribute.String(string(attr.MCPMethodName), mcp.Method),
 		semconv.GenAIOperationNameKey.String(mcp.OperationName()),

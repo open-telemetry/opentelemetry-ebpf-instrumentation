@@ -207,6 +207,8 @@ type metricsReporter struct {
 	attrGenAIClientDuration    []attributes.Field[*request.Span, string]
 	attrGenAIInputTokenUsage   []attributes.Field[*request.Span, string]
 	attrGenAIOutputTokenUsage  []attributes.Field[*request.Span, string]
+	attrMCPClientDuration      []attributes.Field[*request.Span, string]
+	attrMCPServerDuration      []attributes.Field[*request.Span, string]
 
 	// trace span metrics
 	spanMetricsLatency           *Expirer[prometheus.Histogram]
@@ -236,6 +238,9 @@ type metricsReporter struct {
 	// genAI related metrics
 	genAIClientDuration *Expirer[prometheus.Histogram]
 	genAITokenUsage     *Expirer[prometheus.Histogram]
+
+	mcpClientOperationDuration *Expirer[prometheus.Histogram]
+	mcpServerOperationDuration *Expirer[prometheus.Histogram]
 
 	goRuntimeMetrics     goRuntimeMetricsCollector
 	goRuntimeHistograms  *goRuntimeHistogramCollector
@@ -420,6 +425,8 @@ func newReporter(
 	var attrGenAIClientDuration []attributes.Field[*request.Span, string]
 	var attrGenAIInputTokenUsage []attributes.Field[*request.Span, string]
 	var attrGenAIOutputTokenUsage []attributes.Field[*request.Span, string]
+	var attrMCPClientDuration []attributes.Field[*request.Span, string]
+	var attrMCPServerDuration []attributes.Field[*request.Span, string]
 
 	if is.GenAIEnabled() {
 		attrGenAIClientDuration = attributes.PrometheusGetters(attributeGetters,
@@ -428,6 +435,10 @@ func newReporter(
 			attrsProvider.For(attributes.GenAIClientInputTokenUsage))
 		attrGenAIOutputTokenUsage = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GenAIClientOutputTokenUsage))
+		attrMCPClientDuration = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.MCPClientOperationDuration))
+		attrMCPServerDuration = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.MCPServerOperationDuration))
 	}
 
 	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
@@ -495,6 +506,8 @@ func newReporter(
 		attrGenAIInputTokenUsage:   attrGenAIInputTokenUsage,
 		attrGenAIOutputTokenUsage:  attrGenAIOutputTokenUsage,
 		attrSvcGraph:               attrSvcGraph,
+		attrMCPClientDuration:      attrMCPClientDuration,
+		attrMCPServerDuration:      attrMCPServerDuration,
 		obiInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + buildInfoSuffix,
 			Help: "A metric with a constant '1' value labeled by version, revision, branch, " +
@@ -783,6 +796,26 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrGenAIInputTokenUsage)).MetricVec, timeNow, cfg.TTL)
 		}),
+		mcpClientOperationDuration: optionalHistogramProvider(is.GenAIEnabled(), func() *Expirer[prometheus.Histogram] {
+			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+				Name:                            attributes.MCPClientOperationDuration.Prom,
+				Help:                            "measures the duration of an MCP request as observed on the sender",
+				Buckets:                         cfg.Buckets.DurationHistogram,
+				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
+				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
+				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
+			}, labelNames(attrMCPClientDuration)).MetricVec, timeNow, cfg.TTL)
+		}),
+		mcpServerOperationDuration: optionalHistogramProvider(is.GenAIEnabled(), func() *Expirer[prometheus.Histogram] {
+			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+				Name:                            attributes.MCPServerOperationDuration.Prom,
+				Help:                            "measures the duration of an MCP request as observed on the receiver",
+				Buckets:                         cfg.Buckets.DurationHistogram,
+				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
+				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
+				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
+			}, labelNames(attrMCPServerDuration)).MetricVec, timeNow, cfg.TTL)
+		}),
 	}
 
 	if runtimeMetricsEnabled.Runtime {
@@ -851,6 +884,8 @@ func newReporter(
 		if is.GenAIEnabled() {
 			registeredMetrics = append(registeredMetrics, mr.genAIClientDuration)
 			registeredMetrics = append(registeredMetrics, mr.genAITokenUsage)
+			registeredMetrics = append(registeredMetrics, mr.mcpClientOperationDuration)
+			registeredMetrics = append(registeredMetrics, mr.mcpServerOperationDuration)
 		}
 	}
 
@@ -1067,9 +1102,12 @@ func (r *metricsReporter) observe(span *request.Span) {
 		switch span.Type {
 		case request.EventTypeHTTP:
 			// JSON-RPC over HTTP gets recorded as RPC server metrics
-			if span.SubType == request.HTTPSubtypeJSONRPC && r.is.GRPCEnabled() {
+			switch {
+			case span.SubType == request.HTTPSubtypeJSONRPC && r.is.GRPCEnabled():
 				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
-			} else if r.is.HTTPEnabled() {
+			case span.SubType == request.HTTPSubtypeMCP && r.is.GenAIEnabled():
+				r.observeHistogram(r.mcpServerOperationDuration.WithLabelValues(labelValues(span, r.attrMCPServerDuration)...).Metric, duration, span)
+			case r.is.HTTPEnabled():
 				r.observeHistogram(r.httpDuration.WithLabelValues(labelValues(span, r.attrHTTPDuration)...).Metric, duration, span)
 				r.observeHistogram(r.httpRequestSize.WithLabelValues(labelValues(span, r.attrHTTPRequestSize)...).Metric, float64(span.RequestBodyLength()), span)
 				r.observeHistogram(r.httpResponseSize.WithLabelValues(labelValues(span, r.attrHTTPResponseSize)...).Metric, float64(span.ResponseBodyLength()), span)
@@ -1085,6 +1123,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
 			case span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && r.msgPublishRecorded():
 				r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
+			case span.SubType == request.HTTPSubtypeMCP && r.is.GenAIEnabled():
+				r.observeHistogram(r.mcpClientOperationDuration.WithLabelValues(labelValues(span, r.attrMCPClientDuration)...).Metric, duration, span)
 			case r.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType):
 				r.observeHistogram(r.genAIClientDuration.WithLabelValues(labelValues(span, r.attrGenAIClientDuration)...).Metric, duration, span)
 				if tokens, reported := span.GenAIInputTokenCount(); reported {

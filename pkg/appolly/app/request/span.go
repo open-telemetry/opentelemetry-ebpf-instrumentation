@@ -970,6 +970,15 @@ type MCPCall struct {
 	ErrorMessage      string `json:"errorMessage,omitempty"`
 }
 
+// MCP returns the MCP call this span describes, or nil when it describes
+// something else.
+func (s *Span) MCP() *MCPCall {
+	if s.SubType != HTTPSubtypeMCP || s.GenAI == nil {
+		return nil
+	}
+	return s.GenAI.MCP
+}
+
 // OperationName returns the GenAI operation name for the MCP method.
 // tools/call maps to execute_tool; other methods return the method name as-is.
 func (m *MCPCall) OperationName() string {
@@ -1842,8 +1851,8 @@ func SpanStatusMessage(span *Span) string {
 		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
 			return span.JSONRPC.ErrorMessage
 		}
-		if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorMessage != "" {
-			return span.GenAI.MCP.ErrorMessage
+		if mcp := span.MCP(); mcp != nil && mcp.ErrorMessage != "" {
+			return mcp.ErrorMessage
 		}
 	case EventTypeDNS:
 		if span.Status != 0 {
@@ -1865,7 +1874,7 @@ func HTTPSpanStatusCode(span *Span) string {
 	}
 
 	// MCP errors are signaled in the JSON-RPC response body.
-	if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorCode != 0 {
+	if mcp := span.MCP(); mcp != nil && mcp.ErrorCode != 0 {
 		return StatusCodeError
 	}
 
@@ -2093,10 +2102,10 @@ func (s *Span) TraceName() string {
 			return InvokeModelOperationName
 		}
 
-		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
-			op := s.GenAI.MCP.OperationName()
-			if s.GenAI.MCP.ToolName != "" {
-				return op + " " + s.GenAI.MCP.ToolName
+		if mcp := s.MCP(); mcp != nil {
+			op := mcp.OperationName()
+			if mcp.ToolName != "" {
+				return op + " " + mcp.ToolName
 			}
 			return op
 		}

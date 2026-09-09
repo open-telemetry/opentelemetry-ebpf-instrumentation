@@ -1007,6 +1007,56 @@ func TestPrometheusGenAITokenAvailability(t *testing.T) {
 	}
 }
 
+func TestPrometheusMCPOperationDuration(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		eventType request.EventType
+		want      string
+		notWant   string
+	}{
+		{"client side", request.EventTypeHTTPClient, "mcp_client_operation_duration_seconds_count", "http_client_request_duration_seconds_count"},
+		{"server side", request.EventTypeHTTP, "mcp_server_operation_duration_seconds_count", "http_server_request_duration_seconds_count"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			openPort := testutil.FreeTCPPort(t)
+			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			exporter := makePromExporter(ctx, t,
+				[]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP, instrumentations.InstrumentationGenAI},
+				openPort,
+				input,
+			)
+			go exporter(ctx)
+
+			input.Send([]request.Span{{
+				Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "mcp"}},
+				Type:         tc.eventType,
+				SubType:      request.HTTPSubtypeMCP,
+				Method:       "tools/call",
+				RequestStart: 100,
+				End:          200,
+				GenAI: &request.GenAI{MCP: &request.MCPCall{
+					Method:      "tools/call",
+					ToolName:    "get_weather",
+					ProtocolVer: "2025-06-18",
+				}},
+			}})
+
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				exported := getMetrics(ct, promURL)
+				assert.Contains(ct, exported, tc.want)
+				assert.Contains(ct, exported, `mcp_method_name="tools/call"`)
+				assert.Contains(ct, exported, `gen_ai_tool_name="get_weather"`)
+				// An MCP span must not also land on the plain HTTP duration
+				// metric it would otherwise fall through to.
+				assert.NotContains(ct, exported, tc.notWant)
+			}, timeout, 10*time.Millisecond)
+		})
+	}
+}
+
 type mockEventMetrics struct {
 	createCalls []svc.Attrs
 	deleteCalls []svc.Attrs

@@ -114,6 +114,8 @@ type MetricsReporter struct {
 	attrGenAIInputTokenUsage   []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGenAIOutputTokenUsage  []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGenAIClientDuration    []attributes.Field[*request.Span, attribute.KeyValue]
+	attrMCPClientDuration      []attributes.Field[*request.Span, attribute.KeyValue]
+	attrMCPServerDuration      []attributes.Field[*request.Span, attribute.KeyValue]
 
 	userAttribSelection attributes.Selection
 	input               <-chan []request.Span
@@ -164,6 +166,10 @@ type Metrics struct {
 	genAIInputTokenUsage  *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	genAIOutputTokenUsage *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	genAIClientDuration   *Expirer[*request.Span, instrument.Float64Histogram, float64]
+
+	// mcp
+	mcpClientOperationDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	mcpServerOperationDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
 }
 
 type TargetMetrics struct {
@@ -314,6 +320,10 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.GenAIClientOutputTokenUsage))
 		mr.attrGenAIClientDuration = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.GenAIClientOperationDuration))
+		mr.attrMCPClientDuration = attributes.OpenTelemetryGetters(
+			mr.attrGetters, mr.attributes.For(attributes.MCPClientOperationDuration))
+		mr.attrMCPServerDuration = attributes.OpenTelemetryGetters(
+			mr.attrGetters, mr.attributes.For(attributes.MCPServerOperationDuration))
 	}
 
 	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -404,6 +414,8 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 			metric.WithView(mr.otelHistogramConfig(attributes.GenAIClientOperationDuration.OTEL, mr.cfg.Buckets.GenAIClientDurationHistogram)),
 			// the input tokens and output tokens are the same metric, we just need to distinguish the attributes, so we can write the token type
 			metric.WithView(mr.otelHistogramConfig(attributes.GenAIClientInputTokenUsage.OTEL, mr.cfg.Buckets.GenAITokenUsageHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.MCPClientOperationDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.MCPServerOperationDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 		)
 	}
 
@@ -622,6 +634,20 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, genAITokenUsage, mr.attrGenAIInputTokenUsage, timeNow, mr.cfg.TTL)
 		m.genAIOutputTokenUsage = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 			m.ctx, genAITokenUsage, mr.attrGenAIOutputTokenUsage, timeNow, mr.cfg.TTL)
+
+		mcpClientOperationDuration, err := meter.Float64Histogram(attributes.MCPClientOperationDuration.OTEL, instrument.WithUnit(attributes.MCPClientOperationDuration.Unit))
+		if err != nil {
+			return fmt.Errorf("creating mcp client operation duration histogram: %w", err)
+		}
+		m.mcpClientOperationDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+			m.ctx, mcpClientOperationDuration, mr.attrMCPClientDuration, timeNow, mr.cfg.TTL)
+
+		mcpServerOperationDuration, err := meter.Float64Histogram(attributes.MCPServerOperationDuration.OTEL, instrument.WithUnit(attributes.MCPServerOperationDuration.Unit))
+		if err != nil {
+			return fmt.Errorf("creating mcp server operation duration histogram: %w", err)
+		}
+		m.mcpServerOperationDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+			m.ctx, mcpServerOperationDuration, mr.attrMCPServerDuration, timeNow, mr.cfg.TTL)
 	}
 
 	return nil
@@ -949,6 +975,9 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			if span.SubType == request.HTTPSubtypeJSONRPC && mr.is.GRPCEnabled() {
 				grpcDuration, attrs := r.grpcDuration.ForRecord(span)
 				grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			} else if span.SubType == request.HTTPSubtypeMCP && mr.is.GenAIEnabled() {
+				mcpServerOperationDuration, attrs := r.mcpServerOperationDuration.ForRecord(span)
+				mcpServerOperationDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			} else if mr.is.HTTPEnabled() {
 				httpDuration, attrs := r.httpDuration.ForRecord(span)
 				httpDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
@@ -993,6 +1022,9 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			} else if span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && mr.msgPublishRecorded() {
 				msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
 				msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			} else if span.SubType == request.HTTPSubtypeMCP && mr.is.GenAIEnabled() {
+				mcpClientOperationDuration, attrs := r.mcpClientOperationDuration.ForRecord(span)
+				mcpClientOperationDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {
 				genAIClientDuration, attrs := r.genAIClientDuration.ForRecord(span)
 				genAIClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
@@ -1431,4 +1463,6 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.genAIClientDuration)
 	cleanupMetrics(r.ctx, r.genAIInputTokenUsage)
 	cleanupMetrics(r.ctx, r.genAIOutputTokenUsage)
+	cleanupMetrics(r.ctx, r.mcpClientOperationDuration)
+	cleanupMetrics(r.ctx, r.mcpServerOperationDuration)
 }
