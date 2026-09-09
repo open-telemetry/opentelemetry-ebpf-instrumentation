@@ -97,7 +97,7 @@ OBI-emitted dns.lookup.duration
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `dns.question.name` | string | development | The name being queried. | www.example.com; opentelemetry.io |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `gen_ai.client.operation.duration`
 
@@ -109,8 +109,8 @@ OBI-emitted gen_ai.client.operation.duration
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; tools/call |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
 | `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
@@ -127,7 +127,7 @@ OBI-emitted gen_ai.client.token.usage
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; tools/call |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
 | `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
@@ -493,6 +493,19 @@ OBI-emitted jvm.cpu.time
 
 No attributes.
 
+## `jvm.gc.duration`
+
+OBI-emitted jvm.gc.duration
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| histogram | s | stable |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `jvm.gc.action` | string | stable | Name of the garbage collector action. | end of minor GC; end of major GC |
+| `jvm.gc.name` | string | stable | Name of the garbage collector. | G1 Young Generation; G1 Old Generation |
+
 ## `jvm.memory.committed`
 
 OBI-emitted jvm.memory.committed
@@ -686,7 +699,7 @@ Total number of instrumentation errors, by process name and error type.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `process.executable.name` | string | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
 
 ## `obi.instrumented.processes`
@@ -896,7 +909,7 @@ Error count on each failed OTEL metric export.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `obi.otel.metric.exports`
 
@@ -918,7 +931,7 @@ Error count on each failed OTEL trace export.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `obi.otel.trace.exports`
 
@@ -1112,7 +1125,7 @@ OBI-emitted rpc.client.call.duration
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
 | `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc |

@@ -23,7 +23,7 @@ OBI AWS SDK client span (S3, SQS).
 | `aws.s3.key` | string | development | The S3 object key the request refers to. Corresponds to the `--key` parameter of the [S3 API](https://docs.aws.amazon.com/cli/latest/reference/s3api/index.html) operations. | someFile.yml |
 | `aws.sqs.queue.url` | string | development | The URL of the AWS SQS Queue. It's a unique identifier for a queue in Amazon Simple Queue Service (SQS) and is used to access the queue and perform actions on it. | https://sqs.us-east-1.amazonaws.com/123456789012/MyQueue |
 | `cloud.region` | string | development | The geographical region within a cloud provider. When associated with a resource, this attribute specifies the region where the resource operates. When calling services or APIs deployed on a cloud, this attribute identifies the region where the called destination is deployed. | us-central1; us-east-1 |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `messaging.destination.name` | string | development | The message destination name | MyQueue; MyTopic |
 | `messaging.message.id` | string | development | A value used by the messaging system as an identifier for the message, represented as a string. | 452a7c7c7c7048c2f887f61572b18fc2 |
 | `messaging.operation.name` | string | development | The system-specific name of the messaging operation. | ack; nack; send |
@@ -159,13 +159,13 @@ OBI GenAI client span.
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `aws.bedrock.guardrail.id` | string | development | The unique identifier of the AWS Bedrock Guardrail. A [guardrail](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html) helps safeguard and prevent unwanted behavior from model responses or user messages. | sgi5gkybzqak |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.conversation.id` | string | development | The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation. | conv_5j66UpCpwteGg4YSxUnt7lPY |
 | `gen_ai.data_source.id` | string | development | The data source identifier. | H7STPQYOND |
 | `gen_ai.embeddings.dimension.count` | int | development | The number of dimensions the resulting output embeddings should have. | 512; 1024 |
 | `gen_ai.input.messages` | any | development | The chat history provided to the model as an input. | [   {     "role": "user",     "parts": [       {         "type": "text",         "content": "Weather in Paris?"       }     ]   },   {     "role": "assistant",     "parts": [       {         "type": "tool_call",         "id": "call_VSPygqKTWdrhaFErNvMV18Yl",         "name": "get_weather",         "arguments": {           "location": "Paris"         }       }     ]   },   {     "role": "tool",     "parts": [       {         "type": "tool_call_response",         "id": " call_VSPygqKTWdrhaFErNvMV18Yl",         "result": "rainy, 57°F"       }     ]   } ] |
 | `gen_ai.metadata` | string | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; tools/call |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
 | `gen_ai.output.messages` | any | development | Messages returned by the model where each message represents a specific model response (choice, candidate). | [   {     "role": "assistant",     "parts": [       {         "type": "text",         "content": "The weather in Paris is currently rainy with a temperature of 57°F."       }     ],     "finish_reason": "stop"   } ] |
 | `gen_ai.output.type` | enum | development | Represents the content type requested by the client. | text; json; image; speech |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
@@ -253,7 +253,7 @@ OBI inbound HTTP server span.
 | --- | --- | --- | --- | --- |
 | `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; tools/call |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
 | `gen_ai.prompt.name` | string | development | The name of the prompt that uniquely identifies it. | analyze-code |
 | `gen_ai.tool.call.arguments` | any | development | Parameters passed to the tool call. | {     "location": "San Francisco?",     "date": "2025-10-01" } |
 | `gen_ai.tool.call.result` | any | development | The result returned by the tool call (if any and if execution was successful). | {   "temperature_range": {     "high": 75,     "low": 60   },   "conditions": "sunny" } |
@@ -300,8 +300,8 @@ OBI Model Context Protocol client span.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; tools/call |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
 | `gen_ai.prompt.name` | string | development | The name of the prompt that uniquely identifies it. | analyze-code |
 | `gen_ai.tool.call.arguments` | any | development | Parameters passed to the tool call. | {     "location": "San Francisco?",     "date": "2025-10-01" } |
 | `gen_ai.tool.call.result` | any | development | The result returned by the tool call (if any and if execution was successful). | {   "temperature_range": {     "high": 75,     "low": 60   },   "conditions": "sunny" } |
@@ -331,7 +331,7 @@ OBI messaging client span, for a receive or a settle operation.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `messaging.client.id` | string | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
 | `messaging.destination.name` | string | development | The message destination name | MyQueue; MyTopic |
 | `messaging.destination.partition.id` | string | development | The identifier of the partition messages are sent to or received from, unique within the `messaging.destination.name`. | 1 |
@@ -357,7 +357,7 @@ OBI messaging consumer span.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `messaging.client.id` | string | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
 | `messaging.destination.name` | string | development | The message destination name | MyQueue; MyTopic |
 | `messaging.destination.partition.id` | string | development | The identifier of the partition messages are sent to or received from, unique within the `messaging.destination.name`. | 1 |
@@ -383,7 +383,7 @@ OBI messaging producer span.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `messaging.client.id` | string | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
 | `messaging.destination.name` | string | development | The message destination name | MyQueue; MyTopic |
 | `messaging.destination.partition.id` | string | development | The identifier of the partition messages are sent to or received from, unique within the `messaging.destination.name`. | 1 |

@@ -131,7 +131,65 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 	assert.Equal(t, "G1 Eden Space", record.Attrs["jvm.memory.pool.name"])
 }
 
+func TestRuntimeMetricsReporterRecordsJVMGCDuration(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	records := make(chan jvmMetricRecord, 10)
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          20 * time.Millisecond,
+		TTL:               time.Minute,
+		ReportersCacheLen: 10,
+		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+	}
+	reporter, err := newRuntimeMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		cfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+	)
+	require.NoError(t, err)
+	defer reporter.close()
+
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+		Features: export.FeatureApplicationRuntime,
+	}
+	reporter.onProcessEvent(&exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{Pid: 101, Service: service}),
+	})
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: service,
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			Kind:       jvmruntime.JVMMetricGCDuration,
+			GCName:     "G1 Young Generation",
+			GCAction:   "end of minor GC",
+			DurationNS: 25_000_000,
+		},
+	}})
+
+	record := readJVMMetricRecord(t, records, "jvm.gc.duration")
+	assert.Equal(t, pmetric.MetricTypeHistogram, record.Type)
+	assert.Equal(t, int64(1), record.Value)
+	assert.InEpsilon(t, 0.025, record.DoubleValue, 0)
+	assert.Equal(t, "G1 Young Generation", record.Attrs["jvm.gc.name"])
+	assert.Equal(t, "end of minor GC", record.Attrs["jvm.gc.action"])
+}
+
 func TestRuntimeMetricsReporterRecordsJVMClassMetrics(t *testing.T) {
+	t.Run("zero unloaded classes", func(t *testing.T) {
+		testJVMClassMetrics(t, 0)
+	})
+	t.Run("unloaded classes", func(t *testing.T) {
+		testJVMClassMetrics(t, 5)
+	})
+}
+
+func testJVMClassMetrics(t *testing.T, unloaded uint64) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -169,7 +227,7 @@ func TestRuntimeMetricsReporterRecordsJVMClassMetrics(t *testing.T) {
 			RuntimeValues: &jvmruntime.JVMRuntimeValues{
 				LoadedClassCount:        42,
 				TotalLoadedClassCount:   100,
-				UnloadedClassCount:      5,
+				UnloadedClassCount:      unloaded,
 				ThreadCount:             10,
 				DaemonThreadCount:       4,
 				AvailableProcessorCount: 8,
@@ -191,7 +249,7 @@ func TestRuntimeMetricsReporterRecordsJVMClassMetrics(t *testing.T) {
 	)
 	assert.Equal(t, int64(100), got["jvm.class.loaded"][0].Value)
 	assert.True(t, got["jvm.class.loaded"][0].IsMonotonic)
-	assert.Equal(t, int64(5), got["jvm.class.unloaded"][0].Value)
+	assert.Equal(t, int64(unloaded), got["jvm.class.unloaded"][0].Value)
 	assert.True(t, got["jvm.class.unloaded"][0].IsMonotonic)
 	assert.Equal(t, int64(42), got["jvm.class.count"][0].Value)
 	assert.False(t, got["jvm.class.count"][0].IsMonotonic)
@@ -378,6 +436,16 @@ func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) consumer.Metrics 
 						sum := metric.Sum()
 						record.IsMonotonic = sum.IsMonotonic()
 						points = sum.DataPoints()
+					case pmetric.MetricTypeHistogram:
+						histogramPoints := metric.Histogram().DataPoints()
+						for l := 0; l < histogramPoints.Len(); l++ {
+							point := histogramPoints.At(l)
+							record.Value = int64(point.Count())
+							record.DoubleValue = point.Sum()
+							record.Attrs = attrsToMap(point.Attributes())
+							out <- record
+						}
+						continue
 					default:
 						continue
 					}

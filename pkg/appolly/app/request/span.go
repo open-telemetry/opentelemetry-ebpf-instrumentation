@@ -970,13 +970,35 @@ type MCPCall struct {
 	ErrorMessage      string `json:"errorMessage,omitempty"`
 }
 
-// OperationName returns the GenAI operation name for the MCP method.
-// tools/call maps to execute_tool; other methods return the method name as-is.
-func (m *MCPCall) OperationName() string {
-	if m.Method == "tools/call" {
-		return "execute_tool"
+// MCPMethodToolsCall is the MCP method name for a tool call, the one method
+// that carries a GenAI operation name.
+const MCPMethodToolsCall = "tools/call"
+
+// GenAIOperationName returns the GenAI operation name for the MCP method.
+// Semantic conventions set it to execute_tool for a tool call and leave it
+// unset for every other method, so that consumers can treat MCP tool calls
+// like any other tool call.
+func (m *MCPCall) GenAIOperationName() string {
+	if m.Method == MCPMethodToolsCall {
+		return ExecuteToolOperationName
+	}
+	return ""
+}
+
+// SpanName is the MCP method name, followed by a target when a
+// low-cardinality one is available.
+func (m *MCPCall) SpanName() string {
+	if target := m.lowCardinalityTarget(); target != "" {
+		return m.Method + " " + target
 	}
 	return m.Method
+}
+
+func (m *MCPCall) lowCardinalityTarget() string {
+	if m.ToolName != "" {
+		return m.ToolName
+	}
+	return m.PromptName
 }
 
 type JSONRPC struct {
@@ -998,6 +1020,7 @@ const (
 	EmbeddingOperationName    = "embeddings"
 	ResponseOperationName     = "response"
 	ConversationOperationName = "conversation"
+	ExecuteToolOperationName  = "execute_tool"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as
@@ -2094,11 +2117,7 @@ func (s *Span) TraceName() string {
 		}
 
 		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
-			op := s.GenAI.MCP.OperationName()
-			if s.GenAI.MCP.ToolName != "" {
-				return op + " " + s.GenAI.MCP.ToolName
-			}
-			return op
+			return s.GenAI.MCP.SpanName()
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeEmbedding && s.GenAI != nil && s.GenAI.Embedding != nil {

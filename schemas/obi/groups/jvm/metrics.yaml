@@ -134,3 +134,16 @@ groups:
     unit: "1"
     stability: stable
     attributes: []
+  - id: metric.obi.jvm.gc.duration
+    type: metric
+    metric_name: jvm.gc.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted jvm.gc.duration
+    instrument: histogram
+    unit: "s"
+    stability: stable
+    attributes:
+      - ref: jvm.gc.name
+      - ref: jvm.gc.action

@@ -101,6 +101,7 @@ const (
 	EventTypePythonRuntimeMetric   = uint8(BpfEventTypeK_eventTypePythonRuntimeMetrics)   // Python GC counters
 	EventTypeJVMRuntimeMetrics     = uint8(BpfEventTypeK_eventTypeJvmRuntimeMetrics)      // JVM runtime metrics
 	EventTypeNodejsResource        = uint8(BpfEventTypeK_eventTypeNodejsResource)
+	EventTypeJVMGCDuration         = uint8(BpfEventTypeK_eventTypeJvmGcDuration) // JVM garbage-collection duration
 )
 
 // Kernel-side classification. These alias the bpf2go-generated constants
@@ -157,6 +158,10 @@ type ProbeDesc struct {
 	// Optional list of the offsets of every RET instruction in the symbol
 	ReturnOffsets []uint64
 
+	// UsePadStart attaches Start after WriteHeaders has spilled PadLength to
+	// its stack slot and before the value is first consumed.
+	UsePadStart bool
+
 	// SymbolMatcher controls how the map key for this probe is matched against
 	// executable symbols. The zero value preserves exact symbol matching.
 	SymbolMatcher SymbolMatcher
@@ -170,6 +175,8 @@ type GoProbe struct {
 	Symbol        string
 	Probe         *ProbeDesc
 	ProcessScoped bool
+	// CalledFrom rejects this probe unless the named group symbol calls it directly.
+	CalledFrom string
 }
 
 // GoProbeGroup is an optional set of Go probes that must be attached atomically.

@@ -23,8 +23,11 @@ groups:
       - ref: mcp.session.id
         requirement_level:
           conditionally_required: if the exchange is part of a session
+      # Set to `execute_tool` for a tool call and left unset otherwise, so it
+      # cannot be required here.
       - ref: gen_ai.operation.name
-        requirement_level: required
+        requirement_level:
+          conditionally_required: if the operation executes a tool
       - ref: gen_ai.tool.name
         requirement_level:
           conditionally_required: if the operation executes a tool

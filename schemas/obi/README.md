@@ -73,7 +73,7 @@ overrides of an upstream attribute use `x.obi.<namespace>` per the rules above.
   failed.
 - **Open-ended value space, re-typed as string**: upstream declares an enum,
   but the real value space is unbounded by design — domain-specific error
-  codes (`error.type`) or provider/MCP operation vocabularies
+  codes (`error.type`) or provider operation vocabularies
   (`gen_ai.operation.name`). Enumerating these is impossible, so the override
   re-types the attribute as a plain `string` with examples. Weaver then
   validates presence/type but not membership. For these attributes the

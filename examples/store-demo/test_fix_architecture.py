@@ -87,6 +87,51 @@ spec:
     appProtocol: redis
 """
 
+# An OBI-authored service under services/ with its datastore bundled in the
+# same manifest, mirroring the real recentlyviewed.yaml + aerospike layout.
+GAMMA = """\
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gamma
+spec:
+  template:
+    spec:
+      containers:
+      - name: server
+        env:
+        - name: AEROSPIKE_ADDR
+          value: "aerospike:3000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gamma
+spec:
+  ports:
+  - name: http
+    port: 4444
+    targetPort: 4444
+    appProtocol: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aerospike
+spec: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aerospike
+spec:
+  ports:
+  - name: tcp-aerospike
+    port: 3000
+    targetPort: 3000
+    appProtocol: aerospike
+"""
+
 # Numbered infra manifest that also declares a Deployment: must be filtered out.
 INFRA = """\
 apiVersion: apps/v1
@@ -105,6 +150,7 @@ class FixArchitectureTest(unittest.TestCase):
         (k8s / "alpha.yaml").write_text(ALPHA)
         (k8s / "beta.yaml").write_text(BETA)
         (k8s / "redis-cache.yaml").write_text(REDIS)
+        (k8s / "gamma.yaml").write_text(GAMMA)
         (k8s / "00-observability.yaml").write_text(INFRA)
         (k8s / "kustomization.yaml").write_text("resources:\n- alpha.yaml\n")
 
@@ -114,27 +160,46 @@ class FixArchitectureTest(unittest.TestCase):
         (src / "beta").mkdir(parents=True)
         (src / "beta" / "package.json").write_text("{}\n")
 
+        # OBI-authored services live outside the vendored app/src tree.
+        services_src = root / "services"
+        (services_src / "gamma").mkdir(parents=True)
+        (services_src / "gamma" / "pom.xml").write_text("<project/>\n")
+
         # Point the module at the fixture tree.
         fa.K8S = k8s
         fa.APP_SRC = src
+        fa.SERVICES_SRC = services_src
 
     def tearDown(self):
         self._tmp.cleanup()
 
     def test_services_exclude_numbered_infra(self):
         # lgtm lives in 00-observability.yaml and must be filtered out.
-        self.assertEqual(fa.manifest_services(), {"alpha", "beta", "redis-cache"})
+        self.assertEqual(
+            fa.manifest_services(),
+            {"alpha", "beta", "redis-cache", "gamma", "aerospike"},
+        )
 
     def test_edges(self):
         self.assertEqual(
             fa.manifest_edges(),
-            {("alpha", "beta", "2222"), ("alpha", "redis-cache", "6379")},
+            {
+                ("alpha", "beta", "2222"),
+                ("alpha", "redis-cache", "6379"),
+                ("gamma", "aerospike", "3000"),
+            },
         )
 
     def test_protocols_from_appprotocol(self):
         self.assertEqual(
             fa.manifest_protocols(),
-            {"alpha": "grpc", "beta": "http", "redis-cache": "redis"},
+            {
+                "alpha": "grpc",
+                "beta": "http",
+                "redis-cache": "redis",
+                "gamma": "http",
+                "aerospike": "aerospike",
+            },
         )
 
     def test_language_detection(self):
@@ -142,6 +207,11 @@ class FixArchitectureTest(unittest.TestCase):
         self.assertEqual(fa.detect_language("beta")[0], "Node.js")
         # No source dir + "redis" in the name -> datastore fallback.
         self.assertEqual(fa.detect_language("redis-cache")[0], "Redis (datastore)")
+        # Resolved from services/ rather than app/src/, and via pom.xml.
+        self.assertEqual(fa.detect_language("gamma"), ("Java", "`pom.xml`"))
+        self.assertEqual(
+            fa.detect_language("aerospike")[0], "Aerospike (datastore)"
+        )
 
     def test_render_regions_content(self):
         regions = fa.render_regions()
@@ -153,6 +223,15 @@ class FixArchitectureTest(unittest.TestCase):
         self.assertIn(
             "| alpha | redis-cache | `redis-cache:6379` | Redis |", regions["connections"]
         )
+        # appProtocol: aerospike must render through PROTOCOL_DISPLAY, not raw.
+        self.assertIn('aerospike["aerospike<br/>:3000 Aerospike"]', regions["graph"])
+        self.assertIn("gamma -->|Aerospike| aerospike", regions["graph"])
+        self.assertIn(
+            "| gamma | aerospike | `aerospike:3000` | Aerospike |",
+            regions["connections"],
+        )
+        self.assertIn("Aerospike (datastore)", regions["legend"])
+        self.assertIn("| gamma | Java | `pom.xml` |", regions["languages"])
 
     def test_missing_appprotocol_is_fatal(self):
         # Drop beta's appProtocol; beta is a callee, so generation must fail.
