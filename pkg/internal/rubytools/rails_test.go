@@ -100,10 +100,52 @@ end`,
 			expected: "orders",
 		},
 		{
+			name: "closed nested module falls back",
+			source: `module Orders
+  module Admin
+  end
+  class Application < Rails::Application
+  end
+end`,
+			expected: "",
+		},
+		{
+			name: "conditional scope does not close the module",
+			source: `module Orders
+  if Feature.enabled?
+  end
+  class Application < Rails::Application
+  end
+end`,
+			expected: "orders",
+		},
+		{
+			name: "conditional application falls back",
+			source: `if Feature.enabled?
+  module Orders
+    class Application < Rails::Application
+    end
+  end
+end`,
+			expected: "",
+		},
+		{
+			name: "unmatched ends are ignored",
+			source: `end
+end
+module Orders
+  class Application < Rails::Application
+  end
+end`,
+			expected: "orders",
+		},
+		{
 			name: "commented declarations are ignored",
 			source: `# module Wrong
 # class Application < Rails::Application
 module Right
+  # if disabled
+  # end
   class Application < Rails::Application
   end
 end`,
