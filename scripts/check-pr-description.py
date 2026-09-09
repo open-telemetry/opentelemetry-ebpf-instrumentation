@@ -4,11 +4,17 @@
 # single read. Used by .github/workflows/pr-description.yml.
 #
 # A description fails when any of these hold:
+#   - the body is completely empty or unchanged from the PR template: any
+#     text of the author's own passes, a link to an issue included
 #   - more than 5 top-level (#, ##) section headings: it reads as a pasted
-#     document, not a description (### is free: issue forms generate it)
+#     document, not a description (### is free: issue forms generate it;
+#     headings inside code blocks and comments never count)
 #   - more than 2,000 characters of prose, not counting code blocks, comments,
 #     headings, checklists and URLs
-#   - sentences average more than 30 words
+#   - sentences average more than 30 words, judged only when there are at
+#     least 3 sentences so one long sentence in a short description does not
+#     fail on its own; above 60 it fails regardless (list items count as
+#     their own sentences, so bullet lists are never concatenated)
 #   - more than a quarter of the words are 14+ characters long
 #   - a boilerplate phrase nobody writes by hand ("it's important to note",
 #     "plays a crucial role", ...)
@@ -26,6 +32,8 @@ import sys
 
 CHAR_LIMIT = 2000
 MAX_AVG_SENTENCE_WORDS = 30
+MIN_SENTENCES_FOR_AVG = 3
+MAX_AVG_SENTENCE_WORDS_HARD = 60
 LONG_WORD_LEN = 14
 MAX_LONG_WORD_RATIO = 0.25
 MIN_WORDS_FOR_RATIO = 30
@@ -63,7 +71,6 @@ SLOP_WORDS = [
     r"additionally",
     r"crucial(?:ly)?",
     r"vital(?:ly)?",
-    r"underscor(?:e|es|ed|ing)",
     r"showcas(?:e|es|ed|ing)",
     r"boast(?:s|ed|ing)?",
     r"landscape",
@@ -124,19 +131,72 @@ SLOP_PHRASES_RE = re.compile(
     r"\b(?:" + "|".join(SLOP_PHRASES) + r")\b", re.IGNORECASE
 )
 
+# A markdown list item: bullet or numbered
+LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s+(.*)$")
 
-def prose(body: str) -> str:
-    """Strip everything that is not the author's own prose: code blocks,
-    inline code, HTML comments (the template's guidance), markdown headings,
-    checklist lines (the template's validation section) and link URLs."""
+
+def strip_generated(body: str) -> str:
+    """Remove the regions that are not the author's own text and must not feed
+    any check: fenced code blocks (an unclosed fence runs to the end), inline
+    code and HTML comments (the template's guidance)."""
+    body = body.replace("\r\n", "\n")
     body = re.sub(r"```.*?```", " ", body, flags=re.S)
+    body = re.sub(r"```.*\Z", " ", body, flags=re.S)
     body = re.sub(r"`[^`]*`", " ", body)
     body = re.sub(r"<!--.*?-->", " ", body, flags=re.S)
-    body = re.sub(r"^#{1,6} .*$", " ", body, flags=re.M)
-    body = re.sub(r"^\s*- \[[ xX]\] .*$", " ", body, flags=re.M)
+    return body
+
+
+def author_text(body: str) -> str:
+    """The author's own text: the body without generated regions, markdown
+    headings and checklist lines (the template's validation section)."""
+    body = strip_generated(body)
+    body = re.sub(r"^#{1,6} .*$", "", body, flags=re.M)
+    body = re.sub(r"^\s*- \[[ xX]\] .*$", "", body, flags=re.M)
+    return body
+
+
+def empty_problems(body: str) -> list[str]:
+    """Fails only a body with no text of the author's own: completely empty,
+    or unchanged from the PR template (comments, headings and checklists)."""
+    if author_text(body).split():
+        return []
+    return [
+        "the description is empty or unchanged from the template. "
+        "Please say what changed and why."
+    ]
+
+
+def prose(body: str) -> str:
+    """Reduce the body to the author's own prose, one segment per line: each
+    list item is its own segment and paragraph lines are joined, so sentence
+    counting sees the same boundaries a reader does. Link URLs and list
+    markers are dropped."""
+    body = author_text(body)
     body = re.sub(r"\]\(\S+\)", "]", body)
     body = re.sub(r"https?://\S+", " ", body)
-    return re.sub(r"\s+", " ", body).strip()
+
+    segments = []
+    paragraph = []
+    for raw_line in body.split("\n"):
+        line = raw_line.strip()
+        item = LIST_ITEM_RE.match(line)
+        if item:
+            if paragraph:
+                segments.append(" ".join(paragraph))
+                paragraph = []
+            if item.group(1).strip():
+                segments.append(item.group(1).strip())
+        elif line:
+            paragraph.append(line)
+        else:
+            if paragraph:
+                segments.append(" ".join(paragraph))
+                paragraph = []
+    if paragraph:
+        segments.append(" ".join(paragraph))
+
+    return "\n".join(re.sub(r"\s+", " ", s) for s in segments)
 
 
 def problems(text: str) -> list[str]:
@@ -145,19 +205,21 @@ def problems(text: str) -> list[str]:
     if len(text) > CHAR_LIMIT:
         found.append(
             f"the description is {len(text)} characters of prose "
-            f"(limit {CHAR_LIMIT}). Trim it: a reviewer must understand "
-            "what changed and why in a single read."
+            f"(limit {CHAR_LIMIT}). Please make it shorter."
         )
 
     words = text.split()
-    sentences = [s for s in re.split(r"[.!?:;]+(?:\s|$)", text) if s.split()]
+    # a line break is a sentence boundary: list items stay separate sentences
+    sentences = [s for s in re.split(r"[.!?:;]+(?:\s|$)|\n", text) if s.split()]
 
     if sentences and words:
         avg = len(words) / len(sentences)
-        if avg > MAX_AVG_SENTENCE_WORDS:
+        over = (len(sentences) >= MIN_SENTENCES_FOR_AVG
+                and avg > MAX_AVG_SENTENCE_WORDS)
+        if over or avg > MAX_AVG_SENTENCE_WORDS_HARD:
             found.append(
                 f"sentences average {avg:.0f} words "
-                f"(limit {MAX_AVG_SENTENCE_WORDS}). Use shorter sentences."
+                f"(limit {MAX_AVG_SENTENCE_WORDS}). Please use shorter sentences."
             )
 
     if len(words) >= MIN_WORDS_FOR_RATIO:
@@ -168,15 +230,14 @@ def problems(text: str) -> list[str]:
         if ratio > MAX_LONG_WORD_RATIO:
             found.append(
                 f"{ratio:.0%} of the words have {LONG_WORD_LEN}+ characters "
-                f"(limit {MAX_LONG_WORD_RATIO:.0%}). Use plain language."
+                f"(limit {MAX_LONG_WORD_RATIO:.0%}). Please use simpler words."
             )
 
     phrases = SLOP_PHRASES_RE.findall(text)
     if phrases:
         sample = "; ".join(sorted({p.lower() for p in phrases})[:4])
         found.append(
-            f'generated boilerplate phrasing ("{sample}"). '
-            "Rewrite in your own words."
+            f'boilerplate phrasing ("{sample}"). Please reword it.'
         )
 
     slop = SLOP_RE.findall(text)
@@ -185,19 +246,19 @@ def problems(text: str) -> list[str]:
         if per_100 > MAX_SLOP_PER_100_WORDS:
             sample = ", ".join(sorted({s.lower() for s in slop})[:8])
             found.append(
-                f"{len(slop)} abstract filler words in {len(words)} words "
-                f"({sample}). Use concrete, plain language."
+                f"{len(slop)} filler words in {len(words)} words "
+                f"({sample}). Please use simpler words."
             )
 
     return found
 
 
 def structure_problems(body: str) -> list[str]:
-    headings = len(HEADING_RE.findall(body))
+    headings = len(HEADING_RE.findall(strip_generated(body)))
     if headings > MAX_HEADINGS:
         return [
             f"{headings} section headings (limit {MAX_HEADINGS}). "
-            "A description is not a design document — keep it flat."
+            "Please use fewer sections."
         ]
     return []
 
@@ -208,10 +269,10 @@ def main() -> int:
         body = sys.stdin.read()
 
     text = prose(body)
-    found = structure_problems(body) + problems(text)
+    found = empty_problems(body) + structure_problems(body) + problems(text)
 
     if found:
-        print("The PR description does not follow the AI policy")
+        print("Please adjust the PR description")
         print("(AI-POLICY.md, 'GitHub Communication'):")
         for p in found:
             print(f"  - {p}")

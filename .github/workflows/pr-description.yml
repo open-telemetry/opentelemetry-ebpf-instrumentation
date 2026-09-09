@@ -1,7 +1,11 @@
 name: PR description
 
-on:
-  pull_request:
+# pull_request_target: the job needs to comment on fork PRs, where the
+# pull_request token is read-only. Only the base branch's workflow and script
+# run; nothing from the PR head is checked out or executed, and the PR body is
+# only ever passed through environment variables.
+on: # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
     types: [opened, edited, reopened, synchronize]
 
 concurrency:
@@ -17,11 +21,59 @@ jobs:
     # is about human communication
     if: github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Run checker tests
+        run: python3 scripts/test_check_pr_description.py
       - name: Check PR description
+        id: check
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 scripts/check-pr-description.py
+        run: |
+          set +e
+          out=$(python3 scripts/check-pr-description.py)
+          code=$?
+          echo "$out"
+          {
+            echo "findings<<FINDINGS_EOF"
+            echo "$out"
+            echo "FINDINGS_EOF"
+          } >> "$GITHUB_OUTPUT"
+          exit $code
+      - name: Comment the findings on the PR
+        if: failure() && steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINDINGS: ${{ steps.check.outputs.findings }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          marker='<!-- pr-description-check -->'
+          body="${marker}
+          ${FINDINGS}
+
+          See [AI-POLICY.md](https://github.com/${REPO}/blob/main/AI-POLICY.md). Edit the description to rerun the check."
+          existing=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"${marker}\")) | .id] | first // empty" | head -n1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/${REPO}/issues/comments/${existing}" -f body="$body" > /dev/null
+          else
+            gh api "repos/${REPO}/issues/${PR}/comments" -f body="$body" > /dev/null
+          fi
+      - name: Remove a stale findings comment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          marker='<!-- pr-description-check -->'
+          existing=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"${marker}\")) | .id] | first // empty" | head -n1)
+          if [ -n "$existing" ]; then
+            gh api --method DELETE "repos/${REPO}/issues/comments/${existing}" > /dev/null
+          fi
