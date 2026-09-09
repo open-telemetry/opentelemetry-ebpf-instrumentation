@@ -1582,11 +1582,13 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 	}
 
 	for i := 1; i <= requests; i++ {
+		slugJg := "%7Breq_id%7D"
 		slug := strconv.Itoa(i)
 		urlPath := endpoint + slug
+		opName := endpoint + "{req_id}"
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-uvloop&operation=GET%20" + endpoint + slug)
+			resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-uvloop&operation=GET%20" + endpoint + slugJg)
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -1611,7 +1613,7 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 				}
 			}
 
-			res := trace.FindByOperationName("GET "+urlPath, "server")
+			res := trace.FindByOperationName("GET "+opName, "server")
 			require.GreaterOrEqualf(
 				ct,
 				len(res),
