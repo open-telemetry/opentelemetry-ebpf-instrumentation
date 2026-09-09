@@ -69,8 +69,7 @@ func pythonFunctionStartEntries(file *elf.File) (uint64, []byte, error) {
 		return 0, nil, fmt.Errorf("%w: unsupported CPython function-start table", errUnsupportedLayout)
 	}
 	count := uint64(file.ByteOrder.Uint32(data[ehFrameHeaderSize-ehFrameEncodedFieldSize : ehFrameHeaderSize]))
-	if count == 0 || count > uint64((len(data)-ehFrameHeaderSize)/ehFrameTableEntrySize) ||
-		ehFrameHeaderSize+count*ehFrameTableEntrySize != uint64(len(data)) {
+	if count == 0 || ehFrameHeaderSize+count*ehFrameTableEntrySize != uint64(len(data)) {
 		return 0, nil, fmt.Errorf("%w: malformed CPython function-start table", errUnsupportedLayout)
 	}
 	return section.Addr, data[ehFrameHeaderSize:], nil
@@ -280,7 +279,7 @@ func matchThreadStateCallInstruction(
 		}
 		state.tlsStage = tlsLookupIdle
 	}
-	// The TLS lookup returns its block in RAX; [RAX+8] holds the current PyThreadState.
+	// The TLS lookup returns its block in RAX; the thread-state displacement depends on the build.
 	//
 	//	26814e: lea rdi,[rip+...]
 	//	268155: call __tls_get_addr@plt
@@ -289,7 +288,7 @@ func matchThreadStateCallInstruction(
 		destination, register := inst.Args[0].(x86asm.Reg)
 		source, memory := inst.Args[1].(x86asm.Mem)
 		if inst.Op == x86asm.MOV && register && memory &&
-			source.Base == x86asm.RAX && source.Disp == 8 {
+			source.Base == x86asm.RAX && source.Index == 0 {
 			state.tlsStage = tlsLookupIdle
 			state.thread = destination
 			state.hasThread = true
@@ -705,7 +704,7 @@ func collectorFromRepeatedCallShape(
 	//	              call 278110  // callback
 	//
 	// Inspect each local wrapper once, matching the single call level seen in CPython.
-	for _, callee := range rootCalls {
+	for _, callee := range slices.Compact(slices.Sorted(slices.Values(rootCalls))) {
 		// The .eh_frame_hdr function-start table confirms this target is a bounded local function.
 		if _, found := slices.BinarySearch(starts, callee); !found {
 			continue

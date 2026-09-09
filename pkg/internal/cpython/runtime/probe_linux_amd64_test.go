@@ -308,22 +308,51 @@ func TestDerivePrivateCollectorProbe(t *testing.T) {
 }
 
 func TestDerivePrivateCollectorProbeFromThreadStateCall(t *testing.T) {
+	for name, load := range map[string][]byte{
+		"offset 0":  {0x48, 0x8b, 0x18},       // mov rbx,[rax]
+		"offset 8":  {0x48, 0x8b, 0x58, 0x08}, // mov rbx,[rax+8]
+		"offset 16": {0x48, 0x8b, 0x58, 0x10}, // mov rbx,[rax+16]
+	} {
+		t.Run(name, func(t *testing.T) {
+			const root, collector = uint64(0x1100), uint64(0x1500)
+			body := newTestMachineCode(root)
+			body.emit(0x48, 0x8d, 0x3d, 0, 0, 0, 0) // lea rdi,[rip+0]
+			body.call(testPLTAddress)
+			body.emit(load...)
+			body.collectorCall(collector)
+			body.emit(0xc3)
+			file := newProbeTestELF(t, map[uint64][]byte{root: body.data}, []uint64{collector, 0x1600})
+
+			probe, err := derivePrivateCollectorProbe(
+				file,
+				pythonVersion{major: 3, minor: 13},
+				root,
+				uint64(len(body.data)),
+			)
+			require.NoError(t, err)
+			assert.Equal(t, GCCompletionProbePrivateReturn, probe.Kind)
+			assert.Equal(t, testCodeFileOffset+collector-testCodeBaseAddress, probe.FileOffset)
+		})
+	}
+}
+
+func TestDerivePrivateCollectorProbeRejectsIndexedThreadStateLoad(t *testing.T) {
 	const root, collector = uint64(0x1100), uint64(0x1500)
 	body := newTestMachineCode(root)
-	body.threadStateLookup()
+	body.emit(0x48, 0x8d, 0x3d, 0, 0, 0, 0) // lea rdi,[rip+0]
+	body.call(testPLTAddress)
+	body.emit(0x48, 0x8b, 0x5c, 0xc8, 0x08) // mov rbx,[rax+rcx*8+8]
 	body.collectorCall(collector)
 	body.emit(0xc3)
 	file := newProbeTestELF(t, map[uint64][]byte{root: body.data}, []uint64{collector, 0x1600})
 
-	probe, err := derivePrivateCollectorProbe(
+	_, err := derivePrivateCollectorProbe(
 		file,
 		pythonVersion{major: 3, minor: 13},
 		root,
 		uint64(len(body.data)),
 	)
-	require.NoError(t, err)
-	assert.Equal(t, GCCompletionProbePrivateReturn, probe.Kind)
-	assert.Equal(t, testCodeFileOffset+collector-testCodeBaseAddress, probe.FileOffset)
+	require.ErrorIs(t, err, errUnsupportedLayout)
 }
 
 func TestMatchThreadStateLookup(t *testing.T) {
