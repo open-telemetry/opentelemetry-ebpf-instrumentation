@@ -42,47 +42,58 @@ static __always_inline u8 pid_matches(pid_data_t *p) {
     return ((*v) >> bit) & 1;
 }
 
-static __always_inline u32 valid_pid(u64 id) {
-    const u32 a_pid = id >> 32;
-    // accept all PIDs if debugging OTEL_EBPF_BPF_PID_FILTER_OFF option is set
-    if (!filter_pids) {
-        return a_pid;
+static __always_inline u8 task_matches(u32 ns_pid, u32 ns_ppid, u32 pid_ns_id) {
+    pid_data_t p_key = {.pid = ns_pid, .ns = pid_ns_id};
+
+    if (pid_matches(&p_key)) {
+        return 1;
     }
 
-    u32 *found = bpf_map_lookup_elem(&pid_cache, &a_pid);
+    // no parent to inherit the selection from (or its pid could not be read)
+    if (ns_ppid == 0) {
+        return 0;
+    }
+
+    pid_data_t pp_key = {.pid = ns_ppid, .ns = pid_ns_id};
+
+    return pid_matches(&pp_key);
+}
+
+// pid_cache is keyed by host pid and holds both answers: unselected processes
+// hit these probes on every syscall and must not repeat ns_pid_ppid().
+// Userspace clears the cache whenever the filter changes.
+static __always_inline u32 valid_pid(u64 id) {
+    const u32 host_pid = id >> 32;
+    // accept all PIDs if debugging OTEL_EBPF_BPF_PID_FILTER_OFF option is set
+    if (!filter_pids) {
+        return host_pid;
+    }
+
+    u32 *found = bpf_map_lookup_elem(&pid_cache, &host_pid);
     if (found) {
         return *found;
     }
 
     const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 
+    int ns_pid = 0;
     int ns_ppid = 0;
     u32 pid_ns_id = 0;
 
-    // we reuse the same stack location for the namespaced pid to save
-    // on stack space
-    ns_pid_ppid(task, (int *)&a_pid, &ns_ppid, &pid_ns_id);
+    ns_pid_ppid(task, &ns_pid, &ns_ppid, &pid_ns_id);
 
-    if (a_pid != 0) {
-        pid_data_t p_key = {.pid = a_pid, .ns = pid_ns_id};
-
-        const u8 found_ns_pid = pid_matches(&p_key);
-
-        if (found_ns_pid) {
-            bpf_map_update_elem(&pid_cache, &a_pid, &a_pid, BPF_ANY);
-            return a_pid;
-        } else if (ns_ppid != 0) {
-            pid_data_t pp_key = {.pid = ns_ppid, .ns = pid_ns_id};
-
-            const u8 found_ns_ppid = pid_matches(&pp_key);
-
-            if (found_ns_ppid) {
-                bpf_map_update_elem(&pid_cache, &a_pid, &a_pid, BPF_ANY);
-
-                return a_pid;
-            }
-        }
+    if (ns_pid == 0) {
+        return 0;
     }
+
+    if (task_matches((u32)ns_pid, (u32)ns_ppid, pid_ns_id)) {
+        bpf_map_update_elem(&pid_cache, &host_pid, &host_pid, BPF_ANY);
+        return host_pid;
+    }
+
+    // NOEXIST: never clobber a positive entry userspace put in concurrently
+    const u32 not_selected = 0;
+    bpf_map_update_elem(&pid_cache, &host_pid, &not_selected, BPF_NOEXIST);
 
     return 0;
 }

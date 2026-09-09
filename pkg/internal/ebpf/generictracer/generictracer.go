@@ -156,6 +156,35 @@ func (p *Tracer) rebuildValidPids() error {
 		}
 	}
 
+	// pid_cache also holds negative answers, which the new filter may
+	// invalidate. Clearing it after the segments are written makes every
+	// process re-evaluate once against the new filter.
+	return p.clearPidCache()
+}
+
+func (p *Tracer) clearPidCache() error {
+	if p.bpfObjects.PidCache == nil {
+		return nil
+	}
+
+	var key, value uint32
+	var keys []uint32
+
+	iter := p.bpfObjects.PidCache.Iterate()
+	for iter.Next(&key, &value) {
+		keys = append(keys, key)
+	}
+	if err := iter.Err(); err != nil {
+		return fmt.Errorf("iterating the BPF pid cache: %w", err)
+	}
+
+	for _, k := range keys {
+		err := p.bpfObjects.PidCache.Delete(k)
+		if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			return fmt.Errorf("clearing pid %d from the BPF pid cache: %w", k, err)
+		}
+	}
+
 	return nil
 }
 
@@ -178,7 +207,10 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		return
 	}
 
-	// Keep the cache consistent with the updated filter.
+	// A kprobe that read the old filter just before the rebuild may cache
+	// "not selected" for this pid after the drain; this overwrite fixes it.
+	// The BPF side inserts negatives with BPF_NOEXIST, so the reverse order
+	// cannot undo this entry either.
 	if p.bpfObjects.PidCache != nil {
 		pidU32 := uint32(pid)
 		_ = p.bpfObjects.PidCache.Put(pidU32, pidU32)
@@ -203,13 +235,6 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
-		return
-	}
-
-	// Remove from cache so next access re-evaluates.
-	if p.bpfObjects.PidCache != nil {
-		pidU32 := uint32(pid)
-		_ = p.bpfObjects.PidCache.Delete(pidU32)
 	}
 }
 
