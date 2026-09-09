@@ -32,7 +32,7 @@ func TestDotnetAttrsCancelled(t *testing.T) {
 	cancel()
 	e := dotnetExtractor{ctx: ctx, md: md, rs: map[string]struct{}{}}
 
-	assert.ErrorIs(t, e.attrs(), context.Canceled)
+	require.ErrorIs(t, e.attrs(), context.Canceled)
 	assert.Empty(t, e.rs)
 }
 
@@ -60,7 +60,7 @@ func TestDotnetAttrOwnersCancelled(t *testing.T) {
 
 	types, methods, err := e.attrOwners()
 
-	assert.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, types)
 	assert.Nil(t, methods)
 }

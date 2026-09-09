@@ -35,7 +35,7 @@ func TestDotnetILWithoutRouteCalls(t *testing.T) {
 		rs:  map[string]struct{}{},
 	}
 
-	assert.NoError(t, e.il())
+	require.NoError(t, e.il())
 	assert.Empty(t, e.rs)
 }
 
@@ -45,7 +45,7 @@ func TestDotnetILCancelled(t *testing.T) {
 	cancel()
 	e := dotnetExtractor{ctx: ctx, pe: p, md: md, rs: map[string]struct{}{}}
 
-	assert.ErrorIs(t, e.il(), context.Canceled)
+	require.ErrorIs(t, e.il(), context.Canceled)
 	assert.Empty(t, e.rs)
 }
 
@@ -56,8 +56,8 @@ func TestDotnetRouteCalls(t *testing.T) {
 	calls, err := e.routeCalls()
 	require.NoError(t, err)
 
-	_, get := dotnetRouteMemberRef(t, &e, "MapGet")
-	_, post := dotnetRouteMemberRef(t, &e, "MapPost")
+	get := dotnetRouteMemberRef(t, &e, "MapGet")
+	post := dotnetRouteMemberRef(t, &e, "MapPost")
 	assert.Contains(t, calls, get)
 	assert.Contains(t, calls, post)
 
@@ -84,14 +84,14 @@ func TestDotnetRouteCallsCancelled(t *testing.T) {
 
 	calls, err := e.routeCalls()
 
-	assert.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, calls)
 }
 
 func TestDotnetScanIL(t *testing.T) {
 	_, base := openTestBlob(t)
 	e := dotnetExtractor{md: base}
-	_, routeCall := dotnetRouteMemberRef(t, &e, "MapGet")
+	routeCall := dotnetRouteMemberRef(t, &e, "MapGet")
 	otherCall := methodDef | 1
 	h, tokens := dotnetUserHeap("/api/customers", "~/health", "not/a/route", "/old", "/new")
 
@@ -326,18 +326,18 @@ func TestDotnetMethodIL(t *testing.T) {
 	})
 }
 
-func dotnetRouteMemberRef(t *testing.T, e *dotnetExtractor, name string) (winmd.Index, uint32) {
+func dotnetRouteMemberRef(t *testing.T, e *dotnetExtractor, name string) uint32 {
 	t.Helper()
 	for i := range e.md.Tables.MemberRef.Indices() {
 		m, err := e.md.Tables.MemberRef.At(i)
 		require.NoError(t, err)
 		_, ns, ok := e.memberType(m)
 		if ok && ns == "Microsoft.AspNetCore.Builder" && m.Name.String() == name {
-			return i, memberRef | uint32(i+1)
+			return memberRef | uint32(i+1)
 		}
 	}
 	t.Fatalf("route member reference %q not found", name)
-	return 0, 0
+	return 0
 }
 
 func dotnetUserHeap(values ...string) (winmd.USHeap, []uint32) {

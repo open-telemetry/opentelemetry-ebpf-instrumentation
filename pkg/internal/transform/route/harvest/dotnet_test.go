@@ -94,7 +94,7 @@ func TestDotnetAdd(t *testing.T) {
 
 	t.Run("caps route count", func(t *testing.T) {
 		e := dotnetExtractor{rs: make(map[string]struct{}, maxDotnetRoutes)}
-		for i := 0; i < maxDotnetRoutes; i++ {
+		for i := range maxDotnetRoutes {
 			e.rs["/"+strconv.Itoa(i)] = struct{}{}
 		}
 
@@ -112,14 +112,14 @@ func TestExtractDotnetRoutes(t *testing.T) {
 
 		result, err := ExtractDotnetRoutes(ctx, nil)
 
-		assert.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, context.Canceled)
 		assert.Nil(t, result)
 	})
 
 	t.Run("missing file info", func(t *testing.T) {
 		result, err := ExtractDotnetRoutes(context.Background(), nil)
 
-		assert.EqualError(t, err, ".NET route harvesting requires process file info")
+		require.EqualError(t, err, ".NET route harvesting requires process file info")
 		assert.Nil(t, result)
 	})
 
@@ -131,7 +131,7 @@ func TestExtractDotnetRoutes(t *testing.T) {
 
 		result, err := ExtractDotnetRoutes(context.Background(), fi)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, result)
 	})
 
@@ -142,7 +142,7 @@ func TestExtractDotnetRoutes(t *testing.T) {
 
 		result, err := ExtractDotnetRoutes(context.Background(), fi)
 
-		assert.ErrorContains(t, err, "read .NET entry assembly")
+		require.ErrorContains(t, err, "read .NET entry assembly")
 		assert.Nil(t, result)
 	})
 

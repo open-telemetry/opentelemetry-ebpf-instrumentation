@@ -86,7 +86,7 @@ func testDotnetHarvestedRoute(t *testing.T, url string) {
 		results, err := pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
 			`service_name="dotnetserver",` +
-			`url_path="/api/customers/{customer_id:int}"}`)
+			`http_route="/api/customers/{customer_id:int}"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		assert.LessOrEqual(ct, 2, totalPromCount(ct, results))
