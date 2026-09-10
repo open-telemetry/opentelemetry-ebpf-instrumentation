@@ -111,7 +111,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "redis",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -147,7 +147,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "redis-error",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -197,7 +197,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 			// frames, which the generic tracer must still detect and pair
 			Route:     "http://localhost:8381",
 			Subpath:   "redis-resp3",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -240,7 +240,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "redis-db",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{

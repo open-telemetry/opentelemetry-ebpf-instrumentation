@@ -19,6 +19,7 @@ func TestParsePythonLaunch(t *testing.T) {
 		env          map[string]string
 		target       string
 		kind         frameworks.TargetKind
+		appDir       string
 		searchPaths  []string
 		scriptDir    string
 		fallbackName string
@@ -42,8 +43,8 @@ func TestParsePythonLaunch(t *testing.T) {
 		{name: "attached warning looks safe", executable: "python", args: []string{"-WignoreP", "-m", "company.orders"}, target: "company.orders", kind: frameworks.TargetRunnableModule},
 		{name: "attached x option looks isolated", executable: "python", args: []string{"-XI", "-m", "company.orders"}, target: "company.orders", kind: frameworks.TargetRunnableModule},
 		{name: "module argument looks isolated", executable: "python", args: []string{"-m", "company.orders", "-I"}, target: "company.orders", kind: frameworks.TargetRunnableModule},
-		{name: "module uvicorn", executable: "python", args: []string{"-I", "-m", "uvicorn", "orders.api:app"}, target: "orders.api:app", kind: frameworks.TargetModule, searchPaths: []string{"."}, pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true, SafePath: true}},
-		{name: "module gunicorn", executable: "python", args: []string{"-I", "-m", "gunicorn", "orders.wsgi:application"}, target: "orders.wsgi:application", kind: frameworks.TargetModule, searchPaths: []string{"."}, pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true, SafePath: true}},
+		{name: "module uvicorn", executable: "python", args: []string{"-I", "-m", "uvicorn", "orders.api:app"}, target: "orders.api:app", kind: frameworks.TargetModule, appDir: ".", searchPaths: []string{"."}, pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true, SafePath: true}},
+		{name: "module gunicorn", executable: "python", args: []string{"-I", "-m", "gunicorn", "orders.wsgi:application"}, target: "orders.wsgi:application", kind: frameworks.TargetModule, appDir: ".", searchPaths: []string{"."}, pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true, SafePath: true}},
 		{
 			name:       "ignore environment keeps uvicorn environment",
 			executable: "python",
@@ -54,6 +55,7 @@ func TestParsePythonLaunch(t *testing.T) {
 			},
 			target:      "orders.api:app",
 			kind:        frameworks.TargetModule,
+			appDir:      "/srv",
 			searchPaths: []string{"/srv"},
 			pathConfig:  frameworks.PythonPathConfig{IgnorePythonEnvironment: true},
 		},
@@ -63,6 +65,7 @@ func TestParsePythonLaunch(t *testing.T) {
 			args:        []string{"-w", "4", "-b", "0.0.0.0:8080", "orders.wsgi:application", "--timeout", "90"},
 			target:      "orders.wsgi:application",
 			kind:        frameworks.TargetModule,
+			appDir:      ".",
 			searchPaths: []string{"."},
 		},
 		{
@@ -74,6 +77,7 @@ func TestParsePythonLaunch(t *testing.T) {
 			},
 			target:       "orders.wsgi:application",
 			kind:         frameworks.TargetModule,
+			appDir:       "/srv/orders",
 			searchPaths:  []string{"/shared", "/libs", "/srv/orders"},
 			fallbackName: "cli-name",
 		},
@@ -83,6 +87,7 @@ func TestParsePythonLaunch(t *testing.T) {
 			env:         map[string]string{"UVICORN_APP": "orders.api:app", "UVICORN_APP_DIR": "/srv"},
 			target:      "orders.api:app",
 			kind:        frameworks.TargetModule,
+			appDir:      "/srv",
 			searchPaths: []string{"/srv"},
 		},
 		{name: "hypercorn", executable: "hypercorn", args: []string{"--bind", "0.0.0.0:8080", "orders.asgi:app"}, target: "orders.asgi:app", kind: frameworks.TargetModule, searchPaths: []string{"."}},
@@ -119,6 +124,7 @@ func TestParsePythonLaunch(t *testing.T) {
 
 			assert.Equal(t, tt.target, launch.Target)
 			assert.Equal(t, tt.kind, launch.TargetKind)
+			assert.Equal(t, tt.appDir, launch.AppDir)
 			assert.Equal(t, tt.searchPaths, launch.SearchPaths)
 			assert.Equal(t, tt.scriptDir, launch.ScriptDir)
 			assert.Equal(t, tt.fallbackName, launch.FallbackName)

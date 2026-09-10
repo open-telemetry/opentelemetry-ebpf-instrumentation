@@ -130,7 +130,7 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 | `discovery.default_exclude_instrument` | [`GlobAttributes`](#globattributes)[] |  | `[{"cmd_args":{},"containers_only":false,"exe_path":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null},{"cmd_args":{},"containers_only":false,"exe_path":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null}]` |  |  | Defines the default exclusion patterns that prevent self-instrumentation of OBI as well as related observability tools. It must be set to an empty string or a different value if self-instrumentation is desired. |
 | `discovery.default_exclude_services` | [`RegexSelector`](#regexselector)[] |  | `[{"cmd_args":{},"containers_only":false,"exe_path":{},"exe_path_regexp":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null},{"cmd_args":{},"containers_only":false,"exe_path":{},"exe_path_regexp":{},"exports":{},"k8s_pod_annotations":null,"k8s_pod_labels":null,"languages":{},"metrics":{"features":0},"name":"","namespace":"","open_ports":{"Ranges":null},"routes":null,"sampler":null,"target_pids":null}]` |  | Yes | Defines the default exclusion patterns that prevent self-instrumentation of OBI as well as related observability tools. It must be set to an empty string or a different value if self-instrumentation is desired.  Use DefaultExcludeInstrument instead |
 | `discovery.default_otlp_grpc_port` | `integer` | `OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT` | `4317` |  |  | Specifies the default OTLP gRPC port (4317) to fallback on when missing environment variables on service, for checking for grpc export requests, defaults to 4317 |
-| `discovery.disabled_route_harvesters` | `string`[] |  |  | `go`, `java`, `nodejs` |  |  |
+| `discovery.disabled_route_harvesters` | `string`[] |  |  | `go`, `java`, `nodejs`, `python` |  |  |
 | `discovery.exclude_instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  | Works analogously to Instrument, but the applications matching this section won't be instrumented even if they match the Instrument selection. |
 | `discovery.exclude_otel_instrumented_services` | `boolean` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` | `true` |  |  | Disables instrumentation of services which are already instrumented |
 | `discovery.exclude_otel_instrumented_services_span_metrics` | `boolean` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS` | `false` |  |  | Disables generation of span metrics of services which are already instrumented |
@@ -407,7 +407,7 @@ AvoidedServicesConfig controls the avoided-services internal metric.
 | `javaagent.attach_timeout` | `duration` | `OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `javaagent.debug` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG` | `false` |  |  |  |
 | `javaagent.debug_instrumentation` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION` | `false` |  |  |  |
-| `javaagent.enabled` | `boolean` | `OTEL_EBPF_JAVAAGENT_ENABLED` | `true` |  |  | Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables class, thread, and CPU runtime metrics. HotSpot memory metrics remain available. |
+| `javaagent.enabled` | `boolean` | `OTEL_EBPF_JAVAAGENT_ENABLED` | `true` |  |  | Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables GC duration, class, thread, and CPU runtime metrics. HotSpot memory metrics remain available. |
 
 ## `jvm_runtime_metrics`
 
@@ -649,6 +649,7 @@ Buckets defines the histograms bucket boundaries, and allows users to redefine t
 | `duration_histogram` | `number`[] |  |  |
 | `gen_ai_client_operation_duration_histogram` | `number`[] |  |  |
 | `gen_ai_client_token_usage_histogram` | `number`[] |  |  |
+| `jvm_gc_duration_histogram` | `number`[] |  |  |
 | `request_size_histogram` | `number`[] |  |  |
 | `response_size_histogram` | `number`[] |  |  |
 | `stat_tcp_rtt_histogram` | `number`[] |  |  |

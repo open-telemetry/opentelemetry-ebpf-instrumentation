@@ -42,6 +42,18 @@ def smoke():
 def ping():
     return "PONG!"
 
+@app.get(
+    "/api/customers/<customer_id>",
+)
+def customer(customer_id):
+    return {"customer_id": customer_id}
+
+@app.get(
+    "/files/<path:files>",
+)
+def files(files):
+    return {"files": files}
+
 @app.route("/tracemetoo")
 def traceme():
     response = requests.get("https://utestserverssl:3043/users", verify=False)

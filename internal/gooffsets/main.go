@@ -5,7 +5,6 @@
 package main
 
 import (
-	"debug/dwarf"
 	"debug/elf"
 	"encoding/json"
 	"errors"
@@ -23,33 +22,15 @@ import (
 	"github.com/grafana/go-offsets-tracker/pkg/target"
 	"github.com/grafana/go-offsets-tracker/pkg/versions"
 	"github.com/grafana/go-offsets-tracker/pkg/writer"
-	goversion "github.com/hashicorp/go-version"
-)
+	semver "github.com/hashicorp/go-version"
 
-const sizeField = "$size"
+	"go.opentelemetry.io/obi/internal/goabi"
+	"go.opentelemetry.io/obi/internal/goversion"
+)
 
 type abiInput struct {
-	Versions  string              `json:"versions"`
-	Inspect   string              `json:"inspect"`
-	Fields    map[string][]string `json:"fields"`
-	Sizes     []string            `json:"sizes"`
-	Constants []string            `json:"constants"`
-}
-
-type queryKind uint8
-
-const (
-	queryField queryKind = iota
-	querySize
-	queryConstant
-)
-
-type query struct {
-	kind        queryKind
-	dwarfName   string
-	dwarfField  string
-	outputType  string
-	outputField string
+	Versions string `json:"versions"`
+	Inspect  string `json:"inspect"`
 }
 
 func main() {
@@ -101,7 +82,7 @@ func run(inputFile, abiInputFile, outputFile string) (retErr error) {
 	if err != nil {
 		return err
 	}
-	abiResult, queries, err := collectABIFacts(abiConfig, outputFile)
+	abiResult, err := collectABIFacts(abiConfig, outputFile)
 	if err != nil {
 		return err
 	}
@@ -110,7 +91,7 @@ func run(inputFile, abiInputFile, outputFile string) (retErr error) {
 	if err := validateDistinctResults(results); err != nil {
 		return err
 	}
-	return writeResultsAtomic(outputFile, queries, results)
+	return writeResultsAtomic(outputFile, results)
 }
 
 func isolateTemporaryDirectory() (func() error, error) {
@@ -162,7 +143,7 @@ func collectFieldOffsets(libraries offsets.InputLibs, cacheFile string) ([]*targ
 		if library.Branch != "" {
 			targetData = targetData.Branch(library.Branch)
 		} else if library.Versions != "" {
-			constraint, err := goversion.NewConstraint(library.Versions)
+			constraint, err := semver.NewConstraint(library.Versions)
 			if err != nil {
 				return nil, fmt.Errorf("invalid %s version constraint: %w", name, err)
 			}
@@ -199,7 +180,7 @@ func collectStandardLibraryOffsets(library offsets.LibQuery, cacheFile string) (
 		if group.maximum != "" {
 			constraints = append(constraints, "<= "+group.maximum)
 		}
-		constraint, err := goversion.NewConstraint(strings.Join(constraints, ", "))
+		constraint, err := semver.NewConstraint(strings.Join(constraints, ", "))
 		if err != nil {
 			return nil, fmt.Errorf("invalid Go field version constraint: %w", err)
 		}
@@ -257,34 +238,30 @@ func parseVersionedField(configured string) (field, minimum, maximum string, err
 	if closing < 0 || closing == len(configured)-1 {
 		return "", "", "", fmt.Errorf("invalid versioned field %q", configured)
 	}
-	versions := strings.Split(configured[1:closing], ",")
-	if len(versions) == 0 || len(versions) > 2 || versions[0] == "" {
+	bounds := strings.Split(configured[1:closing], ",")
+	if len(bounds) == 0 || len(bounds) > 2 || bounds[0] == "" {
 		return "", "", "", fmt.Errorf("invalid versioned field %q", configured)
 	}
-	if len(versions) == 2 {
-		maximum = versions[1]
+	if len(bounds) == 2 {
+		maximum = bounds[1]
 	}
-	return configured[closing+1:], versions[0], maximum, nil
+	return configured[closing+1:], bounds[0], maximum, nil
 }
 
-func collectABIFacts(config abiInput, cacheFile string) (*target.Result, []query, error) {
-	constraint, err := goversion.NewConstraint(config.Versions)
+func collectABIFacts(config abiInput, cacheFile string) (*target.Result, error) {
+	constraint, err := semver.NewConstraint(config.Versions)
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid ABI Go version constraint: %w", err)
-	}
-	queries, err := buildQueries(config)
-	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("invalid ABI Go version constraint: %w", err)
 	}
 
 	available, err := versions.FindVersionsFromGoWebsite()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	sort.Slice(available, func(i, j int) bool {
-		left, leftErr := goversion.NewVersion(available[i])
-		right, rightErr := goversion.NewVersion(available[j])
-		return leftErr == nil && rightErr == nil && left.LessThan(right)
+		left, leftErr := goversion.Parse(available[i])
+		right, rightErr := goversion.Parse(available[j])
+		return leftErr == nil && rightErr == nil && left.Compare(right) < 0
 	})
 
 	var cache *offsets.Track
@@ -294,17 +271,25 @@ func collectABIFacts(config abiInput, cacheFile string) (*target.Result, []query
 
 	result := &target.Result{ModuleName: offsets.GoStdLib}
 	for _, release := range available {
-		parsed, parseErr := goversion.NewVersion(release)
+		parsed, parseErr := semver.NewVersion(release)
 		if parseErr != nil || !constraint.Check(parsed) {
 			continue
 		}
+		goRelease, err := goversion.Parse(release)
+		if err != nil {
+			return nil, err
+		}
 
-		facts, ok := cachedFacts(cache, release, queries)
+		requirements, err := goabi.Requirements(goRelease)
+		if err != nil {
+			return nil, err
+		}
+		facts, ok := cachedFacts(cache, goRelease, requirements)
 		if !ok {
 			log.Printf("collecting Go %s runtime ABI facts", release)
-			facts, err = collectRelease(release, config.Inspect, queries)
+			facts, err = collectRelease(goRelease, config.Inspect)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 		}
 		result.ResultsByVersion = append(result.ResultsByVersion, &target.VersionedResult{
@@ -313,9 +298,9 @@ func collectABIFacts(config abiInput, cacheFile string) (*target.Result, []query
 		})
 	}
 	if len(result.ResultsByVersion) == 0 {
-		return nil, nil, errors.New("no Go releases matched the ABI version constraint")
+		return nil, errors.New("no Go releases matched the ABI version constraint")
 	}
-	return result, queries, nil
+	return result, nil
 }
 
 func validateDistinctResults(results []*target.Result) error {
@@ -334,7 +319,7 @@ func validateDistinctResults(results []*target.Result) error {
 	return nil
 }
 
-func writeResultsAtomic(outputFile string, queries []query, results []*target.Result) (retErr error) {
+func writeResultsAtomic(outputFile string, results []*target.Result) (retErr error) {
 	directory := filepath.Dir(outputFile)
 	temporary, err := os.CreateTemp(directory, "."+filepath.Base(outputFile)+"-*")
 	if err != nil {
@@ -362,7 +347,7 @@ func writeResultsAtomic(outputFile string, queries []query, results []*target.Re
 	if err != nil {
 		return fmt.Errorf("reading generated offsets: %w", err)
 	}
-	if err := validateCoverage(generated, queries); err != nil {
+	if err := validateCoverage(generated); err != nil {
 		return err
 	}
 	if err := os.Rename(temporaryFile, outputFile); err != nil {
@@ -371,33 +356,28 @@ func writeResultsAtomic(outputFile string, queries []query, results []*target.Re
 	return nil
 }
 
-var moduledataABIFacts = [...]string{"types", "typedesclen", "itaboffset", "itabsize"}
-
-func validateCoverage(track *offsets.Track, queries []query) error {
-	if len(queries) == 0 {
-		return errors.New("no ABI facts configured")
-	}
-	reference, err := factCoverage(track, queries[0].outputType, queries[0].outputField)
+func validateCoverage(track *offsets.Track) error {
+	requirements, err := goabi.Requirements(goversion.MustParse("go999.0.0"))
 	if err != nil {
 		return err
 	}
-	for _, q := range queries[1:] {
-		coverage, err := factCoverage(track, q.outputType, q.outputField)
+	references := map[goversion.Version]offsets.VersionInfo{}
+	for _, requirement := range requirements {
+		coverage, err := factCoverage(track, requirement.OutputType, requirement.OutputField)
 		if err != nil {
 			return err
 		}
-		if coverage != reference {
-			return fmt.Errorf("ABI fact %s has coverage %v, expected %v", queryKey(q), coverage, reference)
-		}
-	}
-	for _, field := range moduledataABIFacts {
-		coverage, err := factCoverage(track, "runtime.moduledata", field)
+		oldest, err := goversion.Parse(coverage.Oldest)
 		if err != nil {
-			return err
+			return fmt.Errorf("invalid oldest version for ABI fact %s: %w", requirement.Key(), err)
 		}
-		if coverage != reference {
-			return fmt.Errorf("runtime.moduledata.%s has coverage %v, expected %v", field, coverage, reference)
+		if oldest.Compare(requirement.Since) != 0 {
+			return fmt.Errorf("ABI fact %s starts at %s, expected %s", requirement.Key(), coverage.Oldest, requirement.Since)
 		}
+		if reference, ok := references[requirement.Since]; ok && coverage != reference {
+			return fmt.Errorf("ABI fact %s has coverage %v, expected %v", requirement.Key(), coverage, reference)
+		}
+		references[requirement.Since] = coverage
 	}
 	return nil
 }
@@ -414,106 +394,50 @@ func factCoverage(track *offsets.Track, typeName, factName string) (offsets.Vers
 	return fact.Versions, nil
 }
 
-func buildQueries(config abiInput) ([]query, error) {
-	queries := make([]query, 0, len(config.Sizes)+len(config.Constants))
-	seen := map[string]struct{}{}
-	for typeName, fields := range config.Fields {
-		for _, field := range fields {
-			q := query{
-				kind:        queryField,
-				dwarfName:   typeName,
-				dwarfField:  field,
-				outputType:  typeName,
-				outputField: field,
-			}
-			if err := appendQuery(&queries, seen, q); err != nil {
-				return nil, err
-			}
-		}
-	}
-	for _, typeName := range config.Sizes {
-		q := query{
-			kind:        querySize,
-			dwarfName:   typeName,
-			outputType:  typeName,
-			outputField: sizeField,
-		}
-		if err := appendQuery(&queries, seen, q); err != nil {
-			return nil, err
-		}
-	}
-	for _, constant := range config.Constants {
-		separator := strings.LastIndexByte(constant, '.')
-		if separator < 0 {
-			return nil, fmt.Errorf("constant %q is not package-qualified", constant)
-		}
-		q := query{
-			kind:        queryConstant,
-			dwarfName:   constant,
-			outputType:  constant[:separator],
-			outputField: constant[separator+1:],
-		}
-		if err := appendQuery(&queries, seen, q); err != nil {
-			return nil, err
-		}
-	}
-	sort.Slice(queries, func(i, j int) bool {
-		if queries[i].outputType == queries[j].outputType {
-			return queries[i].outputField < queries[j].outputField
-		}
-		return queries[i].outputType < queries[j].outputType
-	})
-	return queries, nil
-}
-
-func appendQuery(queries *[]query, seen map[string]struct{}, q query) error {
-	key := queryKey(q)
-	if _, ok := seen[key]; ok {
-		return fmt.Errorf("ABI fact %s is configured more than once", key)
-	}
-	seen[key] = struct{}{}
-	*queries = append(*queries, q)
-	return nil
-}
-
-func cachedFacts(track *offsets.Track, release string, queries []query) ([]*binary.DataMemberOffset, bool) {
+func cachedFacts(
+	track *offsets.Track,
+	releaseVersion goversion.Version,
+	requirements []goabi.Requirement,
+) ([]*binary.DataMemberOffset, bool) {
 	if track == nil {
 		return nil, false
 	}
-	targetVersion, err := goversion.NewVersion(release)
+
+	abi, err := goabi.FromLookup(releaseVersion, func(requirement goabi.Requirement) (uint64, error) {
+		fields, ok := track.Data[requirement.OutputType]
+		if !ok {
+			return 0, errors.New("type not found")
+		}
+		field, ok := fields[requirement.OutputField]
+		if !ok {
+			return 0, errors.New("fact not found")
+		}
+		newest, err := goversion.Parse(field.Versions.Newest)
+		if err != nil || releaseVersion.Compare(newest) > 0 {
+			return 0, errors.New("version not covered")
+		}
+		value, ok := track.Find(requirement.OutputType, requirement.OutputField, releaseVersion.Release())
+		if !ok {
+			return 0, errors.New("versioned fact not found")
+		}
+		return value, nil
+	})
 	if err != nil {
 		return nil, false
 	}
 
-	facts := make([]*binary.DataMemberOffset, 0, len(queries))
-	for _, q := range queries {
-		fields, ok := track.Data[q.outputType]
-		if !ok {
-			return nil, false
-		}
-		field, ok := fields[q.outputField]
-		if !ok {
-			return nil, false
-		}
-		newest, err := goversion.NewVersion(field.Versions.Newest)
-		if err != nil || targetVersion.GreaterThan(newest) {
-			return nil, false
-		}
-		value, ok := track.Find(q.outputType, q.outputField, release)
-		if !ok {
-			return nil, false
-		}
-		facts = append(facts, dataMember(q, value))
+	facts := make([]*binary.DataMemberOffset, 0, len(requirements))
+	for _, fact := range abi.Facts() {
+		facts = append(facts, dataMember(fact))
 	}
 	return facts, true
 }
 
 func collectRelease(
-	release string,
+	releaseVersion goversion.Version,
 	inspectFile string,
-	queries []query,
 ) ([]*binary.DataMemberOffset, error) {
-	executable, directory, err := downloader.DownloadBinaryFromRemote(inspectFile, release)
+	executable, directory, err := downloader.DownloadBinaryFromRemote(inspectFile, releaseVersion.Release())
 	if err != nil {
 		return nil, err
 	}
@@ -529,18 +453,14 @@ func collectRelease(
 	if err != nil {
 		return nil, err
 	}
-	values, err := readDWARF(dwarfData, queries)
+	abi, err := goabi.Extract(dwarfData, releaseVersion)
 	if err != nil {
-		return nil, fmt.Errorf("reading Go %s ABI: %w", release, err)
+		return nil, fmt.Errorf("reading Go %s ABI: %w", releaseVersion, err)
 	}
 
-	facts := make([]*binary.DataMemberOffset, 0, len(queries))
-	for _, q := range queries {
-		value, ok := values[queryKey(q)]
-		if !ok {
-			return nil, fmt.Errorf("go %s ABI fact %s.%s not found", release, q.outputType, q.outputField)
-		}
-		facts = append(facts, dataMember(q, value))
+	facts := make([]*binary.DataMemberOffset, 0, len(abi.Facts()))
+	for _, fact := range abi.Facts() {
+		facts = append(facts, dataMember(fact))
 	}
 	return facts, nil
 }
@@ -559,107 +479,13 @@ func configureGoBuild() func() {
 	}
 }
 
-func readDWARF(data *dwarf.Data, queries []query) (map[string]uint64, error) {
-	typeQueries := map[string][]query{}
-	constantQueries := map[string]query{}
-	for _, q := range queries {
-		if q.kind == queryConstant {
-			constantQueries[q.dwarfName] = q
-		} else {
-			typeQueries[q.dwarfName] = append(typeQueries[q.dwarfName], q)
-		}
-	}
-
-	values := map[string]uint64{}
-	reader := data.Reader()
-	for {
-		entry, err := reader.Next()
-		if err != nil {
-			return nil, err
-		}
-		if entry == nil {
-			break
-		}
-		name, _ := entry.Val(dwarf.AttrName).(string)
-		if q, ok := constantQueries[name]; ok && entry.Tag == dwarf.TagConstant {
-			value, err := unsignedValue(entry.Val(dwarf.AttrConstValue))
-			if err != nil {
-				return nil, fmt.Errorf("reading constant %s: %w", name, err)
-			}
-			if err := storeValue(values, queryKey(q), value); err != nil {
-				return nil, err
-			}
-		}
-
-		requested := typeQueries[name]
-		if len(requested) == 0 {
-			continue
-		}
-		for _, q := range requested {
-			switch q.kind {
-			case querySize:
-				value, err := unsignedValue(entry.Val(dwarf.AttrByteSize))
-				if err != nil {
-					continue
-				}
-				if err := storeValue(values, queryKey(q), value); err != nil {
-					return nil, err
-				}
-			case queryField:
-				typeInfo, err := data.Type(entry.Offset)
-				if err != nil {
-					continue
-				}
-				structInfo, ok := typeInfo.(*dwarf.StructType)
-				if !ok {
-					continue
-				}
-				for _, field := range structInfo.Field {
-					if field.Name == q.dwarfField {
-						if field.ByteOffset < 0 {
-							return nil, fmt.Errorf("negative offset for %s.%s", name, q.dwarfField)
-						}
-						if err := storeValue(values, queryKey(q), uint64(field.ByteOffset)); err != nil {
-							return nil, err
-						}
-					}
-				}
-			}
-		}
-	}
-	return values, nil
-}
-
-func unsignedValue(value any) (uint64, error) {
-	switch value := value.(type) {
-	case int64:
-		if value < 0 {
-			return 0, errors.New("negative value")
-		}
-		return uint64(value), nil
-	case uint64:
-		return value, nil
-	default:
-		return 0, fmt.Errorf("unexpected DWARF value type %T", value)
-	}
-}
-
-func storeValue(values map[string]uint64, key string, value uint64) error {
-	if previous, ok := values[key]; ok && previous != value {
-		return fmt.Errorf("conflicting values for %s: %d and %d", key, previous, value)
-	}
-	values[key] = value
-	return nil
-}
-
-func queryKey(q query) string {
-	return q.outputType + "." + q.outputField
-}
-
-func dataMember(q query, value uint64) *binary.DataMemberOffset {
+func dataMember(fact goabi.Fact) *binary.DataMemberOffset {
 	return &binary.DataMemberOffset{
-		DataMember: &binary.DataMember{StructName: q.outputType, Field: q.outputField},
-		Offset:     value,
+		DataMember: &binary.DataMember{
+			StructName: fact.Requirement.OutputType,
+			Field:      fact.Requirement.OutputField,
+		},
+		Offset: fact.Value,
 	}
 }
 

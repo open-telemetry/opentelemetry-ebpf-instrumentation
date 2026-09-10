@@ -2233,7 +2233,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := topSpan.Attributes()
 		status := topSpan.Status()
 
-		assert.Equal(t, "execute_tool get-weather", topSpan.Name())
+		assert.Equal(t, "tools/call get-weather", topSpan.Name())
 		assert.Equal(t, ptrace.StatusCodeUnset, status.Code())
 		assert.Empty(t, status.Message())
 
@@ -2272,7 +2272,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := topSpan.Attributes()
 		status := topSpan.Status()
 
-		assert.Equal(t, "execute_tool nonexistent", topSpan.Name())
+		assert.Equal(t, "tools/call nonexistent", topSpan.Name())
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
 		assert.Equal(t, "Unknown tool: nonexistent", status.Message())
 
@@ -2309,7 +2309,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := topSpan.Attributes()
 		status := topSpan.Status()
 
-		assert.Equal(t, "execute_tool get-weather", topSpan.Name())
+		assert.Equal(t, "tools/call get-weather", topSpan.Name())
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
 		assert.Equal(t, "Invalid Request", status.Message())
 
