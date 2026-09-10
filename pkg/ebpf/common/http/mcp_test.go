@@ -161,7 +161,8 @@ func TestMCPSpan_ToolCall(t *testing.T) {
 	assert.Equal(t, "1", mcp.RequestID)
 	assert.Equal(t, 0, mcp.ErrorCode)
 	assert.Empty(t, mcp.ErrorMessage)
-	assert.Equal(t, "execute_tool", mcp.OperationName())
+	assert.Equal(t, "execute_tool", mcp.GenAIOperationName())
+	assert.Equal(t, "tools/call get-weather", mcp.SpanName())
 }
 
 func TestMCPSpan_ToolCallError(t *testing.T) {
@@ -201,7 +202,8 @@ func TestMCPSpan_ResourceRead(t *testing.T) {
 	assert.Equal(t, "file:///home/user/documents/report.pdf", mcp.ResourceURI)
 	assert.Equal(t, "sess-xyz-456", mcp.SessionID)
 	assert.Equal(t, "3", mcp.RequestID)
-	assert.Equal(t, "resources/read", mcp.OperationName())
+	assert.Empty(t, mcp.GenAIOperationName())
+	assert.Equal(t, "resources/read", mcp.SpanName())
 }
 
 func TestMCPSpan_PromptGet(t *testing.T) {
@@ -219,7 +221,8 @@ func TestMCPSpan_PromptGet(t *testing.T) {
 	assert.Equal(t, "prompts/get", mcp.Method)
 	assert.Equal(t, "analyze-code", mcp.PromptName)
 	assert.Equal(t, "4", mcp.RequestID)
-	assert.Equal(t, "prompts/get", mcp.OperationName())
+	assert.Empty(t, mcp.GenAIOperationName())
+	assert.Equal(t, "prompts/get analyze-code", mcp.SpanName())
 }
 
 func TestMCPSpan_Initialize(t *testing.T) {
@@ -236,7 +239,8 @@ func TestMCPSpan_Initialize(t *testing.T) {
 	assert.Equal(t, "initialize", mcp.Method)
 	assert.Equal(t, "2025-03-26", mcp.ProtocolVer)
 	assert.Equal(t, "5", mcp.RequestID)
-	assert.Equal(t, "initialize", mcp.OperationName())
+	assert.Empty(t, mcp.GenAIOperationName())
+	assert.Equal(t, "initialize", mcp.SpanName())
 }
 
 func TestMCPSpan_InitializeSessionIDFromResponseHeader(t *testing.T) {
@@ -429,27 +433,42 @@ func TestMCPSpan_NoResponseBody(t *testing.T) {
 	assert.Equal(t, 0, span.GenAI.MCP.ErrorCode)
 }
 
-func TestMCPCall_OperationName(t *testing.T) {
+func TestMCPCall_GenAIOperationName(t *testing.T) {
 	tests := []struct {
 		method string
 		want   string
 	}{
 		{method: "tools/call", want: "execute_tool"},
-		{method: "tools/list", want: "tools/list"},
-		{method: "resources/read", want: "resources/read"},
-		{method: "prompts/get", want: "prompts/get"},
-		{method: "initialize", want: "initialize"},
-		{method: "ping", want: "ping"},
+		{method: "tools/list", want: ""},
+		{method: "resources/read", want: ""},
+		{method: "prompts/get", want: ""},
+		{method: "initialize", want: ""},
+		{method: "ping", want: ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
 			mcp := &request.MCPCall{Method: tt.method}
-			assert.Equal(t, tt.want, mcp.OperationName())
+			assert.Equal(t, tt.want, mcp.GenAIOperationName())
 		})
 	}
 }
 
-func TestIsGenAISubtype_MCP(t *testing.T) {
-	assert.True(t, request.IsGenAISubtype(request.HTTPSubtypeMCP))
+func TestMCPCall_SpanName(t *testing.T) {
+	tests := []struct {
+		name string
+		call request.MCPCall
+		want string
+	}{
+		{"tool call names the tool", request.MCPCall{Method: "tools/call", ToolName: "get-weather"}, "tools/call get-weather"},
+		{"prompt names the prompt", request.MCPCall{Method: "prompts/get", PromptName: "analyze-code"}, "prompts/get analyze-code"},
+		{"no target is the method alone", request.MCPCall{Method: "tools/list"}, "tools/list"},
+		{"a resource uri is not a span name target", request.MCPCall{Method: "resources/read", ResourceURI: "file:///report.pdf"}, "resources/read"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.call.SpanName())
+		})
+	}
 }

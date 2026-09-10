@@ -30,7 +30,8 @@ import (
 type EventType uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	// EventTypeProcessAlive is an internal signal. It will be ignored by the metrics exporters.
 	EventTypeProcessAlive EventType = iota
@@ -117,13 +118,17 @@ const (
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
 )
 
+// IsGenAISubtype reports whether a subtype is recorded on the GenAI client
+// metrics. MCP is deliberately absent: it is a tool and resource protocol
+// rather than a model provider, so it has no `gen_ai.provider.name` to report,
+// and semantic conventions give it its own `mcp.client.*` / `mcp.server.*`
+// metrics. Its spans still carry the GenAI attributes it does define.
 func IsGenAISubtype(subtype int) bool {
 	return subtype == HTTPSubtypeOpenAI ||
 		subtype == HTTPSubtypeAnthropic ||
 		subtype == HTTPSubtypeGemini ||
 		subtype == HTTPSubtypeQwen ||
 		subtype == HTTPSubtypeAWSBedrock ||
-		subtype == HTTPSubtypeMCP ||
 		subtype == HTTPSubtypeEmbedding ||
 		subtype == HTTPSubtypeRerank ||
 		subtype == HTTPSubtypeRetrieval ||
@@ -210,6 +215,7 @@ const (
 	MessagingReceive = "receive"
 	MessagingPublish = "publish"
 	MessagingProcess = "process"
+	MessagingSettle  = "settle"
 )
 
 func MessagingOperationTypeOf(operationName string) string {
@@ -217,6 +223,51 @@ func MessagingOperationTypeOf(operationName string) string {
 		return MessagingSend
 	}
 	return operationName
+}
+
+// IsSQSMessagingClientOperation reports whether an AWS SQS span describes a
+// producer or consumer operation. Queue administration calls carry no
+// messaging.operation.type and are not messaging client operations.
+func IsSQSMessagingClientOperation(span *Span) bool {
+	if span.SubType != HTTPSubtypeAWSSQS || span.AWS == nil {
+		return false
+	}
+	switch span.AWS.SQS.OperationType {
+	case MessagingSend, MessagingReceive, MessagingSettle:
+		return true
+	default:
+		return false
+	}
+}
+
+// MessagingSpanKind maps a messaging operation to its span kind. A receive or a
+// settle is a client operation rather than a consumer one: OBI observes the
+// exchange with the broker, not what the application afterwards does with the
+// message, which is what a consumer span describes.
+func MessagingSpanKind(operationName string) (trace.SpanKind, bool) {
+	switch MessagingOperationTypeOf(operationName) {
+	case MessagingSend:
+		return trace.SpanKindProducer, true
+	case MessagingProcess:
+		return trace.SpanKindConsumer, true
+	case MessagingReceive, MessagingSettle:
+		return trace.SpanKindClient, true
+	}
+	return trace.SpanKindUnspecified, false
+}
+
+func spanKindString(kind trace.SpanKind) string {
+	switch kind {
+	case trace.SpanKindServer:
+		return "SPAN_KIND_SERVER"
+	case trace.SpanKindClient:
+		return "SPAN_KIND_CLIENT"
+	case trace.SpanKindProducer:
+		return "SPAN_KIND_PRODUCER"
+	case trace.SpanKindConsumer:
+		return "SPAN_KIND_CONSUMER"
+	}
+	return "SPAN_KIND_INTERNAL"
 }
 
 type converter struct {
@@ -246,6 +297,16 @@ type SQLError struct {
 	Code     uint16 `json:"code"`
 	SQLState string `json:"sqlState"`
 	Message  string `json:"message"`
+}
+
+// ResponseStatusCode returns the db.response.status_code value for the error:
+// the vendor error code when the protocol provides one (MySQL, SQL Server),
+// else the SQLSTATE (PostgreSQL, whose protocol carries no vendor code).
+func (e *SQLError) ResponseStatusCode() string {
+	if e.Code != 0 {
+		return strconv.Itoa(int(e.Code))
+	}
+	return e.SQLState
 }
 
 type MessagingInfo struct {
@@ -909,13 +970,35 @@ type MCPCall struct {
 	ErrorMessage      string `json:"errorMessage,omitempty"`
 }
 
-// OperationName returns the GenAI operation name for the MCP method.
-// tools/call maps to execute_tool; other methods return the method name as-is.
-func (m *MCPCall) OperationName() string {
-	if m.Method == "tools/call" {
-		return "execute_tool"
+// MCPMethodToolsCall is the MCP method name for a tool call, the one method
+// that carries a GenAI operation name.
+const MCPMethodToolsCall = "tools/call"
+
+// GenAIOperationName returns the GenAI operation name for the MCP method.
+// Semantic conventions set it to execute_tool for a tool call and leave it
+// unset for every other method, so that consumers can treat MCP tool calls
+// like any other tool call.
+func (m *MCPCall) GenAIOperationName() string {
+	if m.Method == MCPMethodToolsCall {
+		return ExecuteToolOperationName
+	}
+	return ""
+}
+
+// SpanName is the MCP method name, followed by a target when a
+// low-cardinality one is available.
+func (m *MCPCall) SpanName() string {
+	if target := m.lowCardinalityTarget(); target != "" {
+		return m.Method + " " + target
 	}
 	return m.Method
+}
+
+func (m *MCPCall) lowCardinalityTarget() string {
+	if m.ToolName != "" {
+		return m.ToolName
+	}
+	return m.PromptName
 }
 
 type JSONRPC struct {
@@ -937,6 +1020,7 @@ const (
 	EmbeddingOperationName    = "embeddings"
 	ResponseOperationName     = "response"
 	ConversationOperationName = "conversation"
+	ExecuteToolOperationName  = "execute_tool"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as
@@ -1873,29 +1957,20 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	if s.Type == EventTypeManualSpan {
-		switch s.SpanKind {
-		case trace.SpanKindServer:
-			return "SPAN_KIND_SERVER"
-		case trace.SpanKindClient:
-			return "SPAN_KIND_CLIENT"
-		case trace.SpanKindProducer:
-			return "SPAN_KIND_PRODUCER"
-		case trace.SpanKindConsumer:
-			return "SPAN_KIND_CONSUMER"
-		}
+		return spanKindString(s.SpanKind)
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
 		return "SPAN_KIND_CLIENT"
-	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
-		switch MessagingOperationTypeOf(s.Method) {
-		case MessagingSend:
-			return "SPAN_KIND_PRODUCER"
-		case MessagingProcess:
-			return "SPAN_KIND_CONSUMER"
+	case EventTypeKafkaClient, EventTypeKafkaServer,
+		EventTypeMQTTClient, EventTypeMQTTServer,
+		EventTypeNATSClient, EventTypeNATSServer,
+		EventTypeAMQPClient:
+		if kind, ok := MessagingSpanKind(s.Method); ok {
+			return spanKindString(kind)
 		}
 	}
 	return "SPAN_KIND_INTERNAL"
@@ -2043,11 +2118,7 @@ func (s *Span) TraceName() string {
 		}
 
 		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
-			op := s.GenAI.MCP.OperationName()
-			if s.GenAI.MCP.ToolName != "" {
-				return op + " " + s.GenAI.MCP.ToolName
-			}
-			return op
+			return s.GenAI.MCP.SpanName()
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeEmbedding && s.GenAI != nil && s.GenAI.Embedding != nil {

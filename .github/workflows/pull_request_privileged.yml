@@ -33,9 +33,17 @@ permissions:
 
 jobs:
   unit-test-privileged:
-    name: "Unit tests (privileged)"
-    runs-on: ubuntu-latest
+    name: "Unit tests (privileged ${{ matrix.platform.arch }})"
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +64,12 @@ jobs:
           restore-keys: |
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Upstream semconv registry cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] pinned upstream semconv tarball, keyed on the version in schemas/obi/manifest.yaml
+        with:
+          path: schemas/obi/.deps
+          key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
+
       - name: Generate BPF + build test tools
         run: make prereqs docker-generate
 
@@ -72,4 +86,4 @@ jobs:
         with:
           files: ./testoutput/cover.txt
           flags: unittests
-          name: unit-privileged-coverage
+          name: unit-privileged-coverage-${{ matrix.platform.arch }}

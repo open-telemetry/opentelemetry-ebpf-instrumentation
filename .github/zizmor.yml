@@ -2,6 +2,22 @@
 # https://docs.zizmor.sh/configuration/
 
 rules:
+  # zizmor matches configuration ignores by base name; path-qualified ignore
+  # rules are not supported. NOTICES/{amd64,arm64} contains unmodified
+  # third-party license snapshots, including upstream GitHub metadata that this
+  # repository does not execute.
+  # These are the only files with these base names in this repository.
+  artipacked:
+    ignore:
+      - ci.yml
+      - go-tests.yml
+  dependabot-cooldown:
+    ignore:
+      - dependabot.yml
+  excessive-permissions:
+    ignore:
+      - ci.yml
+      - go-tests.yml
   secrets-outside-env:
     # These secrets (Docker Hub publish token, Codecov, FOSSA, OTelBot private key)
     # are repository-level CI/CD operational credentials that do not require

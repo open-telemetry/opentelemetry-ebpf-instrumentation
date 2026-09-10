@@ -9,7 +9,7 @@ routes:
 otel_metrics_export:
   endpoint: http://otelcol:4318
 otel_traces_export:
-  endpoint: http://jaeger:4318
+  endpoint: http://otelcol:4318
 internal_metrics:
   exporter: otel
   # limit 2 so the rolldice server's 2nd avoided identity (traces) overflows,

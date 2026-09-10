@@ -95,3 +95,42 @@ func TestFindReturnOffsets_Truncated_ARM64(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, offsets)
 }
+
+func TestFindCallTargets_ARM64(t *testing.T) {
+	data := []byte{
+		0x04, 0x00, 0x00, 0x94, // BL 0x2010
+		0x00, 0x00, 0x3f, 0xd6, // BLR X0
+		0xc0, 0x03, 0x5f, 0xd6, // RET
+	}
+	targets, err := FindCallTargets(0x2000, data)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0x2010}, targets)
+}
+
+func TestFindPadStartOffset_ARM64(t *testing.T) {
+	data := []byte{
+		0xe5, 0x03, 0x42, 0x39, // LDRB W5, [SP, #128] (EndStream)
+		0x3f, 0x00, 0x00, 0x71, // CMP W1, #0 (not the loaded register)
+		0xe5, 0x0b, 0x42, 0x39, // LDRB W5, [SP, #130] (PadLength)
+		0xe6, 0x03, 0x05, 0xaa, // MOV X6, X5
+		0x26, 0x03, 0x00, 0x34, // CBZ W6
+		0xc0, 0x03, 0x5f, 0xd6, // RET
+	}
+	offset, stackOffset, err := FindPadStartOffset(0x2000, data)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x2008), offset)
+	require.Equal(t, uint64(130), stackOffset)
+}
+
+func TestFindPadStartOffsetRejectsUnrelatedLoad_ARM64(t *testing.T) {
+	data := []byte{
+		0xe5, 0x03, 0x42, 0x39, // LDRB W5, [SP, #128]
+		0xe6, 0x03, 0x07, 0xaa, // MOV X6, X7 (different source)
+		0x26, 0x03, 0x00, 0x34, // CBZ W6
+		0xc0, 0x03, 0x5f, 0xd6, // RET
+	}
+	offset, stackOffset, err := FindPadStartOffset(0x2000, data)
+	require.NoError(t, err)
+	require.Zero(t, offset)
+	require.Zero(t, stackOffset)
+}

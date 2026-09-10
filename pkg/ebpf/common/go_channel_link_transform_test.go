@@ -19,8 +19,8 @@ import (
 )
 
 func TestGoChannelLinkEventTypeDoesNotConflictWithRuntimeMetrics(t *testing.T) {
-	assert.Equal(t, uint8(18), uint8(EventTypeGoChannelLink))
-	assert.NotEqual(t, uint8(17), uint8(EventTypeGoChannelLink))
+	assert.Equal(t, uint8(18), EventTypeGoChannelLink)
+	assert.NotEqual(t, uint8(17), EventTypeGoChannelLink)
 }
 
 func TestReadBPFTraceAsSpanGoChannelLinkEvent(t *testing.T) {

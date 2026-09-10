@@ -20,11 +20,12 @@ import (
 )
 
 func TestRuntimeMetricEventTypeABI(t *testing.T) {
-	assert.Equal(t, byte(17), byte(EventTypeGoRuntimeMetric))
-	assert.Equal(t, byte(19), byte(EventTypeJVMMemoryPoolGC))
-	assert.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
-	assert.Equal(t, byte(29), byte(EventTypePythonRuntimeMetric))
-	assert.Equal(t, byte(30), byte(EventTypeJVMRuntimeMetrics))
+	assert.Equal(t, EventTypeGoRuntimeMetric, byte(17))
+	assert.Equal(t, EventTypeJVMMemoryPoolGC, byte(19))
+	assert.Equal(t, EventTypeGoRuntimeHistogram, byte(21))
+	assert.Equal(t, EventTypePythonRuntimeMetric, byte(29))
+	assert.Equal(t, EventTypeJVMRuntimeMetrics, byte(30))
+	assert.Equal(t, EventTypeJVMGCDuration, byte(32))
 }
 
 func TestIsGoRuntimeMetricRecordRecognizesGoRuntimeEvents(t *testing.T) {
@@ -78,6 +79,7 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		EventTypeJVMMemoryPoolGC,
 		EventTypePythonRuntimeMetric,
 		EventTypeJVMRuntimeMetrics,
+		EventTypeJVMGCDuration,
 	} {
 		runtimeMetrics := &fakeRuntimeMetricsSender{}
 		ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
@@ -115,7 +117,7 @@ func TestHandleRuntimeMetricsRecordUsesCustomRuntimeMetricHandler(t *testing.T) 
 		RawSample: []byte{EventTypeJVMMemoryPoolGC},
 	}, nil, nil, func(_ context.Context, record *ringbuf.Record) (bool, error) {
 		called++
-		assert.Equal(t, byte(EventTypeJVMMemoryPoolGC), record.RawSample[0])
+		assert.Equal(t, EventTypeJVMMemoryPoolGC, record.RawSample[0])
 		return true, expectedErr
 	})
 
@@ -153,6 +155,7 @@ type fakeRuntimeMetricsSender struct {
 	nodejsEvents          []appruntime.NodejsRuntimeEvent
 	nodejsGCEvents        []appruntime.NodejsGCEvent
 	nodejsHeapSpaceEvents []appruntime.NodejsHeapSpaceEvent
+	nodejsResourceEvents  []appruntime.NodejsResourceEvent
 	goRecords             int
 	pythonRecords         int
 	goFilter              ServiceFilter
@@ -168,6 +171,10 @@ func (s *fakeRuntimeMetricsSender) SendNodejsGCMetrics(_ context.Context, events
 
 func (s *fakeRuntimeMetricsSender) SendNodejsHeapSpaceMetrics(_ context.Context, events []appruntime.NodejsHeapSpaceEvent) {
 	s.nodejsHeapSpaceEvents = append(s.nodejsHeapSpaceEvents, events...)
+}
+
+func (s *fakeRuntimeMetricsSender) SendNodejsResourceMetrics(_ context.Context, events []appruntime.NodejsResourceEvent) {
+	s.nodejsResourceEvents = append(s.nodejsResourceEvents, events...)
 }
 
 func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, filter ServiceFilter) error {

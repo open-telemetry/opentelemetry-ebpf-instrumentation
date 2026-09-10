@@ -181,7 +181,7 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.stats_wakeup_data_bytes` | `integer` | `OTEL_EBPF_STATS_WAKEUP_DATA_BYTES` | `4096` |  |  | Specifies the minimum number of bytes that must be available in the stats eBPF ring buffer before waking up the userspace consumer. When 0, every submission wakes up userspace immediately. Higher values reduce wakeup overhead under high traffic at the cost of delivery latency. The value should be well below ring buffer size / flushInterval to avoid event loss. |
 | `ebpf.track_request_headers` | `boolean` | `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS` | `false` |  |  | Enables the kprobes based HTTP request tracking to start tracking the request headers to process any 'Traceparent' fields. |
 | `ebpf.traffic_control_backend` | `string` | `OTEL_EBPF_BPF_TC_BACKEND` | `auto` | `auto`, `tc`, `tcx` |  | Select the TC attachment backend: accepted values are 'tc' (netlink), and 'tcx' |
-| `ebpf.wakeup_len` | `integer` | `OTEL_EBPF_BPF_WAKEUP_LEN` | `500` |  |  | Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0 TODO: see if there is a way to force eBPF to wakeup userspace on timeout |
+| `ebpf.wakeup_len` | `integer` | `OTEL_EBPF_BPF_WAKEUP_LEN` | `500` |  |  | Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0. The userspace ring buffer reader periodically flushes pending events regardless, so wakeup_len bounds wakeup overhead rather than maximum delivery delay. |
 
 ### `ebpf.buffer_sizes`
 
@@ -407,7 +407,7 @@ AvoidedServicesConfig controls the avoided-services internal metric.
 | `javaagent.attach_timeout` | `duration` | `OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `javaagent.debug` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG` | `false` |  |  |  |
 | `javaagent.debug_instrumentation` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION` | `false` |  |  |  |
-| `javaagent.enabled` | `boolean` | `OTEL_EBPF_JAVAAGENT_ENABLED` | `true` |  |  | Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables class, thread, and CPU runtime metrics. HotSpot memory metrics remain available. |
+| `javaagent.enabled` | `boolean` | `OTEL_EBPF_JAVAAGENT_ENABLED` | `true` |  |  | Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables GC duration, class, thread, and CPU runtime metrics. HotSpot memory metrics remain available. |
 
 ## `jvm_runtime_metrics`
 
@@ -532,6 +532,7 @@ ExponentialHistogramConfig configures the precision and size of exponential hist
 | `otel_traces_export.backoff_max_interval` | `duration` | `OTEL_EBPF_BACKOFF_MAX_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the upper bound on backoff interval. |
 | `otel_traces_export.batch_max_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE` | `4096` |  |  | Is the maximum number of spans that the batcher will accumulate before flushing a batch to the sending queue. |
 | `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, etc |  | Is the time after which a batch will be sent regardless of its size. |
+| `otel_traces_export.compression` | `string` | `OTEL_EXPORTER_OTLP_TRACES_COMPRESSION` |  | `gzip`, `none` |  | Sets the compression applied to exported OTLP payloads. |
 | `otel_traces_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |  |  |  |  |
 | `otel_traces_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
 | `otel_traces_export.instrumentations` | `string`[] | `OTEL_EBPF_TRACES_INSTRUMENTATIONS` | `http`, `grpc`, `sql`, `redis`, `kafka`, `mqtt`, `nats`, `amqp`, `mongo`, `couchbase`, `memcached`, `sunrpc`, `aerospike` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
@@ -648,6 +649,7 @@ Buckets defines the histograms bucket boundaries, and allows users to redefine t
 | `duration_histogram` | `number`[] |  |  |
 | `gen_ai_client_operation_duration_histogram` | `number`[] |  |  |
 | `gen_ai_client_token_usage_histogram` | `number`[] |  |  |
+| `jvm_gc_duration_histogram` | `number`[] |  |  |
 | `request_size_histogram` | `number`[] |  |  |
 | `response_size_histogram` | `number`[] |  |  |
 | `stat_tcp_rtt_histogram` | `number`[] |  |  |

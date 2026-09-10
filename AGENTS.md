@@ -91,12 +91,18 @@ emitted URL (`OBISchemaURL`) are automated at release prep (`make prerelease` ru
 `make generate-schema-next`), and `make check-schema-files` guards their
 consistency in CI.
 
+Reference docs for what OBI emits are rendered from the same registry into
+`site/docs/` by `make generate-schema-docs`, which `make prerelease` also runs so
+each release ships docs matching its registry. Between releases, rerun it and
+commit the result whenever the registry changes; it is not verified in CI.
+
 The one step that is not automated: recording **renames or removals** of emitted
 attributes or metrics as schema transformations. If a change renames or removes
 emitted telemetry, it must be recorded so consumers can convert across versions —
-add the transformation to the next schema version's block at release prep, per the
-procedure in `site/README.md` ("Releasing a new version"). This cannot be enforced
-mechanically today, so it is the contributor's and release owner's responsibility.
+record it under "Pending transformations" in `devdocs/telemetry-schema.md`, which
+the release owner drains into the new version's block at release prep ("Releasing
+a new version"). This cannot be enforced mechanically today, so it is the
+contributor's and release owner's responsibility.
 
 ## Code Guidelines
 

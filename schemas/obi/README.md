@@ -49,7 +49,7 @@ Until weaver defines local-wins override semantics, every override in
   `unknown` are deliberately NOT declared and keep failing the suites.
 - **Open-ended value space, re-typed as string**: upstream declares an enum,
   but the real value space is unbounded by design — domain-specific error
-  codes (`error.type`) or provider/MCP operation vocabularies
+  codes (`error.type`) or provider operation vocabularies
   (`gen_ai.operation.name`). Enumerating these is impossible, so the override
   re-types the attribute as a plain `string` with examples. Weaver then
   validates presence/type but not membership. For these attributes the

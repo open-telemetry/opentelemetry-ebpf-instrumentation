@@ -159,3 +159,41 @@ func TestFindReturnOffsets_TruncatedInstruction(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, offsets)
 }
+
+func TestFindCallTargets(t *testing.T) {
+	data := []byte{
+		0xe8, 0x0b, 0x00, 0x00, 0x00, // CALL 0x1010
+		0xff, 0xd0, // CALL RAX
+		0xc3, // RET
+	}
+	targets, err := FindCallTargets(0x1000, data)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{0x1010}, targets)
+}
+
+func TestFindPadStartOffset(t *testing.T) {
+	data := []byte{
+		0x48, 0x83, 0x7c, 0x24, 0x20, 0x00, // CMPQ 0x20(SP), $0
+		0x0f, 0xb6, 0x94, 0x24, 0xaa, 0x00, 0x00, 0x00, // MOVZX 0xaa(SP), EDX
+		0x84, 0xd2, // TEST DL, DL
+		0x74, 0x00, // JE
+		0xc3,
+	}
+	offset, stackOffset, err := FindPadStartOffset(0x1000, data)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x1006), offset)
+	require.Equal(t, uint64(0xaa), stackOffset)
+}
+
+func TestFindPadStartOffsetRejectsDifferentRegister(t *testing.T) {
+	data := []byte{
+		0x0f, 0xb6, 0x94, 0x24, 0xaa, 0x00, 0x00, 0x00, // MOVZX 0xaa(SP), EDX
+		0x84, 0xc9, // TEST CL, CL
+		0x74, 0x00, // JE
+		0xc3,
+	}
+	offset, stackOffset, err := FindPadStartOffset(0x1000, data)
+	require.NoError(t, err)
+	require.Zero(t, offset)
+	require.Zero(t, stackOffset)
+}

@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	comm          = "python3.14"
+	comm          = "main"
 	testIndex     = "test_index"
 	testServerURL = "http://localhost:8381"
 )
@@ -57,9 +57,10 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	if index != "" {
 		operationName = op + " " + index
 		params.Add("operation", operationName)
+		params.Add("tags", fmt.Sprintf("{\"db.system.name\":\"%s\"}", dbSystemName))
 	} else {
 		operationName = op
-		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\"}", op))
+		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\",\"db.system.name\":\"%s\"}", op, dbSystemName))
 	}
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
@@ -75,7 +76,15 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
+		// Both backends run against the same Jaeger under the same service and
+		// operation name, so the trace must be selected by the backend under
+		// test. Picking positionally would return whichever trace happens to
+		// land last, which is not the emission order once a collector batches
+		// the spans on their way to Jaeger.
+		traces := tq.FindBySpan(
+			jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op},
+			jaeger.Tag{Key: "db.system.name", Type: "string", Value: dbSystemName},
+		)
 		require.GreaterOrEqual(ct, len(traces), 1, resp.Body)
 		lastTrace := traces[len(traces)-1]
 		require.GreaterOrEqual(ct, len(lastTrace.Spans), 1)
@@ -106,6 +115,12 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 			tag, found = jaeger.FindIn(span.Tags, "db.system.name")
 			assert.True(ct, found)
 			assert.Equal(ct, dbSystemName, tag.Value)
+
+			// for Elasticsearch, db.response.status_code is the HTTP response
+			// code, reported whenever a response was received
+			tag, found = jaeger.FindIn(span.Tags, "db.response.status_code")
+			assert.True(ct, found)
+			assert.NotEmpty(ct, tag.Value)
 
 			tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
 			assert.True(ct, found)

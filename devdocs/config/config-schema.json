@@ -211,6 +211,18 @@
             67108864
           ]
         },
+        "jvm_gc_duration_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array",
+          "default": [
+            0.01,
+            0.1,
+            1,
+            10
+          ]
+        },
         "request_size_histogram": {
           "items": {
             "type": "number"
@@ -848,7 +860,7 @@
         },
         "wakeup_len": {
           "type": "integer",
-          "description": "Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0 TODO: see if there is a way to force eBPF to wakeup userspace on timeout",
+          "description": "Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0. The userspace ring buffer reader periodically flushes pending events regardless, so wakeup_len bounds wakeup overhead rather than maximum delivery delay.",
           "default": 500,
           "x-env-var": "OTEL_EBPF_BPF_WAKEUP_LEN"
         }
@@ -1583,7 +1595,7 @@
         },
         "enabled": {
           "type": "boolean",
-          "description": "Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.",
+          "description": "Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables GC duration, class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.",
           "default": true,
           "x-env-var": "OTEL_EBPF_JAVAAGENT_ENABLED"
         }
@@ -3010,6 +3022,15 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
+        },
+        "compression": {
+          "type": "string",
+          "enum": [
+            "gzip",
+            "none"
+          ],
+          "description": "Sets the compression applied to exported OTLP payloads.",
+          "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"
         },
         "endpoint": {
           "type": "string",

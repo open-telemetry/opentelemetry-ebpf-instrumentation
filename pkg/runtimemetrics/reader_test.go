@@ -58,7 +58,7 @@ func TestPythonRuntimeMetricRawABI(t *testing.T) {
 	var event pythonRuntimeMetricRawEvent
 	var snapshot pythonRuntimeMetricRawSnapshot
 
-	require.Equal(t, byte(29), byte(EventTypePythonRuntimeMetric))
+	require.Equal(t, EventTypePythonRuntimeMetric, byte(29))
 	require.Equal(t, uintptr(96), unsafe.Sizeof(event))
 	require.Equal(t, uintptr(4), unsafe.Offsetof(event.PID))
 	require.Equal(t, uintptr(16), unsafe.Offsetof(event.Snapshot))
@@ -69,7 +69,7 @@ func TestPythonRuntimeMetricRawABI(t *testing.T) {
 func TestGoRuntimeHistogramRawABI(t *testing.T) {
 	var event goRuntimeHistogramRawEvent
 
-	require.Equal(t, byte(21), byte(EventTypeGoRuntimeHistogram))
+	require.Equal(t, EventTypeGoRuntimeHistogram, byte(21))
 	require.Equal(t, GoHistogramKindGCPause, GoHistogramKind(0))
 	require.Equal(t, GoHistogramKindSchedLatency, GoHistogramKind(1))
 	require.Equal(t, uintptr(1328), unsafe.Sizeof(event))
@@ -486,6 +486,29 @@ func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
 	require.Equal(t, event.Time, snapshot.Time)
 	require.NotNil(t, snapshot.JVM)
 	require.Equal(t, values, *snapshot.JVM.RuntimeValues)
+}
+
+func TestSnapshotFromJVMGCDurationEvent(t *testing.T) {
+	event := appruntime.JVMGCEvent{
+		PID:        app.PID(123),
+		Service:    svc.Attrs{UID: svc.UID{Name: "orders"}},
+		Time:       time.Unix(123, 456),
+		Kind:       appruntime.JVMMetricGCDuration,
+		GCName:     "G1 Young Generation",
+		GCAction:   "end of minor GC",
+		DurationNS: 25_000_000,
+	}
+
+	snapshot := SnapshotFromJVMGCEvent(event)
+
+	require.Equal(t, event.Service, snapshot.Service)
+	require.Equal(t, event.PID, snapshot.PID)
+	require.Equal(t, event.Time, snapshot.Time)
+	require.NotNil(t, snapshot.JVM)
+	require.Equal(t, appruntime.JVMMetricGCDuration, snapshot.JVM.Kind)
+	require.Equal(t, "G1 Young Generation", snapshot.JVM.GCName)
+	require.Equal(t, "end of minor GC", snapshot.JVM.GCAction)
+	require.Equal(t, uint64(25_000_000), snapshot.JVM.DurationNS)
 }
 
 func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {

@@ -6,7 +6,7 @@ data:
   obi-config.yml: |
     log_level: debug
     metrics:
-      features: ["network", "network_inter_zone"]
+      features: ["network", "network_inter_zone", "network_flow_packets"]
     otel_metrics_export:
       endpoint: http://otelcol.default:4317
     network:
@@ -28,6 +28,12 @@ data:
       select:
         obi.network.flow.bytes:
           # assured cardinality explosion. Don't try in production!
+          include: ["*"]
+          exclude: ["src_port"]
+        obi.network.inter.zone.bytes:
+          include: ["*"]
+          exclude: ["src_port"]
+        obi.network.flow.packets:
           include: ["*"]
           exclude: ["src_port"]
 ---

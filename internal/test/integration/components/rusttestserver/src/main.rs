@@ -4,7 +4,7 @@ use actix_web::http::header::ContentDisposition;
 use actix_web::http::header::DispositionType;
 use mime::Mime;
 use serde::{Deserialize, Serialize};
-use rand::Rng;
+use rand::RngExt;
 use std::time::Duration;
 use std::thread;
 use std::fs;
@@ -25,8 +25,7 @@ async fn greeting(item: web::Json<MyObj>) -> HttpResponse {
 }
 
 async fn smoke() -> HttpResponse {
-    let mut rng = rand::thread_rng();
-    let sleep_time = rng.gen_range(100..500);
+    let sleep_time = rand::rng().random_range(100..500);
     thread::sleep(Duration::from_millis(sleep_time));
     HttpResponse::Ok().into()
 }

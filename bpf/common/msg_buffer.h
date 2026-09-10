@@ -11,7 +11,6 @@
 
 enum {
     k_msg_buffer_size_max = 8192,
-    k_msg_buffer_size_max_mask = k_msg_buffer_size_max - 1,
 };
 
 struct {

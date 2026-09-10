@@ -102,7 +102,7 @@ func mcpInitSession(t *testing.T, address string) string {
 
 func testPythonMCPServer(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 
@@ -137,7 +137,7 @@ func testPythonMCPServer(t *testing.T) {
 		lastTrace := traces[len(traces)-1]
 		// The trace may contain child spans ("in queue", "processing");
 		// locate the MCP server span by its expected operation name.
-		res := lastTrace.FindByOperationName("execute_tool get-weather", "server")
+		res := lastTrace.FindByOperationName("tools/call get-weather", "server")
 		require.GreaterOrEqual(ct, len(res), 1)
 		span := res[0]
 
@@ -186,7 +186,7 @@ func testPythonMCPServer(t *testing.T) {
 		require.GreaterOrEqual(ct, len(traces), 1)
 
 		lastTrace := traces[len(traces)-1]
-		res := lastTrace.FindByOperationName("execute_tool nonexistent", "server")
+		res := lastTrace.FindByOperationName("tools/call nonexistent", "server")
 		require.GreaterOrEqual(ct, len(res), 1)
 		span := res[0]
 
@@ -202,7 +202,7 @@ func testPythonMCPServer(t *testing.T) {
 
 func testPythonMCPInitialize(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 
@@ -239,10 +239,126 @@ func testPythonMCPInitialize(t *testing.T) {
 
 		sd := span.Diff(
 			jaeger.Tag{Key: "mcp.method.name", Type: "string", Value: "initialize"},
-			jaeger.Tag{Key: "gen_ai.operation.name", Type: "string", Value: "initialize"},
 			jaeger.Tag{Key: "mcp.protocol.version", Type: "string", Value: "2025-03-26"},
 			jaeger.Tag{Key: "jsonrpc.request.id", Type: "string", Value: "10"},
 		)
 		assert.Empty(ct, sd, sd.String())
+
+		_, found := jaeger.FindIn(span.Tags, "gen_ai.operation.name")
+		assert.False(ct, found, "gen_ai.operation.name is set for tool calls only")
 	}, testTimeout, 100*time.Millisecond)
+}
+
+// testPythonMCPClient drives the instrumented server to call a second MCP
+// server, so OBI observes the outbound side of an MCP exchange. The tests above
+// only ever produce server-kind spans; this is what exercises the client-kind
+// MCP span and the peer attributes that come with it.
+func testPythonMCPClient(t *testing.T) {
+	const (
+		comm    = "main"
+		address = "http://localhost:8381/mcp"
+	)
+
+	sessionID := mcpInitSession(t, address)
+
+	var tq jaeger.TracesQuery
+	params := neturl.Values{}
+	params.Add("service", comm)
+	// The outbound call the tool makes, named after the tool it invokes on the
+	// remote server. Scoping the query to it keeps the server-side traces the
+	// retry loop generates from filling the result page.
+	params.Add("operation", "tools/call get-weather")
+	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := mcpCall(address, "tools/call", 10,
+			map[string]any{"name": "remote-weather", "arguments": map[string]any{}},
+			"Mcp-Session-Id", sessionID)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		// The remote-weather tool calls get-weather on the remote server, so the
+		// outbound tools/call is the client-kind span we are after.
+		var clientSpans []jaeger.Span
+		for _, trace := range tq.Data {
+			clientSpans = append(clientSpans,
+				trace.FindByOperationNameServiceAndKind("tools/call get-weather", comm, "client")...)
+		}
+		require.NotEmpty(ct, clientSpans, "no client-kind MCP span found")
+
+		span := clientSpans[0]
+		sd := span.Diff(
+			jaeger.Tag{Key: "mcp.method.name", Type: "string", Value: "tools/call"},
+			jaeger.Tag{Key: "gen_ai.operation.name", Type: "string", Value: "execute_tool"},
+			jaeger.Tag{Key: "gen_ai.tool.name", Type: "string", Value: "get-weather"},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
+		)
+		assert.Empty(ct, sd, sd.String())
+
+		// The peer is the remote MCP server, not this process.
+		peer, ok := jaeger.FindIn(span.Tags, "server.address")
+		assert.True(ct, ok, "client span must name the remote server")
+		assert.NotEmpty(ct, peer.Value)
+	}, testTimeout, 500*time.Millisecond)
+}
+
+// testPythonMCPClientResource covers the resource side of the client exchange:
+// reading a resource from the remote server is what carries mcp.resource.uri.
+func testPythonMCPClientResource(t *testing.T) {
+	const (
+		comm    = "main"
+		address = "http://localhost:8381/mcp"
+	)
+
+	sessionID := mcpInitSession(t, address)
+
+	var tq jaeger.TracesQuery
+	params := neturl.Values{}
+	params.Add("service", comm)
+	params.Add("operation", "resources/read")
+	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := mcpCall(address, "tools/call", 20,
+			map[string]any{"name": "remote-report", "arguments": map[string]any{}},
+			"Mcp-Session-Id", sessionID)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+
+		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		var clientSpans []jaeger.Span
+		for _, trace := range tq.Data {
+			clientSpans = append(clientSpans,
+				trace.FindByOperationNameServiceAndKind("resources/read", comm, "client")...)
+		}
+		require.NotEmpty(ct, clientSpans, "no client-kind resource read span found")
+
+		span := clientSpans[0]
+		sd := span.Diff(
+			jaeger.Tag{Key: "mcp.method.name", Type: "string", Value: "resources/read"},
+			jaeger.Tag{
+				Key: "mcp.resource.uri", Type: "string",
+				Value: "file:///home/user/documents/report.pdf",
+			},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
+		)
+		assert.Empty(ct, sd, sd.String())
+	}, testTimeout, 500*time.Millisecond)
 }

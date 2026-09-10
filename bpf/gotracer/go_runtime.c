@@ -92,7 +92,7 @@ static __always_inline void go_runtime_collect_histogram(u64 histogram_addr,
         return;
     }
 
-    event->type = EVENT_GO_RUNTIME_HISTOGRAM;
+    event->type = k_event_type_go_runtime_histogram;
     event->kind = kind;
     event->pid = *pid;
     event->bucket_count = bucket_count;
@@ -625,7 +625,7 @@ int GUARDED_PROG(obi_uprobe_go_runtime_metrics, struct pt_regs *, ctx) {
         return 0;
     }
 
-    event->type = EVENT_GO_RUNTIME_METRICS;
+    event->type = k_event_type_go_runtime_metrics;
     event->pid = key;
     event->generation = target->generation;
     // Collectors set valid_mask bits for metric groups populated in this snapshot.
@@ -865,7 +865,7 @@ static __always_inline void emit_channel_handoff(chan_handoff_t *sender, chan_ha
         return;
     }
 
-    trace->type = EVENT_GO_CHANNEL_LINK;
+    trace->type = k_event_type_go_channel_link;
     tp_clone(&trace->sender_tp, &sender->tp);
     tp_clone(&trace->receiver_tp, &receiver->tp);
     bpf_ringbuf_submit(trace, get_flags());

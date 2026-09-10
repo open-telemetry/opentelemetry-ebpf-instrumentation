@@ -64,7 +64,7 @@ static __always_inline void set_tcp_trace_info(u32 type,
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->pid = pid; // used for avoiding finding stale server requests with client port reuse
-    tp_p->req_type = EVENT_TCP_REQUEST;
+    tp_p->req_type = k_event_type_tcp_request;
 
     set_trace_info_for_connection(conn, type, tp_p);
     dbg_print_http_connection_info(conn);
@@ -96,7 +96,7 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
                            orig_dport);
     } else { // Server
         const u8 found =
-            find_trace_for_server_request(&pid_conn->conn, &req->tp, EVENT_TCP_REQUEST);
+            find_trace_for_server_request(&pid_conn->conn, &req->tp, k_event_type_tcp_request);
         bpf_dbg_printk("Looking up server trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
@@ -146,7 +146,7 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
         return;
     }
 
-    lb->type = EVENT_TCP_LARGE_BUFFER;
+    lb->type = k_event_type_tcp_large_buffer;
     lb->packet_type = packet_type;
     lb->action = action;
     lb->kind = k_large_buf_layer_wire;
@@ -316,7 +316,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);
-            req->flags = EVENT_TCP_REQUEST;
+            req->flags = k_event_type_tcp_request;
             req->conn_info = pid_conn->conn;
             fixup_connection_info(&req->conn_info, direction, orig_dport);
             req->ssl = ssl;

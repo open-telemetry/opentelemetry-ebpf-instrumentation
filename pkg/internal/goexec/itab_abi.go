@@ -5,7 +5,6 @@ package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -13,9 +12,6 @@ import (
 	trackeroffsets "github.com/grafana/go-offsets-tracker/pkg/offsets"
 	"golang.org/x/mod/semver"
 )
-
-//go:embed go_abi_offsets.json
-var goABIOffsets string
 
 type goTypeMetadataABI struct {
 	typeTFlagOffset       uint64
@@ -55,7 +51,7 @@ type goTypeMetadataABI struct {
 }
 
 func loadGoTypeMetadataABI(goVersion string) (goTypeMetadataABI, error) {
-	track, err := trackeroffsets.Read(bytes.NewBufferString(goABIOffsets))
+	track, err := trackeroffsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	if err != nil {
 		return goTypeMetadataABI{}, fmt.Errorf("reading generated Go ABI facts: %w", err)
 	}

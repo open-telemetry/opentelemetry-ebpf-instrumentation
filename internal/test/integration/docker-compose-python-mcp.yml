@@ -8,9 +8,21 @@ services:
     image: hatest-testserver-python-mcp
     ports:
       - "${TEST_SERVICE_PORTS}"
+    environment:
+      REMOTE_MCP_URL: "http://mcpremote:8080/mcp"
     depends_on:
       otelcol:
         condition: service_started
+      mcpremote:
+        condition: service_started
+
+  # A second MCP server the instrumented one calls out to, so the same process
+  # produces client-kind MCP spans as well as server-kind ones.
+  mcpremote:
+    build:
+      context: ../../../internal/test/integration/components/pythonmcp/
+      dockerfile: Dockerfile
+    image: hatest-testserver-python-mcp
 
   obi:
     build:
@@ -50,7 +62,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
+    image: otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
     container_name: otel-col
     deploy:
       resources:

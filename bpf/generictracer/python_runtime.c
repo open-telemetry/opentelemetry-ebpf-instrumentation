@@ -106,7 +106,7 @@ int GUARDED_PROG(obi_uprobe_python_gc_done, struct pt_regs *, ctx) {
         bpf_dbg_printk("python GC event reserve failed pid=%d ns=%d", key.user_pid, key.ns);
         return 0;
     }
-    event->type = EVENT_PYTHON_RUNTIME_METRICS;
+    event->type = k_event_type_python_runtime_metrics;
     event->pid = key;
     event->snapshot = snapshot;
     bpf_ringbuf_submit(event, get_flags());

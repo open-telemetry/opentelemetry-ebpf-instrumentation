@@ -34,7 +34,7 @@ data:
       endpoint: http://otelcol:4317
       protocol: grpc
     otel_traces_export:
-      endpoint: http://jaeger:4317
+      endpoint: http://otelcol:4317
       protocol: grpc
     internal_metrics:
       exporter: otel
