@@ -4,7 +4,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,20 +13,28 @@ import (
 	"github.com/grafana/go-offsets-tracker/pkg/target"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/goabi"
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 func TestValidateCoverage(t *testing.T) {
-	queries := []query{
-		{outputType: "internal/abi.Type", outputField: "TFlag"},
-		{outputType: "internal/abi.Type", outputField: sizeField},
-	}
-	track := coverageTrack(queries, offsets.VersionInfo{Oldest: "1.27.0", Newest: "1.27.1"})
-	require.NoError(t, validateCoverage(track, queries))
+	track := coverageTrack(t)
+	require.NoError(t, validateCoverage(track))
 
 	fact := track.Data["runtime.moduledata"]["itabsize"]
 	fact.Versions.Newest = "1.27.0"
 	track.Data["runtime.moduledata"]["itabsize"] = fact
-	require.ErrorContains(t, validateCoverage(track, queries), "runtime.moduledata.itabsize has coverage")
+	require.ErrorContains(t, validateCoverage(track), "runtime.moduledata.itabsize has coverage")
+}
+
+func TestCachedFactsRejectInvalidABI(t *testing.T) {
+	track := coverageTrack(t)
+	requirements, err := goabi.Requirements(goversion.MustParse("go1.27.0"))
+	require.NoError(t, err)
+
+	_, ok := cachedFacts(track, goversion.MustParse("1.27.0"), requirements)
+	assert.False(t, ok)
 }
 
 func TestGroupFieldsByVersion(t *testing.T) {
@@ -99,9 +106,8 @@ func TestWriteResultsAtomicPreservesOutputOnValidationFailure(t *testing.T) {
 	output := filepath.Join(directory, "offsets.json")
 	require.NoError(t, os.WriteFile(output, []byte("original"), 0o600))
 
-	queries := []query{{outputType: "internal/abi.Type", outputField: "TFlag"}}
 	result := generatedResult("internal/abi.Type", "TFlag")
-	require.ErrorContains(t, writeResultsAtomic(output, queries, []*target.Result{result}), "runtime.moduledata")
+	require.ErrorContains(t, writeResultsAtomic(output, []*target.Result{result}), "generated type")
 
 	contents, err := os.ReadFile(output)
 	require.NoError(t, err)
@@ -114,54 +120,56 @@ func TestWriteResultsAtomicPreservesOutputOnValidationFailure(t *testing.T) {
 func TestWriteResultsAtomicPublishesMatchingCoverage(t *testing.T) {
 	directory := t.TempDir()
 	output := filepath.Join(directory, "offsets.json")
-	queries := []query{{outputType: "internal/abi.Type", outputField: "TFlag"}}
-	facts := []*binary.DataMemberOffset{
-		{
-			DataMember: &binary.DataMember{StructName: "internal/abi.Type", Field: "TFlag"},
-			Offset:     1,
-		},
-	}
-	for _, field := range moduledataABIFacts {
-		facts = append(facts, &binary.DataMemberOffset{
-			DataMember: &binary.DataMember{StructName: "runtime.moduledata", Field: field},
-			Offset:     1,
-		})
-	}
-	result := &target.Result{
-		ModuleName: offsets.GoStdLib,
-		ResultsByVersion: []*target.VersionedResult{
-			{Version: "1.27.0", OffsetData: &binary.Result{DataMembers: facts}},
-		},
-	}
+	result := generatedABIResult(t)
 
-	require.NoError(t, writeResultsAtomic(output, queries, []*target.Result{result}))
+	require.NoError(t, writeResultsAtomic(output, []*target.Result{result}))
 	track, err := offsets.Open(output)
 	require.NoError(t, err)
-	require.NoError(t, validateCoverage(track, queries))
+	require.NoError(t, validateCoverage(track))
 }
 
 func TestGeneratedOffsetsCoverage(t *testing.T) {
-	inputData, err := os.ReadFile(filepath.Join("..", "..", "configs", "offsets", "go_abi_input.json"))
-	require.NoError(t, err)
-	var config abiInput
-	require.NoError(t, json.Unmarshal(inputData, &config))
-	queries, err := buildQueries(config)
-	require.NoError(t, err)
-
 	track, err := offsets.Open(filepath.Join("..", "..", "pkg", "internal", "goexec", "offsets.json"))
 	require.NoError(t, err)
-	require.NoError(t, validateCoverage(track, queries))
+	require.NoError(t, validateCoverage(track))
 }
 
-func coverageTrack(queries []query, coverage offsets.VersionInfo) *offsets.Track {
+func coverageTrack(t *testing.T) *offsets.Track {
+	t.Helper()
 	track := &offsets.Track{Data: map[string]offsets.Struct{}}
-	for _, q := range queries {
-		addCoverage(track, q.outputType, q.outputField, coverage)
-	}
-	for _, field := range moduledataABIFacts {
-		addCoverage(track, "runtime.moduledata", field, coverage)
+	requirements, err := goabi.Requirements(goversion.MustParse("go999.0.0"))
+	require.NoError(t, err)
+	for _, requirement := range requirements {
+		addCoverage(track, requirement.OutputType, requirement.OutputField, offsets.VersionInfo{
+			Oldest: requirement.Since.Release(),
+			Newest: "999.0.0",
+		})
 	}
 	return track
+}
+
+func generatedABIResult(t *testing.T) *target.Result {
+	t.Helper()
+	result := &target.Result{ModuleName: offsets.GoStdLib}
+	for _, version := range []string{"1.17.0", "1.27.0"} {
+		requirements, err := goabi.Requirements(goversion.MustParse(version))
+		require.NoError(t, err)
+		facts := make([]*binary.DataMemberOffset, 0, len(requirements))
+		for _, requirement := range requirements {
+			facts = append(facts, &binary.DataMemberOffset{
+				DataMember: &binary.DataMember{
+					StructName: requirement.OutputType,
+					Field:      requirement.OutputField,
+				},
+				Offset: 1,
+			})
+		}
+		result.ResultsByVersion = append(result.ResultsByVersion, &target.VersionedResult{
+			Version:    version,
+			OffsetData: &binary.Result{DataMembers: facts},
+		})
+	}
+	return result
 }
 
 func addCoverage(track *offsets.Track, typeName, factName string, coverage offsets.VersionInfo) {

@@ -41,18 +41,6 @@
       "database/sql.driverConn": ["ci"],
       "net/textproto.Reader": ["R"],
       "bufio.Reader": ["buf", "w"],
-      "runtime.moduledata": [
-        "pcHeader",
-        "pclntable",
-        "minpc",
-        "maxpc",
-        "text",
-        "etext",
-        "[1.27.0]types",
-        "[1.27.0]typedesclen",
-        "[1.27.0]itaboffset",
-        "[1.27.0]itabsize"
-      ],
       "runtime.mstats": [
         "numgc",
         "[1.23.0]heapStats",

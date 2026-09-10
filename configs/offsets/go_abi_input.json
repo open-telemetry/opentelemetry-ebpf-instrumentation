@@ -1,39 +1,4 @@
 {
-  "versions": ">= 1.27",
-  "inspect": "./configs/offsets/std_inspect.go",
-  "fields": {
-    "internal/abi.Type": ["TFlag", "Kind_", "Str"],
-    "internal/abi.InterfaceType": ["Methods"],
-    "internal/abi.ITab": ["Type", "Fun"],
-    "internal/abi.UncommonType": ["PkgPath"],
-    "[]internal/abi.Imethod": ["len"]
-  },
-  "sizes": [
-    "internal/abi.Type",
-    "internal/abi.ArrayType",
-    "internal/abi.ChanType",
-    "internal/abi.FuncType",
-    "internal/abi.InterfaceType",
-    "internal/abi.MapType",
-    "internal/abi.PtrType",
-    "internal/abi.SliceType",
-    "internal/abi.StructType",
-    "internal/abi.ITab",
-    "internal/abi.TFlag",
-    "internal/abi.Kind",
-    "internal/abi.NameOff"
-  ],
-  "constants": [
-    "internal/abi.TFlagUncommon",
-    "internal/abi.TFlagExtraStar",
-    "internal/abi.KindDirectIface",
-    "internal/abi.Array",
-    "internal/abi.Chan",
-    "internal/abi.Func",
-    "internal/abi.Interface",
-    "internal/abi.Map",
-    "internal/abi.Pointer",
-    "internal/abi.Slice",
-    "internal/abi.Struct"
-  ]
+  "versions": ">= 1.17",
+  "inspect": "./configs/offsets/std_inspect.go"
 }
