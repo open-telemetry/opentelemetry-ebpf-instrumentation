@@ -32,7 +32,7 @@ func testTracesRedisPipeline(t *testing.T) {
 	var commands []jaeger.Span
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=python3.14&operation=GET%20%2Fredis-pipeline")
+		resp, err := http.Get(jaegerQueryURL + "?service=main&operation=GET%20%2Fredis-pipeline")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -78,7 +78,7 @@ func testTracesRedisPipelineNoParent(t *testing.T) {
 
 	var traces []jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=python3.14&operation=SADD")
+		resp, err := http.Get(jaegerQueryURL + "?service=main&operation=SADD")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
