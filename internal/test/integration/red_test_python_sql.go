@@ -91,6 +91,11 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 		assert.True(ct, found)
 		assert.Equal(ct, db, tag.Value)
 
+		// The summary names the span, so it must match the queried operation.
+		tag, found = jaeger.FindIn(span.Tags, "db.query.summary")
+		assert.True(ct, found, "expected db.query.summary on the SQL span")
+		assert.Equal(ct, dbOperation, tag.Value)
+
 		_, found = jaeger.FindIn(span.Tags, "db.response.status_code")
 		assert.False(ct, found)
 
