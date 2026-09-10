@@ -19,6 +19,7 @@ public static class Endpoints
     {
         app.MapGet("/minimal/{id}", () => "ok");
         app.MapPost("/items", () => "ok");
+        app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
     }
 
     public static T Echo<T>(T value) => value;

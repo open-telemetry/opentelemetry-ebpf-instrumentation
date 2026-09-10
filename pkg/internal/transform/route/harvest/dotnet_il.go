@@ -31,11 +31,15 @@ const (
 	fatMethodFormat      = 0x03
 )
 
-var dotnetMapMethods = map[string]struct{}{
+type dotnetCall struct {
+	mapcontroller bool
+}
+
+var dotnetMapMethods = map[string]dotnetCall{
 	"Map":                    {},
-	"MapAreaControllerRoute": {},
+	"MapAreaControllerRoute": {mapcontroller: true},
 	"MapBlazorHub":           {},
-	"MapControllerRoute":     {},
+	"MapControllerRoute":     {mapcontroller: true},
 	"MapDelete":              {},
 	"MapFallback":            {},
 	"MapGet":                 {},
@@ -78,9 +82,9 @@ func (e *dotnetExtractor) il() error {
 // - MemberRef tokens (0x0a...) for methods under Microsoft.AspNetCore.Builder
 // - MethodSpec tokens (0x2b...) for generic instantiations of those methods
 // this is then used in scanIL.
-func (e *dotnetExtractor) routeCalls() (map[uint32]struct{}, error) {
-	calls := map[uint32]struct{}{}
-	refs := map[winmd.Index]struct{}{}
+func (e *dotnetExtractor) routeCalls() (map[uint32]dotnetCall, error) {
+	calls := map[uint32]dotnetCall{}
+	refs := map[winmd.Index]dotnetCall{}
 	for i := range e.md.Tables.MemberRef.Indices() {
 		if err := e.ctx.Err(); err != nil {
 			return nil, err
@@ -89,15 +93,16 @@ func (e *dotnetExtractor) routeCalls() (map[uint32]struct{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, ok := dotnetMapMethods[m.Name.String()]; !ok {
+		call, ok := dotnetMapMethods[m.Name.String()]
+		if !ok {
 			continue
 		}
 		_, ns, ok := e.memberType(m)
 		if !ok || ns != "Microsoft.AspNetCore.Builder" {
 			continue
 		}
-		refs[i] = struct{}{}
-		calls[memberRef|uint32(i+1)] = struct{}{}
+		refs[i] = call
+		calls[memberRef|uint32(i+1)] = call
 	}
 
 	for i := range e.md.Tables.MethodSpec.Indices() {
@@ -111,8 +116,8 @@ func (e *dotnetExtractor) routeCalls() (map[uint32]struct{}, error) {
 		if m.Method.Tag != winmd.MethodDefOrRef_MemberRef {
 			continue
 		}
-		if _, ok := refs[m.Method.Index]; ok {
-			calls[methodSpec|uint32(i+1)] = struct{}{}
+		if call, ok := refs[m.Method.Index]; ok {
+			calls[methodSpec|uint32(i+1)] = call
 		}
 	}
 	return calls, nil
@@ -124,8 +129,10 @@ func (e *dotnetExtractor) routeCalls() (map[uint32]struct{}, error) {
 // ldstr "/api/customers"  // load route string
 // ...
 // call MapGet             // register route
-func (e *dotnetExtractor) scanIL(code []byte, calls map[uint32]struct{}) {
+func (e *dotnetExtractor) scanIL(code []byte, calls map[uint32]dotnetCall) {
 	var route string
+	var template string
+	var paths []string
 	for i := 0; i+opcodeSize+tokenSize <= len(code); i++ {
 		switch code[i] {
 		case ldstr:
@@ -134,17 +141,35 @@ func (e *dotnetExtractor) scanIL(code []byte, calls map[uint32]struct{}) {
 				continue
 			}
 			r, ok := dotnetUserString(e.md.US, token&tokenMask)
-			if ok && (strings.HasPrefix(r, "/") || strings.HasPrefix(r, "~/")) {
-				route, _ = dotnetRoute(r)
+			if ok {
+				if strings.Contains(r, "{") && strings.Contains(r, "}") {
+					template = r
+				}
+				if strings.Contains(r, "/") {
+					paths = append(paths, r)
+				}
+				if strings.HasPrefix(r, "/") || strings.HasPrefix(r, "~/") {
+					route = r
+				}
 			}
 			i += tokenSize
 		case call, callvirt:
 			token := binary.LittleEndian.Uint32(code[i+opcodeSize:])
-			if _, ok := calls[token]; ok && route != "" {
-				e.add(route)
+			if call, ok := calls[token]; ok {
+				if call.mapcontroller {
+					if template != "" {
+						e.add(template)
+					} else if len(paths) > 0 {
+						e.add(paths[0])
+					}
+				} else if route != "" {
+					e.add(route)
+				}
 			}
 			if e.validMethodToken(token) {
 				route = ""
+				template = ""
+				paths = nil
 				i += tokenSize
 			}
 		}

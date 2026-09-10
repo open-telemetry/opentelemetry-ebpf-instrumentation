@@ -146,7 +146,7 @@ func TestExtractDotnetRoutes(t *testing.T) {
 		assert.Nil(t, result)
 	})
 
-	t.Run("harvests attribute and minimal routes", func(t *testing.T) {
+	t.Run("harvests attribute, minimal, and conventional routes", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "routes")
 		require.NoError(t, os.WriteFile(path+".dll", testBlobBytes(t), 0o600))
 		fi := exec.New(exec.Init{Pid: app.PID(os.Getpid()), CmdExePath: path})
@@ -156,6 +156,7 @@ func TestExtractDotnetRoutes(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, PartialRoutes, result.Kind)
 		assert.Equal(t, []string{
+			"/{controller=Home}/{action=Index}/{id?}",
 			"/api/Products",
 			"/minimal/{id}",
 			"/Get/{id}",

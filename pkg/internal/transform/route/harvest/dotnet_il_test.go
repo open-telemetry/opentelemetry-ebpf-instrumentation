@@ -25,6 +25,7 @@ func TestDotnetIL(t *testing.T) {
 	assert.Equal(t, map[string]struct{}{
 		"/minimal/{id}": {},
 		"/items":        {},
+		"/{controller=Home}/{action=Index}/{id?}": {},
 	}, e.rs)
 }
 
@@ -58,8 +59,10 @@ func TestDotnetRouteCalls(t *testing.T) {
 
 	get := dotnetRouteMemberRef(t, &e, "MapGet")
 	post := dotnetRouteMemberRef(t, &e, "MapPost")
+	controller := dotnetRouteMemberRef(t, &e, "MapControllerRoute")
 	assert.Contains(t, calls, get)
 	assert.Contains(t, calls, post)
+	assert.True(t, calls[controller].mapcontroller)
 
 	a := dotnetAttribute(t, &e, "RouteAttribute", "api/[controller]")
 	assert.NotContains(t, calls, memberRef|uint32(a.Type.Index+1))
@@ -93,7 +96,15 @@ func TestDotnetScanIL(t *testing.T) {
 	e := dotnetExtractor{md: base}
 	routeCall := dotnetRouteMemberRef(t, &e, "MapGet")
 	otherCall := methodDef | 1
-	h, tokens := dotnetUserHeap("/api/customers", "~/health", "not/a/route", "/old", "/new")
+	controllerCall := dotnetRouteMemberRef(t, &e, "MapControllerRoute")
+	areaControllerCall := memberRef | 1
+	h, tokens := dotnetUserHeap(
+		"/api/customers", "~/health", "not/a/route", "/old", "/new",
+		"default", "{controller=Home}/{action=Index}/{id?}",
+		"Admin", "admin", "{area}/{controller}/{action}",
+		"/route-name", "/absolute/{controller}",
+		"simple", "articles/list", "en/us",
+	)
 
 	tests := []struct {
 		name string
@@ -159,6 +170,54 @@ func TestDotnetScanIL(t *testing.T) {
 			want: map[string]struct{}{`/new`: {}},
 		},
 		{
+			name: "controller route pattern",
+			code: dotnetInstructions(
+				dotnetInstruction(ldstr, tokens[5]),
+				dotnetInstruction(ldstr, tokens[6]),
+				dotnetInstruction(call, controllerCall),
+			),
+			want: map[string]struct{}{`/{controller=Home}/{action=Index}/{id?}`: {}},
+		},
+		{
+			name: "controller route absolute pattern",
+			code: dotnetInstructions(
+				dotnetInstruction(ldstr, tokens[10]),
+				dotnetInstruction(ldstr, tokens[11]),
+				dotnetInstruction(call, controllerCall),
+			),
+			want: map[string]struct{}{`/absolute/{controller}`: {}},
+		},
+		{
+			name: "area controller route pattern",
+			code: dotnetInstructions(
+				dotnetInstruction(ldstr, tokens[7]),
+				dotnetInstruction(ldstr, tokens[8]),
+				dotnetInstruction(ldstr, tokens[9]),
+				dotnetInstruction(call, areaControllerCall),
+			),
+			want: map[string]struct{}{`/{area}/{controller}/{action}`: {}},
+		},
+		{
+			name: "controller route slash pattern",
+			code: dotnetInstructions(
+				dotnetInstruction(ldstr, tokens[12]),
+				dotnetInstruction(ldstr, tokens[13]),
+				dotnetInstruction(ldstr, tokens[14]),
+				dotnetInstruction(call, controllerCall),
+			),
+			want: map[string]struct{}{`/articles/list`: {}},
+		},
+		{
+			name: "call clears controller route candidates",
+			code: dotnetInstructions(
+				dotnetInstruction(ldstr, tokens[6]),
+				dotnetInstruction(callvirt, otherCall),
+				dotnetInstruction(ldstr, tokens[5]),
+				dotnetInstruction(call, controllerCall),
+			),
+			want: map[string]struct{}{},
+		},
+		{
 			name: "non-user-string token",
 			code: dotnetInstructions(
 				dotnetInstruction(ldstr, memberRef|1),
@@ -183,7 +242,12 @@ func TestDotnetScanIL(t *testing.T) {
 			md.US = h
 			e := dotnetExtractor{md: &md, rs: map[string]struct{}{}}
 
-			e.scanIL(tt.code, map[uint32]struct{}{routeCall: {}, methodSpec | 1: {}})
+			e.scanIL(tt.code, map[uint32]dotnetCall{
+				routeCall:          {},
+				methodSpec | 1:     {},
+				controllerCall:     {mapcontroller: true},
+				areaControllerCall: {mapcontroller: true},
+			})
 
 			assert.Equal(t, tt.want, e.rs)
 		})
