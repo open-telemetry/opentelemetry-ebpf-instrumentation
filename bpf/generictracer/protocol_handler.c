@@ -117,9 +117,10 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
 
             const u8 reading = still_reading(info);
             const u8 responding = still_responding(info);
+            const u8 unread = response_unread(info);
             // Still reading checks if we are processing buffers of a HTTP request
             // that has started, but we haven't seen a response yet.
-            if (reading || responding) {
+            if (reading || responding || unread) {
                 // Packets are split into chunks if OBI injected the Traceparent
                 // Make sure you look for split packets containing the real Traceparent.
                 // Essentially, when a packet is extended by our sock_msg program and
@@ -156,12 +157,21 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
                     }
                 }
 
+                // A buffer arriving in the response direction with no status line in it
+                // is the response, unparsed. Counting it as more of the request would
+                // leave the record indistinguishable from one still waiting, and the
+                // next request on the connection would then destroy it unreported.
+                const bool unparsed_response = unparsed_response_buffer(info, args->direction);
+
                 u8 packet_type = PACKET_TYPE_REQUEST;
-                if (responding) {
+                if (responding || unparsed_response) {
                     packet_type = PACKET_TYPE_RESPONSE;
                 }
 
-                if (reading) {
+                if (unparsed_response) {
+                    note_unread_response(info, bpf_ktime_get_ns());
+                    info->resp_len += args->bytes_len;
+                } else if (reading) {
                     info->len += args->bytes_len;
                 } else if (responding) {
                     info->end_monotime_ns = bpf_ktime_get_ns();

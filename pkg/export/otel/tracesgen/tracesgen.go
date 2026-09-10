@@ -632,6 +632,16 @@ func httpClientTransportScope(subType int) httpTransportScope {
 	}
 }
 
+// appendHTTPResponseStatus reports the status only when one was seen: semconv requires
+// http.response.status_code "if and only if one was received/sent".
+func appendHTTPResponseStatus(attrs []attribute.KeyValue, span *request.Span) []attribute.KeyValue {
+	if span.ResponseObservation == request.ResponseParsed {
+		return append(attrs, request.HTTPResponseStatusCode(span.Status))
+	}
+
+	return append(attrs, attribute.Bool(string(attr.OBIHTTPResponseObserved), false))
+}
+
 //nolint:cyclop
 func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
@@ -639,13 +649,13 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 	switch span.Type {
 	case request.EventTypeHTTP:
 		attrs = []attribute.KeyValue{
-			request.HTTPResponseStatusCode(span.Status),
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
+		attrs = appendHTTPResponseStatus(attrs, span)
 		if span.Method != "" {
 			attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
 		}
@@ -758,8 +768,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 
 		if transport == httpTransportAll {
+			attrs = appendHTTPResponseStatus(attrs, span)
 			attrs = append(attrs,
-				request.HTTPResponseStatusCode(span.Status),
 				semconv.URLScheme(scheme),
 				request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 				request.HTTPResponseBodySize(span.ResponseBodyLength()),
