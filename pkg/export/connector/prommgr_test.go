@@ -15,14 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// freePort reserves and releases a port, so the manager can bind it afterwards.
-func freePort(t *testing.T) int {
+func reservedListener(t *testing.T) (int, net.Listener) {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-	return port
+	return port, l
 }
 
 func testGauge(name string) prometheus.Collector {
@@ -30,7 +28,7 @@ func testGauge(name string) prometheus.Collector {
 }
 
 // scrapes reports whether the given port and path answers.
-// listenAndServe binds in the background, so this retries briefly.
+// The HTTP server starts in the background, so this retries briefly.
 func scrapes(t *testing.T, port int, path string) bool {
 	t.Helper()
 	url := "http://127.0.0.1:" + strconv.Itoa(port) + path
@@ -52,10 +50,12 @@ func scrapes(t *testing.T, port int, path string) bool {
 func TestStartHTTP_ServesPortRegisteredAfterFirstStart(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &PrometheusManager{}
-
-	early := freePort(t)
-	late := freePort(t)
+	early, earlyListener := reservedListener(t)
+	late, lateListener := reservedListener(t)
+	pm := &PrometheusManager{listeners: map[int]net.Listener{
+		early: earlyListener,
+		late:  lateListener,
+	}}
 
 	pm.Register(early, "/metrics", testGauge("early_metric"))
 	pm.StartHTTP(ctx)
@@ -72,8 +72,8 @@ func TestStartHTTP_ServesPortRegisteredAfterFirstStart(t *testing.T) {
 func TestStartHTTP_ServesPathRegisteredOnAlreadyServedPort(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &PrometheusManager{}
-	port := freePort(t)
+	port, listener := reservedListener(t)
+	pm := &PrometheusManager{listeners: map[int]net.Listener{port: listener}}
 
 	pm.Register(port, "/metrics", testGauge("first_metric"))
 	pm.StartHTTP(ctx)
@@ -89,10 +89,12 @@ func TestStartHTTP_ServesPathRegisteredOnAlreadyServedPort(t *testing.T) {
 func TestStartHTTP_ServesAllPortsRegisteredBeforeStart(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &PrometheusManager{}
-
-	first := freePort(t)
-	second := freePort(t)
+	first, firstListener := reservedListener(t)
+	second, secondListener := reservedListener(t)
+	pm := &PrometheusManager{listeners: map[int]net.Listener{
+		first:  firstListener,
+		second: secondListener,
+	}}
 
 	pm.Register(first, "/metrics", testGauge("first_metric"))
 	pm.Register(second, "/metrics", testGauge("second_metric"))
@@ -107,9 +109,8 @@ func TestStartHTTP_ServesAllPortsRegisteredBeforeStart(t *testing.T) {
 func TestStartHTTP_IsIdempotentPerPortAndPath(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &PrometheusManager{}
-
-	port := freePort(t)
+	port, listener := reservedListener(t)
+	pm := &PrometheusManager{listeners: map[int]net.Listener{port: listener}}
 	pm.Register(port, "/metrics", testGauge("only_metric"))
 
 	pm.StartHTTP(ctx)
