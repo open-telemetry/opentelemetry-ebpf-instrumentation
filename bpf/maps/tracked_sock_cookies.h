@@ -18,7 +18,9 @@
 #include <common/pin_internal.h>
 
 // Cookies of sockets inserted into sock_dir; the FIONREAD fixup uses them
-// to identify affected sockets. LRU so stale entries age out
+// to identify affected sockets. Entries are deleted when the socket reaches
+// TCP_CLOSE; LRU only as a safety net for iterator-backfilled sockets, which
+// cannot arm the state callback and leave their entry behind on close
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 65535);

@@ -517,8 +517,20 @@ static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skop
 
     if (bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY) == 0) {
         bpf_map_update_elem(&tracked_sock_cookies, &cookie, &(u8){1}, BPF_ANY);
+        bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_STATE_CB_FLAG);
     }
     bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
+}
+
+// every full-socket death path goes through tcp_set_state(TCP_CLOSE), which is
+// also when the kernel unhashes the socket from sock_dir
+static __always_inline void bpf_sock_ops_state_cb(struct bpf_sock_ops *skops) {
+    if (skops->args[1] != BPF_TCP_CLOSE) {
+        return;
+    }
+
+    const u64 cookie = bpf_get_socket_cookie(skops);
+    bpf_map_delete_elem(&tracked_sock_cookies, &cookie);
 }
 
 static __always_inline void bpf_sock_ops_passive_est_cb(struct bpf_sock_ops *skops) {
@@ -653,6 +665,9 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
         break;
     case BPF_SOCK_OPS_PARSE_HDR_OPT_CB:
         bpf_sock_ops_parse_hdr_cb(skops);
+        break;
+    case BPF_SOCK_OPS_STATE_CB:
+        bpf_sock_ops_state_cb(skops);
         break;
     default:
         break;
