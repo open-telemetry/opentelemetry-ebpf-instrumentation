@@ -84,7 +84,7 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 				"service_name": "orders", "dotnet_gc_heap_generation": name,
 			})
 			require.NotNil(t, point)
-			require.Equal(t, float64(expected[generation]), point.GetCounter().GetValue())
+			require.InDelta(t, float64(expected[generation]), point.GetCounter().GetValue(), 0)
 		}
 	}
 	counts := [3]uint64{}

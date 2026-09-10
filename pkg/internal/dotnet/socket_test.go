@@ -62,7 +62,7 @@ func TestResolveDiagnosticSocket(t *testing.T) {
 			require.NoError(t, <-done)
 		})
 	}
-	_, _, err := resolveDiagnosticSocket(t.Context(), t.TempDir(), 42, 1)
+	_, _, err := resolveDiagnosticSocket(t.Context(), t.TempDir(), 99, 1)
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -68,26 +69,28 @@ func TestDotnetRuntimeMetrics(t *testing.T) {
 
 	initialPID := before.PID
 	sessionPattern := regexp.MustCompile(`started EventPipe GC collection[^\n]* session=([0-9]+)`)
-	currentSession := func() (uint64, error) {
+	currentSession := func() (uint64, int, error) {
 		logs, err := compose.LogsOutput("obi")
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		matches := sessionPattern.FindAllStringSubmatch(logs, -1)
 		if len(matches) == 0 {
-			return 0, fmt.Errorf("no EventPipe session found in OBI logs")
+			return 0, 0, errors.New("no EventPipe session found in OBI logs")
 		}
-		return strconv.ParseUint(matches[len(matches)-1][1], 10, 64)
+		session, err := strconv.ParseUint(matches[len(matches)-1][1], 10, 64)
+		return session, len(matches), err
 	}
 	for round := range 2 {
 		if round == 1 {
-			previousSession, err := currentSession()
+			previousSession, previousStarts, err := currentSession()
 			require.NoError(t, err)
 			stopDotnetDiagnosticSession(t, socketDir, previousSession)
+			// The runtime can reuse session IDs; each successful start adds a log entry.
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				session, err := currentSession()
+				_, starts, err := currentSession()
 				require.NoError(ct, err)
-				require.NotEqual(ct, previousSession, session, "OBI must open a replacement EventPipe session")
+				require.Greater(ct, starts, previousStarts, "OBI must open a replacement EventPipe session")
 			}, testTimeout, time.Second)
 
 			// Allow baseline samples and both export intervals to pass, checking

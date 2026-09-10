@@ -41,7 +41,7 @@ func resolveDiagnosticSocket(ctx context.Context, tempDir string, namespacePID, 
 		}
 		if !strings.HasPrefix(info.CLRVersion, "8.") {
 			unsupported++
-			failures = append(failures, fmt.Errorf("diagnostic socket %q reports %v %q", path, errUnsupportedRuntime, info.CLRVersion))
+			failures = append(failures, fmt.Errorf("diagnostic socket %q reports %s %q", path, errUnsupportedRuntime.Error(), info.CLRVersion))
 			continue
 		}
 		if selected != "" {
