@@ -734,6 +734,9 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
     }
 
     msg_ptr[0] = 0;
+    // clamp again at the use: verifiers before 5.10 drop the bound when the value
+    // is spilled to the stack between the clamp above and this read
+    bpf_clamp_umax(window, k_msg_buffer_size_max);
     bpf_probe_read_kernel(msg_ptr, window, msg->data);
     bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
 
