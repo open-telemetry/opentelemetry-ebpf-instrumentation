@@ -150,7 +150,7 @@ func TestProcessContextDecorator_HandleCreated_ResourceAttributes(t *testing.T) 
 	assert.Equal(t, "my-ns", attrs.UID.Namespace)
 }
 
-func TestProcessContextDecorator_HandleCreated_ExtraAttributes(t *testing.T) {
+func TestProcessContextDecorator_HandleCreated_ExtraAttributesSkipped(t *testing.T) {
 	ctx := &processcontextpb.ProcessContext{
 		Attributes: []*commonpb.KeyValue{
 			{
@@ -170,8 +170,7 @@ func TestProcessContextDecorator_HandleCreated_ExtraAttributes(t *testing.T) {
 	pcd.handleCreated(&ev)
 
 	attrs := ev.Obj.FileInfo.ServiceAttrs()
-	require.NotNil(t, attrs.Metadata)
-	assert.Equal(t, "custom-value", attrs.Metadata[attr.Name("custom.key")])
+	assert.NotContains(t, attrs.Metadata, attr.Name("custom.key"))
 }
 
 func TestProcessContextDecorator_HandleCreated_NonStringAttributesSkipped(t *testing.T) {
