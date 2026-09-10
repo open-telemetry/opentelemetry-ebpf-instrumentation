@@ -133,7 +133,7 @@ func TestMessagingSpanKind(t *testing.T) {
 	}
 }
 
-func TestSQSServiceGraphKind(t *testing.T) {
+func TestSQSServiceGraphKindWithoutMessageContext(t *testing.T) {
 	sqsSpan := func(operationType string) *Span {
 		return &Span{
 			Type:    EventTypeHTTPClient,
@@ -142,9 +142,9 @@ func TestSQSServiceGraphKind(t *testing.T) {
 		}
 	}
 
-	// The service graph kind must match the span kind traces report, or the
-	// same SQS exchange is a producer in the trace and a client in the metric.
-	assert.Equal(t, "SPAN_KIND_PRODUCER", sqsSpan(MessagingSend).ServiceGraphKind())
+	// OBI does not inject the span context into SQS messages, so the observed
+	// exchanges remain client spans regardless of their messaging operation.
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingSend).ServiceGraphKind())
 	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingReceive).ServiceGraphKind())
 	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingSettle).ServiceGraphKind())
 	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan("").ServiceGraphKind())
@@ -211,6 +211,10 @@ func TestTraceName(t *testing.T) {
 		{name: "HTTP server", span: &Span{Type: EventTypeHTTP, Method: "GET", Route: "/users"}, expected: "GET /users"},
 		{name: "HTTP client", span: &Span{Type: EventTypeHTTPClient, Method: "POST", Route: "/api"}, expected: "POST /api"},
 		{name: "HTTP no route", span: &Span{Type: EventTypeHTTP, Method: "GET"}, expected: "GET"},
+		{name: "HTTP unknown method", span: &Span{Type: EventTypeHTTP, Method: "PURGE", Route: "/users"}, expected: "HTTP /users"},
+		{name: "HTTP unknown method no route", span: &Span{Type: EventTypeHTTP, Method: "PROPFIND"}, expected: "HTTP"},
+		{name: "HTTP lowercase method clamps", span: &Span{Type: EventTypeHTTP, Method: "get", Route: "/users"}, expected: "HTTP /users"},
+		{name: "HTTP empty method", span: &Span{Type: EventTypeHTTP, Route: "/users"}, expected: "HTTP /users"},
 
 		// gRPC spans
 		{name: "gRPC server", span: &Span{Type: EventTypeGRPC, Path: "/service/Method"}, expected: "/service/Method"},

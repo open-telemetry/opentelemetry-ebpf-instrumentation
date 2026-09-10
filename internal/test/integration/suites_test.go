@@ -200,6 +200,7 @@ func TestSuite_NoDebugInfo(t *testing.T) {
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("HTTP traces (url.query redaction)", testHTTPTracesURLQuery)
+	t.Run("HTTP traces (unknown method clamped to _OTHER)", testHTTPTracesUnknownMethod)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
@@ -416,7 +417,7 @@ func TestSuite_NodeJS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "testserver") })
-	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver", true) })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver", true, "nodejs") })
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
 	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	t.Run("HTTP manual spans (background span isolation)", testHTTPTracesNodeManualBackgroundSpan)
@@ -431,7 +432,7 @@ func TestSuite_Deno(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
 	require.NoError(t, compose.Up())
 	t.Run("Deno RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "denoserver") })
-	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver", false) })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver", false, "deno-rust") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -803,6 +804,18 @@ func TestSuite_PythonRedis(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Redis metrics", testREDMetricsPythonRedisOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonRedisPipeline(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-redis-pipeline.yml", path.Join(pathOutput, "test-suite-python-redis-pipeline.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Redis pipeline traces", testTracesRedisPipeline)
+	t.Run("Redis pipeline traces without a parent", testTracesRedisPipelineNoParent)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

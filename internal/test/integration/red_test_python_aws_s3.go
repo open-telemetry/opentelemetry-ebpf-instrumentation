@@ -42,7 +42,7 @@ func testPythonAWSS3(t *testing.T) {
 func assertS3Operation(t require.TestingT, op, expectedKey string) {
 	opName := "s3." + op
 
-	span := fetchAWSSpanByOP(t, opName, "client")
+	span := fetchAWSSpanByOP(t, opName)
 	require.Equal(t, opName, span.OperationName)
 
 	tag, found := jaeger.FindIn(span.Tags, "rpc.method")

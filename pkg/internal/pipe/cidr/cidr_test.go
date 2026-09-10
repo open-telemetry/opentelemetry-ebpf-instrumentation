@@ -308,3 +308,67 @@ func flow(srcIP, dstIP string) *testRecord {
 	copy(r.DstAddr[:], net.ParseIP(dstIP).To16())
 	return r
 }
+
+func TestMarshalYAML(t *testing.T) {
+	tests := []struct {
+		name     string
+		defs     Definitions
+		expected string
+	}{
+		{
+			name: "Plain CIDRs marshal as scalars",
+			defs: defs("10.0.0.0/8", "192.168.0.0/16", "2001::/16"),
+			expected: `- 10.0.0.0/8
+- 192.168.0.0/16
+- 2001::/16
+`,
+		},
+		{
+			name: "Named CIDRs marshal as mappings",
+			defs: Definitions{
+				{CIDR: "10.0.0.0/8", Name: "cluster-internal"},
+				{CIDR: "192.168.0.0/16", Name: "private"},
+			},
+			expected: `- cidr: 10.0.0.0/8
+  name: cluster-internal
+- cidr: 192.168.0.0/16
+  name: private
+`,
+		},
+		{
+			name: "Mixed formats keep their own shape",
+			defs: Definitions{
+				{CIDR: "10.0.0.0/8"},
+				{CIDR: "192.168.0.0/16", Name: "private"},
+				{CIDR: "172.16.0.0/12"},
+			},
+			expected: `- 10.0.0.0/8
+- cidr: 192.168.0.0/16
+  name: private
+- 172.16.0.0/12
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := yaml.Marshal(tt.defs)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, string(out))
+
+			var roundTripped Definitions
+			require.NoError(t, yaml.Unmarshal(out, &roundTripped))
+			assert.Equal(t, tt.defs, roundTripped)
+		})
+	}
+}
+
+// yaml.v3 renders both a nil and an empty slice as an empty sequence, so an
+// unset "cidrs" key and an explicit "cidrs: []" print the same. MarshalYAML is
+// per-definition and must not change that.
+func TestMarshalYAML_NilAndEmpty(t *testing.T) {
+	for _, d := range []Definitions{nil, {}} {
+		out, err := yaml.Marshal(d)
+		require.NoError(t, err)
+		assert.Equal(t, "[]\n", string(out))
+	}
+}

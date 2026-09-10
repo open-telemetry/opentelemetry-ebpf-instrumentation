@@ -874,6 +874,42 @@ func (*recordingSampler) Description() string {
 	return "recording sampler"
 }
 
+func TestMCPGenAIOperationNameOnlyForToolCalls(t *testing.T) {
+	tests := []struct {
+		method string
+		want   string
+	}{
+		{method: "tools/call", want: "execute_tool"},
+		{method: "tools/list"},
+		{method: "initialize"},
+		{method: "resources/read"},
+		{method: "prompts/get"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			exported := generateSingleTraceSpan(t, &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeMCP,
+				Method:  "POST",
+				Status:  200,
+				GenAI:   &request.GenAI{MCP: &request.MCPCall{Method: tt.method}},
+			}, map[attr.Name]struct{}{})
+
+			if tt.want == "" {
+				// Semantic conventions require the attribute to be absent
+				// rather than empty for anything but a tool call.
+				assertSpanAttributeAbsent(t, exported, string(attr.GenAIOperationName))
+				return
+			}
+
+			value, ok := exported.Attributes().Get(string(attr.GenAIOperationName))
+			require.True(t, ok)
+			assert.Equal(t, tt.want, value.Str())
+		})
+	}
+}
+
 func generateSingleTraceSpan(
 	t *testing.T,
 	span *request.Span,
@@ -1240,7 +1276,7 @@ func TestNoMessagingSpanIsReportedAsServerKind(t *testing.T) {
 	}
 }
 
-func TestSQSSpanKind(t *testing.T) {
+func TestSQSSpanKindWithoutMessageContext(t *testing.T) {
 	sqsSpan := func(operationType string) *request.Span {
 		return &request.Span{
 			Type:    request.EventTypeHTTPClient,
@@ -1249,7 +1285,9 @@ func TestSQSSpanKind(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, trace2.SpanKindProducer, spanKind(sqsSpan(request.MessagingSend)))
+	// OBI does not inject the span context into SQS messages, so the observed
+	// exchanges remain client spans regardless of their messaging operation.
+	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingSend)))
 	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingReceive)))
 	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan(request.MessagingSettle)))
 	assert.Equal(t, trace2.SpanKindClient, spanKind(sqsSpan("")))
@@ -1595,6 +1633,102 @@ func countAttr(attrs []attribute.KeyValue, key string) int {
 		}
 	}
 	return n
+}
+
+func TestTraceAttributesSelector_HTTPRequestMethod(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	for _, method := range []string{"GET", "POST", "QUERY", "CONNECT", "TRACE"} {
+		t.Run("enum member "+method+" passes through", func(t *testing.T) {
+			span := &request.Span{Type: request.EventTypeHTTP, Method: method, Path: "/x", Status: 200}
+			attrs := TraceAttributesSelector(span, noOpts)
+
+			v, ok := attrValue(attrs, "http.request.method")
+			require.True(t, ok)
+			assert.Equal(t, method, v.AsString())
+			_, hasOriginal := attrValue(attrs, "http.request.method_original")
+			assert.False(t, hasOriginal)
+		})
+	}
+
+	for _, method := range []string{"get", "PROPFIND", "\x16\x03\x01", "GET /x HTTP/1.1"} {
+		t.Run("outside the enum is clamped", func(t *testing.T) {
+			span := &request.Span{Type: request.EventTypeHTTP, Method: method, Path: "/x", Status: 200}
+			attrs := TraceAttributesSelector(span, noOpts)
+
+			v, ok := attrValue(attrs, "http.request.method")
+			require.True(t, ok)
+			assert.Equal(t, "_OTHER", v.AsString())
+
+			orig, ok := attrValue(attrs, "http.request.method_original")
+			require.True(t, ok)
+			assert.Equal(t, method, orig.AsString())
+		})
+	}
+
+	t.Run("applies to client spans too", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTPClient, Method: "frobnicate", Path: "/x", Status: 200}
+		attrs := TraceAttributesSelector(span, noOpts)
+
+		v, _ := attrValue(attrs, "http.request.method")
+		assert.Equal(t, "_OTHER", v.AsString())
+		orig, ok := attrValue(attrs, "http.request.method_original")
+		require.True(t, ok)
+		assert.Equal(t, "frobnicate", orig.AsString())
+	})
+}
+
+func TestTraceAttributesSelector_DBQuerySummary(t *testing.T) {
+	span := &request.Span{
+		Type:           request.EventTypeSQLClient,
+		Method:         "SELECT",
+		Path:           "orders",
+		DBQuerySummary: "SELECT orders",
+	}
+	v, ok := attrValue(TraceAttributesSelector(span, defaultTraceAttrs(t)), "db.query.summary")
+	require.True(t, ok)
+	assert.Equal(t, "SELECT orders", v.AsString())
+}
+
+func TestTraceAttributesSelector_UserAgentOriginal(t *testing.T) {
+	noOpts := defaultTraceAttrs(t)
+
+	// The attribute is recommended by semconv, so it comes off the parsed
+	// request rather than requiring User-Agent in the header allowlist.
+	t.Run("reported without header capture", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200,
+			UserAgent: "curl/8.4.0",
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+
+		v, ok := attrValue(attrs, "user_agent.original")
+		require.True(t, ok)
+		assert.Equal(t, "curl/8.4.0", v.AsString())
+		assert.Equal(t, 1, countAttr(attrs, "user_agent.original"))
+
+		_, ok = attrValue(attrs, "http.request.header.user-agent")
+		assert.False(t, ok)
+	})
+
+	t.Run("not duplicated when the header is also captured", func(t *testing.T) {
+		span := &request.Span{
+			Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200,
+			UserAgent:      "curl/8.4.0",
+			RequestHeaders: map[string][]string{"User-Agent": {"curl/8.4.0"}},
+		}
+		attrs := TraceAttributesSelector(span, noOpts)
+
+		assert.Equal(t, 1, countAttr(attrs, "user_agent.original"))
+		_, ok := attrValue(attrs, "http.request.header.user-agent")
+		assert.True(t, ok, "the generic header attribute is still emitted")
+	})
+
+	t.Run("omitted when absent", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/x", Status: 200}
+		_, ok := attrValue(TraceAttributesSelector(span, noOpts), "user_agent.original")
+		assert.False(t, ok)
+	})
 }
 
 func TestTraceAttributesSelector_ErrorType(t *testing.T) {

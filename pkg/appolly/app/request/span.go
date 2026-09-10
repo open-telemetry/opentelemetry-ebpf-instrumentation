@@ -970,13 +970,35 @@ type MCPCall struct {
 	ErrorMessage      string `json:"errorMessage,omitempty"`
 }
 
-// OperationName returns the GenAI operation name for the MCP method.
-// tools/call maps to execute_tool; other methods return the method name as-is.
-func (m *MCPCall) OperationName() string {
-	if m.Method == "tools/call" {
-		return "execute_tool"
+// MCPMethodToolsCall is the MCP method name for a tool call, the one method
+// that carries a GenAI operation name.
+const MCPMethodToolsCall = "tools/call"
+
+// GenAIOperationName returns the GenAI operation name for the MCP method.
+// Semantic conventions set it to execute_tool for a tool call and leave it
+// unset for every other method, so that consumers can treat MCP tool calls
+// like any other tool call.
+func (m *MCPCall) GenAIOperationName() string {
+	if m.Method == MCPMethodToolsCall {
+		return ExecuteToolOperationName
+	}
+	return ""
+}
+
+// SpanName is the MCP method name, followed by a target when a
+// low-cardinality one is available.
+func (m *MCPCall) SpanName() string {
+	if target := m.lowCardinalityTarget(); target != "" {
+		return m.Method + " " + target
 	}
 	return m.Method
+}
+
+func (m *MCPCall) lowCardinalityTarget() string {
+	if m.ToolName != "" {
+		return m.ToolName
+	}
+	return m.PromptName
 }
 
 type JSONRPC struct {
@@ -998,6 +1020,7 @@ const (
 	EmbeddingOperationName    = "embeddings"
 	ResponseOperationName     = "response"
 	ConversationOperationName = "conversation"
+	ExecuteToolOperationName  = "execute_tool"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as
@@ -1369,6 +1392,25 @@ type SpanLink struct {
 	TraceFlags uint8         `json:"traceFlags,string"`
 }
 
+// ResponseObservation mirrors the kernel's enum http_response_observation: how much of
+// the response instrumentation saw.
+type ResponseObservation uint8
+
+const (
+	// ResponseParsed is the ordinary case: a response was read and Status carries it.
+	// It is the zero value, so spans built outside the eBPF path need not set it.
+	ResponseParsed ResponseObservation = iota
+	// ResponseReceived means the peer answered and no probe parsed the response. The
+	// end timestamp is when watching stopped, so the duration overstates the request.
+	ResponseReceived
+	// ResponseSilent means nothing came back and the local process closed the socket.
+	// The close ended the request, so the duration is a measurement.
+	ResponseSilent
+	// ResponseUnread means the response arrived and no probe could parse it. The end
+	// timestamp came from the response's own bytes, so the duration is a measurement.
+	ResponseUnread
+)
+
 // Span contains the information being submitted by the following nodes in the graph.
 // It enables comfortable handling of data from Go.
 // REMINDER: any attribute here must be also added to the functions SpanOTELGetters
@@ -1379,6 +1421,7 @@ type Span struct {
 	SpanKind       trace.SpanKind `json:"-"`
 	Flags          uint8          `json:"-"`
 	ProtoVersion   ProtoVersion   `json:"-"`
+	UserAgent      string         `json:"-"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	FullPath       string         `json:"-"`
@@ -1423,6 +1466,10 @@ type Span struct {
 	AWS               *AWS           `json:"-"`
 	GenAI             *GenAI         `json:"-"`
 	JSONRPC           *JSONRPC       `json:"-"`
+
+	// Anything but ResponseParsed means Status holds no observation. Whether the
+	// duration is a measurement is recorded separately, by ignoreDurations.
+	ResponseObservation ResponseObservation `json:"-"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
@@ -1855,6 +1902,13 @@ func SpanStatusMessage(span *Span) string {
 
 // HTTPSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/http/#status
 func HTTPSpanStatusCode(span *Span) string {
+	// No response was read, so there is nothing to judge. Not even a reset: sock_error()
+	// clears sk_err on the application's read, which precedes the close, so a peer that
+	// failed and a client that gave up are indistinguishable by then.
+	if span.ResponseObservation != ResponseParsed {
+		return StatusCodeUnset
+	}
+
 	if span.Status == 0 {
 		return StatusCodeError
 	}
@@ -1940,11 +1994,6 @@ func (s *Span) ServiceGraphKind() string {
 	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
-		if s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
-			if kind, ok := MessagingSpanKind(s.AWS.SQS.OperationType); ok {
-				return spanKindString(kind)
-			}
-		}
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeKafkaServer,
 		EventTypeMQTTClient, EventTypeMQTTServer,
@@ -2099,11 +2148,7 @@ func (s *Span) TraceName() string {
 		}
 
 		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
-			op := s.GenAI.MCP.OperationName()
-			if s.GenAI.MCP.ToolName != "" {
-				return op + " " + s.GenAI.MCP.ToolName
-			}
-			return op
+			return s.GenAI.MCP.SpanName()
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeEmbedding && s.GenAI != nil && s.GenAI.Embedding != nil {
@@ -2160,7 +2205,12 @@ func (s *Span) TraceName() string {
 			return "jsonrpc"
 		}
 
+		// Semconv prescribes "HTTP {route}" when the method is outside the
+		// enum, so span.name stays bounded like http.request.method.
 		name := s.Method
+		if !IsKnownHTTPMethod(name) {
+			name = "HTTP"
+		}
 		if s.Route != "" {
 			name += " " + s.Route
 		}

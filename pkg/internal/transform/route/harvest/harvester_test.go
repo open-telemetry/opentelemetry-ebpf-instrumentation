@@ -80,6 +80,10 @@ func errorNodeExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 	return errorExtractRoutes(context.Background(), pid)
 }
 
+func successfulPythonExtractRoutes(fi *exec.FileInfo) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(context.Background(), fi.Pid())
+}
+
 func createTestFileInfo(language svc.InstrumentableType) *exec.FileInfo {
 	return exec.New(exec.Init{
 		Pid: 12345,
@@ -292,6 +296,34 @@ func TestHarvestDenoRoutes_DisabledWithNodejs(t *testing.T) {
 	}
 
 	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentableDeno))
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestHarvestPythonRoutes(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, time.Second)
+	harvester.pythonExtractRoutes = successfulPythonExtractRoutes
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePython))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"/api/users", "/api/orders"}, result.Routes)
+}
+
+func TestHarvestPythonRoutesDisabled(t *testing.T) {
+	harvester := NewRouteHarvester(
+		&services.RouteHarvestingConfig{},
+		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguagePython},
+		time.Second,
+	)
+	harvester.pythonExtractRoutes = func(*exec.FileInfo) (*RouteHarvesterResult, error) {
+		t.Fatal("disabled Python harvester was called")
+		return nil, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePython))
 
 	require.NoError(t, err)
 	assert.Nil(t, result)

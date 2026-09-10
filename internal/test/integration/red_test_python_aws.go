@@ -36,7 +36,7 @@ func waitAWSProxy(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, awsProxyAddress+"/health", 200)
-		resp, err := http.Get(jaegerQueryURL + "?service=python3.14&operation=GET%20%2Fhealth")
+		resp, err := http.Get(jaegerQueryURL + "?service=main&operation=GET%20%2Fhealth")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
@@ -47,11 +47,11 @@ func waitAWSProxy(t *testing.T) {
 	}, testTimeout, 1*time.Second)
 }
 
-func fetchAWSSpanByOP(t require.TestingT, op, spanKind string) jaeger.Span {
+func fetchAWSSpanByOP(t require.TestingT, op string) jaeger.Span {
 	var tq jaeger.TracesQuery
 
 	params := neturl.Values{}
-	params.Add("service", "python3.14")
+	params.Add("service", "main")
 	params.Add("operation", op)
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
@@ -63,7 +63,7 @@ func fetchAWSSpanByOP(t require.TestingT, op, spanKind string) jaeger.Span {
 	require.GreaterOrEqual(t, len(tq.Data), 1, op)
 
 	for _, tr := range tq.Data {
-		spans := tr.FindByOperationName(op, spanKind)
+		spans := tr.FindByOperationName(op, "client")
 		if len(spans) > 0 {
 			return spans[0]
 		}

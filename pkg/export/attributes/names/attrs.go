@@ -66,6 +66,9 @@ const (
 	GraphQLOperationName   = Name(semconv.GraphQLOperationNameKey)
 	GraphQLOperationType   = Name(semconv.GraphQLOperationTypeKey)
 	DNSAnswers             = Name(semconv.DNSAnswersKey)
+	DBQuerySummary         = Name(semconv.DBQuerySummaryKey)
+	UserAgentOriginal      = Name(semconv.UserAgentOriginalKey)
+	HTTPRequestMethodOrig  = Name(semconv.HTTPRequestMethodOriginalKey)
 	NetworkPeerAddress     = Name(semconv.NetworkPeerAddressKey)
 	NetworkPeerPort        = Name(semconv.NetworkPeerPortKey)
 	NetworkProtocolVersion = Name(semconv.NetworkProtocolVersionKey)
@@ -137,6 +140,10 @@ func init() {
 }
 
 var OBIIP = Name("obi.ip")
+
+// OBIHTTPResponseObserved is false on a span whose response was never seen, and absent
+// otherwise.
+var OBIHTTPResponseObserved = Name("obi.http.response.observed")
 
 const (
 	Transport       = Name("transport")
@@ -214,6 +221,8 @@ const (
 	JVMMemoryType       = Name("jvm.memory.type")
 	JVMMemoryPoolName   = Name("jvm.memory.pool.name")
 	JVMThreadDaemon     = Name("jvm.thread.daemon")
+	JVMGCName           = Name("jvm.gc.name")
+	JVMGCAction         = Name("jvm.gc.action")
 	CPythonGCGeneration = Name("cpython.gc.generation")
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")

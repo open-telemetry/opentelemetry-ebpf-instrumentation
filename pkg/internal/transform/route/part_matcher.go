@@ -29,8 +29,11 @@ func NewPartialRouteMatcher(routes []string) *PartialRouteMatcher {
 			continue
 		}
 		n := &node{Child: map[string]*node{}}
-		m.roots = append(m.roots, n)
-		appendRoute(route, tokenize(route), n)
+		parts := tokenize(route)
+		if validRoute(parts) {
+			m.roots = append(m.roots, n)
+			appendRoute(route, parts, n)
+		}
 	}
 	return &m
 }
