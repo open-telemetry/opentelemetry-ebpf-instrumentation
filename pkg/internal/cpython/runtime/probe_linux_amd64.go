@@ -114,7 +114,11 @@ func findPrivateCollectorProbe(file *elf.File, version pythonVersion) (GCComplet
 		if err != nil {
 			return GCCompletionProbe{}, err
 		}
-		return GCCompletionProbe{Kind: GCCompletionProbePrivateReturn, FileOffset: fileOffset}, nil
+		return GCCompletionProbe{
+			Kind:       GCCompletionProbePrivateReturn,
+			Source:     GCCompletionProbeSourceSymbol,
+			FileOffset: fileOffset,
+		}, nil
 	}
 
 	// A stripped libpython retains the exported anchor used to start the disassembly walk:
@@ -164,7 +168,11 @@ func derivePrivateCollectorProbe(
 	if err != nil {
 		return GCCompletionProbe{}, err
 	}
-	return GCCompletionProbe{Kind: GCCompletionProbePrivateReturn, FileOffset: fileOffset}, nil
+	return GCCompletionProbe{
+		Kind:       GCCompletionProbePrivateReturn,
+		Source:     GCCompletionProbeSourceDerived,
+		FileOffset: fileOffset,
+	}, nil
 }
 
 type tlsLookupStage uint8
