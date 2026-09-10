@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -33,8 +32,7 @@ type PrometheusManager struct {
 	mt sync.Mutex
 	// mux of each port that already has a listener, so a path registered later can be
 	// added to the running mux instead of needing a second listener
-	muxes     map[int]*http.ServeMux
-	listeners map[int]net.Listener
+	muxes map[int]*http.ServeMux
 	// (port, path) pairs already wired into a mux. http.ServeMux panics on a duplicate
 	// pattern, so a repeated StartHTTP must skip them.
 	handled maps.Map2[int, string, struct{}]
@@ -82,9 +80,6 @@ func (pm *PrometheusManager) StartHTTP(ctx context.Context) {
 	if pm.muxes == nil {
 		pm.muxes = map[int]*http.ServeMux{}
 	}
-	if pm.listeners == nil {
-		pm.listeners = map[int]net.Listener{}
-	}
 	if pm.handled == nil {
 		pm.handled = maps.Map2[int, string, struct{}]{}
 	}
@@ -94,14 +89,6 @@ func (pm *PrometheusManager) StartHTTP(ctx context.Context) {
 		mux, listening := pm.muxes[port]
 		if !listening {
 			mux = http.NewServeMux()
-			if _, ok := pm.listeners[port]; !ok {
-				listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-				if err != nil {
-					terminateProcess(log.With("port", port), err)
-					continue
-				}
-				pm.listeners[port] = listener
-			}
 		}
 		for path, registry := range paths {
 			if _, ok := pm.handled.Get(port, path); ok {
@@ -120,7 +107,7 @@ func (pm *PrometheusManager) StartHTTP(ctx context.Context) {
 		}
 		if !listening {
 			pm.muxes[port] = mux
-			serve(ctx, port, mux, pm.listeners[port])
+			listenAndServe(ctx, port, mux)
 		}
 	}
 }
@@ -148,16 +135,20 @@ func wrapDebugHandler(log *slog.Logger, promHandler http.Handler) http.HandlerFu
 	}
 }
 
-func serve(ctx context.Context, port int, handler http.Handler, listener net.Listener) {
+func listenAndServe(ctx context.Context, port int, handler http.Handler) {
 	// TODO: support TLS configuration
-	server := http.Server{Handler: handler}
+	server := http.Server{Addr: fmt.Sprintf(":%d", port), Handler: handler}
 	log := log().With("port", port)
 	go func() {
-		err := server.Serve(listener)
+		err := server.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
 			log.Debug("Prometheus endpoint server was closed", "error", err)
 		} else {
-			terminateProcess(log, err)
+			log.Error("Prometheus endpoint service ended unexpectedly", "error", err)
+			err = syscall.Kill(os.Getpid(), syscall.SIGINT) // interrupt for graceful shutdown, instead of os.Exit
+			if err != nil {
+				log.Error("unable to terminate", "error", err)
+			}
 		}
 	}()
 	go func() {
@@ -166,11 +157,4 @@ func serve(ctx context.Context, port int, handler http.Handler, listener net.Lis
 			log.Warn("error closing HTTP server", "err", err.Error())
 		}
 	}()
-}
-
-func terminateProcess(log *slog.Logger, err error) {
-	log.Error("Prometheus endpoint service ended unexpectedly", "error", err)
-	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
-		log.Error("unable to terminate", "error", err)
-	}
 }
