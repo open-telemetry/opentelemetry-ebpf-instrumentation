@@ -456,6 +456,9 @@ func (ta *traceAttacher) loadExecutable(ie *ebpf.Instrumentable) (*link.Executab
 }
 
 func (ta *traceAttacher) reuseTracer(tracer *ebpf.ProcessTracer, ie *ebpf.Instrumentable) bool {
+	ie.FileInfo.SetSDKLanguage(ie.Type)
+	ta.harvestRoutes(ie, true)
+
 	exe, ok := ta.loadExecutable(ie)
 	if !ok {
 		return false

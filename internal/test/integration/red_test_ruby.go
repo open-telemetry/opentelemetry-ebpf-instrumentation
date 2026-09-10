@@ -92,6 +92,7 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
+			`http_route="/users/:id",` +
 			`url_path="` + path + `/1"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
@@ -239,5 +240,42 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 			require.Equal(ct, server.TraceID, client.TraceID)
 			require.NotEmpty(ct, client.SpanID)
 		}, testTimeout, 100*time.Millisecond)
+	}
+}
+
+func testRailsHarvestedRoutes(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, tc := range []struct {
+		path  string
+		route string
+	}{
+		{"/harvest/orders/alpha", "/harvest/orders/:order_id"},
+		{"/harvest/orders/beta", "/harvest/orders/:order_id"},
+		{"/harvest/api/widgets/first", "/harvest/api/widgets/:widget_id"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			for range 4 {
+				ti.DoHTTPGet(t, "http://localhost:3041"+tc.path, http.StatusOK)
+			}
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="my-ruby-app",http_request_method="GET",http_route="` + tc.route + `",url_path="` + tc.path + `"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, results)
+			}, testTimeout, 100*time.Millisecond)
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				resp, err := http.Get(jaegerQueryURL + "?service=my-ruby-app")
+				require.NoError(ct, err)
+				defer resp.Body.Close()
+				require.Equal(ct, http.StatusOK, resp.StatusCode)
+				var query jaeger.TracesQuery
+				require.NoError(ct, json.NewDecoder(resp.Body).Decode(&query))
+				traces := query.FindBySpan(
+					jaeger.Tag{Key: "url.path", Type: "string", Value: tc.path},
+					jaeger.Tag{Key: "http.route", Type: "string", Value: tc.route},
+				)
+				require.NotEmpty(ct, traces)
+				require.NotEmpty(ct, traces[0].FindByOperationName("GET "+tc.route, "server"))
+			}, testTimeout, 100*time.Millisecond)
+		})
 	}
 }
