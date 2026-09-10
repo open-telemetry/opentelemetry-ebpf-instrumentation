@@ -34,7 +34,7 @@ type RouteHarvester struct {
 	nodeExtractRoutes   func(pid app.PID) (*RouteHarvesterResult, error)
 	denoExtractRoutes   func(pid app.PID) (*RouteHarvesterResult, error)
 	pythonExtractRoutes func(fileInfo *exec.FileInfo) (*RouteHarvesterResult, error)
-	dotnetExtract     func(ctx context.Context, fileInfo *exec.FileInfo) (*RouteHarvesterResult, error)
+	dotnetExtract       func(ctx context.Context, fileInfo *exec.FileInfo) (*RouteHarvesterResult, error)
 }
 
 type RouteHarvesterResultKind uint8
