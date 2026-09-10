@@ -808,6 +808,18 @@ func TestSuite_PythonRedis(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonRedisPipeline(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-redis-pipeline.yml", path.Join(pathOutput, "test-suite-python-redis-pipeline.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Redis pipeline traces", testTracesRedisPipeline)
+	t.Run("Redis pipeline traces without a parent", testTracesRedisPipelineNoParent)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonRedisServerSide(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-redis-server.yml", path.Join(pathOutput, "test-suite-python-redis-server.log"))
 	require.NoError(t, err)
