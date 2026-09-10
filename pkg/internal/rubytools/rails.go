@@ -50,10 +50,13 @@ func readRailsApplicationName(path string) string {
 // intentionally a heuristic: unusual Ruby metaprogramming falls back to the project directory.
 func scanRailsApplicationName(scanner *bufio.Scanner) string {
 	var scopes []rubyScope
+	var applicationName string
+	applicationDeclarations := 0
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if match := railsModuleDeclaration.FindStringSubmatch(line); match != nil {
-			if hasRubyModuleScope(scopes) {
+			if applicationDeclarations == 0 && hasRubyModuleScope(scopes) {
 				return ""
 			}
 			scopes = append(scopes, rubyScope{moduleName: match[1]})
@@ -62,13 +65,19 @@ func scanRailsApplicationName(scanner *bufio.Scanner) string {
 
 		match := railsApplicationDeclaration.FindStringSubmatch(line)
 		if match != nil {
-			return railsApplicationName(match[1], scopes)
+			applicationDeclarations++
+			if applicationDeclarations == 1 {
+				applicationName = railsApplicationName(match[1], scopes)
+			}
 		}
 
 		scopes = updateRubyScopes(scopes, line)
 	}
 
-	return ""
+	if scanner.Err() != nil || applicationDeclarations != 1 {
+		return ""
+	}
+	return applicationName
 }
 
 func hasRubyModuleScope(scopes []rubyScope) bool {

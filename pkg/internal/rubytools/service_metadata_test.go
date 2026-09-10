@@ -57,6 +57,25 @@ end
 		assert.Equal(t, "orders-service", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("multiple Rails applications fall back to project directory", func(t *testing.T) {
+		root := t.TempDir()
+		writeRailsApplication(t, root, "orders-service", `
+module FirstApp
+  class Application < Rails::Application
+  end
+end
+
+module SecondApp
+  class Application < Rails::Application
+  end
+end
+`)
+		fileInfo := mockRubyProcess(t, root, "/orders-service", "puma", nil, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+		assert.Equal(t, "orders-service", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("symlinked Rails application falls back to project directory", func(t *testing.T) {
 		root := t.TempDir()
 		target := filepath.Join(root, "outside-application.rb")
