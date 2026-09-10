@@ -76,7 +76,15 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
+		// Both backends run against the same Jaeger under the same service and
+		// operation name, so the trace must be selected by the backend under
+		// test. Picking positionally would return whichever trace happens to
+		// land last, which is not the emission order once a collector batches
+		// the spans on their way to Jaeger.
+		traces := tq.FindBySpan(
+			jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op},
+			jaeger.Tag{Key: "db.system.name", Type: "string", Value: dbSystemName},
+		)
 		require.GreaterOrEqual(ct, len(traces), 1, resp.Body)
 		lastTrace := traces[len(traces)-1]
 		require.GreaterOrEqual(ct, len(lastTrace.Spans), 1)
