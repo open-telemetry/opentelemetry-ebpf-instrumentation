@@ -6,7 +6,6 @@ package dotnettools // import "go.opentelemetry.io/obi/pkg/internal/dotnettools"
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -139,16 +138,8 @@ func metadataSourceForProcess(fileInfo *exec.FileInfo) (metadataSource, error) {
 }
 
 func readDepsJSON(path, entryAssembly string) serviceMetadata {
-	file, ok := langtools.OpenMetadataFile(path, maxDepsJSONBytes)
-
-	if file == nil || !ok {
-		return serviceMetadata{}
-	}
-
-	defer file.Close()
-
-	data, err := io.ReadAll(io.LimitReader(file, maxDepsJSONBytes+1))
-	if err != nil || int64(len(data)) > maxDepsJSONBytes {
+	data, _, err := langtools.ReadMetadataFile(path, maxDepsJSONBytes)
+	if err != nil || data == nil {
 		return serviceMetadata{}
 	}
 
