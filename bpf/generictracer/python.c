@@ -12,10 +12,12 @@
 #include <maps/python_context_task.h>
 #include <maps/python_task_state.h>
 #include <maps/python_thread_state.h>
+#include <maps/connection_tracker.h>
 
 #include <common/connection_info.h>
 #include <common/preempt_guard.h>
 #include <common/python_task.h>
+#include <common/protocol_defs.h>
 
 #include <generictracer/maps/pid_tid_to_conn.h>
 
@@ -155,6 +157,7 @@ int GUARDED_PROG(obi_uprobe_context_run, struct pt_regs *, ctx) {
     }
 
     thread_state->current_context = context;
+    thread_state->start_monotime_ns = bpf_ktime_get_ns();
 
     // asyncio.to_thread worker has no current_task; look up which task copied this context.
     // The ctx_vars check rejects stale bindings left by a freed context whose
@@ -216,6 +219,24 @@ int GUARDED_PROG(obi_uprobe_context_dealloc, struct pt_regs *, ctx) {
     const u64 context = (u64)PT_REGS_PARM1(ctx);
     const python_addr_key_t context_key = python_addr_key(id, context);
     bpf_map_delete_elem(&python_context_task, &context_key);
+    return 0;
+}
+
+// context_new_empty is called in two key places:
+//   1. In contextvars.Context() via context_tp_new -> PyContext_New
+//   2. In context_get when the current thread has no context
+// Mark it as ownerless to allow connection-based parent lookup.
+SEC("uretprobe/libpython3.:context_new_empty")
+int GUARDED_PROG(obi_uprobe_new_context, struct pt_regs *, ctx) {
+    const u64 id = bpf_get_current_pid_tgid();
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    const u64 context = (u64)PT_REGS_RC(ctx);
+    if (context) {
+        map_context_to_task(id, context, k_python_state_none);
+    }
     return 0;
 }
 
@@ -281,6 +302,20 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     }
 
     thread_state->inflight_task = child_task;
+    const ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
+    // The callback's context may belong to an earlier request. A fresh accept
+    // lets this task use the new connection without inheriting that context's owner.
+    u8 new_accept = 0;
+    if (!thread_state->current_task && thread_state->start_monotime_ns) {
+        if (info) {
+            const tracked_connection_t *conn =
+                bpf_map_lookup_elem(&connection_tracker, &info->p_conn.conn);
+            new_accept =
+                conn && conn->direction == TCP_RECV && conn->time > thread_state->start_monotime_ns;
+        }
+    }
+    // Each accepted socket can establish one task root within this callback.
+    thread_state->start_monotime_ns = bpf_ktime_get_ns();
     python_task_ref_t parent_ref = {};
     python_task_resolution_t parent_resolution = PYTHON_TASK_NOT_FOUND;
     // Tasks created from plain loop callbacks have no current task; the
@@ -291,7 +326,7 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
         } else {
             parent_resolution = PYTHON_TASK_STALE;
         }
-    } else {
+    } else if (!new_accept) {
         parent_resolution =
             resolve_python_task_from_context(id, thread_state->current_context, &parent_ref);
     }
@@ -314,6 +349,11 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
         }
     }
 
+    if (parent_resolution == PYTHON_TASK_STALE) {
+        bpf_map_delete_elem(&python_task_state, &child_task_key);
+        return 0;
+    }
+
     // Use the parent's connection when it exists. If there is no parent
     // connection yet, fall back to pid_tid_to_conn for the current thread.
     // pid_tid_to_conn is only thread-local and may already point to another
@@ -321,7 +361,6 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     if (parent_state_found && parent_state.conn.port) {
         task_state.conn = parent_state.conn;
     } else if (parent_resolution != PYTHON_TASK_STALE) {
-        const ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         if (info) {
             connection_info_part_t conn_part = {};
             const u32 host_pid = pid_from_pid_tgid(id);

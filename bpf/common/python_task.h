@@ -115,7 +115,7 @@ static __always_inline u8 resolve_python_context_task(u64 pid_tgid,
 }
 
 // Resolve a context owner and tell callers whether another parent lookup is safe.
-// Callers may continue fallback only when there is no active context.
+// Fallback is allowed with no active context or an explicitly ownerless context.
 static __always_inline python_task_resolution_t
 resolve_python_task_from_context(u64 pid_tgid, u64 context, python_task_ref_t *task_ref) {
     if (!context) {
@@ -131,6 +131,10 @@ resolve_python_task_from_context(u64 pid_tgid, u64 context, python_task_ref_t *t
 
     if (context_task->vars != read_python_context_vars(context)) {
         return PYTHON_TASK_STALE;
+    }
+
+    if (!context_task->task.addr && !context_task->task.generation) {
+        return PYTHON_TASK_NOT_FOUND;
     }
 
     if (!resolve_python_context_task(pid_tgid, context_task, task_ref)) {

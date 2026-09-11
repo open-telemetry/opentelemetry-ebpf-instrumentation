@@ -557,6 +557,14 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			}},
 		},
 		"libpython3.": {
+			"context_new_empty": {{
+				Required: false,
+				End:      p.bpfObjects.ObiUprobeNewContext,
+			}},
+			"context_new_empty.lto_priv.0": {{
+				Required: false,
+				End:      p.bpfObjects.ObiUprobeNewContext,
+			}},
 			"context_run": {{
 				Required: false,
 				Start:    p.bpfObjects.ObiUprobeContextRun,
