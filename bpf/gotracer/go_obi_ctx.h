@@ -80,9 +80,11 @@ static __always_inline u32 go_obi_ctx__stack_off(struct pt_regs *ctx) {
 }
 
 // The bounds are clamped in asm so that older verifiers see a single consistent
-// range for every frame index derived from the stored depth
+// range for every frame index derived from the stored depth. The load is volatile
+// so a depth just stored is read back, not forwarded: the forwarded index carries
+// bounds older verifiers cannot reconcile with the clamp
 static __always_inline u32 obi_ctx__depth(const obi_ctx_stack_t *st) {
-    u32 depth = st->depth;
+    u32 depth = *(volatile const u32 *)&st->depth;
     bpf_clamp_umax(depth, k_obi_ctx_max_depth);
     return depth;
 }
