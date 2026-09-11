@@ -218,8 +218,8 @@ func TestBlockedClients(t *testing.T) {
 	ReadChannel(t, allSent, timeout)
 }
 
-// makes sure that a new cache server won't forward the sync data to the clients until
-// it effectively has synced everything
+// makes sure clients can connect before the cache starts and receive both the sync
+// signal and the initial data
 func TestAsynchronousStartup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -287,9 +287,13 @@ func TestAsynchronousStartup(t *testing.T) {
 		require.NotZero(ct, cl2.syncSignalOnMessage.Load())
 		require.NotZero(ct, cl3.syncSignalOnMessage.Load())
 	}, timeout, 100*time.Millisecond)
-	assert.LessOrEqual(t, int32(createdPods), cl1.syncSignalOnMessage.Load())
-	assert.LessOrEqual(t, int32(createdPods), cl2.syncSignalOnMessage.Load())
-	assert.LessOrEqual(t, int32(createdPods), cl3.syncSignalOnMessage.Load())
+
+	// Initial informer notifications can still be draining after the sync signal.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.GreaterOrEqual(ct, cl1.readMessages.Load(), int32(createdPods+1))
+		assert.GreaterOrEqual(ct, cl2.readMessages.Load(), int32(createdPods+1))
+		assert.GreaterOrEqual(ct, cl3.readMessages.Load(), int32(createdPods+1))
+	}, timeout, 100*time.Millisecond)
 }
 
 func TestResultsSortedByTimestamp(t *testing.T) {

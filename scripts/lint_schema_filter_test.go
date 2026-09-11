@@ -114,6 +114,28 @@ func TestLintSchemaFilterAllowsExpectedEnumOverrideDuplicates(t *testing.T) {
 	}
 }
 
+// expectedDNSMetricDuplicate mirrors the DuplicateMetricName diagnostic weaver
+// emits because OBI declares a narrowed dns.lookup.duration while
+// --include-unreferenced keeps the upstream definition in the resolved
+// registry (see schemas/obi/groups/dns/metrics.yaml).
+const expectedDNSMetricDuplicate = `[{
+	"diagnostic": {"severity": "Error"},
+	"error": {"DuplicateMetricName": {
+		"metric_name": "dns.lookup.duration",
+		"provenances": [
+			{"path": "/obi-registry/groups/dns/metrics.yaml"},
+			{"path": ".deps/upstream-v1.41.0/model/dns/metrics.yaml"}
+		]
+	}}
+}]`
+
+func TestLintSchemaFilterAllowsExpectedDNSMetricDuplicate(t *testing.T) {
+	remaining := runLintSchemaFilter(t, expectedDNSMetricDuplicate)
+	if len(remaining) != 0 {
+		t.Fatalf("expected the documented dns.lookup.duration duplicate to be filtered, got %d diagnostics", len(remaining))
+	}
+}
+
 // expectedDeprecatedIncludeUnreferenced mirrors the diagnostic weaver 0.25
 // emits (promoted to Error by --future) for the deprecated
 // --include-unreferenced flag. OBI no longer relies on the flag, but the
@@ -157,6 +179,15 @@ func TestLintSchemaFilterKeepsUnrelatedDiagnostics(t *testing.T) {
 					{"path": ".deps/upstream-v1.41.0/model/dns/metrics.yaml"},
 					{"path": "/obi-registry/groups/dns/metrics.yaml"},
 					{"path": "/obi-registry/groups/extra.yaml"}
+				]
+			}}
+		}]`,
+		"dns duplicate from an unexpected obi file": `[{
+			"error": {"DuplicateMetricName": {
+				"metric_name": "dns.lookup.duration",
+				"provenances": [
+					{"path": ".deps/upstream-v1.41.0/model/dns/metrics.yaml"},
+					{"path": "/obi-registry/groups/elsewhere.yaml"}
 				]
 			}}
 		}]`,

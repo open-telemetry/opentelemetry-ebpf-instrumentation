@@ -21,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/pkg/internal/errtype"
-	"go.opentelemetry.io/obi/pkg/internal/testutil"
 )
 
 // The OTLP exporters wrap every send error, so the shapes below are the ones that actually
@@ -83,10 +82,8 @@ func TestExportErrorType(t *testing.T) {
 // listens on. Guards against the classifier reporting a wrapper type, or giving up and
 // bucketing every transport failure as _OTHER.
 func TestExportErrorTypeFromRealOTLPExporter(t *testing.T) {
-	port := testutil.FreeTCPPort(t)
-
 	exporter, err := otlpmetrichttp.New(t.Context(),
-		otlpmetrichttp.WithEndpoint(fmt.Sprintf("127.0.0.1:%d", port)),
+		otlpmetrichttp.WithEndpoint("127.0.0.1:0"),
 		otlpmetrichttp.WithInsecure(),
 		otlpmetrichttp.WithTimeout(2*time.Second),
 		otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig{Enabled: false}),

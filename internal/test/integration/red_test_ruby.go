@@ -105,24 +105,24 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsRailsHTTP(t *testing.T) {
+func testREDMetricsRailsHTTP(t *testing.T, serviceName string) {
 	for _, testCaseURL := range []string{
 		"http://localhost:3041",
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForRubyTestComponents(t, testCaseURL)
-			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, "my-ruby-app")
+			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, serviceName)
 		})
 	}
 }
 
-func testREDMetricsRailsHTTPS(t *testing.T) {
+func testREDMetricsRailsHTTPS(t *testing.T, serviceName string) {
 	for _, testCaseURL := range []string{
 		"https://localhost:3044",
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForRubyTestComponents(t, testCaseURL)
-			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, "my-ruby-app")
+			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, serviceName)
 		})
 	}
 }

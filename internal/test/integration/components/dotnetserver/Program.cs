@@ -20,6 +20,7 @@ app.MapGet("/greeting", async (HttpClient httpClient) =>
             return Results.Ok(content);
         });
 app.MapGet("/smoke", () => "");
+app.MapGet("/api/customers/{customer_id:int}", (int customer_id) => Results.Ok(customer_id));
 
 app.MapGet("/json_logger", () =>
 {

@@ -658,6 +658,9 @@ func httpHostFromBuf(req []byte) (string, int) {
 
 	idx := bytes.Index(req, []byte("Host: "))
 	if idx < 0 {
+		idx = bytes.Index(req, []byte("host: "))
+	}
+	if idx < 0 {
 		return "", -1
 	}
 

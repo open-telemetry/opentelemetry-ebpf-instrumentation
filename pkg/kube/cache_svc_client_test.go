@@ -143,9 +143,7 @@ type fakeCacheService struct {
 }
 
 func startFakeCacheService(t *testing.T) *fakeCacheService {
-	port := testutil.FreeTCPPort(t)
 	fcs := &fakeCacheService{
-		port:            port,
 		clientMessages:  make(chan *informer.SubscribeMessage, 10),
 		serverResponses: make(chan *informer.Event, 10),
 	}
@@ -165,6 +163,7 @@ func (fcs *fakeCacheService) Start() {
 		fcs.err.Store(&err)
 		return
 	}
+	fcs.port = fcs.listener.Addr().(*net.TCPAddr).Port
 	go func() {
 		if err := fcs.server.Serve(fcs.listener); err != nil {
 			err = fmt.Errorf("grpc.Serve returned: %w", err)
