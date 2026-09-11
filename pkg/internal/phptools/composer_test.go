@@ -20,7 +20,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, metadata)
+		assert.Equal(t, ProjectMetadata{}, metadata)
 	})
 
 	t.Run("composer json only", func(t *testing.T) {
@@ -30,7 +30,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, name: "acme/orders", version: "1.2.3"}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir, Name: "acme/orders", Version: "1.2.3"}, metadata)
 	})
 
 	t.Run("installed metadata only", func(t *testing.T) {
@@ -40,7 +40,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, name: "acme/orders", version: "2.0.0"}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir, Name: "acme/orders", Version: "2.0.0"}, metadata)
 	})
 
 	t.Run("installed metadata takes precedence", func(t *testing.T) {
@@ -51,7 +51,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, name: "installed/name", version: "2.0.0"}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir, Name: "installed/name", Version: "2.0.0"}, metadata)
 	})
 
 	t.Run("composer json fills invalid installed fields", func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, name: "fallback/name", version: "1.0.0"}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir, Name: "fallback/name", Version: "1.0.0"}, metadata)
 	})
 
 	t.Run("empty composer document is still a project boundary", func(t *testing.T) {
@@ -75,7 +75,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir}, metadata)
 	})
 
 	t.Run("Symfony template uses project directory fallback", func(t *testing.T) {
@@ -88,7 +88,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, fallbackName: "my_app"}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir, FallbackName: "my_app"}, metadata)
 	})
 
 	t.Run("unnamed Symfony project uses project directory fallback", func(t *testing.T) {
@@ -100,7 +100,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, fallbackName: "my_app"}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir, FallbackName: "my_app"}, metadata)
 	})
 
 	t.Run("custom Composer name wins for Symfony", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, name: "acme/orders", fallbackName: "my_app"}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir, Name: "acme/orders", FallbackName: "my_app"}, metadata)
 	})
 
 	t.Run("template-like name is unchanged without Symfony confirmation", func(t *testing.T) {
@@ -127,7 +127,7 @@ func TestInspectProject(t *testing.T) {
 		metadata, found := inspectProject(dir)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, name: "symfony/skeleton"}, metadata)
+		assert.Equal(t, ProjectMetadata{Root: dir, Name: "symfony/skeleton"}, metadata)
 	})
 }
 

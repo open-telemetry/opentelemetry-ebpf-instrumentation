@@ -44,27 +44,27 @@ type composerMetadata struct {
 
 // we prefer installed.php names, we read composer.json as fallback. if some data isn't found from installed.php
 // we back fill it from composer.json.
-func inspectProject(dir string) (projectMetadata, bool) {
+func inspectProject(dir string) (ProjectMetadata, bool) {
 	installed, installedOK := readInstalledPHP(filepath.Join(dir, "vendor", "composer", "installed.php"))
 	composer, composerOK := readComposerJSON(filepath.Join(dir, "composer.json"))
 	if !installedOK && !composerOK {
-		return projectMetadata{}, false
+		return ProjectMetadata{}, false
 	}
 
-	project := projectMetadata{root: dir, name: installed.name, version: installed.version}
-	if _, ok := composerName(project.name); !ok {
-		project.name = composer.name
+	project := ProjectMetadata{Root: dir, Name: installed.name, Version: installed.version}
+	if _, ok := composerName(project.Name); !ok {
+		project.Name = composer.name
 	}
-	if _, ok := composerVersion(project.version); !ok {
-		project.version = composer.version
+	if _, ok := composerVersion(project.Version); !ok {
+		project.Version = composer.version
 	}
 	if fallbackName, ok := symfonyProjectName(dir, composer); ok {
-		project.fallbackName = fallbackName
-		if symfonyTemplateName(project.name) {
-			project.name = composer.name
+		project.FallbackName = fallbackName
+		if symfonyTemplateName(project.Name) {
+			project.Name = composer.name
 		}
-		if symfonyTemplateName(project.name) {
-			project.name = ""
+		if symfonyTemplateName(project.Name) {
+			project.Name = ""
 		}
 	}
 	return project, true
