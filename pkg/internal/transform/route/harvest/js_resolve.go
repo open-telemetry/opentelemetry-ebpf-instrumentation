@@ -8,13 +8,6 @@ import (
 	"strings"
 )
 
-// recordStringDeclaration remembers a constant declared by the line
-// (const prefix = '/api'), so that later route calls can refer to it. Only a
-// const whose whole initializer is a single string literal has a value; any
-// other const is remembered as unresolvable, so that a same-named literal in
-// another scope cannot be taken for it. A name declared again, whatever its
-// new initializer, becomes unresolvable for the same reason. Once the per-file
-// cap is reached, new names are dropped.
 func (e *RouteExtractor) recordStringDeclaration(line string) {
 	m := e.patterns.ConstDeclaration.FindStringSubmatchIndex(line)
 	if m == nil {
@@ -33,9 +26,6 @@ func (e *RouteExtractor) recordStringDeclaration(line string) {
 	e.jsConsts[name] = constStringValue(line[m[1]:])
 }
 
-// constStringValue returns the value of a const initializer when the whole of
-// it is a single string literal, optionally followed by a semicolon and a
-// trailing comment, and an empty string otherwise.
 func constStringValue(initializer string) string {
 	if initializer == "" || !isJSQuote(initializer[0]) {
 		return ""
@@ -55,8 +45,6 @@ func constStringValue(initializer string) string {
 	return jsStringLiteral(initializer[:end+1])
 }
 
-// isJSTrailingComment reports whether s is empty or holds nothing but a
-// comment: a line comment, or a block comment closed on the same line.
 func isJSTrailingComment(s string) bool {
 	if s == "" || strings.HasPrefix(s, "//") {
 		return true
@@ -67,9 +55,6 @@ func isJSTrailingComment(s string) bool {
 	return strings.HasSuffix(s, "*/") && len(s) >= len("/**/")
 }
 
-// resolveRouteCall returns the method captured by the call pattern (empty when
-// it captures none) and the path its first argument resolves to. An empty path
-// means the line holds no such call or its path is not statically resolvable.
 func (e *RouteExtractor) resolveRouteCall(line string, call *regexp.Regexp) (method, path string) {
 	m := call.FindStringSubmatchIndex(line)
 	if m == nil {
@@ -80,8 +65,6 @@ func (e *RouteExtractor) resolveRouteCall(line string, call *regexp.Regexp) (met
 		method = line[m[2]:m[3]]
 	}
 
-	// an argument cut by the end of the line is left for the scan to complete
-	// with the next line
 	arg, complete := firstJSArgument(line[m[1]:])
 	if !complete {
 		return method, ""
@@ -90,10 +73,6 @@ func (e *RouteExtractor) resolveRouteCall(line string, call *regexp.Regexp) (met
 	return method, e.resolveJSExpression(arg)
 }
 
-// firstJSArgument returns the first argument of the call whose source follows
-// its opening parenthesis. The argument ends at the first comma or closing
-// parenthesis outside a string literal or a nested object, array or call;
-// complete reports whether that end was found before the source ran out.
 func firstJSArgument(rest string) (arg string, complete bool) {
 	depth := 0
 	for i := 0; i < len(rest); i++ {
@@ -119,10 +98,6 @@ func firstJSArgument(rest string) (arg string, complete bool) {
 	return strings.TrimSpace(rest), false
 }
 
-// resolveJSExpression returns the string value of a path expression: a string
-// literal, a template literal, a known constant, or a concatenation of them.
-// The value is unknown when any operand is not statically resolvable, in
-// which case an empty string is returned.
 func (e *RouteExtractor) resolveJSExpression(expr string) string {
 	var path strings.Builder
 	for _, operand := range splitJSConcat(expr) {
@@ -136,9 +111,6 @@ func (e *RouteExtractor) resolveJSExpression(expr string) string {
 	return path.String()
 }
 
-// splitJSConcat splits an expression into the operands of its top-level '+'
-// operators. A '+' inside a string literal or a nested object, array or call
-// does not separate operands.
 func splitJSConcat(expr string) []string {
 	var (
 		operands []string
@@ -165,10 +137,6 @@ func splitJSConcat(expr string) []string {
 	return append(operands, strings.TrimSpace(expr[start:]))
 }
 
-// resolveJSOperand returns the string value of a single operand: the contents
-// of a string literal, a template literal with its known interpolations
-// substituted, or the value of a known constant. Anything else (a member
-// access, a call, an unknown name) is not statically resolvable.
 func (e *RouteExtractor) resolveJSOperand(operand string) string {
 	if operand == "" {
 		return ""
@@ -204,9 +172,6 @@ func isJSIdentifier(s string) bool {
 	return true
 }
 
-// substituteTemplate replaces every ${name} interpolation of a template
-// literal that names a known constant with its value. Any other interpolation
-// is kept as is, so that the path cleanup turns it into a placeholder.
 func (e *RouteExtractor) substituteTemplate(contents string) string {
 	var out strings.Builder
 	for i := 0; i < len(contents); i++ {
@@ -241,8 +206,6 @@ func (e *RouteExtractor) substituteTemplate(contents string) string {
 	return out.String()
 }
 
-// endOfJSInterpolation returns the offset of the brace closing the
-// interpolation that opens at open, or len(s) when it does not close in s.
 func endOfJSInterpolation(s string, open int) int {
 	depth := 0
 	for i := open; i < len(s); i++ {

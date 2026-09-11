@@ -143,10 +143,7 @@ type FrameworkPatterns struct {
 	URLPatternPathname *regexp.Regexp
 	// key of the 'baseURL' member of a URLPattern init object
 	URLPatternBaseURL *regexp.Regexp
-	// a constant declaration, whose value route calls may refer to:
-	// const prefix = '/api'. Only const is tracked: a let or var may be
-	// reassigned, so its value at the route call is not known
-	ConstDeclaration *regexp.Regexp
+	ConstDeclaration  *regexp.Regexp
 	// Fallback
 	Fallback *regexp.Regexp
 
@@ -171,11 +168,10 @@ type nextRoutesManifest struct {
 
 func newFrameworkPatterns() *FrameworkPatterns {
 	return &FrameworkPatterns{
-		// Matches the opening of app.get(..., ...), router.post(..., ...); the
-		// path argument is then resolved from the source that follows
+		// Matches: app.get(..., ...), router.post(..., ...)
 		Typical: regexp.MustCompile(`\.(get|post|put|patch|delete|head|options|all)\s*\(`),
 
-		// Matches the opening of .route(...)
+		// Matches: .route(...)
 		ExpressRoute: regexp.MustCompile(`\.route\s*\(`),
 
 		// Matches: fastify.route({ method: 'GET', url: '/path' })
@@ -184,7 +180,7 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Matches: server.route({ method: 'GET', path: '/users/{id}' })
 		Hapi: regexp.MustCompile(`\.route\s*\(\s*\{[^}]*method:\s*['"](\w+)['"][^}]*path:\s*['"\x60]([^'"\x60]+)['"\x60]`),
 
-		// Matches the opening of server.get(...), server.del(...)
+		// Matches: server.get(...), server.del(...)
 		Restify: regexp.MustCompile(`\.(get|post|put|patch|del|head|opts)\s*\(`),
 
 		// Matches: @Get('/users/:id'), @Post('/items'), and bare decorators such
@@ -251,8 +247,7 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		URLPatternPathname: jsObjectKeyPattern("pathname"),
 		URLPatternBaseURL:  jsObjectKeyPattern("baseURL"),
 
-		// Matches: const prefix = '/api', export const base = `/x`,
-		// const base: string = '/api'
+		// Matches: const prefix = '/api', const base: string = '/api'
 		ConstDeclaration: regexp.MustCompile(`^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\s*)?=\s*`),
 
 		// Fallback (e.g. NextJS)
@@ -301,13 +296,7 @@ type RouteExtractor struct {
 	// urlPatternCall buffers the arguments of the URLPattern call currently
 	// being scanned, nil when no call is open
 	urlPatternCall *urlPatternCall
-	// jsConsts holds the string constants declared so far in the file being
-	// scanned, so that a route path given as a constant or a concatenation can
-	// be resolved. A declaration must precede its use. A name whose value is
-	// not a string literal, or that is declared more than once (necessarily
-	// in different scopes), holds an empty value, which no route resolves
-	// through.
-	jsConsts map[string]string
+	jsConsts       map[string]string
 
 	// application-level NestJS settings, harvested from any scanned file
 	// (typically main.ts) and applied to Nest routes after the scan
@@ -1349,9 +1338,6 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 			continue
 		}
 
-		// a block comment spanning several lines is skipped as a whole, so
-		// that commented-out code neither declares a constant nor makes a
-		// live one ambiguous
 		current := strings.TrimSpace(line)
 		if inBlockComment {
 			inBlockComment = !strings.Contains(current, "*/")
@@ -1375,7 +1361,6 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 			continue
 		}
 
-		// a declaration line still goes through the handlers below
 		e.recordStringDeclaration(current)
 
 		// a non-decorator line (typically the method signature) ends the
@@ -1537,8 +1522,6 @@ func (e *RouteExtractor) CleanupRegexPath(path string) string {
 			continue
 		case '{':
 			if p[len(p)-1] == '}' {
-				// an interpolated member access (${req.params.id}) is named
-				// after its last segment
 				name := parts[i]
 				if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
 					name = name[dot+1:]
