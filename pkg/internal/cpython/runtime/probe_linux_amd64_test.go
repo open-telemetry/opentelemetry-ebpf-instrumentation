@@ -292,6 +292,7 @@ func TestDerivePrivateCollectorProbe(t *testing.T) {
 	probe, err := derivePrivateCollectorProbe(file, pythonVersion{major: 3, minor: 12}, root, uint64(len(body.data)))
 	require.NoError(t, err)
 	assert.Equal(t, GCCompletionProbePrivateReturn, probe.Kind)
+	assert.Equal(t, GCCompletionProbeSourceDerived, probe.Source)
 	assert.Equal(t, testCodeFileOffset+collector-testCodeBaseAddress, probe.FileOffset)
 
 	_, err = derivePrivateCollectorProbe(file, pythonVersion{major: 3, minor: 12}, root, 0)
@@ -331,6 +332,7 @@ func TestDerivePrivateCollectorProbeFromThreadStateCall(t *testing.T) {
 			)
 			require.NoError(t, err)
 			assert.Equal(t, GCCompletionProbePrivateReturn, probe.Kind)
+			assert.Equal(t, GCCompletionProbeSourceDerived, probe.Source)
 			assert.Equal(t, testCodeFileOffset+collector-testCodeBaseAddress, probe.FileOffset)
 		})
 	}

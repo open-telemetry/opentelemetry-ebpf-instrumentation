@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -92,7 +93,11 @@ func TestTracer_Constants(t *testing.T) {
 			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
 			require.NoError(t, err)
 
-			bundles, err := New(cfg).LoadSpecs()
+			tracer := New(cfg)
+			// the real probe would add the FIONREAD fixup bundle on affected kernels
+			tracer.fionreadProbe = func(*ebpf.Map) (bool, error) { return false, nil }
+
+			bundles, err := tracer.LoadSpecs()
 			require.NoError(t, err)
 			require.Len(t, bundles, expectedSpecCount, "tpinjector bundle count must match")
 

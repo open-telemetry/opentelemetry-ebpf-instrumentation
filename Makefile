@@ -219,12 +219,12 @@ MARKDOWNIMAGE = $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERF
 .PHONY: lint-markdown
 lint-markdown:
 	@echo "### Linting markdown"
-	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml **/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml "**/*.md"
 
 .PHONY: lint-markdown-fix
 lint-markdown-fix:
 	@echo "### Formatting markdown"
-	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml --fix **/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml --fix "**/*.md"
 
 .PHONY: update-offsets
 update-offsets:

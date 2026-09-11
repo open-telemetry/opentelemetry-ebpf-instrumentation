@@ -38,3 +38,11 @@ groups:
           registry until that proposal is merged and released, at which point
           this attribute moves to upstream semconv.
         examples: ['{"status":"ok"}']
+      - id: obi.http.response.observed
+        type: boolean
+        stability: development
+        brief: >
+          Present and false on an HTTP span whose response was never seen;
+          absent otherwise. `http.response.status_code` is emitted instead
+          once a response is observed.
+        examples: [false]
