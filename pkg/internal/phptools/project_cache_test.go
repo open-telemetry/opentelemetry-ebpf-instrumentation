@@ -19,9 +19,9 @@ func TestProjectScanCache(t *testing.T) {
 		cache := newProjectScanCache(1)
 		root := t.TempDir()
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		first, firstFound := cache.scan(root, root, scanner)
@@ -29,8 +29,8 @@ func TestProjectScanCache(t *testing.T) {
 
 		assert.False(t, firstFound)
 		assert.False(t, secondFound)
-		assert.Equal(t, projectMetadata{}, first)
-		assert.Equal(t, projectMetadata{}, second)
+		assert.Equal(t, ProjectMetadata{}, first)
+		assert.Equal(t, ProjectMetadata{}, second)
 		assert.Equal(t, 1, scans)
 	})
 
@@ -39,9 +39,9 @@ func TestProjectScanCache(t *testing.T) {
 		cache := newProjectScanCache(1)
 		root := t.TempDir()
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		_, firstFound := cache.scan(root, root, scanner)
@@ -61,13 +61,13 @@ func TestProjectScanCache(t *testing.T) {
 		cache := newProjectScanCache(1)
 		root := t.TempDir()
 		scans := 0
-		scanner := func(scanRoot, _ string) (projectMetadata, bool) {
+		scanner := func(scanRoot, _ string) (ProjectMetadata, bool) {
 			scans++
 			version := "1.0.0"
 			if scans > 1 {
 				version = "2.0.0"
 			}
-			return projectMetadata{root: filepath.Join(scanRoot, "srv", "app"), name: "acme/app", version: version}, true
+			return ProjectMetadata{Root: filepath.Join(scanRoot, "srv", "app"), Name: "acme/app", Version: version}, true
 		}
 
 		first, firstFound := cache.scan(root, root, scanner)
@@ -76,8 +76,8 @@ func TestProjectScanCache(t *testing.T) {
 
 		assert.True(t, firstFound)
 		assert.True(t, secondFound)
-		assert.Equal(t, "1.0.0", first.version)
-		assert.Equal(t, "2.0.0", second.version)
+		assert.Equal(t, "1.0.0", first.Version)
+		assert.Equal(t, "2.0.0", second.Version)
 		assert.Equal(t, 2, scans)
 	})
 
@@ -88,13 +88,13 @@ func TestProjectScanCache(t *testing.T) {
 		firstRoot := fakeProcessRoot(t, procRoot, "101", root, "mnt:[42]")
 		secondRoot := fakeProcessRoot(t, procRoot, "102", root, "mnt:[42]")
 		scans := 0
-		scanner := func(scanRoot, _ string) (projectMetadata, bool) {
+		scanner := func(scanRoot, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{
-				root:         filepath.Join(scanRoot, "srv", "app"),
-				name:         "acme/app",
-				version:      "1.2.3",
-				fallbackName: "app",
+			return ProjectMetadata{
+				Root:         filepath.Join(scanRoot, "srv", "app"),
+				Name:         "acme/app",
+				Version:      "1.2.3",
+				FallbackName: "app",
 			}, true
 		}
 
@@ -103,11 +103,11 @@ func TestProjectScanCache(t *testing.T) {
 
 		assert.True(t, firstFound)
 		assert.True(t, secondFound)
-		assert.Equal(t, filepath.Join(firstRoot, "srv", "app"), first.root)
-		assert.Equal(t, filepath.Join(secondRoot, "srv", "app"), second.root)
-		assert.Equal(t, first.name, second.name)
-		assert.Equal(t, first.version, second.version)
-		assert.Equal(t, first.fallbackName, second.fallbackName)
+		assert.Equal(t, filepath.Join(firstRoot, "srv", "app"), first.Root)
+		assert.Equal(t, filepath.Join(secondRoot, "srv", "app"), second.Root)
+		assert.Equal(t, first.Name, second.Name)
+		assert.Equal(t, first.Version, second.Version)
+		assert.Equal(t, first.FallbackName, second.FallbackName)
 		assert.Equal(t, 1, scans)
 	})
 
@@ -117,9 +117,9 @@ func TestProjectScanCache(t *testing.T) {
 		procRoot := t.TempDir()
 		firstRoot := fakeProcessRoot(t, procRoot, "101", root, "mnt:[42]")
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		_, firstFound := cache.scan(firstRoot, firstRoot, scanner)
@@ -135,9 +135,9 @@ func TestProjectScanCache(t *testing.T) {
 	t.Run("does not share scans across process roots", func(t *testing.T) {
 		cache := newProjectScanCache(2)
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		_, _ = cache.scan(t.TempDir(), "/", scanner)
@@ -153,9 +153,9 @@ func TestProjectScanCache(t *testing.T) {
 		firstRoot := fakeProcessRoot(t, procRoot, "101", root, "mnt:[42]")
 		secondRoot := fakeProcessRoot(t, procRoot, "102", root, "mnt:[43]")
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		_, _ = cache.scan(firstRoot, firstRoot, scanner)
@@ -170,9 +170,9 @@ func TestProjectScanCache(t *testing.T) {
 		firstRoot := fakeProcessRoot(t, procRoot, "101", t.TempDir(), "mnt:[42]")
 		secondRoot := fakeProcessRoot(t, procRoot, "102", t.TempDir(), "mnt:[42]")
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		_, _ = cache.scan(firstRoot, firstRoot, scanner)
@@ -185,9 +185,9 @@ func TestProjectScanCache(t *testing.T) {
 		cache := newProjectScanCache(1)
 		root := filepath.Join(t.TempDir(), "root")
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		_, _ = cache.scan(root, root, scanner)
@@ -203,10 +203,10 @@ func TestProjectScanCache(t *testing.T) {
 		root := filepath.Join(t.TempDir(), "root")
 		require.NoError(t, os.Mkdir(root, 0o755))
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
 			require.NoError(t, os.Remove(root))
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		_, _ = cache.scan(root, root, scanner)
@@ -221,9 +221,9 @@ func TestProjectScanCache(t *testing.T) {
 		root := t.TempDir()
 		scans := 0
 		//nolint:unparam // must match the projectScanner signature; this test only cares about the scan count
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		var workers sync.WaitGroup
@@ -242,9 +242,9 @@ func TestProjectScanCache(t *testing.T) {
 		firstRoot := t.TempDir()
 		secondRoot := t.TempDir()
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		_, _ = cache.scan(firstRoot, firstRoot, scanner)
@@ -258,9 +258,9 @@ func TestProjectScanCache(t *testing.T) {
 		cache := newProjectScanCache(1)
 		root := t.TempDir()
 		scans := 0
-		scanner := func(_, _ string) (projectMetadata, bool) {
+		scanner := func(_, _ string) (ProjectMetadata, bool) {
 			scans++
-			return projectMetadata{root: filepath.Dir(root), name: "acme/app"}, true
+			return ProjectMetadata{Root: filepath.Dir(root), Name: "acme/app"}, true
 		}
 
 		_, _ = cache.scan(root, root, scanner)
