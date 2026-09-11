@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -20,17 +21,28 @@ func TestResolveDiagnosticSocket(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		pid       uint64
-		version   byte
+		version   string
 		errorText string
 	}{
-		{"valid", 42, '8', ""},
-		{"pid", 43, '8', "reports PID 43"},
-		{"version", 42, '9', "unsupported CLR version"},
+		{"net8", 42, "8.0.30", ""},
+		{"net9", 42, "9.0.0", ""},
+		{"net10", 42, "10.0.0", ""},
+		{"future", 42, "11.0.0", ""},
+		{"pid", 43, "8.0.30", "reports PID 43"},
+		{"old", 42, "7.0.0", "unsupported CLR version"},
+		{"malformed", 42, "unknown", "unsupported CLR version"},
+		{"invalid major", 42, "x.0.0", "unsupported CLR version"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			payload := processInfo2Fixture(t)
 			binary.LittleEndian.PutUint64(payload, tc.pid)
-			payload = bytes.Replace(payload, []byte{'8', 0, '.', 0}, []byte{tc.version, 0, '.', 0}, 1)
+			oldVersion := utf16.Encode([]rune("8.0.30\x00"))
+			payload = payload[:len(payload)-4-2*len(oldVersion)]
+			version := utf16.Encode([]rune(tc.version + "\x00"))
+			payload = binary.LittleEndian.AppendUint32(payload, uint32(len(version)))
+			for _, unit := range version {
+				payload = binary.LittleEndian.AppendUint16(payload, unit)
+			}
 			response, err := encodeIPCMessage(ipcCommandSetServer, ipcResponseOK, payload)
 			require.NoError(t, err)
 			path, done := serveDiagnosticIPC(t, func(conn net.Conn) error {
@@ -49,7 +61,7 @@ func TestResolveDiagnosticSocket(t *testing.T) {
 			selected, info, err := resolveDiagnosticSocket(t.Context(), directory, 42, 1)
 			if tc.errorText != "" {
 				require.ErrorContains(t, err, tc.errorText)
-				if tc.version == '9' {
+				if tc.errorText == "unsupported CLR version" {
 					require.ErrorIs(t, err, errUnsupportedRuntime)
 				}
 				require.Empty(t, selected)
@@ -69,7 +81,7 @@ func TestResolveDiagnosticSocket(t *testing.T) {
 func TestResolveDiagnosticSocketIgnoresOtherIncarnation(t *testing.T) {
 	payload := processInfo2Fixture(t)
 	binary.LittleEndian.PutUint64(payload, 42)
-	payload = bytes.Replace(payload, []byte{'8', 0, '.', 0}, []byte{'9', 0, '.', 0}, 1)
+	payload = bytes.Replace(payload, []byte{'8', 0, '.', 0}, []byte{'7', 0, '.', 0}, 1)
 	response, err := encodeIPCMessage(ipcCommandSetServer, ipcResponseOK, payload)
 	require.NoError(t, err)
 	path, done := serveDiagnosticIPC(t, func(conn net.Conn) error {

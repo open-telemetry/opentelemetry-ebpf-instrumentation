@@ -49,7 +49,7 @@ type netTraceField struct {
 	Fields []netTraceField
 }
 
-// readNetTraceFields reads the base .NET 8 metadata field layout. Object fields
+// readNetTraceFields reads the base .NET metadata field layout. Object fields
 // contain nested field lists; depth starts at zero for the event's field list.
 func readNetTraceFields(reader *bytes.Reader, depth int) ([]netTraceField, error) {
 	if depth < 0 || depth >= maximumNetTraceFieldDepth {
@@ -86,7 +86,7 @@ func readNetTraceFields(reader *bytes.Reader, depth int) ([]netTraceField, error
 	return fields, nil
 }
 
-// readNetTraceMetadataHeader reads the .NET 8 event identity associated with a
+// readNetTraceMetadataHeader reads the .NET event identity associated with a
 // metadata ID, leaving the reader at the event's field definitions.
 func readNetTraceMetadataHeader(reader *bytes.Reader) (netTraceMetadataHeader, error) {
 	var header netTraceMetadataHeader

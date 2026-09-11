@@ -10,13 +10,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 var errUnsupportedRuntime = errors.New("unsupported CLR version")
 
 // resolveDiagnosticSocket verifies socket candidates with ProcessInfo2 and
-// selects one .NET 8 runtime matching the expected namespace PID and process start time.
+// selects one .NET 8+ runtime matching the expected namespace PID and process start time.
 func resolveDiagnosticSocket(ctx context.Context, tempDir string, namespacePID, startTime uint64) (string, processInfo, error) {
 	paths, err := findDiagnosticSockets(tempDir, namespacePID, startTime)
 	if err != nil {
@@ -39,7 +40,9 @@ func resolveDiagnosticSocket(ctx context.Context, tempDir string, namespacePID, 
 			failures = append(failures, fmt.Errorf("diagnostic socket %q reports PID %d, expected %d", path, info.PID, namespacePID))
 			continue
 		}
-		if !strings.HasPrefix(info.CLRVersion, "8.") {
+		majorVersion, _, hasMinorVersion := strings.Cut(info.CLRVersion, ".")
+		major, versionErr := strconv.ParseUint(majorVersion, 10, 32)
+		if versionErr != nil || !hasMinorVersion || major < 8 {
 			unsupported++
 			failures = append(failures, fmt.Errorf("diagnostic socket %q reports %s %q", path, errUnsupportedRuntime.Error(), info.CLRVersion))
 			continue

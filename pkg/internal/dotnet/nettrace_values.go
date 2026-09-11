@@ -9,7 +9,7 @@ import (
 	"fmt"
 )
 
-// readNetTraceValues decodes the types used by .NET 8 System.Runtime counters.
+// readNetTraceValues decodes the types used by .NET System.Runtime counters.
 // Fields must come from readNetTraceFields, which bounds their count and nesting.
 func readNetTraceValues(reader *bytes.Reader, fields []netTraceField) (map[string]any, error) {
 	values := make(map[string]any, len(fields))

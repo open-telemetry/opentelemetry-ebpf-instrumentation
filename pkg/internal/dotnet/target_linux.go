@@ -21,7 +21,7 @@ type diagnosticTarget struct {
 	info       processInfo
 }
 
-// resolveDiagnosticTarget verifies a .NET 8 diagnostic socket for the pinned
+// resolveDiagnosticTarget verifies a .NET diagnostic socket for the pinned
 // process. The caller owns the returned directory and closes it after the
 // EventPipe session's final control connection.
 func resolveDiagnosticTarget(ctx context.Context, process *procs.ProcessHandle, tempDir string) (diagnosticTarget, error) {

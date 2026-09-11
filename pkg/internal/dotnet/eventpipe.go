@@ -23,13 +23,13 @@ const (
 	eventPipeBufferSizeMB     uint32 = 16
 	eventPipeFormatNetTrace   uint32 = 1
 	eventPipeProviderCount    uint32 = 1
-	// .NET 8 ProcessorCount keyword; EventCounterIntervalSec enables counter polling.
+	// .NET ProcessorCount keyword; EventCounterIntervalSec enables counter polling.
 	systemRuntimeKeywords   uint64 = 0x2
 	eventLevelInformational uint32 = 4
 )
 
 // encodeEventPipeStart encodes a CollectTracing2 request for System.Runtime EventCounters.
-// This is the .NET 8 metrics source.
+// This is the .NET metrics source.
 // https://github.com/dotnet/diagnostics/blob/f09edf7ea9a17a86b236b91eb4c458d0469546b6/documentation/design-docs/ipc-protocol.md#collecttracing2
 func encodeEventPipeStart(samplingInterval time.Duration) ([]byte, error) {
 	if samplingInterval <= 0 {
@@ -61,7 +61,7 @@ type eventPipeSession struct {
 	stream     net.Conn
 }
 
-// startEventPipe starts a .NET 8 System.Runtime EventCounter session and retains its stream.
+// startEventPipe starts a .NET System.Runtime EventCounter session and retains its stream.
 // The context bounds setup; after success, the caller owns the session's lifetime.
 func startEventPipe(ctx context.Context, socketPath string, samplingInterval time.Duration) (*eventPipeSession, error) {
 	request, err := encodeEventPipeStart(samplingInterval)

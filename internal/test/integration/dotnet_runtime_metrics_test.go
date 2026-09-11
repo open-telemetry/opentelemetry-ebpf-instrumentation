@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,12 +30,29 @@ import (
 )
 
 func TestDotnetRuntimeMetrics(t *testing.T) {
+	for _, runtime := range []struct {
+		version string
+		image   string
+	}{
+		{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:9d94ecf60a21c6e7a784cf0761fbd4a8391646617a0ff2f39621443d580cc2c3"},
+		{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:647b8b6d4f4570270c763a200514241ca54f8d70dc314000412fbd8ec594724b"},
+		{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:399e54a8a7e35c3aba78398b2840455d45185cba20b831b8a2b46f849f4f5001"},
+	} {
+		t.Run(runtime.version, func(t *testing.T) {
+			testDotnetRuntimeMetrics(t, runtime.version, runtime.image)
+		})
+	}
+}
+
+func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string) {
 	compose, err := docker.ComposeSuite("docker-compose-dotnet-runtime-metrics.yml",
-		filepath.Join(pathOutput, "test-suite-dotnet-runtime-metrics.log"))
+		filepath.Join(pathOutput, "test-suite-dotnet-runtime-metrics-"+runtimeVersion+".log"))
 	require.NoError(t, err)
 	socketDir := t.TempDir()
 	compose.Env = append(compose.Env, "COMPOSE_PROJECT_NAME=obi-dotnet-runtime-metrics",
 		"DOTNET_RUNTIME_SOCKET_DIR="+socketDir,
+		"DOTNET_RUNTIME_VERSION="+runtimeVersion,
+		"DOTNET_RUNTIME_IMAGE="+runtimeImage,
 		fmt.Sprintf("DOTNET_RUNTIME_USER=%d:%d", os.Getuid(), os.Getgid()))
 	t.Cleanup(func() { require.NoError(t, compose.Close()) })
 	require.NoError(t, compose.Up())
@@ -54,7 +72,7 @@ func TestDotnetRuntimeMetrics(t *testing.T) {
 		defer response.Body.Close()
 		require.Equal(ct, http.StatusOK, response.StatusCode)
 		require.NoError(ct, json.NewDecoder(response.Body).Decode(&before))
-		require.Contains(ct, before.RuntimeVersion, "8.0.")
+		require.True(ct, strings.HasPrefix(before.RuntimeVersion, runtimeVersion+"."), "unexpected runtime version: %s", before.RuntimeVersion)
 	}, testTimeout, time.Second)
 
 	endpoints := []string{"http://localhost:18999/metrics", "http://localhost:19464/metrics"}

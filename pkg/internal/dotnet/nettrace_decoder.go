@@ -32,7 +32,7 @@ type netTraceDecoder struct {
 	sequences map[uint64]uint32
 }
 
-// readRuntimeCounters reads a .NET 8 stream and delivers counters synchronously.
+// readRuntimeCounters reads a .NET stream and delivers counters synchronously.
 // The caller owns the stream and closes it to interrupt a blocked read.
 func readRuntimeCounters(stream io.Reader, expectedPID uint64, consume func(runtimeCounter) error) error {
 	reader := newNetTraceReader(stream)
@@ -74,7 +74,7 @@ func readRuntimeCounters(stream io.Reader, expectedPID uint64, consume func(runt
 }
 
 // decodeEventBlock retains metadata definitions and decodes System.Runtime
-// counters from .NET 8 event blocks. Calls must follow stream order.
+// counters from .NET event blocks. Calls must follow stream order.
 func (d *netTraceDecoder) decodeEventBlock(name string, payload []byte) ([]runtimeCounter, error) {
 	if name != "MetadataBlock" && name != "EventBlock" {
 		return nil, fmt.Errorf("expected NetTrace event or metadata block, got %q", name)
@@ -181,7 +181,7 @@ func (d *netTraceDecoder) checkSequence(thread uint64, sequence uint32, event bo
 	return nil
 }
 
-// checkSequencePoint validates the .NET 8 sequence checkpoint, including losses
+// checkSequencePoint validates the .NET sequence checkpoint, including losses
 // after the last event seen for a thread.
 func (d *netTraceDecoder) checkSequencePoint(payload []byte) error {
 	if len(payload) < netTraceSequencePointHeaderSize {

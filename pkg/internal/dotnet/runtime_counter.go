@@ -16,7 +16,7 @@ type runtimeCounter struct {
 	Increment   bool
 }
 
-// decodeRuntimeCounter extracts a .NET 8 System.Runtime/EventCounters sample
+// decodeRuntimeCounter extracts a .NET System.Runtime/EventCounters sample
 // from its nested payload. Increment values are counts, not rates per second.
 // Counters outside the supported GC generations return an empty result.
 func decodeRuntimeCounter(values map[string]any) (runtimeCounter, error) {

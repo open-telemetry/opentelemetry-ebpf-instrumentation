@@ -139,7 +139,7 @@ func TestSessionManagerStopsForUnsupportedRuntime(t *testing.T) {
 	namespacePID := uint64(pids[len(pids)-1])
 	payload := processInfo2Fixture(t)
 	binary.LittleEndian.PutUint64(payload, namespacePID)
-	payload = bytes.Replace(payload, []byte{'8', 0, '.', 0}, []byte{'9', 0, '.', 0}, 1)
+	payload = bytes.Replace(payload, []byte{'8', 0, '.', 0}, []byte{'7', 0, '.', 0}, 1)
 	response, err := encodeIPCMessage(ipcCommandSetServer, ipcResponseOK, payload)
 	require.NoError(t, err)
 	path, served := serveDiagnosticIPC(t, func(conn net.Conn) error {
