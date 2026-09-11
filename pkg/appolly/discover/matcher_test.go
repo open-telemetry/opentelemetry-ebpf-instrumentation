@@ -168,6 +168,48 @@ func TestCriteriaMatcher(t *testing.T) {
 	testMatch(t, matches[5], "arg-only", "", services.ProcessInfo{Pid: 9, ExePath: "/bin/frobnitz", CmdArgs: "my-server2.py"})
 }
 
+// The log enricher's own selectors enrich a subset of the instrumented processes
+// and never instrument a process on their own
+func TestCriteriaMatcherLogEnricherServices(t *testing.T) {
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  instrument:
+  - exe_path: "{/frontend,/backend}"
+ebpf:
+  log_enricher:
+    services:
+    - service:
+      - exe_path: "{/frontend,/usr/bin/sshfs}"
+`), &pipeConfig))
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
+	require.NoError(t, err)
+	go matcherFunc(t.Context())
+	defer filteredProcessesQu.Close()
+
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		exePath := map[app.PID]string{
+			1: "/usr/bin/sshfs", 2: "/frontend", 3: "/backend",
+		}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath}, nil
+	}
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1}}, // filter: log enricher selector alone does not instrument
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 2}}, // pass, enriched
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 3}}, // pass, not enriched
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 2)
+	assert.Equal(t, app.PID(2), matches[0].Obj.Process.Pid)
+	assert.True(t, matches[0].Obj.LogEnricherEnabled())
+	assert.Equal(t, app.PID(3), matches[1].Obj.Process.Pid)
+	assert.False(t, matches[1].Obj.LogEnricherEnabled())
+}
+
 func TestCriteriaMatcherLanguage(t *testing.T) {
 	pipeConfig := obi.Config{}
 	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
@@ -523,9 +565,11 @@ func TestDynamicMatcher_ChildInheritsDynamicSelectorPID(t *testing.T) {
 
 	assert.Equal(t, app.PID(100), matches[0].Obj.Process.Pid)
 	assert.Equal(t, app.PID(100), matches[0].Obj.DynamicSelectorPID)
+	assert.True(t, matches[0].Obj.LogEnricherEnabled())
 
 	assert.Equal(t, app.PID(101), matches[1].Obj.Process.Pid)
 	assert.Equal(t, app.PID(100), matches[1].Obj.DynamicSelectorPID)
+	assert.True(t, matches[1].Obj.LogEnricherEnabled())
 
 	discoveredProcesses.Close()
 	testutil.DrainUntilClosed(filteredProcesses)

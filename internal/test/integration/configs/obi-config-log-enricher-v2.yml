@@ -1,0 +1,61 @@
+# Config v2 twin of obi-config-log-enricher.yml. A v2 document takes no OTEL_EBPF_*
+# overrides, so the settings the compose passes as environment variables live here,
+# with the per-suite target selection substituted from the same variables.
+file_format: "1.0"
+log_level: debug
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 500ms
+        min_process_age: 0s
+      rules:
+        # v1 default discovery.exclude_otel_instrumented_services
+        - action: exclude
+          match:
+            process:
+              exports_otlp:
+                port: 4317
+                protocol: protobuf
+        # Suites select their target by port or by executable; the defaults keep the
+        # unused rule valid while matching nothing (port 0, glob "*@none@*").
+        - action: include
+          match:
+            process:
+              open_ports: "${OTEL_EBPF_OPEN_PORT:-0}"
+        - action: include
+          match:
+            process:
+              exe_path_glob: ["*${OTEL_EBPF_EXECUTABLE_PATH:-@none@}*"]
+      engine:
+        batching:
+          batch_timeout: 10ms
+        debug:
+          bpf: true
+      instrumentation:
+        http:
+          track_request_headers: true
+          request_timeout: 5s
+          routes:
+            incoming:
+              patterns:
+                - /basic/:rnd
+              unmatched: path
+              ignored_patterns:
+                - /metrics
+    correlation:
+      log_trace_annotation:
+        enabled: true
+        # Same substitution as the capture rules, so the annotated workloads are
+        # exactly the instrumented ones
+        match:
+          - process:
+              open_ports: "${OTEL_EBPF_OPEN_PORT:-0}"
+          - process:
+              exe_path_glob: ["*${OTEL_EBPF_EXECUTABLE_PATH:-@none@}*"]
+    daemon:
+      logging:
+        config_format: yaml
+        debug_trace_output: text

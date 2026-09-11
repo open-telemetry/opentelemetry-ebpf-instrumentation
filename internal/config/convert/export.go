@@ -13,6 +13,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	obiconfig "go.opentelemetry.io/obi/pkg/config"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -671,6 +672,7 @@ func correlation(cfg *obi.Config) *schema.Correlation {
 	return &schema.Correlation{
 		LogTraceAnnotation: schema.LogTraceAnnotation{
 			Enabled: cfg.EBPF.LogEnricher.Enabled(),
+			Match:   logEnricherMatches(cfg.EBPF.LogEnricher.Services),
 			FieldNames: schema.FieldNames{
 				TraceID: &cfg.EBPF.LogEnricher.FieldNames.TraceID,
 				SpanID:  &cfg.EBPF.LogEnricher.FieldNames.SpanID,
@@ -690,6 +692,16 @@ func correlation(cfg *obi.Config) *schema.Correlation {
 			},
 		},
 	}
+}
+
+func logEnricherMatches(svcs []obiconfig.LogEnricherServiceConfig) []schema.RuleMatch {
+	var matches []schema.RuleMatch
+	for _, svc := range svcs {
+		for i := range svc.Service {
+			matches = append(matches, globSelectorMatch(&svc.Service[i]))
+		}
+	}
+	return matches
 }
 
 func daemon(cfg *obi.Config) *schema.Daemon {

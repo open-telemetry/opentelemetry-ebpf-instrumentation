@@ -141,7 +141,7 @@ services:
       - shared
     pid: "host"
     environment:
-      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-log-enricher.yml"
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-log-enricher${INSTRUMENTER_CONFIG_SUFFIX}.yml"
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
