@@ -326,7 +326,12 @@ func TestFeatureMarshalYAML(t *testing.T) {
 		{
 			name:     "combined features follow the declaration order",
 			features: FeatureApplicationRuntime | FeatureApplicationRED,
-			expected: "features:\n    - application\n    - application_runtime\n",
+			expected: "features:\n    - application_red\n    - application_runtime\n",
+		},
+		{
+			name:     "the application bundle keeps its name",
+			features: FeatureApplicationRED | FeatureApplicationSizes,
+			expected: "features:\n    - application\n",
 		},
 		{
 			name:     "aggregate feature keeps its name",

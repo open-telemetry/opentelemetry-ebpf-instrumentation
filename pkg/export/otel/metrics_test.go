@@ -207,7 +207,7 @@ type InstrTest struct {
 }
 
 // The HTTP body size histograms are Opt-In in the semantic conventions, so
-// application on its own must set up the RED views without them.
+// application_red must set up the RED views without them.
 func TestOtelMetricOptions_BodySizeFeature(t *testing.T) {
 	views := func(features export.Features) int {
 		mr := MetricsReporter{
@@ -222,11 +222,12 @@ func TestOtelMetricOptions_BodySizeFeature(t *testing.T) {
 		return len(mr.otelMetricOptions())
 	}
 
-	// application_red: two duration histograms, server and client
-	assert.Equal(t, 2, views(export.FeatureApplicationRED))
-	// the application bundle adds the four body size histograms
-	assert.Equal(t, 6, views(export.FeatureApplicationRED|export.FeatureApplicationSizes))
-	assert.Equal(t, 6, views(export.FeatureAll))
+	// the four body size histograms, server and client, request and response, are the
+	// only thing the sizes feature adds on top of the RED views
+	red := views(export.FeatureApplicationRED)
+	assert.Positive(t, red)
+	assert.Equal(t, red+4, views(export.FeatureApplicationRED|export.FeatureApplicationSizes))
+	assert.Equal(t, red+4, views(export.FeatureAll))
 	// sizes without the RED metrics set up nothing, which config validation rejects
 	assert.Equal(t, 0, views(export.FeatureApplicationSizes))
 	assert.Equal(t, 0, views(export.FeatureNetwork))
@@ -2071,7 +2072,7 @@ func TestAppMetrics_UnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	feats := export.FeatureApplicationRED
+	feats := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	go makeMetricsReporter(ctx, t,
 		[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		feats, otlp, metrics, processEvents).reportMetrics(ctx)

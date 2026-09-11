@@ -49,8 +49,8 @@ import (
 
 const timeout = 5 * time.Second
 
-// application on its own keeps the RED histograms while dropping the four Opt-In body
-// size histograms, which is the whole point of splitting them into their own feature.
+// application_red keeps the RED histograms while dropping the four Opt-In body size
+// histograms, which is the whole point of splitting them into their own feature.
 func TestAppMetrics_BodySizeFeature(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -1642,7 +1642,7 @@ func TestREDMetricsUnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
 		request.UnresolvedNames{},
 		promInput,
@@ -1654,7 +1654,7 @@ func TestREDMetricsUnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
 	go exporter(ctx)
 
 	svcAttrs := svc.Attrs{
-		Features: export.FeatureApplicationRED,
+		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes,
 		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
 	}
 
