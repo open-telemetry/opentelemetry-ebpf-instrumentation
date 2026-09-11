@@ -15,8 +15,6 @@
 #define LIBBPF_PIN_BY_NAME 1
 #endif
 
-enum { BPF_ANY = 0 };
-
 struct pt_regs {
     u64 sp;
 };
@@ -331,6 +329,8 @@ static void test_unrelated_end_keeps_overflow_accounting(void) {
     check_u64(1, stack()->overflow[k_obi_ctx_sql], "an unrelated end must not consume the count");
     check_u64(k_obi_ctx_max_depth, stack()->depth, "an unrelated end must not pop a frame");
     check_u64(31, thread_span(), "the unstored span is still current");
+    go_obi_ctx__resume(k_thread, &g_key);
+    check_u64(31, thread_span(), "and stays current across a reschedule");
 
     // stack growth restart of the unstored span, after the unrelated end
     begin(k_obi_ctx_sql, span(32), 240);
@@ -359,6 +359,41 @@ static void test_resume(void) {
     check_u64(0, thread_span(), "a goroutine without spans clears the thread");
 }
 
+static void test_resume_keeps_unstored_span(void) {
+    reset();
+    begin(k_obi_ctx_http_server, span(33), 100);
+    begin(k_obi_ctx_sql, span(34), 210);
+    begin(k_obi_ctx_sql, span(35), 220);
+    begin(k_obi_ctx_sql, span(36), 230);
+    begin(k_obi_ctx_grpc_client, span(37), 240);
+    check_u64(1, stack()->overflow[k_obi_ctx_grpc_client], "fifth span overflows");
+
+    obi_ctx__del(k_thread);
+    go_obi_ctx__resume(k_thread, &g_key);
+    check_u64(37, thread_span(), "resume reinstalls the unstored span, not the top frame");
+
+    // stack growth restart of the unstored span
+    begin(k_obi_ctx_grpc_client, span(38), 240);
+    obi_ctx__del(k_thread);
+    go_obi_ctx__resume(k_thread, &g_key);
+    check_u64(38, thread_span(), "resume follows the restarted span");
+
+    // a deeper unstored span takes over, its end hands back to the top frame:
+    // the outer unstored span's identity is gone
+    begin(k_obi_ctx_sql, span(39), 250);
+    obi_ctx__del(k_thread);
+    go_obi_ctx__resume(k_thread, &g_key);
+    check_u64(39, thread_span(), "the newest unstored span is current");
+    end(k_obi_ctx_sql, span(39));
+    check_u64(36, thread_span(), "after its end the top frame is current");
+    go_obi_ctx__resume(k_thread, &g_key);
+    check_u64(36, thread_span(), "and resume agrees");
+
+    end(k_obi_ctx_grpc_client, span(38));
+    check_u64(0, stack()->overflow[k_obi_ctx_grpc_client], "the unstored span ended");
+    check_u64(36, thread_span(), "the top frame stays current");
+}
+
 static void test_stack_off(void) {
     struct pt_regs regs = {.sp = 0x7000};
     test_stack_hi = 0x7400;
@@ -379,6 +414,7 @@ int main(void) {
     test_unknown_end_without_overflow_is_a_noop();
     test_unrelated_end_keeps_overflow_accounting();
     test_resume();
+    test_resume_keeps_unstored_span();
     test_stack_off();
 
     if (failures) {

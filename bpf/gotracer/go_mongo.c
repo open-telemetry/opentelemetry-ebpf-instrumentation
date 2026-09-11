@@ -151,6 +151,8 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     mongo_go_client_req_t *req = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
+    // the collection op already began this span
+    const u8 begun = req != NULL;
 
     if (!req) {
         client_trace_parent(goroutine_addr, &fresh_req.tp);
@@ -188,7 +190,9 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, req, BPF_ANY);
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req->tp, go_obi_ctx__stack_off(ctx));
+    if (!begun) {
+        go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req->tp, go_obi_ctx__stack_off(ctx));
+    }
 
     return 0;
 }

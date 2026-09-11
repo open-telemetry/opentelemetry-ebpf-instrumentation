@@ -553,11 +553,19 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_Close ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
+    void *cc_ptr = GO_PARAM1(ctx);
+    bpf_dbg_printk("goroutine_addr=%lx, cc_ptr=%llx", goroutine_addr, cc_ptr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
+    const grpc_client_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    // an interceptor can close another connection while this goroutine's RPC runs
+    if (!invocation || invocation->cc != (u64)cc_ptr) {
+        return 0;
+    }
+
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &invocation->tp);
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
 
     return 0;

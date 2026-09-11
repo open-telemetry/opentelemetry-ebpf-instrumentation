@@ -53,8 +53,10 @@ typedef struct obi_ctx_stack {
     // stored, so that an end of an unrelated kind cannot consume their count
     u8 overflow[k_obi_ctx_kind_count];
     // the last span that was not stored, so that its restart is not counted twice
+    // and its context survives a reschedule while it runs
     u8 unstored_kind;
     u8 _pad[7];
+    tp_info_t unstored_tp;
 } obi_ctx_stack_t;
 
 struct {
@@ -145,16 +147,31 @@ static __always_inline u32 obi_ctx__reentered(
     return k_obi_ctx_max_depth;
 }
 
-static __always_inline void
-obi_ctx__publish_top(u64 pid_tgid, const go_addr_key_t *g_key, const obi_ctx_stack_t *st) {
+// The goroutine's current span: the newest unstored one while it runs, else the
+// top frame. NULL when nothing is running
+static __always_inline const tp_info_t *obi_ctx__current(const obi_ctx_stack_t *st) {
+    if (st->unstored_kind != k_obi_ctx_none) {
+        return &st->unstored_tp;
+    }
+
     const u32 depth = obi_ctx__depth(st);
     if (depth == 0) {
+        return NULL;
+    }
+
+    return &st->frames[obi_ctx__slot(depth - 1)].tp;
+}
+
+static __always_inline void
+obi_ctx__publish_current(u64 pid_tgid, const go_addr_key_t *g_key, const obi_ctx_stack_t *st) {
+    const tp_info_t *tp = obi_ctx__current(st);
+    if (!tp) {
         bpf_map_delete_elem(&obi_ctx_stacks, g_key);
         obi_ctx__del(pid_tgid);
         return;
     }
 
-    obi_ctx__set(pid_tgid, &st->frames[obi_ctx__slot(depth - 1)].tp);
+    obi_ctx__set(pid_tgid, tp);
 }
 
 // A span started: it becomes the goroutine's current context
@@ -194,10 +211,13 @@ go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 
         u8 *unstored = &st->overflow[obi_ctx__kind_slot(kind)];
         const u8 restarted =
             *unstored > 0 && st->unstored_kind == kind && st->unstored_stack_off == stack_off;
-        if (!restarted && *unstored < k_obi_ctx_overflow_max) {
+        if (restarted) {
+            st->unstored_tp = *tp;
+        } else if (*unstored < k_obi_ctx_overflow_max) {
             (*unstored)++;
             st->unstored_kind = kind;
             st->unstored_stack_off = stack_off;
+            st->unstored_tp = *tp;
         }
         return;
     }
@@ -238,18 +258,16 @@ go_obi_ctx__end(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp) {
     }
     st->unstored_kind = k_obi_ctx_none;
 
-    obi_ctx__publish_top(pid_tgid, g_key, st);
+    obi_ctx__publish_current(pid_tgid, g_key, st);
 }
 
 // The goroutine got scheduled: put its current span on this thread, or clear the thread
 static __always_inline void go_obi_ctx__resume(u64 pid_tgid, const go_addr_key_t *g_key) {
     const obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, g_key);
-    if (st) {
-        const u32 depth = obi_ctx__depth(st);
-        if (depth > 0) {
-            obi_ctx__set(pid_tgid, &st->frames[obi_ctx__slot(depth - 1)].tp);
-            return;
-        }
+    const tp_info_t *tp = st ? obi_ctx__current(st) : NULL;
+    if (tp) {
+        obi_ctx__set(pid_tgid, tp);
+        return;
     }
     obi_ctx__del(pid_tgid);
 }

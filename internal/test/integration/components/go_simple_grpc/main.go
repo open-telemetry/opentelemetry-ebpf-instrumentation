@@ -26,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -68,7 +69,7 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-// set from main; used by the deep and nesting drivers below
+// set from main; used by the deep and nesting drivers and the A/B close sequence below
 var (
 	deepLog      func(string)
 	deepGRPCCall func(string) error
@@ -78,6 +79,12 @@ var (
 
 // more nested SQL spans than the BPF context stack can hold
 const nestLevels = 5
+
+// what the nesting driver runs at its last level
+const (
+	nestLeafFake = "fake"
+	nestLeafGRPC = "grpcab"
+)
 
 // ---- deep driver: its Query logs and calls gRPC, so one goroutine nests
 // server, SQL and gRPC spans. The request id is a bind parameter ----
@@ -108,8 +115,8 @@ func (deepStmt) Query(args []driver.Value) (driver.Rows, error) {
 }
 
 // ---- nesting driver: its Query runs another database/sql query, so SQL spans
-// nest. The remaining levels and the request id are bind parameters: each level
-// calls nestDB again, the last one queries the fake driver ----
+// nest. The remaining levels, the request id and the leaf are bind parameters:
+// each level calls nestDB again, the last one runs the leaf ----
 
 type nestDriver struct{}
 
@@ -124,26 +131,87 @@ func (nestConn) Begin() (driver.Tx, error)           { return nil, driver.ErrSki
 type nestStmt struct{}
 
 func (nestStmt) Close() error                               { return nil }
-func (nestStmt) NumInput() int                              { return 2 }
+func (nestStmt) NumInput() int                              { return 3 }
 func (nestStmt) Exec([]driver.Value) (driver.Result, error) { return driver.RowsAffected(1), nil }
 func (nestStmt) Query(args []driver.Value) (driver.Rows, error) {
 	n, _ := args[0].(int64)
 	id, _ := args[1].(string)
+	leaf, _ := args[2].(string)
 
-	var rows *sql.Rows
 	var err error
-	if n > 0 {
-		rows, err = nestDB.Query("SELECT nest", n-1, id)
-	} else {
-		rows, err = nestInnerDB.Query("SELECT n FROM fake")
+	switch {
+	case n > 0:
+		err = nestQuery(n-1, id, leaf)
+	case leaf == nestLeafGRPC:
+		err = grpcCloseAB(id)
+	default:
+		err = fakeQuery()
 	}
 	if err != nil {
 		return nil, err
 	}
-	rows.Close()
 	// still inside this level's SQL span
 	deepLog(fmt.Sprintf("samekind: driver after inner L%d %s", n, id))
 	return &fakeRows{}, nil
+}
+
+// n+1 nested SQL spans, then the leaf
+func nestQuery(n int64, id, leaf string) error {
+	rows, err := nestDB.Query("SELECT nest", n, id, leaf)
+	if err != nil {
+		return err
+	}
+	return rows.Close()
+}
+
+func fakeQuery() error {
+	rows, err := nestInnerDB.Query("SELECT n FROM fake")
+	if err != nil {
+		return err
+	}
+	return rows.Close()
+}
+
+// ---- A/B close: while an RPC on gRPC connection A is in flight, its
+// interceptor closes connection B on the same goroutine. B's Close must leave
+// A's context and A's client span alone ----
+
+func grpcCloseAB(id string) error {
+	connB, err := grpc.Dial("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	closeB := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker, opts ...grpc.CallOption,
+	) error {
+		connB.Close()
+		// still inside A's Invoke: this line belongs to A's client span
+		deepLog("closeab: after close " + id)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+	connA, err := grpc.Dial(
+		"localhost:50051",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+		grpc.WithUnaryInterceptor(closeB),
+	)
+	if err != nil {
+		connB.Close()
+		return err
+	}
+	defer connA.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	deepLog("closeab: before grpc " + id)
+	var resp LogResponse
+	if err := connA.Invoke(ctx, "/LogService/Log",
+		&LogRequest{Message: "closeab: grpc handler " + id}, &resp); err != nil {
+		return err
+	}
+	deepLog("closeab: after grpc " + id)
+	return nil
 }
 
 // ---- JSON codec ----
@@ -511,14 +579,34 @@ func main() {
 		id := r.URL.Query().Get("id")
 		jsonLog("samekind: before sql " + id)
 
-		rows, err := nestDB.Query("SELECT nest", nestLevels, id)
+		if err := nestQuery(nestLevels, id, nestLeafFake); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		jsonLog("samekind: after sql " + id)
+
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	// A/B close on one goroutine, after `sql` nested SQL spans: with enough of
+	// them the context stack is full and A's span is only counted, not stored
+	http.HandleFunc("/nested_logger_closeab", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		sqlDepth, _ := strconv.Atoi(r.URL.Query().Get("sql"))
+		jsonLog("closeab: start " + id)
+
+		var err error
+		if sqlDepth > 0 {
+			err = nestQuery(int64(sqlDepth-1), id, nestLeafGRPC)
+		} else {
+			err = grpcCloseAB(id)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		rows.Close()
 
-		jsonLog("samekind: after sql " + id)
+		jsonLog("closeab: done " + id)
 
 		_, _ = w.Write([]byte("ok\n"))
 	})

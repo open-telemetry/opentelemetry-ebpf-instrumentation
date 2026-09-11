@@ -1407,6 +1407,125 @@ func testLogEnricherNestedSpansCloseGoroutine(t *testing.T, constants testServer
 	}, 2*testTimeout, time.Second)
 }
 
+// While an RPC on gRPC connection A is in flight, its interceptor closes
+// connection B on the same goroutine. B's Close must not end A's context nor
+// drop A's span. sqlDepth nested SQL spans run first: with enough of them the
+// context stack is full and A's frame is only counted, not stored
+func testLogEnricherNestedSpansCloseAB(t *testing.T, constants testServerConstants, sqlDepth int, reqPrefix string) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	obiID := testContainerID(t, cl, "hatest-obi")
+	require.NotEmpty(t, obiID, "could not find OBI container ID")
+
+	var traceID, closeSpanID string
+	reqID := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reqID++
+		id := fmt.Sprintf("%s-%d", reqPrefix, reqID)
+		ti.DoHTTPGet(ct, fmt.Sprintf("%s/nested_logger_closeab?id=%s&sql=%d", constants.url, id, sqlDepth), 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// log fetching can lag behind the current request: pair by the newest complete id
+		done := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "closeab: done "+reqPrefix+"-")
+		})
+		if !assert.NotNil(ct, done, "no 'closeab: done' line found yet") {
+			return
+		}
+		pairID := done["message"][strings.LastIndex(done["message"], " ")+1:]
+
+		get := func(message string) map[string]string {
+			fields := newestLogFields(logs, func(m string) bool { return m == message+" "+pairID })
+			assert.NotNil(ct, fields, "log line %q not found", message)
+			return fields
+		}
+
+		start := get("closeab: start")
+		before := get("closeab: before grpc")
+		afterClose := get("closeab: after close")
+		inGRPC := get("closeab: grpc handler")
+		afterGRPC := get("closeab: after grpc")
+		if start == nil || before == nil || afterClose == nil || inGRPC == nil || afterGRPC == nil {
+			return
+		}
+
+		assertEnrichedCtx(ct, "grpc handler", inGRPC)
+		// everything on the handler goroutine belongs to one trace; the gRPC
+		// handler runs under its own server span
+		for name, fields := range map[string]map[string]string{
+			"start": start, "before grpc": before, "after close": afterClose,
+			"after grpc": afterGRPC, "done": done,
+		} {
+			assertEnrichedCtx(ct, name, fields)
+			assert.Equal(ct, start["trace_id"], fields["trace_id"], "%s left the handler's trace", name)
+		}
+
+		// closing B must not end A: the interceptor still logs under A's client span
+		assert.NotEqual(ct, before["span_id"], afterClose["span_id"], "B's Close ended A's context")
+		assert.NotEqual(ct, inGRPC["span_id"], afterClose["span_id"])
+		// A's own end restores the span that enclosed it
+		assert.Equal(ct, before["span_id"], afterGRPC["span_id"])
+		// and the handler gets its server span back
+		assert.Equal(ct, start["span_id"], done["span_id"])
+		if sqlDepth == 0 {
+			assert.Equal(ct, start["span_id"], before["span_id"])
+		} else {
+			// A ran inside the deepest SQL span
+			assert.NotEqual(ct, start["span_id"], before["span_id"])
+		}
+
+		// a finished request's context must not leak into the next one
+		prev := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "closeab: done "+reqPrefix+"-") && m != done["message"]
+		})
+		if prev != nil && prev["trace_id"] != "" {
+			assert.NotEqual(ct, done["trace_id"], prev["trace_id"],
+				"trace context leaked across requests")
+		}
+
+		traceID = start["trace_id"]
+		closeSpanID = afterClose["span_id"]
+	}, 2*testTimeout, time.Second)
+
+	// closing B must not drop A's invocation either: A's client span is still
+	// exported, with the span id the interceptor logged under
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := grpcClientSpanIDs(containerLogs(ct, cl, obiID), traceID)
+		assert.Contains(ct, exported, closeSpanID, "A's gRPC client span was not exported")
+	}, testTimeout, time.Second)
+}
+
+// grpcClientSpanIDs returns the span ids of the gRPC client spans OBI's text
+// trace printer wrote for traceID
+func grpcClientSpanIDs(obiLogs []string, traceID string) []string {
+	const tpPrefix = "traceparent=[00-"
+	var ids []string
+	for _, line := range obiLogs {
+		if !strings.Contains(line, "GRPCClient(") {
+			continue
+		}
+		_, tp, found := strings.Cut(line, tpPrefix+traceID+"-")
+		if !found || len(tp) < 16 {
+			continue
+		}
+		ids = append(ids, tp[:16])
+	}
+
+	return ids
+}
+
 // Generic-tracer variant: a sync Python handler with a nested HTTP client call
 func testLogEnricherNestedSpansPython(t *testing.T, constants testServerConstants) {
 	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
