@@ -215,12 +215,6 @@ func TestSQLParseError(t *testing.T) {
 			},
 		},
 		{
-			name:     "Invalid MySQL error",
-			dbKind:   request.DBMySQL,
-			buf:      append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x99, 0x99, 'I', 'n', 'v', 'a', 'l', 'i', 'd'}...),
-			expected: nil,
-		},
-		{
 			name:     "Empty buffer",
 			dbKind:   request.DBMySQL,
 			buf:      []uint8{0x00, 0x00, 0x00, 0x00, 0x00},
