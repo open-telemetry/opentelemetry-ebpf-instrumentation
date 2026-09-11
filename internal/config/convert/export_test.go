@@ -87,7 +87,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
-	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
+	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "traces"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "metrics"))
 	require.ElementsMatch(t, []string{
@@ -929,7 +929,7 @@ func TestGlobPatternsRegexMatchesGlobSemantics(t *testing.T) {
 func TestRuntimeToV2HTTPBodySizeMetrics(t *testing.T) {
 	t.Parallel()
 
-	t.Run("application alone leaves them off", func(t *testing.T) {
+	t.Run("application_red alone leaves them off", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := defaultRuntimeConfig()
@@ -945,6 +945,18 @@ func TestRuntimeToV2HTTPBodySizeMetrics(t *testing.T) {
 
 		cfg := defaultRuntimeConfig()
 		cfg.Metrics.Features = export.FeatureApplicationRED | export.FeatureApplicationSizes
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
+	})
+
+	// the default configuration uses the "application" bundle, so the key has to come out
+	// enabled for a deployment that never touched metrics.features
+	t.Run("default configuration keeps them on", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
 
 		_, ext := RuntimeToV2(&cfg)
 

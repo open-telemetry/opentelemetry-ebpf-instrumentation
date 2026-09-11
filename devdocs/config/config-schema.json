@@ -971,6 +971,7 @@
               "all",
               "application",
               "application_host",
+              "application_red",
               "application_runtime",
               "application_service_graph",
               "application_sizes",
@@ -1217,7 +1218,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes",
-          "default": 256,
+          "default": 768,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         }
       },

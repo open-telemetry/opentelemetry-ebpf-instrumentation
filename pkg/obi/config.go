@@ -230,7 +230,7 @@ var DefaultConfig = Config{
 		CacheTTL: 5 * time.Minute,
 	},
 	Metrics: perapp.GlobalMetricsConfig{
-		Features: export.FeatureApplicationRED,
+		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes,
 	},
 	OTELMetrics: otelcfg.MetricsConfig{
 		Protocol:        otelcfg.ProtocolUnset,
@@ -887,8 +887,9 @@ func (c *Config) validateAppSizeMetrics() error {
 			continue
 		}
 		if features.AppSizes() && !features.AppRED() {
-			return ConfigError("application_sizes needs the application RED metrics enabled in" +
-				" the same features list: add the 'application' feature next to 'application_sizes'")
+			return ConfigError("application_sizes needs the application RED metrics enabled in the" +
+				" same features list: use 'application', or add 'application_red' next to" +
+				" 'application_sizes'")
 		}
 	}
 	return nil

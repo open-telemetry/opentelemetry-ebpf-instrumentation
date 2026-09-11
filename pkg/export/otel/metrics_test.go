@@ -222,11 +222,14 @@ func TestOtelMetricOptions_BodySizeFeature(t *testing.T) {
 		return len(mr.otelMetricOptions())
 	}
 
-	// two duration histograms, server and client
+	// application_red: two duration histograms, server and client
 	assert.Equal(t, 2, views(export.FeatureApplicationRED))
-	// plus the four body size histograms
+	// the application bundle adds the four body size histograms
 	assert.Equal(t, 6, views(export.FeatureApplicationRED|export.FeatureApplicationSizes))
+	assert.Equal(t, 6, views(export.FeatureAll))
+	// sizes without the RED metrics set up nothing, which config validation rejects
 	assert.Equal(t, 0, views(export.FeatureApplicationSizes))
+	assert.Equal(t, 0, views(export.FeatureNetwork))
 }
 
 func TestAppMetrics_ByInstrumentation(t *testing.T) {

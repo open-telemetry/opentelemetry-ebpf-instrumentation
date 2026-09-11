@@ -35,8 +35,8 @@ const (
 	FeatureApplicationRED
 	// FeatureApplicationSizes emits the HTTP request and response body size histograms.
 	// The semantic conventions mark them Opt-In while the RED duration histograms are
-	// Recommended, so they are a feature of their own rather than part of
-	// FeatureApplicationRED.
+	// Recommended, so they are a bit of their own. The "application" name keeps enabling
+	// both, and "application_red" selects the RED metrics without them.
 	FeatureApplicationSizes
 	// FeatureSpanLegacy emits span metrics under the Grafana-convention
 	// traces_spanmetrics_* names.
@@ -76,7 +76,8 @@ var FeatureMapper = map[string]Features{
 	"network":                      FeatureNetwork,
 	"network_inter_zone":           FeatureNetworkInterZone,
 	"network_flow_packets":         FeatureNetworkFlowPackets,
-	"application":                  FeatureApplicationRED,
+	"application":                  FeatureApplicationRED | FeatureApplicationSizes,
+	"application_red":              FeatureApplicationRED,
 	"application_sizes":            FeatureApplicationSizes,
 	"application_span":             FeatureSpanLegacy,
 	"application_span_otel":        FeatureSpanOTel,

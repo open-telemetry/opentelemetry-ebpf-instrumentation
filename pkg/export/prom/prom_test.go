@@ -57,8 +57,9 @@ func TestAppMetrics_BodySizeFeature(t *testing.T) {
 		features export.Features
 		emitted  bool
 	}{
-		{name: "application and application_sizes", features: export.FeatureApplicationRED | export.FeatureApplicationSizes, emitted: true},
-		{name: "application only", features: export.FeatureApplicationRED, emitted: false},
+		{name: "application bundle", features: export.FeatureApplicationRED | export.FeatureApplicationSizes, emitted: true},
+		{name: "application_red only", features: export.FeatureApplicationRED, emitted: false},
+		{name: "all features", features: export.FeatureAll, emitted: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()

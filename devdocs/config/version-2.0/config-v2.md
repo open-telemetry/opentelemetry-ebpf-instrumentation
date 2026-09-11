@@ -186,7 +186,7 @@ extensions:
       # ...
       instrumentation:
         http:
-          enabled: { traces: true, metrics: true, body_size_metrics: false }
+          enabled: { traces: true, metrics: true, body_size_metrics: true }
           filters: { traces: {}, metrics: {} }
         grpc:
           enabled: { traces: true, metrics: true }

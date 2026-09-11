@@ -67,9 +67,6 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateV2HTTPRoutes(src.Capture.Instrumentation.HTTP.Routes, src.Capture.Rules); err != nil {
 		return nil, err
 	}
-	if err := validateV2HTTPBodySizeMetrics(src.Capture.Instrumentation.HTTP.Enabled); err != nil {
-		return nil, err
-	}
 	if err := validateV2HTTPPayloadExtraction(src.Capture.Instrumentation.HTTP.PayloadExtraction); err != nil {
 		return nil, err
 	}
@@ -652,16 +649,6 @@ func reconcileV2FlowLimitAliases(src *schema.Extension) error {
 		networkPackets,
 		maxTrackedFlows,
 	)
-}
-
-// validateV2HTTPBodySizeMetrics rejects the body size histograms without the HTTP metrics
-// they are emitted alongside, which would produce no telemetry at all.
-func validateV2HTTPBodySizeMetrics(enabled schema.HTTPProtocolEnablement) error {
-	if enabled.BodySizeMetrics && !enabled.Metrics {
-		return errors.New("capture.instrumentation.http.enabled.body_size_metrics needs" +
-			" capture.instrumentation.http.enabled.metrics")
-	}
-	return nil
 }
 
 func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {
@@ -2234,9 +2221,10 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete b
 		if appMetricsEnabled {
 			cfg.Metrics.Features |= export.FeatureApplicationRED
 
-			// the size histograms ride on the HTTP application metric pipeline, so they
-			// are only meaningful once the application metrics themselves are on
-			if src.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics {
+			// the size histograms ride on the HTTP metric pipeline, so they follow the
+			// HTTP metrics switch rather than the aggregate application one
+			http := src.Capture.Instrumentation.HTTP.Enabled
+			if http.Metrics && http.BodySizeMetrics {
 				cfg.Metrics.Features |= export.FeatureApplicationSizes
 			}
 		}

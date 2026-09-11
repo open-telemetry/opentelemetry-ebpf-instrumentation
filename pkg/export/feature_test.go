@@ -69,24 +69,49 @@ func TestFeatureEnv_Separator(t *testing.T) {
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
+// The three names form a bundle: "application" enables both halves, and the individual
+// names select them, mirroring how "stats" bundles the stats_* features.
 func TestFeatureApplicationSizes(t *testing.T) {
-	// the body size histograms are Opt-In in the semantic conventions, so they are no
-	// longer part of "application" and have to be requested explicitly
-	redOnly := mustLoadFeatures(t, "application")
-	assert.True(t, redOnly.AppRED())
-	assert.False(t, redOnly.AppSizes())
+	for _, tt := range []struct {
+		name     string
+		features []string
+		red      bool
+		sizes    bool
+	}{
+		{name: "application bundles both", features: []string{"application"}, red: true, sizes: true},
+		{name: "application_red alone", features: []string{"application_red"}, red: true},
+		{name: "application_sizes alone", features: []string{"application_sizes"}, sizes: true},
+		{name: "both halves listed", features: []string{"application_red", "application_sizes"}, red: true, sizes: true},
+		{name: "bundle plus a half is idempotent", features: []string{"application", "application_sizes"}, red: true, sizes: true},
+		{name: "bundle plus the other half", features: []string{"application", "application_red"}, red: true, sizes: true},
+		{name: "all", features: []string{"all"}, red: true, sizes: true},
+		{name: "wildcard", features: []string{"*"}, red: true, sizes: true},
+		{name: "unrelated feature only", features: []string{"network"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			features := mustLoadFeatures(t, tt.features...)
+			assert.Equal(t, tt.red, features.AppRED())
+			assert.Equal(t, tt.sizes, features.AppSizes())
+		})
+	}
+}
 
+// The size bit has to reach the masks that decide whether application telemetry is on at
+// all, otherwise a sizes-only list would look like "no application metrics requested".
+func TestFeatureApplicationSizesCountsAsAppO11y(t *testing.T) {
 	sizesOnly := mustLoadFeatures(t, "application_sizes")
-	assert.False(t, sizesOnly.AppRED())
-	assert.True(t, sizesOnly.AppSizes())
 
-	both := mustLoadFeatures(t, "application", "application_sizes")
-	assert.True(t, both.AppRED())
-	assert.True(t, both.AppSizes())
-
-	assert.True(t, FeatureAll.AppSizes())
 	assert.True(t, sizesOnly.AnyAppO11yMetric())
 	assert.True(t, sizesOnly.AppOrSpan())
+	assert.True(t, AppO11yFeatures.has(FeatureApplicationSizes))
+}
+
+// "application" has to keep meaning what it meant before the split, so that existing
+// feature lists are unaffected.
+func TestFeatureApplicationIsBackwardsCompatible(t *testing.T) {
+	assert.Equal(t,
+		FeatureApplicationRED|FeatureApplicationSizes,
+		mustLoadFeatures(t, "application"))
 }
 
 func TestFeatureApplicationAliasDoesNotIncludeRuntime(t *testing.T) {

@@ -363,8 +363,9 @@ reshaped:
 - `discovery.instrument` and related glob selectors become glob rules;
 - deprecated exporter `features` values are normalized through
   `metrics.features` and then split across protocol and network enablement;
-- `application_sizes` becomes
-  `capture.instrumentation.http.enabled.body_size_metrics`.
+- the HTTP body size histograms carried by `application` and `application_sizes`
+  become `capture.instrumentation.http.enabled.body_size_metrics`, and
+  `application_red` maps to the same key set to false.
 
 Selector naming, per-selector metric features and samplers, and exclusion-rule
 refinements are not part of that reshape; the command rejects them as described

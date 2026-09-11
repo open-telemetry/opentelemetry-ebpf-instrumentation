@@ -8,7 +8,6 @@ data:
       port: 8999
       features:
         - application
-        - application_sizes
         - network
         - application_span
         - application_service_graph

@@ -63,8 +63,8 @@
         },
         "body_size_metrics": {
           "type": "boolean",
-          "default": false,
-          "description": "Emit the HTTP request and response body size histograms.\nThey are Opt-In in the semantic conventions and require `metrics`.\nIf omitted, false is used.\n"
+          "default": true,
+          "description": "Emit the HTTP request and response body size histograms.\nRequires `metrics`. Set it to false to keep the RED metrics without them.\nIf omitted, true is used.\n"
         }
       }
     },
