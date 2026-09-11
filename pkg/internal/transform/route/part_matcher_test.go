@@ -64,6 +64,18 @@ func TestPartialRouteMatcherWildcards(t *testing.T) {
 	assert.Equal(t, "/admin/{role}/users/{id}", m.Find("/admin/moderator/users/789"))
 }
 
+func TestPartialRouteMatcherDotnetWildcards(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/customers/{id:int}",
+		"/archive/{id?}",
+		"/files/{**path}",
+	})
+
+	assert.Equal(t, "/customers/{id:int}", m.Find("/customers/42"))
+	assert.Equal(t, "/archive/{id?}", m.Find("/archive/2026"))
+	assert.Equal(t, "/files/{**path}", m.Find("/files/a/b/c"))
+}
+
 func TestPartialRouteMatcherExactMatches(t *testing.T) {
 	m := NewPartialRouteMatcher([]string{
 		"/health",
