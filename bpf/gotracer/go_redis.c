@@ -16,6 +16,7 @@
 //go:build obi_bpf_ignore
 
 #include <bpfcore/utils.h>
+#include <bpfcore/bpf_builtins.h>
 
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
@@ -27,7 +28,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 SCRATCH_MEM_TYPED(req_client, redis_client_req_t);
 
@@ -35,8 +36,9 @@ static __always_inline void setup_request(void *goroutine_addr) {
     redis_client_req_t *req = req_client_mem();
 
     if (req) {
+        bpf_memset(req, 0, sizeof(*req));
+
         req->type = k_event_type_go_redis;
-        req->buf_len = 0;
         req->start_monotime_ns = bpf_ktime_get_ns();
 
         go_addr_key_t g_key = {};
@@ -62,7 +64,7 @@ int GUARDED_PROG(obi_uprobe_redis_process, struct pt_regs *, ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
     redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
     if (req) {
-        obi_ctx__set(bpf_get_current_pid_tgid(), &req->tp);
+        go_obi_ctx__begin(&g_key, k_obi_ctx_redis, &req->tp, go_obi_ctx__stack_off(ctx));
     }
 
     return 0;
@@ -88,8 +90,8 @@ int GUARDED_PROG(obi_uprobe_redis_process_ret, struct pt_regs *, ctx) {
         }
     }
 
+    go_obi_ctx__end(&g_key, k_obi_ctx_redis, req ? &req->tp : NULL);
     bpf_map_delete_elem(&ongoing_redis_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }

@@ -46,7 +46,7 @@ services:
       - edge-apache
 
   obi:
-    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.12.2@sha256:750df53abff8d104f757b7f9a42ee88808db69d43cc338ab1819c00273b9422b}
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.13.0@sha256:5e89d7478b5feeb8ee73881c58bfe5bb0ccb6dcd4f8cd62e30457aa6e6426adb}
     container_name: obi-apache-example
     command:
       - --config=/config/obi-config.yaml
@@ -63,6 +63,6 @@ services:
       - lgtm
 
   lgtm:
-    image: grafana/otel-lgtm:0.32.1@sha256:7fd8eaad6bb64897ad5f644c8e15ee67c3204c97168f4bdba122adbf8f60e3c4
+    image: grafana/otel-lgtm:0.33.0@sha256:475319e883b66594d1a2f22ef168c2459802bb94548e6f25d9782bd5f5c19a3a
     container_name: lgtm-apache-example
     network_mode: host

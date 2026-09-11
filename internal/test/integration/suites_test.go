@@ -22,12 +22,12 @@ import (
 // left the integration suite vulnerable to a compromise of the OBI ghcr
 // publish workflow swapping in a malicious image.
 const (
-	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.1@sha256:063c5013cc4cccfd015a054d2595a4a09105eba549cb96e1a2aac7456f831b5b"
-	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.1@sha256:474c4c5a836c99aa023ca8fb16693cd5f9edb5c22501c17069992fd4e87aaf48"
-	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.1@sha256:c818c207ff40f474e8f7cd183f58d47a0dce8030c89cf1b44bfc18a7f625da28"
-	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.1@sha256:52868bb841454f657a3797c4d7cd255d5fa25e84e1d97be0c9ef6c59502a0a9b"
-	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.1@sha256:d51943f3b10e73a8e924c4cf2f06815172a7332ecfa4618765b2ba342dd7c10f"
-	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.1@sha256:770361b1480c2301829951c83230caa268a0761de255cdd2ef79885180f3245f"
+	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.2@sha256:29071ef19d2e1ba185d37740063620451238dad152ee4ad1667e2f53bea84ac3"
+	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.2@sha256:9c6f5aa45ad87858c708c74fa1f57d62ed7d3d4084c031ca389a4c5efce44766"
+	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.2@sha256:0ef752a0e3718b1fb8a6039d8c34b642b328c7304ce840047f23e030fa2c5116"
+	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.2@sha256:4061eed69880e06012287e8750a58f5220e0ff6c73f33c656615c98535601b98"
+	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.2@sha256:ea4b000400f06ba09e7e0e5cbaa09c04da8417024ecc163ef942f657b5ef4266"
+	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.2@sha256:a3099e869dcbc41c9e2a2bd048718d774f765599483fc67d361147418c0f6ef5"
 )
 
 func TestSuite_Go(t *testing.T) {
@@ -200,6 +200,7 @@ func TestSuite_NoDebugInfo(t *testing.T) {
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("HTTP traces (url.query redaction)", testHTTPTracesURLQuery)
+	t.Run("HTTP traces (unknown method clamped to _OTHER)", testHTTPTracesUnknownMethod)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
@@ -416,7 +417,7 @@ func TestSuite_NodeJS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "testserver") })
-	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver", true) })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver", true, "nodejs") })
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
 	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	t.Run("HTTP manual spans (background span isolation)", testHTTPTracesNodeManualBackgroundSpan)
@@ -431,7 +432,7 @@ func TestSuite_Deno(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
 	require.NoError(t, compose.Up())
 	t.Run("Deno RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "denoserver") })
-	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver", false) })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver", false, "deno-rust") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -453,7 +454,7 @@ func TestSuite_Rails(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`, `TESTSERVER_IMAGE=`+obiTestImgRails)
 	require.NoError(t, compose.Up())
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "testapi") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -473,7 +474,7 @@ func TestSuite_RailsNginxSupportFloor(t *testing.T) {
 	)
 	require.NoError(t, compose.Up())
 
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "testapi") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -488,7 +489,7 @@ func TestSuite_RailsRuby302Puma5(t *testing.T) {
 	t.Run("Ruby/Puma support contract", func(t *testing.T) {
 		assertRubyPumaSupportVersion(t, compose, "3.0.2", "5.6.6")
 	})
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -500,7 +501,7 @@ func TestSuite_RailsNginxSQL(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, compose.Up())
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX SQL traces nested", testHTTPTracesNestedNginxSQL)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -512,7 +513,7 @@ func TestSuite_RailsTLS(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgRailsSSL, `TEST_SERVICE_PORTS=3044:3043`)
 	require.NoError(t, compose.Up())
-	t.Run("Rails SSL RED metrics", testREDMetricsRailsHTTPS)
+	t.Run("Rails SSL RED metrics", func(t *testing.T) { testREDMetricsRailsHTTPS(t, "testapi") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -803,6 +804,18 @@ func TestSuite_PythonRedis(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Redis metrics", testREDMetricsPythonRedisOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonRedisPipeline(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-redis-pipeline.yml", path.Join(pathOutput, "test-suite-python-redis-pipeline.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Redis pipeline traces", testTracesRedisPipeline)
+	t.Run("Redis pipeline traces without a parent", testTracesRedisPipelineNoParent)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1197,6 +1210,9 @@ func TestSuite_LogEnricherHTTP(t *testing.T) {
 	t.Run("Log Enricher HTTP", func(t *testing.T) {
 		testLogEnricher(t, logEnricherHTTPConstants)
 	})
+	t.Run("Log Enricher nested spans python", func(t *testing.T) {
+		testLogEnricherNestedSpansPython(t, logEnricherHTTPConstants)
+	})
 	require.NoError(t, compose.Close())
 }
 
@@ -1215,6 +1231,29 @@ func TestSuite_LogEnricherGoGRPC(t *testing.T) {
 	})
 	t.Run("Log Enricher plain text", func(t *testing.T) {
 		testLogEnricherPlainText(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans", func(t *testing.T) {
+		testLogEnricherNestedSpans(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans goroutine", func(t *testing.T) {
+		testLogEnricherNestedSpansGoroutine(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans deep", func(t *testing.T) {
+		testLogEnricherNestedSpansDeep(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans same kind", func(t *testing.T) {
+		testLogEnricherNestedSpansSameKind(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans close goroutine", func(t *testing.T) {
+		testLogEnricherNestedSpansCloseGoroutine(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans close A/B", func(t *testing.T) {
+		testLogEnricherNestedSpansCloseAB(t, logEnricherGoGRPCConstants, 0, "abreq")
+	})
+	t.Run("Log Enricher nested spans close A/B overflowed", func(t *testing.T) {
+		// the stack holds k_obi_ctx_max_depth (4) frames: the HTTP server span
+		// plus three SQL spans fill it, so A's gRPC client span is only counted
+		testLogEnricherNestedSpansCloseAB(t, logEnricherGoGRPCConstants, 3, "abdeep")
 	})
 	require.NoError(t, compose.Close())
 }

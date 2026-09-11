@@ -343,7 +343,7 @@ func testGRPCKProbeTraces(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 }
 
-func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID bool) {
+func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID bool, sdkLanguage string) {
 	var traceID string
 	var parentID string
 
@@ -404,15 +404,15 @@ func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID 
 		assert.Regexp(t, `^integration-test\.`+serviceName+`\.`, serviceInstance.Value)
 	}
 
-	jaeger.Diff([]jaeger.Tag{
+	pd := jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
-		{Key: "telemetry.sdk.language", Type: "string", Value: "nodejs"},
+		{Key: "telemetry.sdk.language", Type: "string", Value: sdkLanguage},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
 		serviceInstance,
 	}, process.Tags)
-	assert.Empty(t, sd, sd.String())
+	assert.Empty(t, pd, pd.String())
 }
 
 func testHTTPTracesNestedCalls(t *testing.T) {
@@ -1472,9 +1472,9 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 	assert.Equal(t, processing.SpanID, p.SpanID)
 	sd = sig.Diff(
 		jaeger.Tag{Key: "error", Type: "bool", Value: bool(true)},
-		jaeger.Tag{Key: "error message", Type: "string", Value: "some unknown error"},
+		jaeger.Tag{Key: "exception.message", Type: "string", Value: "some unknown error"},
 		jaeger.Tag{Key: "otel.status_code", Type: "string", Value: "ERROR"},
-		jaeger.Tag{Key: "impact", Type: "int64", Value: float64(11)},
+		jaeger.Tag{Key: "obitest.impact", Type: "int64", Value: float64(11)},
 	)
 	assert.Empty(t, sd, sd.String())
 
@@ -1487,8 +1487,8 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 	assert.Equal(t, sig.TraceID, p.TraceID)
 	assert.Equal(t, sig.SpanID, p.SpanID)
 	sd = sigInner1.Diff(
-		jaeger.Tag{Key: "user", Type: "string", Value: "user1"},
-		jaeger.Tag{Key: "admin", Type: "bool", Value: bool(true)},
+		jaeger.Tag{Key: "obitest.user", Type: "string", Value: "user1"},
+		jaeger.Tag{Key: "obitest.admin", Type: "bool", Value: bool(true)},
 	)
 	assert.Empty(t, sd, sd.String())
 
@@ -1501,9 +1501,9 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 	assert.Equal(t, sig.TraceID, p.TraceID)
 	assert.Equal(t, sig.SpanID, p.SpanID)
 	sd = sigInner2.Diff(
-		jaeger.Tag{Key: "test", Type: "string", Value: "append"},
-		jaeger.Tag{Key: "user", Type: "string", Value: "user2"},
-		jaeger.Tag{Key: "admin", Type: "bool", Value: bool(true)},
+		jaeger.Tag{Key: "obitest.test", Type: "string", Value: "append"},
+		jaeger.Tag{Key: "obitest.user", Type: "string", Value: "user2"},
+		jaeger.Tag{Key: "obitest.admin", Type: "bool", Value: bool(true)},
 	)
 	assert.Empty(t, sd, sd.String())
 }
@@ -1582,11 +1582,13 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 	}
 
 	for i := 1; i <= requests; i++ {
+		slugJg := "%7Breq_id%7D"
 		slug := strconv.Itoa(i)
 		urlPath := endpoint + slug
+		opName := endpoint + "{req_id}"
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-uvloop&operation=GET%20" + endpoint + slug)
+			resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-uvloop&operation=GET%20" + endpoint + slugJg)
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -1611,7 +1613,7 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 				}
 			}
 
-			res := trace.FindByOperationName("GET "+urlPath, "server")
+			res := trace.FindByOperationName("GET "+opName, "server")
 			require.GreaterOrEqualf(
 				ct,
 				len(res),
@@ -2004,4 +2006,58 @@ func testHTTPTracesNoNestedCalls(t *testing.T) {
 	// to be very low, to test that long running transactions break
 	res = trace.FindByOperationName("GET /echoBack", "client")
 	require.Empty(t, res)
+}
+
+// A method outside the semconv http.request.method enum has to be reported as
+// _OTHER, with the wire value moved to http.request.method_original. Without
+// the clamp http.request.method carries arbitrary bytes off the request line.
+func testHTTPTracesUnknownMethod(t *testing.T) {
+	const (
+		slug = "unknown-method"
+		// Kept within 7 bytes so the same assertion holds on the Go uprobe path,
+		// whose method field is k_method_max_len wide.
+		method = "PURGE"
+	)
+
+	// Ensure OBI is attached before sending the single marker request; this
+	// subtest may run first (e.g. filtered runs), without prior warm-up.
+	waitForTestComponents(t, instrumentedServiceStdURL)
+
+	req, err := http.NewRequest(method, instrumentedServiceStdURL+"/"+slug, nil)
+	require.NoError(t, err)
+	resp, err := testHTTPClient.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	var span jaeger.Span
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		r, err := http.Get(jaegerQueryURL + "?service=testserver&limit=1000")
+		require.NoError(ct, err)
+		if r == nil {
+			return
+		}
+		defer r.Body.Close()
+		require.Equal(ct, http.StatusOK, r.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
+
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug})
+		require.NotEmpty(ct, traces)
+
+		found := false
+		for _, s := range traces[len(traces)-1].Spans {
+			if _, ok := jaeger.FindIn(s.Tags, "http.request.method_original"); ok {
+				span, found = s, true
+				break
+			}
+		}
+		require.True(ct, found, "no span carrying http.request.method_original")
+	}, testTimeout, 100*time.Millisecond)
+
+	sd := span.Diff(
+		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "_OTHER"},
+		jaeger.Tag{Key: "http.request.method_original", Type: "string", Value: method},
+	)
+	assert.Empty(t, sd, sd.String())
 }

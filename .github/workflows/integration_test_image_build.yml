@@ -1,0 +1,75 @@
+name: Build integration test image
+on:
+  workflow_call:
+    inputs:
+      tag_id:
+        description: "obi-testimg tag prefix (e.g. go, java-tls)"
+        required: true
+        type: string
+      file:
+        description: "Dockerfile path relative to repository root"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: open-telemetry/obi-testimg
+
+jobs:
+  build:
+    name: ${{ inputs.tag_id }} (${{ matrix.platform.artifact_suffix }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            artifact_suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            artifact_suffix: arm64
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
+      packages: write # push single-platform image layers by digest
+      attestations: write # SLSA provenance from docker/build-push-action
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: 'false'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: "${{ env.REGISTRY }}/${{ env.IMAGE }}"
+
+      - name: Build and push by digest
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          platform: ${{ matrix.platform.platform }}
+          tag-id: ${{ inputs.tag_id }}
+          file: ${{ inputs.file }}
+
+      - name: Upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: obi-testimg-digest-${{ matrix.platform.artifact_suffix }}-${{ inputs.tag_id }}
+          path: ${{ runner.temp }}/obi-testimg-digests/${{ inputs.tag_id }}
+          if-no-files-found: error
+          retention-days: 1

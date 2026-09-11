@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/signal"
 	"regexp"
@@ -19,6 +21,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,7 +42,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
-	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -52,8 +54,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	timeNow = now.Now
 
 	ctx := t.Context()
-	openPort := testutil.FreeTCPPort(t)
-	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+	registry, promURL := newPrometheusTestServer(t)
 
 	var g attributes.AttrGroups
 	g.Add(attributes.GroupKubernetes)
@@ -74,7 +75,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			MetricAttributeGroups: g,
 		},
 		&PrometheusConfig{
-			Port:                        openPort,
+			Registry:                    registry,
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
@@ -506,11 +507,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			timeNow = now.Now
 
 			ctx := t.Context()
-			openPort := testutil.FreeTCPPort(t)
-			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+			registry, promURL := newPrometheusTestServer(t)
 
 			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
-			exporter := makePromExporter(ctx, t, tt.instr, openPort, promInput)
+			exporter := makePromExporter(ctx, t, tt.instr, registry, promInput)
 			go exporter(ctx)
 
 			promInput.Send([]request.Span{
@@ -699,21 +699,14 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 	timeNow = now.Now
 
 	ctx := t.Context()
-	openPort := testutil.FreeTCPPort(t)
-
-	// Grab the port we just allocated for something else
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Hello, %v, http: %v\n", r.URL.Path, r.TLS == nil)
-	})
-	server := http.Server{Addr: fmt.Sprintf(":%d", openPort), Handler: handler}
-
-	go func() {
-		err := server.ListenAndServe()
-		t.Logf("Terminating server %v\n", err)
-	}()
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, listener.Close()) })
+	openPort := listener.Addr().(*net.TCPAddr).Port
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
+	t.Cleanup(func() { signal.Stop(sigChan) })
 
 	pm := connector.PrometheusManager{}
 
@@ -890,6 +883,17 @@ func exemplarLabelValue(exemplar *dto.Exemplar, name string) string {
 
 var mmux = sync.Mutex{}
 
+func newPrometheusTestServer(t *testing.T) (*prometheus.Registry, string) {
+	t.Helper()
+	registry := prometheus.NewRegistry()
+	server := httptest.NewServer(promhttp.HandlerFor(registry, promhttp.HandlerOpts{
+		Registry:          registry,
+		EnableOpenMetrics: true,
+	}))
+	t.Cleanup(server.Close)
+	return registry, server.URL
+}
+
 func getMetrics(t require.TestingT, promURL string) string {
 	mmux.Lock()
 	defer mmux.Unlock()
@@ -926,14 +930,15 @@ func (c *syncedClock) Advance(t time.Duration) {
 }
 
 func makePromExporter(
-	ctx context.Context, t *testing.T, instrumentations []instrumentations.Instrumentation, openPort int,
+	ctx context.Context, t *testing.T, instrumentations []instrumentations.Instrumentation,
+	registry *prometheus.Registry,
 	input *msg.Queue[[]request.Span],
 ) swarm.RunFunc {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	exporter, err := PrometheusEndpoint(
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&PrometheusConfig{
-			Port:                        openPort,
+			Registry:                    registry,
 			Path:                        "/metrics",
 			TTL:                         300 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
@@ -969,12 +974,11 @@ func TestPrometheusGenAITokenAvailability(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			openPort := testutil.FreeTCPPort(t)
-			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+			registry, promURL := newPrometheusTestServer(t)
 			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			exporter := makePromExporter(ctx, t,
 				[]instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
-				openPort,
+				registry,
 				input,
 			)
 			go exporter(ctx)
@@ -1450,8 +1454,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 
 func TestOverridingCloudHostIDKey(t *testing.T) {
 	ctx := t.Context()
-	openPort := testutil.FreeTCPPort(t)
-	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+	registry, promURL := newPrometheusTestServer(t)
 
 	var g attributes.AttrGroups
 	g.Add(attributes.GroupKubernetes)
@@ -1472,7 +1475,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 			MetricAttributeGroups: g,
 		},
 		&PrometheusConfig{
-			Port:                        openPort,
+			Registry:                    registry,
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
@@ -1521,4 +1524,94 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 		exported := getMetrics(ct, promURL)
 		assert.Regexp(ct, containsTracesHostInfo, exported)
 	}, timeout, 10*time.Millisecond)
+}
+
+// A span with no measured duration stays out of the RED series, whose buckets are only
+// meaningful next to a duration. otelSpanFiltered still passes it, so the service graph
+// can count the call.
+func TestREDMetricsWithholdDurationsFromUnmeasuredSpans(t *testing.T) {
+	mr := metricsReporter{cfg: &PrometheusConfig{}}
+
+	svcRED := svc.Attrs{Features: export.FeatureApplicationRED}
+
+	unmeasured := request.Span{
+		Service: svcRED, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/r",
+		RequestStart: 100, End: 6_000_000_000, ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	// The control differs only in having been observed.
+	measured := request.Span{
+		Service: svcRED, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/r",
+		RequestStart: 100, End: 200, Status: 200,
+	}
+
+	assert.True(t, mr.otelMetricsObserved(&measured),
+		"an observed call is in the RED series")
+	assert.True(t, mr.otelMetricsObserved(&unmeasured),
+		"a call with no measured duration is still in the RED family: the request it sent "+
+			"has a known size even though its duration says more than the request")
+	assert.False(t, mr.otelSpanFiltered(&unmeasured),
+		"it is withheld from durations, not filtered out of every metric")
+}
+
+// A call whose response was never observed still sent a request, and the size of that
+// request is known. Withholding the duration must not withhold what the request itself
+// carried. The response size stays out: an unmeasured record carries a zeroed response
+// length, and publishing it would report an empty response for a call whose response was
+// never seen.
+func TestREDMetricsUnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
+	ctx := t.Context()
+	registry, promURL := newPrometheusTestServer(t)
+
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{
+			Registry:                    registry,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+
+	go exporter(ctx)
+
+	svcAttrs := svc.Attrs{
+		Features: export.FeatureApplicationRED,
+		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+	}
+
+	unmeasured := request.Span{
+		Service:             svcAttrs,
+		Type:                request.EventTypeHTTPClient,
+		Method:              "GET",
+		Route:               "/unmeasured",
+		RequestStart:        100,
+		End:                 6 * time.Second.Nanoseconds(),
+		ContentLength:       512,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	promInput.Send([]request.Span{unmeasured})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, "http_client_request_body_size_bytes_count",
+			"the size of the request that was sent is known and must be reported")
+		assert.NotContains(ct, exported, "http_client_request_duration_seconds_count",
+			"a duration that runs past the request it describes was published")
+		assert.NotContains(ct, exported, "http_client_response_body_size_bytes_count",
+			"a response nobody saw was reported as having a size")
+	}, timeout, 100*time.Millisecond)
 }

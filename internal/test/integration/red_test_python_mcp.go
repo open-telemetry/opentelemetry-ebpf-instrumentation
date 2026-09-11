@@ -102,7 +102,7 @@ func mcpInitSession(t *testing.T, address string) string {
 
 func testPythonMCPServer(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 
@@ -137,7 +137,7 @@ func testPythonMCPServer(t *testing.T) {
 		lastTrace := traces[len(traces)-1]
 		// The trace may contain child spans ("in queue", "processing");
 		// locate the MCP server span by its expected operation name.
-		res := lastTrace.FindByOperationName("execute_tool get-weather", "server")
+		res := lastTrace.FindByOperationName("tools/call get-weather", "server")
 		require.GreaterOrEqual(ct, len(res), 1)
 		span := res[0]
 
@@ -186,7 +186,7 @@ func testPythonMCPServer(t *testing.T) {
 		require.GreaterOrEqual(ct, len(traces), 1)
 
 		lastTrace := traces[len(traces)-1]
-		res := lastTrace.FindByOperationName("execute_tool nonexistent", "server")
+		res := lastTrace.FindByOperationName("tools/call nonexistent", "server")
 		require.GreaterOrEqual(ct, len(res), 1)
 		span := res[0]
 
@@ -202,7 +202,7 @@ func testPythonMCPServer(t *testing.T) {
 
 func testPythonMCPInitialize(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 
@@ -239,11 +239,13 @@ func testPythonMCPInitialize(t *testing.T) {
 
 		sd := span.Diff(
 			jaeger.Tag{Key: "mcp.method.name", Type: "string", Value: "initialize"},
-			jaeger.Tag{Key: "gen_ai.operation.name", Type: "string", Value: "initialize"},
 			jaeger.Tag{Key: "mcp.protocol.version", Type: "string", Value: "2025-03-26"},
 			jaeger.Tag{Key: "jsonrpc.request.id", Type: "string", Value: "10"},
 		)
 		assert.Empty(ct, sd, sd.String())
+
+		_, found := jaeger.FindIn(span.Tags, "gen_ai.operation.name")
+		assert.False(ct, found, "gen_ai.operation.name is set for tool calls only")
 	}, testTimeout, 100*time.Millisecond)
 }
 
@@ -253,7 +255,7 @@ func testPythonMCPInitialize(t *testing.T) {
 // MCP span and the peer attributes that come with it.
 func testPythonMCPClient(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 
@@ -265,7 +267,7 @@ func testPythonMCPClient(t *testing.T) {
 	// The outbound call the tool makes, named after the tool it invokes on the
 	// remote server. Scoping the query to it keeps the server-side traces the
 	// retry loop generates from filling the result page.
-	params.Add("operation", "execute_tool get-weather")
+	params.Add("operation", "tools/call get-weather")
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -289,7 +291,7 @@ func testPythonMCPClient(t *testing.T) {
 		var clientSpans []jaeger.Span
 		for _, trace := range tq.Data {
 			clientSpans = append(clientSpans,
-				trace.FindByOperationNameServiceAndKind("execute_tool get-weather", comm, "client")...)
+				trace.FindByOperationNameServiceAndKind("tools/call get-weather", comm, "client")...)
 		}
 		require.NotEmpty(ct, clientSpans, "no client-kind MCP span found")
 
@@ -313,7 +315,7 @@ func testPythonMCPClient(t *testing.T) {
 // reading a resource from the remote server is what carries mcp.resource.uri.
 func testPythonMCPClientResource(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/mcp"
 	)
 

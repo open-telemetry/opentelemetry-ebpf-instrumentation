@@ -4,7 +4,6 @@
 package prom
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
-	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -30,8 +28,7 @@ func TestMetricsExpiration(t *testing.T) {
 
 	ctx := t.Context()
 
-	openPort := testutil.FreeTCPPort(t)
-	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+	registry, promURL := newPrometheusTestServer(t)
 
 	// GIVEN a Prometheus Metrics Exporter with a metrics expire time of 3 minutes
 	metrics := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(20))
@@ -39,7 +36,7 @@ func TestMetricsExpiration(t *testing.T) {
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&NetPrometheusConfig{
 			Config: &PrometheusConfig{
-				Port:                        openPort,
+				Registry:                    registry,
 				Path:                        "/metrics",
 				TTL:                         3 * time.Minute,
 				SpanMetricsServiceCacheSize: 10,

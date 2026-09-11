@@ -5,6 +5,7 @@ package obi
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/collector/confmap"
 
@@ -263,6 +265,7 @@ discovery:
 				GenAIClientDurationHistogram: export.DefaultBuckets.GenAIClientDurationHistogram,
 				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
 				V8JSGCDurationHistogram:      export.DefaultBuckets.V8JSGCDurationHistogram,
+				JVMGCDurationHistogram:       export.DefaultBuckets.JVMGCDurationHistogram,
 			},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
@@ -315,6 +318,7 @@ discovery:
 				GenAIClientDurationHistogram: []float64{5, 6, 7, 8},
 				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
 				V8JSGCDurationHistogram:      export.DefaultBuckets.V8JSGCDurationHistogram,
+				JVMGCDurationHistogram:       export.DefaultBuckets.JVMGCDurationHistogram,
 			},
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
@@ -1570,5 +1574,118 @@ func TestUnmarshalConfmapSequences(t *testing.T) {
 				assert.False(t, modes.CanExportLogs())
 			})
 		}
+	})
+
+	t.Run("comma-separated network CIDRs", func(t *testing.T) {
+		cfg := unmarshal(t, map[string]any{
+			"network": map[string]any{"cidrs": "10.0.0.0/8,192.168.0.0/16"},
+		})
+		assert.Equal(t, cidr.Definitions{
+			{CIDR: "10.0.0.0/8"},
+			{CIDR: "192.168.0.0/16"},
+		}, cfg.NetworkFlows.CIDRs)
+	})
+}
+
+func TestConfigCIDRShapePreserved(t *testing.T) {
+	expected := []any{
+		"10.0.0.0/8",
+		map[string]any{"cidr": "192.168.0.0/16", "name": "private"},
+		map[string]any{"cidr": "172.16.0.0/12"},
+	}
+
+	loaders := []struct {
+		name string
+		load func(t *testing.T) *Config
+	}{
+		{
+			name: "LoadConfig",
+			load: func(t *testing.T) *Config {
+				cfg, err := LoadConfig(strings.NewReader(`network:
+  cidrs:
+    - 10.0.0.0/8
+    - cidr: 192.168.0.0/16
+      name: private
+    - cidr: 172.16.0.0/12
+`))
+				require.NoError(t, err)
+				return cfg
+			},
+		},
+		{
+			name: "Config.Unmarshal",
+			load: func(t *testing.T) *Config {
+				cfg := DefaultConfig
+				err := cfg.Unmarshal(confmap.NewFromStringMap(map[string]any{
+					"network": map[string]any{
+						"cidrs": expected,
+					},
+				}))
+				require.NoError(t, err)
+				return &cfg
+			},
+		},
+	}
+
+	for _, loader := range loaders {
+		t.Run(loader.name, func(t *testing.T) {
+			cfg := loader.load(t)
+			configYAML, err := yaml.Marshal(cfg)
+			require.NoError(t, err)
+
+			t.Run("YAML", func(t *testing.T) {
+				assertConfigCIDRs(t, configYAML, expected, yaml.Unmarshal)
+			})
+
+			t.Run("JSON", func(t *testing.T) {
+				var configMap map[string]any
+				require.NoError(t, yaml.Unmarshal(configYAML, &configMap))
+				configJSON, err := json.Marshal(configMap)
+				require.NoError(t, err)
+				assertConfigCIDRs(t, configJSON, expected, json.Unmarshal)
+			})
+		})
+	}
+}
+
+func assertConfigCIDRs(
+	t *testing.T,
+	data []byte,
+	expected []any,
+	unmarshal func([]byte, any) error,
+) {
+	t.Helper()
+	var configMap map[string]any
+	require.NoError(t, unmarshal(data, &configMap))
+	network, ok := configMap["network"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, expected, network["cidrs"])
+}
+
+func TestConfigValidate_TracesCompression(t *testing.T) {
+	base := func(protocol, compression string) envMap {
+		return envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":             "foo",
+			"OTEL_EBPF_TRACE_PRINTER":               "text",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":    "http://localhost:4317",
+			"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL":    protocol,
+			"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION": compression,
+		}
+	}
+
+	t.Run("gzip over grpc", func(t *testing.T) {
+		require.NoError(t, loadConfig(t, base("grpc", "gzip")).Validate())
+	})
+
+	t.Run("none over http", func(t *testing.T) {
+		require.NoError(t, loadConfig(t, base("http/protobuf", "none")).Validate())
+	})
+
+	t.Run("a codec receivers need not support is rejected", func(t *testing.T) {
+		require.Error(t, loadConfig(t, base("grpc", "zstd")).Validate())
+	})
+
+	t.Run("unknown codec is rejected", func(t *testing.T) {
+		require.Error(t, loadConfig(t, base("http/protobuf", "not-a-codec")).Validate())
 	})
 }

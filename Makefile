@@ -210,12 +210,12 @@ MARKDOWNIMAGE = $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERF
 .PHONY: lint-markdown
 lint-markdown:
 	@echo "### Linting markdown"
-	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml **/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml "**/*.md"
 
 .PHONY: lint-markdown-fix
 lint-markdown-fix:
 	@echo "### Formatting markdown"
-	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml --fix **/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml --fix "**/*.md"
 
 .PHONY: update-offsets
 update-offsets:
@@ -803,14 +803,18 @@ go-notices-update:
 	@$(OCI_BIN) run --rm \
 		$(if $(findstring podman,$(OCI_BIN)),,-u "$(DOCKER_USER)") \
 		-v "$(CURDIR):/src:z" \
-		-e HOME=/tmp -e GOTOOLCHAIN=local -e GOMODCACHE=/tmp/gomod \
+		-e HOME=/tmp -e GOTOOLCHAIN=local -e GOMODCACHE=/tmp/gomod -e GOFLAGS=-mod=mod \
 		-w /src \
 		$(GOLANG_IMAGE) \
 		sh -c 'set -e; \
 			go build -modfile=internal/tools/go.mod -o /tmp/go-licenses github.com/google/go-licenses/v2; \
 			for arch in $(GO_NOTICES_ARCHES); do \
 				echo "### linux/$$arch"; \
-				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=$(NOTICES_DIR)/$$arch --force; \
+				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=/tmp/notices-$$arch --force; \
+			done; \
+			for arch in $(GO_NOTICES_ARCHES); do \
+				rm -rf $(NOTICES_DIR)/$$arch; \
+				mv /tmp/notices-$$arch $(NOTICES_DIR)/$$arch; \
 			done'
 
 # Guarded with test -d: the directory is absent in build contexts that only

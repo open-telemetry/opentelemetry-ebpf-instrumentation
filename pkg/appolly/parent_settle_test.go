@@ -104,7 +104,7 @@ func TestSettleChildInsideParentKeepsLink(t *testing.T) {
 	assert.Equal(t, parentSpan, [8]byte(child.ParentSpanID))
 }
 
-func TestSettleChildAfterParentEndIsRerooted(t *testing.T) {
+func TestSettleChildAfterParentEndIsDetached(t *testing.T) {
 	s, out := testSettler(t, time.Minute)
 
 	// parent finished at 50, child starts at 100
@@ -114,7 +114,7 @@ func TestSettleChildAfterParentEndIsRerooted(t *testing.T) {
 	got := collect(t, out)
 	require.Len(t, got, 2)
 	child := got[1]
-	assert.NotEqual(t, testTrace, [16]byte(child.TraceID))
+	assert.Equal(t, testTrace, [16]byte(child.TraceID))
 	assert.False(t, child.ParentSpanID.IsValid())
 }
 
@@ -134,7 +134,7 @@ func TestSettleChildHeldUntilParentArrives(t *testing.T) {
 	}
 }
 
-func TestSettleLateChildReleasedByParentAndRerooted(t *testing.T) {
+func TestSettleLateChildReleasedByParentAndDetached(t *testing.T) {
 	s, out := testSettler(t, time.Minute)
 
 	s.process(context.Background(), []request.Span{conditionalChild(300)})
@@ -149,11 +149,11 @@ func TestSettleLateChildReleasedByParentAndRerooted(t *testing.T) {
 	if child.SpanID != childSpan {
 		child = got[1]
 	}
-	assert.NotEqual(t, testTrace, [16]byte(child.TraceID))
+	assert.Equal(t, testTrace, [16]byte(child.TraceID))
 	assert.False(t, child.ParentSpanID.IsValid())
 }
 
-func TestSettleOrphanExpiresRerooted(t *testing.T) {
+func TestSettleOrphanExpiresDetached(t *testing.T) {
 	s, out := testSettler(t, time.Nanosecond)
 
 	s.process(context.Background(), []request.Span{conditionalChild(100)})
@@ -163,9 +163,41 @@ func TestSettleOrphanExpiresRerooted(t *testing.T) {
 
 	got := collect(t, out)
 	require.Len(t, got, 1)
-	assert.NotEqual(t, testTrace, [16]byte(got[0].TraceID))
+	assert.Equal(t, testTrace, [16]byte(got[0].TraceID))
 	assert.Zero(t, s.order.Len())
 	assert.Empty(t, s.held)
+}
+
+func TestSettleDetachedParentKeepsDescendantTrace(t *testing.T) {
+	s, out := testSettler(t, time.Minute)
+	descendantSpan := [8]byte{0xcc, 1, 2, 3, 4, 5, 6, 7}
+	descendant := request.Span{
+		TraceID:      testTrace,
+		SpanID:       descendantSpan,
+		ParentSpanID: childSpan,
+		Start:        110,
+		End:          120,
+	}
+
+	s.process(context.Background(), []request.Span{serverSpan(50)})
+	s.process(context.Background(), []request.Span{descendant})
+	s.process(context.Background(), []request.Span{conditionalChild(100)})
+
+	got := collect(t, out)
+	require.Len(t, got, 3)
+	var child, emittedDescendant request.Span
+	for _, span := range got {
+		switch span.SpanID {
+		case childSpan:
+			child = span
+		case descendantSpan:
+			emittedDescendant = span
+		}
+	}
+	assert.Equal(t, testTrace, [16]byte(child.TraceID))
+	assert.False(t, child.ParentSpanID.IsValid())
+	assert.Equal(t, child.TraceID, emittedDescendant.TraceID)
+	assert.Equal(t, child.SpanID, emittedDescendant.ParentSpanID)
 }
 
 func TestSettleFlushReleasesEverything(t *testing.T) {

@@ -157,3 +157,81 @@ func makeSvcGraphExporter(
 
 	return otelExporter
 }
+
+// The exclusion this replaces dropped the span entirely, which erases an edge where
+// every call goes unobserved.
+func TestServiceGraphMetrics_UnknownOutcomeIsCountedWithoutADuration(t *testing.T) {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+
+	otelExporter := makeSvcGraphExporter(ctx, t, otlp, metrics, processEvents)
+	go func() {
+		otelExporter(ctx)
+	}()
+
+	clientID := svc.Attrs{Features: export.FeatureAll, ProcPID: 33, UID: svc.UID{Name: "client", Instance: "the-client"}}
+
+	processEvents.Send(exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{Service: clientID, Pid: clientID.ProcPID}),
+	})
+
+	// The peer is not instrumented, which is the case the client-side request
+	// counter exists for.
+	unobserved := request.Span{
+		Service: clientID, Type: request.EventTypeHTTPClient,
+		Peer: "client-host", Host: "unobserved-peer", HostName: "unobserved-peer",
+		Path: "/r", RequestStart: 100, End: 6_000_000_000,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unobserved)
+
+	// The control travels the identical path and differs only in having been observed.
+	observed := request.Span{
+		Service: clientID, Type: request.EventTypeHTTPClient,
+		Peer: "client-host", Host: "observed-peer", HostName: "observed-peer",
+		Path: "/r", RequestStart: 100, End: 200, Status: 200,
+	}
+
+	metrics.Send([]request.Span{unobserved, observed})
+
+	res := readNChan(t, otlp.Records(), 3, timeout)
+	// readNChan stops at three and leaves anything further on the channel, so keep
+	// reading: a fourth record is the regression the absence assertions below are
+	// looking for. The reader re-exports on an interval, so this collects for a fixed
+	// window rather than waiting for the channel to fall quiet, which it never does.
+	collect := time.After(500 * time.Millisecond)
+drain:
+	for {
+		select {
+		case m := <-otlp.Records():
+			res = append(res, m)
+		case <-collect:
+			break drain
+		}
+	}
+	reported := map[string]struct{}{}
+	for _, m := range res {
+		reported[m.Name+":"+m.Attributes["server"]] = struct{}{}
+	}
+
+	// The control proves the edge is drawn at all, so an absent histogram below means
+	// the latency was withheld.
+	assert.Contains(t, reported, "traces_service_graph_request_client:observed-peer")
+	assert.Contains(t, reported, "traces_service_graph_request_total:observed-peer")
+
+	assert.Contains(t, reported, "traces_service_graph_request_total:unobserved-peer",
+		"the call happened, so the edge it traveled is counted")
+	assert.NotContains(t, reported, "traces_service_graph_request_client:unobserved-peer",
+		"its duration is not a measurement, so it lands in no latency histogram")
+	assert.NotContains(t, reported, "traces_service_graph_request_failed_total:unobserved-peer",
+		"nothing was observed to fail, so it is never counted against the edge")
+}

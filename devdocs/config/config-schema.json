@@ -211,6 +211,18 @@
             67108864
           ]
         },
+        "jvm_gc_duration_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array",
+          "default": [
+            0.01,
+            0.1,
+            1,
+            10
+          ]
+        },
         "request_size_histogram": {
           "items": {
             "type": "number"
@@ -486,7 +498,8 @@
             "enum": [
               "go",
               "java",
-              "nodejs"
+              "nodejs",
+              "python"
             ]
           },
           "type": "array"
@@ -1583,7 +1596,7 @@
         },
         "enabled": {
           "type": "boolean",
-          "description": "Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.",
+          "description": "Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables GC duration, class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.",
           "default": true,
           "x-env-var": "OTEL_EBPF_JAVAAGENT_ENABLED"
         }
@@ -3010,6 +3023,15 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
+        },
+        "compression": {
+          "type": "string",
+          "enum": [
+            "gzip",
+            "none"
+          ],
+          "description": "Sets the compression applied to exported OTLP payloads.",
+          "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"
         },
         "endpoint": {
           "type": "string",

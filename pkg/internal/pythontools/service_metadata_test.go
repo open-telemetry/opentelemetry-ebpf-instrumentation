@@ -22,12 +22,14 @@ import (
 
 func TestResolveServiceMetadata(t *testing.T) {
 	t.Run("pyproject supplies declared name and version", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders", "wsgi.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'Orders-Service'\nversion = '1.2.3'\n")
 		fileInfo := mockPythonProcess(t, root, "gunicorn", []string{"orders.wsgi:application"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -37,7 +39,9 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("pep 621 metadata wins over poetry", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), strings.Join([]string{
 			"[project]",
@@ -49,7 +53,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 		}, "\n"))
 		fileInfo := mockPythonProcess(t, root, "python", []string{"orders.py"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "pep-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -57,12 +61,14 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("poetry metadata", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[tool.poetry]\nname = 'poetry-orders'\nversion = '3.1'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"orders.py"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "poetry-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -70,13 +76,15 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("setup cfg metadata", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[build-system]\nrequires = []\n")
 		writePythonFile(t, filepath.Join(root, "app", "setup.cfg"), "[metadata]\nname = setup-orders\nversion = 4.0\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"orders.py"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "setup-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -84,12 +92,14 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("dynamic versions are ignored", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'orders'\ndynamic = ['version']\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"orders.py"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -97,25 +107,29 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("invalid declared name falls back to the target", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = '../outside'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"orders.py"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("explicit identity is preserved while project supplies version", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'project-orders'\nversion = '1.2.3'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"orders.py"}, nil, "/app")
 		fileInfo.SetUID(svc.UID{Name: "explicit-orders", Namespace: "production"})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -126,13 +140,15 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("nearest project is a boundary without a name", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'workspace'\nversion = '1.0'\n")
 		writePythonFile(t, filepath.Join(root, "app", "services", "orders", "pyproject.toml"), "[project]\nversion = '2.0'\n")
 		writePythonFile(t, filepath.Join(root, "app", "services", "orders", "orders", "api.py"), "")
 		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"orders.api:app"}, nil, "/app/services/orders")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -141,47 +157,55 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("malformed nearest project falls back without using parent", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'workspace'\n")
 		writePythonFile(t, filepath.Join(root, "app", "services", "orders", "pyproject.toml"), "[project\nname = 'broken'\n")
 		writePythonFile(t, filepath.Join(root, "app", "services", "orders", "company", "orders", "api.py"), "")
 		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"company.orders.api:app"}, nil, "/app/services/orders")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.Error(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("unrecognized nearest project is a boundary", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'workspace'\n")
 		writePythonFile(t, filepath.Join(root, "app", "services", "orders", "pyproject.toml"), "[build-system]\nrequires = []\n")
 		writePythonFile(t, filepath.Join(root, "app", "services", "orders", "orders", "api.py"), "")
 		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"orders.api:app"}, nil, "/app/services/orders")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("project above cwd is ignored when target resolves elsewhere", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "workspace", "pyproject.toml"), "[project]\nname = 'workspace'\n")
 		writePythonFile(t, filepath.Join(root, "services", "company", "orders", "api.py"), "")
 		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"company.orders.api:app"}, map[string]string{
 			"PYTHONPATH": "/services",
 		}, "/workspace")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("fastapi entrypoint associates project", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "backend", "main.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), strings.Join([]string{
 			"[project]",
@@ -192,7 +216,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 		}, "\n"))
 		fileInfo := mockPythonProcess(t, root, "fastapi", []string{"run"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "fast-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -200,12 +224,14 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("flask automatic app associates project", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "app.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'flask-orders'\nversion = '1.0'\n")
 		fileInfo := mockPythonProcess(t, root, "flask", []string{"run"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "flask-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -213,32 +239,38 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("flask automatic generic target remains unnamed", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "wsgi.py"), "")
 		fileInfo := mockPythonProcess(t, root, "flask", []string{"run"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("fastapi command entrypoint associates project", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "company", "orders", "api.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'fast-orders'\n")
 		fileInfo := mockPythonProcess(t, root, "fastapi", []string{
 			"run", "--entrypoint", "company.orders.api:app",
 		}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "fast-orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("django uses the last explicit pythonpath", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "srv", "orders", "manage.py"), "")
 		writePythonFile(t, filepath.Join(root, "one", "company", "orders", "settings.py"), "")
 		writePythonFile(t, filepath.Join(root, "one", "pyproject.toml"), "[project]\nname = 'first-orders'\n")
@@ -249,7 +281,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 			"--settings", "company.orders.settings",
 		}, nil, "/workspace")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "second-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -257,7 +289,9 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("django uses the manage script directory", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "srv", "orders", "manage.py"), "")
 		writePythonFile(t, filepath.Join(root, "srv", "orders", "company", "orders", "settings.py"), "")
 		writePythonFile(t, filepath.Join(root, "srv", "orders", "pyproject.toml"), "[project]\nname = 'script-orders'\nversion = '3'\n")
@@ -265,7 +299,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 			"/srv/orders/manage.py", "runserver", "--settings", "company.orders.settings",
 		}, nil, "/workspace")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "script-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -273,80 +307,122 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("waitress dotted factory associates project", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "company", "orders", "wsgi.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'waitress-orders'\n")
 		fileInfo := mockPythonProcess(t, root, "waitress-serve", []string{
 			"--call", "company.orders.wsgi.application.create_app",
 		}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "waitress-orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("waitress dotted factory falls back to resolved module name", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "company", "orders", "wsgi.py"), "")
 		fileInfo := mockPythonProcess(t, root, "waitress-serve", []string{
 			"--call", "company.orders.wsgi.create_app",
 		}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("unresolved waitress dotted factory remains unnamed", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		fileInfo := mockPythonProcess(t, root, "waitress-serve", []string{
 			"--call", "company.orders.wsgi.create_app",
 		}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("gunicorn name is final fallback", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		fileInfo := mockPythonProcess(t, root, "gunicorn", []string{"--name", "orders-worker", "-b", "0.0.0.0:8080"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders-worker", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("generic script remains unnamed", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "main.py"), "")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"main.py"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
-		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("missing exact script does not borrow project metadata", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'wrong-project'\nversion = '9.9'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"orders"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
 		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
 	})
 
+	t.Run("uvicorn with metadata on command line", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		fileInfo := mockPythonProcess(t, root, root+"/"+"python", []string{root + "/" + "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8080"}, nil, "/app")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
+		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
+	t.Run("gunicorn with metadata on command line", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
+		fileInfo := mockPythonProcess(t, root, root+"/"+"python", []string{root + "/" + "gunicorn", "-w", "4", "-b", "0.0.0.0:8380", "main:app"}, nil, "/app")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
+		assert.Empty(t, fileInfo.ServiceAttrs().Metadata[serviceVersion])
+	})
+
 	t.Run("symlink escape cannot supply project metadata", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		outside := t.TempDir()
 		writePythonFile(t, filepath.Join(outside, "company", "orders", "api.py"), "")
 		writePythonFile(t, filepath.Join(outside, "pyproject.toml"), "[project]\nname = 'outside-name'\nversion = '9.9'\n")
@@ -354,7 +430,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 		require.NoError(t, os.Symlink(outside, filepath.Join(root, "app", "escape")))
 		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"--app-dir", "/app/escape", "company.orders.api:app"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -363,7 +439,9 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("gunicorn chdir cannot escape through a symlink", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		outside := t.TempDir()
 		writePythonFile(t, filepath.Join(outside, "orders", "wsgi.py"), "")
 		writePythonFile(t, filepath.Join(outside, "pyproject.toml"), "[project]\nname = 'outside-name'\nversion = '9.9'\n")
@@ -371,7 +449,7 @@ func TestResolveServiceMetadata(t *testing.T) {
 		require.NoError(t, os.Symlink(outside, filepath.Join(root, "app", "escape")))
 		fileInfo := mockPythonProcess(t, root, "gunicorn", []string{"--chdir", "/app/escape", "orders.wsgi:application"}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -380,11 +458,13 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("process lookup error is returned", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		expectedErr := errors.New("process disappeared")
 		fileInfo := mockPythonProcessWithErrors(t, root, "python", nil, nil, "/app", expectedErr, expectedErr)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.ErrorIs(t, err, expectedErr)
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
@@ -393,14 +473,16 @@ func TestResolveServiceMetadata(t *testing.T) {
 
 func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 	t.Run("ignore environment excludes pythonpath", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "libs", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "libs", "pyproject.toml"), "[project]\nname = 'path-orders'\nversion = '2'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"-E", "-m", "orders"}, map[string]string{
 			"PYTHONPATH": "/libs",
 		}, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -455,7 +537,9 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			require.NoError(t, err)
+
 			writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 			writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
 			writePythonFile(t, filepath.Join(root, "libs", "orders.py"), "")
@@ -464,7 +548,7 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 			maps.Copy(env, test.env)
 			fileInfo := mockPythonProcess(t, root, "python", test.args, env, "/app")
 
-			err := ResolveServiceMetadata(fileInfo)
+			err = ResolveServiceMetadata(fileInfo)
 
 			require.NoError(t, err)
 			assert.Equal(t, test.wantName, fileInfo.ServiceAttrs().UID.Name)
@@ -473,14 +557,16 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 	}
 
 	t.Run("direct script remains exact in isolated mode", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{"-I", "orders.py"}, map[string]string{
 			"PYTHONPATH": "/libs",
 		}, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "cwd-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -488,14 +574,16 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 	})
 
 	t.Run("fastapi file remains cwd relative", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{
 			"-I", "-m", "fastapi", "run", "orders.py",
 		}, map[string]string{"PYTHONPATH": "/libs"}, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "cwd-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -503,7 +591,9 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 	})
 
 	t.Run("safe path omits the manage script directory", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "srv", "orders", "manage.py"), "")
 		writePythonFile(t, filepath.Join(root, "srv", "orders", "company", "orders", "settings.py"), "")
 		writePythonFile(t, filepath.Join(root, "srv", "orders", "pyproject.toml"), "[project]\nname = 'script-orders'\nversion = '3'\n")
@@ -511,7 +601,7 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 			"-P", "/srv/orders/manage.py", "runserver", "--settings", "company.orders.settings",
 		}, nil, "/workspace")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -519,14 +609,16 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 	})
 
 	t.Run("isolation survives module launcher delegation", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "libs", "orders", "api.py"), "")
 		writePythonFile(t, filepath.Join(root, "libs", "pyproject.toml"), "[project]\nname = 'path-orders'\nversion = '2'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{
 			"-E", "-m", "uvicorn", "orders.api:app",
 		}, map[string]string{"PYTHONPATH": "/libs"}, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
@@ -534,14 +626,16 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 	})
 
 	t.Run("launcher default app directory remains explicit", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders", "api.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
 		fileInfo := mockPythonProcess(t, root, "python", []string{
 			"-I", "-m", "uvicorn", "orders.api:app",
 		}, map[string]string{"PYTHONPATH": "/libs"}, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "cwd-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -549,7 +643,9 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 	})
 
 	t.Run("gunicorn pythonpath remains explicit in isolated mode", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders", "wsgi.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "pyproject.toml"), "[project]\nname = 'cwd-orders'\nversion = '1'\n")
 		writePythonFile(t, filepath.Join(root, "libs", "orders", "wsgi.py"), "")
@@ -558,7 +654,7 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 			"-I", "-m", "gunicorn", "--pythonpath=/libs", "orders.wsgi:application",
 		}, nil, "/app")
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		assert.Equal(t, "path-orders", fileInfo.ServiceAttrs().UID.Name)
@@ -568,7 +664,9 @@ func TestResolveServiceMetadataHonorsInterpreterPathIsolation(t *testing.T) {
 
 func TestResolveTargetPathMatchesPython(t *testing.T) {
 	t.Run("extensionless script path is accepted", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders"), "")
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		launch := parsePythonLaunch("python", []string{"orders"}, nil)
@@ -581,7 +679,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("script path is exact", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		launch := parsePythonLaunch("python", []string{"orders"}, nil)
 
@@ -593,7 +693,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("script directory requires main", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "orders", "__init__.py"), "")
 		launch := parsePythonLaunch("python", []string{"orders"}, nil)
@@ -606,7 +708,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("script path ignores pythonpath", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "libs", "orders"), "")
 		launch := parsePythonLaunch("python", []string{"orders"}, nil)
 
@@ -618,7 +722,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("script directory executes main", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "orders", "__main__.py"), "")
 		launch := parsePythonLaunch("python", []string{"orders"}, nil)
@@ -631,7 +737,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("runnable package precedes module", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "orders", "__init__.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "orders", "__main__.py"), "")
@@ -645,7 +753,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("runnable module executes module file", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		launch := parsePythonLaunch("python", []string{"-m", "orders"}, nil)
 
@@ -657,7 +767,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("runnable package without main blocks module", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "orders", "__init__.py"), "")
 		launch := parsePythonLaunch("python", []string{"-m", "orders"}, nil)
@@ -670,7 +782,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("runnable namespace package executes main", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders", "__main__.py"), "")
 		launch := parsePythonLaunch("python", []string{"-m", "orders"}, nil)
 
@@ -682,7 +796,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("framework import prefers package", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "orders", "__init__.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "orders", "api.py"), "")
 		writePythonFile(t, filepath.Join(root, "app", "orders", "api", "__init__.py"), "")
@@ -696,7 +812,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("parent module blocks lower import", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "company.py"), "")
 		writePythonFile(t, filepath.Join(root, "libs", "company", "orders.py"), "")
 		launch := parsePythonLaunch("uvicorn", []string{"company.orders:app"}, nil)
@@ -709,7 +827,9 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 
 	t.Run("parent package blocks lower import", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
 		writePythonFile(t, filepath.Join(root, "app", "company", "__init__.py"), "")
 		writePythonFile(t, filepath.Join(root, "libs", "company", "orders.py"), "")
 		launch := parsePythonLaunch("uvicorn", []string{"company.orders:app"}, nil)

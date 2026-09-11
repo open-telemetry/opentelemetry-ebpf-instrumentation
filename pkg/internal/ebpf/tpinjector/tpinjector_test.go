@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -92,7 +93,11 @@ func TestTracer_Constants(t *testing.T) {
 			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
 			require.NoError(t, err)
 
-			bundles, err := New(cfg).LoadSpecs()
+			tracer := New(cfg)
+			// the real probe would add the FIONREAD fixup bundle on affected kernels
+			tracer.fionreadProbe = func(*ebpf.Map) (bool, error) { return false, nil }
+
+			bundles, err := tracer.LoadSpecs()
 			require.NoError(t, err)
 			require.Len(t, bundles, expectedSpecCount, "tpinjector bundle count must match")
 
@@ -120,4 +125,22 @@ func TestTracer_Constants(t *testing.T) {
 			assert.Len(t, iterC, 1, "iter spec should have only g_bpf_debug")
 		})
 	}
+}
+
+func TestDisableH2SocketMutation(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	fallback := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	require.NotNil(t, fallback)
+
+	disableH2SocketMutation(spec)
+
+	assert.Same(t, fallback, spec.Programs["obi_packet_extender_write_h2_tp"])
+	assert.Equal(t, "obi_packet_extender_write_h2_tp", fallback.Name)
+
+	disabledFallback := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	require.NotNil(t, disabledFallback)
+	assert.Equal(t, "obi_packet_extender_write_h2_tp_no_rollback", disabledFallback.Name)
+	assert.Len(t, disabledFallback.Instructions, 2)
 }

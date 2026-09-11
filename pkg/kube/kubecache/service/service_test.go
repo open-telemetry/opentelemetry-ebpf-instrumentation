@@ -20,7 +20,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	queuesync "go.opentelemetry.io/obi/pkg/internal/helpers/sync"
-	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
@@ -32,7 +31,7 @@ import (
 // It verifies that Run stops the gRPC server and releases the TCP listener
 // before returning when the context is canceled.
 func TestRunStopsServerOnContextCancellation(t *testing.T) {
-	port := testutil.FreeTCPPort(t)
+	listener, port := newTestListener(t)
 
 	ic := &InformersCache{
 		Config: &kubecache.Config{
@@ -40,6 +39,7 @@ func TestRunStopsServerOnContextCancellation(t *testing.T) {
 			MaxConnections: 1,
 			SendTimeout:    10 * time.Millisecond,
 		},
+		listener: listener,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,7 +81,7 @@ func TestRunStopsServerOnContextCancellation(t *testing.T) {
 }
 
 func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
-	port := testutil.FreeTCPPort(t)
+	listener, port := newTestListener(t)
 
 	ic := &InformersCache{
 		Config: &kubecache.Config{
@@ -89,6 +89,7 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 			MaxConnections: 1,
 			SendTimeout:    10 * time.Millisecond,
 		},
+		listener: listener,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -141,6 +142,14 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 	lis, err := net.Listen("tcp", address)
 	require.NoError(t, err, "port still bound after Run returned")
 	_ = lis.Close()
+}
+
+func newTestListener(t *testing.T) (net.Listener, int) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	return listener, listener.Addr().(*net.TCPAddr).Port
 }
 
 func TestEffectiveSendTimeout(t *testing.T) {

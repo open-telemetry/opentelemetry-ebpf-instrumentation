@@ -41,7 +41,6 @@ Attributes carried by OBI's own internal (obi.*) OTLP metrics. Keys are namespac
 | `bpf.probe.id` | string | development | Identifier of the eBPF program (probe) the stats belong to. | 42 |
 | `bpf.probe.name` | string | development | Name of the eBPF probe. | kprobe_tcp_sendmsg |
 | `bpf.probe.type` | string | development | eBPF program type of the probe. | kprobe; tracepoint |
-| `obi.error` | string | development | Raw error message from a failed OTLP export. | context deadline exceeded |
 | `obi.goarch` | string | development | Go build target architecture (runtime.GOARCH). | amd64; arm64 |
 | `obi.goos` | string | development | Go build target OS (runtime.GOOS). | linux |
 | `obi.goversion` | string | development | Go toolchain version OBI was built with (runtime.Version()). | go1.25.11 |
@@ -167,7 +166,7 @@ OBI overrides of `gen_ai.provider.name` (upstream enum extended with the provide
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; tools/call |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 
 ## `x.obi.messaging`

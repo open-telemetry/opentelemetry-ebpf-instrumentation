@@ -42,6 +42,18 @@ def smoke():
 def ping():
     return "PONG!"
 
+@app.get(
+    "/api/customers/<customer_id>",
+)
+def customer(customer_id):
+    return {"customer_id": customer_id}
+
+@app.get(
+    "/files/<path:files>",
+)
+def files(files):
+    return {"files": files}
+
 @app.route("/tracemetoo")
 def traceme():
     response = requests.get("https://utestserverssl:3043/users", verify=False)
@@ -86,6 +98,16 @@ def json_logger():
     log = "this is a json log"
     app.logger.info(log)
     return log
+
+
+@app.route("/nested_logger")
+def nested_logger():
+    # log after a nested HTTP client span must keep the server span context
+    rid = request.args.get("id", "")
+    app.logger.info(f"nested: before client {rid}")
+    requests.get("http://testservergrpcgo:8080/smoke", timeout=5)
+    app.logger.info(f"nested: after client {rid}")
+    return "ok"
 
 
 if __name__ == '__main__':

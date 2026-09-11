@@ -135,13 +135,41 @@ func TestSnapshotFromNodejsHeapSpaceEvent(t *testing.T) {
 	assert.Nil(t, snapshot.NodejsGC)
 }
 
+func testNodejsResourceEvent() nodejsruntime.NodejsResourceEvent {
+	return nodejsruntime.NodejsResourceEvent{
+		PID:            app.PID(55),
+		PIDNamespaceID: 99,
+		Service:        svc.Attrs{UID: svc.UID{Name: "node-svc"}},
+		Time:           time.Now(),
+		ResourceType:   "Timeout",
+		Count:          5,
+	}
+}
+
+func TestSnapshotFromNodejsResourceEvent(t *testing.T) {
+	event := testNodejsResourceEvent()
+
+	snapshot := SnapshotFromNodejsResourceEvent(event)
+
+	assert.Equal(t, event.Service, snapshot.Service)
+	assert.Equal(t, event.PID, snapshot.PID)
+	assert.Equal(t, event.Time, snapshot.Time)
+	require.NotNil(t, snapshot.NodejsResource)
+	assert.Equal(t, "Timeout", snapshot.NodejsResource.ResourceType)
+	assert.Equal(t, uint64(5), snapshot.NodejsResource.Count)
+	assert.Nil(t, snapshot.Nodejs)
+	assert.Nil(t, snapshot.NodejsGC)
+	assert.Nil(t, snapshot.NodejsHeapSpace)
+}
+
 func TestQueueSenderSendsNodejsV8Metrics(t *testing.T) {
-	queue := msg.NewQueue[[]RuntimeMetricSnapshot](msg.ChannelBufferLen(2))
+	queue := msg.NewQueue[[]RuntimeMetricSnapshot](msg.ChannelBufferLen(3))
 	input := queue.Subscribe()
 	sender := NewQueueSender(queue)
 
 	sender.SendNodejsGCMetrics(context.Background(), []nodejsruntime.NodejsGCEvent{testNodejsGCEvent()})
 	sender.SendNodejsHeapSpaceMetrics(context.Background(), []nodejsruntime.NodejsHeapSpaceEvent{testNodejsHeapSpaceEvent()})
+	sender.SendNodejsResourceMetrics(context.Background(), []nodejsruntime.NodejsResourceEvent{testNodejsResourceEvent()})
 
 	select {
 	case snapshots := <-input:
@@ -157,12 +185,21 @@ func TestQueueSenderSendsNodejsV8Metrics(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for nodejs heap-space snapshot")
 	}
+	select {
+	case snapshots := <-input:
+		require.Len(t, snapshots, 1)
+		require.NotNil(t, snapshots[0].NodejsResource)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for nodejs resource snapshot")
+	}
 }
 
 func TestQueueSenderNodejsV8NilSafety(_ *testing.T) {
 	var sender *QueueSender
 	sender.SendNodejsGCMetrics(context.Background(), []nodejsruntime.NodejsGCEvent{testNodejsGCEvent()})
 	sender.SendNodejsHeapSpaceMetrics(context.Background(), []nodejsruntime.NodejsHeapSpaceEvent{testNodejsHeapSpaceEvent()})
+	sender.SendNodejsResourceMetrics(context.Background(), []nodejsruntime.NodejsResourceEvent{testNodejsResourceEvent()})
 	NewQueueSender(nil).SendNodejsGCMetrics(context.Background(), nil)
 	NewQueueSender(nil).SendNodejsHeapSpaceMetrics(context.Background(), nil)
+	NewQueueSender(nil).SendNodejsResourceMetrics(context.Background(), nil)
 }

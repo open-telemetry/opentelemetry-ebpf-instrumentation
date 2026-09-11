@@ -43,3 +43,12 @@ sample_names = [
   "traces_spanmetrics_size_total",
   "traces_spanmetrics_response_size_total",
 ]
+
+# OBI relays application-authored spans verbatim (its manual span feature), so the
+# attributes on them are chosen by the instrumented application and can never exist in
+# this registry. The integration test applications namespace theirs under `obitest.` so
+# a single scope covers all of them; an undeclared attribute outside that namespace,
+# including on any OBI-authored span, still surfaces.
+[[live-check.finding_filters]]
+exclude = ["missing_attribute"]
+sample_names = ["obitest.*"]
