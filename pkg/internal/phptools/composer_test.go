@@ -77,6 +77,58 @@ func TestInspectProject(t *testing.T) {
 		assert.True(t, found)
 		assert.Equal(t, projectMetadata{root: dir}, metadata)
 	})
+
+	t.Run("Symfony template uses project directory fallback", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "my_app")
+		writePHPFile(t, filepath.Join(dir, "composer.json"), []byte(`{
+            "name":"symfony/skeleton",
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+
+		metadata, found := inspectProject(dir)
+
+		assert.True(t, found)
+		assert.Equal(t, projectMetadata{root: dir, fallbackName: "my_app"}, metadata)
+	})
+
+	t.Run("unnamed Symfony project uses project directory fallback", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "my_app")
+		writePHPFile(t, filepath.Join(dir, "composer.json"), []byte(`{
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+
+		metadata, found := inspectProject(dir)
+
+		assert.True(t, found)
+		assert.Equal(t, projectMetadata{root: dir, fallbackName: "my_app"}, metadata)
+	})
+
+	t.Run("custom Composer name wins for Symfony", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "my_app")
+		writePHPFile(t, filepath.Join(dir, "composer.json"), []byte(`{
+            "name":"acme/orders",
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+		writePHPFile(t, filepath.Join(dir, "vendor", "composer", "installed.php"), installedPHP(
+			"symfony/skeleton",
+			composerVersionPlaceholder,
+		))
+
+		metadata, found := inspectProject(dir)
+
+		assert.True(t, found)
+		assert.Equal(t, projectMetadata{root: dir, name: "acme/orders", fallbackName: "my_app"}, metadata)
+	})
+
+	t.Run("template-like name is unchanged without Symfony confirmation", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "my_app")
+		writePHPFile(t, filepath.Join(dir, "composer.json"), []byte(`{"name":"symfony/skeleton"}`))
+
+		metadata, found := inspectProject(dir)
+
+		assert.True(t, found)
+		assert.Equal(t, projectMetadata{root: dir, name: "symfony/skeleton"}, metadata)
+	})
 }
 
 func TestReadComposerJSON(t *testing.T) {

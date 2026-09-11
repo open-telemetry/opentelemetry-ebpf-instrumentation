@@ -88,14 +88,95 @@ func TestResolveServiceMetadata(t *testing.T) {
 
 	t.Run("composer.json is used when generated metadata is absent", func(t *testing.T) {
 		root := t.TempDir()
-		writePHPFile(t, filepath.Join(root, "app", "composer.json"), []byte(`{"name":"symfony/skeleton","version":"1.3.0"}`))
+		writePHPFile(t, filepath.Join(root, "app", "composer.json"), []byte(`{"name":"acme/symfony-app","version":"1.3.0"}`))
 		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/app/public", nil, nil)
 
 		require.NoError(t, ResolveServiceMetadata(fileInfo))
 
 		service := fileInfo.ServiceAttrs()
-		assert.Equal(t, "symfony/skeleton", service.UID.Name)
+		assert.Equal(t, "acme/symfony-app", service.UID.Name)
 		assert.Equal(t, "1.3.0", service.Metadata[serviceVersion])
+	})
+
+	t.Run("confirmed Symfony project uses directory name", func(t *testing.T) {
+		root := t.TempDir()
+		writePHPFile(t, filepath.Join(root, "my_app", "composer.json"), []byte(`{
+            "name":"symfony/skeleton",
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "my_app", "public"), 0o755))
+		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/my_app/public", nil, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+
+		assert.Equal(t, "my_app", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("unnamed Symfony project uses directory name", func(t *testing.T) {
+		root := t.TempDir()
+		writePHPFile(t, filepath.Join(root, "my_app", "composer.json"), []byte(`{
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/my_app", nil, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+
+		assert.Equal(t, "my_app", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("process APP_NAME wins over Symfony directory", func(t *testing.T) {
+		root := t.TempDir()
+		writePHPFile(t, filepath.Join(root, "my_app", "composer.json"), []byte(`{
+            "name":"symfony/skeleton",
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/my_app", nil, map[string]string{
+			appNameEnv: "Orders API",
+		})
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+
+		assert.Equal(t, "Orders API", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("dotenv APP_NAME wins over Symfony directory", func(t *testing.T) {
+		root := t.TempDir()
+		writePHPFile(t, filepath.Join(root, "my_app", "composer.json"), []byte(`{
+            "name":"symfony/skeleton",
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+		writePHPFile(t, filepath.Join(root, "my_app", ".env"), []byte("APP_NAME=Orders API\n"))
+		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/my_app", nil, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+
+		assert.Equal(t, "Orders API", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("Symfony components alone do not enable directory naming", func(t *testing.T) {
+		root := t.TempDir()
+		writePHPFile(t, filepath.Join(root, "my_app", "composer.json"), []byte(`{
+            "require":{"symfony/console":"^7.4","symfony/http-kernel":"^7.4"}
+        }`))
+		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/my_app", nil, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("PHP CLI script discovers Symfony without a symfony command", func(t *testing.T) {
+		root := t.TempDir()
+		writePHPFile(t, filepath.Join(root, "my_app", "composer.json"), []byte(`{
+            "name":"symfony/skeleton",
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+		writePHPFile(t, filepath.Join(root, "my_app", "bin", "console"), nil)
+		fileInfo := mockPHPProcess(t, root, "/usr/bin/php", "/", []string{"/my_app/bin/console"}, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+
+		assert.Equal(t, "my_app", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("Composer name wins over APP_NAME", func(t *testing.T) {
@@ -330,6 +411,19 @@ func TestPHPFPMProcessRootScan(t *testing.T) {
 		require.NoError(t, ResolveServiceMetadata(fileInfo))
 
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("names a Symfony project at the depth limit", func(t *testing.T) {
+		root := t.TempDir()
+		writePHPFile(t, filepath.Join(root, "one", "two", "three", "my_app", "composer.json"), []byte(`{
+            "name":"symfony/skeleton",
+            "require":{"symfony/framework-bundle":"^7.4"}
+        }`))
+		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/", nil, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+
+		assert.Equal(t, "my_app", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("does not recursively scan the host root", func(t *testing.T) {

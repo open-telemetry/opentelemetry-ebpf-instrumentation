@@ -36,8 +36,10 @@ var (
 )
 
 type composerMetadata struct {
-	name    string
-	version string
+	name                string
+	version             string
+	requirePackages     map[string]string
+	flexRequirePackages map[string]string
 }
 
 // we prefer installed.php names, we read composer.json as fallback. if some data isn't found from installed.php
@@ -56,6 +58,15 @@ func inspectProject(dir string) (projectMetadata, bool) {
 	if _, ok := composerVersion(project.version); !ok {
 		project.version = composer.version
 	}
+	if fallbackName, ok := symfonyProjectName(dir, composer); ok {
+		project.fallbackName = fallbackName
+		if symfonyTemplateName(project.name) {
+			project.name = composer.name
+		}
+		if symfonyTemplateName(project.name) {
+			project.name = ""
+		}
+	}
 	return project, true
 }
 
@@ -73,6 +84,8 @@ func readComposerJSON(path string) (composerMetadata, bool) {
 	var metadata composerMetadata
 	_ = json.Unmarshal(fields["name"], &metadata.name)
 	_ = json.Unmarshal(fields["version"], &metadata.version)
+	_ = json.Unmarshal(fields["require"], &metadata.requirePackages)
+	_ = json.Unmarshal(fields["flex-require"], &metadata.flexRequirePackages)
 	return metadata, true
 }
 

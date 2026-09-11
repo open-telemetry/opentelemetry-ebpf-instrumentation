@@ -19,9 +19,10 @@ const (
 var hostRoot = ebpfcommon.RootDirectoryForPID(1)
 
 type projectMetadata struct {
-	root    string
-	name    string
-	version string
+	root         string
+	name         string
+	version      string
+	fallbackName string
 }
 
 func findProject(root, cwd string, args []string, isFPM bool) projectMetadata {

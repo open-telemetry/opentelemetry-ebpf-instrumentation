@@ -58,7 +58,11 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		} else if name, ok := inferredName(service.EnvVars[appNameEnv]); ok {
 			fileInfo.SetAutoServiceName(name)
 		} else if project.root != "" {
-			if name, ok := inferredName(readDotEnvAppName(filepath.Join(project.root, ".env"))); ok {
+			name, ok := inferredName(readDotEnvAppName(filepath.Join(project.root, ".env")))
+			if !ok {
+				name, ok = inferredName(project.fallbackName)
+			}
+			if ok {
 				fileInfo.SetAutoServiceName(name)
 			}
 		}
