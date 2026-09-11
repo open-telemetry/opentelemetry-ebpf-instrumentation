@@ -38,7 +38,7 @@ type node struct {
 	// catch-all (empty prefix) would otherwise shadow any pattern defined after it.
 	Patterns []*partialPattern
 
-	// AnyPath marks a catch-all parameter, which terminates the search.
+	// AnyPath node is a node identified by '*', which terminates the search matching what's found
 	AnyPath *node
 }
 
