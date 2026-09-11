@@ -4,6 +4,8 @@ const express = require("express");
 const app = express();
 const server = require("restify").createServer();
 
+// --- declarations -----------------------------------------------------------
+
 const base = '/api';
 const usersPath = "/users";
 const itemsPath = `/items`;
@@ -12,6 +14,27 @@ let mutablePath = '/mutable';
 var legacyPath = '/legacy';
 const key = 'user:1';
 const shadowed = '/outer';
+const prefix = '/v2'; // current prefix
+const health = "/health" /* liveness */
+
+// constants built from other constants, numbers, comments and groups
+const usersBase = base + usersPath;
+const versioned = `${base}/${version}`;
+const apiVersion = 2;
+const legacyBase = /* v1 */ '/legacy-api';
+const first = '/first', second = '/second';
+const item = `${usersPath}/${itemId}`;
+const m1 = '/m1'; const m2 = '/m2';
+
+// a call spelled in a comment or a string is not a call
+doWork(); // app.get(prefix
+log('app.get(' + base);
+
+// regular expression literals are not comments
+const clean = (p) => p.replace(/\/*$/, '');
+app.get(/^\/api\/*$/, regexHandler);
+
+// --- route calls ------------------------------------------------------------
 
 // a bare identifier argument
 app.get(usersPath, listUsers);
@@ -20,20 +43,29 @@ app.get(usersPath, listUsers);
 app.get(mutablePath, getMutable);
 app.get(legacyPath, getLegacy);
 
-// concatenation of a constant and a literal
+// concatenations and templates of constants and literals
 app.post(base + '/users', createUser);
-
-// a constant, a literal and another constant
 app.put(base + '/' + version + '/users', updateUser);
-
-// a template literal whose interpolations are known constants
 app.delete(`${base}/${version}/users/:id`, deleteUser);
+app.get(base + `/items/${itemId}`, getItem);
+app.get(prefix + health, getHealth);
+app.get(`${prefix}/ready`, getReady);
 
 // a template literal with an unknown interpolation, left as a placeholder
 app.patch(`${base}/users/${req.params.id}`, patchUser);
 
-// concatenation with a template literal
-app.get(base + `/items/${itemId}`, getItem);
+// constants that were themselves resolved
+app.get(usersBase + '/all', listAll);
+app.get(`${versioned}/status`, getStatus);
+app.get(`/v${apiVersion}/ping`, ping);
+app.get(legacyBase + '/x', legacy);
+app.get(first + second, firstSecond);
+app.get(item + '/detail', itemDetail);
+app.get(m1 + m2, m1m2);
+
+// groups and expressions inside an interpolation
+app.get((base + '/grouped'), grouped);
+app.get(`${base + '/joined'}/x`, joined);
 
 // a name declared in more than one scope is ambiguous and never resolved
 function nested() {
@@ -49,23 +81,33 @@ const later = '/later';
 // an unknown name anywhere in a chain leaves the route unresolved
 app.get(unknownPrefix + '/orders', listOrders);
 
-// route chaining
+// route chaining and restify
 app.route(base + '/books').get(listBooks).post(createBook);
-
-// restify
 server.del(base + itemsPath + '/:id', deleteItem);
 
-// a call spanning several lines
+// a value that is not a path is dropped
+cache.get(key, loadUser);
+
+// --- calls and comments spanning lines --------------------------------------
+
 app.get(
   base + '/multi',
   multiHandler
 );
 
-// an argument cut by a line break
 app.get(base
   + '/split',
   splitHandler
 );
+
+app.get(
+  base + '/compact', compactHandler);
+app.get('/plain' +
+  '/split', plainSplitHandler);
+
+app.get(base + '/commented' /* create */, commentedHandler);
+app.get(base + '/noted' // path
+  , notedHandler);
 
 /*
 commented-out code neither declares nor shadows a constant
@@ -73,7 +115,8 @@ const base = '/old-api';
 app.get(base + '/old', oldHandler);
 */
 
-// a value that is not a path is dropped
-cache.get(key, loadUser);
+app.get(base + '/before', beforeHandler); /* opened after code
+const base = '/dead';
+*/ app.get(base + '/after', afterHandler);
 
 app.listen(3000);

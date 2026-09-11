@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -174,6 +175,8 @@ func TestRouteExtractor_VariableRoutesApp(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{
 		"/users",
+		"/v2/health",
+		"/v2/ready",
 		"/api/users",
 		"/api/v1/users",
 		"/api/v1/users/:id",
@@ -183,6 +186,173 @@ func TestRouteExtractor_VariableRoutesApp(t *testing.T) {
 		"/api/items/:id",
 		"/api/multi",
 		"/api/split",
+		"/api/commented",
+		"/api/noted",
+		"/api/compact",
+		"/plain/split",
+		"/api/before",
+		"/api/after",
+		"/api/users/all",
+		"/api/v1/status",
+		"/v2/ping",
+		"/legacy-api/x",
+		"/first/second",
+		"/api/grouped",
+		"/users/{itemId}/detail",
+		"/api/joined/x",
+		"/m1/m2",
+	}, extractor.GetHarvestedRoutes())
+}
+
+// TestScanJSSources scans small sources that exercise the line buffering and
+// the lexing of comments, strings and regular expression literals, which a
+// single-line test cannot reach.
+func TestScanJSSources(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected []string
+	}{
+		{
+			name:     "comment between the path and the comma",
+			source:   "app.get('/a' /* c */, h);\napp.get('/b' // c\n, h);\n",
+			expected: []string{"/a", "/b"},
+		},
+		{
+			name:     "statement ended on the continuation line",
+			source:   "const base = '/api';\napp.get(base\n  + '/split', h);\napp.get(\n  '/multi', h);\n",
+			expected: []string{"/api/split", "/multi"},
+		},
+		{
+			name:     "concatenation cut after the operator",
+			source:   "app.get('/a' +\n  '/b', h);\n",
+			expected: []string{"/a/b"},
+		},
+		{
+			name:     "block comment opened after code",
+			source:   "app.get('/live', h); /* start\nconst base = '/dead';\napp.get('/dead', h);\n*/\nconst base = '/api';\napp.get(base + '/x', h);\n",
+			expected: []string{"/live", "/api/x"},
+		},
+		{
+			name:     "code after the closing of a block comment",
+			source:   "/* a\nb */ app.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+		{
+			name:     "code after a comment closed on the same line",
+			source:   "/* note */ app.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+		{
+			name:     "comment lines inside a call spanning lines",
+			source:   "app.get(\n  // the path\n  /* or */\n  '/x', h);\n",
+			expected: []string{"/x"},
+		},
+		{
+			name:     "call spanning more lines than the buffer holds is given up on",
+			source:   "app.get(\n" + strings.Repeat("  a +\n", maxJSBufferedLines) + "  '/lost', h);\napp.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+		{
+			name:     "call spanning as many lines as the buffer holds",
+			source:   "app.get(\n" + strings.Repeat("  '/a' +\n", maxJSBufferedLines-2) + "  '/b', h);\n",
+			expected: []string{strings.Repeat("/a", maxJSBufferedLines-2) + "/b"},
+		},
+		{
+			name:     "regex literal holding a comment marker",
+			source:   "const clean = p.replace(/\\/*$/, '');\napp.get(/^\\/api\\/*$/, h);\napp.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+		{
+			name:     "regex literal with a character class after return",
+			source:   "function f() { return /[/*]/; }\napp.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+		{
+			name:     "misread comment opener is bounded",
+			source:   "if (x) /[/*]/.test(y);\n" + strings.Repeat("noop();\n", maxJSMidLineCommentLines) + "app.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+		{
+			name:     "comment opened at the start of a line is not bounded",
+			source:   "/*\n" + strings.Repeat("app.get('/dead', h);\n", maxJSMidLineCommentLines+1) + "*/\napp.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+		{
+			name:     "call inside a trailing comment or a string",
+			source:   "doWork(); // app.get(prefix\nconst s = 'app.get(';\napp.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+		{
+			name:     "every call on the line is harvested",
+			source:   "const a='/x';app.get(a,h);app.get('/y',h);\napp.get('/r', h); app.post('/p', h);\n",
+			expected: []string{"/x", "/y", "/r", "/p"},
+		},
+		{
+			name:     "unterminated string does not swallow the next line",
+			source:   "const s = '/oops\napp.get('/b', h);\n",
+			expected: []string{"/b"},
+		},
+		{
+			name:     "template spanning lines",
+			source:   "app.get(`/multi\n/line`, h);\napp.get('/next', h);\n",
+			expected: []string{"/next"},
+		},
+		{
+			name:     "windows line endings",
+			source:   "const base = '/api';\r\napp.get(base + '/crlf', h);\r\n",
+			expected: []string{"/api/crlf"},
+		},
+		{
+			name:     "division and jsx comment",
+			source:   "const half = total / count;\nconst x = <div>{/* note */}</div>;\napp.get('/after', h);\n",
+			expected: []string{"/after"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "app.js")
+			require.NoError(t, os.WriteFile(file, []byte(tt.source), 0o600))
+
+			extractor := NewRouteExtractor()
+			require.NoError(t, extractor.scanFile(file))
+			assert.ElementsMatch(t, tt.expected, extractor.GetHarvestedRoutes())
+		})
+	}
+}
+
+// TestScanJSBufferIsBounded scans a long stretch of lines that no handler
+// matches and no semicolon ends, which used to be rescanned at every line.
+func TestScanJSBufferIsBounded(t *testing.T) {
+	var source strings.Builder
+	for i := range 8000 {
+		fmt.Fprintf(&source, "total%d = total%d + step%d\n", i, i, i)
+	}
+	source.WriteString("app.get('/after', h)\n")
+	file := filepath.Join(t.TempDir(), "app.js")
+	require.NoError(t, os.WriteFile(file, []byte(source.String()), 0o600))
+
+	start := time.Now()
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(file))
+	assert.Less(t, time.Since(start), 2*time.Second)
+	assert.Equal(t, []string{"/after"}, extractor.GetHarvestedRoutes())
+}
+
+func TestRouteExtractor_VariableRoutesTypeScript(t *testing.T) {
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(filepath.Join("nodejs", "test_files", "variable-routes-app.ts")))
+
+	assert.ElementsMatch(t, []string{
+		"/api/users",
+		"/api/v2/users/:id",
+		"/api/orders",
+		"/typed/items",
+		"/chained/items",
+		"/casted/items",
+		"/checked/items",
+		"/typed/nn",
 	}, extractor.GetHarvestedRoutes())
 }
 
@@ -421,7 +591,7 @@ func TestExpressPendingRoute(t *testing.T) {
 			extractor := NewRouteExtractor()
 			extractor.jsConsts["booksPath"] = "/books"
 			extractor.jsConsts["apiBase"] = "/api"
-			found := extractor.expressPendingRoute("test.js", tt.line, 10)
+			found := extractor.handleExpressRoute("test.js", js(tt.line), 10) == routeCallResolved
 
 			assert.Equal(t, tt.found, found, "found status should match")
 
@@ -560,7 +730,7 @@ func TestHandleTypicalRoute(t *testing.T) {
 			extractor.jsConsts["itemsPath"] = "/items"
 			extractor.jsConsts["apiBase"] = "/api"
 			extractor.jsConsts["version"] = "v2"
-			found := extractor.handleTypicalRoute("test.js", tt.line, 15)
+			found := extractor.handleTypicalRoute("test.js", js(tt.line), 15) == routeCallResolved
 
 			assert.Equal(t, tt.found, found)
 
@@ -783,7 +953,7 @@ func TestHandleRestify(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			extractor := NewRouteExtractor()
 			extractor.jsConsts["apiBase"] = "/api"
-			found := extractor.handleRestify("test.js", tt.line, 30)
+			found := extractor.handleRestify("test.js", js(tt.line), 30) == routeCallResolved
 
 			assert.Equal(t, tt.found, found)
 

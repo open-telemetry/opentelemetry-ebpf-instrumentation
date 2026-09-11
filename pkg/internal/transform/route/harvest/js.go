@@ -31,7 +31,13 @@ const MaxJSFileScanBytes int64 = 10 * 1024 * 1024
 const (
 	maxNestDecoratorValues = 64
 	maxNestRouteVariants   = 256
-	maxJSStringConsts      = 256
+	maxJSConsts            = 256
+	// a block comment opened after code on a line is most likely a misread
+	// regular expression when it runs this many lines without closing
+	maxJSMidLineCommentLines = 50
+	// a call or route object spanning more lines than this is given up on,
+	// so that a long stretch of unmatched lines is not rescanned at each line
+	maxJSBufferedLines = 32
 )
 
 // /root is purposefully missing, since we need it to star the file walk
@@ -147,6 +153,11 @@ type FrameworkPatterns struct {
 	// const prefix = '/api'. Only const is tracked: a let or var may be
 	// reassigned, so its value at the route call is not known
 	ConstDeclaration *regexp.Regexp
+	// One declarator of a const declaration: name, optional type, initializer
+	ConstDeclarator *regexp.Regexp
+	// TypeScript syntax with no runtime effect around an expression
+	TypeAssertion *regexp.Regexp
+	TypeCast      *regexp.Regexp
 	// Fallback
 	Fallback *regexp.Regexp
 
@@ -251,9 +262,14 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		URLPatternPathname: jsObjectKeyPattern("pathname"),
 		URLPatternBaseURL:  jsObjectKeyPattern("baseURL"),
 
-		// Matches: const prefix = '/api', export const base = `/x`,
-		// const base: string = '/api'
-		ConstDeclaration: regexp.MustCompile(`^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\s*)?=\s*`),
+		// Matches: const prefix = '/api', export const a = '/a', b = '/b'
+		ConstDeclaration: regexp.MustCompile(`^(?:export\s+)?const\s+(.+)$`),
+		// Matches: prefix = '/api', base: string = '/api'
+		ConstDeclarator: regexp.MustCompile(`^([A-Za-z_$][\w$]*)\s*(?::\s*[\w$.<>\[\]|\s]+?)?\s*=\s*(.*)$`),
+		// Matches: as const, as string, satisfies Array<string>
+		TypeAssertion: regexp.MustCompile(`\s+(?:as|satisfies)\s+[\w$.<>\[\]|]+$`),
+		// Matches: <string>
+		TypeCast: regexp.MustCompile(`^<[\w$.]+>\s*`),
 
 		// Fallback (e.g. NextJS)
 		Fallback: regexp.MustCompile(`['"\x60](/[^'"\x60]+)['"\x60]`),
@@ -301,13 +317,18 @@ type RouteExtractor struct {
 	// urlPatternCall buffers the arguments of the URLPattern call currently
 	// being scanned, nil when no call is open
 	urlPatternCall *urlPatternCall
-	// jsConsts holds the string constants declared so far in the file being
-	// scanned, so that a route path given as a constant or a concatenation can
-	// be resolved. A declaration must precede its use. A name whose value is
-	// not a string literal, or that is declared more than once (necessarily
-	// in different scopes), holds an empty value, which no route resolves
-	// through.
+	// jsConsts holds the constants declared so far in the file being scanned,
+	// so that a route path given as a constant or a concatenation can be
+	// resolved. A const holds what its initializer resolves to, exactly as if
+	// it were written inline, so an unknown interpolation is kept as a
+	// placeholder. A declaration must precede its use. A name whose
+	// initializer does not resolve, or that is declared more than once
+	// (necessarily in different scopes), holds an empty value, which no route
+	// resolves through.
 	jsConsts map[string]string
+	// jsResolvedConsts counts the entries of jsConsts holding a value, which
+	// maxJSConsts bounds
+	jsResolvedConsts int
 
 	// application-level NestJS settings, harvested from any scanned file
 	// (typically main.ts) and applied to Nest routes after the scan
@@ -344,32 +365,74 @@ func NewCompiledRouteExtractor() *RouteExtractor {
 	return e
 }
 
-func (e *RouteExtractor) expressPendingRoute(filePath, line string, lineNum int) bool {
-	_, path := e.resolveRouteCall(line, e.patterns.ExpressRoute)
-	if path == "" {
-		return false
+// routeCallState is the outcome of looking for a route call on a line.
+type routeCallState int
+
+const (
+	noRouteCall routeCallState = iota
+	routeCallResolved
+	// the first argument of a call runs past the end of the line
+	routeCallCut
+)
+
+// handleRouteCalls harvests the Express-style route calls of the line:
+// .route(...) chaining, app.get(...) and its Koa, Fastify and Router
+// look-alikes, and the Restify methods. The patterns overlap (server.get is
+// both typical and Restify), so the first pattern that finds a call on the
+// line is the only one applied to it.
+func (e *RouteExtractor) handleRouteCalls(filePath string, line jsSource, lineNum int) routeCallState {
+	if state := e.handleExpressRoute(filePath, line, lineNum); state != noRouteCall {
+		return state
 	}
-	e.routes = append(e.routes, RoutePattern{
-		Method: "ALL",
-		Path:   path,
-		File:   filePath,
-		Line:   lineNum,
-	})
-	return true
+	if state := e.handleTypicalRoute(filePath, line, lineNum); state != noRouteCall {
+		return state
+	}
+	return e.handleRestify(filePath, line, lineNum)
 }
 
-func (e *RouteExtractor) handleTypicalRoute(filePath, line string, lineNum int) bool {
-	method, path := e.resolveRouteCall(line, e.patterns.Typical)
-	if path == "" {
-		return false
+func (e *RouteExtractor) handleExpressRoute(filePath string, line jsSource, lineNum int) routeCallState {
+	return e.handleRouteCall(filePath, line, lineNum, e.patterns.ExpressRoute, func(string) string { return "ALL" })
+}
+
+func (e *RouteExtractor) handleTypicalRoute(filePath string, line jsSource, lineNum int) routeCallState {
+	return e.handleRouteCall(filePath, line, lineNum, e.patterns.Typical, strings.ToUpper)
+}
+
+func (e *RouteExtractor) handleRestify(filePath string, line jsSource, lineNum int) routeCallState {
+	return e.handleRouteCall(filePath, line, lineNum, e.patterns.Restify, restifyMethod)
+}
+
+// restifyMethod normalizes the Restify method names: del -> DELETE,
+// opts -> OPTIONS
+func restifyMethod(method string) string {
+	switch method {
+	case "del":
+		method = "delete"
+	case "opts":
+		method = "options"
 	}
-	e.routes = append(e.routes, RoutePattern{
-		Method: strings.ToUpper(method),
-		Path:   path,
-		File:   filePath,
-		Line:   lineNum,
-	})
-	return true
+	return strings.ToUpper(method)
+}
+
+// handleRouteCall harvests every call of the line matched by the pattern
+// whose path resolves; method normalizes the captured method name.
+func (e *RouteExtractor) handleRouteCall(filePath string, line jsSource, lineNum int, call *regexp.Regexp, method func(string) string) routeCallState {
+	calls, cut := e.resolveRouteCalls(line, call)
+	if cut {
+		return routeCallCut
+	}
+	if len(calls) == 0 {
+		return noRouteCall
+	}
+	for _, c := range calls {
+		e.routes = append(e.routes, RoutePattern{
+			Method: method(c.method),
+			Path:   c.path,
+			File:   filePath,
+			Line:   lineNum,
+		})
+	}
+	return routeCallResolved
 }
 
 func (e *RouteExtractor) handleFastifyRoute(filePath, line string, lineNum int) bool {
@@ -397,27 +460,6 @@ func (e *RouteExtractor) handleHapi(filePath, line string, lineNum int) bool {
 		return true
 	}
 	return false
-}
-
-func (e *RouteExtractor) handleRestify(filePath, line string, lineNum int) bool {
-	method, path := e.resolveRouteCall(line, e.patterns.Restify)
-	if path == "" {
-		return false
-	}
-	// Normalize restify methods: del -> DELETE, opts -> OPTIONS
-	switch method {
-	case "del":
-		method = "delete"
-	case "opts":
-		method = "options"
-	}
-	e.routes = append(e.routes, RoutePattern{
-		Method: strings.ToUpper(method),
-		Path:   path,
-		File:   filePath,
-		Line:   lineNum,
-	})
-	return true
 }
 
 // quotedStrings returns the contents of every quoted string in s: the single
@@ -833,8 +875,7 @@ func endOfURLPatternName(pattern string, colon int) int {
 }
 
 func isURLPatternNameChar(c byte) bool {
-	return c == '_' || c == '$' ||
-		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+	return isJSIdentifierChar(c)
 }
 
 // endOfURLPatternGroup returns the offset of the parenthesis closing the group
@@ -925,12 +966,20 @@ func (c *urlPatternCall) consume(text string) int {
 
 // endOfJSString returns the offset of the closing quote of the string literal
 // that starts at open, or len(s) when the literal does not close in s.
+// endOfJSString returns the offset of the quote closing the string literal
+// that opens at open, or len(s) when it does not close in s. Only a template
+// literal spans lines: any other literal left unclosed ends at the end of its
+// line.
 func endOfJSString(s string, open int) int {
 	quote := s[open]
 	for i := open + 1; i < len(s); i++ {
 		switch s[i] {
 		case '\\':
 			i++
+		case '\n':
+			if quote != '`' {
+				return i
+			}
 		case quote:
 			return i
 		}
@@ -1327,8 +1376,6 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 
 	scanner := bufio.NewScanner(io.LimitReader(file, MaxJSFileScanBytes))
 	lineNum := 0
-	var line string
-	var save string
 
 	// NestJS controller prefixes, versions, and buffered decorator stacks
 	// never span files
@@ -1340,57 +1387,42 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	e.inEnableVersioning = false
 	e.urlPatternCall = nil
 	clear(e.jsConsts)
+	e.jsResolvedConsts = 0
 
-	inBlockComment := false
+	var (
+		comments jsCommentState
+		buffer   jsLineBuffer
+	)
 	for scanner.Scan() {
 		lineNum++
-		line = scanner.Text()
-		if line == "" || strings.HasPrefix(line, "//") {
+		cur, ok := comments.strip(scanner.Text())
+		if !ok {
 			continue
 		}
 
-		// a block comment spanning several lines is skipped as a whole, so
-		// that commented-out code neither declares a constant nor makes a
-		// live one ambiguous
-		current := strings.TrimSpace(line)
-		if inBlockComment {
-			inBlockComment = !strings.Contains(current, "*/")
-			continue
-		}
-		if strings.HasPrefix(current, "/*") && !strings.Contains(current, "*/") {
-			inBlockComment = true
-			continue
-		}
-		if strings.Contains(line, ";") {
-			save = ""
-		}
-		if save != "" {
-			line = save + "\n" + line
-			save = ""
-		}
-		trimmed := strings.TrimSpace(line)
-
-		// Skip comments and empty lines
-		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || trimmed == "" {
-			continue
+		// the handlers below see the line without its indentation, prefixed
+		// with the lines of a call still waiting to be completed
+		line, lines := buffer.merge(cur.text)
+		src := cur
+		if lines > 1 {
+			src, _ = lexJS(line)
 		}
 
 		// a declaration line still goes through the handlers below
-		e.recordStringDeclaration(current)
+		e.recordConstDeclaration(cur)
 
 		// a non-decorator line (typically the method signature) ends the
 		// decorator stack of a buffered NestJS method
-		if e.pendingNestMethod != nil && !strings.HasPrefix(trimmed, "@") {
+		if e.pendingNestMethod != nil && !strings.HasPrefix(line, "@") {
 			e.flushNestMethod()
 		}
 
-		// Check for .route() pattern for chained handlers
-		if e.expressPendingRoute(filePath, line, lineNum) {
+		// Express, Router, Koa, Fastify and Restify calls
+		switch e.handleRouteCalls(filePath, src, lineNum) {
+		case routeCallResolved:
 			continue
-		}
-
-		// Express/Router, Koa, Fastify Short patterns
-		if e.handleTypicalRoute(filePath, line, lineNum) {
+		case routeCallCut:
+			buffer.keep(line, lines)
 			continue
 		}
 
@@ -1401,11 +1433,6 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 
 		// Hapi
 		if e.handleHapi(filePath, line, lineNum) {
-			continue
-		}
-
-		// Restify
-		if e.handleRestify(filePath, line, lineNum) {
 			continue
 		}
 
@@ -1467,7 +1494,11 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 			continue
 		}
 
-		save = line
+		// an unmatched line may be the start of a call that continues on the
+		// next line, unless a semicolon already ended its statement
+		if !strings.Contains(cur.text, ";") {
+			buffer.keep(line, lines)
+		}
 	}
 
 	// the file may end while a method decorator stack or a URLPattern call is
