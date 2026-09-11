@@ -32,11 +32,12 @@ OBI AWS SDK client span (S3, SQS).
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc |
+| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+| `user_agent.original` | string | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `span.obi.db.client`
 
@@ -52,10 +53,11 @@ OBI outbound database client span.
 | `db.namespace` | string | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.batch.size` | int | stable | The number of queries included in a batch operation. | 2; 3; 4 |
 | `db.operation.name` | string | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
+| `db.query.summary` | string | stable | Low cardinality summary of a database query. | SELECT wuser_table; INSERT shipping_details SELECT orders; get user by id |
 | `db.query.text` | string | stable | The database query being executed. | SELECT * FROM wuser_table where username = ?; SET mykey ? |
 | `db.response.status_code` | string | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
@@ -76,10 +78,11 @@ OBI inbound database server span.
 | `db.collection.name` | string | stable | The name of a collection (table, container) within the database. | public.users; customers |
 | `db.namespace` | string | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
+| `db.query.summary` | string | stable | Low cardinality summary of a database query. | SELECT wuser_table; INSERT shipping_details SELECT orders; get user by id |
 | `db.query.text` | string | stable | The database query being executed. | SELECT * FROM wuser_table where username = ?; SET mykey ? |
 | `db.response.status_code` | string | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
@@ -99,7 +102,7 @@ OBI DNS resolution span.
 | `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `dns.answers` | string[] | development | The list of IPv4 or IPv6 addresses resolved during DNS lookup. | ["10.0.0.1","2001:0db8:85a3:0000:0000:8a2e:0370:7334"] |
 | `dns.question.name` | string | development | The name being queried. | www.example.com; opentelemetry.io |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
@@ -121,8 +124,10 @@ OBI Elasticsearch client span, detected from HTTP client traffic.
 | `db.response.status_code` | string | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
 | `elasticsearch.node.name` | string | development | Represents the human-readable identifier of the node/instance to which a request was routed. | instance-0000000001 |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `http.request.method_original` | string | stable | Original HTTP method sent by the client in the request line. | GeT; ACL; foo |
 | `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
+| `http.response.body.size` | int | development | The size of the response payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
@@ -131,6 +136,7 @@ OBI Elasticsearch client span, detected from HTTP client traffic.
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 | `url.full` | string | stable | Absolute URL describing a network resource according to [RFC3986](https://www.rfc-editor.org/rfc/rfc3986) | https://www.foo.bar/search?q=OpenTelemetry#SemConv; //localhost |
+| `user_agent.original` | string | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `span.obi.failed_connect`
 
@@ -143,7 +149,7 @@ OBI failed outbound connection span.
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
@@ -205,6 +211,7 @@ OBI GenAI client span.
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+| `user_agent.original` | string | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `span.obi.http.client`
 
@@ -216,10 +223,11 @@ OBI outbound HTTP client span.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.body.content` | string | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
 | `http.request.body.size` | int | development | The size of the request payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
 | `http.request.header` | template[string[]] | stable | HTTP request headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["1.2.3.4","1.2.3.5"] |
+| `http.request.method_original` | string | stable | Original HTTP method sent by the client in the request line. | GeT; ACL; foo |
 | `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.body.content` | string | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
 | `http.response.body.size` | int | development | The size of the response payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
@@ -230,9 +238,10 @@ OBI outbound HTTP client span.
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
+| `obi.http.response.observed` | boolean | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
 | `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc |
+| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -240,6 +249,7 @@ OBI outbound HTTP client span.
 | `url.full` | string | stable | Absolute URL describing a network resource according to [RFC3986](https://www.rfc-editor.org/rfc/rfc3986) | https://www.foo.bar/search?q=OpenTelemetry#SemConv; //localhost |
 | `url.query` | string | stable | The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component | q=OpenTelemetry |
 | `url.scheme` | string | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| `user_agent.original` | string | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `span.obi.http.server`
 
@@ -252,7 +262,7 @@ OBI inbound HTTP server span.
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
 | `gen_ai.prompt.name` | string | development | The name of the prompt that uniquely identifies it. | analyze-code |
 | `gen_ai.tool.call.arguments` | any | development | Parameters passed to the tool call. | {     "location": "San Francisco?",     "date": "2025-10-01" } |
@@ -265,6 +275,7 @@ OBI inbound HTTP server span.
 | `http.request.body.content` | string | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
 | `http.request.body.size` | int | development | The size of the request payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
 | `http.request.header` | template[string[]] | stable | HTTP request headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["1.2.3.4","1.2.3.5"] |
+| `http.request.method_original` | string | stable | Original HTTP method sent by the client in the request line. | GeT; ACL; foo |
 | `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.body.content` | string | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
 | `http.response.body.size` | int | development | The size of the response payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
@@ -280,15 +291,17 @@ OBI inbound HTTP server span.
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
+| `obi.http.response.observed` | boolean | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
 | `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc |
+| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 | `url.path` | string | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.query` | string | stable | The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component | q=OpenTelemetry |
 | `url.scheme` | string | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| `user_agent.original` | string | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `span.obi.mcp.client`
 
@@ -320,6 +333,7 @@ OBI Model Context Protocol client span.
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+| `user_agent.original` | string | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `span.obi.messaging.client`
 
@@ -409,7 +423,7 @@ OBI outbound RPC client span (gRPC, ONC/Sun RPC).
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
@@ -420,7 +434,7 @@ OBI outbound RPC client span (gRPC, ONC/Sun RPC).
 | `onc_rpc.version` | int | development | ONC/Sun RPC program version. |  |
 | `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc |
+| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -437,7 +451,7 @@ OBI inbound RPC server span (gRPC, ONC/Sun RPC).
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `error.type` | enum | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
@@ -448,7 +462,7 @@ OBI inbound RPC server span (gRPC, ONC/Sun RPC).
 | `onc_rpc.version` | int | development | ONC/Sun RPC program version. |  |
 | `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc |
+| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |

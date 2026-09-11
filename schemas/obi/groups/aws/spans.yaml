@@ -31,3 +31,5 @@ groups:
       - ref: network.peer.port
       - ref: network.protocol.version
       - ref: error.type
+      - ref: user_agent.original
+        requirement_level: opt_in

@@ -58,3 +58,5 @@ groups:
       - ref: network.protocol.version
       - ref: span.metrics.skip
         requirement_level: opt_in
+      - ref: user_agent.original
+        requirement_level: opt_in

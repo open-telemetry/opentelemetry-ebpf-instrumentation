@@ -43,20 +43,35 @@ def deprecation:
   end;
 
 def obi_groups($type): [.groups[] | select(.type == $type) | select(is_obi)];
+
+# OBI re-types some upstream attributes in its `x.obi.*` override groups. Weaver
+# embeds whichever duplicate definition it resolved into each carrier, and that
+# choice is not stable between carriers or between runs, so a page could render
+# the same attribute as an enum on one signal and a string on another. The
+# override definition wins here, making the rendered contract deterministic.
+def obi_overrides:
+  [.groups[]
+   | select(is_obi)
+   | select(.id | startswith("x.obi."))
+   | .attributes[]?]
+  | map({key: .name, value: .})
+  | from_entries;
 def attr_groups: obi_groups("attribute_group") | sort_by(.id);
 def metrics: obi_groups("metric") | sort_by(.metric_name);
 def spans: obi_groups("span") | sort_by(.id);
 
-def attr_rows:
+def attr_rows($ov):
   [.attributes[]?
-   | ((deprecation | cell) as $dep
-      | (if $dep == "" then (.brief | cell) else "\($dep). \(.brief | cell)" end) as $desc
-      | "| `\(.name)` | \(attr_type) | \(.stability | cell) | \($desc) | \(values | cell) |")]
+   | . as $carrier
+   | (($ov[$carrier.name] // $carrier) as $d
+      | (($d | deprecation) | cell) as $dep
+      | (if $dep == "" then ($d.brief | cell) else "\($dep). \($d.brief | cell)" end) as $desc
+      | "| `\($carrier.name)` | \($d | attr_type) | \($d.stability | cell) | \($desc) | \($d | values | cell) |")]
   | sort;
 
-def attr_table:
-  if (attr_rows | length) == 0 then ["No attributes."]
-  else ["| Attribute | Type | Stability | Description | Examples |", "| --- | --- | --- | --- | --- |"] + attr_rows
+def attr_table($ov):
+  if (attr_rows($ov) | length) == 0 then ["No attributes."]
+  else ["| Attribute | Type | Stability | Description | Examples |", "| --- | --- | --- | --- | --- |"] + attr_rows($ov)
   end;
 
 def page($title; $intro; $items):
@@ -76,10 +91,11 @@ def attributes_page:
      "against. Attributes OBI emits that are defined upstream are documented there, not here.",
      "Which attributes appear on a given signal depends on the enabled features and on",
      "`attributes.select`; these lists are the full set OBI may attach, not a mandatory minimum."];
-    [attr_groups[] | ["", "## `\(.id)`", "", (.brief | cell), ""] + attr_table]);
+    (obi_overrides as $ov | [attr_groups[] | ["", "## `\(.id)`", "", (.brief | cell), ""] + attr_table($ov)]));
 
 def metrics_page:
-  page("OBI metrics";
+  obi_overrides as $ov
+  | page("OBI metrics";
     ["Metrics that OpenTelemetry eBPF Instrumentation defines and emits itself. Which of these",
      "are produced depends on the enabled metrics features.",
      "",
@@ -92,10 +108,11 @@ def metrics_page:
                  + [(.brief | cell), "",
                   "| Instrument | Unit | Stability |", "| --- | --- | --- |",
                   "| \(.instrument | cell) | \(if (.unit // "") == "" then "1" else .unit end | cell) | \(.stability | cell) |",
-                  ""] + attr_table]);
+                  ""] + attr_table($ov)]);
 
 def spans_page:
-  page("OBI spans";
+  obi_overrides as $ov
+  | page("OBI spans";
     ["Spans that OpenTelemetry eBPF Instrumentation emits, grouped by the shape OBI produces",
      "for each protocol it recognises. The span kind is part of the contract; which attributes",
      "appear depends on the enabled features and on `attributes.select`."];
@@ -104,7 +121,7 @@ def spans_page:
                + [(.brief | cell), "",
                 "| Span kind | Stability |", "| --- | --- |",
                 "| \(.span_kind | cell) | \(.stability | cell) |",
-                ""] + attr_table]);
+                ""] + attr_table($ov)]);
 
 def readme_page:
   page("OBI telemetry reference";

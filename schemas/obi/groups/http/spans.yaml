@@ -48,6 +48,13 @@ groups:
       - ref: network.peer.port
       - ref: network.protocol.version
       - ref: error.type
+      - ref: http.request.method_original
+        requirement_level: opt_in
+      - ref: user_agent.original
+        requirement_level: opt_in
+      - ref: obi.http.response.observed
+        requirement_level:
+          conditionally_required: if no response was observed
   - id: span.obi.http.client
     type: span
     span_kind: client
@@ -78,3 +85,10 @@ groups:
       - ref: network.peer.port
       - ref: network.protocol.version
       - ref: error.type
+      - ref: http.request.method_original
+        requirement_level: opt_in
+      - ref: user_agent.original
+        requirement_level: opt_in
+      - ref: obi.http.response.observed
+        requirement_level:
+          conditionally_required: if no response was observed
