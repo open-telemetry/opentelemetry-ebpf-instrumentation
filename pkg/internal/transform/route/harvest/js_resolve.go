@@ -34,8 +34,8 @@ func (e *RouteExtractor) recordStringDeclaration(line string) {
 }
 
 // constStringValue returns the value of a const initializer when the whole of
-// it is a single string literal, optionally followed by a semicolon, and an
-// empty string otherwise.
+// it is a single string literal, optionally followed by a semicolon and a
+// trailing comment, and an empty string otherwise.
 func constStringValue(initializer string) string {
 	if initializer == "" || !isJSQuote(initializer[0]) {
 		return ""
@@ -47,11 +47,24 @@ func constStringValue(initializer string) string {
 	}
 
 	rest := strings.TrimSpace(initializer[end+1:])
-	if rest != "" && rest != ";" {
+	rest = strings.TrimSpace(strings.TrimPrefix(rest, ";"))
+	if !isJSTrailingComment(rest) {
 		return ""
 	}
 
 	return jsStringLiteral(initializer[:end+1])
+}
+
+// isJSTrailingComment reports whether s is empty or holds nothing but a
+// comment: a line comment, or a block comment closed on the same line.
+func isJSTrailingComment(s string) bool {
+	if s == "" || strings.HasPrefix(s, "//") {
+		return true
+	}
+	if !strings.HasPrefix(s, "/*") {
+		return false
+	}
+	return strings.HasSuffix(s, "*/") && len(s) >= len("/**/")
 }
 
 // resolveRouteCall returns the method captured by the call pattern (empty when

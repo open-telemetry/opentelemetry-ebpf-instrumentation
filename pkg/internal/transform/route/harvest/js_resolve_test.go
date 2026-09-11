@@ -48,6 +48,41 @@ func TestRecordStringDeclaration(t *testing.T) {
 			expected: map[string]string{"version": "v1"},
 		},
 		{
+			name:     "trailing line comment",
+			line:     "const base = '/api'; // prefix",
+			expected: map[string]string{"base": "/api"},
+		},
+		{
+			name:     "trailing line comment without semicolon",
+			line:     "const base = '/api' // prefix",
+			expected: map[string]string{"base": "/api"},
+		},
+		{
+			name:     "trailing block comment",
+			line:     "const base = '/api'; /* prefix */",
+			expected: map[string]string{"base": "/api"},
+		},
+		{
+			name:     "unclosed block comment is unresolvable",
+			line:     "const base = '/api'; /* prefix",
+			expected: map[string]string{"base": ""},
+		},
+		{
+			name:     "string type annotation",
+			line:     "const base: string = '/api';",
+			expected: map[string]string{"base": "/api"},
+		},
+		{
+			name:     "exported string type annotation with comment",
+			line:     "export const base : string = '/api' // prefix",
+			expected: map[string]string{"base": "/api"},
+		},
+		{
+			name:     "non-string type annotation is not tracked",
+			line:     "const base: Path = '/api';",
+			expected: map[string]string{},
+		},
+		{
 			name:     "escaped quote in the literal",
 			line:     `const p = '/it\'s';`,
 			expected: map[string]string{"p": `/it\'s`},

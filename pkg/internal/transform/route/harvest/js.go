@@ -251,8 +251,9 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		URLPatternPathname: jsObjectKeyPattern("pathname"),
 		URLPatternBaseURL:  jsObjectKeyPattern("baseURL"),
 
-		// Matches: const prefix = '/api', export const base = `/x`
-		ConstDeclaration: regexp.MustCompile(`^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*`),
+		// Matches: const prefix = '/api', export const base = `/x`,
+		// const base: string = '/api'
+		ConstDeclaration: regexp.MustCompile(`^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\s*)?=\s*`),
 
 		// Fallback (e.g. NextJS)
 		Fallback: regexp.MustCompile(`['"\x60](/[^'"\x60]+)['"\x60]`),
