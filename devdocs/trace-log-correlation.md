@@ -72,7 +72,7 @@ Newline-delimited JSON is handled as structured JSON: OBI enriches each JSON obj
 - **Value**: `obi_ctx_info_t` — `trace_id[16]` + `span_id[8]`
 - **Pinning**: `LIBBPF_PIN_BY_NAME` under `<bpf_fs_path>/otel/` (default `bpf_fs_path` is `/sys/fs/bpf`, configurable via `config.ebpf.bpf_fs_path` / `OTEL_EBPF_BPF_FS_PATH`).
 
-The map is **written** by the generic tracer (in `server_or_client_trace()`) whenever an HTTP request or client call is detected on the wire. The map is **read** by the logenricher when intercepting writes.
+The map is **written** by the generic tracer (in `server_or_client_trace()`) whenever an HTTP request or client call is detected on the wire. When a client call ends, `obi_ctx__restore_server()` points the thread back at its enclosing server span (looked up in `server_traces` and matched by parent span id), so logs written after a nested client call keep the server context. The map is **read** by the logenricher when intercepting writes.
 
 ## The context staleness problem
 
@@ -90,15 +90,15 @@ Without correction, `traces_ctx_v1[pid_tgid]` may carry the wrong trace context 
 
 ### Go — uprobe entry + `runtime.casgstatus` uprobe
 
-Go's context refresh has two complementary mechanisms:
+Go keeps a per-goroutine stack of the spans that are still running (`obi_ctx_stacks` in `bpf/gotracer/go_obi_ctx.h`), so logs are attributed to the innermost active span even when spans nest.
 
-**1. Immediate set at uprobe entry**: Each Go protocol uprobe (HTTP `ServeHTTP`, gRPC `server_handleStream`, Redis `redis_process`, etc.) calls `obi_ctx__set(bpf_get_current_pid_tgid(), &tp)` immediately after storing the invocation in its per-goroutine map. This ensures `traces_ctx_v1` is populated from the very start of the handler, so log writes that happen before any goroutine reschedule are enriched.
+**1. Span begin at uprobe entry**: Each Go protocol uprobe (HTTP `ServeHTTP`, gRPC `server_handleStream`, Redis `redis_process`, etc.) calls `go_obi_ctx__begin(g_key, kind, &tp, stack_off)`. This sets `traces_ctx_v1[pid_tgid]` to the new span immediately and pushes a frame onto the goroutine's stack. `stack_off` (how deep the probed call sits in the goroutine stack) distinguishes a nested call of the same kind (deeper, new frame) from Go restarting the same function after a stack growth (same depth, refresh the existing frame). When the stack is full, additional spans are only counted per kind, so their ends stay balanced; the newest of them stays the goroutine's current context until it ends.
 
-**2. Refresh on goroutine status transitions**: The Go runtime calls `runtime.casgstatus` on every goroutine status transition. OBI hooks this function and, when a goroutine transitions to `g_running` (2) or `g_syscall` (3), looks up the goroutine's active operation (HTTP server, gRPC, Kafka, SQL, etc.) and calls `obi_ctx__set(pid_tgid, &tp)`. This fires on every context switch, so `traces_ctx_v1` stays in sync when a goroutine migrates to a different OS thread.
+**2. Span end at return uprobes**: When the handler or client call returns, the return uprobe calls `go_obi_ctx__end(g_key, kind, tp)`. This pops the span's frame (and anything above it) and points `traces_ctx_v1` back at the enclosing span — the frame below — so a log written after a nested client span still carries the server span. When the last frame is popped, the stack and the thread context are deleted.
 
-**3. Cleanup at return uprobes**: When the handler returns, the return uprobe deletes the per-goroutine map entry and calls `obi_ctx__del(pid_tgid)` to remove stale context from `traces_ctx_v1`.
+**3. Refresh on goroutine status transitions**: The Go runtime calls `runtime.casgstatus` on every goroutine status transition. OBI hooks it and, when a goroutine transitions to `g_running`, calls `go_obi_ctx__resume(pid_tgid, g_key)`: the top of the goroutine's stack becomes the thread's context, or the thread's entry is deleted when the goroutine has no spans. This keeps `traces_ctx_v1` in sync when a goroutine migrates to a different OS thread. A transition to `g_dead` deletes the goroutine's stack — Go reuses `g` objects, so a stale stack must not survive to the next goroutine at the same address. Any other transition (the goroutine leaves the thread) deletes the thread's entry.
 
-**Why setting context at uprobe entry is safe**: At the moment the uprobe fires (e.g. `ServeHTTP`), the goroutine is guaranteed to be running on the current OS thread — `bpf_get_current_pid_tgid()` returns the correct `pid_tgid`. The `traces_ctx_v1` map uses `BPF_ANY` semantics, so the write is idempotent: the subsequent `casgstatus` transition will overwrite the entry with the same trace/span IDs. If the goroutine migrates to a different OS thread later, `casgstatus` handles the update for the new `pid_tgid`, and the `default` branch deletes the stale entry for the old one.
+**Why setting context at uprobe entry is safe**: At the moment the uprobe fires (e.g. `ServeHTTP`), the goroutine is guaranteed to be running on the current OS thread — `bpf_get_current_pid_tgid()` returns the correct `pid_tgid`. The `traces_ctx_v1` map uses `BPF_ANY` semantics, so the write is idempotent: the subsequent `casgstatus` transition will overwrite the entry with the same trace/span IDs. If the goroutine migrates to a different OS thread later, `casgstatus` handles the update for the new `pid_tgid`, and the stale entry for the old thread is deleted when it runs something else.
 
 ### Node.js — `async_hooks` before callback + `uv_fs_access` uprobe
 

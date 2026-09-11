@@ -1210,6 +1210,9 @@ func TestSuite_LogEnricherHTTP(t *testing.T) {
 	t.Run("Log Enricher HTTP", func(t *testing.T) {
 		testLogEnricher(t, logEnricherHTTPConstants)
 	})
+	t.Run("Log Enricher nested spans python", func(t *testing.T) {
+		testLogEnricherNestedSpansPython(t, logEnricherHTTPConstants)
+	})
 	require.NoError(t, compose.Close())
 }
 
@@ -1228,6 +1231,29 @@ func TestSuite_LogEnricherGoGRPC(t *testing.T) {
 	})
 	t.Run("Log Enricher plain text", func(t *testing.T) {
 		testLogEnricherPlainText(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans", func(t *testing.T) {
+		testLogEnricherNestedSpans(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans goroutine", func(t *testing.T) {
+		testLogEnricherNestedSpansGoroutine(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans deep", func(t *testing.T) {
+		testLogEnricherNestedSpansDeep(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans same kind", func(t *testing.T) {
+		testLogEnricherNestedSpansSameKind(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans close goroutine", func(t *testing.T) {
+		testLogEnricherNestedSpansCloseGoroutine(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans close A/B", func(t *testing.T) {
+		testLogEnricherNestedSpansCloseAB(t, logEnricherGoGRPCConstants, 0, "abreq")
+	})
+	t.Run("Log Enricher nested spans close A/B overflowed", func(t *testing.T) {
+		// the stack holds k_obi_ctx_max_depth (4) frames: the HTTP server span
+		// plus three SQL spans fill it, so A's gRPC client span is only counted
+		testLogEnricherNestedSpansCloseAB(t, logEnricherGoGRPCConstants, 3, "abdeep")
 	})
 	require.NoError(t, compose.Close())
 }
