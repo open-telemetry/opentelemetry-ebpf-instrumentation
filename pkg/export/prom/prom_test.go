@@ -63,15 +63,14 @@ func TestAppMetrics_BodySizeFeature(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-			openPort := testutil.FreeTCPPort(t)
-			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+			registry, promURL := newPrometheusTestServer(t)
 
 			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 			exporter, err := PrometheusEndpoint(
 				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 				&PrometheusConfig{
-					Port:                        openPort,
+					Registry:                    registry,
 					Path:                        "/metrics",
 					TTL:                         3 * time.Minute,
 					SpanMetricsServiceCacheSize: 10,

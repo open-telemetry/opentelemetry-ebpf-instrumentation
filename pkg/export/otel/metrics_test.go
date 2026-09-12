@@ -233,6 +233,74 @@ func TestOtelMetricOptions_BodySizeFeature(t *testing.T) {
 	assert.Equal(t, 0, views(export.FeatureNetwork))
 }
 
+// Counting views only covers the setup side. Drive real spans through the reporter so
+// the record paths are exercised too: with application_red the size instruments are
+// never created, and recording one anyway would dereference a nil expirer.
+func TestAppMetrics_BodySizeFeature(t *testing.T) {
+	sizeMetrics := []string{
+		attributes.HTTPServerRequestSize.OTEL,
+		attributes.HTTPServerResponseSize.OTEL,
+		attributes.HTTPClientRequestSize.OTEL,
+		attributes.HTTPClientResponseSize.OTEL,
+	}
+
+	for _, tc := range []struct {
+		name     string
+		features export.Features
+		emitted  bool
+	}{
+		{name: "application bundle", features: export.FeatureApplicationRED | export.FeatureApplicationSizes, emitted: true},
+		{name: "application_red only", features: export.FeatureApplicationRED, emitted: false},
+		{name: "all features", features: export.FeatureAll, emitted: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			otlp, err := collector.Start(ctx)
+			require.NoError(t, err)
+
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			go makeMetricsReporter(ctx, t,
+				[]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+				tc.features, otlp, metrics, processEvents).reportMetrics(ctx)
+
+			svcAttrs := svc.Attrs{Features: tc.features, UID: svc.UID{Instance: "foo"}}
+			metrics.Send([]request.Span{
+				{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200, ContentLength: 512},
+				{Service: svcAttrs, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175, ContentLength: 512},
+			})
+
+			// The durations always arrive, so wait for both and then drain briefly to give
+			// an instrument that should have stayed out a chance to show up and fail.
+			published := map[string]struct{}{}
+			for _, r := range readNChan(t, otlp.Records(), 2, timeout) {
+				published[r.Name] = struct{}{}
+			}
+			drain := time.After(500 * time.Millisecond)
+			for draining := true; draining; {
+				select {
+				case r := <-otlp.Records():
+					published[r.Name] = struct{}{}
+				case <-drain:
+					draining = false
+				}
+			}
+
+			assert.Contains(t, published, attributes.HTTPServerDuration.OTEL)
+			assert.Contains(t, published, attributes.HTTPClientDuration.OTEL)
+
+			for _, name := range sizeMetrics {
+				if tc.emitted {
+					assert.Contains(t, published, name)
+					continue
+				}
+				assert.NotContains(t, published, name)
+			}
+		})
+	}
+}
+
 func TestAppMetrics_ByInstrumentation(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 
