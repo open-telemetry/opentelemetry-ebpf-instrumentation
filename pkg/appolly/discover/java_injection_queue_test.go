@@ -39,7 +39,7 @@ func TestJavaInjectionQueue_InjectsOneAtATimeInOrder(t *testing.T) {
 	)
 	done := make(chan struct{})
 
-	queue := newJavaInjectionQueue(slog.Default(), func(_ context.Context, target javaagent.InjectionTarget) error {
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(_ context.Context, target javaagent.InjectionTarget) error {
 		if current := inFlight.Add(1); current > maxSeen.Load() {
 			maxSeen.Store(current)
 		}
@@ -96,7 +96,7 @@ func TestJavaInjectionQueue_NoTwoJVMsShareProcessCredentials(t *testing.T) {
 	processEUID.Store(obiUID)
 	done := make(chan struct{})
 
-	queue := newJavaInjectionQueue(slog.Default(), func(_ context.Context, target javaagent.InjectionTarget) error {
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(_ context.Context, target javaagent.InjectionTarget) error {
 		targetUID := int32(target.Pid)
 
 		if !processEUID.CompareAndSwap(obiUID, targetUID) {
@@ -140,7 +140,7 @@ func TestJavaInjectionQueue_EnqueueDoesNotBlockOnStuckInjection(t *testing.T) {
 	release := make(chan struct{})
 	var firstInjection sync.Once
 
-	queue := newJavaInjectionQueue(slog.Default(), func(ctx context.Context, _ javaagent.InjectionTarget) error {
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(ctx context.Context, _ javaagent.InjectionTarget) error {
 		firstInjection.Do(func() { close(injecting) })
 		select {
 		case <-release:
@@ -181,7 +181,7 @@ func TestJavaInjectionQueue_ShutdownCancelsInFlightAndSkipsPending(t *testing.T)
 	var started atomic.Int32
 	cancelled := make(chan struct{}, 1)
 
-	queue := newJavaInjectionQueue(slog.Default(), func(ctx context.Context, _ javaagent.InjectionTarget) error {
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(ctx context.Context, _ javaagent.InjectionTarget) error {
 		if started.Add(1) == 1 {
 			close(injecting)
 		}
@@ -228,7 +228,7 @@ func TestJavaInjectionQueue_ClosesDequeuedTargetAfterCancellation(t *testing.T) 
 	t.Cleanup(func() { _ = process.Close() })
 
 	var injections atomic.Int32
-	queue := newJavaInjectionQueue(slog.Default(), func(context.Context, javaagent.InjectionTarget) error {
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(context.Context, javaagent.InjectionTarget) error {
 		injections.Add(1)
 		return nil
 	})
@@ -252,7 +252,7 @@ func TestJavaInjectionQueue_OnlyJVMsAreAdmitted(t *testing.T) {
 	injected := make(chan app.PID, javaInjectionQueueLen+2)
 	var firstInjection sync.Once
 
-	queue := newJavaInjectionQueue(slog.Default(), func(ctx context.Context, target javaagent.InjectionTarget) error {
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(ctx context.Context, target javaagent.InjectionTarget) error {
 		injected <- target.Pid
 		firstInjection.Do(func() {
 			close(injecting)
@@ -301,7 +301,7 @@ func TestJavaInjectionQueue_EnqueueAfterShutdownIsDropped(t *testing.T) {
 
 	var injections atomic.Int32
 
-	queue := newJavaInjectionQueue(slog.Default(), func(context.Context, javaagent.InjectionTarget) error {
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(context.Context, javaagent.InjectionTarget) error {
 		injections.Add(1)
 		return nil
 	})
