@@ -1,0 +1,9 @@
+processors:
+  # These suites produce many repeated metric samples. Weaver only needs the
+  # latest sample for each series to validate its semantic conventions.
+  interval:
+    interval: 10s
+service:
+  pipelines:
+    metrics/weaver:
+      processors: [interval]

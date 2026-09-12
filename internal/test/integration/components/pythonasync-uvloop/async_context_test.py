@@ -6,9 +6,12 @@ import requests
 import os
 import sys
 
+from cancelled_to_thread import CancelledToThreadReuse
+
 app = FastAPI()
 http_client = None
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8085")
+cancelled_to_thread_reuse = CancelledToThreadReuse(BACKEND_URL)
 
 
 @app.on_event("startup")
@@ -119,6 +122,16 @@ async def test_to_thread(req_id: int):
     r1 = await asyncio.to_thread(blocking_http_call, f"{BACKEND_URL}/")
     r2 = await asyncio.to_thread(blocking_http_call, f"{BACKEND_URL}/")
     return {"id": req_id, "calls": 2, "status_codes": [r1, r2]}
+
+
+@app.get("/cancelled-to-thread-start/{req_id}")
+async def test_cancelled_to_thread_start(req_id: int):
+    return await cancelled_to_thread_reuse.start(str(req_id))
+
+
+@app.get("/cancelled-to-thread-reuse/{req_id}")
+async def test_cancelled_to_thread_reuse(req_id: int):
+    return await cancelled_to_thread_reuse.reuse(str(req_id))
 
 
 @app.get("/concurrent/{req_id}")
