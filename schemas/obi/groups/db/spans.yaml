@@ -39,8 +39,6 @@ groups:
       # Appended unconditionally for this subtype, outside the transport gate
       # the other HTTP response attributes sit behind.
       - ref: http.response.body.size
-      - ref: user_agent.original
-        requirement_level: opt_in
       - ref: db.system.name
       - ref: db.namespace
       - ref: db.collection.name
