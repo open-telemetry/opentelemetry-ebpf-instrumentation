@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -57,6 +58,8 @@ type Tracer struct {
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
 	pythonRuntime    *pythonRuntimeController
+
+	itersDirty atomic.Bool
 }
 
 func tlog() *slog.Logger {
@@ -165,6 +168,8 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	if p.pythonRuntime != nil {
 		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
 	}
+
+	p.itersDirty.Store(true)
 
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
@@ -684,6 +689,24 @@ func (p *Tracer) runItersForPids() {
 	}
 }
 
+const itersBackfillInterval = 3 * time.Second
+
+func (p *Tracer) watchForNewPids(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if p.itersDirty.Swap(false) {
+				p.runItersForPids()
+			}
+		}
+	}
+}
+
 func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
 
 func (p *Tracer) RecordInstrumentedLib(id uint64, closers []io.Closer) {
@@ -757,7 +780,9 @@ func (p *Tracer) Run(
 	go p.lookForTimeouts(ctx, parseContext, timeoutTicker, eventsChan)
 	defer timeoutTicker.Stop()
 
+	p.itersDirty.Store(false)
 	p.runItersForPids()
+	go p.watchForNewPids(ctx, itersBackfillInterval)
 
 	p.log.Info("Launching p.Tracer")
 

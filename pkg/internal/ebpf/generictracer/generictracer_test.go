@@ -8,6 +8,7 @@ package generictracer
 import (
 	"context"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
@@ -465,4 +466,93 @@ func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PI
 		(*f.currentPIDsCalls)++
 	}
 	return f.current
+}
+
+func TestAllowPIDSignalsBackfill(t *testing.T) {
+	currentPIDsCalls := 0
+	tracer := &Tracer{
+		log:        tlog(),
+		pidsFilter: fakeServiceFilter{currentPIDsCalls: &currentPIDsCalls},
+	}
+	file := exec.New(exec.Init{Pid: 101, Service: svc.Attrs{}})
+
+	tracer.AllowPID(101, 42, file)
+
+	require.True(t, tracer.itersDirty.Load())
+	assert.Zero(t, currentPIDsCalls)
+}
+
+func TestWatchForNewPidsRunsWhenDirty(t *testing.T) {
+	const interval = 10 * time.Millisecond
+	filter := &countingServiceFilter{}
+	tracer := &Tracer{log: tlog(), pidsFilter: filter}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go tracer.watchForNewPids(ctx, interval)
+
+	time.Sleep(interval * 2)
+	require.Zero(t, filter.calls.Load())
+
+	tracer.itersDirty.Store(true)
+	require.Eventually(t, func() bool { return filter.calls.Load() == 1 }, time.Second, interval)
+
+	time.Sleep(interval * 3)
+	assert.Equal(t, int64(1), filter.calls.Load())
+
+	tracer.itersDirty.Store(true)
+	require.Eventually(t, func() bool { return filter.calls.Load() == 2 }, time.Second, interval)
+}
+
+func TestWatchForNewPidsPreservesConcurrentSignalDuringWalk(t *testing.T) {
+	const interval = 10 * time.Millisecond
+	filter := &blockingServiceFilter{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	tracer := &Tracer{log: tlog(), pidsFilter: filter}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	tracer.itersDirty.Store(true)
+	go tracer.watchForNewPids(ctx, interval)
+
+	select {
+	case <-filter.entered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for watcher to enter walk")
+	}
+
+	tracer.itersDirty.Store(true)
+	filter.release <- struct{}{}
+
+	require.Eventually(t, func() bool { return filter.calls.Load() == 2 }, time.Second, interval)
+}
+
+type countingServiceFilter struct {
+	fakeServiceFilter
+	calls atomic.Int64
+}
+
+func (f *countingServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
+	f.calls.Add(1)
+	return nil
+}
+
+type blockingServiceFilter struct {
+	fakeServiceFilter
+	entered chan struct{}
+	release chan struct{}
+	calls   atomic.Int64
+}
+
+func (f *blockingServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
+	f.calls.Add(1)
+	select {
+	case f.entered <- struct{}{}:
+		<-f.release
+	default:
+	}
+	return nil
 }
