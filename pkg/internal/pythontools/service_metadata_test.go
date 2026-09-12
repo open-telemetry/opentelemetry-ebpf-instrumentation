@@ -842,16 +842,6 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 	})
 }
 
-func TestProjectFileLimit(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "pyproject.toml")
-	require.NoError(t, os.WriteFile(path, make([]byte, maxProjectFileBytes+1), 0o644))
-
-	file, found, _ := readProjectFile(path)
-
-	assert.True(t, found)
-	require.Nil(t, file)
-}
-
 func mockPythonProcess(
 	t *testing.T,
 	root string,

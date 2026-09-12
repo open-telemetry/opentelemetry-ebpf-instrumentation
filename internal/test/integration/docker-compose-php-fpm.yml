@@ -19,7 +19,7 @@ services:
     volumes:
       - ./components/php/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf
       - ./components/php/php.ini:/usr/local/etc/php/php.ini
-      - ./components/php/:/var/www/html
+      - ./components/php/index.php:/var/www/html/index.php
     environment:
       PM_STRATEGY: static
       PM_MAX_CHILDREN: 100
@@ -32,6 +32,26 @@ services:
       PM_MIN_SPARE_SERVERS: 5
       PM_MAX_SPARE_SERVERS: 20
       PM_PROCESS_IDLE_TIMEOUT: 10s
+
+  symfony-nginx:
+    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    mem_limit: 128m
+    container_name: hatest-symfony-nginx
+    ports:
+      - "8081:80"
+    volumes:
+      - ./components/php/symfony/nginx.conf:/etc/nginx/nginx.conf
+      - ./components/php/symfony/public:/var/www/symfony/public:ro
+    depends_on:
+      - symfony-php-fpm
+
+  symfony-php-fpm:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/symfony/Dockerfile
+    image: hatest-php-symfony
+    mem_limit: 256m
+    container_name: hatest-symfony-php-fpm
 
   obi:
     build:
@@ -56,11 +76,14 @@ services:
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES: "service.version"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
     depends_on:
       nginx:
+        condition: service_started
+      symfony-nginx:
         condition: service_started
 
   # OpenTelemetry Collector

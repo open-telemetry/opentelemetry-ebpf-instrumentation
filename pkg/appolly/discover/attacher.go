@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
 	"go.opentelemetry.io/obi/pkg/internal/nodejstools"
+	"go.opentelemetry.io/obi/pkg/internal/phptools"
 	"go.opentelemetry.io/obi/pkg/internal/pythontools"
 	"go.opentelemetry.io/obi/pkg/internal/rubytools"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
@@ -203,6 +204,8 @@ func (ta *traceAttacher) resolveExecutableMetadata(t svc.InstrumentableType, fi 
 		err = denotools.ResolveServiceMetadata(fi)
 	case svc.InstrumentableRuby:
 		err = rubytools.ResolveServiceMetadata(fi)
+	case svc.InstrumentablePHP:
+		err = phptools.ResolveServiceMetadata(fi)
 	}
 	if err != nil {
 		ta.log.Debug("unable to resolve service metadata", "type", t, "pid", fi.Pid(), "error", err)
