@@ -2107,6 +2107,29 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
 	})
+	t.Run("test JSON-RPC span qualifies a dotted method", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/jsonrpc",
+			Route:   "/jsonrpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:    "Arith.Traceme",
+				Version:   "2.0",
+				RequestID: "1",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+
+		assert.Equal(t, "Arith/Traceme", topSpan.Name())
+		ensureTraceStrAttr(t, topSpan.Attributes(), "rpc.method", "Arith/Traceme")
+	})
 	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
 		span := request.Span{
 			Type:    request.EventTypeHTTP,

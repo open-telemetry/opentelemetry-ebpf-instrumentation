@@ -1043,6 +1043,29 @@ type JSONRPC struct {
 	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
+// jsonRPCReservedPrefix marks the method names JSON-RPC 2.0 reserves for
+// internal methods and extensions, such as OpenRPC's `rpc.discover`. The dot
+// there is part of the reserved namespace, not a service separator.
+const jsonRPCReservedPrefix = "rpc."
+
+// QualifiedMethod returns the method in the shape `rpc.method` is defined as:
+// the fully-qualified name from the RPC interface perspective, whose semconv
+// examples separate the service from the method with a slash
+// ('EchoService/Echo'). JSON-RPC names the service with a dot, so the last one
+// becomes the separator. A method that names no service is returned unchanged.
+func (j *JSONRPC) QualifiedMethod() string {
+	if strings.HasPrefix(j.Method, jsonRPCReservedPrefix) {
+		return j.Method
+	}
+
+	i := strings.LastIndexByte(j.Method, '.')
+	if i <= 0 || i == len(j.Method)-1 {
+		return j.Method
+	}
+
+	return j.Method[:i] + "/" + j.Method[i+1:]
+}
+
 // Generic embedding provider types (Voyage AI, Cohere, Jina AI)
 
 // GenAI operation name constants aligned with OTel semantic conventions.
@@ -2259,7 +2282,7 @@ func (s *Span) TraceName() string {
 
 		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
 			if s.JSONRPC.Method != "" {
-				return s.JSONRPC.Method
+				return s.JSONRPC.QualifiedMethod()
 			}
 			return "jsonrpc"
 		}

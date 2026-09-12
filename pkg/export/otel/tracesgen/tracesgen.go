@@ -549,7 +549,7 @@ func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
 	rpc := span.JSONRPC
 	attrs := []attribute.KeyValue{
 		semconv.RPCSystemNameJSONRPC,
-		semconv.RPCMethod(rpc.Method),
+		semconv.RPCMethod(rpc.QualifiedMethod()),
 		attribute.String(string(attr.JSONRPCProtocolVersion), rpc.Version),
 	}
 	if rpc.RequestID != "" {

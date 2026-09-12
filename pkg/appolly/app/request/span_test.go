@@ -261,6 +261,8 @@ func TestTraceName(t *testing.T) {
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
 		{name: "JSON-RPC no method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Version: "2.0"}}, expected: "jsonrpc"},
+		{name: "JSON-RPC qualified method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: "2.0"}}, expected: "Arith/Traceme"},
+		{name: "JSON-RPC reserved method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "rpc.discover", Version: "2.0"}}, expected: "rpc.discover"},
 		{name: "JSON-RPC client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "getUser", Version: "2.0"}}, expected: "getUser"},
 
 		// Other spans
@@ -2192,6 +2194,32 @@ func TestMessagingOperationTypeOf(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, MessagingOperationTypeOf(tc.operationName))
+		})
+	}
+}
+
+func TestJSONRPCQualifiedMethod(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		want   string
+	}{
+		{"Arith.Multiply", "Arith/Multiply"},
+		{"Arith.Traceme", "Arith/Traceme"},
+		// A namespaced service keeps its dots; only the method separates.
+		{"com.example.EchoService.Echo", "com.example.EchoService/Echo"},
+		// Nothing to qualify.
+		{"subtract", "subtract"},
+		{"", ""},
+		// JSON-RPC 2.0 reserves the `rpc.` prefix for internal methods, so the
+		// dot names no service.
+		{"rpc.discover", "rpc.discover"},
+		{"rpc.describe.self", "rpc.describe.self"},
+		// Malformed input is passed through rather than mangled.
+		{".leading", ".leading"},
+		{"trailing.", "trailing."},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			assert.Equal(t, tc.want, (&JSONRPC{Method: tc.method}).QualifiedMethod())
 		})
 	}
 }

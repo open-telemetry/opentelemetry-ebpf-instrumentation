@@ -605,6 +605,24 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 		omitted bool
 	}{
 		{
+			name:     "rpc.method - qualified from the dotted wire name",
+			attrName: attr.RPCMethod,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: "2.0"},
+			},
+			expected: "Arith/Traceme",
+		},
+		{
+			name:     "rpc.method - a reserved method names no service",
+			attrName: attr.RPCMethod,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "rpc.discover", Version: "2.0"},
+			},
+			expected: "rpc.discover",
+		},
+		{
 			name:     "protocol version - JSON-RPC span",
 			attrName: attr.JSONRPCProtocolVersion,
 			span:     jsonrpcSpan,
