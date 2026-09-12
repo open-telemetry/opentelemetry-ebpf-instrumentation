@@ -1,0 +1,38 @@
+groups:
+  - id: metric.obi.gen_ai.client.operation.duration
+    type: metric
+    metric_name: gen_ai.client.operation.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted gen_ai.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: error.type
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: server.address
+      - ref: server.port
+
+  - id: metric.obi.gen_ai.client.token.usage
+    type: metric
+    metric_name: gen_ai.client.token.usage
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted gen_ai.client.token.usage
+    instrument: histogram
+    unit: "{token}"
+    stability: development
+    attributes:
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: gen_ai.token.type
+      - ref: server.address
+      - ref: server.port

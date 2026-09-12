@@ -734,7 +734,7 @@ IntEnum defines an enumeration of integers (e.g. ports or PIDs). It allows a set
 |---|---|---|---|
 | `host` | `string` |  | Gateway hostname to match (case-insensitive) |
 | `port` | `integer` |  | Destination port; when 0 or omitted, matches any port |
-| `provider` | `string` |  | Name reported in the gen_ai.system span attribute |
+| `provider` | `string` |  | Name reported in the gen_ai.provider.name span attribute. A name the attribute's enum has no member for is reported as `custom`. |
 
 ### RegexSelector
 

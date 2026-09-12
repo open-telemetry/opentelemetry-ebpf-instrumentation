@@ -2364,7 +2364,7 @@
         },
         "provider": {
           "type": "string",
-          "description": "Name reported in the gen_ai.system span attribute"
+          "description": "Name reported in the gen_ai.provider.name span attribute. A name the attribute's enum has no member for is reported as `custom`."
         }
       },
       "type": "object"

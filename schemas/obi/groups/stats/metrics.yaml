@@ -1,0 +1,160 @@
+groups:
+  - id: metric.obi.obi.stat.tcp.rtt
+    type: metric
+    metric_name: obi.stat.tcp.rtt
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      Smoothed round-trip time observed per TCP connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: k8s.cluster.name
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
+      - ref: service.name
+      - ref: service.namespace
+      - ref: service.peer.name
+      - ref: service.peer.namespace
+      - ref: network.tcp.handshake.role
+
+  - id: metric.obi.obi.stat.tcp.retransmits
+    type: metric
+    metric_name: obi.stat.tcp.retransmits
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of TCP retransmissions observed per connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: k8s.cluster.name
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
+      - ref: service.name
+      - ref: service.namespace
+      - ref: service.peer.name
+      - ref: service.peer.namespace
+
+  - id: metric.obi.obi.stat.tcp.io
+    type: metric
+    metric_name: obi.stat.tcp.io
+    instrument: counter
+    unit: "By"
+    stability: development
+    brief: >
+      Count of bytes transferred at the socket layer per TCP connection,
+      broken down by direction.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.io.direction
+      - ref: k8s.cluster.name
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
+      - ref: service.name
+      - ref: service.namespace
+      - ref: service.peer.name
+      - ref: service.peer.namespace
+
+  # Counter has no explicit OTLP unit set; mirror that here so live-check
+  # doesn't complain "Unit should be '1', but found ''".
+  - id: metric.obi.obi.stat.tcp.failed.connections
+    type: metric
+    metric_name: obi.stat.tcp.failed.connections
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of TCP connections that failed to establish, broken down by
+      `reason`.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: reason
+      - ref: network.tcp.handshake.role
+      - ref: k8s.cluster.name
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
+      - ref: service.name
+      - ref: service.namespace
+      - ref: service.peer.name
+      - ref: service.peer.namespace

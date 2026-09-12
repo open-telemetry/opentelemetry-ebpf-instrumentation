@@ -1,0 +1,58 @@
+groups:
+  - id: metric.obi.gpu.cuda.kernel.launch.calls
+    type: metric
+    metric_name: gpu.cuda.kernel.launch.calls
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of CUDA kernel launches observed (cudaLaunchKernel).
+
+  - id: metric.obi.gpu.cuda.graph.launch.calls
+    type: metric
+    metric_name: gpu.cuda.graph.launch.calls
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of CUDA graph launches observed (cudaGraphLaunch).
+
+  - id: metric.obi.gpu.cuda.memory.allocations
+    type: metric
+    metric_name: gpu.cuda.memory.allocations
+    instrument: counter
+    unit: "By"
+    stability: development
+    brief: >
+      Bytes requested through CUDA device memory allocations (cudaMalloc).
+
+  - id: metric.obi.gpu.cuda.kernel.grid.size
+    type: metric
+    metric_name: gpu.cuda.kernel.grid.size
+    instrument: histogram
+    unit: "1"
+    stability: development
+    brief: >
+      Distribution of CUDA kernel launch grid sizes (grid.x * grid.y * grid.z).
+
+  - id: metric.obi.gpu.cuda.kernel.block.size
+    type: metric
+    metric_name: gpu.cuda.kernel.block.size
+    instrument: histogram
+    unit: "1"
+    stability: development
+    brief: >
+      Distribution of CUDA kernel launch block sizes
+      (block.x * block.y * block.z).
+
+  - id: metric.obi.gpu.cuda.memory.copies
+    type: metric
+    metric_name: gpu.cuda.memory.copies
+    instrument: histogram
+    unit: "By"
+    stability: development
+    brief: >
+      Distribution of CUDA memory copy sizes (cudaMemcpy / cudaMemcpyAsync),
+      broken down by `cuda.memcpy.kind`.
+    attributes:
+      - ref: cuda.memcpy.kind

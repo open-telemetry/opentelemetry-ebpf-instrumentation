@@ -1,8 +1,11 @@
 # Attributes OBI sets on the application-authored spans it relays through its
 # manual span feature. The spans themselves are named and shaped by the
 # instrumented application, so they match no span group in this registry;
-# these are declared here so they resolve as part of OBI's contract without
-# being falsely attributed to a span carrier OBI does not define.
+# these are declared here rather than on a span carrier OBI does not define.
+# No signal group references this group, so it does not survive live-check
+# resolution — `exception.message` resolves from its upstream event group
+# instead; this file documents that OBI sets it, and surfaces it in the
+# generated reference, which resolves with `--include-unreferenced`.
 groups:
   - id: registry.obi.exception
     type: attribute_group

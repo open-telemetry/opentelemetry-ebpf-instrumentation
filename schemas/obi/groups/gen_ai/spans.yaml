@@ -1,0 +1,63 @@
+# These spans are HTTP client calls OBI recognises by their payload. They do
+# not carry the HTTP request/response attributes: `httpClientTransportScope`
+# returns `httpTransportNone` for every GenAI subtype, which gates off
+# `url.*` and `http.request`/`http.response.*` in the exporter.
+groups:
+  # Union across OpenAI, Anthropic, Gemini, Qwen, Ollama, OpenAI-compatible,
+  # AWS Bedrock, rerank, embedding and vector-retrieval flows. MCP is not one
+  # of them: `IsGenAISubtype` excludes it, and the attributes only
+  # `mcpAttributes` emits (the `mcp.*` set, `gen_ai.tool.*`,
+  # `gen_ai.prompt.name`) belong to `span.obi.mcp.client` instead.
+  - id: span.obi.gen_ai.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI GenAI client span.
+    attributes:
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: gen_ai.response.id
+      - ref: gen_ai.conversation.id
+      - ref: gen_ai.request.temperature
+      - ref: gen_ai.request.top_p
+      - ref: gen_ai.request.top_k
+      - ref: gen_ai.request.max_tokens
+      - ref: gen_ai.request.frequency_penalty
+      - ref: gen_ai.request.presence_penalty
+      - ref: gen_ai.request.choice.count
+      - ref: gen_ai.request.seed
+      - ref: gen_ai.request.stop_sequences
+      - ref: gen_ai.request.encoding_formats
+      - ref: gen_ai.request.stream
+      - ref: gen_ai.usage.input_tokens
+      - ref: gen_ai.usage.output_tokens
+      - ref: gen_ai.usage.cache_read.input_tokens
+      - ref: gen_ai.usage.cache_creation.input_tokens
+      - ref: gen_ai.usage.reasoning.output_tokens
+      - ref: gen_ai.response.finish_reasons
+      - ref: gen_ai.embeddings.dimension.count
+      - ref: gen_ai.output.type
+      - ref: gen_ai.data_source.id
+      - ref: gen_ai.input.messages
+      - ref: gen_ai.output.messages
+      - ref: gen_ai.system_instructions
+      - ref: gen_ai.tool.definitions
+      - ref: gen_ai.metadata
+      - ref: gen_ai.rerank.top_n
+      - ref: gen_ai.request.embedding.input_count
+      - ref: gen_ai.retrieval.top_k
+      - ref: openai.request.service_tier
+      - ref: openai.response.service_tier
+      - ref: openai.response.system_fingerprint
+      - ref: openai.api.type
+      - ref: aws.bedrock.guardrail.id
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version

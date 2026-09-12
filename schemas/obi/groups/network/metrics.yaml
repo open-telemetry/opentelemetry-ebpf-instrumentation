@@ -1,0 +1,160 @@
+groups:
+  - id: metric.obi.obi.network.flow.bytes
+    type: metric
+    metric_name: obi.network.flow.bytes
+    instrument: counter
+    unit: "{bytes}"
+    stability: development
+    brief: >
+      Total bytes observed per network flow, grouped by the configured
+      attribute selection.
+    attributes:
+      - ref: obi.ip
+      - ref: transport
+      - ref: network.type
+      - ref: network.protocol.name
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: iface
+      - ref: iface.direction
+      - ref: direction
+      - ref: client.port
+      - ref: server.port
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: src.cidr
+      - ref: dst.cidr
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
+      - ref: src.asn
+      - ref: dst.asn
+      - ref: src.country
+      - ref: dst.country
+      - ref: service.peer.name
+      - ref: service.peer.namespace
+      - ref: k8s.cluster.name
+      - ref: service.name
+      - ref: service.namespace
+
+  - id: metric.obi.obi.network.flow.packets
+    type: metric
+    metric_name: obi.network.flow.packets
+    instrument: counter
+    unit: "{packets}"
+    stability: development
+    brief: >
+      Total packets observed per network flow, grouped by the configured
+      attribute selection. Emitted when the `network_flow_packets` feature is
+      enabled.
+    attributes:
+      - ref: obi.ip
+      - ref: transport
+      - ref: network.type
+      - ref: network.protocol.name
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: iface
+      - ref: iface.direction
+      - ref: direction
+      - ref: client.port
+      - ref: server.port
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: src.cidr
+      - ref: dst.cidr
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
+      - ref: src.asn
+      - ref: dst.asn
+      - ref: src.country
+      - ref: dst.country
+      - ref: service.peer.name
+      - ref: service.peer.namespace
+      - ref: k8s.cluster.name
+      - ref: service.name
+      - ref: service.namespace
+
+  - id: metric.obi.obi.network.inter.zone.bytes
+    type: metric
+    metric_name: obi.network.inter.zone.bytes
+    instrument: counter
+    unit: "{bytes}"
+    stability: development
+    brief: >
+      Total bytes for flows that cross a zone boundary (`src.zone` !=
+      `dst.zone`). Emitted when the `network_inter_zone` feature is enabled.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: src.name
+      - ref: dst.name
+      - ref: transport
+      - ref: network.type
+      - ref: network.protocol.name
+      - ref: src.port
+      - ref: dst.port
+      - ref: client.port
+      - ref: server.port
+      - ref: direction
+      - ref: iface
+      - ref: iface.direction
+      - ref: src.cidr
+      - ref: dst.cidr
+      - ref: src.asn
+      - ref: dst.asn
+      - ref: src.country
+      - ref: dst.country
+      - ref: k8s.cluster.name
+      - ref: k8s.src.owner.name
+      - ref: k8s.src.owner.type
+      - ref: k8s.src.namespace
+      - ref: k8s.src.name
+      - ref: k8s.src.type
+      - ref: k8s.src.node.ip
+      - ref: k8s.src.node.name
+      - ref: k8s.dst.owner.name
+      - ref: k8s.dst.owner.type
+      - ref: k8s.dst.namespace
+      - ref: k8s.dst.name
+      - ref: k8s.dst.type
+      - ref: k8s.dst.node.ip
+      - ref: k8s.dst.node.name
+      - ref: service.name
+      - ref: service.namespace
+      - ref: service.peer.name
+      - ref: service.peer.namespace

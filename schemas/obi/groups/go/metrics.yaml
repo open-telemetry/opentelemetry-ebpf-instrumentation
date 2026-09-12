@@ -1,0 +1,131 @@
+# OBI's narrowed copies of the upstream Go runtime metrics
+# (semconv model/go). OBI's RuntimeMetricsReporter attaches service/container
+# metadata to the meter resource, so these groups list only the runtime
+# data-point attributes. Each carries the obi.upstream_override annotation so
+# the schemacheck drift test pins its unit/instrument/stability to upstream.
+groups:
+  - id: metric.obi.go.config.gogc
+    type: metric
+    metric_name: go.config.gogc
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.config.gogc
+    instrument: updowncounter
+    unit: "%"
+    stability: development
+  - id: metric.obi.go.cpu.time
+    type: metric
+    metric_name: go.cpu.time
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.cpu.time
+    instrument: counter
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: go.cpu.state
+      - ref: go.cpu.detailed_state
+  - id: metric.obi.go.goroutine.count
+    type: metric
+    metric_name: go.goroutine.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.goroutine.count
+    instrument: updowncounter
+    unit: "{goroutine}"
+    stability: development
+  - id: metric.obi.go.memory.allocated
+    type: metric
+    metric_name: go.memory.allocated
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.memory.allocated
+    instrument: counter
+    unit: "By"
+    stability: development
+  - id: metric.obi.go.memory.allocations
+    type: metric
+    metric_name: go.memory.allocations
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.memory.allocations
+    instrument: counter
+    unit: "{allocation}"
+    stability: development
+  - id: metric.obi.go.memory.gc.cycles
+    type: metric
+    metric_name: go.memory.gc.cycles
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.memory.gc.cycles
+    instrument: counter
+    unit: "{gc_cycle}"
+    stability: development
+  - id: metric.obi.go.memory.gc.goal
+    type: metric
+    metric_name: go.memory.gc.goal
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.memory.gc.goal
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+  - id: metric.obi.go.memory.gc.pause.duration
+    type: metric
+    metric_name: go.memory.gc.pause.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.memory.gc.pause.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+  - id: metric.obi.go.memory.limit
+    type: metric
+    metric_name: go.memory.limit
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.memory.limit
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+  - id: metric.obi.go.memory.used
+    type: metric
+    metric_name: go.memory.used
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.memory.used
+    instrument: updowncounter
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: go.memory.type
+  - id: metric.obi.go.processor.limit
+    type: metric
+    metric_name: go.processor.limit
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.processor.limit
+    instrument: updowncounter
+    unit: "{thread}"
+    stability: development
+  - id: metric.obi.go.schedule.duration
+    type: metric
+    metric_name: go.schedule.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted go.schedule.duration
+    instrument: histogram
+    unit: "s"
+    stability: development

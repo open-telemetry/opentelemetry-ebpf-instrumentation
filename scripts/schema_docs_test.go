@@ -49,7 +49,7 @@ const resolvedRegistry = `{
       "brief": "An upstream namespace OBI extends.",
       "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
       "attributes": [
-        {"name": "error.type", "type": {"members": []}, "stability": "stable", "brief": "Error class | with a pipe."},
+        {"name": "error.type", "type": "string", "stability": "stable", "brief": "Error class | with a pipe."},
         {"name": "obi.small.enum", "type": {"members": [{"id": "a", "value": "a"}, {"id": "b", "value": "b"}]}, "stability": "development", "brief": "A short enum."},
         {"name": "obi.long.enum", "type": {"members": [{"value": "v1"}, {"value": "v2"}, {"value": "v3"}, {"value": "v4"}, {"value": "v5"}, {"value": "v6"}, {"value": "v7"}, {"value": "v8"}, {"value": "v9"}, {"value": "v10"}]}, "stability": "development", "brief": "A long enum."},
         {"name": "obi.enum.with.examples", "type": {"members": [{"value": "m1"}, {"value": "m2"}]}, "stability": "development", "brief": "Enum that declares examples.", "examples": ["chosen"]}
@@ -95,6 +95,27 @@ const resolvedRegistry = `{
       "stability": "stable",
       "lineage": {"provenance": {"schema_url": "https://opentelemetry.io/schemas/1.41.0"}},
       "attributes": []
+    },
+    {
+      "id": "span.obi.example.client",
+      "type": "span",
+      "span_kind": "client",
+      "brief": "An OBI span.",
+      "stability": "development",
+      "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
+      "attributes": [
+        {"name": "obi.scalar.examples", "type": "string", "stability": "development", "brief": "Declares examples as a bare scalar.", "examples": "gpt-4"},
+        {"name": "error.type", "type": {"members": [{"value": "timeout"}]}, "stability": "stable", "brief": "Upstream enum copy embedded in this carrier."}
+      ]
+    },
+    {
+      "id": "span.http.client",
+      "type": "span",
+      "span_kind": "client",
+      "brief": "Upstream span.",
+      "stability": "stable",
+      "lineage": {"provenance": {"schema_url": "https://opentelemetry.io/schemas/1.41.0"}},
+      "attributes": []
     }
   ]
 }`
@@ -133,13 +154,41 @@ func TestSchemaDocsEscapesPipesAndCountsGroups(t *testing.T) {
 		t.Errorf("a pipe in a brief was not escaped, which breaks the table\n%s", attributes)
 	}
 	// An enum-typed attribute renders as "enum" rather than as its member object.
-	if !strings.Contains(attributes, "| `error.type` | enum |") {
-		t.Errorf("enum attribute type was not rendered as enum\n%s", attributes)
+	if !strings.Contains(attributes, "| `error.type` | string |") {
+		t.Errorf("the OBI override of error.type was not rendered as a string\n%s", attributes)
 	}
 
 	readme := renderSchemaDocs(t, "readme")
 	if !strings.Contains(readme, "2 attribute groups") || !strings.Contains(readme, "2 metrics") {
 		t.Errorf("readme counts do not match the fixture\n%s", readme)
+	}
+	if !strings.Contains(readme, "1 spans") {
+		t.Errorf("readme does not count the fixture's span\n%s", readme)
+	}
+}
+
+func TestSchemaDocsSpansSelectsOBIGroupsOnly(t *testing.T) {
+	page := renderSchemaDocs(t, "spans")
+
+	if !strings.Contains(page, "## `span.obi.example.client`") {
+		t.Errorf("spans page dropped an OBI span\n%s", page)
+	}
+	// The kind is part of the contract, so it is documented alongside the span.
+	if !strings.Contains(page, "| client | development |") {
+		t.Errorf("spans page did not document the span kind\n%s", page)
+	}
+	if strings.Contains(page, "span.http.client") {
+		t.Errorf("spans page leaked an upstream span\n%s", page)
+	}
+}
+
+func TestSchemaDocsRendersScalarExamples(t *testing.T) {
+	// `examples` is a list in most declarations but a bare scalar in some
+	// upstream ones; iterating it blindly aborts the whole render.
+	page := renderSchemaDocs(t, "spans")
+
+	if !strings.Contains(page, "| `obi.scalar.examples` | string | development | Declares examples as a bare scalar. | gpt-4 |") {
+		t.Errorf("a scalar examples declaration did not render\n%s", page)
 	}
 }
 
@@ -173,5 +222,23 @@ func TestSchemaDocsMarksDeprecatedMetrics(t *testing.T) {
 	// A metric with no deprecation gets no callout.
 	if strings.Contains(page, "## `traces.span.metrics.calls`\n\n> **") {
 		t.Errorf("a non-deprecated metric got a deprecation callout\n%s", page)
+	}
+}
+
+// Weaver embeds whichever duplicate definition it resolved into each carrier, so
+// the same attribute could render as an enum on one signal and a string on
+// another. Every carrier must render OBI's override instead.
+func TestSchemaDocsRendersOBIOverrideOnEveryCarrier(t *testing.T) {
+	for _, page := range []string{"attributes", "spans"} {
+		t.Run(page, func(t *testing.T) {
+			rendered := renderSchemaDocs(t, page)
+
+			if !strings.Contains(rendered, "| `error.type` | string |") {
+				t.Errorf("%s page did not render the OBI override of error.type\n%s", page, rendered)
+			}
+			if strings.Contains(rendered, "| `error.type` | enum |") {
+				t.Errorf("%s page rendered a carrier's embedded enum copy of error.type\n%s", page, rendered)
+			}
+		})
 	}
 }

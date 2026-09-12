@@ -15,11 +15,30 @@ OBI's own meta-telemetry: the `target.info` / `host.info` family of per-target m
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `instance` | string | development | Scrape target instance label, originating from the Prometheus / OpenMetrics convention. Carried on `target_info` and on every series exported via OBI's Prometheus exporter. | host.local:9090 |
-| `job` | string | development | Scrape target job label, originating from the Prometheus / OpenMetrics convention. Carried on `target_info` and on every series exported via OBI's Prometheus exporter. | my-service |
+| `instance` | string | development | Instance identifier of the reporting service, carried on target.info and on every Prometheus span-metrics series. | host.local:9090 |
+| `job` | string | development | Job identifier of the reporting service, carried on target.info and on every Prometheus span-metrics series. | my-service |
 | `obi.revision` | string | development | Git SHA of the OBI build. Carried as a resource attribute on every signal. | a2a9a6e2 |
 | `obi.version` | string | development | OBI build version, e.g. the release tag the instrumenter was built from. Carried as a resource attribute on every signal. | v0.42.0 |
 | `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+
+## `registry.obi.exception`
+
+Exception attributes OBI's Go SDK tracer sets on relayed manual spans.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `exception.message` | string | stable | The exception message. | Division by zero; Can't convert 'int' object to str implicitly |
+
+## `registry.obi.gen_ai`
+
+GenAI attributes OBI emits that are not part of upstream semconv.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `gen_ai.metadata` | string | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
+| `gen_ai.request.embedding.input_count` | int | development | Number of inputs submitted to a GenAI embedding request. |  |
+| `gen_ai.rerank.top_n` | int | development | Number of top results requested from a GenAI rerank operation. |  |
+| `gen_ai.retrieval.top_k` | int | development | Number of top results requested from a GenAI vector-retrieval operation. |  |
 
 ## `registry.obi.gpu`
 
@@ -28,6 +47,16 @@ Attributes carried on OBI's CUDA GPU metrics.
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
+
+## `registry.obi.http`
+
+HTTP attributes OBI emits that are not part of upstream semconv (captured request/response bodies).
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `http.request.body.content` | string | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
+| `http.response.body.content` | string | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
+| `obi.http.response.observed` | boolean | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
 
 ## `registry.obi.internal_metrics`
 
@@ -97,9 +126,17 @@ Attributes carried on OBI's network-flow metrics. Emitted when the `network`, `n
 | `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 | `transport` | string | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
 
+## `registry.obi.rpc`
+
+RPC attributes OBI emits that are not part of upstream semconv.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `onc_rpc.auth.flavor` | string | development | ONC/Sun RPC authentication flavor observed on the call. | AUTH_NONE; AUTH_SYS |
+
 ## `registry.obi.service_graph`
 
-Attributes used by OBI's service-graph emission. The metric names and label set match the output of the OTel collector-contrib `servicegraphconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_service_graph` metrics feature is enabled. The OBI-specific `source` attribute is declared in `obi_internal.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
+Attributes used by OBI's service-graph emission. The metric names and label set match the output of the OTel collector-contrib `servicegraphconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_service_graph` metrics feature is enabled. The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
@@ -115,7 +152,7 @@ Attributes used by OBI's service-graph emission. The metric names and label set 
 
 ## `registry.obi.spanmetrics`
 
-Attributes used by OBI's span-metrics emission. The metric names match the output of the OTel collector-contrib `spanmetricsconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_span_otel` metrics feature is enabled, except the `traces_spanmetrics_*_size_total` counters, which are gated separately on the deprecated `application_span_sizes` feature. `service.name`, `service.namespace`, `service.instance.id`, `host.id` and `telemetry.sdk.language` are referenced from upstream OpenTelemetry semantic conventions rather than redeclared here, and appear on the metric groups below because `spanMetricAttributes` puts them on the data point rather than on the resource. The OBI-specific `source` attribute is declared in `obi_internal.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/spanmetricsconnector
+Attributes used by OBI's span-metrics emission. The metric names match the output of the OTel collector-contrib `spanmetricsconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_span_otel` metrics feature is enabled, except the `traces_spanmetrics_*_size_total` counters, which are gated separately on the deprecated `application_span_sizes` feature. `service.name`, `service.namespace`, `service.instance.id`, `host.id` and `telemetry.sdk.language` are referenced from upstream OpenTelemetry semantic conventions rather than redeclared here, and appear on the metric groups below because `spanMetricAttributes` puts them on the data point rather than on the resource. The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/spanmetricsconnector
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
@@ -133,16 +170,13 @@ Attributes carried on OBI's per-connection TCP statistics. Emitted when the `sta
 | `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 
-## `registry.obi.traces`
+## `registry.obi.traces_resource`
 
-Attributes OBI emits on application spans that are not part of upstream OpenTelemetry semantic conventions — captured HTTP request/response bodies and ONC/Sun RPC auth flavor. Attributes already defined by upstream semconv (`http.*`, …) are not redeclared here.
+Resource attributes OBI's trace exporter sets on the exported `ResourceSpans` in addition to the service and infrastructure attributes shared with the metrics pipeline.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `gen_ai.metadata` | string | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
-| `http.request.body.content` | string | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
-| `http.response.body.content` | string | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
-| `onc_rpc.auth.flavor` | string | development | ONC/Sun RPC authentication flavor observed on the call. | AUTH_NONE; AUTH_SYS |
+| `otel.scope.name` | string | stable | The name of the instrumentation scope - (`InstrumentationScope.Name` in OTLP). | io.opentelemetry.contrib.mongodb |
 
 ## `x.obi.db`
 

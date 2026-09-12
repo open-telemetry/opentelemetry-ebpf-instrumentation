@@ -16,17 +16,18 @@
 #    intentionally emits, or an open-ended enum re-typed as string.
 #
 # 3. DuplicateMetricName for dns.lookup.duration: OBI declares a narrowed copy
-#    in `schemas/obi/groups/dns.yaml` while `--include-unreferenced` keeps the
-#    upstream definition in the resolved registry, so weaver sees the name
-#    twice. live-check resolves it in OBI's favor. Scoped to exactly two
-#    provenances — OBI's dns file and the upstream dns model — so a third
-#    declaration, a different metric, or an unexpected file still fails.
+#    in `schemas/obi/groups/dns/metrics.yaml` while the upstream definition can
+#    still reach the resolved registry, so weaver may see the name twice.
+#    live-check resolves it in OBI's favor. Scoped to exactly two provenances —
+#    OBI's dns file and the upstream dns model — so a third declaration, a
+#    different metric, or an unexpected file still fails.
 #
 # 4. DeprecatedIncludeUnreferencedWarning: weaver 0.25 deprecated the
-#    `--include-unreferenced` flag, which OBI still needs — its override and
-#    marker groups are standalone (not referenced by a signal), so without it
-#    they drop out of resolution. `--future` promotes the deprecation to an
-#    error; accept it until OBI migrates to explicit `import:` statements.
+#    `--include-unreferenced` flag. OBI no longer relies on it — the emitted
+#    metrics, spans, and resource entities now reference every override and
+#    marker group, so nothing drops from resolution and live-check runs
+#    without the flag. `--future` can still surface the deprecation notice, so
+#    it is filtered defensively.
 #
 # Any other diagnostic — including duplicates for other metrics/attributes,
 # or the expected ones with unexpected provenances/groups — is kept and fails
@@ -60,7 +61,7 @@ map(select(
         and $dupmetric.metric_name == "dns.lookup.duration"
         and (($dupmetric.provenances // []) | map(.path)) as $paths
             | ($paths | length) == 2
-              and ($paths | any(. == "/obi-registry/groups/dns.yaml"))
+              and ($paths | any(. == "/obi-registry/groups/dns/metrics.yaml"))
               and ($paths | any(startswith(".deps/") and endswith("/dns/metrics.yaml")))
     )
     or

@@ -1,5 +1,5 @@
 # Renders the OBI telemetry reference from `weaver registry resolve` output.
-# Selects the page with --arg page (readme|attributes|metrics).
+# Selects the page with --arg page (readme|attributes|metrics|spans).
 #
 # Resolution merges the upstream semconv registry declared in
 # schemas/obi/manifest.yaml, so groups are restricted to the ones whose
@@ -18,8 +18,11 @@ def attr_type: if (.type | type) == "string" then .type else "enum" end;
 # enums run long (db.system.name has 42), which would make the table unreadable,
 # so the list is capped. Declared examples win when present.
 def enum_members_shown: 8;
+# `examples` is a list in most declarations but a bare scalar in some upstream
+# ones, so it is coerced before use rather than iterated blindly.
+def examples_list: (.examples // []) | if type == "array" then . else [.] end;
 def values:
-  if ((.examples // []) | length) > 0 then ((.examples // []) | map(tostring) | join("; "))
+  if (examples_list | length) > 0 then (examples_list | map(tostring) | join("; "))
   elif (.type | type) == "object" then
     ((.type.members // []) | map(.value // .id | tostring)) as $m
     | if ($m | length) == 0 then ""
@@ -40,19 +43,35 @@ def deprecation:
   end;
 
 def obi_groups($type): [.groups[] | select(.type == $type) | select(is_obi)];
+
+# OBI re-types some upstream attributes in its `x.obi.*` override groups. Weaver
+# embeds whichever duplicate definition it resolved into each carrier, and that
+# choice is not stable between carriers or between runs, so a page could render
+# the same attribute as an enum on one signal and a string on another. The
+# override definition wins here, making the rendered contract deterministic.
+def obi_overrides:
+  [.groups[]
+   | select(is_obi)
+   | select(.id | startswith("x.obi."))
+   | .attributes[]?]
+  | map({key: .name, value: .})
+  | from_entries;
 def attr_groups: obi_groups("attribute_group") | sort_by(.id);
 def metrics: obi_groups("metric") | sort_by(.metric_name);
+def spans: obi_groups("span") | sort_by(.id);
 
-def attr_rows:
+def attr_rows($ov):
   [.attributes[]?
-   | ((deprecation | cell) as $dep
-      | (if $dep == "" then (.brief | cell) else "\($dep). \(.brief | cell)" end) as $desc
-      | "| `\(.name)` | \(attr_type) | \(.stability | cell) | \($desc) | \(values | cell) |")]
+   | . as $carrier
+   | (($ov[$carrier.name] // $carrier) as $d
+      | (($d | deprecation) | cell) as $dep
+      | (if $dep == "" then ($d.brief | cell) else "\($dep). \($d.brief | cell)" end) as $desc
+      | "| `\($carrier.name)` | \($d | attr_type) | \($d.stability | cell) | \($desc) | \($d | values | cell) |")]
   | sort;
 
-def attr_table:
-  if (attr_rows | length) == 0 then ["No attributes."]
-  else ["| Attribute | Type | Stability | Description | Examples |", "| --- | --- | --- | --- | --- |"] + attr_rows
+def attr_table($ov):
+  if (attr_rows($ov) | length) == 0 then ["No attributes."]
+  else ["| Attribute | Type | Stability | Description | Examples |", "| --- | --- | --- | --- | --- |"] + attr_rows($ov)
   end;
 
 def page($title; $intro; $items):
@@ -72,18 +91,37 @@ def attributes_page:
      "against. Attributes OBI emits that are defined upstream are documented there, not here.",
      "Which attributes appear on a given signal depends on the enabled features and on",
      "`attributes.select`; these lists are the full set OBI may attach, not a mandatory minimum."];
-    [attr_groups[] | ["", "## `\(.id)`", "", (.brief | cell), ""] + attr_table]);
+    (obi_overrides as $ov | [attr_groups[] | ["", "## `\(.id)`", "", (.brief | cell), ""] + attr_table($ov)]));
 
 def metrics_page:
-  page("OBI metrics";
+  obi_overrides as $ov
+  | page("OBI metrics";
     ["Metrics that OpenTelemetry eBPF Instrumentation defines and emits itself. Which of these",
-     "are produced depends on the enabled metrics features."];
+     "are produced depends on the enabled metrics features.",
+     "",
+     "OBI also emits some metrics defined upstream, unchanged — the Node.js event-loop and V8",
+     "families among them. Those are imported rather than redeclared, so they are documented in",
+     "the [upstream semantic conventions](https://opentelemetry.io/docs/specs/semconv/) and are",
+     "not listed or counted here."];
     [metrics[] | ["", "## `\(.metric_name)`", ""]
                  + (if (deprecation | cell) == "" then [] else ["> \(deprecation | cell)", ""] end)
                  + [(.brief | cell), "",
                   "| Instrument | Unit | Stability |", "| --- | --- | --- |",
                   "| \(.instrument | cell) | \(if (.unit // "") == "" then "1" else .unit end | cell) | \(.stability | cell) |",
-                  ""] + attr_table]);
+                  ""] + attr_table($ov)]);
+
+def spans_page:
+  obi_overrides as $ov
+  | page("OBI spans";
+    ["Spans that OpenTelemetry eBPF Instrumentation emits, grouped by the shape OBI produces",
+     "for each protocol it recognises. The span kind is part of the contract; which attributes",
+     "appear depends on the enabled features and on `attributes.select`."];
+    [spans[] | ["", "## `\(.id)`", ""]
+               + (if (deprecation | cell) == "" then [] else ["> \(deprecation | cell)", ""] end)
+               + [(.brief | cell), "",
+                "| Span kind | Stability |", "| --- | --- |",
+                "| \(.span_kind | cell) | \(.stability | cell) |",
+                ""] + attr_table($ov)]);
 
 def readme_page:
   page("OBI telemetry reference";
@@ -91,6 +129,10 @@ def readme_page:
      "",
      "- [Attributes](attributes.md) — \(attr_groups | length) attribute groups",
      "- [Metrics](metrics.md) — \(metrics | length) metrics",
+     "- [Spans](spans.md) — \(spans | length) spans",
+     "",
+     "Counts cover what OBI defines. Metrics OBI emits unchanged from upstream are imported",
+     "rather than redeclared and are documented upstream.",
      "",
      "The telemetry schema OBI stamps on its telemetry as `schema_url` is published",
      "alongside these docs under `../schemas/obi/`."];
@@ -98,5 +140,6 @@ def readme_page:
 
 if $page == "attributes" then attributes_page
 elif $page == "metrics" then metrics_page
+elif $page == "spans" then spans_page
 else readme_page
 end

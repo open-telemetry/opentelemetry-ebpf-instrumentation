@@ -1,0 +1,27 @@
+# OBI's narrowed copy of the upstream dns.lookup.duration metric, plus its DNS
+# span. dns.question.name is re-declared opt_in (upstream marks it required):
+# OBI disables it by default to bound metric cardinality — raw DNS question
+# names are unbounded / attacker-controlled (attr.DNSQuestionName in
+# pkg/export/attributes/attr_defs.go); users opt in via attributes.select.
+#
+# This is a plain redeclaration rather than an imports/metric_refinements
+# override: with live-check no longer using --include-unreferenced, the upstream
+# metric.dns.lookup.duration group is unreferenced and drops from resolution, so
+# OBI's copy wins without the sort-trick a same-metric_name duplicate needed.
+# The metric carries the obi.upstream_override annotation so the schemacheck
+# drift test pins its unit/instrument/stability to upstream.
+groups:
+  - id: metric.obi.dns.lookup.duration
+    type: metric
+    metric_name: dns.lookup.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted dns.lookup.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: dns.question.name
+        requirement_level: opt_in
+      - ref: error.type

@@ -1,0 +1,20 @@
+# Resource attributes OBI sets on exported trace data itself, rather than on
+# any metric. Declared here rather than on a metric carrier they do not belong
+# to. No signal group references this group, so it does not survive live-check
+# resolution — `otel.scope.name` resolves from its upstream entity group
+# instead; this file documents that OBI sets it, and surfaces it in the
+# generated reference, which resolves with `--include-unreferenced`.
+groups:
+  - id: registry.obi.traces_resource
+    type: attribute_group
+    display_name: OBI Traces Resource Attributes
+    brief: >
+      Resource attributes OBI's trace exporter sets on the exported
+      `ResourceSpans` in addition to the service and infrastructure attributes
+      shared with the metrics pipeline.
+    attributes:
+      # Set by the trace exporter on the ResourceSpans resource
+      # (pkg/export/otel/tracesgen), naming the OBI reporter that produced the
+      # spans. It is a resource attribute of the trace payload, not a label of
+      # the traces.target.info metric.
+      - ref: otel.scope.name

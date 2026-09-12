@@ -1,0 +1,14 @@
+groups:
+  - id: span.obi.dns
+    type: span
+    span_kind: internal
+    stability: development
+    brief: OBI DNS resolution span.
+    attributes:
+      - ref: dns.question.name
+      - ref: dns.answers
+      - ref: client.address
+      - ref: server.address
+      - ref: server.port
+      - ref: span.metrics.skip
+      - ref: error.type
