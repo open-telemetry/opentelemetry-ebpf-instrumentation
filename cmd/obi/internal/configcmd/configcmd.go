@@ -474,9 +474,24 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 		}
 	}
 
+	// v2 keeps one match clause per selector, so the v1 grouping of selectors into
+	// service entries is not preserved: compare the flattened selection instead
+	logEnricherPath := yamlPath{"ebpf", "log_enricher", "services"}
+	logEnricherName := formatPath(logEnricherPath)
+	if _, configured := valueAtPath(source, logEnricherPath); configured {
+		beforeValue, _ := valueAtPath(beforeMap, logEnricherPath)
+		afterValue, _ := valueAtPath(afterMap, logEnricherPath)
+		if !reflect.DeepEqual(logEnricherSelectors(beforeValue), logEnricherSelectors(afterValue)) {
+			changed = append(changed, logEnricherName)
+		}
+	}
+
 	for _, path := range leafPaths(source, nil) {
 		name := formatPath(path)
 		if name == languageDetectionSkipsName || strings.HasPrefix(name, languageDetectionSkipsName+"[") {
+			continue
+		}
+		if name == logEnricherName || strings.HasPrefix(name, logEnricherName+"[") {
 			continue
 		}
 		if migrationAlias(name) {
@@ -491,6 +506,9 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 	for _, path := range sequencePaths(source, nil) {
 		name := formatPath(path)
 		if migrationAlias(name) || migrationSequenceAlias(name) {
+			continue
+		}
+		if name == logEnricherName || strings.HasPrefix(name, logEnricherName+"[") {
 			continue
 		}
 		beforeValue, beforeOK := valueAtPath(beforeMap, path)
@@ -628,6 +646,64 @@ func normalizedMigrationSamplerName(name services.SamplerName) services.SamplerN
 		return services.SamplerParentBasedAlwaysOn
 	}
 	return name
+}
+
+// logEnricherSelectors flattens the marshaled ebpf.log_enricher.services value into
+// the ordered list of its selectors, without the zero-valued fields that a
+// re-imported selector marshals differently (an empty map instead of null)
+func logEnricherSelectors(value any) []any {
+	entries, _ := value.([]any)
+	var selectors []any
+	for _, entry := range entries {
+		service, _ := entry.(map[string]any)
+		nested, _ := service["service"].([]any)
+		for _, selector := range nested {
+			selectors = append(selectors, compactValue(selector))
+		}
+	}
+	return selectors
+}
+
+func compactValue(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(value))
+		for key, nested := range value {
+			if compacted := compactValue(nested); !zeroMigrationValue(compacted) {
+				out[key] = compacted
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(value))
+		for _, nested := range value {
+			out = append(out, compactValue(nested))
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func zeroMigrationValue(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case string:
+		return value == ""
+	case bool:
+		return !value
+	case int:
+		return value == 0
+	case float64:
+		return value == 0
+	case map[string]any:
+		return len(value) == 0
+	case []any:
+		return len(value) == 0
+	default:
+		return false
+	}
 }
 
 func equalMigrationValues(path string, before, after any) bool {

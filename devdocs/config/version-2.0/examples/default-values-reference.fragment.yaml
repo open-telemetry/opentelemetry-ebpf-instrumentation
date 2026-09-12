@@ -624,6 +624,8 @@ extensions:
     correlation:
       log_trace_annotation:
         enabled: false
+        # Workloads to annotate, as capture-rule match clauses; required when enabled.
+        # match: []
         # Reserved; keep empty.
         filter: {}
         field_names:
