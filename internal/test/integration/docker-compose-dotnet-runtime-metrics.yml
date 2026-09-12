@@ -1,0 +1,53 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/dotnet-runtime-collector/Dockerfile
+      network: ${DOTNET_BUILD_NETWORK:-default}
+      args:
+        DOTNET_RUNTIME_IMAGE: ${DOTNET_RUNTIME_IMAGE:-mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:9d94ecf60a21c6e7a784cf0761fbd4a8391646617a0ff2f39621443d580cc2c3}
+    image: hatest-dotnet-runtime-metrics-${DOTNET_RUNTIME_VERSION:-8.0}
+    user: ${DOTNET_RUNTIME_USER:-0:0}
+    entrypoint: ["dotnet", "/app/workload/dotnet-runtime-metrics.dll", "--http"]
+    volumes:
+      - ${DOTNET_RUNTIME_SOCKET_DIR}:/tmp
+    ports:
+      - "${DOTNET_RUNTIME_HTTP_PORT:-18080}:8080"
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    volumes:
+      - ./configs:/configs:ro
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-dotnet-runtime-metrics:/var/run/obi
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+    environment:
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-dotnet-runtime-metrics.yml
+      GOCOVERDIR: /coverage
+      OTEL_EBPF_EXECUTABLE_PATH: dotnet
+      OTEL_SERVICE_NAME: dotnet-runtime
+      OTEL_EBPF_SERVICE_NAMESPACE: integration-test
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_METRICS_INTERVAL: 1s
+      OTEL_EBPF_LOG_LEVEL: DEBUG
+    ports:
+      - "${DOTNET_RUNTIME_PROM_PORT:-18999}:8999"
+    depends_on:
+      testserver:
+        condition: service_started
+      otelcol:
+        condition: service_started
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
+    command: ["--config=/etc/otelcol-config.yml"]
+    volumes:
+      - ./configs/otelcol-config-dotnet-runtime-metrics.yml:/etc/otelcol-config.yml:ro
+    ports:
+      - "${DOTNET_RUNTIME_OTLP_PROM_PORT:-19464}:9464"

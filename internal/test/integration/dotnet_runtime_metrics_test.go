@@ -1,0 +1,235 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package integration
+
+import (
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+)
+
+func TestDotnetRuntimeMetrics(t *testing.T) {
+	for _, runtime := range []struct {
+		version string
+		image   string
+	}{
+		{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:9d94ecf60a21c6e7a784cf0761fbd4a8391646617a0ff2f39621443d580cc2c3"},
+		{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:647b8b6d4f4570270c763a200514241ca54f8d70dc314000412fbd8ec594724b"},
+		{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:399e54a8a7e35c3aba78398b2840455d45185cba20b831b8a2b46f849f4f5001"},
+	} {
+		t.Run(runtime.version, func(t *testing.T) {
+			testDotnetRuntimeMetrics(t, runtime.version, runtime.image)
+		})
+	}
+}
+
+func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string) {
+	compose, err := docker.ComposeSuite("docker-compose-dotnet-runtime-metrics.yml",
+		filepath.Join(pathOutput, "test-suite-dotnet-runtime-metrics-"+runtimeVersion+".log"))
+	require.NoError(t, err)
+	socketDir := t.TempDir()
+	compose.Env = append(compose.Env, "COMPOSE_PROJECT_NAME=obi-dotnet-runtime-metrics",
+		"DOTNET_RUNTIME_SOCKET_DIR="+socketDir,
+		"DOTNET_RUNTIME_VERSION="+runtimeVersion,
+		"DOTNET_RUNTIME_IMAGE="+runtimeImage,
+		fmt.Sprintf("DOTNET_RUNTIME_USER=%d:%d", os.Getuid(), os.Getgid()))
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	require.NoError(t, compose.Up())
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	const workload = "http://localhost:18080"
+	var before struct {
+		PID            int    `json:"pid"`
+		RuntimeVersion string `json:"runtimeVersion"`
+		Gen0           int    `json:"gen0"`
+		Gen1           int    `json:"gen1"`
+		Gen2           int    `json:"gen2"`
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		response, err := client.Get(workload + "/snapshot")
+		require.NoError(ct, err)
+		defer response.Body.Close()
+		require.Equal(ct, http.StatusOK, response.StatusCode)
+		require.NoError(ct, json.NewDecoder(response.Body).Decode(&before))
+		require.True(ct, strings.HasPrefix(before.RuntimeVersion, runtimeVersion+"."), "unexpected runtime version: %s", before.RuntimeVersion)
+	}, testTimeout, time.Second)
+
+	endpoints := []string{"http://localhost:18999/metrics", "http://localhost:19464/metrics"}
+	baseline := make([][3]float64, len(endpoints))
+	for index, endpoint := range endpoints {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			values, err := scrapeDotnetGC(client, endpoint)
+			require.NoError(ct, err)
+			baseline[index] = values
+		}, testTimeout, time.Second)
+	}
+
+	initialPID := before.PID
+	sessionPattern := regexp.MustCompile(`started EventPipe GC collection[^\n]* session=([0-9]+)`)
+	currentSession := func() (uint64, int, error) {
+		logs, err := compose.LogsOutput("obi")
+		if err != nil {
+			return 0, 0, err
+		}
+		matches := sessionPattern.FindAllStringSubmatch(logs, -1)
+		if len(matches) == 0 {
+			return 0, 0, errors.New("no EventPipe session found in OBI logs")
+		}
+		session, err := strconv.ParseUint(matches[len(matches)-1][1], 10, 64)
+		return session, len(matches), err
+	}
+	for round := range 2 {
+		if round == 1 {
+			previousSession, previousStarts, err := currentSession()
+			require.NoError(t, err)
+			stopDotnetDiagnosticSession(t, socketDir, previousSession)
+			// The runtime can reuse session IDs; each successful start adds a log entry.
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				_, starts, err := currentSession()
+				require.NoError(ct, err)
+				require.Greater(ct, starts, previousStarts, "OBI must open a replacement EventPipe session")
+			}, testTimeout, time.Second)
+
+			// Allow baseline samples and both export intervals to pass, checking
+			// that reconnecting preserves the totals before another forced GC.
+			for range 5 {
+				select {
+				case <-time.After(time.Second):
+				case <-t.Context().Done():
+					t.Fatal(t.Context().Err())
+				}
+				for index, endpoint := range endpoints {
+					values, err := scrapeDotnetGC(client, endpoint)
+					require.NoError(t, err)
+					require.Equal(t, baseline[index], values)
+				}
+			}
+		}
+		// Read the runtime's own counters immediately around the forced full GC.
+		response, err := client.Get(workload + "/snapshot")
+		require.NoError(t, err)
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&before))
+		require.Equal(t, initialPID, before.PID)
+		require.NoError(t, response.Body.Close())
+		response, err = client.Post(workload+"/gc", "application/json", nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		after := before
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&after))
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, before.PID, after.PID)
+		require.Equal(t, before.Gen2+1, after.Gen2)
+		delta := [3]float64{
+			float64((after.Gen0 - before.Gen0) - (after.Gen1 - before.Gen1)),
+			float64((after.Gen1 - before.Gen1) - (after.Gen2 - before.Gen2)),
+			float64(after.Gen2 - before.Gen2),
+		}
+		for index, endpoint := range endpoints {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				values, err := scrapeDotnetGC(client, endpoint)
+				require.NoError(ct, err)
+				for generation := range values {
+					require.InDelta(ct, baseline[index][generation]+delta[generation], values[generation], 0)
+				}
+			}, testTimeout, time.Second)
+			for generation := range delta {
+				baseline[index][generation] += delta[generation]
+			}
+		}
+		t.Logf("GC round %d: PID %d, Prometheus %v, OTLP %v", round+1, before.PID, baseline[0], baseline[1])
+	}
+}
+
+// scrapeDotnetGC requires all three exclusive generation series and the service
+// identity on both OBI's endpoint and the OTLP collector's Prometheus exporter.
+func scrapeDotnetGC(client *http.Client, endpoint string) ([3]float64, error) {
+	var values [3]float64
+	response, err := client.Get(endpoint)
+	if err != nil {
+		return values, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return values, fmt.Errorf("metrics endpoint returned %s", response.Status)
+	}
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, err := parser.TextToMetricFamilies(response.Body)
+	if err != nil {
+		return values, err
+	}
+	family := families[attributes.DotnetGCCollections.Prom]
+	var seen [3]bool
+	for _, metric := range family.GetMetric() {
+		labels := make(map[string]string)
+		for _, label := range metric.GetLabel() {
+			labels[label.GetName()] = label.GetValue()
+		}
+		if labels["service_name"] != "dotnet-runtime" || labels["service_namespace"] != "integration-test" {
+			continue
+		}
+		for generation := range values {
+			if labels["dotnet_gc_heap_generation"] == fmt.Sprintf("gen%d", generation) {
+				if seen[generation] || metric.Counter == nil {
+					return values, fmt.Errorf("invalid or duplicate GC generation %d series", generation)
+				}
+				seen[generation] = true
+				values[generation] = metric.GetCounter().GetValue()
+			}
+		}
+	}
+	if seen != [3]bool{true, true, true} {
+		return values, fmt.Errorf("missing GC generation series: found %v", seen)
+	}
+	return values, nil
+}
+
+// StopTracing ends OBI's active stream without restarting the application.
+func stopDotnetDiagnosticSession(t *testing.T, directory string, sessionID uint64) {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(directory, "dotnet-diagnostic-*-socket"))
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+	root, err := os.Open(directory)
+	require.NoError(t, err)
+	defer root.Close()
+	// Use the directory FD to stay below Unix socket path length limits.
+	path := fmt.Sprintf("/proc/self/fd/%d/%s", root.Fd(), filepath.Base(paths[0]))
+	conn, err := net.DialTimeout("unix", path, 5*time.Second)
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+	// Diagnostic IPC v1: 28-byte message, EventPipe command set 2, StopTracing 1.
+	header, err := hex.DecodeString("444f544e45545f4950435f5631001c0002010000")
+	require.NoError(t, err)
+	request := binary.LittleEndian.AppendUint64(header, sessionID)
+	written, err := conn.Write(request)
+	require.NoError(t, err)
+	require.Equal(t, len(request), written)
+	response := make([]byte, len(request))
+	_, err = io.ReadFull(conn, response)
+	require.NoError(t, err)
+	// A successful server reply echoes the stopped session ID.
+	request[16], request[17] = 0xff, 0
+	require.Equal(t, request, response)
+}

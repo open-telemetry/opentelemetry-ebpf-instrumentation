@@ -216,14 +216,15 @@ const (
 	HostName    = Name(semconv.HostNameKey)
 	HostType    = Name(semconv.HostTypeKey)
 
-	ServiceInstanceID   = Name(semconv.ServiceInstanceIDKey)
-	SkipSpanMetrics     = Name("span.metrics.skip")
-	JVMMemoryType       = Name("jvm.memory.type")
-	JVMMemoryPoolName   = Name("jvm.memory.pool.name")
-	JVMThreadDaemon     = Name("jvm.thread.daemon")
-	JVMGCName           = Name("jvm.gc.name")
-	JVMGCAction         = Name("jvm.gc.action")
-	CPythonGCGeneration = Name("cpython.gc.generation")
+	ServiceInstanceID      = Name(semconv.ServiceInstanceIDKey)
+	SkipSpanMetrics        = Name("span.metrics.skip")
+	JVMMemoryType          = Name("jvm.memory.type")
+	JVMMemoryPoolName      = Name("jvm.memory.pool.name")
+	JVMThreadDaemon        = Name("jvm.thread.daemon")
+	JVMGCName              = Name("jvm.gc.name")
+	JVMGCAction            = Name("jvm.gc.action")
+	CPythonGCGeneration    = Name("cpython.gc.generation")
+	DotnetGCHeapGeneration = Name("dotnet.gc.heap.generation")
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")
 

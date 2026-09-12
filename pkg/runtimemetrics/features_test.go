@@ -99,6 +99,27 @@ func TestEnabledShouldReportJVMRuntimeMetrics(t *testing.T) {
 	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 }
 
+func TestEnabledShouldReportDotnetRuntimeMetrics(t *testing.T) {
+	snapshot := RuntimeMetricSnapshot{
+		Service: svc.Attrs{
+			SDKLanguage: svc.InstrumentableDotnet,
+			ExportModes: services.ExportModeUnset,
+			Features:    export.FeatureApplicationRuntime,
+		},
+		Dotnet: &DotnetRuntimeMetricSnapshot{},
+	}
+	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
+	snapshot.Service.SDKLanguage = svc.InstrumentableJava
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	snapshot.Service.SDKLanguage = svc.InstrumentableDotnet
+	snapshot.Service.ExportModes = services.NewExportModes()
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	snapshot.Service.ExportModes = services.ExportModeUnset
+	snapshot.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+}
+
 func TestEnabledShouldReportPythonRuntimeMetrics(t *testing.T) {
 	snapshot := RuntimeMetricSnapshot{
 		Service: svc.Attrs{

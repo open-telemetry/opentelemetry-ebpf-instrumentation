@@ -86,6 +86,12 @@ func TestProcessHandleKeepsResourcesAndSignalsOnOriginalProcess(t *testing.T) {
 	rootFD, err := handle.Open("root", unix.O_PATH|unix.O_DIRECTORY)
 	require.NoError(t, err)
 	rootPath := fmt.Sprintf("/proc/self/fd/%d", rootFD.Fd())
+	require.NoError(t, os.WriteFile(filepath.Join(oldProcDir, "status"), []byte("NSpid:\t1000\t42\t1\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(procDir, "status"), []byte("NSpid:\t1000\t99\n"), 0o644))
+	namespacePIDs, err := handle.NamespacedPids()
+	require.NoError(t, err)
+	assert.Equal(t, []app.PID{1000, 42, 1}, namespacePIDs)
+
 	require.NoError(t, os.WriteFile(filepath.Join(rootPath, "tmp", "agent.jar"), []byte("agent"), 0o644))
 	require.NoError(t, rootFD.Close())
 	require.NoError(t, handle.SendSignal(unix.SIGQUIT))
