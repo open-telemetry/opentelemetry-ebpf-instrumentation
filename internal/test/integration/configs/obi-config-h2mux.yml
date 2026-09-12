@@ -1,0 +1,14 @@
+trace_printer: text
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+ebpf:
+  context_propagation: all
+discovery:
+  services:
+    - exe_path: python
+attributes:
+  select:
+    "*":
+      include: ["*"]
