@@ -401,7 +401,8 @@ discovery:
 			ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
 		},
 		NodeJS: NodeJSConfig{
-			Enabled: true,
+			Enabled:            true,
+			UninjectOnShutdown: true,
 		},
 		Java: JavaConfig{
 			Enabled: true,

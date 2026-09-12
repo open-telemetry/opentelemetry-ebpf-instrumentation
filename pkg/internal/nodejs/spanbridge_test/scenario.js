@@ -4,7 +4,7 @@
 // @opentelemetry/api global registry and its ProxyTracerProvider are process
 // singletons, so each scenario must run in its own process to avoid bleed.
 //
-// The eBPF transport is stubbed by intercepting the sentinel fs.accessSync
+// The eBPF transport is stubbed by intercepting the sentinel fs.existsSync
 // path the bridge uses (see spanbridge.js), so no eBPF/root is required.
 
 const fs = require('fs');
@@ -13,21 +13,19 @@ const path = require('path');
 const scenario = process.argv[2];
 
 const bridgeCaptured = [];
-const origAccess = fs.accessSync;
-fs.accessSync = (p, ...rest) => {
+const origExists = fs.existsSync;
+fs.existsSync = (p, ...rest) => {
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-span/')) {
     bridgeCaptured.push(JSON.parse(p.slice('/dev/null/obi-span/'.length)).name);
-    const err = new Error('ENOTDIR');
-    err.code = 'ENOTDIR';
-    throw err;
+    return false;
   }
-  return origAccess(p, ...rest);
+  return origExists(p, ...rest);
 };
 
 // Load and run the bridge the same way OBI's injector does: evaluate the file
 // (it is a self-executing IIFE), rather than require()-caching it.
 function injectBridge() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'spanbridge.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'spanbridge.js'), 'utf8').replace('= false; /*OBI_SPANS_ENABLED*/', '= true; /*OBI_SPANS_ENABLED*/');
   // eslint-disable-next-line no-eval
   eval(src);
 }
@@ -100,7 +98,7 @@ async function run() {
         threw = String(e && e.message);
       }
       await new Promise((r) => setTimeout(r, 20));
-      fs.accessSync = origAccess;
+      fs.existsSync = origExists;
       process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured, threw }));
       return;
     }
@@ -121,7 +119,7 @@ async function run() {
   }
 
   await new Promise((r) => setTimeout(r, 20));
-  fs.accessSync = origAccess;
+  fs.existsSync = origExists;
   process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured }));
 }
 

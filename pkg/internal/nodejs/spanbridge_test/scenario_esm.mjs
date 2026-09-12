@@ -17,19 +17,17 @@ const fs = require('node:fs');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const bridgeCaptured = [];
-const origAccess = fs.accessSync;
-fs.accessSync = (p, ...rest) => {
+const origExists = fs.existsSync;
+fs.existsSync = (p, ...rest) => {
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-span/')) {
     bridgeCaptured.push(JSON.parse(p.slice('/dev/null/obi-span/'.length)).name);
-    const err = new Error('ENOTDIR');
-    err.code = 'ENOTDIR';
-    throw err;
+    return false;
   }
-  return origAccess(p, ...rest);
+  return origExists(p, ...rest);
 };
 
 // Inject the bridge FIRST — @opentelemetry/api is not imported yet.
-const src = readFileSync(join(__dirname, '..', 'spanbridge.js'), 'utf8');
+const src = readFileSync(join(__dirname, '..', 'spanbridge.js'), 'utf8').replace('= false; /*OBI_SPANS_ENABLED*/', '= true; /*OBI_SPANS_ENABLED*/');
 // eslint-disable-next-line no-eval
 eval(src);
 
@@ -58,5 +56,5 @@ new NodeTracerProvider({
 trace.getTracer('app').startSpan('after').end(); // -> app SDK
 
 await new Promise((r) => setTimeout(r, 30));
-fs.accessSync = origAccess;
+fs.existsSync = origExists;
 process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured }));

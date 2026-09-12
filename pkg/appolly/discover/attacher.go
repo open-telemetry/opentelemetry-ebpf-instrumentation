@@ -132,6 +132,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	in := ta.InputInstrumentables.Subscribe(msg.SubscriberName("traceAttacher"))
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
+		defer ta.nodeInjector.UninjectAll()
 
 		var javaInjections *javaInjectionQueue
 		if ta.javaInjector != nil {
@@ -178,6 +179,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 						_ = instr.Obj.FileInfo.ELF().Close()
 					}
 				case EventDeleted:
+					ta.nodeInjector.Forget(int(instr.Obj.FileInfo.Pid()))
 					ta.notifyProcessDeletion(&instr.Obj)
 				}
 			}

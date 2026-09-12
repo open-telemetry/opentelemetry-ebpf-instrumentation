@@ -198,3 +198,22 @@ test('SDK registers after injection: bridge yields and the app SDK takes over', 
     'bridge stops emitting once the app SDK is registered'
   );
 });
+
+test('injecting with the gate off uninstalls a prior injection', () => {
+  const r = runScript('scenario_uninstall.js');
+  assert.deepStrictEqual(r.installed, {
+    active: true,
+    loadPatched: true,
+    setTPWrapped: true,
+    setCMWrapped: true,
+  });
+  assert.deepStrictEqual(r.removed, {
+    globalCleared: true,
+    latchCleared: true,
+    loadRestored: true,
+    setTPRestored: true,
+    setCMRestored: true,
+  });
+  assert.strictEqual(r.emittedWhileInstalled, 1);
+  assert.strictEqual(r.emittedAfterUninstall, 0);
+});
