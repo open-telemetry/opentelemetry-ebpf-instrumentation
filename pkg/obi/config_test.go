@@ -249,7 +249,7 @@ discovery:
 		Stats:        sc,
 		Metrics: perapp.GlobalMetricsConfig{
 			// after normalization, network feature is added from network > enable: true
-			Features: export.FeatureApplicationRED | export.FeatureNetwork,
+			Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureNetwork,
 		},
 		OTELMetrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
@@ -605,6 +605,88 @@ func TestConfigValidate(t *testing.T) {
 			require.NoError(t, loadConfig(t, tc).Validate())
 		})
 	}
+}
+
+func TestConfigValidate_ApplicationSizes(t *testing.T) {
+	validateFeatures := func(t *testing.T, features string) error {
+		t.Helper()
+		return loadConfig(t, envMap{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234",
+			"OTEL_EBPF_EXECUTABLE_PATH":           "foo",
+			"OTEL_EBPF_METRICS_FEATURES":          features,
+		}).Validate()
+	}
+
+	// the size histograms are emitted from the HTTP application metric pipeline, so a
+	// list that asks for them without the RED metrics would emit nothing at all
+	for _, tt := range []struct {
+		name     string
+		features string
+		rejected bool
+	}{
+		{name: "application bundles both", features: "application"},
+		{name: "application_red alone", features: "application_red"},
+		{name: "application_red with sizes", features: "application_red,application_sizes"},
+		{name: "bundle with sizes is idempotent", features: "application,application_sizes"},
+		{name: "all", features: "all"},
+		{name: "sizes alone", features: "application_sizes", rejected: true},
+		{name: "sizes with an unrelated feature", features: "application_sizes,network", rejected: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateFeatures(t, tt.features)
+			if !tt.rejected {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err,
+				"application_sizes needs the application RED metrics enabled in the same features list")
+		})
+	}
+
+	// a defined per-service list replaces the global one instead of extending it, so the
+	// two features have to meet inside the same list
+	perService := func(t *testing.T, global, service string) error {
+		t.Helper()
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: [` + global + `]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: [` + service + `]
+`))
+		require.NoError(t, err)
+		return cfg.Validate()
+	}
+
+	t.Run("sizes per service without RED is rejected", func(t *testing.T) {
+		require.ErrorContains(t, perService(t, "application", "application_sizes"),
+			"application_sizes needs the application RED metrics enabled in the same features list")
+	})
+
+	t.Run("sizes per service alongside application_red", func(t *testing.T) {
+		require.NoError(t, perService(t, "application", "application_red, application_sizes"))
+	})
+
+	t.Run("bundle per service", func(t *testing.T) {
+		require.NoError(t, perService(t, "application_red", "application"))
+	})
+
+	// an omitted per-service list inherits the global one, which is validated on its own
+	t.Run("per service without features inherits the global list", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+`))
+		require.NoError(t, err)
+		require.NoError(t, cfg.Validate())
+	})
 }
 
 func TestConfigValidate_DeprecatedMetricsFeatureWarning(t *testing.T) {
@@ -1534,7 +1616,7 @@ func TestUnmarshalConfmapSequences(t *testing.T) {
 	}
 
 	t.Run("metrics features", func(t *testing.T) {
-		expected := export.FeatureApplicationRED | export.FeatureSpanOTel
+		expected := export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureSpanOTel
 
 		for _, tc := range []struct {
 			name  string

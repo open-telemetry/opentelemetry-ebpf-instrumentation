@@ -2220,6 +2220,13 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete b
 		cfg.Metrics.Features &^= v2AppMetricsFeatureMask
 		if appMetricsEnabled {
 			cfg.Metrics.Features |= export.FeatureApplicationRED
+
+			// the size histograms ride on the HTTP metric pipeline, so they follow the
+			// HTTP metrics switch rather than the aggregate application one
+			http := src.Capture.Instrumentation.HTTP.Enabled
+			if http.Metrics && http.BodySizeMetrics {
+				cfg.Metrics.Features |= export.FeatureApplicationSizes
+			}
 		}
 	}
 	if networkConfigured {
@@ -2378,7 +2385,7 @@ func cloneExtraGroupAttributes(values schema.ExtraGroupAttributes) obi.ExtraGrou
 func protocolEnablement(instrumentation schema.Instrumentation, name protocolName) (schema.ProtocolEnablement, bool) {
 	switch name {
 	case protocolHTTP:
-		return instrumentation.HTTP.Enabled, false
+		return instrumentation.HTTP.Enabled.ProtocolEnablement, false
 	case protocolGRPC:
 		return instrumentation.GRPC.Enabled, false
 	case protocolSQL:
