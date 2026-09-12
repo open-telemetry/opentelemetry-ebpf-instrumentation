@@ -251,6 +251,76 @@ func TestValidateKafkaHeader(t *testing.T) {
 			correlationID: 123,
 			expectErr:     true,
 		},
+		// Group-coordination and offset APIs carry the consumer group id as their
+		// first body field. Version caps follow the upstream message schemas.
+		{
+			name:          "valid offset commit header",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(8),
+			apiVersion:    10,
+			correlationID: 1,
+		},
+		{
+			name:          "valid offset fetch header",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(9),
+			apiVersion:    10,
+			correlationID: 1,
+		},
+		{
+			name:          "valid join group header",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(11),
+			apiVersion:    9,
+			correlationID: 1,
+		},
+		{
+			name:          "valid heartbeat header",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(12),
+			apiVersion:    4,
+			correlationID: 1,
+		},
+		{
+			name:          "valid leave group header",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(13),
+			apiVersion:    5,
+			correlationID: 1,
+		},
+		{
+			name:          "valid sync group header",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(14),
+			apiVersion:    5,
+			correlationID: 1,
+		},
+		{
+			name:          "valid consumer group heartbeat header",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(68),
+			apiVersion:    1,
+			correlationID: 1,
+		},
+		{
+			name:          "unsupported join group version (too high)",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(11),
+			apiVersion:    10,
+			correlationID: 1,
+			expectErr:     true,
+		},
+		{
+			// FindCoordinator's key is a group id only when KeyType == 0 (1 = transaction,
+			// 2 = share group) and the JoinGroup/Heartbeat that follow carry the group id
+			// anyway, so it is deliberately not parsed as a group request.
+			name:          "find coordinator stays unsupported",
+			msgSize:       100,
+			apiKey:        KafkaAPIKey(10),
+			apiVersion:    6,
+			correlationID: 1,
+			expectErr:     true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -628,4 +698,30 @@ func TestNewKafkaRequestHeaderTruncation(t *testing.T) {
 			assert.Error(t, err, "expected error for truncated packet at position %d", i)
 		})
 	}
+}
+
+// Kafka encodes null non-compact arrays and BYTES with a length of -1; the helper must
+// keep the sign so callers can compare against it instead of seeing 4294967295.
+func TestReadInt32Signed(t *testing.T) {
+	tests := []struct {
+		name     string
+		bytes    []byte
+		expected int
+	}{
+		{name: "null marker", bytes: []byte{0xff, 0xff, 0xff, 0xff}, expected: -1},
+		{name: "positive", bytes: []byte{0x00, 0x00, 0x00, 0x2a}, expected: 42},
+		{name: "max int32", bytes: []byte{0x7f, 0xff, 0xff, 0xff}, expected: 2147483647},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := largebuf.NewLargeBufferFrom(tt.bytes).NewReader()
+			got, err := readInt32(&r)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+
+	r := largebuf.NewLargeBufferFrom([]byte{0x00, 0x00}).NewReader()
+	_, err := readInt32(&r)
+	assert.ErrorIs(t, err, errKafkaDataTooShortForInt32)
 }

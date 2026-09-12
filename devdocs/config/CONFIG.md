@@ -170,6 +170,7 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.high_request_volume` | `boolean` | `OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME` | `false` |  |  | Optimizes for getting requests information immediately when request response is seen |
 | `ebpf.http_request_timeout` | `duration` | `OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, etc |  | Must be at least 0 |
 | `ebpf.instrument_cuda` | `integer` | `OTEL_EBPF_INSTRUMENT_CUDA` | `auto` |  |  | Enables GPU instrumentation for CUDA kernel launches and allocations |
+| `ebpf.kafka_consumer_group_cache_size` | `integer` | `OTEL_KAFKA_CONSUMER_GROUP_CACHE_SIZE` | `4096` |  |  | Kafka consumer groups cache size: (process, topic) -> consumer group entries learned from group-coordination requests and reported on consumer spans. |
 | `ebpf.kafka_topic_uuid_cache_size` | `integer` | `OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE` | `1024` |  |  | Kafka Topic UUID to Name cache size. |
 | `ebpf.max_transaction_time` | `duration` | `OTEL_EBPF_BPF_MAX_TRANSACTION_TIME` | `5m` | `30s`, `5m`, `1ms`, etc |  | Maximum time allowed for two requests to be correlated as parent -> child Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity, which can generate very large traces. We want to mark the parent trace as invalid if this happens. |
 | `ebpf.mongo_requests_cache_size` | `integer` | `OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE` | `1024` |  |  | MongoDB requests cache size. |

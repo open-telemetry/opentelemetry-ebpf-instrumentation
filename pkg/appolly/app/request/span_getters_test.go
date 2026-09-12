@@ -1416,3 +1416,24 @@ func TestSpanOTELGetters_DBResponseStatusCode(t *testing.T) {
 		})
 	}
 }
+
+func TestSpanOTELGetters_MessagingConsumerGroup(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.MessagingConsumerGroup)
+	require.True(t, ok, "getter should be found for MessagingConsumerGroup")
+
+	consumer := &Span{Type: EventTypeKafkaClient, Method: MessagingProcess, MessagingInfo: &MessagingInfo{ConsumerGroup: "my-group"}}
+	kv := getter(consumer)
+	require.True(t, kv.Valid())
+	assert.Equal(t, string(attr.MessagingConsumerGroup), string(kv.Key))
+	assert.Equal(t, "my-group", kv.Value.AsString())
+
+	// unknown group and producers: attribute omitted, Prometheus label empty
+	for _, span := range []*Span{
+		{Type: EventTypeKafkaClient, Method: MessagingProcess, MessagingInfo: &MessagingInfo{}},
+		{Type: EventTypeKafkaClient, Method: MessagingSend},
+	} {
+		assert.False(t, getter(span).Valid())
+		assert.Empty(t, spanPromGetters(attr.MessagingConsumerGroup)(span))
+	}
+	assert.Equal(t, "my-group", spanPromGetters(attr.MessagingConsumerGroup)(consumer))
+}

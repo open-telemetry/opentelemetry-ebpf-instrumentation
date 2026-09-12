@@ -197,12 +197,12 @@ func TestProcessKafkaRequest(t *testing.T) {
 			cache, _ := simplelru.NewLRU[kafkaparser.UUID, string](1000, nil)
 			if len(tt.preRequests) > 0 {
 				for _, preInput := range tt.preRequests {
-					_, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(preInput.request), largebuf.NewLargeBufferFrom(preInput.response), cache)
+					_, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(preInput.request), largebuf.NewLargeBufferFrom(preInput.response), cache, nil, KafkaProcess{})
 					require.NoError(t, err)
 					require.True(t, ignore)
 				}
 			}
-			res, _, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(tt.request), nil, cache)
+			res, _, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(tt.request), nil, cache, nil, KafkaProcess{})
 			if tt.err {
 				assert.Error(t, err)
 				return
@@ -224,7 +224,7 @@ func TestProcessKafkaRequestProduceV13WithoutTopicCache(t *testing.T) {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}
 
-	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(request), nil)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(request), nil, nil, nil, KafkaProcess{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 1)
@@ -253,7 +253,7 @@ func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
 	uuid := kafkaparser.UUID{172, 231, 101, 123, 36, 212, 77, 228, 142, 87, 26, 240, 250, 236, 204, 15}
 	cache.Add(uuid, "my-topic")
 
-	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(request), cache)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(request), nil, cache, nil, KafkaProcess{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 1)
@@ -271,16 +271,9 @@ func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
 // request yields one KafkaInfo per topic (not just the first), each with its own
 // resolved name and partition. This is the transform-side counterpart to the
 // parser-level TestParseFetchRequestMultiTopicWithPartitions.
-func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
-	uuid1 := kafkaparser.UUID{
-		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
-	}
-	uuid2 := kafkaparser.UUID{
-		0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
-		0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30,
-	}
-
+// fetchV13TwoTopics builds a Fetch v13 request (client id "c") for two UUID-identified
+// topics: uuid1 partition 0 offset 100, uuid2 partition 3 offset 200.
+func fetchV13TwoTopics(uuid1, uuid2 kafkaparser.UUID) []byte {
 	// Writes one full v12+ fetch partition entry.
 	writePartition := func(pkt []byte, offset int, idx uint32, fetchOffset uint64) int {
 		binary.BigEndian.PutUint32(pkt[offset:], idx) // partition_index
@@ -355,12 +348,28 @@ func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
 
 	pkt = pkt[:offset]
 	binary.BigEndian.PutUint32(pkt[0:], uint32(offset-4)) // message_size
+	return pkt
+}
+
+var (
+	fetchUUID1 = kafkaparser.UUID{
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+	}
+	fetchUUID2 = kafkaparser.UUID{
+		0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+		0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30,
+	}
+)
+
+func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
+	pkt := fetchV13TwoTopics(fetchUUID1, fetchUUID2)
 
 	cache, _ := simplelru.NewLRU[kafkaparser.UUID, string](1000, nil)
-	cache.Add(uuid1, "topic-one")
-	cache.Add(uuid2, "topic-two")
+	cache.Add(fetchUUID1, "topic-one")
+	cache.Add(fetchUUID2, "topic-two")
 
-	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(pkt), cache)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(pkt), nil, cache, nil, KafkaProcess{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 2)
@@ -431,7 +440,7 @@ func TestProcessKafkaRequestProduceMultiTopic(t *testing.T) {
 	pkt = pkt[:offset]
 	binary.BigEndian.PutUint32(pkt[0:], uint32(offset-4))
 
-	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(pkt), nil)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(pkt), nil, nil, nil, KafkaProcess{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 2)
@@ -448,4 +457,152 @@ func TestProcessKafkaRequestProduceMultiTopic(t *testing.T) {
 		Topic:         "topic-two",
 		PartitionInfo: &PartitionInfo{Partition: 3},
 	}, infos[1])
+}
+
+// Fixtures generated from the Kafka wire schemas (client id "consumer-1-1" in every header):
+//   - joinGroupMyGroup:    JoinGroup v7, GroupId "my-group",    subscription [orders, audit]
+//   - joinGroupOtherGroup: JoinGroup v7, GroupId "other-group", subscription [payments]
+//   - heartbeatHbGroup:    Heartbeat v4, GroupId "hb-group"
+//   - fetch*:              Fetch v4, one topic, partition 0, offset 19
+var (
+	joinGroupMyGroup    = []byte{0, 0, 0, 90, 0, 11, 0, 7, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 9, 109, 121, 45, 103, 114, 111, 117, 112, 0, 0, 39, 16, 0, 0, 117, 48, 1, 0, 9, 99, 111, 110, 115, 117, 109, 101, 114, 2, 6, 114, 97, 110, 103, 101, 30, 0, 1, 0, 0, 0, 2, 0, 6, 111, 114, 100, 101, 114, 115, 0, 5, 97, 117, 100, 105, 116, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0}
+	joinGroupOtherGroup = []byte{0, 0, 0, 88, 0, 11, 0, 7, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 12, 111, 116, 104, 101, 114, 45, 103, 114, 111, 117, 112, 0, 0, 39, 16, 0, 0, 117, 48, 1, 0, 9, 99, 111, 110, 115, 117, 109, 101, 114, 2, 6, 114, 97, 110, 103, 101, 25, 0, 1, 0, 0, 0, 1, 0, 8, 112, 97, 121, 109, 101, 110, 116, 115, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0}
+	heartbeatHbGroup    = []byte{0, 0, 0, 53, 0, 12, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 9, 104, 98, 45, 103, 114, 111, 117, 112, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0}
+	fetchOrders         = []byte{0, 0, 0, 71, 0, 1, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0, 0, 0, 1, 0, 6, 111, 114, 100, 101, 114, 115, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 16, 0, 0}
+	fetchPayments       = []byte{0, 0, 0, 73, 0, 1, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0, 0, 0, 1, 0, 8, 112, 97, 121, 109, 101, 110, 116, 115, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 16, 0, 0}
+	fetchImportant      = []byte{0, 0, 0, 74, 0, 1, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 16, 0, 0}
+)
+
+func kafkaEventFromPid(ns, pid uint32) *TCPRequestInfo {
+	event := &TCPRequestInfo{}
+	event.Pid.Ns = ns
+	event.Pid.UserPid = pid
+	event.Pid.HostPid = pid
+	return event
+}
+
+// processKafka runs one request through the same entry point the TCP pipeline uses.
+func processKafka(t *testing.T, groups *KafkaConsumerGroups, event *TCPRequestInfo, request []byte) ([]*KafkaInfo, bool) {
+	t.Helper()
+	uuidCache, err := simplelru.NewLRU[kafkaparser.UUID, string](16, nil)
+	require.NoError(t, err)
+	infos, ignore, err := ProcessPossibleKafkaEvent(event, largebuf.NewLargeBufferFrom(request), nil, uuidCache, groups)
+	require.NoError(t, err)
+	return infos, ignore
+}
+
+func fetchGroup(t *testing.T, groups *KafkaConsumerGroups, event *TCPRequestInfo, request []byte) string {
+	t.Helper()
+	infos, ignore := processKafka(t, groups, event, request)
+	require.False(t, ignore)
+	require.Len(t, infos, 1)
+	assert.Equal(t, Fetch, infos[0].Operation)
+	return infos[0].ConsumerGroup
+}
+
+func TestProcessKafkaEventConsumerGroup(t *testing.T) {
+	groups, err := NewKafkaConsumerGroups(64)
+	require.NoError(t, err)
+
+	consumer := kafkaEventFromPid(7, 42)
+	otherProcess := kafkaEventFromPid(7, 43)
+	sameProcessOtherNs := kafkaEventFromPid(8, 42)
+
+	t.Run("group requests are recognized but produce no span", func(t *testing.T) {
+		infos, ignore := processKafka(t, groups, consumer, joinGroupMyGroup)
+		assert.True(t, ignore)
+		assert.Nil(t, infos)
+	})
+
+	t.Run("fetch of a subscribed topic from the same pid gets the group", func(t *testing.T) {
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
+	})
+
+	t.Run("fetch of an unknown topic falls back to the process-level group", func(t *testing.T) {
+		// KIP-227 session fetches carry no topic, and a JoinGroup truncated by the
+		// kernel buffer may miss topics: the single group seen for the pid is used.
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant))
+	})
+
+	t.Run("other pid or other namespace stays without group", func(t *testing.T) {
+		assert.Empty(t, fetchGroup(t, groups, otherProcess, fetchOrders))
+		assert.Empty(t, fetchGroup(t, groups, sameProcessOtherNs, fetchOrders))
+	})
+
+	t.Run("second group in the same process: topic decides, unknown topics get nothing", func(t *testing.T) {
+		_, ignore := processKafka(t, groups, consumer, joinGroupOtherGroup)
+		assert.True(t, ignore)
+
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
+		assert.Equal(t, "other-group", fetchGroup(t, groups, consumer, fetchPayments))
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "ambiguous pid must not guess")
+	})
+
+	t.Run("heartbeat alone (mid-stream attach) is enough for the process-level group", func(t *testing.T) {
+		midStream := kafkaEventFromPid(7, 99)
+		_, ignore := processKafka(t, groups, midStream, heartbeatHbGroup)
+		assert.True(t, ignore)
+		assert.Equal(t, "hb-group", fetchGroup(t, groups, midStream, fetchImportant))
+	})
+
+	t.Run("produce never gets a group", func(t *testing.T) {
+		produceV9 := []byte{0, 0, 0, 124, 0, 0, 0, 9, 0, 0, 0, 8, 0, 10, 112, 114, 111, 100, 117, 99, 101, 114, 45, 49, 0, 0, 0, 1, 0, 0, 117, 48, 2, 9, 109, 121, 45, 116, 111, 112, 105, 99, 2, 0, 0, 0, 0, 78, 103, 0, 0, 0, 1, 2, 0, 0, 9, 109, 121, 45, 116, 111, 112, 105, 99, 193, 136, 51, 44, 67, 57, 71, 124, 178, 93, 33, 21, 191, 31, 138, 233, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 1, 2, 0, 0, 0, 1, 1, 0, 128, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 16, 0, 0, 0, 4, 0, 0, 17}
+		midStream := kafkaEventFromPid(7, 99)
+		infos, ignore := processKafka(t, groups, midStream, produceV9)
+		require.False(t, ignore)
+		require.Len(t, infos, 1)
+		assert.Equal(t, Produce, infos[0].Operation)
+		assert.Empty(t, infos[0].ConsumerGroup)
+	})
+}
+
+func TestTCPToKafkaToSpanConsumerGroup(t *testing.T) {
+	event := kafkaEventFromPid(7, 42)
+
+	// group known, partition list cut: the group is reported, the partition is not
+	span := TCPToKafkaToSpan(event, &KafkaInfo{Operation: Fetch, Topic: "orders", ConsumerGroup: "my-group"})
+	require.NotNil(t, span.MessagingInfo)
+	assert.Equal(t, "my-group", span.MessagingInfo.ConsumerGroup)
+	assert.False(t, span.MessagingInfo.HasPartition)
+
+	span = TCPToKafkaToSpan(event, &KafkaInfo{
+		Operation: Fetch, Topic: "orders", ConsumerGroup: "my-group",
+		PartitionInfo: &PartitionInfo{Partition: 3, Offset: 42},
+	})
+	require.NotNil(t, span.MessagingInfo)
+	assert.True(t, span.MessagingInfo.HasPartition)
+	assert.Equal(t, 3, span.MessagingInfo.Partition)
+	assert.Equal(t, int64(42), span.MessagingInfo.Offset)
+
+	// nothing known: no MessagingInfo, so no partition "0" is ever fabricated
+	span = TCPToKafkaToSpan(event, &KafkaInfo{Operation: Fetch, Topic: "orders"})
+	assert.Nil(t, span.MessagingInfo)
+}
+
+// Fetch v13+ identifies topics by UUID: the group lookup must use the name resolved
+// through the Metadata cache, otherwise per-topic entries never match and a process
+// with two groups gets nothing.
+func TestProcessKafkaEventConsumerGroupFetchByUUID(t *testing.T) {
+	groups, err := NewKafkaConsumerGroups(64)
+	require.NoError(t, err)
+	uuidCache, err := simplelru.NewLRU[kafkaparser.UUID, string](16, nil)
+	require.NoError(t, err)
+	uuidCache.Add(fetchUUID1, "orders")
+	uuidCache.Add(fetchUUID2, "payments")
+
+	consumer := kafkaEventFromPid(7, 42)
+	for _, join := range [][]byte{joinGroupMyGroup, joinGroupOtherGroup} {
+		_, ignore, err := ProcessPossibleKafkaEvent(consumer, largebuf.NewLargeBufferFrom(join), nil, uuidCache, groups)
+		require.NoError(t, err)
+		require.True(t, ignore)
+	}
+
+	infos, ignore, err := ProcessPossibleKafkaEvent(consumer, largebuf.NewLargeBufferFrom(fetchV13TwoTopics(fetchUUID1, fetchUUID2)), nil, uuidCache, groups)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Len(t, infos, 2)
+	assert.Equal(t, "orders", infos[0].Topic)
+	assert.Equal(t, "my-group", infos[0].ConsumerGroup)
+	assert.Equal(t, "payments", infos[1].Topic)
+	assert.Equal(t, "other-group", infos[1].ConsumerGroup)
 }

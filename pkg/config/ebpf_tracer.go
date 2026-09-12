@@ -126,6 +126,10 @@ type EBPFTracer struct {
 	// Kafka Topic UUID to Name cache size.
 	KafkaTopicUUIDCacheSize int `yaml:"kafka_topic_uuid_cache_size" env:"OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE" validate:"gt=0"`
 
+	// Kafka consumer groups cache size: (process, topic) -> consumer group entries learned
+	// from group-coordination requests and reported on consumer spans.
+	KafkaConsumerGroupCacheSize int `yaml:"kafka_consumer_group_cache_size" env:"OTEL_KAFKA_CONSUMER_GROUP_CACHE_SIZE" validate:"gt=0"`
+
 	// MongoDB requests cache size.
 	MongoRequestsCacheSize int `yaml:"mongo_requests_cache_size" env:"OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE" validate:"gt=0"`
 

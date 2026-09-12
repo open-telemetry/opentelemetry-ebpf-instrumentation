@@ -544,6 +544,46 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpName), "process")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "important-topic")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "test")
+		ensureTraceAttrNotExists(t, attrs, semconv.MessagingConsumerGroupNameKey)
+	})
+
+	t.Run("test Kafka consumer group attribute", func(t *testing.T) {
+		kafkaAttrs := func(span *request.Span) pcommon.Map {
+			tAttrs := tracesgen.TraceAttributesSelector(span, map[attr.Name]struct{}{})
+			traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(span, tAttrs), reporterName)
+			return traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		}
+
+		consumer := request.Span{
+			Type: request.EventTypeKafkaClient, Method: request.MessagingProcess, Path: "orders", Statement: "consumer-1-1",
+			MessagingInfo: &request.MessagingInfo{HasPartition: true, Partition: 3, Offset: 42, ConsumerGroup: "my-group"},
+		}
+		attrs := kafkaAttrs(&consumer)
+		ensureTraceStrAttr(t, attrs, semconv.MessagingConsumerGroupNameKey, "my-group")
+		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationPartitionIDKey, "3")
+
+		// group known but the partition list was cut: no fabricated partition 0 / offset 0
+		groupOnly := request.Span{
+			Type: request.EventTypeKafkaClient, Method: request.MessagingProcess, Path: "orders",
+			MessagingInfo: &request.MessagingInfo{ConsumerGroup: "my-group"},
+		}
+		attrs = kafkaAttrs(&groupOnly)
+		ensureTraceStrAttr(t, attrs, semconv.MessagingConsumerGroupNameKey, "my-group")
+		ensureTraceAttrNotExists(t, attrs, semconv.MessagingDestinationPartitionIDKey)
+		ensureTraceAttrNotExists(t, attrs, semconv.MessagingKafkaOffsetKey)
+
+		// producers have no group, and a consumer whose group is unknown must not emit an empty one
+		producer := request.Span{
+			Type: request.EventTypeKafkaClient, Method: request.MessagingSend, Path: "orders", Statement: "producer-1",
+			MessagingInfo: &request.MessagingInfo{HasPartition: true, Partition: 0},
+		}
+		ensureTraceAttrNotExists(t, kafkaAttrs(&producer), semconv.MessagingConsumerGroupNameKey)
+
+		unknownGroup := request.Span{
+			Type: request.EventTypeKafkaClient, Method: request.MessagingProcess, Path: "orders",
+			MessagingInfo: &request.MessagingInfo{},
+		}
+		ensureTraceAttrNotExists(t, kafkaAttrs(&unknownGroup), semconv.MessagingConsumerGroupNameKey)
 	})
 
 	t.Run("test MQTT trace generation", func(t *testing.T) {

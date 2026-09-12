@@ -768,6 +768,12 @@
           "default": "auto",
           "x-env-var": "OTEL_EBPF_INSTRUMENT_CUDA"
         },
+        "kafka_consumer_group_cache_size": {
+          "type": "integer",
+          "description": "Kafka consumer groups cache size: (process, topic) -> consumer group entries learned from group-coordination requests and reported on consumer spans.",
+          "default": 4096,
+          "x-env-var": "OTEL_KAFKA_CONSUMER_GROUP_CACHE_SIZE"
+        },
         "kafka_topic_uuid_cache_size": {
           "type": "integer",
           "description": "Kafka Topic UUID to Name cache size.",
