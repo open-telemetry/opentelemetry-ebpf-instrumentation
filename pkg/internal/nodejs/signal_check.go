@@ -43,16 +43,16 @@ const (
 	sigusr1Mask      = uint64(1) << (sigusr1 - 1)
 )
 
-// nodeRuntimeSymbols are the symbols only a Node.js runtime carries. The first
-// three are Node's own internals; uv__signal_tree is libuv's, which Node links
-// statically, and which no other runtime OBI types as Node.js links at all.
+// nodeRuntimeSymbols are Node's own internals, which no other runtime carries.
+//
 // The public N-API surface is deliberately absent: Bun re-exports node::
 // symbols such as MakeCallback, so matching those would identify it as Node.
+// libuv's symbols are absent for the same reason — any runtime linking libuv
+// has them, Bun included, so they say nothing about which runtime this is.
 var nodeRuntimeSymbols = []string{
 	"_ZN4node16NodeMainInstance",
 	"_ZN4node11Environment",
 	"_ZN4node5StartE",
-	signalTreeSymbol,
 }
 
 // nodeSymbols is what one walk of the executable's symbol tables yields for

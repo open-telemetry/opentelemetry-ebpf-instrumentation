@@ -114,10 +114,10 @@ The injected agent reports in-process readings over an eBPF side channel:
 - `SIGUSR1` is withheld unless the process is provably a Node.js runtime that
   the signal cannot terminate and that has no handler of its own. Each refusal
   is logged once, with a `reason`:
-  - the executable names none of the symbols a Node.js runtime carries — three
-    of Node's own internals, plus libuv's `uv__signal_tree`, which Node links
-    statically — and the process maps no `libnode.so`, so it is a Node.js
-    process only by the name of its binary;
+  - the executable names none of Node's own internal symbols and the process
+    maps no `libnode.so`, so it is a Node.js process only by the name of its
+    binary. libuv's symbols do not count towards this: any runtime linking
+    libuv carries them, so they say nothing about which runtime it is;
   - `SigCgt`/`SigIgn` in `/proc/<pid>/status` show `SIGUSR1` neither caught nor
     ignored, so sending it would terminate the process. A runtime is briefly in
     this state after `exec`, so OBI waits for it to install its handler before
