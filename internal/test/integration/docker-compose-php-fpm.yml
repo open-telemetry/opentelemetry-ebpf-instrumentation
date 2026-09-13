@@ -33,6 +33,71 @@ services:
       PM_MAX_SPARE_SERVERS: 20
       PM_PROCESS_IDLE_TIMEOUT: 10s
 
+  symfony-nginx:
+    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    mem_limit: 128m
+    container_name: hatest-symfony-nginx
+    ports:
+      - "8081:80"
+    volumes:
+      - ./components/php/symfony/nginx.conf:/etc/nginx/nginx.conf
+      - ./components/php/symfony/public:/var/www/symfony/public:ro
+    depends_on:
+      - symfony-php-fpm
+
+  symfony-php-fpm:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/symfony/Dockerfile
+    image: hatest-php-symfony
+    mem_limit: 256m
+    container_name: hatest-symfony-php-fpm
+
+  php-harvest-nginx:
+    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    mem_limit: 128m
+    container_name: hatest-php-harvest-nginx
+    ports:
+      - "8082:80"
+      - "8083:81"
+      - "8084:82"
+    volumes:
+      - ./components/php/harvest/nginx.conf:/etc/nginx/nginx.conf
+      - ./components/php/harvest/laravel/public:/var/www/laravel/public:ro
+      - ./components/php/harvest/symfony/public:/var/www/symfony-harvest/public:ro
+      - ./components/php/harvest/slim/public:/var/www/slim/public:ro
+    depends_on:
+      - php-harvest-laravel
+      - php-harvest-symfony
+      - php-harvest-slim
+
+  php-harvest-laravel:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/laravel/Dockerfile
+    image: hatest-php-harvest-laravel
+    mem_limit: 256m
+    container_name: hatest-php-harvest-laravel
+    environment:
+      APP_DEBUG: "true"
+      LOG_CHANNEL: stderr
+
+  php-harvest-symfony:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/symfony/Dockerfile
+    image: hatest-php-harvest-symfony
+    mem_limit: 256m
+    container_name: hatest-php-harvest-symfony
+
+  php-harvest-slim:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/slim/Dockerfile
+    image: hatest-php-harvest-slim
+    mem_limit: 256m
+    container_name: hatest-php-harvest-slim
+
   obi:
     build:
       context: ../../..
@@ -61,6 +126,10 @@ services:
       OTEL_EBPF_HOSTNAME: "obi"
     depends_on:
       nginx:
+        condition: service_started
+      symfony-nginx:
+        condition: service_started
+      php-harvest-nginx:
         condition: service_started
 
   # OpenTelemetry Collector
