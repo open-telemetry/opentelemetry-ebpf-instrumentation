@@ -575,7 +575,6 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
     bpf_dbg_printk("=== uprobe/ClientConn_NewStream_return ===");
 
     void *stream_iface = GO_PARAM1(ctx);
-    void *stream_data = GO_PARAM2(ctx);
     void *err = GO_PARAM3(ctx);
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -599,27 +598,32 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
         return 0;
     }
 
-    u64 stream_ptr = inv.stream_ptr ? inv.stream_ptr : (u64)stream_data;
-    if (stream_ptr) {
-        grpc_client_stream_state_t state = {
-            .invocation = inv,
-            .conn = {0},
-        };
-
-        if (inv.transport_ptr) {
-            go_addr_key_t cache_key = {};
-            go_addr_key_from_id(&cache_key, (void *)inv.transport_ptr);
-            connection_info_t *cached =
-                bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
-            if (cached) {
-                __builtin_memcpy(&state.conn, cached, sizeof(connection_info_t));
-            }
-        }
-
-        go_addr_key_t s_key = {};
-        go_addr_key_from_id(&s_key, (void *)stream_ptr);
-        bpf_map_update_elem(&ongoing_grpc_client_streams, &s_key, &state, BPF_ANY);
+    u64 stream_ptr = inv.stream_ptr;
+    if (!stream_ptr) {
+        // Raw *clientStream identity unavailable (e.g. wrapped or unknown).
+        // Fail safely: end creator context, but do not install incorrectly keyed state.
+        go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
+        return 0;
     }
+
+    grpc_client_stream_state_t state = {
+        .invocation = inv,
+        .conn = {0},
+    };
+
+    if (inv.transport_ptr) {
+        go_addr_key_t cache_key = {};
+        go_addr_key_from_id(&cache_key, (void *)inv.transport_ptr);
+        connection_info_t *cached =
+            bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
+        if (cached) {
+            __builtin_memcpy(&state.conn, cached, sizeof(connection_info_t));
+        }
+    }
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, (void *)stream_ptr);
+    bpf_map_update_elem(&ongoing_grpc_client_streams, &s_key, &state, BPF_ANY);
 
     go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
 
