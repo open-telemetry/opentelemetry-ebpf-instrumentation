@@ -1816,11 +1816,11 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"google.golang.org/grpc.(*ClientConn).Close": {{
 			Start: p.bpfObjects.ObiUprobeClientConnClose,
 		}},
-		"google.golang.org/grpc.(*clientStream).RecvMsg": {{
-			End: p.bpfObjects.ObiUprobeClientStreamRecvMsgReturn,
+		"google.golang.org/grpc.newClientStreamWithParams": {{
+			End: p.bpfObjects.ObiUprobeNewClientStreamWithParamsReturn,
 		}},
-		"google.golang.org/grpc.(*clientStream).CloseSend": {{
-			End: p.bpfObjects.ObiUprobeClientConnInvokeReturn,
+		"google.golang.org/grpc.(*clientStream).finish": {{
+			Start: p.bpfObjects.ObiUprobeClientStreamFinish,
 		}},
 		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream": {{
 			Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream,

@@ -42,6 +42,7 @@
 #include <pid/pid_helpers.h>
 
 #include <gotracer/go_obi_ctx.h>
+#include <gotracer/grpc_client_stack.h>
 
 #define TRANSPORT_HTTP2 1
 #define TRANSPORT_HANDLER 2
@@ -384,6 +385,76 @@ int GUARDED_PROG(obi_uprobe_transport_writeStatus, struct pt_regs *, ctx) {
 }
 
 /* GRPC client */
+static __always_inline void grpc_client_emit_with_conn(
+    const grpc_client_func_invocation_t *invocation, const connection_info_t *conn, void *err) {
+    if (!invocation) {
+        return;
+    }
+
+    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
+    if (!trace) {
+        bpf_dbg_printk("can't reserve space in the ringbuffer");
+        return;
+    }
+
+    task_pid(&trace->pid);
+    trace->type = k_event_type_grpc_client;
+    trace->start_monotime_ns = invocation->start_monotime_ns;
+    trace->go_start_monotime_ns = invocation->start_monotime_ns;
+    trace->end_monotime_ns = bpf_ktime_get_ns();
+    trace->content_length = 0;
+    trace->method[0] = '\0';
+    trace->host[0] = '\0';
+    trace->scheme[0] = '\0';
+    trace->pattern[0] = '\0';
+    trace->path[0] = '\0';
+    trace->is_jsonrpc = false;
+
+    void *method_ptr = (void *)invocation->method;
+    void *method_len = (void *)invocation->method_len;
+
+    bpf_dbg_printk("method_ptr=%lx, method_len=%d", method_ptr, method_len);
+
+    if (!read_go_str_n("method", method_ptr, (u64)method_len, trace->path, sizeof(trace->path))) {
+        bpf_dbg_printk("can't read grpc client method");
+        bpf_ringbuf_discard(trace, 0);
+        return;
+    }
+
+    if (conn && (conn->s_port != 0 || conn->d_port != 0)) {
+        __builtin_memcpy(&trace->conn, conn, sizeof(connection_info_t));
+    } else {
+        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
+    }
+
+    trace->tp = invocation->tp;
+    trace->status = (err) ? 2 : 0;
+
+    bpf_ringbuf_submit(trace, get_flags());
+}
+
+static __always_inline void grpc_client_emit(const go_addr_key_t *g_key,
+                                             const grpc_client_func_invocation_t *invocation,
+                                             void *err) {
+    if (!invocation) {
+        return;
+    }
+
+    const connection_info_t *conn = NULL;
+    if (invocation->transport_ptr) {
+        go_addr_key_t cache_key = {};
+        go_addr_key_from_id(&cache_key, (void *)invocation->transport_ptr);
+        conn = bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
+    }
+
+    if (!conn && g_key) {
+        conn = bpf_map_lookup_elem(&ongoing_client_connections, g_key);
+    }
+
+    grpc_client_emit_with_conn(invocation, conn, err);
+}
+
+/* GRPC client */
 static __always_inline void clientConnStart(void *goroutine_addr,
                                             void *cc_ptr,
                                             void *ctx_ptr,
@@ -397,6 +468,10 @@ static __always_inline void clientConnStart(void *goroutine_addr,
         .method_len = (u64)method_len,
         .tp = {0},
         .flags = 0,
+        .stream_ptr = 0,
+        .transport_ptr = 0,
+        .stack_off = (u32)stack_off,
+        ._pad = 0,
     };
     off_table_t *ot = get_offsets_table();
     go_addr_key_t g_key = {};
@@ -417,12 +492,24 @@ static __always_inline void clientConnStart(void *goroutine_addr,
         bpf_dbg_printk("No ctx_ptr: %llx", ctx_ptr);
     }
 
-    // Write event
-    if (bpf_map_update_elem(&ongoing_grpc_client_requests, &g_key, &invocation, BPF_ANY)) {
-        bpf_dbg_printk("can't update grpc client map element");
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    if (!stack) {
+        grpc_client_invocation_stack_t *fresh = grpc_client_stack_scratch_mem();
+        if (!fresh) {
+            return;
+        }
+        bpf_memset(fresh, 0, sizeof(*fresh));
+        fresh->frames[0] = invocation;
+        fresh->depth = 1;
+        bpf_map_update_elem(&ongoing_grpc_client_requests, &g_key, fresh, BPF_ANY);
+        go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, (u32)stack_off);
+        return;
     }
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, stack_off);
+    if (grpc_client_push(&g_key, stack, &invocation)) {
+        go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, (u32)stack_off);
+    }
 }
 
 SEC("uprobe/ClientConn_Invoke")
@@ -462,88 +549,88 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     return 0;
 }
 
-static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
+SEC("uprobe/newClientStreamWithParams")
+int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, ctx) {
+    bpf_dbg_printk("=== uprobe/newClientStreamWithParams_return ===");
+
+    void *stream_ptr = GO_PARAM2(ctx);
+    void *err = GO_PARAM3(ctx);
+    if (err || !stream_ptr) {
+        return 0;
+    }
+
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    grpc_client_func_invocation_t *invocation =
+    grpc_client_invocation_stack_t *stack =
         bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-
-    if (invocation == NULL) {
-        bpf_dbg_printk("can't read grpc client invocation metadata");
-        goto done;
+    grpc_client_func_invocation_t *current = grpc_client_current(stack);
+    if (current) {
+        current->stream_ptr = (u64)stream_ptr;
     }
 
-    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
-    if (!trace) {
-        bpf_dbg_printk("can't reserve space in the ringbuffer");
-        goto done;
-    }
-
-    task_pid(&trace->pid);
-    trace->type = k_event_type_grpc_client;
-    trace->start_monotime_ns = invocation->start_monotime_ns;
-    trace->go_start_monotime_ns = invocation->start_monotime_ns;
-    trace->end_monotime_ns = bpf_ktime_get_ns();
-    trace->content_length = 0;
-    trace->method[0] = '\0';
-    trace->host[0] = '\0';
-    trace->scheme[0] = '\0';
-    trace->pattern[0] = '\0';
-    trace->path[0] = '\0';
-    trace->is_jsonrpc = false;
-
-    // Read arguments from the original set of registers
-
-    // Get client request value pointers
-    void *method_ptr = (void *)invocation->method;
-    void *method_len = (void *)invocation->method_len;
-
-    bpf_dbg_printk("method_ptr=%lx, method_len=%d", method_ptr, method_len);
-
-    // Get method from the incoming call arguments
-    if (!read_go_str_n("method", method_ptr, (u64)method_len, trace->path, sizeof(trace->path))) {
-        bpf_dbg_printk("can't read grpc client method");
-        bpf_ringbuf_discard(trace, 0);
-        goto done;
-    }
-
-    connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
-
-    if (info) {
-        __builtin_memcpy(&trace->conn, info, sizeof(connection_info_t));
-    } else {
-        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
-    }
-
-    trace->tp = invocation->tp;
-
-    trace->status =
-        (err)
-            ? 2
-            : 0; // Getting the gRPC client status is complex, if there's an error we set Code.Unknown = 2
-
-    // submit the completed trace via ringbuffer
-    bpf_ringbuf_submit(trace, get_flags());
-
-done:
-    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, invocation ? &invocation->tp : NULL);
-    bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
     return 0;
 }
 
-// Same as ClientConn_Invoke, registers for the method are offset by one
 SEC("uprobe/ClientConn_NewStream")
 int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) {
-    bpf_dbg_printk("=== uprobe/ClientConn_NewStream ===");
+    bpf_dbg_printk("=== uprobe/ClientConn_NewStream_return ===");
 
-    void *stream = GO_PARAM1(ctx);
+    void *stream_iface = GO_PARAM1(ctx);
+    void *stream_data = GO_PARAM2(ctx);
+    void *err = GO_PARAM3(ctx);
 
-    if (!stream) {
-        return grpc_connect_done(ctx, (void *)1);
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    if (!stack) {
+        return 0;
     }
+
+    grpc_client_func_invocation_t inv = {};
+    if (!grpc_client_pop(&g_key, stack, &inv)) {
+        return 0;
+    }
+
+    if (!stream_iface || err) {
+        grpc_client_emit(&g_key, &inv, (void *)1);
+        go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
+        return 0;
+    }
+
+    u64 stream_ptr = inv.stream_ptr ? inv.stream_ptr : (u64)stream_data;
+    if (stream_ptr) {
+        grpc_client_stream_state_t state = {
+            .invocation = inv,
+            .conn = {0},
+        };
+
+        if (inv.transport_ptr) {
+            go_addr_key_t cache_key = {};
+            go_addr_key_from_id(&cache_key, (void *)inv.transport_ptr);
+            connection_info_t *cached =
+                bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
+            if (cached) {
+                __builtin_memcpy(&state.conn, cached, sizeof(connection_info_t));
+            }
+        }
+        if (state.conn.s_port == 0 && state.conn.d_port == 0) {
+            connection_info_t *conn = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
+            if (conn) {
+                __builtin_memcpy(&state.conn, conn, sizeof(connection_info_t));
+            }
+        }
+
+        go_addr_key_t s_key = {};
+        go_addr_key_from_id(&s_key, (void *)stream_ptr);
+        bpf_map_update_elem(&ongoing_grpc_client_streams, &s_key, &state, BPF_ANY);
+    }
+
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
 
     return 0;
 }
@@ -551,45 +638,57 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
 SEC("uprobe/ClientConn_Close")
 int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ClientConn_Close ===");
-
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    void *cc_ptr = GO_PARAM1(ctx);
-    bpf_dbg_printk("goroutine_addr=%lx, cc_ptr=%llx", goroutine_addr, cc_ptr);
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
-
-    const grpc_client_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-    // an interceptor can close another connection while this goroutine's RPC runs
-    if (!invocation || invocation->cc != (u64)cc_ptr) {
-        return 0;
-    }
-
-    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &invocation->tp);
-    bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-
     return 0;
 }
 
 SEC("uprobe/ClientConn_Invoke")
 int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
-    bpf_dbg_printk("=== uprobe/ClientConn_Invoke ===");
+    bpf_dbg_printk("=== uprobe/ClientConn_Invoke_return ===");
 
     void *err = GO_PARAM1(ctx);
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
 
-    if (err) {
-        return grpc_connect_done(ctx, err);
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    if (!stack) {
+        return 0;
     }
+
+    grpc_client_func_invocation_t inv = {};
+    if (!grpc_client_pop(&g_key, stack, &inv)) {
+        return 0;
+    }
+
+    grpc_client_emit(&g_key, &inv, err);
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
 
     return 0;
 }
 
-// google.golang.org/grpc.(*clientStream).RecvMsg
-SEC("uprobe/clientStream_RecvMsg")
-int GUARDED_PROG(obi_uprobe_clientStream_RecvMsg_return, struct pt_regs *, ctx) {
-    bpf_dbg_printk("=== uprobe/clientStream_RecvMsg ===");
-    void *err = (void *)GO_PARAM1(ctx);
-    return grpc_connect_done(ctx, err);
+SEC("uprobe/clientStream_finish")
+int GUARDED_PROG(obi_uprobe_clientStream_finish, struct pt_regs *, ctx) {
+    bpf_dbg_printk("=== uprobe/clientStream_finish ===");
+
+    void *stream_ptr = GO_PARAM1(ctx);
+    void *err = GO_PARAM2(ctx);
+    if (!stream_ptr) {
+        return 0;
+    }
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, stream_ptr);
+
+    grpc_client_stream_state_t *state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
+    if (!state) {
+        return 0;
+    }
+
+    grpc_client_emit_with_conn(&state->invocation, &state->conn, err);
+    bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
+
+    return 0;
 }
 
 // The gRPC client stream is written on another goroutine in transport loopyWriter (controlbuf.go).
@@ -675,11 +774,15 @@ int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream, struct pt_regs *, c
             }
         }
 
+        grpc_client_invocation_stack_t *stack =
+            bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+        grpc_client_func_invocation_t *invocation = grpc_client_current(stack);
+        if (invocation) {
+            invocation->transport_ptr = (u64)t_ptr;
+        }
+
         if (g_bpf_header_propagation) {
             bpf_dbg_printk("conn_ptr_key=%llx", conn_ptr_key);
-
-            grpc_client_func_invocation_t *invocation =
-                bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
 
             if (invocation && conn_ptr_key) {
                 transport_new_client_invocation_t wrapper = {};
