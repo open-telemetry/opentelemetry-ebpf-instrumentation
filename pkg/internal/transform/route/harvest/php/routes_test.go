@@ -117,7 +117,6 @@ func TestRouteSortPriority(t *testing.T) {
 		{route: "/api/:id", want: 1},
 		{route: "/api/*", want: 1},
 		{route: "/api/items/{id:[0-9]+}", want: 2},
-		{route: "/archives[/{year}]", want: 1},
 	}
 
 	for _, test := range tests {

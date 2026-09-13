@@ -95,8 +95,6 @@ func routeSortPriority(route string) int {
 	staticSegmentCount := 0
 
 	for segment := range strings.SplitSeq(strings.Trim(route, "/"), "/") {
-		// Slim optional segments leave '[' attached to the preceding static segment: /archive[/{year}].
-		segment = strings.TrimSuffix(segment, "[")
 		if segment == "" {
 			continue
 		}
