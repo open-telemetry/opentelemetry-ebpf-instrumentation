@@ -210,21 +210,43 @@ func main() {
 			report(cmd, callErr)
 
 		case "RECURSIVE_UNARY":
-			var recursiveCall func(currentDepth, maxDepth int) error
-			recursiveCall = func(currentDepth, maxDepth int) error {
-				if currentDepth >= maxDepth {
-					return nil
+			// Overlapping recursive unary on connA using a guarded interceptor
+			var interceptor grpc.UnaryClientInterceptor
+			interceptor = func(
+				ctx context.Context,
+				method string,
+				req, reply any,
+				cc *grpc.ClientConn,
+				invoker grpc.UnaryInvoker,
+				opts ...grpc.CallOption,
+			) error {
+				r := req.(*testReq)
+				if r.Depth < 2 { // triggers depths 0, 1, 2 (3 calls total)
+					var innerResp testResp
+					innerCtx, innerCancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer innerCancel()
+					if innerErr := cc.Invoke(innerCtx, "/TestService/Unary", &testReq{Depth: r.Depth + 1}, &innerResp, opts...); innerErr != nil {
+						return innerErr
+					}
 				}
-				var resp testResp
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-				err := connA.Invoke(ctx, "/TestService/Unary", &testReq{Depth: currentDepth}, &resp)
-				if err != nil {
-					return err
-				}
-				return recursiveCall(currentDepth+1, maxDepth)
+				return invoker(ctx, method, req, reply, cc, opts...)
 			}
-			report(cmd, recursiveCall(0, 3))
+			recursiveConn, err := grpc.NewClient(
+				addr,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+				grpc.WithUnaryInterceptor(interceptor),
+			)
+			if err != nil {
+				report(cmd, err)
+				continue
+			}
+			var resp testResp
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			callErr := recursiveConn.Invoke(ctx, "/TestService/Unary", &testReq{Depth: 0}, &resp)
+			cancel()
+			_ = recursiveConn.Close()
+			report(cmd, callErr)
 
 		case "STACK_OVERFLOW":
 			var interceptor grpc.UnaryClientInterceptor
@@ -265,10 +287,8 @@ func main() {
 			report(cmd, callErr)
 
 		case "STREAM_NORMAL":
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			stream, err := connA.NewStream(ctx, &streamDesc, "/TestService/Stream")
+			stream, err := connA.NewStream(context.Background(), &streamDesc, "/TestService/Stream")
 			if err != nil {
-				cancel()
 				report(cmd, err)
 				continue
 			}
@@ -276,7 +296,12 @@ func main() {
 			var resp testResp
 			_ = stream.RecvMsg(&resp)
 			_ = stream.CloseSend()
-			cancel()
+			for {
+				var dummy testResp
+				if err := stream.RecvMsg(&dummy); err != nil {
+					break
+				}
+			}
 			report(cmd, nil)
 
 		case "STREAM_RACE_ALREADY_CANCELLED":
