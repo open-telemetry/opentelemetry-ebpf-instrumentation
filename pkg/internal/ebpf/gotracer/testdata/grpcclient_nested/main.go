@@ -356,6 +356,92 @@ func main() {
 			}
 			report(cmd, nil)
 
+		case "STREAM_FINISH_BEFORE_RETURN":
+			var cancel context.CancelFunc
+			var interceptor grpc.StreamClientInterceptor = func(
+				ctx context.Context,
+				desc *grpc.StreamDesc,
+				cc *grpc.ClientConn,
+				method string,
+				streamer grpc.Streamer,
+				opts ...grpc.CallOption,
+			) (grpc.ClientStream, error) {
+				cs, err := streamer(ctx, desc, cc, method, opts...)
+				if err != nil {
+					return nil, err
+				}
+				if cancel != nil {
+					cancel()
+				}
+				time.Sleep(100 * time.Millisecond)
+				return cs, nil
+			}
+			interceptedConn, err := grpc.NewClient(
+				addr,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+				grpc.WithStreamInterceptor(interceptor),
+			)
+			if err != nil {
+				report(cmd, err)
+				continue
+			}
+			var ctx context.Context
+			ctx, cancel = context.WithCancel(context.Background())
+			stream, streamErr := interceptedConn.NewStream(ctx, &streamDesc, "/TestService/Stream")
+			if streamErr == nil && stream != nil {
+				<-stream.Context().Done()
+			}
+			_ = interceptedConn.Close()
+			report(cmd, nil)
+
+		case "STREAM_FINISH_DURING_PUBLICATION":
+			for i := 0; i < 20; i++ {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func(delay time.Duration) {
+					time.Sleep(delay)
+					cancel()
+				}(time.Duration(i*5) * time.Microsecond)
+				stream, err := connA.NewStream(ctx, &streamDesc, "/TestService/Stream")
+				if err == nil && stream != nil {
+					<-stream.Context().Done()
+				}
+				cancel()
+			}
+			report(cmd, nil)
+
+		case "STREAM_CONCURRENT_MULTI_FINISH":
+			for i := 0; i < 10; i++ {
+				raceConn, err := grpc.NewClient(
+					addr,
+					grpc.WithTransportCredentials(insecure.NewCredentials()),
+					grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+				)
+				if err != nil {
+					continue
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				stream, streamErr := raceConn.NewStream(ctx, &streamDesc, "/TestService/Stream")
+				if streamErr != nil || stream == nil {
+					cancel()
+					_ = raceConn.Close()
+					continue
+				}
+				var wg sync.WaitGroup
+				wg.Add(2)
+				go func() {
+					defer wg.Done()
+					cancel()
+				}()
+				go func() {
+					defer wg.Done()
+					_ = raceConn.Close()
+				}()
+				wg.Wait()
+				<-stream.Context().Done()
+			}
+			report(cmd, nil)
+
 		case "EXIT":
 			server.Stop()
 			return

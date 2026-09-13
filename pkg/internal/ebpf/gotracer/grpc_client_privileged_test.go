@@ -12,6 +12,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"path/filepath"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -231,8 +232,9 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 			grpcSpans := collector.getGRPCClientSpans()
 			assert.Len(c, grpcSpans, 2, "exactly 2 spans should be emitted (inner and outer)")
 			if len(grpcSpans) == 2 {
-				inner := grpcSpans[0]
-				outer := grpcSpans[1]
+				sort.Slice(grpcSpans, func(i, j int) bool { return grpcSpans[i].Start < grpcSpans[j].Start })
+				outer := grpcSpans[0]
+				inner := grpcSpans[1]
 
 				assert.Equal(c, "/TestService/Unary", inner.Path)
 				assert.Equal(c, "/TestService/Unary", outer.Path)
@@ -244,6 +246,8 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 				assert.NotEqual(c, inner.SpanID, outer.SpanID, "span IDs must be unique")
 				assert.True(c, inner.TraceID.IsValid())
 				assert.True(c, outer.TraceID.IsValid())
+				t.Logf("nested_same_connection: outer TraceID=%s SpanID=%s ParentSpanID=%s", outer.TraceID, outer.SpanID, outer.ParentSpanID)
+				t.Logf("nested_same_connection: inner TraceID=%s SpanID=%s ParentSpanID=%s", inner.TraceID, inner.SpanID, inner.ParentSpanID)
 			}
 		}, 10*time.Second, 100*time.Millisecond)
 	})
@@ -258,8 +262,9 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 			grpcSpans := collector.getGRPCClientSpans()
 			assert.Len(c, grpcSpans, 2, "exactly 2 spans should be emitted (inner on connB and outer on connA)")
 			if len(grpcSpans) == 2 {
-				inner := grpcSpans[0]
-				outer := grpcSpans[1]
+				sort.Slice(grpcSpans, func(i, j int) bool { return grpcSpans[i].Start < grpcSpans[j].Start })
+				outer := grpcSpans[0]
+				inner := grpcSpans[1]
 
 				assert.Equal(c, "/TestService/Unary", inner.Path)
 				assert.Equal(c, "/TestService/Unary", outer.Path)
@@ -285,13 +290,15 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 			grpcSpans := collector.getGRPCClientSpans()
 			assert.Len(c, grpcSpans, 3, "all 3 recursive spans should be emitted")
 			if len(grpcSpans) == 3 {
+				sort.Slice(grpcSpans, func(i, j int) bool { return grpcSpans[i].Start < grpcSpans[j].Start })
 				spanIDs := make(map[trace.SpanID]struct{})
-				for _, s := range grpcSpans {
+				for i, s := range grpcSpans {
 					assert.Equal(c, "/TestService/Unary", s.Path)
 					assert.Equal(c, 0, s.Status)
 					assert.True(c, s.SpanID.IsValid())
 					assert.True(c, s.TraceID.IsValid())
 					spanIDs[s.SpanID] = struct{}{}
+					t.Logf("recursive_unary[%d]: TraceID=%s SpanID=%s ParentSpanID=%s", i, s.TraceID, s.SpanID, s.ParentSpanID)
 				}
 				assert.Len(c, spanIDs, 3, "all 3 spans must have unique span IDs")
 			}
@@ -418,6 +425,78 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 				assert.NotZero(c, s.Status, "closed stream should have non-zero status")
 			}
 		}, 10*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
+	})
+
+	// 5. Race: stream finish before ClientConn.NewStream return
+	t.Run("stream_race_finish_before_return", func(t *testing.T) {
+		collector.clear()
+		res := send("STREAM_FINISH_BEFORE_RETURN")
+		require.Contains(t, res, "STATUS=OK")
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			grpcSpans := collector.getGRPCClientSpans()
+			var streamSpans []request.Span
+			for _, s := range grpcSpans {
+				if s.Path == "/TestService/Stream" {
+					streamSpans = append(streamSpans, s)
+				}
+			}
+			assert.Len(c, streamSpans, 1, "exactly 1 stream span should be emitted for stream finished before return")
+			if len(streamSpans) == 1 {
+				assert.Equal(c, "/TestService/Stream", streamSpans[0].Path)
+				assert.NotZero(c, streamSpans[0].Status)
+			}
+		}, 10*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
+	})
+
+	// 6. Race: stream finish during publication (high repetition)
+	t.Run("stream_race_finish_during_publication", func(t *testing.T) {
+		collector.clear()
+		res := send("STREAM_FINISH_DURING_PUBLICATION")
+		require.Contains(t, res, "STATUS=OK")
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			grpcSpans := collector.getGRPCClientSpans()
+			var streamSpans []request.Span
+			for _, s := range grpcSpans {
+				if s.Path == "/TestService/Stream" {
+					streamSpans = append(streamSpans, s)
+				}
+			}
+			assert.Len(c, streamSpans, 20, "exactly 20 stream spans should be emitted for 20 streams")
+			for _, s := range streamSpans {
+				assert.Equal(c, "/TestService/Stream", s.Path)
+				assert.NotZero(c, s.Status)
+			}
+		}, 15*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
+	})
+
+	// 7. Race: concurrent multiple finish paths (context cancellation + ClientConn.Close)
+	t.Run("stream_race_concurrent_multi_finish", func(t *testing.T) {
+		collector.clear()
+		res := send("STREAM_CONCURRENT_MULTI_FINISH")
+		require.Contains(t, res, "STATUS=OK")
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			grpcSpans := collector.getGRPCClientSpans()
+			var streamSpans []request.Span
+			for _, s := range grpcSpans {
+				if s.Path == "/TestService/Stream" {
+					streamSpans = append(streamSpans, s)
+				}
+			}
+			assert.Len(c, streamSpans, 10, "exactly 10 stream spans should be emitted (single-winner per stream)")
+			for _, s := range streamSpans {
+				assert.Equal(c, "/TestService/Stream", s.Path)
+				assert.NotZero(c, s.Status)
+			}
+		}, 15*time.Second, 100*time.Millisecond)
 
 		assertNoStaleStreams(t, tracer)
 	})
