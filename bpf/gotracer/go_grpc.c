@@ -576,19 +576,6 @@ int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, 
     }
 
     current->stream_ptr = (u64)stream_ptr;
-
-    go_addr_key_t s_key = {};
-    go_addr_key_from_id(&s_key, stream_ptr);
-
-    grpc_client_early_finish_t *early = bpf_map_lookup_elem(&early_grpc_client_finishes, &s_key);
-    if (!early) {
-        grpc_client_early_finish_t init_entry = {
-            .status = 0,
-            .has_err = 0,
-        };
-        bpf_map_update_elem(&early_grpc_client_finishes, &s_key, &init_entry, BPF_ANY);
-    }
-
     return 0;
 }
 
@@ -617,6 +604,8 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
         if (inv.stream_ptr) {
             go_addr_key_t s_key = {};
             go_addr_key_from_id(&s_key, (void *)inv.stream_ptr);
+            u8 dummy = 1;
+            bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
             bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
         }
         go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
@@ -634,34 +623,41 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, (void *)stream_ptr);
 
-    grpc_client_early_finish_t *early = bpf_map_lookup_elem(&early_grpc_client_finishes, &s_key);
-    if (early && early->status != 0) {
-        // Early finish rendezvous: clientStream.finish already ran before NewStream returned.
-        // Emit immediately using the exact invocation and delete the marker.
-        grpc_client_emit(&inv, early->has_err ? (void *)1 : NULL);
+    grpc_client_stream_state_t state = {
+        .invocation = inv,
+        .conn = {0},
+        .claimed = 0,
+    };
+
+    if (inv.transport_ptr) {
+        go_addr_key_t cache_key = {};
+        go_addr_key_from_id(&cache_key, (void *)inv.transport_ptr);
+        connection_info_t *cached =
+            bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
+        if (cached) {
+            __builtin_memcpy(&state.conn, cached, sizeof(connection_info_t));
+        }
+    }
+
+    // Publish ongoing stream state with claimed=0.
+    if (bpf_map_update_elem(&ongoing_grpc_client_streams, &s_key, &state, BPF_ANY) != 0) {
+        // Map update failed (e.g. map full): clean up early finish marker and fail safely
         bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
-    } else {
-        // Publish ongoing stream state normally.
-        grpc_client_stream_state_t state = {
-            .invocation = inv,
-            .conn = {0},
-            ._pad = 0,
-        };
+        go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
+        return 0;
+    }
 
-        if (inv.transport_ptr) {
-            go_addr_key_t cache_key = {};
-            go_addr_key_from_id(&cache_key, (void *)inv.transport_ptr);
-            connection_info_t *cached =
-                bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
-            if (cached) {
-                __builtin_memcpy(&state.conn, cached, sizeof(connection_info_t));
-            }
+    // Lookup early marker AFTER publication
+    grpc_client_early_finish_t *early = bpf_map_lookup_elem(&early_grpc_client_finishes, &s_key);
+    if (early) {
+        grpc_client_stream_state_t *st = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
+        if (st && __sync_bool_compare_and_swap(&st->claimed, 0ULL, 1ULL)) {
+            grpc_client_emit_with_conn(&inv, &state.conn, early->has_err ? (void *)1 : NULL);
         }
-
-        bpf_map_update_elem(&ongoing_grpc_client_streams, &s_key, &state, BPF_ANY);
-        if (early) {
-            bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
-        }
+        u8 dummy = 1;
+        bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
+        bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
+        bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
     }
 
     go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
@@ -709,25 +705,33 @@ int GUARDED_PROG(obi_uprobe_clientStream_finish, struct pt_regs *, ctx) {
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, stream_ptr);
 
+    // 1. If published state exists: attempt state claim (0 -> 1)
     grpc_client_stream_state_t *state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
     if (state) {
-        grpc_client_emit_with_conn(&state->invocation, &state->conn, err);
-        bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
-        return 0;
-    }
-
-    // Check if we registered or recorded an early finish for this stream.
-    grpc_client_early_finish_t *early = bpf_map_lookup_elem(&early_grpc_client_finishes, &s_key);
-    if (early) {
-        if (early->status == 0) {
-            early->status = 1;
-            early->has_err = err ? 1 : 0;
+        if (__sync_bool_compare_and_swap(&state->claimed, 0ULL, 1ULL)) {
+            grpc_client_emit_with_conn(&state->invocation, &state->conn, err);
+            u8 dummy = 1;
+            bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
+            bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
+            bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
         }
         return 0;
     }
 
-    // If finish was called synchronously on the creator goroutine during a failing NewStream,
-    // ensure the active invocation has stream_ptr so ClientConn_NewStream_return cleans it up.
+    // 2. If stream already completed, ignore subsequent finish calls
+    u8 *completed = bpf_map_lookup_elem(&completed_grpc_client_streams, &s_key);
+    if (completed) {
+        return 0;
+    }
+
+    // 3. Insert early marker with BPF_NOEXIST (first early finish wins marker)
+    grpc_client_early_finish_t early = {
+        .has_err = err ? 1 : 0,
+    };
+    bpf_map_update_elem(&early_grpc_client_finishes, &s_key, &early, BPF_NOEXIST);
+
+    // If finish was called synchronously on the creator goroutine during stream creation,
+    // record stream_ptr on the active invocation so ClientConn_NewStream_return can clean up.
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -736,12 +740,18 @@ int GUARDED_PROG(obi_uprobe_clientStream_finish, struct pt_regs *, ctx) {
     grpc_client_func_invocation_t *current = grpc_client_current(stack);
     if (current && current->func_type == k_grpc_client_func_type_new_stream) {
         current->stream_ptr = (u64)stream_ptr;
-        grpc_client_early_finish_t sync_early = {
-            .status = 1,
-            .has_err = err ? 1 : 0,
-        };
-        bpf_map_update_elem(&early_grpc_client_finishes, &s_key, &sync_early, BPF_ANY);
-        return 0;
+    }
+
+    // 4. Lookup published state AGAIN in case publication raced with early marker insertion
+    state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
+    if (state) {
+        if (__sync_bool_compare_and_swap(&state->claimed, 0ULL, 1ULL)) {
+            grpc_client_emit_with_conn(&state->invocation, &state->conn, err);
+            u8 dummy = 1;
+            bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
+            bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
+            bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+        }
     }
 
     return 0;

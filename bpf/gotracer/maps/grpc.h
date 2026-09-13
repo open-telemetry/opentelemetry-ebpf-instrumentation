@@ -42,6 +42,13 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pid + pointer to the clientStream
+    __type(value, u8);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} completed_grpc_client_streams SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
     __type(value, grpc_srv_func_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
