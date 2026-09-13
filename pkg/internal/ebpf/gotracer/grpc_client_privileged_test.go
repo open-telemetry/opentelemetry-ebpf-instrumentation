@@ -194,6 +194,18 @@ func assertNoStaleStreams(t *testing.T, tr *Tracer) {
 		}
 		assert.NoError(c, earlyIter.Err())
 		assert.Zero(c, earlyCount, "early_grpc_client_finishes should have no stale entries")
+
+		var compVal uint8
+		compIter := tr.bpfObjects.CompletedGrpcClientStreams.Iterate()
+		compCount := 0
+		for compIter.Next(&key, &compVal) {
+			compCount++
+			assert.Equal(c, uint8(1), compVal, "completed entry must have valid tombstone marker")
+			assert.NotZero(c, key.Pid, "completed entry must have non-zero pid")
+			assert.NotZero(c, key.Addr, "completed entry must have non-zero stream address")
+		}
+		assert.NoError(c, compIter.Err())
+		assert.LessOrEqual(c, compCount, 1024, "completed_grpc_client_streams must be bounded by MAX_CONCURRENT_REQUESTS")
 	}, 5*time.Second, 100*time.Millisecond)
 }
 
@@ -497,6 +509,32 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 				assert.NotZero(c, s.Status)
 			}
 		}, 15*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
+	})
+
+	// 8. Stream completed tombstone lifecycle & invalidation
+	t.Run("stream_tombstone_lifecycle", func(t *testing.T) {
+		collector.clear()
+		res := send("STREAM_NORMAL")
+		require.Contains(t, res, "STATUS=OK")
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			grpcSpans := collector.getGRPCClientSpans()
+			assert.NotEmpty(c, grpcSpans)
+		}, 10*time.Second, 100*time.Millisecond)
+
+		// Seed a known test tombstone into completed_grpc_client_streams
+		testKey := BpfGoAddrKeyT{Pid: uint64(os.Getpid()), Addr: 0xdeadbeef1000}
+		require.NoError(t, tracer.bpfObjects.CompletedGrpcClientStreams.Put(testKey, uint8(1)))
+
+		var checkVal uint8
+		require.NoError(t, tracer.bpfObjects.CompletedGrpcClientStreams.Lookup(testKey, &checkVal))
+		assert.Equal(t, uint8(1), checkVal)
+
+		// Delete / invalidate the tombstone (simulating grpc_client_begin_stream_generation)
+		require.NoError(t, tracer.bpfObjects.CompletedGrpcClientStreams.Delete(testKey))
+		assert.Error(t, tracer.bpfObjects.CompletedGrpcClientStreams.Lookup(testKey, &checkVal))
 
 		assertNoStaleStreams(t, tracer)
 	})

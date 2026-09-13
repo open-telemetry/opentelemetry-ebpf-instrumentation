@@ -557,6 +557,49 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     return 0;
 }
 
+// Authoritative generation-establishment hook:
+// Runs on the creator goroutine during clientStream allocation in newClientStreamWithParams,
+// strictly before the background cancellation / ClientConn-close watcher can call finish.
+// Establishes a clean generation for (pid, raw *clientStream) by purging any stale tombstones
+// from older defunct objects at this address.
+SEC("uprobe/clientStream_withRetry")
+int GUARDED_PROG(obi_uprobe_clientStream_withRetry, struct pt_regs *, ctx) {
+    void *stream_ptr = GO_PARAM1(ctx);
+    if (!stream_ptr) {
+        return 0;
+    }
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    grpc_client_func_invocation_t *current = grpc_client_current(stack);
+    if (!current || current->func_type != k_grpc_client_func_type_new_stream) {
+        return 0;
+    }
+
+    // Invariant: at the first construction-time withRetry for a newly allocated cs,
+    // the new generation's ongoing state has not yet been published.
+    // The (current->stream_ptr == stream_ptr) guard prevents subsequent withRetry calls
+    // (e.g. from SendMsg, RecvMsg, or retries) from wiping its own generation state.
+    if (current->stream_ptr == (u64)stream_ptr) {
+        return 0;
+    }
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, stream_ptr);
+
+    grpc_client_begin_stream_generation(&s_key);
+
+    current->stream_ptr = (u64)stream_ptr;
+    return 0;
+}
+
+// Secondary stream_ptr capture / defensive compatibility fallback.
+// In normal execution, withRetry above is authoritative; this return probe ensures
+// stream_ptr is populated even if withRetry was unavailable or bypassed.
 SEC("uprobe/newClientStreamWithParams")
 int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, ctx) {
     void *stream_ptr = GO_PARAM2(ctx);
@@ -575,7 +618,9 @@ int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, 
         return 0;
     }
 
-    current->stream_ptr = (u64)stream_ptr;
+    if (!current->stream_ptr) {
+        current->stream_ptr = (u64)stream_ptr;
+    }
     return 0;
 }
 

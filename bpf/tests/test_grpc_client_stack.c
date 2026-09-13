@@ -8,7 +8,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-enum { k_max_maps = 4, k_max_entries = 16, k_max_key = 16, k_max_val = 1024 };
+enum { k_max_maps = 8, k_max_entries = 16, k_max_key = 16, k_max_val = 1024 };
 
 typedef struct mock_entry {
     int used;
@@ -232,10 +232,53 @@ static void test_overflow(void) {
     check_u64(0, grpc_client_depth(&stack), "stack empty");
 }
 
+static void test_stream_pointer_reuse(void) {
+    mock_register(&completed_grpc_client_streams, sizeof(go_addr_key_t), sizeof(u8));
+    mock_register(
+        &early_grpc_client_finishes, sizeof(go_addr_key_t), sizeof(grpc_client_early_finish_t));
+    mock_register(
+        &ongoing_grpc_client_streams, sizeof(go_addr_key_t), sizeof(grpc_client_stream_state_t));
+
+    const go_addr_key_t stream_key = {.pid = 0x42, .addr = 0x5000};
+    u8 dummy = 1;
+    grpc_client_early_finish_t early = {.has_err = 0};
+    grpc_client_stream_state_t ongoing = {.claimed = 0};
+
+    // 1. Generation A finishes: marked in completed_grpc_client_streams
+    test_map_update(&completed_grpc_client_streams, &stream_key, &dummy, 0);
+    check(test_map_lookup(&completed_grpc_client_streams, &stream_key) != NULL,
+          "generation A marked completed");
+
+    // Also simulate stale early or ongoing residue
+    test_map_update(&early_grpc_client_finishes, &stream_key, &early, 0);
+    test_map_update(&ongoing_grpc_client_streams, &stream_key, &ongoing, 0);
+
+    // 2. Go allocator reuses address for Generation B:
+    // Construction hook (withRetry) establishes fresh generation for stream_key
+    grpc_client_begin_stream_generation(&stream_key);
+
+    // 3. Verify that stale completed tombstone, early finish, and ongoing state are cleared
+    check(test_map_lookup(&completed_grpc_client_streams, &stream_key) == NULL,
+          "stale completed tombstone invalidated by new stream generation");
+    check(test_map_lookup(&early_grpc_client_finishes, &stream_key) == NULL,
+          "stale early finish marker invalidated by new stream generation");
+    check(test_map_lookup(&ongoing_grpc_client_streams, &stream_key) == NULL,
+          "stale ongoing stream state invalidated by new stream generation");
+
+    // 4. Generation B early finish can now register without being suppressed by generation A tombstone
+    test_map_update(&early_grpc_client_finishes, &stream_key, &early, 0);
+    check(test_map_lookup(&early_grpc_client_finishes, &stream_key) != NULL,
+          "generation B early finish marker successfully registered");
+
+    // Cleanup
+    test_map_delete(&early_grpc_client_finishes, &stream_key);
+}
+
 int main(void) {
     test_lifo_basic();
     test_stack_growth_restart();
     test_overflow();
+    test_stream_pointer_reuse();
 
     if (failures == 0) {
         printf("test_grpc_client_stack: all checks passed\n");
