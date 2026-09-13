@@ -502,7 +502,9 @@ static __always_inline void clientConnStart(void *goroutine_addr,
         bpf_memset(fresh, 0, sizeof(*fresh));
         fresh->frames[0] = invocation;
         fresh->depth = 1;
-        bpf_map_update_elem(&ongoing_grpc_client_requests, &g_key, fresh, BPF_ANY);
+        if (bpf_map_update_elem(&ongoing_grpc_client_requests, &g_key, fresh, BPF_ANY) != 0) {
+            return;
+        }
         go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, (u32)stack_off);
         return;
     }
