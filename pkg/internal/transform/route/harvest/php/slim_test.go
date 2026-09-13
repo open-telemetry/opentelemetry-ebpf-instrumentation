@@ -33,6 +33,42 @@ func TestExtractSlimRoutes(t *testing.T) {
 	}, routes)
 }
 
+func TestExtractSlimRoutesExpandsOptionalSegments(t *testing.T) {
+	tokens := lexPHP([]byte(`
+		use Slim\Factory\AppFactory;
+		$app = AppFactory::create();
+		$app->setBasePath('/service');
+		$app->get('/archives[/{year:[0-9]+}[/{month}]]', ArchiveHandler::class);
+	`))
+	routes := newRouteSet()
+
+	extractSlimRoutes(tokens, routes)
+
+	assert.Equal(t, routeSet{
+		"/service/archives":                       {},
+		"/service/archives/{year:[0-9]+}":         {},
+		"/service/archives/{year:[0-9]+}/{month}": {},
+	}, routes)
+}
+
+func TestExtractSlimRoutesExpandsOptionalSegmentsInGroupPrefix(t *testing.T) {
+	tokens := lexPHP([]byte(`
+		use Slim\Factory\AppFactory;
+		$app = AppFactory::create();
+		$app->group('/api[/v2]', function ($group) {
+			$group->get('/users', UserHandler::class);
+		});
+	`))
+	routes := newRouteSet()
+
+	extractSlimRoutes(tokens, routes)
+
+	assert.Equal(t, routeSet{
+		"/api/users":    {},
+		"/api/v2/users": {},
+	}, routes)
+}
+
 func TestExtractSlimRoutesFindsRouteDocumentedWithADocComment(t *testing.T) {
 	tokens := lexPHP([]byte(`
 		use Slim\Factory\AppFactory;
