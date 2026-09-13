@@ -433,8 +433,7 @@ static __always_inline void grpc_client_emit_with_conn(
     bpf_ringbuf_submit(trace, get_flags());
 }
 
-static __always_inline void grpc_client_emit(const go_addr_key_t *g_key,
-                                             const grpc_client_func_invocation_t *invocation,
+static __always_inline void grpc_client_emit(const grpc_client_func_invocation_t *invocation,
                                              void *err) {
     if (!invocation) {
         return;
@@ -445,10 +444,6 @@ static __always_inline void grpc_client_emit(const go_addr_key_t *g_key,
         go_addr_key_t cache_key = {};
         go_addr_key_from_id(&cache_key, (void *)invocation->transport_ptr);
         conn = bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
-    }
-
-    if (!conn && g_key) {
-        conn = bpf_map_lookup_elem(&ongoing_client_connections, g_key);
     }
 
     grpc_client_emit_with_conn(invocation, conn, err);
@@ -599,7 +594,7 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
     }
 
     if (!stream_iface || err) {
-        grpc_client_emit(&g_key, &inv, (void *)1);
+        grpc_client_emit(&inv, (void *)1);
         go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
         return 0;
     }
@@ -618,12 +613,6 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
                 bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
             if (cached) {
                 __builtin_memcpy(&state.conn, cached, sizeof(connection_info_t));
-            }
-        }
-        if (state.conn.s_port == 0 && state.conn.d_port == 0) {
-            connection_info_t *conn = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
-            if (conn) {
-                __builtin_memcpy(&state.conn, conn, sizeof(connection_info_t));
             }
         }
 
@@ -663,7 +652,7 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
         return 0;
     }
 
-    grpc_client_emit(&g_key, &inv, err);
+    grpc_client_emit(&inv, err);
     go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
 
     return 0;
