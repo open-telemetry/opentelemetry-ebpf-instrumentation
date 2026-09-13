@@ -17,6 +17,11 @@ typedef struct grpc_srv_func_invocation {
     tp_info_t tp;
 } grpc_srv_func_invocation_t;
 
+enum {
+    k_grpc_client_func_type_invoke = 0,
+    k_grpc_client_func_type_new_stream = 1,
+};
+
 typedef struct grpc_client_func_invocation {
     u64 start_monotime_ns;
     u64 cc;
@@ -27,7 +32,7 @@ typedef struct grpc_client_func_invocation {
     u64 stream_ptr;
     u64 transport_ptr;
     u32 stack_off;
-    u32 _pad;
+    u32 func_type;
 } grpc_client_func_invocation_t;
 
 enum { k_grpc_client_max_depth = 4 };
@@ -45,6 +50,11 @@ typedef struct grpc_client_stream_state {
     connection_info_t conn;
     u32 _pad;
 } grpc_client_stream_state_t;
+
+typedef struct grpc_client_early_finish {
+    u32 status;
+    u32 has_err;
+} grpc_client_early_finish_t;
 
 typedef struct transport_new_client_invocation {
     grpc_client_func_invocation_t inv;
