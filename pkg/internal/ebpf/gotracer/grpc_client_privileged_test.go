@@ -20,6 +20,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -79,7 +80,7 @@ func buildGRPCNestedClientTarget(t *testing.T) string {
 	return bin
 }
 
-func startGRPCNestedClientTarget(t *testing.T, bin string) (func(string) string, *spanCollector) {
+func startGRPCNestedClientTarget(t *testing.T, bin string) (func(string) string, *spanCollector, *Tracer) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -166,7 +167,33 @@ func startGRPCNestedClientTarget(t *testing.T, bin string) (func(string) string,
 		return line
 	}
 
-	return send, collector
+	return send, collector, goTracer
+}
+
+func assertNoStaleStreams(t *testing.T, tr *Tracer) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		var key BpfGoAddrKeyT
+		var val BpfGrpcClientStreamStateT
+		iter := tr.bpfObjects.OngoingGrpcClientStreams.Iterate()
+		count := 0
+		for iter.Next(&key, &val) {
+			count++
+			t.Logf("STALE ongoing_grpc_client_streams: pid=%d addr=%x", key.Pid, key.Addr)
+		}
+		assert.NoError(c, iter.Err())
+		assert.Zero(c, count, "ongoing_grpc_client_streams should have no stale entries")
+
+		var earlyVal BpfGrpcClientEarlyFinishT
+		earlyIter := tr.bpfObjects.EarlyGrpcClientFinishes.Iterate()
+		earlyCount := 0
+		for earlyIter.Next(&key, &earlyVal) {
+			earlyCount++
+			t.Logf("STALE early_grpc_client_finishes: pid=%d addr=%x err=%d", key.Pid, key.Addr, earlyVal.HasErr)
+		}
+		assert.NoError(c, earlyIter.Err())
+		assert.Zero(c, earlyCount, "early_grpc_client_finishes should have no stale entries")
+	}, 5*time.Second, 100*time.Millisecond)
 }
 
 func TestGRPCClientNestedInvocations(t *testing.T) {
@@ -174,7 +201,7 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 	require.NoError(t, rlimit.RemoveMemlock())
 
 	targetBin := buildGRPCNestedClientTarget(t)
-	send, collector := startGRPCNestedClientTarget(t, targetBin)
+	send, collector, _ := startGRPCNestedClientTarget(t, targetBin)
 
 	// 1. Unary call
 	t.Run("unary_baseline", func(t *testing.T) {
@@ -184,10 +211,12 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			assert.NotEmpty(c, grpcSpans)
-			if len(grpcSpans) > 0 {
+			assert.Len(c, grpcSpans, 1)
+			if len(grpcSpans) == 1 {
 				assert.Equal(c, "/TestService/Unary", grpcSpans[0].Path)
 				assert.Equal(c, 0, grpcSpans[0].Status)
+				assert.True(c, grpcSpans[0].TraceID.IsValid())
+				assert.True(c, grpcSpans[0].SpanID.IsValid())
 			}
 		}, 10*time.Second, 100*time.Millisecond)
 	})
@@ -200,14 +229,23 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			assert.GreaterOrEqual(c, len(grpcSpans), 2, "both inner and outer spans should be emitted")
-		}, 10*time.Second, 100*time.Millisecond)
+			assert.Len(c, grpcSpans, 2, "exactly 2 spans should be emitted (inner and outer)")
+			if len(grpcSpans) == 2 {
+				inner := grpcSpans[0]
+				outer := grpcSpans[1]
 
-		spans := collector.getGRPCClientSpans()
-		for _, s := range spans {
-			assert.Equal(t, "/TestService/Unary", s.Path)
-			assert.Equal(t, 0, s.Status)
-		}
+				assert.Equal(c, "/TestService/Unary", inner.Path)
+				assert.Equal(c, "/TestService/Unary", outer.Path)
+				assert.Equal(c, 0, inner.Status)
+				assert.Equal(c, 0, outer.Status)
+
+				assert.True(c, inner.SpanID.IsValid())
+				assert.True(c, outer.SpanID.IsValid())
+				assert.NotEqual(c, inner.SpanID, outer.SpanID, "span IDs must be unique")
+				assert.True(c, inner.TraceID.IsValid())
+				assert.True(c, outer.TraceID.IsValid())
+			}
+		}, 10*time.Second, 100*time.Millisecond)
 	})
 
 	// 3. Nested unary on different ClientConn (A.Invoke -> interceptor -> B.Invoke)
@@ -218,11 +256,26 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			assert.GreaterOrEqual(c, len(grpcSpans), 2, "both inner and outer spans should be emitted")
+			assert.Len(c, grpcSpans, 2, "exactly 2 spans should be emitted (inner on connB and outer on connA)")
+			if len(grpcSpans) == 2 {
+				inner := grpcSpans[0]
+				outer := grpcSpans[1]
+
+				assert.Equal(c, "/TestService/Unary", inner.Path)
+				assert.Equal(c, "/TestService/Unary", outer.Path)
+				assert.Equal(c, 0, inner.Status)
+				assert.Equal(c, 0, outer.Status)
+
+				assert.True(c, inner.SpanID.IsValid())
+				assert.True(c, outer.SpanID.IsValid())
+				assert.NotEqual(c, inner.SpanID, outer.SpanID, "span IDs must be unique")
+				assert.True(c, inner.TraceID.IsValid())
+				assert.True(c, outer.TraceID.IsValid())
+			}
 		}, 10*time.Second, 100*time.Millisecond)
 	})
 
-	// 4. Recursive unary (depth 3)
+	// 4. Recursive unary (depth 3: depths 0, 1, 2)
 	t.Run("recursive_unary", func(t *testing.T) {
 		collector.clear()
 		res := send("RECURSIVE_UNARY")
@@ -230,7 +283,18 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			assert.GreaterOrEqual(c, len(grpcSpans), 3, "all 3 recursive spans should be emitted")
+			assert.Len(c, grpcSpans, 3, "all 3 recursive spans should be emitted")
+			if len(grpcSpans) == 3 {
+				spanIDs := make(map[trace.SpanID]struct{})
+				for _, s := range grpcSpans {
+					assert.Equal(c, "/TestService/Unary", s.Path)
+					assert.Equal(c, 0, s.Status)
+					assert.True(c, s.SpanID.IsValid())
+					assert.True(c, s.TraceID.IsValid())
+					spanIDs[s.SpanID] = struct{}{}
+				}
+				assert.Len(c, spanIDs, 3, "all 3 spans must have unique span IDs")
+			}
 		}, 10*time.Second, 100*time.Millisecond)
 	})
 
@@ -242,8 +306,14 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			// Up to 4 tracked frames should emit spans, and no crash/corruption
-			assert.GreaterOrEqual(c, len(grpcSpans), 4)
+			assert.Len(c, grpcSpans, 4, "exactly 4 tracked spans should be emitted when stack capacity is 4")
+			spanIDs := make(map[trace.SpanID]struct{})
+			for _, s := range grpcSpans {
+				assert.Equal(c, "/TestService/Unary", s.Path)
+				assert.Equal(c, 0, s.Status)
+				spanIDs[s.SpanID] = struct{}{}
+			}
+			assert.Len(c, spanIDs, 4, "all 4 tracked spans must have unique span IDs")
 		}, 10*time.Second, 100*time.Millisecond)
 	})
 }
@@ -253,7 +323,7 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 	require.NoError(t, rlimit.RemoveMemlock())
 
 	targetBin := buildGRPCNestedClientTarget(t)
-	send, collector := startGRPCNestedClientTarget(t, targetBin)
+	send, collector, tracer := startGRPCNestedClientTarget(t, targetBin)
 
 	// 1. Normal streaming RPC
 	t.Run("stream_normal", func(t *testing.T) {
@@ -269,8 +339,15 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 					streamSpans = append(streamSpans, s)
 				}
 			}
-			assert.NotEmpty(c, streamSpans, "stream span should be emitted upon finish")
+			assert.Len(c, streamSpans, 1, "stream span should be emitted upon finish")
+			if len(streamSpans) == 1 {
+				assert.Equal(c, "/TestService/Stream", streamSpans[0].Path)
+				assert.True(c, streamSpans[0].TraceID.IsValid())
+				assert.True(c, streamSpans[0].SpanID.IsValid())
+			}
 		}, 10*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
 	})
 
 	// 2. Race: context already cancelled prior to NewStream
@@ -281,12 +358,20 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			t.Logf("already_cancelled spans count: %d", len(grpcSpans))
+			var streamSpans []request.Span
 			for _, s := range grpcSpans {
-				t.Logf("already_cancelled span: path=%s status=%d", s.Path, s.Status)
+				if s.Path == "/TestService/Stream" {
+					streamSpans = append(streamSpans, s)
+				}
 			}
-			assert.NotEmpty(c, grpcSpans, "span should be emitted for cancelled stream")
-		}, 5*time.Second, 100*time.Millisecond)
+			assert.Len(c, streamSpans, 1, "exactly 1 span should be emitted for cancelled stream")
+			if len(streamSpans) == 1 {
+				assert.Equal(c, "/TestService/Stream", streamSpans[0].Path)
+				assert.NotZero(c, streamSpans[0].Status, "cancelled stream must have non-zero status")
+			}
+		}, 10*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
 	})
 
 	// 3. Race: context cancelled quickly / concurrently during stream creation
@@ -297,9 +382,20 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			t.Logf("quickly_cancelled spans count: %d", len(grpcSpans))
-			assert.NotEmpty(c, grpcSpans, "spans should be emitted for quickly cancelled streams")
-		}, 5*time.Second, 100*time.Millisecond)
+			var streamSpans []request.Span
+			for _, s := range grpcSpans {
+				if s.Path == "/TestService/Stream" {
+					streamSpans = append(streamSpans, s)
+				}
+			}
+			assert.Len(c, streamSpans, 5, "exactly 5 stream spans should be emitted for 5 quickly cancelled streams")
+			for _, s := range streamSpans {
+				assert.Equal(c, "/TestService/Stream", s.Path)
+				assert.NotZero(c, s.Status, "cancelled stream should have non-zero status")
+			}
+		}, 10*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
 	})
 
 	// 4. Race: concurrent ClientConn.Close during NewStream
@@ -310,8 +406,19 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			t.Logf("concurrent_close spans count: %d", len(grpcSpans))
-			assert.NotEmpty(c, grpcSpans, "spans should be emitted despite concurrent close")
-		}, 5*time.Second, 100*time.Millisecond)
+			var streamSpans []request.Span
+			for _, s := range grpcSpans {
+				if s.Path == "/TestService/Stream" {
+					streamSpans = append(streamSpans, s)
+				}
+			}
+			assert.Len(c, streamSpans, 5, "exactly 5 stream spans should be emitted despite concurrent close")
+			for _, s := range streamSpans {
+				assert.Equal(c, "/TestService/Stream", s.Path)
+				assert.NotZero(c, s.Status, "closed stream should have non-zero status")
+			}
+		}, 10*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
 	})
 }
