@@ -609,6 +609,35 @@
       "type": "object",
       "description": "DiscoveryConfig for the discover.ProcessFinder pipeline"
     },
+    "DotnetRuntimeMetricsConfig": {
+      "properties": {
+        "sampling_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Sets the collection interval requested from System.Runtime EventCounters. It also sets the delay before reconnecting after a collection session ends.",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL"
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Bounds diagnostic IPC setup and EventPipe session shutdown.",
+          "default": "10s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_DOTNET_RUNTIME_METRICS_TIMEOUT"
+        }
+      },
+      "type": "object"
+    },
     "EBPFBufferSizes": {
       "properties": {
         "aerospike": {
@@ -3162,6 +3191,9 @@
     "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",
       "description": "Configuration"
+    },
+    "dotnet_runtime_metrics": {
+      "$ref": "#/$defs/DotnetRuntimeMetricsConfig"
     },
     "ebpf": {
       "$ref": "#/$defs/EBPFTracer"

@@ -335,6 +335,49 @@ func TestRuntimeMetricsReporterTracksWorkerGenerationWithParentService(t *testin
 	assert.True(t, reporter.snapshotProcessLive(snapshot(2)))
 }
 
+func TestRuntimeMetricsReporterDotnetRemovalAfterTermination(t *testing.T) {
+	service := svc.Attrs{
+		UID: svc.UID{Name: "orders"}, ProcPID: 101,
+		SDKLanguage: svc.InstrumentableDotnet,
+		Features:    export.FeatureApplicationRuntime,
+	}
+	constructed := 0
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10, time.Minute, time.Now,
+		func(svc.UID, *RuntimeMetrics) {},
+		func(service *svc.Attrs) (*RuntimeMetrics, error) {
+			constructed++
+			return &RuntimeMetrics{service: service}, nil
+		},
+	)
+	require.NoError(t, err)
+	reporter := RuntimeMetricsReporter{
+		ctx: t.Context(), reporters: reporters,
+		pidTracker:     NewPidServiceTracker(),
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
+	}
+	file := exec.New(exec.Init{Pid: 101, Service: service})
+	file.SetRuntimeMetricGeneration(101, 1)
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventCreated, File: file})
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		Service: service, PID: 101, Generation: 1,
+		Dotnet: &runtimemetrics.DotnetRuntimeMetricSnapshot{},
+	}
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+	require.Equal(t, 1, constructed)
+
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: file})
+	_, exists := reporter.reporters.Lookup(service.UID)
+	require.False(t, exists)
+
+	snapshot.Removed = true
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+	require.Equal(t, 1, constructed, "late removal must not construct another reporter")
+	_, exists = reporter.reporters.Lookup(service.UID)
+	require.False(t, exists)
+}
+
 func TestRuntimeMetricsReporterProcessesPythonRemovalAfterTermination(t *testing.T) {
 	reader := metric.NewManualReader()
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
@@ -507,12 +550,14 @@ func TestSetupRuntimeMetersUsesSharedRuntimeGate(t *testing.T) {
 	require.NoError(t, setupRuntimeMeters(&disabled, meter, time.Minute, runtimemetrics.Enabled{}, export.DefaultBuckets))
 	assert.Nil(t, disabled.goMetrics.memoryLimit)
 	assert.Nil(t, disabled.jvmMetrics.memoryUsed)
+	assert.Nil(t, disabled.dotnetMetrics.collections)
 
 	enabled := RuntimeMetrics{ctx: t.Context()}
 	require.NoError(t, setupRuntimeMeters(&enabled, meter, time.Minute, runtimemetrics.Enabled{Runtime: true}, export.DefaultBuckets))
 	assert.NotNil(t, enabled.goMetrics.memoryLimit)
 	assert.NotNil(t, enabled.jvmMetrics.memoryUsed)
 	assert.NotNil(t, enabled.pythonMetrics.collections)
+	assert.NotNil(t, enabled.dotnetMetrics.collections)
 }
 
 func TestPythonRuntimeCountersByGeneration(t *testing.T) {
