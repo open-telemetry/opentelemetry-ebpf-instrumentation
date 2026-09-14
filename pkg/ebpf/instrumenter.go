@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
@@ -144,7 +145,6 @@ func (i *instrumenter) goprobes(p Tracer) error {
 			"process", i.processName, "wanted_symbols", len(attachedSymbols))
 	}
 	i.closables = append(i.closables, closers...)
-	p.AddCloser(closers...)
 
 	if groupedTracer, ok := p.(goProbeGroupTracer); ok {
 		for _, group := range groupedTracer.GoProbeGroups() {
@@ -162,8 +162,6 @@ func (i *instrumenter) goprobes(p Tracer) error {
 				}
 				closer := &reverseCloser{closers: groupClosers}
 				i.closables = append(i.closables, closer)
-				i.optionalGoProbeGroupClosers = append(i.optionalGoProbeGroupClosers, closer)
-				p.AddCloser(closer)
 				if hasProcessScopedTracer {
 					for _, candidate := range resolvedGroup.Probes {
 						if candidate.ProcessScoped {
@@ -192,10 +190,6 @@ func (i *instrumenter) registerProcessScopedGoProbes(key ExecutableKey) {
 			registration.probe,
 		)
 	}
-}
-
-func (i *instrumenter) rollbackOptionalGoProbeGroups() {
-	closeAllReverse(i.optionalGoProbeGroupClosers)
 }
 
 func noGoProbeAttached(attachedSymbols map[string]bool) bool {
@@ -364,7 +358,6 @@ func (i *instrumenter) kprobes(p KprobesTracer) error {
 
 			log.Debug("error instrumenting kprobe", "function", kfunc, "error", err)
 		}
-		p.AddCloser(i.closables...)
 	}
 
 	return nil
@@ -751,7 +744,6 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 	}
 
 	i.closables = append(i.closables, usdtClosers...)
-	p.AddCloser(usdtClosers...)
 	return nil
 }
 
@@ -817,9 +809,9 @@ func (i *instrumenter) instrumentUSDTProbe(
 			"sema_off", fmt.Sprintf("%#x", target.SemaOff),
 		)
 
-		up, err := exe.Uprobe("", probe.Program, &link.UprobeOptions{
-			Address:      target.RelIP,
-			PID:          int(pid),
+		up, err := uprobe.Attach(exe, probe.Program, uprobe.Options{
+			Addresses:    []uint64{target.RelIP},
+			PID:          uint32(pid),
 			RefCtrOffset: target.SemaOff,
 		})
 		if err != nil {
@@ -860,8 +852,8 @@ func (i *instrumenter) uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc)
 	var closers []io.Closer
 
 	if probe.Start != nil {
-		up, err := exe.Uprobe("", probe.Start, &link.UprobeOptions{
-			Address: probe.StartOffset,
+		up, err := uprobe.Attach(exe, probe.Start, uprobe.Options{
+			Addresses: []uint64{probe.StartOffset},
 		})
 		if err != nil {
 			if i.metrics != nil {
@@ -881,19 +873,18 @@ func (i *instrumenter) uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc)
 			return closers, errors.New("setting uretprobe (attaching to offset): missing return offsets")
 		}
 
-		for _, offset := range probe.ReturnOffsets {
-			up, err := exe.Uprobe("", probe.End, &link.UprobeOptions{
-				Address: offset,
-			})
-			if err != nil {
-				if i.metrics != nil {
-					i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingUprobe)
-				}
-				return closers, fmt.Errorf("setting uretprobe (attaching to offset): %w", err)
+		// every RET instruction of the function shares one attachment
+		up, err := uprobe.Attach(exe, probe.End, uprobe.Options{
+			Addresses: probe.ReturnOffsets,
+		})
+		if err != nil {
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingUprobe)
 			}
-
-			closers = append(closers, up)
+			return closers, fmt.Errorf("setting uretprobe (attaching to offset): %w", err)
 		}
+
+		closers = append(closers, up)
 	}
 
 	return closers, nil
@@ -998,7 +989,6 @@ func (i *instrumenter) tracepoints(p KprobesTracer) error {
 
 			slog.Debug("error instrumenting tracepoint", "function", sfunc, "error", err)
 		}
-		p.AddCloser(i.closables...)
 	}
 
 	return nil
