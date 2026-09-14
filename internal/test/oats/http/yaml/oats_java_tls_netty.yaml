@@ -8,7 +8,9 @@ input:
 interval: 500ms
 expected:
   traces:
-  - traceql: '{ .url.full = "/get" }'
+  # Netty sends a lowercase host header, so the client span carries the full URL.
+  - traceql: '{ .url.full = "https://httpbin.org/get" }'
     equals: GET /get
     attributes:
+      server.address: httpbin.org
       server.port: '443'

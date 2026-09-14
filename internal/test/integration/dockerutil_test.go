@@ -43,7 +43,7 @@ const (
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
-	imgWeaver = img.Docker("otel/weaver:v0.25.1@sha256:9ad46ca9cd4fa5974b121f886aa3e9946a8ef8ea905001a96c018d21f9db87ca")
+	imgWeaver = img.Docker("otel/weaver:v0.26.1@sha256:9094862c0ab261bdbcb079bb981f9a573b3659b130a6d2ab8616eca6ba37aaec")
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -207,6 +207,7 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 			"--registry", "/obi-registry",
 			"--include-unreferenced",
 			"--inactivity-timeout", "300",
+			"--otlp-grpc-address", "0.0.0.0",
 			"--admin-port", "4320",
 			"--format", "compact",
 			"--templates", "/obi-registry/.live_check_templates",

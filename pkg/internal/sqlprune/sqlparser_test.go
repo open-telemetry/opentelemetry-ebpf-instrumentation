@@ -191,7 +191,7 @@ func TestSQLParseError(t *testing.T) {
 		{
 			name:   "Valid MySQL error with SQL state",
 			dbKind: request.DBMySQL,
-			buf:    append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x10, 0x04, '#', 'H', 'Y', '0', '0', '0', 'S', 'o', 'm', 'e', ' ', 'e', 'r', 'r', 'o', 'r'}...),
+			buf:    append([]uint8{0x13, 0x00, 0x00, 0x01}, []uint8{0xFF, 0x10, 0x04, '#', 'H', 'Y', '0', '0', '0', 'S', 'o', 'm', 'e', ' ', 'e', 'r', 'r', 'o', 'r'}...),
 			expected: &request.SQLError{
 				Code:     1040,
 				Message:  "Some error",
@@ -201,18 +201,24 @@ func TestSQLParseError(t *testing.T) {
 		{
 			name:     "Truncated buffer",
 			dbKind:   request.DBMySQL,
-			buf:      append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x10, 0x04, '#', 'H'}...),
+			buf:      append([]uint8{0x13, 0x00, 0x00, 0x01}, []uint8{0xFF, 0x10, 0x04, '#', 'H'}...),
 			expected: nil,
 		},
 		{
 			name:   "Valid MySQL error",
 			dbKind: request.DBMySQL,
-			buf:    append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x10, 0x04, 'S', 'o', 'm', 'e', ' ', 'e', 'r', 'r', 'o', 'r'}...),
+			buf:    append([]uint8{0x0d, 0x00, 0x00, 0x01}, []uint8{0xFF, 0x10, 0x04, 'S', 'o', 'm', 'e', ' ', 'e', 'r', 'r', 'o', 'r'}...),
 			expected: &request.SQLError{
 				Code:     1040,
 				Message:  "Some error",
 				SQLState: "",
 			},
+		},
+		{
+			name:     "MySQL error with empty declared payload",
+			dbKind:   request.DBMySQL,
+			buf:      append([]uint8{0x00, 0x00, 0x00, 0x01}, []uint8{0xFF, 0x99, 0x99, 'I', 'n', 'v', 'a', 'l', 'i', 'd'}...),
+			expected: nil,
 		},
 		{
 			name:     "Empty buffer",

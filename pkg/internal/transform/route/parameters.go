@@ -31,11 +31,21 @@ func routeParam(part string) (bool, bool) {
 		return false, validParamName(part[1:])
 	}
 	if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
-		name, conv, found := strings.Cut(part[1:len(part)-1], ":")
+		name := part[1 : len(part)-1]
+		tail := strings.HasPrefix(name, "*")
+		if tail {
+			name = strings.TrimPrefix(name, "*")
+			name = strings.TrimPrefix(name, "*")
+		}
+		name, conv, found := strings.Cut(name, ":")
+		if !found {
+			name, _, _ = strings.Cut(name, "=")
+			name = strings.TrimSuffix(name, "?")
+		}
 		if !validParamName(name) || found && !validConverter(conv) {
 			return false, false
 		}
-		return found && converterName(conv) == "path", true
+		return tail || found && converterName(conv) == "path", true
 	}
 	if strings.HasPrefix(part, "<") && strings.HasSuffix(part, ">") {
 		conv, name, found := strings.Cut(part[1:len(part)-1], ":")
@@ -65,7 +75,7 @@ func validParamName(name string) bool {
 }
 
 func validConverter(conv string) bool {
-	return conv != "" && !strings.ContainsAny(conv, `/<>:{}`)
+	return conv != "" && !strings.ContainsAny(conv, `/<>{}`)
 }
 
 func converterName(conv string) string {

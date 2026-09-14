@@ -643,6 +643,10 @@ func httpURLFromBuf(req []byte) string {
 }
 
 func httpMethodFromBuf(req []byte) string {
+	if end := bytes.IndexByte(req, 0); end >= 0 {
+		req = req[:end]
+	}
+
 	method, _, found := bytes.Cut(req, []byte(" "))
 	if !found {
 		return ""
@@ -657,6 +661,9 @@ func httpHostFromBuf(req []byte) (string, int) {
 	}
 
 	idx := bytes.Index(req, []byte("Host: "))
+	if idx < 0 {
+		idx = bytes.Index(req, []byte("host: "))
+	}
 	if idx < 0 {
 		return "", -1
 	}

@@ -13,7 +13,7 @@ import (
 
 const (
 	MySQLHdrSize                  = 4
-	MySQLErrMinLen                = 8
+	MySQLErrMinLen                = 7
 	MySQLErrPacketMarker   byte   = 0xff
 	MySQLStateMarker       byte   = '#'
 	MySQLProgressReporting uint16 = 0xffff
@@ -49,6 +49,13 @@ func parseMySQLError(buf []uint8) *request.SQLError {
 		return nil // Not an error packet
 	}
 
+	// The capture may hold trailing packets or cut the message short
+	packetEnd := MySQLHdrSize + int(binary.LittleEndian.Uint32(buf)&0x00ffffff)
+	if packetEnd < MySQLErrMinLen {
+		return nil // Not an error packet
+	}
+	length = min(length, packetEnd)
+
 	if buf[offset] != MySQLErrPacketMarker {
 		return nil // Not an error packet
 	}
@@ -67,7 +74,8 @@ func parseMySQLError(buf []uint8) *request.SQLError {
 		return nil
 	}
 
-	if buf[offset] == MySQLStateMarker {
+	// A SQL state is only present when the declared packet has room for it
+	if offset < length && buf[offset] == MySQLStateMarker && packetEnd >= offset+1+5 {
 		if length < offset+1+5 {
 			return nil
 		}
@@ -78,7 +86,7 @@ func parseMySQLError(buf []uint8) *request.SQLError {
 		offset += 5
 	}
 	// Read the error message
-	sqlErr.Message = unix.ByteSliceToString(buf[offset:])
+	sqlErr.Message = unix.ByteSliceToString(buf[offset:length])
 
 	return &sqlErr
 }

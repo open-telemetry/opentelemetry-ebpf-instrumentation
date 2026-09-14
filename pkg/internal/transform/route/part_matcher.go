@@ -91,10 +91,9 @@ func (rm *PartialRouteMatcher) findPartial(tokens []string, root *node) (string,
 }
 
 func (rm *PartialRouteMatcher) findPartialRecursive(tokens []string, node *node, consumed int) (string, int) {
-	if node.AnyPath != nil && consumed < len(tokens) {
+	if node.AnyPath != nil && node.FullRoute != "" {
 		return node.FullRoute, len(tokens)
 	}
-
 	// If we have a valid route at this point, it's a potential partial match
 	if node.FullRoute != "" {
 		// Return this match and how many tokens we consumed

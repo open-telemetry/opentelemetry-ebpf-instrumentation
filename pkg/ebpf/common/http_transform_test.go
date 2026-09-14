@@ -45,6 +45,13 @@ func TestMethod(t *testing.T) {
 	assert.Equal(t, "GET", httpMethodFromBuf(event.Buf[:]))
 	event = BPFHTTPInfo{}
 	assert.Empty(t, httpMethodFromBuf(event.Buf[:]))
+
+	// Buffer may contain trailing null bytes after the request line; the method
+	// should not include them.
+	event = BPFHTTPInfo{
+		Buf: [bufSize]byte{'G', 'E', 'T', ' ', '/', 'p', 'a', 't', 'h', 0, 0, 0},
+	}
+	assert.Equal(t, "GET", httpMethodFromBuf(event.Buf[:]))
 }
 
 func TestHTTPRequestResponseToSpanSetsSchemeFromSSLFlag(t *testing.T) {
@@ -326,6 +333,21 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 	s, p = httpHostFromBuf(record3.Buf[:])
 	assert.Empty(t, s)
 	assert.Equal(t, -1, p)
+}
+
+func TestHTTPInfoEventToSpan_HostHeaderCase(t *testing.T) {
+	for _, header := range []string{"Host", "host"} {
+		t.Run(header, func(t *testing.T) {
+			event := BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+			event.ConnInfo.D_port = 443
+			copy(event.Buf[:], "HEAD / HTTP/1.1\r\n"+header+": example.com\r\n\r\n")
+
+			span, ignored, err := HTTPInfoEventToSpan(nil, &event)
+			require.NoError(t, err)
+			assert.False(t, ignored)
+			assert.Equal(t, "http;example.com", span.Statement)
+		})
+	}
 }
 
 func TestHTTPInfoParsing(t *testing.T) {

@@ -496,6 +496,7 @@
           "items": {
             "type": "string",
             "enum": [
+              "dotnet",
               "go",
               "java",
               "nodejs",

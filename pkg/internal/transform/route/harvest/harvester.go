@@ -34,6 +34,7 @@ type RouteHarvester struct {
 	nodeExtractRoutes   func(pid app.PID) (*RouteHarvesterResult, error)
 	denoExtractRoutes   func(pid app.PID) (*RouteHarvesterResult, error)
 	pythonExtractRoutes func(fileInfo *exec.FileInfo) (*RouteHarvesterResult, error)
+	dotnetExtract       func(ctx context.Context, fileInfo *exec.FileInfo) (*RouteHarvesterResult, error)
 }
 
 type RouteHarvesterResultKind uint8
@@ -70,6 +71,9 @@ func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []services.
 		if lang == services.RouteHarvesterLanguagePython {
 			dMap[svc.InstrumentablePython] = struct{}{}
 		}
+		if lang == services.RouteHarvesterLanguageDotnet {
+			dMap[svc.InstrumentableDotnet] = struct{}{}
+		}
 	}
 
 	h := &RouteHarvester{
@@ -85,6 +89,7 @@ func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []services.
 	h.nodeExtractRoutes = ExtractNodejsRoutes
 	h.denoExtractRoutes = ExtractDenoRoutes
 	h.pythonExtractRoutes = ExtractPythonRoutes
+	h.dotnetExtract = ExtractDotnetRoutes
 
 	return h
 }
@@ -163,6 +168,17 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 				}
 				h.log.Debug("found application routes", "runtime", runtime.String(), "routes", r.Routes)
 
+				resultChan <- result{r: r}
+			} else {
+				resultChan <- result{r: nil}
+			}
+		case svc.InstrumentableDotnet:
+			if _, ok := h.disabled[runtime]; !ok {
+				r, err := h.dotnetExtract(ctx, fileInfo)
+				if err != nil {
+					resultChan <- result{err: err}
+					return
+				}
 				resultChan <- result{r: r}
 			} else {
 				resultChan <- result{r: nil}

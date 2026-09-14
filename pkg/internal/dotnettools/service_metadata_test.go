@@ -21,11 +21,12 @@ import (
 
 func TestResolveServiceMetadata(t *testing.T) {
 	t.Run("dotnet host resolves entry assembly and version", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		writeDotnetFile(t, filepath.Join(root, "app", "Orders.Api.deps.json"), depsJSON("Orders.Api", "2.3.4-beta.1"))
 		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{"Orders.Api.dll"}, nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -36,13 +37,14 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("explicit deps file is resolved from cwd", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		writeDotnetFile(t, filepath.Join(root, "app", "metadata", "service.deps.json"), depsJSON("Orders.Api", "3.0.0"))
 		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{
 			"exec", "--depsfile", "metadata/service.deps.json", "Orders.Api.dll",
 		}, nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -51,12 +53,13 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("apphost resolves adjacent deps file without command inspection", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		writeDotnetFile(t, filepath.Join(root, "app", "Orders.Api.deps.json"), depsJSON("Orders.Api", "1.0.0"))
 		expectedErr := errors.New("must not inspect")
 		fileInfo := mockDotnetProcess(t, root, "/app/Orders.Api", nil, expectedErr, expectedErr)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -65,10 +68,11 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("DLL name is used without a deps file", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{"/app/Orders.Worker.dll"}, nil, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -77,12 +81,13 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("name and version resolve independently", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		writeDotnetFile(t, filepath.Join(root, "app", "Orders.Api.deps.json"), depsJSON("Orders.Api", "2.3.4"))
 		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{"Orders.Api.dll"}, nil, nil)
 		fileInfo.SetUID(svc.UID{Name: "explicit", Namespace: "production"})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -103,13 +108,14 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("explicit name and version skip process inspection", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		expectedErr := errors.New("must not inspect")
 		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", nil, expectedErr, expectedErr)
 		fileInfo.SetUID(svc.UID{Name: "explicit"})
 		fileInfo.SetMetadata(map[attr.Name]string{serviceVersion: "2.0.0"})
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.NoError(t, err)
 		service := fileInfo.ServiceAttrs()
@@ -118,25 +124,66 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 
 	t.Run("relative launch keeps name when cwd lookup fails", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		expectedErr := errors.New("process disappeared")
 		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{"Orders.Api.dll"}, nil, expectedErr)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.ErrorIs(t, err, expectedErr)
 		assert.Equal(t, "Orders.Api", fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("command lookup failure is returned", func(t *testing.T) {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
 		expectedErr := errors.New("process disappeared")
 		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", nil, expectedErr, nil)
 
-		err := ResolveServiceMetadata(fileInfo)
+		err = ResolveServiceMetadata(fileInfo)
 
 		require.ErrorIs(t, err, expectedErr)
 		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+}
+
+func TestEntryAssemblyForPID(t *testing.T) {
+	t.Run("dotnet host", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+		want := filepath.Join(root, "app", "Orders.Api.dll")
+		writeDotnetFile(t, want, nil)
+		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{"Orders.Api.dll"}, nil, nil)
+
+		got, err := EntryAssemblyForPID(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("apphost", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+		want := filepath.Join(root, "app", "Orders.Api.dll")
+		writeDotnetFile(t, want, nil)
+		unexpected := errors.New("must not inspect")
+		fileInfo := mockDotnetProcess(t, root, "/app/Orders.Api", nil, unexpected, unexpected)
+
+		got, err := EntryAssemblyForPID(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("missing entry assembly", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{"Orders.Api.dll"}, nil, nil)
+
+		_, err = EntryAssemblyForPID(fileInfo)
+
+		require.Error(t, err)
 	})
 }
 
