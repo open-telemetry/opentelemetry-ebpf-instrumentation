@@ -124,32 +124,57 @@ func TestSkipMySQLNoResponseCommands(t *testing.T) {
 	execute := mysqlExecutePacket(1)
 
 	t.Run("keeps the buffer when a span-producing command comes first", func(t *testing.T) {
-		assert.Equal(t, prepare, skipMySQLNoResponseCommands(prepare))
-		assert.Equal(t, execute, skipMySQLNoResponseCommands(execute))
+		remaining, closedStmtIDs := skipMySQLNoResponseCommands(prepare)
+		assert.Equal(t, prepare, remaining)
+		assert.Empty(t, closedStmtIDs)
+
+		remaining, closedStmtIDs = skipMySQLNoResponseCommands(execute)
+		assert.Equal(t, execute, remaining)
+		assert.Empty(t, closedStmtIDs)
 	})
 
 	t.Run("skips every leading no-response command", func(t *testing.T) {
 		buf := append(append(mysqlStmtClosePacket(1), mysqlStmtClosePacket(2)...), prepare...)
-		assert.Equal(t, prepare, skipMySQLNoResponseCommands(buf))
+		remaining, closedStmtIDs := skipMySQLNoResponseCommands(buf)
+		assert.Equal(t, prepare, remaining)
+		assert.Equal(t, []uint32{1, 2}, closedStmtIDs)
 
 		buf = append(mysqlPacket(kMySQLStmtSendLongData, []byte{0, 0, 0, 1, 1, 2}), execute...)
-		assert.Equal(t, execute, skipMySQLNoResponseCommands(buf))
+		remaining, closedStmtIDs = skipMySQLNoResponseCommands(buf)
+		assert.Equal(t, execute, remaining)
+		assert.Empty(t, closedStmtIDs)
+	})
+
+	t.Run("does not report an ID from a malformed close packet", func(t *testing.T) {
+		buf := append(mysqlPacket(kMySQLStmtClose, nil), prepare...)
+		remaining, closedStmtIDs := skipMySQLNoResponseCommands(buf)
+		assert.Equal(t, prepare, remaining)
+		assert.Empty(t, closedStmtIDs)
 	})
 
 	t.Run("returns the buffer unchanged when the no-response packet is last", func(t *testing.T) {
-		buf := append(mysqlPreparePacket("SELECT 1"), mysqlStmtClosePacket(1)...)
-		assert.Equal(t, buf, skipMySQLNoResponseCommands(buf))
+		buf := mysqlStmtClosePacket(1)
+		remaining, closedStmtIDs := skipMySQLNoResponseCommands(buf)
+		assert.Equal(t, buf, remaining)
+		assert.Empty(t, closedStmtIDs)
 	})
 
 	t.Run("returns the buffer unchanged when the no-response packet is truncated", func(t *testing.T) {
 		buf := mysqlStmtClosePacket(1)
 		buf[0] = 0xff // payload length beyond the captured buffer
-		assert.Equal(t, buf, skipMySQLNoResponseCommands(buf))
+		remaining, closedStmtIDs := skipMySQLNoResponseCommands(buf)
+		assert.Equal(t, buf, remaining)
+		assert.Empty(t, closedStmtIDs)
 	})
 
 	t.Run("returns short buffers unchanged", func(t *testing.T) {
-		assert.Nil(t, skipMySQLNoResponseCommands(nil))
-		assert.Equal(t, []byte{1, 2, 3, 4}, skipMySQLNoResponseCommands([]byte{1, 2, 3, 4}))
+		remaining, closedStmtIDs := skipMySQLNoResponseCommands(nil)
+		assert.Nil(t, remaining)
+		assert.Empty(t, closedStmtIDs)
+
+		remaining, closedStmtIDs = skipMySQLNoResponseCommands([]byte{1, 2, 3, 4})
+		assert.Equal(t, []byte{1, 2, 3, 4}, remaining)
+		assert.Empty(t, closedStmtIDs)
 	})
 }
 
@@ -181,15 +206,20 @@ func TestReadTCPRequestIntoSpan_MySQLStmtCloseCoalescing(t *testing.T) {
 		return r
 	}
 
-	// A clean PREPARE caches the statement without emitting a span.
-	_, ignore := readSpan(t, mysqlEvent(mysqlPreparePacket("SELECT * FROM accounts"), mysqlPrepareResponsePacket(1)))
+	// Clean PREPARE requests cache their statements without emitting spans.
+	_, ignore := readSpan(t, mysqlEvent(mysqlPreparePacket("SELECT * FROM stale"), mysqlPrepareResponsePacket(1)))
 	assert.True(t, ignore)
 
-	// The EXECUTE coalesced behind a COM_STMT_CLOSE must produce the span.
-	span, ignore := readSpan(t, mysqlEvent(
-		append(mysqlStmtClosePacket(1), mysqlExecutePacket(1)...),
+	_, ignore = readSpan(t, mysqlEvent(mysqlPreparePacket("SELECT * FROM accounts"), mysqlPrepareResponsePacket(2)))
+	assert.True(t, ignore)
+
+	// The EXECUTE coalesced behind a COM_STMT_CLOSE must produce the span for
+	// the still-live statement and remove the closed statement from the cache.
+	closeAndExecute := mysqlEvent(
+		append(mysqlStmtClosePacket(1), mysqlExecutePacket(2)...),
 		mysqlOKResponsePacket(),
-	))
+	)
+	span, ignore := readSpan(t, closeAndExecute)
 	assert.False(t, ignore)
 	assert.Equal(t, request.EventTypeSQLClient, span.Type)
 	assert.Equal(t, "SELECT", span.Method)
@@ -197,13 +227,24 @@ func TestReadTCPRequestIntoSpan_MySQLStmtCloseCoalescing(t *testing.T) {
 	assert.Equal(t, "SELECT * FROM accounts", span.Statement)
 	assert.Equal(t, "STMT_EXECUTE", span.SQLCommand)
 	assert.Equal(t, int(request.DBMySQL), span.SubType)
+	_, found := ctx.mysqlPreparedStatements.Get(mysqlPreparedStatementsKey{
+		connInfo: closeAndExecute.ConnInfo,
+		stmtID:   1,
+	})
+	assert.False(t, found)
 
 	// A PREPARE coalesced behind a COM_STMT_CLOSE must still be cached.
-	_, ignore = readSpan(t, mysqlEvent(
+	closeAndPrepare := mysqlEvent(
 		append(mysqlStmtClosePacket(2), mysqlPreparePacket("SELECT * FROM users")...),
 		mysqlPrepareResponsePacket(7),
-	))
+	)
+	_, ignore = readSpan(t, closeAndPrepare)
 	assert.True(t, ignore)
+	_, found = ctx.mysqlPreparedStatements.Get(mysqlPreparedStatementsKey{
+		connInfo: closeAndPrepare.ConnInfo,
+		stmtID:   2,
+	})
+	assert.False(t, found)
 
 	span, ignore = readSpan(t, mysqlEvent(mysqlExecutePacket(7), mysqlOKResponsePacket()))
 	assert.False(t, ignore)

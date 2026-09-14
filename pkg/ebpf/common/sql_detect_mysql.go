@@ -38,6 +38,8 @@ const kMySQLStmtSendLongData = uint8(0x18)
 // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_close.html
 const kMySQLStmtClose = uint8(0x19)
 
+const mysqlStatementIDSize = 4
+
 func readMySQLHeader(b []byte) mySQLHdr {
 	hdr := mySQLHdr{}
 
@@ -78,20 +80,27 @@ func mysqlNoResponseCommand(command uint8) bool {
 // response. The kernel keeps such requests pending and appends the next
 // command sent on the connection into the same event, so they can be coalesced
 // in front of the command the response buffer pairs with.
-func skipMySQLNoResponseCommands(reqRaw []byte) []byte {
+func skipMySQLNoResponseCommands(reqRaw []byte) ([]byte, []uint32) {
+	var closedStmtIDs []uint32
+
 	for {
 		if len(reqRaw) < sqlprune.MySQLHdrSize+1 {
-			return reqRaw
+			return reqRaw, closedStmtIDs
 		}
 
 		hdr := readMySQLHeader(reqRaw)
 		if !mysqlNoResponseCommand(hdr.command) {
-			return reqRaw
+			return reqRaw, closedStmtIDs
 		}
 
 		packetLen := sqlprune.MySQLHdrSize + int(hdr.length)
 		if packetLen <= sqlprune.MySQLHdrSize || packetLen >= len(reqRaw) {
-			return reqRaw
+			return reqRaw, closedStmtIDs
+		}
+
+		if hdr.command == kMySQLStmtClose && hdr.length >= 1+mysqlStatementIDSize {
+			stmtIDOffset := sqlprune.MySQLHdrSize + 1
+			closedStmtIDs = append(closedStmtIDs, binary.LittleEndian.Uint32(reqRaw[stmtIDOffset:stmtIDOffset+mysqlStatementIDSize]))
 		}
 
 		reqRaw = reqRaw[packetLen:]
@@ -133,7 +142,13 @@ func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 	// the kernel, which appends the next command sent on the connection into
 	// the same event. Skip them so the command paired with the response is the
 	// one parsed below.
-	reqRaw = skipMySQLNoResponseCommands(reqRaw)
+	reqRaw, closedStmtIDs := skipMySQLNoResponseCommands(reqRaw)
+	for _, stmtID := range closedStmtIDs {
+		parseCtx.mysqlPreparedStatements.Remove(mysqlPreparedStatementsKey{
+			connInfo: event.ConnInfo,
+			stmtID:   stmtID,
+		})
+	}
 	if len(reqRaw) < sqlprune.MySQLHdrSize+1 {
 		slog.Debug("MySQL request too short")
 		return span, errFallback
