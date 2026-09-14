@@ -455,6 +455,7 @@ func TestSuite_Rails(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`, `TESTSERVER_IMAGE=`+obiTestImgRails)
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "testapi") })
+	t.Run("Rails harvested routes", func(t *testing.T) { testRailsHarvestedRoutes(t, "testapi") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -511,7 +512,9 @@ func TestSuite_RailsTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby-tls.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgRailsSSL, `TEST_SERVICE_PORTS=3044:3043`)
+	// TODO: remove TESTSERVER_DOCKERFILE_SUFFIX once docker-compose-ruby.yml uses again an "image" clause
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgRailsSSL, `TEST_SERVICE_PORTS=3044:3043`,
+		`TESTSERVER_DOCKERFILE_SUFFIX=_tls`)
 	require.NoError(t, compose.Up())
 	t.Run("Rails SSL RED metrics", func(t *testing.T) { testREDMetricsRailsHTTPS(t, "testapi") })
 	runWeaverValidation(t)
@@ -779,6 +782,7 @@ func TestSuite_PythonAsyncUvloop_3_9(t *testing.T) {
 	t.Run("Sequential", testPythonAsyncSequential)
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Cancelled To Thread", testPythonAsyncCancelledToThread)
 	t.Run("Nested", testPythonAsyncNested)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -793,6 +797,50 @@ func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// Uvicorn on the standard asyncio event loop (uvloop replaced via UVICORN_LOOP)
+func TestSuite_PythonAsyncUvicornAsyncio_3_14(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop-3.14.yml", path.Join(pathOutput, "test-suite-python-async-uvicorn-asyncio-3_14.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env, `UVICORN_LOOP=asyncio`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncSequential)
+	t.Run("Concurrent", testPythonAsyncConcurrent)
+	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Nested", testPythonAsyncNested)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAsyncGeneric_3_9(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-generic-3.9.yml", path.Join(pathOutput, "test-suite-python-async-generic-3_9.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncGenericSequential)
+	t.Run("Concurrent", testPythonAsyncGenericConcurrent)
+	t.Run("To Thread", testPythonAsyncGenericToThread)
+	t.Run("Cancelled To Thread", testPythonAsyncGenericCancelledToThread)
+	t.Run("Nested", testPythonAsyncGenericNested)
+	t.Run("Keep-Alive", testPythonAsyncGenericKeepAlive)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAsyncGeneric_3_14(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-generic-3.14.yml", path.Join(pathOutput, "test-suite-python-async-generic-3_14.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncGenericSequential)
+	t.Run("Concurrent", testPythonAsyncGenericConcurrent)
+	t.Run("To Thread", testPythonAsyncGenericToThread)
+	t.Run("Nested", testPythonAsyncGenericNested)
+	t.Run("Keep-Alive", testPythonAsyncGenericKeepAlive)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

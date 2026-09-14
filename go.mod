@@ -6,7 +6,7 @@ toolchain go1.27.1
 
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
-	github.com/andybalholm/brotli v1.2.3
+	github.com/andybalholm/brotli v1.2.4
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cilium/ebpf v0.22.0
 	github.com/containers/common v0.64.2
@@ -31,7 +31,7 @@ require (
 	github.com/mitchellh/copystructure v1.2.0
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.1
-	github.com/ohler55/ojg v1.28.5
+	github.com/ohler55/ojg v1.28.6
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang/v2 v2.5.0
 	github.com/pelletier/go-toml/v2 v2.2.4
