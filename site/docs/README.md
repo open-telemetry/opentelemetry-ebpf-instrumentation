@@ -5,7 +5,7 @@
 
 Generated from the OBI semantic-convention registry in `schemas/obi/`.
 
-- [Attributes](attributes.md) — 17 attribute groups
+- [Attributes](attributes.md) — 18 attribute groups
 - [Metrics](metrics.md) — 44 metrics
 
 The telemetry schema OBI stamps on its telemetry as `schema_url` is published

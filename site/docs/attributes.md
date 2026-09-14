@@ -21,6 +21,14 @@ OBI's own meta-telemetry: the `target.info` / `host.info` family of per-target m
 | `obi.version` | string | development | OBI build version, e.g. the release tag the instrumenter was built from. Carried as a resource attribute on every signal. | v0.42.0 |
 | `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
+## `registry.obi.exception`
+
+Exception attributes OBI's Go SDK tracer sets on relayed manual spans.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `exception.message` | string | stable | The exception message. | Division by zero; Can't convert 'int' object to str implicitly |
+
 ## `registry.obi.gpu`
 
 Attributes carried on OBI's CUDA GPU metrics.
@@ -142,6 +150,7 @@ Attributes OBI emits on application spans that are not part of upstream OpenTele
 | `gen_ai.metadata` | string | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
 | `http.request.body.content` | string | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
 | `http.response.body.content` | string | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
+| `obi.http.response.observed` | boolean | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
 | `onc_rpc.auth.flavor` | string | development | ONC/Sun RPC authentication flavor observed on the call. | AUTH_NONE; AUTH_SYS |
 
 ## `x.obi.db`
