@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"unsafe"
@@ -17,6 +18,10 @@ import (
 )
 
 func TestInstrumentationPointsFindsFramerPaddingBoundary(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("this relies on Linux-specific behavior")
+	}
+
 	const source = `package main
 
 import (
