@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding"
+	"google.golang.org/grpc/stats"
 )
 
 //go:linkname grpcClientStreamFinish google.golang.org/grpc.(*clientStream).finish
@@ -43,6 +44,41 @@ type testResp struct {
 }
 
 type testService interface{}
+
+type streamStatsHandler struct {
+	streamA      grpc.ClientStream
+	triggerOnTag bool
+	once         sync.Once
+	err          error
+}
+
+func (h *streamStatsHandler) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context {
+	if h.triggerOnTag {
+		h.trigger()
+	}
+	return ctx
+}
+
+func (h *streamStatsHandler) HandleRPC(_ context.Context, rpcStats stats.RPCStats) {
+	if h.triggerOnTag {
+		return
+	}
+	if _, ok := rpcStats.(*stats.Begin); ok {
+		h.trigger()
+	}
+}
+
+func (h *streamStatsHandler) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context {
+	return ctx
+}
+
+func (*streamStatsHandler) HandleConn(context.Context, stats.ConnStats) {}
+
+func (h *streamStatsHandler) trigger() {
+	h.once.Do(func() {
+		h.err = h.streamA.SendMsg(&testReq{Depth: 30})
+	})
+}
 
 var (
 	eofAlias error = io.EOF
@@ -84,6 +120,64 @@ func handleStream(srv any, stream grpc.ServerStream) error {
 			return err
 		}
 	}
+}
+
+func runStatsHandlerInterleaving(addr string, connA *grpc.ClientConn, triggerOnTag bool) error {
+	streamA, err := connA.NewStream(context.Background(), &streamDesc, "/TestService/Stream")
+	if err != nil {
+		return err
+	}
+
+	if err := streamA.SendMsg(&testReq{Depth: 0}); err != nil {
+		return err
+	}
+	var response testResp
+	if err := streamA.RecvMsg(&response); err != nil {
+		return err
+	}
+
+	handler := &streamStatsHandler{streamA: streamA, triggerOnTag: triggerOnTag}
+	connB, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+		grpc.WithStatsHandler(handler),
+	)
+	if err != nil {
+		return err
+	}
+	defer connB.Close()
+
+	streamB, err := connB.NewStream(context.Background(), &streamDescB, "/TestService/StreamB")
+	if err != nil {
+		return err
+	}
+	if handler.err != nil {
+		return handler.err
+	}
+	if err := streamB.SendMsg(&testReq{Depth: 1}); err != nil {
+		return err
+	}
+	if err := streamB.RecvMsg(&response); err != nil {
+		return err
+	}
+	if err := streamB.CloseSend(); err != nil {
+		return err
+	}
+	for {
+		if err := streamB.RecvMsg(&response); err != nil {
+			break
+		}
+	}
+	if err := streamA.CloseSend(); err != nil {
+		return err
+	}
+	for {
+		if err := streamA.RecvMsg(&response); err != nil {
+			break
+		}
+	}
+	return nil
 }
 
 var streamDesc = grpc.StreamDesc{
@@ -617,6 +711,12 @@ func main() {
 				}
 			}
 			report(cmd, nil)
+
+		case "STREAM_STATS_TAG":
+			report(cmd, runStatsHandlerInterleaving(addr, connA, true))
+
+		case "STREAM_STATS_BEGIN":
+			report(cmd, runStatsHandlerInterleaving(addr, connA, false))
 
 		case "EXIT":
 			server.Stop()

@@ -253,10 +253,13 @@ static void test_stream_pointer_reuse(void) {
     // Also simulate stale early or ongoing residue
     test_map_update(&early_grpc_client_finishes, &stream_key, &early, 0);
     test_map_update(&ongoing_grpc_client_streams, &stream_key, &ongoing, 0);
+    check(grpc_client_stream_is_live(&stream_key), "ongoing stream is live");
 
     // 2. Go allocator reuses address for Generation B:
     // Construction hook (withRetry) establishes fresh generation for stream_key
     grpc_client_begin_stream_generation(&stream_key);
+    check(grpc_client_stream_is_live(&stream_key),
+          "new stream generation is live while its tracked marker exists");
 
     // 3. Verify that stale completed tombstone, early finish, and ongoing state are cleared
     check(test_map_lookup(&completed_grpc_client_streams, &stream_key) == NULL,
@@ -274,6 +277,7 @@ static void test_stream_pointer_reuse(void) {
     // Cleanup
     test_map_delete(&early_grpc_client_finishes, &stream_key);
     test_map_delete(&tracked_grpc_client_streams, &stream_key);
+    check(!grpc_client_stream_is_live(&stream_key), "removed tracked marker is no longer live");
 }
 
 static void test_constructor_lifecycle_helpers(void) {

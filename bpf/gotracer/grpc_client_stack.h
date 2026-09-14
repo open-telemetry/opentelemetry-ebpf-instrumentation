@@ -135,6 +135,13 @@ static __always_inline void grpc_client_begin_stream_generation(const go_addr_ke
     bpf_map_update_elem(&tracked_grpc_client_streams, s_key, &tracked, BPF_ANY);
 }
 
+static __always_inline bool grpc_client_stream_is_live(const go_addr_key_t *s_key) {
+    if (bpf_map_lookup_elem(&ongoing_grpc_client_streams, s_key)) {
+        return true;
+    }
+    return bpf_map_lookup_elem(&tracked_grpc_client_streams, s_key) != NULL;
+}
+
 static __always_inline bool grpc_client_claim_stream(const go_addr_key_t *s_key) {
     const u8 completed = 1;
     return bpf_map_update_elem(&completed_grpc_client_streams, s_key, &completed, BPF_NOEXIST) == 0;

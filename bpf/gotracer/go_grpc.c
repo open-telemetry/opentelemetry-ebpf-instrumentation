@@ -614,6 +614,12 @@ int GUARDED_PROG(obi_uprobe_clientStream_withRetry, struct pt_regs *, ctx) {
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, stream_ptr);
 
+    // Stats callbacks may reenter an existing stream while this constructor is active.
+    // Completed tombstones are intentionally not live: they must be cleared on pointer reuse.
+    if (grpc_client_stream_is_live(&s_key)) {
+        return 0;
+    }
+
     grpc_client_begin_stream_generation(&s_key);
 
     current->stream_ptr = (u64)stream_ptr;

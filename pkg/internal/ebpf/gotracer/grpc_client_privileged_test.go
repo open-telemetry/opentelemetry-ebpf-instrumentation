@@ -625,6 +625,44 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 
 		assertNoStaleStreams(t, tracer)
 	})
+
+	for _, tc := range []struct {
+		name string
+		cmd  string
+	}{
+		{name: "stream_stats_handler_tag_rpc", cmd: "STREAM_STATS_TAG"},
+		{name: "stream_stats_handler_handle_begin", cmd: "STREAM_STATS_BEGIN"},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			collector.clear()
+			res := send(tc.cmd)
+			require.Contains(t, res, "STATUS=OK")
+
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				grpcSpans := collector.getGRPCClientSpans()
+				var streamASpans, streamBSpans []request.Span
+				for _, s := range grpcSpans {
+					if s.Path == "/TestService/Stream" {
+						streamASpans = append(streamASpans, s)
+					} else if s.Path == "/TestService/StreamB" {
+						streamBSpans = append(streamBSpans, s)
+					}
+				}
+				assert.Len(c, streamASpans, 1, "exactly one span for stream A")
+				assert.Len(c, streamBSpans, 1, "exactly one span for stream B")
+				if len(streamASpans) == 1 && len(streamBSpans) == 1 {
+					assert.Equal(c, 0, streamASpans[0].Status)
+					assert.Equal(c, 0, streamBSpans[0].Status)
+					assert.NotEqual(c, streamASpans[0].SpanID, streamBSpans[0].SpanID)
+					assert.True(c, streamASpans[0].SpanID.IsValid())
+					assert.True(c, streamBSpans[0].SpanID.IsValid())
+				}
+			}, 10*time.Second, 100*time.Millisecond)
+
+			assertNoStaleStreams(t, tracer)
+		})
+	}
 }
 
 func TestGRPCClientStreamStrippedLifecycle(t *testing.T) {
