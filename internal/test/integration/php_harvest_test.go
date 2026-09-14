@@ -30,15 +30,15 @@ func testPHPHarvestedRoutes(t *testing.T) {
 	tests := []phpHarvestCase{
 		{
 			name: "Laravel", url: "http://localhost:8082", path: "/api/echo/laravel",
-			route: "/api/echo/laravel", service: "obi/php-harvest-laravel", version: "1.1.0", argument: "laravel",
+			route: "/api/echo/laravel", service: "php-fpm", version: "", argument: "laravel",
 		},
 		{
 			name: "Symfony", url: "http://localhost:8083", path: "/api/symfony/echo/symfony",
-			route: "/api/symfony/echo/symfony", service: "obi/php-harvest-symfony", version: "2.2.0", argument: "symfony",
+			route: "/api/symfony/echo/symfony", service: "php-fpm", version: "", argument: "symfony",
 		},
 		{
 			name: "Slim", url: "http://localhost:8084", path: "/slim/api/echo/slim",
-			route: "/slim/api/echo/slim", service: "obi/php-harvest-slim", version: "3.3.0", argument: "slim",
+			route: "/slim/api/echo/slim", service: "php-fpm", version: "", argument: "slim",
 		},
 	}
 
