@@ -46,6 +46,8 @@ Plain-text annotation is enabled by default for services selected by the log enr
 request failed trace_id=4bf92f3577b34da6a3ce929d0e0e4736 span_id=00f067aa0ba902b7
 ```
 
+The logenricher only intercepts writes of the instrumented processes its own selection matches (`ebpf.log_enricher.services`, or `correlation.log_trace_annotation.match` in configuration version 2). That selection must be a subset of the instrumentation selection: a process only the enricher selection matches is not instrumented, and an instrumented process outside the enricher selection keeps its logs untouched.
+
 Configure the behavior under `ebpf.log_enricher` in the current configuration, or under `extensions.obi.correlation.log_trace_annotation` in configuration version 2:
 
 ```yaml

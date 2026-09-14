@@ -103,7 +103,7 @@ The following runtime and server baselines are currently documented or enforced 
 | Java applications | JDK `8+` |
 | Node.js async-hooks context propagation | Node.js `8.0+` |
 | Node.js manual span capture | Opt-in; Node.js inspector must be reachable; the application must not register an OpenTelemetry SDK. See [devdocs/nodejs-manual-spans.md](devdocs/nodejs-manual-spans.md) |
-| Python asyncio context propagation | Python `3.9+` with `uvloop` |
+| Python asyncio context propagation | GIL-enabled, 64-bit CPython `3.9` through `3.14`, using the default asyncio loop or `uvloop`; free-threaded builds are unsupported |
 | Ruby applications | Ruby `3.0.2+` when served by Puma `5.0+` |
 | nginx | HTTP server and reverse-proxy tracing validated on nginx `>= 1.27.3` |
 
@@ -214,7 +214,7 @@ OBI currently documents the following asynchronous or runtime-specific context p
 | Ruby Puma server | Ruby | Ruby applications served by Puma | Only works with Puma server | Stable |
 | Java thread pool | Java | JDK `8+` | Parent lookup walks up to 3 thread-nesting levels | Stable |
 | Java virtual threads | Java | JDK `21+` | Log enrichment is skipped for requests handled on virtual threads | Stable |
-| Python asyncio | Python | Python `3.9+` with `uvloop` | Only works with the `uvloop` event loop | Stable |
+| Python asyncio | Python | GIL-enabled, 64-bit CPython `3.9` through `3.14` | Free-threaded builds are unsupported; `asyncio.start_server()` is not correlated under uvloop; mutated contexts and cancelled `to_thread` tasks may lose correlation | Stable |
 
 ## Payload Capture
 

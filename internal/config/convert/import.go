@@ -104,7 +104,13 @@ func validateV2Channels(channels schema.CaptureChannels) error {
 }
 
 func validateV2Correlation(correlation *schema.Correlation, complete bool) error {
-	if correlation == nil || !complete {
+	if correlation == nil {
+		return nil
+	}
+	if err := validateV2LogTraceAnnotationMatch(correlation.LogTraceAnnotation); err != nil {
+		return err
+	}
+	if !complete {
 		return nil
 	}
 
@@ -123,6 +129,34 @@ func validateV2Correlation(correlation *schema.Correlation, complete bool) error
 	}
 	if logTrace.PlainText.Multiline == nil {
 		return errors.New("correlation.log_trace_annotation.plain_text.multiline must not be null")
+	}
+	return nil
+}
+
+// The annotated workloads are always a selection: enabling annotation without one is
+// an error rather than an implicit "every captured workload"
+func validateV2LogTraceAnnotationMatch(logTrace schema.LogTraceAnnotation) error {
+	if logTrace.Enabled && len(logTrace.Match) == 0 {
+		return errors.New("correlation.log_trace_annotation.match must select at least one workload when enabled")
+	}
+
+	for i, match := range logTrace.Match {
+		path := fmt.Sprintf("correlation.log_trace_annotation.match[%d]", i)
+		if match.Process.ExportsOTLP != nil {
+			return fmt.Errorf("%s.process.exports_otlp is not supported", path)
+		}
+		if ruleMatchEmpty(match) {
+			return fmt.Errorf("%s must define a process or kubernetes predicate", path)
+		}
+		if ruleUsesRegex(match) {
+			return fmt.Errorf("%s: regex predicates are not supported, use glob predicates", path)
+		}
+		if err := validateV2RuleProcessGlobPatterns(path+".process", match.Process); err != nil {
+			return err
+		}
+		if err := validateV2RuleKubernetesGlobPatterns(path+".kubernetes", match.Kubernetes); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -836,7 +870,10 @@ func ruleUsesGlob(match schema.RuleMatch) bool {
 }
 
 func globSelectorFromRule(rule schema.Rule) services.GlobAttributes {
-	match := rule.Match
+	return globSelectorFromMatch(rule.Match)
+}
+
+func globSelectorFromMatch(match schema.RuleMatch) services.GlobAttributes {
 	return services.GlobAttributes{
 		OpenPorts:      intEnumValue(match.Process.OpenPorts),
 		PIDs:           slices.Clone(match.Process.TargetPIDs),
@@ -2029,13 +2066,7 @@ func applyV2Correlation(cfg *obi.Config, correlation *schema.Correlation, comple
 }
 
 func applyFullV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotation) {
-	if logTrace.Enabled {
-		cfg.EBPF.LogEnricher.Services = []obiconfig.LogEnricherServiceConfig{
-			{Service: services.GlobDefinitionCriteria{{Path: services.NewGlob("*")}}},
-		}
-	} else {
-		cfg.EBPF.LogEnricher.Services = nil
-	}
+	cfg.EBPF.LogEnricher.Services = logEnricherServicesFromV2(logTrace)
 	cfg.EBPF.LogEnricher.FieldNames.TraceID = *logTrace.FieldNames.TraceID
 	cfg.EBPF.LogEnricher.FieldNames.SpanID = *logTrace.FieldNames.SpanID
 	cfg.EBPF.LogEnricher.PlainText.Enabled = *logTrace.PlainText.Enabled
@@ -2049,9 +2080,7 @@ func applyFullV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotation)
 
 func applyPartialV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotation) {
 	if logTrace.Enabled {
-		cfg.EBPF.LogEnricher.Services = []obiconfig.LogEnricherServiceConfig{
-			{Service: services.GlobDefinitionCriteria{{Path: services.NewGlob("*")}}},
-		}
+		cfg.EBPF.LogEnricher.Services = logEnricherServicesFromV2(logTrace)
 	}
 	if logTrace.FieldNames.TraceID != nil {
 		cfg.EBPF.LogEnricher.FieldNames.TraceID = *logTrace.FieldNames.TraceID
@@ -2080,6 +2109,22 @@ func applyPartialV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotati
 	if logTrace.AsyncWriter.ChannelLen != 0 {
 		cfg.EBPF.LogEnricher.AsyncWriterChannelLen = logTrace.AsyncWriter.ChannelLen
 	}
+}
+
+// Each match clause becomes one log enricher selector, kept as a subset of the
+// instrumented workloads by the discovery matcher
+func logEnricherServicesFromV2(logTrace schema.LogTraceAnnotation) []obiconfig.LogEnricherServiceConfig {
+	if !logTrace.Enabled {
+		return nil
+	}
+
+	svcs := make([]obiconfig.LogEnricherServiceConfig, 0, len(logTrace.Match))
+	for _, match := range logTrace.Match {
+		svcs = append(svcs, obiconfig.LogEnricherServiceConfig{
+			Service: services.GlobDefinitionCriteria{globSelectorFromMatch(match)},
+		})
+	}
+	return svcs
 }
 
 func completeLogTraceAnnotation(logTrace schema.LogTraceAnnotation) bool {

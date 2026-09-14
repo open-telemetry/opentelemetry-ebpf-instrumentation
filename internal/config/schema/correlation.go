@@ -12,7 +12,10 @@ type Correlation struct {
 
 // LogTraceAnnotation describes log trace annotation settings.
 type LogTraceAnnotation struct {
-	Enabled     bool             `yaml:"enabled"`
+	Enabled bool `yaml:"enabled"`
+	// Match selects the workloads whose logs are annotated, among those the
+	// capture rules select. Required when Enabled
+	Match       []RuleMatch      `yaml:"match,omitempty"`
 	Filter      AttributeFilters `yaml:"filter,omitempty"`
 	FieldNames  FieldNames       `yaml:"field_names"`
 	PlainText   PlainText        `yaml:"plain_text"`

@@ -19,7 +19,7 @@ services:
     environment:
       LOG_LEVEL: DEBUG
       BACKEND_URL: "http://testserver:8080"
-      UVICORN_LOOP: "uvloop"
+      UVICORN_LOOP: "${UVICORN_LOOP:-uvloop}"
       OTEL_SERVICE_NAME: "pythonasync-uvloop"
     depends_on:
       testserver:

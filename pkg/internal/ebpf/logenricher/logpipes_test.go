@@ -27,9 +27,6 @@ func newPipeTestTracer(t *testing.T) *Tracer {
 	t.Helper()
 
 	tr := newTestTracer(t, false)
-	tr.trackedPids = map[uint32]struct{}{}
-	tr.logPipes = map[pipeKey]map[uint32][]int{}
-	tr.pidPipes = map[uint32]map[int]pipeKey{}
 	tr.fdCache = expirable.NewLRU[string, *destFile](128, func(_ string, d *destFile) {
 		d.release()
 	}, time.Minute)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 
@@ -106,6 +107,10 @@ func TestDotnetAdd(t *testing.T) {
 }
 
 func TestExtractDotnetRoutes(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("this relies on Linux-specific code")
+	}
+
 	t.Run("cancelled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
