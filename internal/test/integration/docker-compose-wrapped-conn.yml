@@ -18,7 +18,7 @@ services:
   target-f: *target
 
   vmagent:
-    image: victoriametrics/vmagent:v1.151.0@sha256:ff6168d22b523d0bc3db1a0fedd0dafd37a77dba75489120464c39fadbfa1ff7
+    image: victoriametrics/vmagent:v1.152.0@sha256:21d51831acfed657c1d4a805353c278f3669b061cb3a2cd46c0d4f1a4402cb1b
     command:
       - -promscrape.config=/etc/vmagent/scrape.yml
       - -remoteWrite.url=http://target-a:8000/

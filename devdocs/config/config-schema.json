@@ -500,7 +500,8 @@
               "go",
               "java",
               "nodejs",
-              "python"
+              "python",
+              "ruby"
             ]
           },
           "type": "array"
