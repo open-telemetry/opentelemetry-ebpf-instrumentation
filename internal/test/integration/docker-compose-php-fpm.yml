@@ -33,26 +33,6 @@ services:
       PM_MAX_SPARE_SERVERS: 20
       PM_PROCESS_IDLE_TIMEOUT: 10s
 
-  symfony-nginx:
-    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
-    mem_limit: 128m
-    container_name: hatest-symfony-nginx
-    ports:
-      - "8081:80"
-    volumes:
-      - ./components/php/symfony/nginx.conf:/etc/nginx/nginx.conf
-      - ./components/php/symfony/public:/var/www/symfony/public:ro
-    depends_on:
-      - symfony-php-fpm
-
-  symfony-php-fpm:
-    build:
-      context: ../../..
-      dockerfile: ./internal/test/integration/components/php/symfony/Dockerfile
-    image: hatest-php-symfony
-    mem_limit: 256m
-    container_name: hatest-symfony-php-fpm
-
   php-harvest-nginx:
     image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
     mem_limit: 128m
@@ -127,8 +107,6 @@ services:
     depends_on:
       nginx:
         condition: service_started
-      symfony-nginx:
-        condition: service_started
       php-harvest-nginx:
         condition: service_started
 
@@ -168,7 +146,7 @@ services:
     image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus
     command:
-      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --config.file=/etc/prometheus/prometheus-config-no-scrape.yml
       - --web.enable-lifecycle
       - --web.route-prefix=/
       - --log.level=debug
