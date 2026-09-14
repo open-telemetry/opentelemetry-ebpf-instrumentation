@@ -599,8 +599,9 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 }
 
 func TestGRPCClientStreamStrippedLifecycle(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
 	bin := buildGRPCNestedClientTargetStripped(t)
-	send, collector, tracer := startGRPCNestedClientTarget(t, bin)
 
 	// 1. Normal streaming RPC (finishes with io.EOF): must produce status == 0
 	t.Run("stream_normal", func(t *testing.T) {
