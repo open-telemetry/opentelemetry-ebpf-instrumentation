@@ -148,7 +148,7 @@ func (i *instrumenter) goprobes(p Tracer) error {
 
 	if groupedTracer, ok := p.(goProbeGroupTracer); ok {
 		for _, group := range groupedTracer.GoProbeGroups() {
-			if !goProbeGroupPrerequisitesAttached(group, attachedSymbols) {
+			if !goProbeGroupEligible(group, attachedSymbols) {
 				continue
 			}
 			processScopedTracer, hasProcessScopedTracer := p.(processScopedGoProbeTracer)
@@ -160,6 +160,7 @@ func (i *instrumenter) goprobes(p Tracer) error {
 				if len(groupClosers) == 0 {
 					continue
 				}
+				recordGoProbeGroupSymbols(resolvedGroup, attachedSymbols)
 				closer := &reverseCloser{closers: groupClosers}
 				i.closables = append(i.closables, closer)
 				i.optionalGoProbeGroupClosers = append(i.optionalGoProbeGroupClosers, closer)
@@ -284,19 +285,46 @@ func goProbeGroupHasProcessScopedProbe(group ebpfcommon.GoProbeGroup) bool {
 	return false
 }
 
-func goProbeGroupPrerequisitesAttached(
+func goProbeGroupEligible(
 	group ebpfcommon.GoProbeGroup,
 	attachedSymbols map[string]bool,
 ) bool {
 	log := ilog().With("probes", "instrumentOptionalGoProbeGroup", "group", group.Name)
-	for _, symbol := range group.Prerequisites {
-		if !attachedSymbols[symbol] {
-			log.Debug("skipping optional uprobe group because a prerequisite was not attached",
+	for _, symbol := range group.ConflictsAny {
+		if attachedSymbols[symbol] {
+			log.Debug("skipping optional uprobe group because a conflicting symbol was attached",
 				"function", symbol)
 			return false
 		}
 	}
-	return true
+	for _, symbol := range group.RequiresAll {
+		if !attachedSymbols[symbol] {
+			log.Debug("skipping optional uprobe group because a required symbol was not attached",
+				"function", symbol)
+			return false
+		}
+	}
+	if len(group.RequiresAny) == 0 {
+		return true
+	}
+	for _, symbol := range group.RequiresAny {
+		if attachedSymbols[symbol] {
+			return true
+		}
+	}
+	log.Debug("skipping optional uprobe group because no alternative required symbol was attached",
+		"functions", group.RequiresAny)
+
+	return false
+}
+
+func recordGoProbeGroupSymbols(
+	group ebpfcommon.GoProbeGroup,
+	attachedSymbols map[string]bool,
+) {
+	for _, candidate := range group.Probes {
+		attachedSymbols[candidate.Symbol] = true
+	}
 }
 
 func (i *instrumenter) instrumentOptionalGoProbeGroup(
@@ -1310,8 +1338,10 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 	resolvedGroups := make([]ebpfcommon.GoProbeGroup, 0, len(orderedCopyIDs))
 	for _, copyID := range orderedCopyIDs {
 		resolved := ebpfcommon.GoProbeGroup{
-			Name:          group.Name,
-			Prerequisites: append([]string(nil), group.Prerequisites...),
+			Name:         group.Name,
+			RequiresAll:  append([]string(nil), group.RequiresAll...),
+			RequiresAny:  append([]string(nil), group.RequiresAny...),
+			ConflictsAny: append([]string(nil), group.ConflictsAny...),
 		}
 		complete := true
 		for _, candidate := range group.Probes {
