@@ -33,6 +33,8 @@ func TestAWSSNSSpan(t *testing.T) {
 		{name: "custom endpoint", host: "localstack:4566", action: "Publish", response: publishResponse, wantMessage: "message-1", wantTopic: topicARN},
 		{name: "create topic XML identity", host: "localstack:4566", action: "CreateTopic", noTopic: true, response: `<CreateTopicResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><CreateTopicResult><TopicArn>` + topicARN + `</TopicArn></CreateTopicResult></CreateTopicResponse>`, wantTopic: topicARN},
 		{name: "list topics without destination", action: "ListTopics", noTopic: true},
+		{name: "add permission", action: "AddPermission", wantTopic: topicARN},
+		{name: "remove permission", action: "RemovePermission", wantTopic: topicARN},
 		{name: "subscribe", action: "Subscribe", wantTopic: topicARN},
 		{name: "unsubscribe", action: "Unsubscribe", noTopic: true},
 		{name: "delete topic", action: "DeleteTopic", wantTopic: topicARN},
@@ -128,6 +130,7 @@ func TestAWSSNSEndpoints(t *testing.T) {
 		t.Run(host, func(t *testing.T) {
 			req, err := http.NewRequest(http.MethodGet, "https://"+host+"/?Action=ListTopics", nil)
 			require.NoError(t, err)
+			req.Host = ""
 			resp := &http.Response{Body: http.NoBody}
 			_, ok := AWSSNSSpan(&request.Span{}, req, resp)
 			assert.True(t, ok)

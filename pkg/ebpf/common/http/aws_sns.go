@@ -60,7 +60,7 @@ func AWSSNSSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		response = awsSNSResponse{}
 	}
 
-	host := (&url.URL{Host: req.Host}).Hostname()
+	host := extractHostname(req)
 	endpoint := snsEndpoint.FindStringSubmatch(strings.ToLower(host))
 	topicARN := params.Get("TopicArn")
 	topic := snsTopicARN(topicARN)
@@ -144,10 +144,13 @@ func snsRequestParams(req *http.Request) (url.Values, bool) {
 	}
 }
 
+// snsOperation reports whether op belongs to OBI's supported subset of SNS actions.
+// AWS action reference: https://docs.aws.amazon.com/sns/latest/api/API_Operations.html
 func snsOperation(op string) bool {
 	switch op {
 	case "Publish", "PublishBatch", "CreateTopic", "DeleteTopic", "ListTopics",
-		"GetTopicAttributes", "SetTopicAttributes", "Subscribe", "Unsubscribe",
+		"GetTopicAttributes", "SetTopicAttributes", "AddPermission", "RemovePermission",
+		"Subscribe", "Unsubscribe",
 		"ConfirmSubscription", "ListSubscriptions", "ListSubscriptionsByTopic",
 		"GetSubscriptionAttributes", "SetSubscriptionAttributes":
 		return true

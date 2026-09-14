@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 type snsResult struct {
@@ -80,6 +81,19 @@ func testPythonAWSSNS(t *testing.T) {
 			}
 		}
 	}, testTimeout, time.Second)
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, op := range []string{"Publish", "PublishBatch"} {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			results, err := pq.Query(`messaging_client_operation_duration_seconds_count{` +
+				`messaging_system="aws.sns",` +
+				`messaging_operation_name="` + op + `",` +
+				`messaging_destination_name="obi-topic"}`)
+			require.NoError(ct, err)
+			enoughPromResults(ct, results)
+			assert.LessOrEqual(ct, 1, totalPromCount(ct, results))
+		}, testTimeout, time.Second)
+	}
 }
 
 func snsRequest(t *testing.T, path string) snsResult {

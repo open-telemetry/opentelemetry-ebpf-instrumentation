@@ -843,16 +843,13 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if sns.MessageID != "" {
 				attrs = append(attrs, request.MessagingMessageID(sns.MessageID))
 			}
-			if sns.OperationName == "PublishBatch" {
+			if sns.OperationName == "PublishBatch" && sns.BatchCount > 0 {
 				attrs = append(attrs, semconv.MessagingBatchMessageCount(sns.BatchCount))
 			}
 			if sns.Meta.RequestID != "" {
 				attrs = append(attrs, semconv.AWSRequestID(sns.Meta.RequestID))
 			}
 			attrs = append(attrs, semconv.CloudRegion(sns.Meta.Region))
-			if sns.ErrorCode != "" {
-				attrs = append(attrs, request.ErrorType(sns.ErrorCode))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeOpenAI && span.GenAI != nil && span.GenAI.OpenAI != nil {
