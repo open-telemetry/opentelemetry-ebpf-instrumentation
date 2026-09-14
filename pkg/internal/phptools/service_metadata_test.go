@@ -98,6 +98,26 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "1.3.0", service.Metadata[serviceVersion])
 	})
 
+	t.Run("Laravel dotenv APP_NAME wins over template Composer name", func(t *testing.T) {
+		root := t.TempDir()
+		projectRoot := filepath.Join(root, "my-app")
+		writePHPFile(t, filepath.Join(projectRoot, "composer.json"), []byte(`{
+            "name":"laravel/laravel",
+            "require":{"laravel/framework":"^12.0"}
+        }`))
+		writePHPFile(t, filepath.Join(projectRoot, "vendor", "composer", "installed.php"), installedPHP(
+			"laravel/laravel",
+			composerVersionPlaceholder,
+		))
+		writePHPFile(t, filepath.Join(projectRoot, ".env"), []byte("APP_NAME=Orders API\n"))
+		require.NoError(t, os.MkdirAll(filepath.Join(projectRoot, "public"), 0o755))
+		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/my-app/public", nil, nil)
+
+		require.NoError(t, ResolveServiceMetadata(fileInfo))
+
+		assert.Equal(t, "Orders API", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("confirmed Symfony project uses directory name", func(t *testing.T) {
 		root := t.TempDir()
 		writePHPFile(t, filepath.Join(root, "my_app", "composer.json"), []byte(`{

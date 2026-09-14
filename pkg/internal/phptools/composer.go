@@ -67,6 +67,15 @@ func inspectProject(dir string) (projectMetadata, bool) {
 			project.name = ""
 		}
 	}
+	if fallbackName, ok := laravelProjectName(dir, composer); ok {
+		project.fallbackName = fallbackName
+		if laravelTemplateName(project.name) {
+			project.name = composer.name
+		}
+		if laravelTemplateName(project.name) {
+			project.name = ""
+		}
+	}
 	return project, true
 }
 
