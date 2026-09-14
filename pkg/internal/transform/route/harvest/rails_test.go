@@ -31,6 +31,7 @@ func TestScanRailsRoutes(t *testing.T) {
 		{"multiple resources", `resources :posts, :comments`, []string{"/posts", "/posts/new", "/posts/:id", "/posts/:id/edit", "/comments", "/comments/new", "/comments/:id", "/comments/:id/edit"}},
 		{"multiline options", "resources :users,\n  # public path\n  path: 'people',\n  only: [:index, :show]", []string{"/people", "/people/:id"}},
 		{"limited actions", `resources :users, only: [:index, :show]`, []string{"/users", "/users/:id"}},
+		{"action options stay local", "resources :users, only: :show\nresources :posts", []string{"/users/:id", "/posts", "/posts/new", "/posts/:id", "/posts/:id/edit"}},
 		{"excluded actions", `resources :users, except: %i[new edit]`, []string{"/users", "/users/:id"}},
 		{"single action", `resource :profile, only: :show`, []string{"/profile"}},
 		{"dynamic actions", `resources :users, only: actions`, nil},
@@ -51,7 +52,7 @@ func TestScanRailsRoutes(t *testing.T) {
 		{"multiline array without trailing comma on open bracket", "resources :users,\n  only: [\n    :index,\n    :show\n  ]", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			routes, _, err := scanRailsRoutes(t.Context(), strings.NewReader(tc.source), false)
+			routes, _, err := scanRailsRoutes(t.Context(), strings.NewReader(tc.source))
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tc.want, routes)
 		})
@@ -63,7 +64,7 @@ func TestScanRailsRoutes(t *testing.T) {
 func TestScanRailsRoutesLongLine(t *testing.T) {
 	padding := strings.Repeat(" ", 128*1024)
 	source := fmt.Sprintf("# %s\nget '/health'", padding)
-	routes, _, err := scanRailsRoutes(t.Context(), strings.NewReader(source), false)
+	routes, _, err := scanRailsRoutes(t.Context(), strings.NewReader(source))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/health"}, routes)
 }
@@ -77,7 +78,7 @@ Rails.application.routes.draw do
   end
  end
 end
-`), false)
+`))
 	require.NoError(t, err)
 	matcher := RouteMatcherFromResult(RouteHarvesterResult{Routes: routes, Kind: PartialRoutes})
 	for path, want := range map[string]string{
@@ -162,9 +163,9 @@ func (erroringReader) Read([]byte) (int, error) {
 func TestScanRailsRoutesCancellationAndReadError(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, _, err := scanRailsRoutes(ctx, strings.NewReader(`resources :users`), false)
+	_, _, err := scanRailsRoutes(ctx, strings.NewReader(`resources :users`))
 	require.ErrorIs(t, err, context.Canceled)
-	_, _, err = scanRailsRoutes(t.Context(), erroringReader{}, false)
+	_, _, err = scanRailsRoutes(t.Context(), erroringReader{})
 	require.Error(t, err)
 }
 

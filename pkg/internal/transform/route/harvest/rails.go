@@ -30,7 +30,14 @@ var (
 	railsPathOption    = regexp.MustCompile(`(?:^|,\s*)path:\s*(.*)$`)
 	railsActionsOption = regexp.MustCompile(`(?:^|,\s*)(only|except):\s*(\[[^\]]*\]|%i\[[^\]]*\]|[^,)]*)`)
 	railsParamOption   = regexp.MustCompile(`(?:^|,\s*)param:\s*(.*)$`)
+
+	railsDefaultResourceActions = [...]string{"index", "create", "show", "update", "destroy", "new", "edit"}
+	railsAPIOnlyResourceActions = [...]string{"index", "create", "show", "update", "destroy"}
 )
+
+type railsRouteScanner struct {
+	resourceActions []string
+}
 
 // ExtractRubyRoutes reads Rails route declarations without executing application
 // code. Fragments preserve useful paths even when Ruby's dynamic DSL prevents
@@ -79,6 +86,10 @@ func scanRailsRouteFiles(ctx context.Context, root, mainPath string) ([]string, 
 	if err != nil {
 		return nil, err
 	}
+	scanner := railsRouteScanner{resourceActions: railsDefaultResourceActions[:]}
+	if apiOnly {
+		scanner.resourceActions = railsAPIOnlyResourceActions[:]
+	}
 	routesDir := filepath.Join(filepath.Dir(mainPath), "routes")
 	pending := []string{mainPath}
 	seen := map[string]struct{}{mainPath: {}}
@@ -87,7 +98,7 @@ func scanRailsRouteFiles(ctx context.Context, root, mainPath string) ([]string, 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		fragments, draws, err := readRailsRouteFile(ctx, pending[index], apiOnly)
+		fragments, draws, err := scanner.readRouteFile(ctx, pending[index])
 		if err != nil {
 			return nil, err
 		}
@@ -162,16 +173,21 @@ func readRailsAPIOnly(ctx context.Context, path string) (bool, error) {
 	return false, scanner.Err()
 }
 
-func readRailsRouteFile(ctx context.Context, path string, apiOnly bool) ([]string, []string, error) {
+func (s railsRouteScanner) readRouteFile(ctx context.Context, path string) ([]string, []string, error) {
 	file, _ := langtools.OpenMetadataFile(path, maxRailsFileBytes)
 	if file == nil {
 		return nil, nil, nil
 	}
 	defer file.Close()
-	return scanRailsRoutes(ctx, io.LimitReader(file, maxRailsFileBytes), apiOnly)
+	return s.scanRoutes(ctx, io.LimitReader(file, maxRailsFileBytes))
 }
 
-func scanRailsRoutes(ctx context.Context, reader io.Reader, apiOnly bool) ([]string, []string, error) {
+func scanRailsRoutes(ctx context.Context, reader io.Reader) ([]string, []string, error) {
+	scanner := railsRouteScanner{resourceActions: railsDefaultResourceActions[:]}
+	return scanner.scanRoutes(ctx, reader)
+}
+
+func (s railsRouteScanner) scanRoutes(ctx context.Context, reader io.Reader) ([]string, []string, error) {
 	var routes, draws []string
 	scanner := bufio.NewScanner(reader)
 	// bufio.Scanner defaults to a 64KiB token limit; match it to the read budget
@@ -253,7 +269,7 @@ func scanRailsRoutes(ctx context.Context, reader io.Reader, apiOnly bool) ([]str
 				routes = append(routes, path)
 				break
 			}
-			routes = append(routes, railsResourceRoutes(kind, path, param, args, apiOnly)...)
+			routes = append(routes, s.resourceRoutes(kind, path, param, args)...)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -266,13 +282,8 @@ func scanRailsRoutes(ctx context.Context, reader io.Reader, apiOnly bool) ([]str
 }
 
 // REST actions can share a path. Singular resources have no collection index or ID segment.
-func railsResourceRoutes(kind, path, param, args string, apiOnly bool) []string {
-	actions := []string{"index", "create", "show", "update", "destroy", "new", "edit"}
-	if apiOnly {
-		actions = slices.DeleteFunc(actions, func(action string) bool {
-			return action == "new" || action == "edit"
-		})
-	}
+func (s railsRouteScanner) resourceRoutes(kind, path, param, args string) []string {
+	actions := slices.Clone(s.resourceActions)
 	if option := railsActionsOption.FindStringSubmatch(args); option != nil {
 		selected, ok := railsActions(strings.TrimSpace(option[2]))
 		if !ok {
