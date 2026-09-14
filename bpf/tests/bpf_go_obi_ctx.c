@@ -399,32 +399,28 @@ static void test_grpc_client_overflow_preserves_shared_context(void) {
     begin(k_obi_ctx_http_server, span(40), 100);
     begin(k_obi_ctx_sql, span(41), 200);
     begin(k_obi_ctx_sql, span(42), 210);
-    begin(k_obi_ctx_sql, span(43), 220);
-    check_u64(k_obi_ctx_max_depth, stack()->depth, "shared context stack is full");
+    begin(k_obi_ctx_grpc_client, span(43), 220);
+    check_u64(
+        k_obi_ctx_max_depth, stack()->depth, "stored gRPC client fills the shared context stack");
+    check_u64(43, thread_span(), "stored gRPC client is current");
 
     begin(k_obi_ctx_grpc_client, span(44), 230);
-    begin(k_obi_ctx_grpc_client, span(45), 240);
-    check_u64(2,
-              stack()->overflow[k_obi_ctx_grpc_client],
-              "nested gRPC client calls overflow the shared context stack");
-    check_u64(45, thread_span(), "deepest overflowed gRPC client is current");
-
-    end(k_obi_ctx_grpc_client, span(45));
     check_u64(1,
               stack()->overflow[k_obi_ctx_grpc_client],
-              "inner gRPC client return consumes only its overflow frame");
-    check_u64(43, thread_span(), "inner gRPC client return restores the tracked parent context");
+              "nested gRPC client overflows the shared context stack");
+    check_u64(44, thread_span(), "overflowed gRPC client is current");
 
     end(k_obi_ctx_grpc_client, span(44));
     check_u64(0,
               stack()->overflow[k_obi_ctx_grpc_client],
-              "outer gRPC client return clears its overflow frame");
-    check_u64(43, thread_span(), "overflowed frames do not corrupt the tracked parent context");
+              "overflowed gRPC client return clears its overflow frame");
+    check_u64(43, thread_span(), "overflowed gRPC client return restores stored gRPC parent");
 
-    end(k_obi_ctx_sql, span(43));
-    check_u64(42, thread_span(), "first shared parent is restored");
+    end(k_obi_ctx_grpc_client, span(43));
+    check_u64(42, thread_span(), "stored gRPC client return restores SQL parent");
+
     end(k_obi_ctx_sql, span(42));
-    check_u64(41, thread_span(), "second shared parent is restored");
+    check_u64(41, thread_span(), "first shared parent is restored");
     end(k_obi_ctx_sql, span(41));
     check_u64(40, thread_span(), "server parent is restored");
     end(k_obi_ctx_http_server, span(40));

@@ -626,12 +626,58 @@ func TestRegisterIoEOFLoadBiasSeparatesProcessesSharingExecutable(t *testing.T) 
 	first := exec.New(exec.Init{Pid: 101, Ns: 7, Dev: 5, Ino: 10})
 	second := exec.New(exec.Init{Pid: 202, Ns: 7, Dev: 5, Ino: 10})
 
-	require.NoError(t, registerIoEOFLoadBias(first, biases))
-	require.NoError(t, registerIoEOFLoadBias(second, biases))
+	firstPIDInfo, err := registerIoEOFLoadBias(first, biases)
+	require.NoError(t, err)
+	secondPIDInfo, err := registerIoEOFLoadBias(second, biases)
+	require.NoError(t, err)
 
 	assert.Equal(t, uint64(101<<12), biases.entries[BpfPidInfo{HostPid: 101, UserPid: 101, Ns: 7}])
 	assert.Equal(t, uint64(202<<12), biases.entries[BpfPidInfo{HostPid: 202, UserPid: 202, Ns: 7}])
 	assert.Len(t, biases.entries, 2)
+	assert.NotEqual(t, firstPIDInfo, secondPIDInfo)
+}
+
+func TestRuntimeMetricCleanupKeepsIoEOFLoadBias(t *testing.T) {
+	key := runtimeMetricTargetKey{pid: 101, ns: 7}
+	pidInfo := BpfPidInfo{HostPid: 101, UserPid: 101, Ns: 7}
+	biases := &recordingIoEOFLoadBiasMap{entries: map[BpfPidInfo]uint64{pidInfo: 0x1000}}
+	tracer := &Tracer{
+		runtimeMetricsEnabled:   false,
+		runtimeMetricTargetKeys: map[runtimeMetricTargetKey]BpfPidInfo{key: pidInfo},
+		ioEOFLoadBiasKeys:       map[ioEOFLoadBiasKey]BpfPidInfo{{pid: key.pid, ns: key.ns}: pidInfo},
+	}
+
+	tracer.deleteRuntimeMetricTarget(key.pid, key.ns)
+
+	assert.NotContains(t, tracer.runtimeMetricTargetKeys, key)
+	assert.Contains(t, tracer.ioEOFLoadBiasKeys, ioEOFLoadBiasKey{pid: key.pid, ns: key.ns})
+	assert.Equal(t, uint64(0x1000), biases.entries[pidInfo])
+}
+
+func TestBlockPIDRemovesIoEOFLoadBias(t *testing.T) {
+	key := runtimeMetricTargetKey{pid: 101, ns: 7}
+	pidInfo := BpfPidInfo{HostPid: 101, UserPid: 101, Ns: 7}
+	tracer := activationLifecycleTestTracer(func(app.PID) (uint64, error) {
+		return 0, nil
+	})
+	tracer.ioEOFLoadBiasKeys = map[ioEOFLoadBiasKey]BpfPidInfo{{pid: key.pid, ns: key.ns}: pidInfo}
+
+	tracer.BlockPID(key.pid, key.ns)
+
+	assert.NotContains(t, tracer.ioEOFLoadBiasKeys, ioEOFLoadBiasKey{pid: key.pid, ns: key.ns})
+}
+
+func TestDeleteIoEOFLoadBiasRemovesTrackedEntry(t *testing.T) {
+	key := runtimeMetricTargetKey{pid: 101, ns: 7}
+	pidInfo := BpfPidInfo{HostPid: 101, UserPid: 101, Ns: 7}
+	ioEOFKey := ioEOFLoadBiasKey{pid: key.pid, ns: key.ns}
+	keys := map[ioEOFLoadBiasKey]BpfPidInfo{ioEOFKey: pidInfo}
+	biases := &recordingIoEOFLoadBiasMap{entries: map[BpfPidInfo]uint64{pidInfo: 0x1000}}
+
+	require.NoError(t, deleteIoEOFLoadBias(keys, key.pid, key.ns, biases))
+
+	assert.Empty(t, keys)
+	assert.Empty(t, biases.entries)
 }
 
 func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
@@ -1672,6 +1718,15 @@ func (m *recordingIoEOFLoadBiasMap) Put(key, value any) error {
 		panic("unexpected io.EOF load-bias value")
 	}
 	m.entries[pidInfo] = loadBias
+	return nil
+}
+
+func (m *recordingIoEOFLoadBiasMap) Delete(key any) error {
+	pidInfo, ok := key.(BpfPidInfo)
+	if !ok {
+		panic("unexpected io.EOF load-bias key")
+	}
+	delete(m.entries, pidInfo)
 	return nil
 }
 

@@ -54,6 +54,11 @@ type runtimeMetricTargetKey struct {
 	ns  uint32
 }
 
+type ioEOFLoadBiasKey struct {
+	pid app.PID
+	ns  uint32
+}
+
 type executableIdentity = BpfGoExecutableKeyT
 
 // Linux's internal dev_t reserves its lower 20 bits for the minor number.
@@ -304,6 +309,7 @@ type Tracer struct {
 	supportsBPFLoop                   bool
 	runtimeMetricsEnabled             bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
+	ioEOFLoadBiasKeys                 map[ioEOFLoadBiasKey]BpfPidInfo
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goIoEOFByExecutable               map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
@@ -339,6 +345,7 @@ func New(
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
+		ioEOFLoadBiasKeys:                 map[ioEOFLoadBiasKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goIoEOFByExecutable:               map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -412,6 +419,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.deleteRuntimeMetricTarget(pid, ns)
+	p.deleteIoEOFLoadBias(pid, ns)
 }
 
 func (p *Tracer) supportsContextPropagation() bool {
@@ -1553,9 +1561,6 @@ func (p *Tracer) deleteRuntimeMetricTarget(pid app.PID, ns uint32) {
 	if p.bpfObjects.GoRuntimeMetricTargets != nil {
 		_ = p.bpfObjects.GoRuntimeMetricTargets.Delete(pidInfo)
 	}
-	if p.bpfObjects.IoEofLoadBiases != nil {
-		_ = p.bpfObjects.IoEofLoadBiases.Delete(pidInfo)
-	}
 	delete(p.runtimeMetricTargetKeys, runtimeMetricTargetKey{pid: pid, ns: ns})
 }
 
@@ -1583,25 +1588,50 @@ type bpfMapPutter interface {
 	Put(key, value any) error
 }
 
+type bpfMapDeleter interface {
+	Delete(key any) error
+}
+
 var (
 	findExeLoadBias    = procs.FindExeLoadBias
 	lookupIoEOFPIDInfo = runtimeMetricPIDInfo
 )
 
-func registerIoEOFLoadBias(fileInfo *exec.FileInfo, biases bpfMapPutter) error {
+func registerIoEOFLoadBias(fileInfo *exec.FileInfo, biases bpfMapPutter) (BpfPidInfo, error) {
 	loadBias, err := findExeLoadBias(fileInfo.Pid())
 	if err != nil {
-		return fmt.Errorf("finding executable load bias: %w", err)
+		return BpfPidInfo{}, fmt.Errorf("finding executable load bias: %w", err)
 	}
 
 	pidInfo, err := lookupIoEOFPIDInfo(fileInfo.Pid(), fileInfo.Ns())
 	if err != nil {
-		return fmt.Errorf("looking up PID info: %w", err)
+		return BpfPidInfo{}, fmt.Errorf("looking up PID info: %w", err)
 	}
 	if err := biases.Put(pidInfo, loadBias); err != nil {
-		return fmt.Errorf("storing load bias: %w", err)
+		return BpfPidInfo{}, fmt.Errorf("storing load bias: %w", err)
 	}
 
+	return pidInfo, nil
+}
+
+func deleteIoEOFLoadBias(
+	keys map[ioEOFLoadBiasKey]BpfPidInfo,
+	pid app.PID,
+	ns uint32,
+	biases bpfMapDeleter,
+) error {
+	key := ioEOFLoadBiasKey{pid: pid, ns: ns}
+	pidInfo, ok := keys[key]
+	if !ok {
+		return nil
+	}
+	delete(keys, key)
+	if biases == nil {
+		return nil
+	}
+	if err := biases.Delete(pidInfo); err != nil {
+		return fmt.Errorf("deleting load bias: %w", err)
+	}
 	return nil
 }
 
@@ -1618,8 +1648,29 @@ func (p *Tracer) registerIoEOFLoadBias(fileInfo *exec.FileInfo) {
 		return
 	}
 
-	if err := registerIoEOFLoadBias(fileInfo, p.bpfObjects.IoEofLoadBiases); err != nil && p.log != nil {
-		p.log.Debug("storing io.EOF load bias failed", "pid", fileInfo.Pid(), "error", err)
+	pidInfo, err := registerIoEOFLoadBias(fileInfo, p.bpfObjects.IoEofLoadBiases)
+	if err != nil {
+		if p.log != nil {
+			p.log.Debug("storing io.EOF load bias failed", "pid", fileInfo.Pid(), "error", err)
+		}
+		return
+	}
+	if p.ioEOFLoadBiasKeys == nil {
+		p.ioEOFLoadBiasKeys = map[ioEOFLoadBiasKey]BpfPidInfo{}
+	}
+	p.ioEOFLoadBiasKeys[ioEOFLoadBiasKey{pid: fileInfo.Pid(), ns: fileInfo.Ns()}] = pidInfo
+}
+
+func (p *Tracer) deleteIoEOFLoadBias(pid app.PID, ns uint32) {
+	if p == nil || p.ioEOFLoadBiasKeys == nil {
+		return
+	}
+	var biases bpfMapDeleter
+	if p.bpfObjects.IoEofLoadBiases != nil {
+		biases = p.bpfObjects.IoEofLoadBiases
+	}
+	if err := deleteIoEOFLoadBias(p.ioEOFLoadBiasKeys, pid, ns, biases); err != nil && p.log != nil {
+		p.log.Debug("deleting io.EOF load bias failed", "pid", pid, "ns", ns, "error", err)
 	}
 }
 
