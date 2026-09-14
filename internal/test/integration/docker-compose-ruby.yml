@@ -2,7 +2,10 @@ version: "3.8"
 
 services:
   testserver:
-    image: ${TESTSERVER_IMAGE:?TESTSERVER_IMAGE must be set to a digest-pinned obi-testimg rails reference}
+    # TODO: Restore digest-pinned Rails image coordinates after publishing the updated route fixtures.
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/rubytestserver/testapi/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX:-}
     ports:
       - "${TEST_SERVICE_PORTS}"
     environment:
