@@ -75,8 +75,7 @@ func loadConfigReader(file io.Reader) (*obi.Config, string, error) {
 		return config, configVersionV2, nil
 	}
 
-	var notV2 *schema.NotV2Error
-	if !errors.As(err, &notV2) {
+	if _, ok := errors.AsType[*schema.NotV2Error](err); !ok {
 		return nil, "", fmt.Errorf("loading config v2: %w", err)
 	}
 

@@ -232,8 +232,7 @@ func migrateConfigForMode(
 	if v2Err == nil {
 		return nil, "", fmt.Errorf("input is already a %s OBI config v2 document", mode)
 	} else {
-		var notV2 *schema.NotV2Error
-		if !errors.As(v2Err, &notV2) {
+		if _, ok := errors.AsType[*schema.NotV2Error](v2Err); !ok {
 			return nil, "", fmt.Errorf("source is not supported v1 YAML: %w", v2Err)
 		}
 	}

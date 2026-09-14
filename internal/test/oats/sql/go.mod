@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/oats/sql
 
-go 1.25.11
+go 1.26.0
 
 require go.opentelemetry.io/obi/internal/test/oats/harness v0.0.0
 
@@ -26,8 +26,8 @@ require (
 	github.com/onsi/gomega v1.41.0 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/collector/featuregate v1.64.0 // indirect
-	go.opentelemetry.io/collector/pdata v1.64.0 // indirect
+	go.opentelemetry.io/collector/featuregate v1.65.0 // indirect
+	go.opentelemetry.io/collector/pdata v1.65.0 // indirect
 	go.opentelemetry.io/obi v0.13.0 // indirect
 	go.opentelemetry.io/otel v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect

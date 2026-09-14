@@ -455,8 +455,7 @@ func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
 			return
 		}
 		seen[typ] = true
-		for i := 0; i < typ.NumField(); i++ {
-			f := typ.Field(i)
+		for f := range typ.Fields() {
 			yamlTag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
 			envDefault := f.Tag.Get("envDefault")
 			if yamlTag != "" && yamlTag != "-" && envDefault != "" && !strings.HasPrefix(envDefault, "${") {
