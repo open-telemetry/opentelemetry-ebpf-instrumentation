@@ -325,6 +325,7 @@ type EBPFParseContext struct {
 	goHTTPClientMaxPendingTime  time.Duration
 	discardPendingGoHTTPClients atomic.Bool
 	emitSpans                   func([]request.Span)
+	stopEmitting                context.CancelFunc
 }
 
 // sharedForwarder is implemented by ringBufForwarder[T] so that
@@ -418,6 +419,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
 	postgresDBNames, _ := simplelru.NewLRU[BpfConnectionInfoT, string](4096, nil)
 
+	emitCtx, stopEmitting := context.WithCancel(context.Background())
 	if spansChan != nil {
 		emitSpans = func(spans []request.Span) {
 			if len(spans) == 0 {
@@ -426,7 +428,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 			if filter != nil {
 				spans = filter.Filter(spans)
 			}
-			spansChan.SendCtx(context.Background(), spans)
+			spansChan.SendCtx(emitCtx, spans)
 		}
 	}
 
@@ -501,6 +503,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		httpEnricher:               httpEnricher,
 		dnsEvents:                  dnsEvents,
 		emitSpans:                  emitSpans,
+		stopEmitting:               stopEmitting,
 	}
 
 	if parseCtx.goClientPayloadExtractionEnabled(cfg) {
@@ -522,6 +525,11 @@ func (ctx *EBPFParseContext) Close() {
 	}
 
 	ctx.discardPendingGoHTTPClients.Store(true)
+	// nobody reads the spans queue after shutdown, and an LRU eviction blocked
+	// sending holds the LRU lock that Purge needs
+	if ctx.stopEmitting != nil {
+		ctx.stopEmitting()
+	}
 	if ctx.pendingGoHTTPClientRequests != nil {
 		ctx.pendingGoHTTPClientRequests.Purge()
 	}

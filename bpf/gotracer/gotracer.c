@@ -16,6 +16,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <gotracer/jump_table_extra.h>
+
 #include <bpfcore/utils.h>
 
 #include <common/pin_internal.h>

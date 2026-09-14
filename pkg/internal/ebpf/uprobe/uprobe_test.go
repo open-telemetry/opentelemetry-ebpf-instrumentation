@@ -14,22 +14,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func uprobeTestSpec() *ebpf.CollectionSpec {
-	tailCall := asm.Instructions{
-		asm.LoadMapPtr(asm.R2, 0).WithReference("jump_table"),
+func tailCallInto(table string) asm.Instructions {
+	return asm.Instructions{
+		asm.LoadMapPtr(asm.R2, 0).WithReference(table),
 		asm.FnTailCall.Call(),
 		asm.Return(),
 	}
+}
+
+func tailCallTable() *ebpf.MapSpec {
+	return &ebpf.MapSpec{Type: ebpf.ProgramArray, Contents: []ebpf.MapKV{
+		{Key: uint32(0), Value: "target"},
+		{Key: uint32(1), Value: "chained"},
+		{Key: uint32(2), Value: "listed"},
+	}}
+}
+
+func uprobeTestSpec() *ebpf.CollectionSpec {
 	return &ebpf.CollectionSpec{
 		Maps: map[string]*ebpf.MapSpec{
-			"jump_table": {Type: ebpf.ProgramArray, Contents: []ebpf.MapKV{{Key: uint32(0), Value: "target"}}},
-			"state":      {Type: ebpf.Hash},
+			"jump_table":    tailCallTable(),
+			"jump_table_um": tailCallTable(),
+			"state":         {Type: ebpf.Hash},
 		},
 		Programs: map[string]*ebpf.ProgramSpec{
 			"entry":   {Type: ebpf.Kprobe, SectionName: "uprobe/foo"},
 			"ret":     {Type: ebpf.Kprobe, SectionName: "uretprobe/foo"},
-			"caller":  {Type: ebpf.Kprobe, SectionName: "uprobe/tail", Instructions: tailCall},
-			"target":  {Type: ebpf.Kprobe, SectionName: "uprobe/cont"},
+			"caller":  {Type: ebpf.Kprobe, SectionName: "uprobe/tail", Instructions: tailCallInto("jump_table")},
+			"target":  {Type: ebpf.Kprobe, SectionName: "kprobe", Instructions: tailCallInto("jump_table")},
+			"chained": {Type: ebpf.Kprobe, SectionName: "kprobe"},
+			"listed":  {Type: ebpf.Kprobe, SectionName: "uprobe/listed"},
 			"kprobe":  {Type: ebpf.Kprobe, SectionName: "kprobe/bar"},
 			"sockops": {Type: ebpf.SockOps, SectionName: "sockops"},
 		},
@@ -47,14 +61,61 @@ func TestMarkMultiProgramsMarksUprobePrograms(t *testing.T) {
 	assert.Equal(t, ebpf.AttachNone, spec.Programs["sockops"].AttachType)
 }
 
-// programs sharing a tail-call table must share the table owner's attach type
-func TestMarkMultiProgramsKeepsTailCallProgramsAsPerfEvents(t *testing.T) {
+func TestMarkMultiProgramsGivesMultiProgramsTheirOwnTailCallTable(t *testing.T) {
 	spec := uprobeTestSpec()
 
 	markMultiPrograms(spec)
 
-	assert.Equal(t, ebpf.AttachNone, spec.Programs["caller"].AttachType)
+	caller := spec.Programs["caller"]
+	assert.Equal(t, ebpf.AttachTraceUprobeMulti, caller.AttachType)
+	assert.Equal(t, "jump_table_um", caller.Instructions[0].Reference())
+
+	twin := spec.Maps["jump_table_um"]
+	require.NotNil(t, twin)
+	assert.Equal(t, ebpf.ProgramArray, twin.Type)
+	assert.Equal(t, []ebpf.MapKV{
+		{Key: uint32(0), Value: "target_um"},
+		{Key: uint32(1), Value: "chained_um"},
+		{Key: uint32(2), Value: "listed_um"},
+	}, twin.Contents)
+
+	for _, name := range []string{"target_um", "chained_um", "listed_um"} {
+		clone := spec.Programs[name]
+		require.NotNil(t, clone, name)
+		assert.Equal(t, name, clone.Name)
+		assert.Equal(t, ebpf.AttachTraceUprobeMulti, clone.AttachType, name)
+	}
+	assert.Equal(t, "jump_table_um", spec.Programs["target_um"].Instructions[0].Reference())
+}
+
+func TestMarkMultiProgramsLeavesTheOriginalTailCallTableAlone(t *testing.T) {
+	spec := uprobeTestSpec()
+
+	markMultiPrograms(spec)
+
+	assert.Equal(t, []ebpf.MapKV{
+		{Key: uint32(0), Value: "target"},
+		{Key: uint32(1), Value: "chained"},
+		{Key: uint32(2), Value: "listed"},
+	}, spec.Maps["jump_table"].Contents)
 	assert.Equal(t, ebpf.AttachNone, spec.Programs["target"].AttachType)
+	assert.Equal(t, "jump_table", spec.Programs["target"].Instructions[0].Reference())
+	assert.Equal(t, ebpf.AttachNone, spec.Programs["chained"].AttachType)
+	// a uprobe program listed in the kprobe table keeps the table's attach type
+	assert.Equal(t, ebpf.AttachNone, spec.Programs["listed"].AttachType)
+}
+
+// programs sharing a tail-call table must share the table owner's attach type
+func TestMarkMultiProgramsKeepsTailCallProgramsAsPerfEventsWithoutTwinTable(t *testing.T) {
+	spec := uprobeTestSpec()
+	delete(spec.Maps, "jump_table_um")
+
+	markMultiPrograms(spec)
+
+	assert.Equal(t, ebpf.AttachTraceUprobeMulti, spec.Programs["entry"].AttachType)
+	assert.Equal(t, ebpf.AttachNone, spec.Programs["caller"].AttachType)
+	assert.Equal(t, "jump_table", spec.Programs["caller"].Instructions[0].Reference())
+	assert.Len(t, spec.Programs, 8)
 }
 
 type blockingCloser struct {
