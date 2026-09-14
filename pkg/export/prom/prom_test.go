@@ -140,7 +140,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	containsTargetInfoCloudAccount := regexp.MustCompile(`\ntarget_info\{[^\n]*cloud_account_id=`)
 	containsTargetInfoK8sPod := regexp.MustCompile(`\ntarget_info\{[^\n]*k8s_pod_name=`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
-	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*cloud_host_id="my-host"`)
+	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{host_id="my-host"\}`)
 	containsJob := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*job="default/test-app".*`)
 	containsInstance := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*instance="test-app-1".*"`)
 
@@ -1518,7 +1518,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 		},
 	})
 
-	// THEN the exported traces_host_info metric overrides the default name for the cloud_host_id attribute
+	// THEN the exported traces_host_info metric overrides the default host id label name
 	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*vendor_host_id="my-host"`)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
