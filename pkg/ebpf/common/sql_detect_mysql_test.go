@@ -4,10 +4,18 @@
 package ebpfcommon
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
@@ -47,7 +55,7 @@ func TestMySQLParsing(t *testing.T) {
 		},
 		{
 			name:  "Valid Query",
-			bytes: []byte{0x21, 0x00, 0x00, 0x01, 0x03, 0x01, 0x01, 0x00, 0x01, 0xfe, 0x00, 0x01, 0x61, 0x01, 0x31, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x20, 0x40, 0x40, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x5f, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e, 0x74, 0x20, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x20, 0x31},
+			bytes: []byte{0x21, 0x00, 0x00, 0x01, 0x03, 0x01, 0x01, 0x00, 0x01, 0xfe, 0x00, 0x01, 0x61, 0x01, 0x31, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x20, 0x40, 0x40, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 110, 0x5f, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e, 0x74, 0x20, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x20, 0x31},
 			valid: true,
 			result: mySQLHdr{
 				length:  0x21,
@@ -79,4 +87,136 @@ func TestMySQLParsing(t *testing.T) {
 			assert.Equal(t, ts.valid, isMySQL(largebuf.NewLargeBufferFrom(ts.bytes)))
 		})
 	}
+}
+
+// mysqlPacket frames a MySQL packet: 3-byte payload length, 1-byte sequence
+// ID, then the payload starting with the command byte.
+func mysqlPacket(command byte, payload []byte) []byte {
+	packet := binary.LittleEndian.AppendUint32(nil, uint32(1+len(payload)))
+	packet = append(packet, command)
+	return append(packet, payload...)
+}
+
+func mysqlStmtClosePacket(stmtID uint32) []byte {
+	return mysqlPacket(kMySQLStmtClose, binary.LittleEndian.AppendUint32(nil, stmtID))
+}
+
+func mysqlPreparePacket(query string) []byte {
+	return mysqlPacket(kMySQLPrepare, []byte(query))
+}
+
+func mysqlExecutePacket(stmtID uint32) []byte {
+	return mysqlPacket(kMySQLExecute, binary.LittleEndian.AppendUint32(nil, stmtID))
+}
+
+// mysqlPrepareResponsePacket frames a COM_STMT_PREPARE response: OK status
+// byte followed by the statement ID.
+func mysqlPrepareResponsePacket(stmtID uint32) []byte {
+	return mysqlPacket(0x00, binary.LittleEndian.AppendUint32(nil, stmtID))
+}
+
+func mysqlOKResponsePacket() []byte {
+	return mysqlPacket(0x00, nil)
+}
+
+func TestSkipMySQLNoResponseCommands(t *testing.T) {
+	prepare := mysqlPreparePacket("SELECT 1")
+	execute := mysqlExecutePacket(1)
+
+	t.Run("keeps the buffer when a span-producing command comes first", func(t *testing.T) {
+		assert.Equal(t, prepare, skipMySQLNoResponseCommands(prepare))
+		assert.Equal(t, execute, skipMySQLNoResponseCommands(execute))
+	})
+
+	t.Run("skips every leading no-response command", func(t *testing.T) {
+		buf := append(append(mysqlStmtClosePacket(1), mysqlStmtClosePacket(2)...), prepare...)
+		assert.Equal(t, prepare, skipMySQLNoResponseCommands(buf))
+
+		buf = append(mysqlPacket(kMySQLStmtSendLongData, []byte{0, 0, 0, 1, 1, 2}), execute...)
+		assert.Equal(t, execute, skipMySQLNoResponseCommands(buf))
+	})
+
+	t.Run("returns the buffer unchanged when the no-response packet is last", func(t *testing.T) {
+		buf := append(mysqlPreparePacket("SELECT 1"), mysqlStmtClosePacket(1)...)
+		assert.Equal(t, buf, skipMySQLNoResponseCommands(buf))
+	})
+
+	t.Run("returns the buffer unchanged when the no-response packet is truncated", func(t *testing.T) {
+		buf := mysqlStmtClosePacket(1)
+		buf[0] = 0xff // payload length beyond the captured buffer
+		assert.Equal(t, buf, skipMySQLNoResponseCommands(buf))
+	})
+
+	t.Run("returns short buffers unchanged", func(t *testing.T) {
+		assert.Nil(t, skipMySQLNoResponseCommands(nil))
+		assert.Equal(t, []byte{1, 2, 3, 4}, skipMySQLNoResponseCommands([]byte{1, 2, 3, 4}))
+	})
+}
+
+func TestReadTCPRequestIntoSpan_MySQLStmtCloseCoalescing(t *testing.T) {
+	cfg := config.EBPFTracer{
+		CouchbaseDBCacheSize:                16,
+		MySQLPreparedStatementsCacheSize:    16,
+		PostgresPreparedStatementsCacheSize: 16,
+		MSSQLPreparedStatementsCacheSize:    16,
+		KafkaTopicUUIDCacheSize:             16,
+		MongoRequestsCacheSize:              16,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	readSpan := func(t *testing.T, r TCPRequestInfo) (request.Span, bool) {
+		binaryRecord := bytes.Buffer{}
+		require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+		span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+		require.NoError(t, err)
+		return span, ignore
+	}
+
+	mysqlEvent := func(req, resp []byte) TCPRequestInfo {
+		r := makeTCPReq(string(req), 3306)
+		r.ProtocolType = ProtocolTypeMySQL
+		r.RespLen = uint32(len(resp))
+		copy(r.Rbuf[:], resp)
+		return r
+	}
+
+	// A clean PREPARE caches the statement without emitting a span.
+	_, ignore := readSpan(t, mysqlEvent(mysqlPreparePacket("SELECT * FROM accounts"), mysqlPrepareResponsePacket(1)))
+	assert.True(t, ignore)
+
+	// The EXECUTE coalesced behind a COM_STMT_CLOSE must produce the span.
+	span, ignore := readSpan(t, mysqlEvent(
+		append(mysqlStmtClosePacket(1), mysqlExecutePacket(1)...),
+		mysqlOKResponsePacket(),
+	))
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeSQLClient, span.Type)
+	assert.Equal(t, "SELECT", span.Method)
+	assert.Equal(t, "accounts", span.Path)
+	assert.Equal(t, "SELECT * FROM accounts", span.Statement)
+	assert.Equal(t, "STMT_EXECUTE", span.SQLCommand)
+	assert.Equal(t, int(request.DBMySQL), span.SubType)
+
+	// A PREPARE coalesced behind a COM_STMT_CLOSE must still be cached.
+	_, ignore = readSpan(t, mysqlEvent(
+		append(mysqlStmtClosePacket(2), mysqlPreparePacket("SELECT * FROM users")...),
+		mysqlPrepareResponsePacket(7),
+	))
+	assert.True(t, ignore)
+
+	span, ignore = readSpan(t, mysqlEvent(mysqlExecutePacket(7), mysqlOKResponsePacket()))
+	assert.False(t, ignore)
+	assert.Equal(t, "SELECT", span.Method)
+	assert.Equal(t, "users", span.Path)
+
+	// A plain QUERY coalesced behind a COM_STMT_CLOSE must produce a span too.
+	span, ignore = readSpan(t, mysqlEvent(
+		append(mysqlStmtClosePacket(3), mysqlPacket(kMySQLQuery, []byte("SELECT * FROM products"))...),
+		mysqlOKResponsePacket(),
+	))
+	assert.False(t, ignore)
+	assert.Equal(t, "SELECT", span.Method)
+	assert.Equal(t, "products", span.Path)
+	assert.Equal(t, "QUERY", span.SQLCommand)
 }

@@ -32,6 +32,12 @@ const kMySQLPrepare = uint8(0x16)
 // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
 const kMySQLExecute = uint8(0x17)
 
+// https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_send_long_data.html
+const kMySQLStmtSendLongData = uint8(0x18)
+
+// https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_close.html
+const kMySQLStmtClose = uint8(0x19)
+
 func readMySQLHeader(b []byte) mySQLHdr {
 	hdr := mySQLHdr{}
 
@@ -64,6 +70,34 @@ func isMySQL(b *largebuf.LargeBuffer) bool {
 	return command == kMySQLQuery || command == kMySQLPrepare || command == kMySQLExecute
 }
 
+func mysqlNoResponseCommand(command uint8) bool {
+	return command == kMySQLStmtSendLongData || command == kMySQLStmtClose
+}
+
+// skipMySQLNoResponseCommands advances past leading commands without a server
+// response. The kernel keeps such requests pending and appends the next
+// command sent on the connection into the same event, so they can be coalesced
+// in front of the command the response buffer pairs with.
+func skipMySQLNoResponseCommands(reqRaw []byte) []byte {
+	for {
+		if len(reqRaw) < sqlprune.MySQLHdrSize+1 {
+			return reqRaw
+		}
+
+		hdr := readMySQLHeader(reqRaw)
+		if !mysqlNoResponseCommand(hdr.command) {
+			return reqRaw
+		}
+
+		packetLen := sqlprune.MySQLHdrSize + int(hdr.length)
+		if packetLen <= sqlprune.MySQLHdrSize || packetLen >= len(reqRaw) {
+			return reqRaw
+		}
+
+		reqRaw = reqRaw[packetLen:]
+	}
+}
+
 func mysqlPreparedStatements(b []byte) (string, string, string) {
 	execIdx := asciiIndexFold(b, sqlExecuteKeyword)
 	if execIdx < 0 {
@@ -88,16 +122,22 @@ func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 		span     request.Span
 	)
 
-	if requestBuffer.Len() < sqlprune.MySQLHdrSize+1 {
-		slog.Debug("MySQL request too short")
-		return span, errFallback
-	}
 	if responseBuffer.Len() < sqlprune.MySQLHdrSize+1 {
 		slog.Debug("MySQL response too short")
 		return span, errFallback
 	}
 	reqRaw := requestBuffer.UnsafeView()
 	respRaw := responseBuffer.UnsafeView()
+
+	// Commands without a server response (e.g. COM_STMT_CLOSE) stay pending in
+	// the kernel, which appends the next command sent on the connection into
+	// the same event. Skip them so the command paired with the response is the
+	// one parsed below.
+	reqRaw = skipMySQLNoResponseCommands(reqRaw)
+	if len(reqRaw) < sqlprune.MySQLHdrSize+1 {
+		slog.Debug("MySQL request too short")
+		return span, errFallback
+	}
 
 	sqlCommand := sqlprune.SQLParseCommandID(request.DBMySQL, reqRaw)
 	sqlError := sqlprune.SQLParseError(request.DBMySQL, respRaw)
