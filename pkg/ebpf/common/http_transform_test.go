@@ -45,6 +45,13 @@ func TestMethod(t *testing.T) {
 	assert.Equal(t, "GET", httpMethodFromBuf(event.Buf[:]))
 	event = BPFHTTPInfo{}
 	assert.Empty(t, httpMethodFromBuf(event.Buf[:]))
+
+	// Buffer may contain trailing null bytes after the request line; the method
+	// should not include them.
+	event = BPFHTTPInfo{
+		Buf: [bufSize]byte{'G', 'E', 'T', ' ', '/', 'p', 'a', 't', 'h', 0, 0, 0},
+	}
+	assert.Equal(t, "GET", httpMethodFromBuf(event.Buf[:]))
 }
 
 func TestHTTPRequestResponseToSpanSetsSchemeFromSSLFlag(t *testing.T) {
