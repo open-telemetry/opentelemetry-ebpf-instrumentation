@@ -39,7 +39,7 @@ func TestSNSAttributes(t *testing.T) {
 				sns.ErrorCode = "InvalidParameter"
 			}
 			span := &request.Span{Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeAWSSNS, Method: "POST", Path: "/", Status: 200, AWS: &request.AWS{SNS: sns}}
-			attrs := TraceAttributesSelector(span, nil)
+			attrs := TraceAttributesSelector(span, defaultTraceAttrs(t))
 			assert.Equal(t, "sns."+operation, span.TraceName())
 			assert.Equal(t, "messaging_system", span.ServiceGraphConnectionType())
 			// These spans describe the HTTP transport; they do not supply message creation context.
@@ -63,6 +63,9 @@ func TestSNSAttributes(t *testing.T) {
 				assert.Contains(t, attrs, request.ErrorType("InvalidParameter"))
 				assert.Equal(t, request.StatusCodeError, request.SpanStatusCode(span))
 				assert.Equal(t, sns.ErrorCode, request.SpanErrorType(span))
+
+				_, found := errorTypeValue(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+				assert.False(t, found)
 			} else {
 				assert.Equal(t, request.StatusCodeUnset, request.SpanStatusCode(span))
 			}
@@ -90,4 +93,19 @@ func TestSNSAttributes(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("unknown batch count", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAWSSNS,
+			AWS:     &request.AWS{SNS: request.AWSSNS{OperationName: "PublishBatch"}},
+		}
+		attrs := TraceAttributesSelector(span, defaultTraceAttrs(t))
+		_, found := attrValue(attrs, string(semconv.MessagingBatchMessageCountKey))
+		assert.False(t, found)
+
+		getter, ok := request.SpanOTELGetters(request.UnresolvedNames{})(attr.MessagingBatchCount)
+		require.True(t, ok)
+		assert.False(t, getter(span).Valid())
+	})
 }

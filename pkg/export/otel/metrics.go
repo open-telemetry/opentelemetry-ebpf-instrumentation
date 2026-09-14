@@ -1012,7 +1012,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 					grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 					grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				}
-			} else if span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && mr.msgPublishRecorded() {
+			} else if request.IsAWSMessagingClientOperation(span) && mr.msgPublishRecorded() {
 				if measured {
 					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
 					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))

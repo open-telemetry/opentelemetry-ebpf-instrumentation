@@ -83,6 +83,7 @@ through language-specific library instrumentation documented later in this file.
 | Opensearch | `3.0.0+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | Requires HTTP payload capture |
 | AWS S3 | All | `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBuckets`, `ListObjects`, `GetObject` | Yes | No | Requires HTTP payload capture |
 | AWS SQS | All | All | Yes | No | Requires HTTP payload capture |
+| AWS SNS | All | [Supported operations](devdocs/protocols/aws.md#supported-sns-operations) | Yes | No | Requires HTTP payload capture |
 | SQL++ | All | All | Yes | No | Requires HTTP payload capture |
 | GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), and MCP. Requires HTTP payload capture. |
 

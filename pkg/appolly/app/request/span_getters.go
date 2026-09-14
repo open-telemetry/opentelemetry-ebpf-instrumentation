@@ -425,7 +425,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.MessagingBatchCount:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil && s.AWS.SNS.OperationName == "PublishBatch" {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil &&
+				s.AWS.SNS.OperationName == "PublishBatch" && s.AWS.SNS.BatchCount > 0 {
 				return semconv.MessagingBatchMessageCount(s.AWS.SNS.BatchCount)
 			}
 			return attribute.KeyValue{}
