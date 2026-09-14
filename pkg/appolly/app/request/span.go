@@ -1043,18 +1043,23 @@ type JSONRPC struct {
 	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
-// jsonRPCReservedPrefix marks the method names JSON-RPC 2.0 reserves for
-// internal methods and extensions, such as OpenRPC's `rpc.discover`. The dot
-// there is part of the reserved namespace, not a service separator.
-const jsonRPCReservedPrefix = "rpc."
+// JSONRPCVersionV1 is the version Go's net/rpc/jsonrpc speaks, and the only
+// one the Go uprobes report. Payload extraction accepts 2.0 alone, so this
+// value identifies a method read out of net/rpc's `Service.Method` header.
+const JSONRPCVersionV1 = "1.0"
 
 // QualifiedMethod returns the method in the shape `rpc.method` is defined as:
 // the fully-qualified name from the RPC interface perspective, whose semconv
 // examples separate the service from the method with a slash
-// ('EchoService/Echo'). JSON-RPC names the service with a dot, so the last one
-// becomes the separator. A method that names no service is returned unchanged.
+// ('EchoService/Echo').
+//
+// Only net/rpc names a service, and it does so with a dot, so the last dot
+// becomes the separator there. JSON-RPC itself assigns the dot no meaning and
+// takes arbitrary method names, so a payload-extracted method is returned as
+// it came off the wire: splitting 'inventory.lookup.v2' would claim a service
+// boundary nothing observed.
 func (j *JSONRPC) QualifiedMethod() string {
-	if strings.HasPrefix(j.Method, jsonRPCReservedPrefix) {
+	if j.Version != JSONRPCVersionV1 {
 		return j.Method
 	}
 

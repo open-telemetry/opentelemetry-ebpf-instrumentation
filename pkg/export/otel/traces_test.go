@@ -2107,7 +2107,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
 	})
-	t.Run("test JSON-RPC span qualifies a dotted method", func(t *testing.T) {
+	t.Run("test Go net/rpc span qualifies a dotted method", func(t *testing.T) {
 		span := request.Span{
 			Type:    request.EventTypeHTTP,
 			Method:  "POST",
@@ -2117,7 +2117,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			SubType: request.HTTPSubtypeJSONRPC,
 			JSONRPC: &request.JSONRPC{
 				Method:    "Arith.Traceme",
-				Version:   "2.0",
+				Version:   request.JSONRPCVersionV1,
 				RequestID: "1",
 			},
 		}
@@ -2129,6 +2129,34 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		assert.Equal(t, "Arith/Traceme", topSpan.Name())
 		ensureTraceStrAttr(t, topSpan.Attributes(), "rpc.method", "Arith/Traceme")
+		// Qualification changed the value, so the wire name has to stay
+		// recoverable alongside it.
+		ensureTraceStrAttr(t, topSpan.Attributes(), "rpc.method_original", "Arith.Traceme")
+	})
+	t.Run("test JSON-RPC span leaves a dotted payload method whole", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/jsonrpc",
+			Route:   "/jsonrpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:    "inventory.lookup.v2",
+				Version:   "2.0",
+				RequestID: "1",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+
+		assert.Equal(t, "inventory.lookup.v2", topSpan.Name())
+		ensureTraceStrAttr(t, topSpan.Attributes(), "rpc.method", "inventory.lookup.v2")
+		// Nothing was rewritten, so there is no original to record.
+		ensureTraceAttrNotExists(t, topSpan.Attributes(), semconv.RPCMethodOriginalKey)
 	})
 	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
 		span := request.Span{
