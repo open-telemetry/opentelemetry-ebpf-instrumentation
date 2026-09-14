@@ -39,6 +39,14 @@ type railsRouteScanner struct {
 	resourceActions []string
 }
 
+func newRailsRouteScanner() railsRouteScanner {
+	return railsRouteScanner{resourceActions: railsDefaultResourceActions[:]}
+}
+
+func newRailsAPIRouteScanner() railsRouteScanner {
+	return railsRouteScanner{resourceActions: railsAPIOnlyResourceActions[:]}
+}
+
 // ExtractRubyRoutes reads Rails route declarations without executing application
 // code. Fragments preserve useful paths even when Ruby's dynamic DSL prevents
 // resolving the surrounding scope statically.
@@ -86,9 +94,9 @@ func scanRailsRouteFiles(ctx context.Context, root, mainPath string) ([]string, 
 	if err != nil {
 		return nil, err
 	}
-	scanner := railsRouteScanner{resourceActions: railsDefaultResourceActions[:]}
+	scanner := newRailsRouteScanner()
 	if apiOnly {
-		scanner.resourceActions = railsAPIOnlyResourceActions[:]
+		scanner = newRailsAPIRouteScanner()
 	}
 	routesDir := filepath.Join(filepath.Dir(mainPath), "routes")
 	pending := []string{mainPath}
@@ -183,7 +191,7 @@ func (s railsRouteScanner) readRouteFile(ctx context.Context, path string) ([]st
 }
 
 func scanRailsRoutes(ctx context.Context, reader io.Reader) ([]string, []string, error) {
-	scanner := railsRouteScanner{resourceActions: railsDefaultResourceActions[:]}
+	scanner := newRailsRouteScanner()
 	return scanner.scanRoutes(ctx, reader)
 }
 
