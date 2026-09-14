@@ -241,13 +241,11 @@ func recordJVMRuntimeFloatCounter(
 func jvmMemoryOTELAttributes() []attributes.Field[runtimemetrics.RuntimeMetricSnapshot, attribute.KeyValue] {
 	return []attributes.Field[runtimemetrics.RuntimeMetricSnapshot, attribute.KeyValue]{
 		{
-			ExposedName: string(attr.JVMMemoryType.OTEL()),
 			Get: func(snapshot runtimemetrics.RuntimeMetricSnapshot) attribute.KeyValue {
 				return attr.JVMMemoryType.OTEL().String(string(snapshot.JVM.MemoryType))
 			},
 		},
 		{
-			ExposedName: string(attr.JVMMemoryPoolName.OTEL()),
 			Get: func(snapshot runtimemetrics.RuntimeMetricSnapshot) attribute.KeyValue {
 				return attr.JVMMemoryPoolName.OTEL().String(snapshot.JVM.PoolName)
 			},
@@ -258,7 +256,6 @@ func jvmMemoryOTELAttributes() []attributes.Field[runtimemetrics.RuntimeMetricSn
 func jvmThreadOTELAttributes(daemon bool) []attributes.Field[runtimemetrics.RuntimeMetricSnapshot, attribute.KeyValue] {
 	return []attributes.Field[runtimemetrics.RuntimeMetricSnapshot, attribute.KeyValue]{
 		{
-			ExposedName: string(attr.JVMThreadDaemon.OTEL()),
 			Get: func(runtimemetrics.RuntimeMetricSnapshot) attribute.KeyValue {
 				return attr.JVMThreadDaemon.OTEL().Bool(daemon)
 			},

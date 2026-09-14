@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -792,30 +794,135 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 	assert.Empty(t, expected)
 }
 
+// Span metrics are the highest-cardinality family OBI emits, so the base attribute set that
+// spanMetricAttributes builds is pinned here: one added multiplies every series, one removed
+// silently breaks consumers grouping by it. (A user can still append to it through
+// ExtraSpanResourceLabels, which TestSpanMetrics_ExtraResourceAttributes covers; this test
+// constructs the reporter with an empty config so it sees the base set alone.)
+//
+// host.id is deliberately not among them, and the resource assertion below is the other half of
+// that: dropping it from the data points is only correct while the resource still carries it.
+func TestSpanMetrics_EmittedAttributes(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		features         export.Features
+		wantDurationUnit string
+	}{
+		{name: "otel naming", features: export.FeatureSpanOTel, wantDurationUnit: "s"},
+		{name: "legacy naming", features: export.FeatureSpanLegacy, wantDurationUnit: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer otelcfg.RestoreEnvAfterExecution()()
+
+			ctx := t.Context()
+			metricRecords := make(chan collector.MetricRecord, 100)
+
+			now := syncedClock{now: time.Now()}
+			timeNow = now.Now
+
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			mcfg := &otelcfg.MetricsConfig{
+				Interval:          50 * time.Millisecond,
+				MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+				TTL:               30 * time.Minute,
+				ReportersCacheLen: 100,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+				MetricsConsumer:   testMetricsConsumer(metricRecords),
+			}
+
+			reporter, err := newMetricsReporter(
+				ctx,
+				&global.ContextInfo{
+					OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+					NodeMeta:            meta.NodeMeta{HostID: "the-host"},
+				},
+				mcfg,
+				&perapp.GlobalMetricsConfig{Features: tc.features},
+				&attributes.SelectorConfig{},
+				request.UnresolvedNames{},
+				metrics,
+				processEvents,
+			)
+			require.NoError(t, err)
+
+			go reporter.reportMetrics(ctx)
+
+			metrics.Send([]request.Span{{
+				Service: svc.Attrs{
+					Features: tc.features,
+					UID:      svc.UID{Name: "the-service", Namespace: "the-namespace", Instance: "the-instance"},
+				},
+				Type:         request.EventTypeHTTPClient,
+				Method:       "GET",
+				Route:        "/v1/traces",
+				RequestStart: 100,
+				End:          200,
+			}})
+
+			res := readMetricsByName(t, metricRecords, timeout,
+				reporter.spanMetricsLatencyName(),
+				reporter.spanMetricsCallsName(),
+			)
+			require.Len(t, res, 2)
+
+			wantAttrs := []string{
+				string(attr.ServiceName.OTEL()),
+				string(attr.ServiceInstanceID.OTEL()),
+				string(attr.ServiceNamespace.OTEL()),
+				string(attr.SpanKind.OTEL()),
+				string(attr.SpanName.OTEL()),
+				string(attr.StatusCode.OTEL()),
+				string(attr.Source.OTEL()),
+				string(attr.TelemetrySDKLanguage.OTEL()),
+			}
+
+			wantUnits := map[string]string{
+				reporter.spanMetricsLatencyName(): tc.wantDurationUnit,
+				reporter.spanMetricsCallsName():   "",
+			}
+
+			for _, record := range res {
+				got := slices.Collect(maps.Keys(record.Attributes))
+				assert.ElementsMatchf(t, wantAttrs, got, "unexpected attribute set on %q", record.Name)
+				assert.NotContainsf(t, record.Attributes, string(attr.HostID.OTEL()),
+					"%q must not carry the host id per data point", record.Name)
+				assert.Equalf(t, "the-host", record.ResourceAttributes[string(attr.HostID.OTEL())],
+					"%q must still carry the host id on its resource", record.Name)
+				assert.Equalf(t, wantUnits[record.Name], record.Unit, "unexpected unit on %q", record.Name)
+			}
+		})
+	}
+}
+
 func TestSpanMetricsNames(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		features        export.Features
 		expectedLatency string
 		expectedCalls   string
+		expectedUnit    string
 	}{
 		{
 			name:            "otel naming",
 			features:        export.FeatureSpanOTel,
 			expectedLatency: "traces.span.metrics.duration",
 			expectedCalls:   "traces.span.metrics.calls",
+			expectedUnit:    "s",
 		},
 		{
 			name:            "legacy naming",
 			features:        export.FeatureSpanLegacy,
 			expectedLatency: "traces_spanmetrics_latency",
 			expectedCalls:   "traces_spanmetrics_calls_total",
+			expectedUnit:    "",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := &MetricsReporter{jointMetricsCfg: &perapp.GlobalMetricsConfig{Features: tc.features}}
 			assert.Equal(t, tc.expectedLatency, mr.spanMetricsLatencyName())
 			assert.Equal(t, tc.expectedCalls, mr.spanMetricsCallsName())
+			assert.Equal(t, tc.expectedUnit, mr.spanMetricsDuration().Unit)
 		})
 	}
 }

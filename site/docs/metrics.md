@@ -36,8 +36,8 @@ Measures the time taken to perform a DNS lookup. OBI variant of the upstream met
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `dns.question.name` | string | development | The name being queried. | www.example.com; dot.net |
-| `error.type` | enum | stable | Describes the error the DNS lookup failed with. | host_not_found; no_recovery; java.net.UnknownHostException |
+| `dns.question.name` | string | development | The name being queried. | www.example.com; opentelemetry.io |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `gpu.cuda.graph.launch.calls`
 
@@ -198,7 +198,7 @@ Total number of instrumentation errors, by process name and error type.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes the error the DNS lookup failed with. | host_not_found; no_recovery; java.net.UnknownHostException |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `process.executable.name` | string | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
 
 ## `obi.instrumented.processes`
@@ -367,7 +367,7 @@ Error count on each failed OTEL metric export.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes the error the DNS lookup failed with. | host_not_found; no_recovery; java.net.UnknownHostException |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `obi.otel.metric.exports`
 
@@ -389,7 +389,7 @@ Error count on each failed OTEL trace export.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `error.type` | enum | stable | Describes the error the DNS lookup failed with. | host_not_found; no_recovery; java.net.UnknownHostException |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `obi.otel.trace.exports`
 
@@ -506,6 +506,7 @@ Smoothed round-trip time observed per TCP connection.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
+| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `instance` | string | development | Scrape target instance label, originating from the Prometheus / OpenMetrics convention. Carried on `target_info` and on every series exported via OBI's Prometheus exporter. | host.local:9090 |
 | `job` | string | development | Scrape target job label, originating from the Prometheus / OpenMetrics convention. Carried on `target_info` and on every series exported via OBI's Prometheus exporter. | my-service |
 
@@ -531,7 +532,6 @@ Total number of spans observed, grouped by span name / kind / status.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -551,7 +551,6 @@ Duration distribution for observed spans, grouped by span name / kind / status.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -563,7 +562,7 @@ Duration distribution for observed spans, grouped by span name / kind / status.
 
 ## `traces.target.info`
 
-OBI counterpart of `target.info` for the traces pipeline. Carries the resource attribute set of every traced service so dashboards can join trace metrics back to service identity.
+OBI counterpart of `target.info` for the traces pipeline. Carries the resource attribute set of every traced service so dashboards can join trace metrics back to service identity, including the host id that the span metrics themselves do not carry.
 
 | Instrument | Unit | Stability |
 | --- | --- | --- |
@@ -571,6 +570,7 @@ OBI counterpart of `target.info` for the traces pipeline. Carries the resource a
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
+| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
 ## `traces_service_graph_request_client`
@@ -669,7 +669,6 @@ Total number of spans observed, grouped by span name / kind / status (legacy nam
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -691,7 +690,6 @@ Duration distribution for observed spans, grouped by span name / kind / status (
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -713,7 +711,6 @@ Total response size observed for spans, grouped by span name / kind / status (le
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -735,7 +732,6 @@ Total request size observed for spans, grouped by span name / kind / status (leg
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |

@@ -10,8 +10,8 @@ groups:
       except the `traces_spanmetrics_*_size_total` counters, which are gated
       separately on the deprecated `application_span_sizes` feature.
 
-      `service.name`, `service.namespace`, `service.instance.id`, `host.id`
-      and `telemetry.sdk.language` are referenced from upstream OpenTelemetry
+      `service.name`, `service.namespace`, `service.instance.id` and
+      `telemetry.sdk.language` are referenced from upstream OpenTelemetry
       semantic conventions rather than redeclared here, and appear on the
       metric groups below because `spanMetricAttributes` puts them on the data
       point rather than on the resource. The OBI-specific `source` attribute is
@@ -89,7 +89,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   - id: metric.traces.span.metrics.duration
     type: metric
@@ -109,7 +108,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   # Legacy Grafana-style names for the same two metrics, matching the older
   # spanmetrics processor output. Emitted by the deprecated `application_span`
@@ -136,7 +134,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   - id: metric.traces_spanmetrics_latency
     type: metric
@@ -159,7 +156,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   - id: metric.traces_spanmetrics_size_total
     type: metric
@@ -185,7 +181,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   - id: metric.traces_spanmetrics_response_size_total
     type: metric
@@ -211,4 +206,3 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
