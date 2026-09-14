@@ -45,6 +45,98 @@ func TestExtractPythonRoutes(t *testing.T) {
 	assert.Equal(t, []string{"/api", "/items/{item_id}", "/users/<int:user_id>"}, result.Routes)
 }
 
+func TestExtractPythonDjangoRoutes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "checkout"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "orders"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
+from django.urls import include, path
+
+urlpatterns = [
+    path("users/<int:user_id>/", user_detail),
+    path("shop/", include("checkout.urls")),
+]
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "checkout", "urls.py"), []byte(`
+from django.urls import include, path
+
+urlpatterns = [
+    path("orders/", include("orders.urls")),
+]
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "orders", "urls.py"), []byte(`
+from django.urls import path
+
+urlpatterns = [
+    path("<int:order_id>/", order_detail),
+]
+`), 0o644))
+
+	result, err := extractPythonRoutes(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"/shop/orders/<int:order_id>/",
+		"/users/<int:user_id>/",
+	}, result.Routes)
+}
+
+func TestExtractPythonDjangoLiteralPrefixes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "checkout"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
+from django.urls import include, path
+
+urlpatterns = [
+    path(".", dot_view),
+    path("", include("checkout.urls")),
+    path("v1.", include("checkout.urls")),
+]
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "checkout", "urls.py"), []byte(`
+from django.urls import path
+
+urlpatterns = [path("orders/", orders)]
+`), 0o644))
+
+	result, err := extractPythonRoutes(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/.", "/orders/", "/v1.orders/"}, result.Routes)
+}
+
+func TestExtractPythonDjangoAdminRoutes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
+from django.contrib import admin
+from django.urls import path
+
+urlpatterns = [
+    path("backoffice/", admin.site.urls),
+]
+`), 0o644))
+
+	result, err := extractPythonRoutes(dir)
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Routes, "/backoffice/login/")
+	assert.NotContains(t, result.Routes, "/admin/login/")
+
+	matcher := RouteMatcherFromResult(*result)
+	for _, tc := range []struct {
+		path  string
+		route string
+	}{
+		{path: "/backoffice/login/", route: "/backoffice/login/"},
+		{path: "/backoffice/r/7/42/", route: "/backoffice/r/<path:content_type_id>/<path:object_id>/"},
+		{path: "/backoffice/auth/user/add/", route: "/backoffice/<app_label>/<model_name>/add/"},
+		{path: "/backoffice/auth/user/42/change/", route: "/backoffice/<app_label>/<model_name>/<path:object_id>/change/"},
+		{path: "/backoffice/catalog/item/a/b/change/", route: "/backoffice/<app_label>/<model_name>/<path:object_id>/change/"},
+	} {
+		assert.Equal(t, tc.route, matcher.Find(tc.path), tc.path)
+	}
+}
+
 func TestExtractPythonRoutesSkipsLargeFiles(t *testing.T) {
 	dir := t.TempDir()
 	data := strings.Repeat("# filler\n", int(maxPythonFileBytes/9)+1) + `@app.get("/large")`

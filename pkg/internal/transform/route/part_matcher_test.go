@@ -448,8 +448,11 @@ func TestPartialMatcherPythonPathParams(t *testing.T) {
 	assert.Equal(t, "/api/files/<path:name>", m.Find("/api/files/a/b/c.txt"))
 }
 
-func TestMatcherSkipsNonTerminalPathParam(t *testing.T) {
-	m := NewMatcher([]string{"/files/{name:path}/metadata"})
+func TestMatcherNonTerminalPathParam(t *testing.T) {
+	routes := []string{"/files/{name:path}/metadata"}
+	complete := NewMatcher(routes)
+	partial := NewPartialRouteMatcher(routes)
 
-	assert.Empty(t, m.Find("/files/a/b/metadata"))
+	assert.Equal(t, routes[0], complete.Find("/files/a/b/metadata"))
+	assert.Empty(t, partial.Find("/files/a/b/metadata"))
 }

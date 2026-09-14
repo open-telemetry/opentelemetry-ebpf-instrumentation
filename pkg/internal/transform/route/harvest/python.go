@@ -53,9 +53,17 @@ func ExtractPythonRoutes(fi *exec.FileInfo) (*RouteHarvesterResult, error) {
 func extractPythonRoutes(dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
 	routes := map[string]struct{}{}
+	djangoFiles := map[string][]djangoRoute{}
+	kind := PartialRoutes
 	err := walkPythonFiles(dir, func(path string) error {
-		if err := scanPythonFile(path, routes); err != nil {
+		declarations, err := scanPythonFile(path, routes)
+		if err != nil {
 			log.Debug("error processing file", "file", path, "error", err)
+			return nil
+		}
+		djangoFiles[path] = declarations
+		if len(declarations) > 0 {
+			kind = CompleteRoutes
 		}
 		return nil
 	})
@@ -63,12 +71,14 @@ func extractPythonRoutes(dir string) (*RouteHarvesterResult, error) {
 		return nil, fmt.Errorf("scan Python directory: %w", err)
 	}
 
+	resolveDjangoRoutes(dir, djangoFiles, routes)
+
 	result := make([]string, 0, len(routes))
 	for route := range routes {
 		result = append(result, route)
 	}
 	sort.Strings(result)
-	return &RouteHarvesterResult{Routes: result, Kind: PartialRoutes}, nil
+	return &RouteHarvesterResult{Routes: result, Kind: kind}, nil
 }
 
 func walkPythonFiles(root string, fn func(string) error) error {
@@ -124,12 +134,31 @@ func skipPythonDir(name string) bool {
 	return ok
 }
 
-func scanPythonFile(path string, routes map[string]struct{}) error {
+func scanPythonFile(path string, routes map[string]struct{}) ([]djangoRoute, error) {
 	file, _ := langtools.OpenMetadataFile(path, maxPythonFileBytes)
 	if file == nil {
-		return nil
+		return nil, nil
 	}
 	defer file.Close()
+
+	var djangoRoutes []djangoRoute
+	djangoAliases := map[string]string{}
+	hasDjangoPath := false
+	scanStmt := func(text string) {
+		scanPythonStmt(text, routes)
+		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
+			djangoAliases[match[3]] = match[1] + "." + match[2]
+		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
+			djangoAliases[match[2]] = match[1]
+		}
+		// Remember the Django path import so subsequent statements can be scanned as Django routes.
+		if djangoPathImportPattern.MatchString(text) {
+			hasDjangoPath = true
+		}
+		if hasDjangoPath {
+			djangoRoutes = append(djangoRoutes, scanDjango(text, djangoAliases)...)
+		}
+	}
 
 	scan := bufio.NewScanner(file)
 	var stmt strings.Builder
@@ -142,8 +171,11 @@ func scanPythonFile(path string, routes map[string]struct{}) error {
 
 		if stmt.Len() == 0 {
 			depth = parenDelta(line)
-			if (!startsFastAPI(line) && !startsFlask(line)) || depth <= 0 {
-				scanPythonStmt(line, routes)
+			startsStmt := startsFastAPI(line) || startsFlask(line) ||
+				djangoImportStart.MatchString(line) ||
+				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line))
+			if !startsStmt || depth <= 0 {
+				scanStmt(line)
 				continue
 			}
 			stmt.WriteString(line)
@@ -154,12 +186,12 @@ func scanPythonFile(path string, routes map[string]struct{}) error {
 		stmt.WriteString(line)
 		depth += parenDelta(line)
 		if depth <= 0 {
-			scanPythonStmt(stmt.String(), routes)
+			scanStmt(stmt.String())
 			stmt.Reset()
 			depth = 0
 		}
 	}
-	return scan.Err()
+	return djangoRoutes, scan.Err()
 }
 
 func scanPythonStmt(stmt string, routes map[string]struct{}) {
