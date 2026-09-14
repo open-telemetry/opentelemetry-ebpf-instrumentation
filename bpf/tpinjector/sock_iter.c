@@ -12,6 +12,7 @@
 #include <logger/bpf_dbg.h>
 
 #include <maps/sock_dir.h>
+#include <maps/socket_cookie.h>
 #include <maps/tracked_sock_cookies.h>
 
 #include <tpinjector/maps/iter_listening_ports.h>
@@ -133,6 +134,8 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
     }
 
     const u64 cookie = bpf_get_socket_cookie(skc);
+    bpf_sk_storage_get(
+        &socket_cookie, (struct bpf_sock *)skc, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
 
     char src_buf[k_addr_buf_len] = {};
     char dst_buf[k_addr_buf_len] = {};

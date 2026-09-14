@@ -1587,6 +1587,8 @@ var goH2OwnershipProbeSymbols = []string{
 	"net/http.(*http2ClientConn).writeHeader",
 	"net/http/internal/http2.(*clientStream).encodeAndWriteHeaders",
 	"net/http/internal/http2.(*ClientConn).writeHeader",
+	"google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler",
+	"golang.org/x/net/http2/hpack.(*Encoder).WriteField",
 }
 
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
@@ -2244,6 +2246,29 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 					Symbol: goH2OwnershipProbeSymbols[5],
 					Probe: &ebpfcommon.ProbeDesc{
 						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
+				},
+			},
+		},
+		{
+			Name: "go_grpc_current_ownership",
+			RequiresAll: []string{
+				"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
+				"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut",
+				"golang.org/x/net/http2.(*Framer).WriteHeaders",
+			},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[6],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandler,
+						End:   p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandlerReturns,
+					},
+				},
+				{
+					Symbol: goH2OwnershipProbeSymbols[7],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeGrpcHpackEncoderWriteField,
 					},
 				},
 			},

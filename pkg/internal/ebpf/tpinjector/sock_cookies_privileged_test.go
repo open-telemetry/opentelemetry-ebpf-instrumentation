@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 )
 
@@ -116,6 +117,23 @@ func socketCookie(t *testing.T, conn *net.TCPConn) uint64 {
 	return cookie
 }
 
+func storedSocketCookie(t *testing.T, objs *BpfObjects, conn *net.TCPConn) uint64 {
+	raw, err := conn.SyscallConn()
+	require.NoError(t, err)
+
+	var (
+		cookie    uint64
+		lookupErr error
+	)
+	require.NoError(t, raw.Control(func(fd uintptr) {
+		key := uint32(fd)
+		lookupErr = objs.SocketCookie.Lookup(&key, &cookie)
+	}))
+	require.NoError(t, lookupErr)
+
+	return cookie
+}
+
 func cookieTracked(objs *BpfObjects, cookie uint64) bool {
 	var val uint8
 	return objs.TrackedSockCookies.Lookup(&cookie, &val) == nil
@@ -170,6 +188,45 @@ func TestTrackedSockCookiesDeleteOnClose(t *testing.T) {
 	require.NoError(t, client.Close())
 
 	waitFor(t, "cookie deletion after close", func() bool { return !cookieTracked(objs, cookie) })
+}
+
+func TestSocketCookieStorageMatchesSocketIdentity(t *testing.T) {
+	objs := setupSockopsHarness(t)
+
+	lsn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lsn.Close()
+
+	client, err := net.Dial("tcp", lsn.Addr().String())
+	require.NoError(t, err)
+	defer client.Close()
+	server, err := lsn.Accept()
+	require.NoError(t, err)
+	defer server.Close()
+
+	tcpClient := client.(*net.TCPConn)
+	require.Equal(t, socketCookie(t, tcpClient), storedSocketCookie(t, objs, tcpClient))
+}
+
+func TestSocketCookieIteratorLoads(t *testing.T) {
+	major, minor := ebpfcommon.KernelVersion()
+	if major < 5 || (major == 5 && minor < 11) {
+		t.Skip("TCP iterator programs are not loaded below kernel 5.11")
+	}
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	spec, err := LoadBpfIter()
+	require.NoError(t, err)
+	for _, m := range spec.Maps {
+		if m.Pinning == ebpfconvenience.PinInternal {
+			m.Pinning = ebpf.PinNone
+		}
+	}
+
+	objects := &BpfIterObjects{}
+	require.NoError(t, spec.LoadAndAssign(objects, nil))
+	require.NoError(t, objects.Close())
 }
 
 // connection churn must not evict the cookie of a live socket: that is the
