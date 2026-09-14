@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -30,6 +31,9 @@ const (
 	testPIDFlagFlip     uint32 = 55
 	testPIDDisabledGate uint32 = 42
 	testPIDUntracked    uint32 = 99
+	// above the default pid_max, so /proc lookups in AllowPID find nothing
+	testPIDUnselected uint32 = 4200001
+	testPIDSelected   uint32 = 4200002
 )
 
 func applyTestTraceContext(m map[string]any, includeSpan bool) {
@@ -48,7 +52,26 @@ func newTestTracer(t *testing.T, exclude bool) *Tracer {
 		pids:        map[uint64][]uint64{},
 		pidServices: map[uint32]*exec.FileInfo{},
 		pidsMU:      sync.Mutex{},
+		trackedPids: map[uint32]struct{}{},
+		logPipes:    map[pipeKey]map[uint32][]int{},
+		pidPipes:    map[uint32]map[int]pipeKey{},
 	}
+}
+
+func TestAllowPIDFollowsLogEnricherSelection(t *testing.T) {
+	tr := newTestTracer(t, false)
+
+	unselected := exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "unselected"}}})
+	tr.AllowPID(app.PID(testPIDUnselected), 1, unselected)
+
+	assert.NotContains(t, tr.trackedPids, testPIDUnselected)
+	assert.NotContains(t, tr.pidServices, testPIDUnselected)
+
+	selected := exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "selected"}, LogEnricherEnabled: true}})
+	tr.AllowPID(app.PID(testPIDSelected), 1, selected)
+
+	assert.Contains(t, tr.trackedPids, testPIDSelected)
+	assert.Same(t, selected, tr.pidServices[testPIDSelected])
 }
 
 func TestBlockPIDClearsNamespacedPIDCache(t *testing.T) {

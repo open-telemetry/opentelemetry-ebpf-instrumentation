@@ -124,6 +124,9 @@ const (
 	logEnricherNDJSONSecondMessage    = "ndjson second record"
 )
 
+// obiContainerImage is the image of the OBI container in the log enricher compose
+const obiContainerImage = "hatest-obi"
+
 // logEnricherTestTraceparents are fixed W3C traceparents used by log enricher tests.
 // Fixed IDs allow exact equality assertions on trace_id and ordering assertions
 // on the enriched container logs.
@@ -1000,6 +1003,44 @@ func testLogEnricher(t *testing.T, constants testServerConstants) {
 		assert.Contains(ct, logFields, "trace_id")
 		assert.Contains(ct, logFields, "span_id")
 	}, 2*testTimeout, time.Second)
+}
+
+// testLogEnricherUnselectedService checks that a process OBI instruments, but the log
+// enricher selection does not match, keeps its logs untouched
+func testLogEnricherUnselectedService(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	// an untouched line only proves anything once OBI has attached to the target
+	var instrumenting string
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		obiID := testContainerID(ct, cl, obiContainerImage)
+		if !assert.NotEmpty(ct, obiID, "could not find OBI container ID") {
+			return
+		}
+		instrumenting = findLogLine(containerLogs(ct, cl, obiID), `msg="instrumenting process"`)
+		assert.NotEmpty(ct, instrumenting, "OBI has not instrumented the target yet")
+	}, testTimeout, time.Second)
+	require.Contains(t, instrumenting, "logenricher=false")
+
+	containerID := testContainerID(t, cl, constants.containerImage)
+	require.NotEmpty(t, containerID, "could not find test container ID")
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, constants.url+constants.logEndpoint, 200)
+		assert.NotEmpty(ct, findLogLine(containerLogs(ct, cl, containerID), constants.message), "no log line found yet")
+	}, testTimeout, time.Second)
+
+	for _, line := range containerLogs(t, cl, containerID) {
+		if !strings.Contains(line, constants.message) {
+			continue
+		}
+		assert.NotContains(t, line, "trace_id", "log line of an unselected service was enriched")
+		assert.NotContains(t, line, "span_id", "log line of an unselected service was enriched")
+	}
 }
 
 func testLogEnricherPlainText(t *testing.T, constants testServerConstants) {

@@ -1267,7 +1267,14 @@
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable trace-context annotation on log streams for selected workloads.\nIf omitted, false is used.\n"
+          "description": "Enable trace-context annotation on log streams for the workloads selected by `match`.\nIf omitted, false is used.\n"
+        },
+        "match": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SelectionRuleMatch"
+          },
+          "description": "Workloads whose logs are annotated, as capture-rule match clauses with glob predicates.\nAnnotation only reaches workloads that the capture rules also select.\nRequired and non-empty when `enabled` is true.\n"
         },
         "filter": {
           "$ref": "#/$defs/FilterMap",

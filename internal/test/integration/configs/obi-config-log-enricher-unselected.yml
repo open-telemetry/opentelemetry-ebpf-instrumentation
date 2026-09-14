@@ -1,3 +1,5 @@
+# Variant of obi-config-log-enricher.yml whose log enricher selection matches none of
+# the instrumented processes: no test server listens on port 1.
 routes:
   patterns:
     - /basic/:rnd
@@ -14,13 +16,9 @@ attributes:
       include: ["*"]
 ebpf:
   log_enricher:
-    # The log enricher selects the suite's target with the same variables as the
-    # instrumentation selection (OTEL_EBPF_OPEN_PORT, OTEL_EBPF_EXECUTABLE_PATH),
-    # so the two selections cannot drift. The defaults match nothing.
     services:
       - service:
-        - open_ports: "${OTEL_EBPF_OPEN_PORT:-0}"
-        - exe_path: "*${OTEL_EBPF_EXECUTABLE_PATH:-@none@}*"
+        - open_ports: "1"
 discovery:
   min_process_age: "0s"
 log_config: "yaml"

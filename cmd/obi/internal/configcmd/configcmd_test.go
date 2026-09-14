@@ -821,6 +821,50 @@ otel_traces_export:
 `, stderr.String())
 }
 
+// The log enricher's service selection migrates to log_trace_annotation.match
+func TestMigrateConfigLogEnricherServices(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+otel_traces_export:
+  endpoint: http://collector:4317
+ebpf:
+  log_enricher:
+    services:
+      - service:
+          - exe_path: "/srv/frontend"
+          - exe_path: "/srv/backend"
+            containers_only: true
+`))
+	require.NoError(t, err)
+	_, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+
+	annotation := ext.Correlation.LogTraceAnnotation
+	require.True(t, annotation.Enabled)
+	require.Len(t, annotation.Match, 2)
+	require.Equal(t, []string{"/srv/frontend"}, annotation.Match[0].Process.ExePathGlob)
+	require.Equal(t, []string{"/srv/backend"}, annotation.Match[1].Process.ExePathGlob)
+	require.True(t, annotation.Match[1].Process.ContainersOnly)
+
+	// a selector identity has no match clause form, so the selection would change
+	_, _, err = migrateConfig([]byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+otel_traces_export:
+  endpoint: http://collector:4317
+ebpf:
+  log_enricher:
+    services:
+      - service:
+          - name: frontend
+            exe_path: "/srv/frontend"
+`))
+	require.ErrorContains(t, err, "ebpf.log_enricher.services")
+}
+
 func TestMigrateConfigPreservesEscapedEnvironmentVariable(t *testing.T) {
 	t.Setenv("MIGRATION_LITERAL", "expanded")
 	contents := strings.Replace(

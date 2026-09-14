@@ -433,6 +433,8 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, schema.Duration(47*time.Second), value(t, ext.Enrich, "attributes", "metadata_retry", "max_interval"))
 
 	require.Equal(t, true, value(t, ext.Correlation, "log_trace_annotation", "enabled"))
+	require.Len(t, ext.Correlation.LogTraceAnnotation.Match, 1)
+	require.Equal(t, []string{"/srv/*"}, ext.Correlation.LogTraceAnnotation.Match[0].Process.ExePathGlob)
 	require.Equal(t, schema.Duration(903*time.Second), value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
 	require.Equal(t, 904, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 905, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
