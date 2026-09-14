@@ -103,3 +103,16 @@ func TestFindDotnetParameters(t *testing.T) {
 	assert.Equal(t, "/{controller=Home}", m.Find("/Products"))
 	assert.Equal(t, "/files/{**path}", m.Find("/files/a/b/c"))
 }
+
+func TestFindSymfonyInlineConstraint(t *testing.T) {
+	m := NewMatcher([]string{
+		"/orders/{id<\\d+>}",
+		// A regex quantifier, e.g. {4}, must not be mistaken for the outer
+		// "{...}" placeholder delimiters and reject the whole segment.
+		"/years/{year<\\d{4}>}",
+	})
+
+	assert.Equal(t, "/orders/{id<\\d+>}", m.Find("/orders/42"))
+	assert.Equal(t, "/years/{year<\\d{4}>}", m.Find("/years/2026"))
+	assert.Empty(t, m.Find("/orders/42/history"))
+}

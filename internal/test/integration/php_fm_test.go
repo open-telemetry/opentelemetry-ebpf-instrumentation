@@ -121,6 +121,8 @@ func TestPHPFM(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("PHP-FM RED metrics", testREDMetricsPHPFPM)
+	t.Run("PHP Symfony", testPHPSymfony)
+	t.Run("PHP harvested routes", testPHPHarvestedRoutes)
 
 	runWeaverValidation(t)
 
