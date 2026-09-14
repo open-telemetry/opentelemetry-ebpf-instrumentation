@@ -1,4 +1,4 @@
-ARG TAG=0.2.15@sha256:9cbb1b567377d5779b04e6bcdb87431c77a19e797b4630eba30f5417de96ea33
+ARG TAG=0.2.16@sha256:3a8959e5253f2445b782b4f720ed54f6396fce350082486442e0b71ac02ff106
 
 # Build JNI native library using Go image (has gcc, no apt install needed)
 FROM golang:1.27.1@sha256:512690a5660563b57d37ecc31129e7f136e831db2aed24a1dbeb8ad7380dc0fa AS jni-builder
