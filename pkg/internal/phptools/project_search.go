@@ -48,7 +48,7 @@ func findProject(root, cwd string, args []string, isFPM bool) projectMetadata {
 	}
 
 	if isFPM && processRootDiffersFromHost(root) {
-		if project, found := scanProcessRoot(root, boundary); found {
+		if project, found := processRootScanCache.scan(root, boundary, scanProcessRoot); found {
 			return project
 		}
 	}
