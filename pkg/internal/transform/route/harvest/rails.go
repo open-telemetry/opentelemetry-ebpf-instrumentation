@@ -283,22 +283,27 @@ func (s railsRouteScanner) scanRoutes(ctx context.Context, reader io.Reader) ([]
 
 // REST actions can share a path. Singular resources have no collection index or ID segment.
 func (s railsRouteScanner) resourceRoutes(kind, path, param, args string) []string {
-	actions := slices.Clone(s.resourceActions)
+	var selectedActions []string
+	var selectionKind string
 	if option := railsActionsOption.FindStringSubmatch(args); option != nil {
-		selected, ok := railsActions(strings.TrimSpace(option[2]))
+		var ok bool
+		selectedActions, ok = railsActions(strings.TrimSpace(option[2]))
 		if !ok {
 			return nil
 		}
-		actions = slices.DeleteFunc(actions, func(action string) bool {
-			included := slices.Contains(selected, action)
-			if option[1] == "only" {
-				return !included
-			}
-			return included
-		})
+		selectionKind = option[1]
 	}
 	var routes []string
-	for _, action := range actions {
+	for _, action := range s.resourceActions {
+		if selectionKind != "" {
+			included := slices.Contains(selectedActions, action)
+			if selectionKind == "only" && !included {
+				continue
+			}
+			if selectionKind == "except" && included {
+				continue
+			}
+		}
 		switch action {
 		case "index", "create":
 			if action != "index" || kind == "resources" {
