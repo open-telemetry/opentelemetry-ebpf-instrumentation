@@ -128,6 +128,8 @@ func TestGoOffsetsFromDwarf(t *testing.T) {
 		PathPtrPos:        uint64(56),
 		ConnFdPos:         uint64(0),
 		FdLaddrPos:        uint64(96),
+		NetFdPfdPos:       uint64(0),
+		PollFdSysfdPos:    uint64(16),
 		MethodPtrPos:      uint64(0),
 		TCPAddrIPPtrPos:   uint64(0),
 		TCPAddrPortPtrPos: uint64(24),
@@ -162,6 +164,8 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 		GrpcStatusSPos:         uint64(0),
 		ConnFdPos:              uint64(0),
 		FdLaddrPos:             uint64(96),
+		NetFdPfdPos:            uint64(0),
+		PollFdSysfdPos:         uint64(16),
 		GrpcStatusCodePtrPos:   uint64(40),
 	}, offsets)
 }
@@ -175,6 +179,8 @@ func TestGoOffsetsWithoutDwarf(t *testing.T) {
 		PathPtrPos:                        uint64(56),
 		ConnFdPos:                         uint64(0),
 		FdLaddrPos:                        uint64(96),
+		NetFdPfdPos:                       uint64(0),
+		PollFdSysfdPos:                    uint64(16),
 		MethodPtrPos:                      uint64(0),
 		HchanQcountPos:                    uint64(0),
 		HchanDataqsizPos:                  uint64(8),
@@ -276,6 +282,8 @@ func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 		GrpcStatusCodePtrPos:   uint64(40),
 		ConnFdPos:              uint64(0),
 		FdLaddrPos:             uint64(96),
+		NetFdPfdPos:            uint64(0),
+		PollFdSysfdPos:         uint64(16),
 	}, offsets)
 }
 
