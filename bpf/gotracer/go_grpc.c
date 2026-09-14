@@ -402,7 +402,6 @@ static __always_inline void grpc_client_emit_with_conn(
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
-    trace->content_length = 0;
 
     void *method_ptr = (void *)invocation->method;
     void *method_len = (void *)invocation->method_len;
