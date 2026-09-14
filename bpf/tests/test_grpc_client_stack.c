@@ -274,11 +274,81 @@ static void test_stream_pointer_reuse(void) {
     test_map_delete(&early_grpc_client_finishes, &stream_key);
 }
 
+static void test_constructor_lifecycle_helpers(void) {
+    grpc_client_invocation_stack_t stack = {0};
+
+    go_addr_key_t g_key = {.pid = 0x42, .addr = 0x9000};
+    mock_register(&ongoing_grpc_client_requests,
+                  sizeof(go_addr_key_t),
+                  sizeof(grpc_client_invocation_stack_t));
+
+    // Null safety
+    grpc_client_constructor_begin(NULL);
+    grpc_client_constructor_end(NULL);
+
+    // Frame 0: Stream A
+    grpc_client_func_invocation_t inv_a = {
+        .cc = 0x100,
+        .stack_off = 100,
+        .func_type = k_grpc_client_func_type_new_stream,
+        .stream_constructor_active = 0,
+    };
+    check(grpc_client_push(&g_key, &stack, &inv_a), "push inv_a");
+    grpc_client_func_invocation_t *cur_a = grpc_client_current(&stack);
+    check(cur_a != NULL, "cur_a not null");
+    check_u64(0, cur_a->stream_constructor_active, "inv_a constructor not active initially");
+
+    // Begin constructor on Stream A
+    grpc_client_constructor_begin(cur_a);
+    check_u64(1, cur_a->stream_constructor_active, "inv_a constructor active after begin");
+
+    // Nested Frame 1: Stream B started inside an interceptor
+    grpc_client_func_invocation_t inv_b = {
+        .cc = 0x200,
+        .stack_off = 200,
+        .func_type = k_grpc_client_func_type_new_stream,
+        .stream_constructor_active = 0,
+    };
+    check(grpc_client_push(&g_key, &stack, &inv_b), "push inv_b");
+    grpc_client_func_invocation_t *cur_b = grpc_client_current(&stack);
+    check(cur_b != NULL, "cur_b not null");
+    check_u64(0, cur_b->stream_constructor_active, "inv_b constructor initially inactive");
+
+    // Begin constructor on Stream B
+    grpc_client_constructor_begin(cur_b);
+    check_u64(1, cur_b->stream_constructor_active, "inv_b constructor active after begin");
+
+    // End constructor on Stream B
+    grpc_client_constructor_end(cur_b);
+    check_u64(0, cur_b->stream_constructor_active, "inv_b constructor inactive after end");
+
+    // Pop Stream B
+    grpc_client_func_invocation_t popped_b;
+    check(grpc_client_pop(&g_key, &stack, &popped_b), "pop inv_b");
+    check_u64(0x200, popped_b.cc, "popped inv_b matches");
+
+    // Current is now Stream A again; its constructor status is untouched
+    cur_a = grpc_client_current(&stack);
+    check(cur_a != NULL, "cur_a not null after popping b");
+    check_u64(0x100, cur_a->cc, "current is inv_a");
+    check_u64(1, cur_a->stream_constructor_active, "inv_a constructor remains active");
+
+    // End constructor on Stream A
+    grpc_client_constructor_end(cur_a);
+    check_u64(0, cur_a->stream_constructor_active, "inv_a constructor inactive after end");
+
+    grpc_client_func_invocation_t popped_a;
+    check(grpc_client_pop(&g_key, &stack, &popped_a), "pop inv_a");
+    check_u64(0x100, popped_a.cc, "popped inv_a matches");
+    check_u64(0, grpc_client_depth(&stack), "stack empty");
+}
+
 int main(void) {
     test_lifo_basic();
     test_stack_growth_restart();
     test_overflow();
     test_stream_pointer_reuse();
+    test_constructor_lifecycle_helpers();
 
     if (failures == 0) {
         printf("test_grpc_client_stack: all checks passed\n");

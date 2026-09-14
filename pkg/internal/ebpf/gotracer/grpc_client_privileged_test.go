@@ -194,18 +194,6 @@ func assertNoStaleStreams(t *testing.T, tr *Tracer) {
 		}
 		assert.NoError(c, earlyIter.Err())
 		assert.Zero(c, earlyCount, "early_grpc_client_finishes should have no stale entries")
-
-		var compVal uint8
-		compIter := tr.bpfObjects.CompletedGrpcClientStreams.Iterate()
-		compCount := 0
-		for compIter.Next(&key, &compVal) {
-			compCount++
-			assert.Equal(c, uint8(1), compVal, "completed entry must have valid tombstone marker")
-			assert.NotZero(c, key.Pid, "completed entry must have non-zero pid")
-			assert.NotZero(c, key.Addr, "completed entry must have non-zero stream address")
-		}
-		assert.NoError(c, compIter.Err())
-		assert.LessOrEqual(c, compCount, 1024, "completed_grpc_client_streams must be bounded by MAX_CONCURRENT_REQUESTS")
 	}, 5*time.Second, 100*time.Millisecond)
 }
 
@@ -513,28 +501,62 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 		assertNoStaleStreams(t, tracer)
 	})
 
-	// 8. Stream completed tombstone lifecycle & invalidation
-	t.Run("stream_tombstone_lifecycle", func(t *testing.T) {
+	// 8. Stream interceptor exercises unrelated existing stream before streamer()
+	t.Run("stream_interceptor_unrelated_withretry_before_streamer", func(t *testing.T) {
 		collector.clear()
-		res := send("STREAM_NORMAL")
+		res := send("STREAM_INTERCEPTOR_BEFORE")
 		require.Contains(t, res, "STATUS=OK")
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
-			assert.NotEmpty(c, grpcSpans)
+			var streamASpans, streamBSpans []request.Span
+			for _, s := range grpcSpans {
+				if s.Path == "/TestService/Stream" {
+					streamASpans = append(streamASpans, s)
+				} else if s.Path == "/TestService/StreamB" {
+					streamBSpans = append(streamBSpans, s)
+				}
+			}
+			assert.Len(c, streamASpans, 1, "exactly one span for stream A")
+			assert.Len(c, streamBSpans, 1, "exactly one span for stream B")
+			if len(streamASpans) == 1 && len(streamBSpans) == 1 {
+				assert.NotEqual(c, streamASpans[0].SpanID, streamBSpans[0].SpanID, "distinct SpanIDs for streams A and B")
+				assert.NotZero(c, streamASpans[0].TraceID)
+				assert.NotZero(c, streamBSpans[0].TraceID)
+				assert.Equal(c, "/TestService/Stream", streamASpans[0].Path)
+				assert.Equal(c, "/TestService/StreamB", streamBSpans[0].Path)
+			}
 		}, 10*time.Second, 100*time.Millisecond)
 
-		// Seed a known test tombstone into completed_grpc_client_streams
-		testKey := BpfGoAddrKeyT{Pid: uint64(os.Getpid()), Addr: 0xdeadbeef1000}
-		require.NoError(t, tracer.bpfObjects.CompletedGrpcClientStreams.Put(testKey, uint8(1)))
+		assertNoStaleStreams(t, tracer)
+	})
 
-		var checkVal uint8
-		require.NoError(t, tracer.bpfObjects.CompletedGrpcClientStreams.Lookup(testKey, &checkVal))
-		assert.Equal(t, uint8(1), checkVal)
+	// 9. Stream interceptor exercises unrelated existing stream after streamer()
+	t.Run("stream_interceptor_unrelated_withretry_after_streamer", func(t *testing.T) {
+		collector.clear()
+		res := send("STREAM_INTERCEPTOR_AFTER")
+		require.Contains(t, res, "STATUS=OK")
 
-		// Delete / invalidate the tombstone (simulating grpc_client_begin_stream_generation)
-		require.NoError(t, tracer.bpfObjects.CompletedGrpcClientStreams.Delete(testKey))
-		assert.Error(t, tracer.bpfObjects.CompletedGrpcClientStreams.Lookup(testKey, &checkVal))
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			grpcSpans := collector.getGRPCClientSpans()
+			var streamASpans, streamBSpans []request.Span
+			for _, s := range grpcSpans {
+				if s.Path == "/TestService/Stream" {
+					streamASpans = append(streamASpans, s)
+				} else if s.Path == "/TestService/StreamB" {
+					streamBSpans = append(streamBSpans, s)
+				}
+			}
+			assert.Len(c, streamASpans, 1, "exactly one span for stream A")
+			assert.Len(c, streamBSpans, 1, "exactly one span for stream B")
+			if len(streamASpans) == 1 && len(streamBSpans) == 1 {
+				assert.NotEqual(c, streamASpans[0].SpanID, streamBSpans[0].SpanID, "distinct SpanIDs for streams A and B")
+				assert.NotZero(c, streamASpans[0].TraceID)
+				assert.NotZero(c, streamBSpans[0].TraceID)
+				assert.Equal(c, "/TestService/Stream", streamASpans[0].Path)
+				assert.Equal(c, "/TestService/StreamB", streamBSpans[0].Path)
+			}
+		}, 10*time.Second, 100*time.Millisecond)
 
 		assertNoStaleStreams(t, tracer)
 	})

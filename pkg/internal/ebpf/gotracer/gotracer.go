@@ -1817,7 +1817,8 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeClientConnClose,
 		}},
 		"google.golang.org/grpc.newClientStreamWithParams": {{
-			End: p.bpfObjects.ObiUprobeNewClientStreamWithParamsReturn,
+			Start: p.bpfObjects.ObiUprobeNewClientStreamWithParams,
+			End:   p.bpfObjects.ObiUprobeNewClientStreamWithParamsReturn,
 		}},
 		"google.golang.org/grpc.(*clientStream).withRetry": {{
 			Start: p.bpfObjects.ObiUprobeClientStreamWithRetry,

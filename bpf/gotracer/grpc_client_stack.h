@@ -111,6 +111,18 @@ static __always_inline bool grpc_client_pop(const go_addr_key_t *g_key,
     return true;
 }
 
+static __always_inline void grpc_client_constructor_begin(grpc_client_func_invocation_t *inv) {
+    if (inv) {
+        inv->stream_constructor_active = 1;
+    }
+}
+
+static __always_inline void grpc_client_constructor_end(grpc_client_func_invocation_t *inv) {
+    if (inv) {
+        inv->stream_constructor_active = 0;
+    }
+}
+
 // Establishes a fresh stream object generation at s_key (*clientStream pointer).
 // Any stale tombstones or orphaned markers from previous defunct objects at this address
 // are invalidated before the new stream can begin or finish.

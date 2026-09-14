@@ -75,6 +75,13 @@ var streamDesc = grpc.StreamDesc{
 	ClientStreams: true,
 }
 
+var streamDescB = grpc.StreamDesc{
+	StreamName:    "StreamB",
+	Handler:       handleStream,
+	ServerStreams: true,
+	ClientStreams: true,
+}
+
 var serviceDesc = grpc.ServiceDesc{
 	ServiceName: "TestService",
 	HandlerType: (*testService)(nil),
@@ -82,7 +89,7 @@ var serviceDesc = grpc.ServiceDesc{
 		MethodName: "Unary",
 		Handler:    handleUnary,
 	}},
-	Streams: []grpc.StreamDesc{streamDesc},
+	Streams: []grpc.StreamDesc{streamDesc, streamDescB},
 }
 
 func main() {
@@ -439,6 +446,147 @@ func main() {
 				}()
 				wg.Wait()
 				<-stream.Context().Done()
+			}
+			report(cmd, nil)
+
+		case "STREAM_INTERCEPTOR_BEFORE":
+			// 1. Start long-lived stream A on connA
+			streamA, err := connA.NewStream(context.Background(), &streamDesc, "/TestService/Stream")
+			if err != nil {
+				report(cmd, err)
+				continue
+			}
+			_ = streamA.SendMsg(&testReq{Depth: 0})
+			var dummyA testResp
+			_ = streamA.RecvMsg(&dummyA)
+
+			// 2. Start stream B on intercepted connection, calling streamA.SendMsg inside interceptor before streamer()
+			var interceptor grpc.StreamClientInterceptor = func(
+				ctx context.Context,
+				desc *grpc.StreamDesc,
+				cc *grpc.ClientConn,
+				method string,
+				streamer grpc.Streamer,
+				opts ...grpc.CallOption,
+			) (grpc.ClientStream, error) {
+				// B NewStream frame is active, but B's internal clientStream does not exist yet.
+				// Exercising streamA invokes streamA.withRetry.
+				if sendErr := streamA.SendMsg(&testReq{Depth: 1}); sendErr != nil {
+					return nil, sendErr
+				}
+				return streamer(ctx, desc, cc, method, opts...)
+			}
+			interceptedConn, err := grpc.NewClient(
+				addr,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+				grpc.WithStreamInterceptor(interceptor),
+			)
+			if err != nil {
+				_ = streamA.CloseSend()
+				report(cmd, err)
+				continue
+			}
+
+			streamB, err := interceptedConn.NewStream(context.Background(), &streamDescB, "/TestService/StreamB")
+			if err != nil {
+				_ = interceptedConn.Close()
+				_ = streamA.CloseSend()
+				report(cmd, err)
+				continue
+			}
+			_ = streamB.SendMsg(&testReq{Depth: 10})
+			var dummyB testResp
+			_ = streamB.RecvMsg(&dummyB)
+
+			// Close stream B
+			_ = streamB.CloseSend()
+			for {
+				if err := streamB.RecvMsg(&dummyB); err != nil {
+					break
+				}
+			}
+			_ = interceptedConn.Close()
+
+			// Close stream A
+			_ = streamA.CloseSend()
+			for {
+				if err := streamA.RecvMsg(&dummyA); err != nil {
+					break
+				}
+			}
+			report(cmd, nil)
+
+		case "STREAM_INTERCEPTOR_AFTER":
+			// 1. Start long-lived stream A on connA
+			streamA, err := connA.NewStream(context.Background(), &streamDesc, "/TestService/Stream")
+			if err != nil {
+				report(cmd, err)
+				continue
+			}
+			_ = streamA.SendMsg(&testReq{Depth: 0})
+			var dummyA testResp
+			_ = streamA.RecvMsg(&dummyA)
+
+			// 2. Start stream B on intercepted connection, calling streamA.SendMsg inside interceptor after streamer()
+			var interceptor grpc.StreamClientInterceptor = func(
+				ctx context.Context,
+				desc *grpc.StreamDesc,
+				cc *grpc.ClientConn,
+				method string,
+				streamer grpc.Streamer,
+				opts ...grpc.CallOption,
+			) (grpc.ClientStream, error) {
+				cs, streamerErr := streamer(ctx, desc, cc, method, opts...)
+				if streamerErr != nil {
+					return nil, streamerErr
+				}
+				// B raw stream has already been established and constructor_active cleared.
+				// B NewStream frame is still active until interceptor returns.
+				// Exercising streamA invokes streamA.withRetry.
+				if sendErr := streamA.SendMsg(&testReq{Depth: 2}); sendErr != nil {
+					return nil, sendErr
+				}
+				return cs, nil
+			}
+			interceptedConn, err := grpc.NewClient(
+				addr,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+				grpc.WithStreamInterceptor(interceptor),
+			)
+			if err != nil {
+				_ = streamA.CloseSend()
+				report(cmd, err)
+				continue
+			}
+
+			streamB, err := interceptedConn.NewStream(context.Background(), &streamDescB, "/TestService/StreamB")
+			if err != nil {
+				_ = interceptedConn.Close()
+				_ = streamA.CloseSend()
+				report(cmd, err)
+				continue
+			}
+			_ = streamB.SendMsg(&testReq{Depth: 20})
+			var dummyB testResp
+			_ = streamB.RecvMsg(&dummyB)
+
+			// Close stream B
+			_ = streamB.CloseSend()
+			for {
+				if err := streamB.RecvMsg(&dummyB); err != nil {
+					break
+				}
+			}
+			_ = interceptedConn.Close()
+
+			// Close stream A
+			_ = streamA.CloseSend()
+			for {
+				if err := streamA.RecvMsg(&dummyA); err != nil {
+					break
+				}
 			}
 			report(cmd, nil)
 

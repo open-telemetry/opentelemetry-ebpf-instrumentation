@@ -33,6 +33,8 @@ typedef struct grpc_client_func_invocation {
     u64 transport_ptr;
     u32 stack_off;
     u32 func_type;
+    u32 stream_constructor_active;
+    u32 _pad;
 } grpc_client_func_invocation_t;
 
 enum { k_grpc_client_max_depth = 4 };

@@ -468,6 +468,8 @@ static __always_inline void clientConnStart(void *goroutine_addr,
         .transport_ptr = 0,
         .stack_off = (u32)stack_off,
         .func_type = func_type,
+        .stream_constructor_active = 0,
+        ._pad = 0,
     };
     off_table_t *ot = get_offsets_table();
     go_addr_key_t g_key = {};
@@ -557,11 +559,36 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     return 0;
 }
 
+// Tracks entry into newClientStreamWithParams for the active NewStream frame.
+// Note: stream_constructor_active indicates execution is within newClientStreamWithParams
+// (including processing CallOption.before), which scopes constructor-time withRetry
+// away from user StreamClientInterceptor calls that execute outside this function.
+// Assumption: one NewStream invocation corresponds to one underlying stream creation.
+SEC("uprobe/newClientStreamWithParams")
+int GUARDED_PROG(obi_uprobe_newClientStreamWithParams, struct pt_regs *, ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    grpc_client_func_invocation_t *current = grpc_client_current(stack);
+    if (!current || current->func_type != k_grpc_client_func_type_new_stream) {
+        return 0;
+    }
+
+    grpc_client_constructor_begin(current);
+    return 0;
+}
+
 // Authoritative generation-establishment hook:
 // Runs on the creator goroutine during clientStream allocation in newClientStreamWithParams,
 // strictly before the background cancellation / ClientConn-close watcher can call finish.
 // Establishes a clean generation for (pid, raw *clientStream) by purging any stale tombstones
 // from older defunct objects at this address.
+// Invariant: only runs while stream_constructor_active is true and stream_ptr has not yet
+// been established for this invocation. Unrelated withRetry calls (e.g. from an existing stream
+// exercised in a StreamClientInterceptor or during SendMsg/RecvMsg) are ignored.
 SEC("uprobe/clientStream_withRetry")
 int GUARDED_PROG(obi_uprobe_clientStream_withRetry, struct pt_regs *, ctx) {
     void *stream_ptr = GO_PARAM1(ctx);
@@ -580,11 +607,7 @@ int GUARDED_PROG(obi_uprobe_clientStream_withRetry, struct pt_regs *, ctx) {
         return 0;
     }
 
-    // Invariant: at the first construction-time withRetry for a newly allocated cs,
-    // the new generation's ongoing state has not yet been published.
-    // The (current->stream_ptr == stream_ptr) guard prevents subsequent withRetry calls
-    // (e.g. from SendMsg, RecvMsg, or retries) from wiping its own generation state.
-    if (current->stream_ptr == (u64)stream_ptr) {
+    if (!current->stream_constructor_active || current->stream_ptr != 0) {
         return 0;
     }
 
@@ -600,12 +623,11 @@ int GUARDED_PROG(obi_uprobe_clientStream_withRetry, struct pt_regs *, ctx) {
 // Secondary stream_ptr capture / defensive compatibility fallback.
 // In normal execution, withRetry above is authoritative; this return probe ensures
 // stream_ptr is populated even if withRetry was unavailable or bypassed.
+// Clearing stream_constructor_active first guarantees that post-streamer interceptor
+// actions cannot be treated as constructor-time work.
 SEC("uprobe/newClientStreamWithParams")
 int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, ctx) {
     void *stream_ptr = GO_PARAM2(ctx);
-    if (!stream_ptr) {
-        return 0;
-    }
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
@@ -618,7 +640,9 @@ int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, 
         return 0;
     }
 
-    if (!current->stream_ptr) {
+    grpc_client_constructor_end(current);
+
+    if (!current->stream_ptr && stream_ptr) {
         current->stream_ptr = (u64)stream_ptr;
     }
     return 0;
