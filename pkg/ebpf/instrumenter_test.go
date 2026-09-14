@@ -1210,7 +1210,6 @@ func (s *stubTracer) AllowPID(app.PID, uint32, *exec.FileInfo)               {}
 func (s *stubTracer) BlockPID(app.PID, uint32)                               {}
 func (s *stubTracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)           { return nil, nil }
 func (s *stubTracer) AddCloser(...io.Closer)                                 {}
-func (s *stubTracer) SetupTailCalls()                                        {}
 func (s *stubTracer) KProbes() map[string]ebpfcommon.ProbeDesc               { return nil }
 func (s *stubTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
 func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return s.goProbes }

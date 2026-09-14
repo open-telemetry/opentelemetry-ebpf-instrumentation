@@ -16,6 +16,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// the netFdRead continuation is Go only, so it is a jump table slot no other
+// tracer has. Declared before the table so the slot and the program come from
+// the same list
+#define OBI_JUMP_TABLE_EXTRA_ENTRIES(entry)                                                        \
+    entry(k_tail_continue_netfd_read, obi_continue_netfd_read, struct pt_regs *)
+
 #include <bpfcore/utils.h>
 
 #include <common/pin_internal.h>

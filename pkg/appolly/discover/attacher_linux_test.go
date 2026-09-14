@@ -66,7 +66,7 @@ func TestCommonTracersPrunedAfterLoadFailure(t *testing.T) {
 	})
 	ie := &ebpf.Instrumentable{FileInfo: fileInfo}
 
-	ta.monitorPIDs(tracer, ie)
+	ta.monitorPIDs(t.Context(), tracer, ie)
 	assert.NotEmpty(t, okTracer.allowed)
 	assert.Empty(t, failedTracer.allowed)
 
@@ -74,7 +74,7 @@ func TestCommonTracersPrunedAfterLoadFailure(t *testing.T) {
 	ta.existingTracers[key] = executableTracer{tracer: tracer, generation: 1}
 	ta.processInstances.Inc(key)
 
-	ta.notifyProcessDeletion(ie)
+	ta.notifyProcessDeletion(t.Context(), ie)
 	assert.NotEmpty(t, okTracer.blocked)
 	assert.Empty(t, failedTracer.blocked)
 }

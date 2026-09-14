@@ -84,16 +84,25 @@ func PrepareSpecs(spec *ebpf.CollectionSpec) {
 
 func markMultiPrograms(spec *ebpf.CollectionSpec) {
 	tailCallTargets := progArrayContents(spec)
-	for name, prog := range spec.Programs {
-		if prog.Type != ebpf.Kprobe || prog.AttachType != ebpf.AttachNone || !isUprobeSection(prog.SectionName) {
+	twins := map[string]bool{}
+	for _, name := range uprobePrograms(spec) {
+		prog := spec.Programs[name]
+		if tailCallTargets[name] || !hasMultiTwins(spec, prog) {
 			continue
 		}
-		// the kernel rejects tail calls between programs with different attach types
-		if tailCallTargets[name] || referencesProgArray(spec, prog) {
-			continue
-		}
+		retargetProgArrays(spec, prog, twins)
 		prog.AttachType = ebpf.AttachTraceUprobeMulti
 	}
+}
+
+func uprobePrograms(spec *ebpf.CollectionSpec) []string {
+	names := make([]string, 0, len(spec.Programs))
+	for name, prog := range spec.Programs {
+		if prog.Type == ebpf.Kprobe && prog.AttachType == ebpf.AttachNone && isUprobeSection(prog.SectionName) {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func isUprobeSection(name string) bool {
@@ -108,24 +117,86 @@ func progArrayContents(spec *ebpf.CollectionSpec) map[string]bool {
 			continue
 		}
 		for _, kv := range m.Contents {
-			switch value := kv.Value.(type) {
-			case string:
-				targets[value] = true
-			case *ebpf.ProgramSpec:
-				targets[value.Name] = true
-			}
+			targets[progArrayEntry(kv.Value)] = true
 		}
 	}
 	return targets
 }
 
-func referencesProgArray(spec *ebpf.CollectionSpec, prog *ebpf.ProgramSpec) bool {
+func progArrayEntry(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case *ebpf.ProgramSpec:
+		return v.Name
+	}
+	return ""
+}
+
+// the kernel rejects tail calls between programs with different attach types,
+// so multi programs use a twin of every prog array, declared next to it in C
+const uprobeMultiSuffix = "_um"
+
+func referencedProgArrays(spec *ebpf.CollectionSpec, prog *ebpf.ProgramSpec) []string {
+	var tables []string
 	for _, ins := range prog.Instructions {
 		if m, ok := spec.Maps[ins.Reference()]; ok && m.Type == ebpf.ProgramArray {
-			return true
+			tables = append(tables, ins.Reference())
 		}
 	}
-	return false
+	return tables
+}
+
+func hasMultiTwins(spec *ebpf.CollectionSpec, prog *ebpf.ProgramSpec) bool {
+	for _, table := range referencedProgArrays(spec, prog) {
+		if _, ok := spec.Maps[table+uprobeMultiSuffix]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func retargetProgArrays(spec *ebpf.CollectionSpec, prog *ebpf.ProgramSpec, twins map[string]bool) {
+	for i, ins := range prog.Instructions {
+		table := ins.Reference()
+		if m, ok := spec.Maps[table]; !ok || m.Type != ebpf.ProgramArray {
+			continue
+		}
+		prog.Instructions[i] = ins.WithReference(uprobeMultiTwin(spec, table, twins))
+	}
+}
+
+// uprobeMultiTwin fills the twin prog array with uprobe_multi copies of the programs
+func uprobeMultiTwin(spec *ebpf.CollectionSpec, table string, twins map[string]bool) string {
+	twinName := table + uprobeMultiSuffix
+	if twins[twinName] {
+		return twinName
+	}
+	twins[twinName] = true
+	twin := spec.Maps[twinName]
+	for i, kv := range twin.Contents {
+		if target := progArrayEntry(kv.Value); target != "" {
+			twin.Contents[i] = ebpf.MapKV{Key: kv.Key, Value: uprobeMultiClone(spec, target, twins)}
+		}
+	}
+	return twinName
+}
+
+func uprobeMultiClone(spec *ebpf.CollectionSpec, name string, twins map[string]bool) string {
+	cloneName := name + uprobeMultiSuffix
+	if _, ok := spec.Programs[cloneName]; ok {
+		return cloneName
+	}
+	original, ok := spec.Programs[name]
+	if !ok {
+		return name
+	}
+	clone := original.Copy()
+	clone.Name = cloneName
+	clone.AttachType = ebpf.AttachTraceUprobeMulti
+	spec.Programs[cloneName] = clone
+	retargetProgArrays(spec, clone, twins)
+	return cloneName
 }
 
 type Options struct {
