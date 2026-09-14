@@ -4,6 +4,7 @@
 package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 
 import (
+	"bytes"
 	"debug/elf"
 	"encoding/binary"
 	"errors"
@@ -61,6 +62,12 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 		}
 	}
 
+	if _, ok := implementations["io.EOF"]; !ok {
+		if eofAddr, err := findIoEOF(ef); err == nil && eofAddr != 0 {
+			implementations["io.EOF"] = eofAddr
+		}
+	}
+
 	versionString, _, err := getGoDetails(ef)
 	if err != nil {
 		return implementations, nil
@@ -76,6 +83,74 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 	}
 	maps.Copy(implementations, moduleImplementations)
 	return implementations, nil
+}
+
+func findIoEOF(ef *elf.File) (uint64, error) {
+	if ef.Class != elf.ELFCLASS64 {
+		return 0, errors.New("io.EOF discovery only supports 64-bit ELF")
+	}
+
+	rodataSec := ef.Section(".rodata")
+	dataSec := ef.Section(".data")
+	if rodataSec == nil || dataSec == nil {
+		return 0, errors.New("missing .rodata or .data section")
+	}
+
+	rodata, err := rodataSec.Data()
+	if err != nil {
+		return 0, fmt.Errorf("reading .rodata section: %w", err)
+	}
+	data, err := dataSec.Data()
+	if err != nil {
+		return 0, fmt.Errorf("reading .data section: %w", err)
+	}
+
+	relocs := buildRelocationInfo(ef)
+
+	strAddrs := map[uint64]struct{}{}
+	pos := 0
+	target := []byte("EOF")
+	for {
+		idx := bytes.Index(rodata[pos:], target)
+		if idx == -1 {
+			break
+		}
+		strAddrs[rodataSec.Addr+uint64(pos+idx)] = struct{}{}
+		pos += idx + 1
+	}
+
+	errStrAddrs := map[uint64]struct{}{}
+	for off := 0; off+16 <= len(data); off += 8 {
+		strLen := ef.ByteOrder.Uint64(data[off+8 : off+16])
+		if strLen != 3 {
+			continue
+		}
+		strPtr := resolveAddr(ef, dataSec.Addr+uint64(off), relocs)
+		if _, ok := strAddrs[strPtr]; ok {
+			errStrAddrs[dataSec.Addr+uint64(off)] = struct{}{}
+		}
+	}
+
+	var eofCandidates []uint64
+	for off := 0; off+16 <= len(data); off += 8 {
+		dataPtr := resolveAddr(ef, dataSec.Addr+uint64(off+8), relocs)
+		if _, ok := errStrAddrs[dataPtr]; !ok {
+			continue
+		}
+		itab := resolveAddr(ef, dataSec.Addr+uint64(off), relocs)
+		if itab == 0 {
+			continue
+		}
+		eofCandidates = append(eofCandidates, dataSec.Addr+uint64(off))
+	}
+
+	if len(eofCandidates) == 1 {
+		return eofCandidates[0], nil
+	}
+	if len(eofCandidates) == 0 {
+		return 0, errors.New("io.EOF not found in .data")
+	}
+	return 0, fmt.Errorf("ambiguous io.EOF candidates found: %d", len(eofCandidates))
 }
 
 func findInterfaceImplsFromModuledata(ef *elf.File, targetVersion goversion.Version) (map[string]uint64, error) {
