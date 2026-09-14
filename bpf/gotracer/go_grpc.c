@@ -403,12 +403,6 @@ static __always_inline void grpc_client_emit_with_conn(
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->content_length = 0;
-    trace->method[0] = '\0';
-    trace->host[0] = '\0';
-    trace->scheme[0] = '\0';
-    trace->pattern[0] = '\0';
-    trace->path[0] = '\0';
-    trace->is_jsonrpc = false;
 
     void *method_ptr = (void *)invocation->method;
     void *method_len = (void *)invocation->method_len;
@@ -422,7 +416,7 @@ static __always_inline void grpc_client_emit_with_conn(
     }
 
     if (conn && (conn->s_port != 0 || conn->d_port != 0)) {
-        __builtin_memcpy(&trace->conn, conn, sizeof(connection_info_t));
+        bpf_memcpy(&trace->conn, conn, sizeof(connection_info_t));
     } else {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }

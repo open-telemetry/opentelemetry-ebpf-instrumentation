@@ -17,10 +17,22 @@ import (
 )
 
 const (
-	prefixNew        = "go:itab."
-	prefixOld        = "go.itab."
-	prefixLen        = len(prefixNew)
-	maxGoTypeNameLen = 4096
+	prefixNew                = "go:itab."
+	prefixOld                = "go.itab."
+	prefixLen                = len(prefixNew)
+	maxGoTypeNameLen         = 4096
+	ioEOFString              = "EOF"
+	elfWordSize              = 8
+	goInterfaceSize          = 2 * elfWordSize
+	goInterfaceDataOffset    = elfWordSize
+	x86REXPrefixMask         = 0xf0
+	x86REXPrefix             = 0x40
+	x86OpcodeOffset          = 1
+	x86ModRMOffset           = 2
+	x86RIPDisplacementOffset = 3
+	x86RIPRelativeInstrSize  = 7
+	arm64InstructionSize     = 4
+	arm64AddressSearchSize   = 16
 )
 
 func isITabEntry(sym string) bool {
@@ -118,6 +130,9 @@ func findIoEOF(ef *elf.File) (uint64, error) {
 	return 0, fmt.Errorf("ambiguous io.EOF candidates found: %d", len(eofCandidates))
 }
 
+// findIoEOFCandidates finds Go interface cells that contain an error whose string is "EOF".
+// Stripped binaries lack the io.EOF symbol, so callers use references from executable code to
+// choose the canonical cell when more than one matching interface value is present.
 func findIoEOFCandidates(ef *elf.File) ([]uint64, error) {
 	rodataSec := ef.Section(".rodata")
 	dataSec := ef.Section(".data")
@@ -138,7 +153,7 @@ func findIoEOFCandidates(ef *elf.File) ([]uint64, error) {
 
 	strAddrs := map[uint64]struct{}{}
 	pos := 0
-	target := []byte("EOF")
+	target := []byte(ioEOFString)
 	for {
 		idx := bytes.Index(rodata[pos:], target)
 		if idx == -1 {
@@ -149,9 +164,9 @@ func findIoEOFCandidates(ef *elf.File) ([]uint64, error) {
 	}
 
 	errStrAddrs := map[uint64]struct{}{}
-	for off := 0; off+16 <= len(data); off += 8 {
-		strLen := ef.ByteOrder.Uint64(data[off+8 : off+16])
-		if strLen != 3 {
+	for off := 0; off+goInterfaceSize <= len(data); off += elfWordSize {
+		strLen := ef.ByteOrder.Uint64(data[off+goInterfaceDataOffset : off+goInterfaceSize])
+		if strLen != uint64(len(ioEOFString)) {
 			continue
 		}
 		strPtr := resolveAddr(ef, dataSec.Addr+uint64(off), relocs)
@@ -161,8 +176,8 @@ func findIoEOFCandidates(ef *elf.File) ([]uint64, error) {
 	}
 
 	var eofCandidates []uint64
-	for off := 0; off+16 <= len(data); off += 8 {
-		dataPtr := resolveAddr(ef, dataSec.Addr+uint64(off+8), relocs)
+	for off := 0; off+goInterfaceSize <= len(data); off += elfWordSize {
+		dataPtr := resolveAddr(ef, dataSec.Addr+uint64(off+goInterfaceDataOffset), relocs)
 		if _, ok := errStrAddrs[dataPtr]; !ok {
 			continue
 		}
@@ -199,26 +214,26 @@ func ioEOFReferenceCounts(ef *elf.File, candidates []uint64) map[uint64]int {
 		if err != nil {
 			continue
 		}
-		for i := 0; i+8 <= len(text); i++ {
-			value := ef.ByteOrder.Uint64(text[i : i+8])
+		for i := 0; i+elfWordSize <= len(text); i++ {
+			value := ef.ByteOrder.Uint64(text[i : i+elfWordSize])
 			if _, ok := known[value]; ok {
 				counts[value]++
 			}
 		}
 
 		if ef.Machine == elf.EM_X86_64 {
-			for i := 0; i+7 <= len(text); i++ {
+			for i := 0; i+x86RIPRelativeInstrSize <= len(text); i++ {
 				if !isRipRelativeMemoryReference(text, i) {
 					continue
 				}
-				disp := int64(int32(ef.ByteOrder.Uint32(text[i+3 : i+7])))
-				address := prog.Vaddr + uint64(i) + 7 + uint64(disp)
+				disp := int64(int32(ef.ByteOrder.Uint32(text[i+x86RIPDisplacementOffset : i+x86RIPRelativeInstrSize])))
+				address := prog.Vaddr + uint64(i) + x86RIPRelativeInstrSize + uint64(disp)
 				if _, ok := known[address]; ok {
 					counts[address]++
 				}
 			}
 		} else if ef.Machine == elf.EM_AARCH64 {
-			for i := 0; i+8 <= len(text); i += 4 {
+			for i := 0; i+2*arm64InstructionSize <= len(text); i += arm64InstructionSize {
 				address, ok := arm64PageAddress(text, i, prog.Vaddr)
 				if !ok {
 					continue
@@ -243,20 +258,22 @@ func readProgramData(prog *elf.Prog) ([]byte, error) {
 	return data, nil
 }
 
+// isRipRelativeMemoryReference recognizes the x86-64 REX-prefixed, RIP-relative form.
 func isRipRelativeMemoryReference(text []byte, i int) bool {
-	if text[i]&0xf0 != 0x40 || i+7 > len(text) {
+	if text[i]&x86REXPrefixMask != x86REXPrefix || i+x86RIPRelativeInstrSize > len(text) {
 		return false
 	}
-	opcode := text[i+1]
+	opcode := text[i+x86OpcodeOffset]
 	if opcode != 0x8b && opcode != 0x8d && opcode != 0x89 && opcode != 0x39 && opcode != 0x3b &&
 		opcode != 0x81 && opcode != 0x83 {
 		return false
 	}
-	return text[i+2]&0xc7 == 0x05
+	return text[i+x86ModRMOffset]&0xc7 == 0x05
 }
 
+// arm64PageAddress decodes the common ADRP; ADD pair used to materialize an address.
 func arm64PageAddress(text []byte, i int, base uint64) (uint64, bool) {
-	adrp := binary.LittleEndian.Uint32(text[i : i+4])
+	adrp := binary.LittleEndian.Uint32(text[i : i+arm64InstructionSize])
 	if adrp&0x9f000000 != 0x90000000 {
 		return 0, false
 	}
@@ -271,8 +288,8 @@ func arm64PageAddress(text []byte, i int, base uint64) (uint64, bool) {
 	page := (base + uint64(i)) &^ 0xfff
 	page = uint64(int64(page) + (imm << 12))
 
-	for j := i + 4; j+4 <= len(text) && j <= i+16; j += 4 {
-		add := binary.LittleEndian.Uint32(text[j : j+4])
+	for j := i + arm64InstructionSize; j+arm64InstructionSize <= len(text) && j <= i+arm64AddressSearchSize; j += arm64InstructionSize {
+		add := binary.LittleEndian.Uint32(text[j : j+arm64InstructionSize])
 		if add&0x7f000000 != 0x11000000 {
 			continue
 		}

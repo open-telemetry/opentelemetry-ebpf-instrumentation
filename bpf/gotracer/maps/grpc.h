@@ -65,7 +65,8 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, pid_info);
-    __type(value, u64); // ELF load bias for io.EOF in this process
+    // ASLR slide added to the ELF address of io.EOF for this process.
+    __type(value, u64);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } io_eof_load_biases SEC(".maps");
