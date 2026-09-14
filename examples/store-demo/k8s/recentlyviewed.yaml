@@ -1,0 +1,146 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Records product page views in Aerospike. The frontend calls this on each
+# product view, which is what gives the demo Aerospike client spans.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recentlyviewed
+  labels:
+    app: recentlyviewed
+spec:
+  selector:
+    matchLabels:
+      app: recentlyviewed
+  template:
+    metadata:
+      labels:
+        app: recentlyviewed
+    spec:
+      serviceAccountName: recentlyviewed
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+      - name: server
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          privileged: false
+          readOnlyRootFilesystem: true
+        image: obi-store-demo-recentlyviewed:local
+        ports:
+        - containerPort: 8080
+        env:
+        - name: AEROSPIKE_ADDR
+          value: "aerospike:3000"
+        readinessProbe:
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          httpGet:
+            path: /_healthz
+            port: 8080
+        livenessProbe:
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          httpGet:
+            path: /_healthz
+            port: 8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recentlyviewed
+  labels:
+    app: recentlyviewed
+spec:
+  type: ClusterIP
+  selector:
+    app: recentlyviewed
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    appProtocol: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: recentlyviewed
+---
+# Single-node Aerospike backing recentlyviewed, bundled here the same way
+# redis-cart is bundled with cartservice. The image and version match the one
+# exercised by TestSuite_Aerospike in internal/test/integration, so the demo
+# and the integration tests observe the same server build.
+#
+# The default image configuration provides the `test` namespace the client
+# uses; no custom aerospike.conf is needed for a single node.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aerospike
+  labels:
+    app: aerospike
+spec:
+  selector:
+    matchLabels:
+      app: aerospike
+  template:
+    metadata:
+      labels:
+        app: aerospike
+    spec:
+      containers:
+      - name: aerospike
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+        image: aerospike/aerospike-server:8.1.2.3@sha256:73c78ec8c2010dbc83ffb4b1249abbdfad3a66173492f46fa54996d0608f122d
+        ports:
+        - containerPort: 3000
+          name: service
+        readinessProbe:
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          tcpSocket:
+            port: 3000
+        livenessProbe:
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          tcpSocket:
+            port: 3000
+        resources:
+          limits:
+            memory: 2Gi
+            cpu: 500m
+          requests:
+            memory: 1Gi
+            cpu: 200m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aerospike
+  labels:
+    app: aerospike
+spec:
+  type: ClusterIP
+  selector:
+    app: aerospike
+  ports:
+  - name: tcp-aerospike
+    port: 3000
+    targetPort: 3000
+    appProtocol: aerospike

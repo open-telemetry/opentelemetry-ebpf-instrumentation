@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 import os
+import threading
+import time
 import uvicorn
 import redis
 
@@ -110,6 +112,48 @@ def redis_error_test():
     db1_redis_cli.get('obi-db-1')
 
     return 'done', 200
+
+pipeline_cli = None
+
+@app.get("/redis-pipeline")
+def redis_pipeline():
+    global pipeline_cli
+    if pipeline_cli is None:
+        pipeline_cli = redis.Redis(
+            host='redis',
+            port=6379,
+            decode_responses=True
+            )
+
+    # One socket write carrying four commands, which OBI parses into four spans
+    pipe = pipeline_cli.pipeline(transaction=False)
+    pipe.set('obi-pipeline-1', 'rocks')
+    pipe.set('obi-pipeline-2', 'rocks')
+    pipe.get('obi-pipeline-1')
+    pipe.get('obi-pipeline-2')
+    pipe.execute()
+
+    return 'done', 200
+
+def background_pipeline_loop():
+    while True:
+        # A fresh connection each round so the commands are never parsed off a
+        # socket that was already open before OBI attached
+        bg_cli = redis.Redis(host='redis', port=6379, decode_responses=True)
+        pipe = bg_cli.pipeline(transaction=False)
+        pipe.sadd('obi-bg-set', 'a')
+        pipe.sadd('obi-bg-set', 'b')
+        pipe.smembers('obi-bg-set')
+        pipe.smembers('obi-bg-set')
+        pipe.execute()
+        bg_cli.close()
+        time.sleep(0.5)
+
+
+# A pipeline with no inbound request behind it, so its commands have no parent
+# span and each has to end up in a trace of its own. Started at import because
+# the container runs uvicorn directly, so __main__ never executes.
+threading.Thread(target=background_pipeline_loop, daemon=True).start()
 
 if __name__ == "__main__":
     print(f"Server running: port={8080} process_id={os.getpid()}")

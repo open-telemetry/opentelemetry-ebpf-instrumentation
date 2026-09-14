@@ -47,6 +47,39 @@ func testREDMetricsForPythonHTTPLibrary(t *testing.T, url, comm, namespace strin
 	}, testTimeout, 100*time.Millisecond)
 }
 
+func testREDMetricsForPythonRoutes(t *testing.T, url, comm, namespace string) {
+	tests := []struct {
+		path  string
+		route string
+	}{
+		{path: "/api/customers/42", route: "/api/customers/<customer_id>"},
+		{path: "/files/a/b/c/d", route: "/files/<path:files>"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			for range 4 {
+				ti.DoHTTPGet(t, url+tc.path, 200)
+			}
+
+			pq := promtest.Client{HostPort: prometheusHostPort}
+			var results []promtest.Result
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				var err error
+				results, err = pq.Query(`http_server_request_duration_seconds_count{` +
+					`http_request_method="GET",` +
+					`http_response_status_code="200",` +
+					`service_namespace="` + namespace + `",` +
+					`service_name="` + comm + `",` +
+					`http_route="` + tc.route + `",` +
+					`url_path="` + tc.path + `"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, results)
+				assert.LessOrEqual(ct, 3, totalPromCount(ct, results))
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+}
+
 func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespace string) {
 	urlPath := "/black_hole"
 
@@ -114,6 +147,7 @@ func testREDMetricsPythonHTTP(t *testing.T) {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
 			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python-testserver", "integration-test")
+			testREDMetricsForPythonRoutes(t, testCaseURL, "python-testserver", "integration-test")
 		})
 	}
 }

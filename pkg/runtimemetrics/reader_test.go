@@ -488,6 +488,29 @@ func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
 	require.Equal(t, values, *snapshot.JVM.RuntimeValues)
 }
 
+func TestSnapshotFromJVMGCDurationEvent(t *testing.T) {
+	event := appruntime.JVMGCEvent{
+		PID:        app.PID(123),
+		Service:    svc.Attrs{UID: svc.UID{Name: "orders"}},
+		Time:       time.Unix(123, 456),
+		Kind:       appruntime.JVMMetricGCDuration,
+		GCName:     "G1 Young Generation",
+		GCAction:   "end of minor GC",
+		DurationNS: 25_000_000,
+	}
+
+	snapshot := SnapshotFromJVMGCEvent(event)
+
+	require.Equal(t, event.Service, snapshot.Service)
+	require.Equal(t, event.PID, snapshot.PID)
+	require.Equal(t, event.Time, snapshot.Time)
+	require.NotNil(t, snapshot.JVM)
+	require.Equal(t, appruntime.JVMMetricGCDuration, snapshot.JVM.Kind)
+	require.Equal(t, "G1 Young Generation", snapshot.JVM.GCName)
+	require.Equal(t, "end of minor GC", snapshot.JVM.GCAction)
+	require.Equal(t, uint64(25_000_000), snapshot.JVM.DurationNS)
+}
+
 func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "orders", Namespace: "prod"},

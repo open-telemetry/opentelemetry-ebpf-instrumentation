@@ -118,6 +118,9 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
             break;
         }
 
+        // clamp again at the use: verifiers before 5.10 drop the bound when the value
+        // is spilled to the stack between the clamp above and this read
+        bpf_clamp_umax(tot_len, k_iovec_max_len);
         bpf_probe_read(&buf[tot_len], iov_size, vec.iov_base);
 
         // bpf_dbg_printk("iov_size=%d, buf=[%s]", iov_size, buf);

@@ -150,6 +150,7 @@ Attributes OBI emits on application spans that are not part of upstream OpenTele
 | `gen_ai.metadata` | string | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
 | `http.request.body.content` | string | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
 | `http.response.body.content` | string | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
+| `obi.http.response.observed` | boolean | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
 | `onc_rpc.auth.flavor` | string | development | ONC/Sun RPC authentication flavor observed on the call. | AUTH_NONE; AUTH_SYS |
 
 ## `x.obi.db`
@@ -174,7 +175,7 @@ OBI overrides of `gen_ai.provider.name` (upstream enum extended with the provide
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; tools/call |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 
 ## `x.obi.messaging`

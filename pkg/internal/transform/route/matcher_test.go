@@ -87,3 +87,19 @@ func TestFindPatternFallsBackToAnyPath(t *testing.T) {
 	assert.Equal(t, "/admin/*", m.Find("/admin/token"))
 	assert.Equal(t, "/admin/:id/settings", m.Find("/admin/token/settings"))
 }
+
+func TestFindDotnetParameters(t *testing.T) {
+	m := NewMatcher([]string{
+		"/customers/{id:int}",
+		"/orders/{id:int:min(1)}",
+		"/archive/{id?}",
+		"/{controller=Home}",
+		"/files/{**path}",
+	})
+
+	assert.Equal(t, "/customers/{id:int}", m.Find("/customers/42"))
+	assert.Equal(t, "/orders/{id:int:min(1)}", m.Find("/orders/7"))
+	assert.Equal(t, "/archive/{id?}", m.Find("/archive/2026"))
+	assert.Equal(t, "/{controller=Home}", m.Find("/Products"))
+	assert.Equal(t, "/files/{**path}", m.Find("/files/a/b/c"))
+}

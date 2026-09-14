@@ -29,6 +29,8 @@ final class JVMRuntimeMetrics {
       return;
     }
 
+    runSafely(JVMGCMetrics::start);
+
     // Periodic snapshots
     ScheduledExecutorService sampler =
         Executors.newSingleThreadScheduledExecutor(

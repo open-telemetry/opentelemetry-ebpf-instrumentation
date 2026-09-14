@@ -140,6 +140,42 @@ func TestResolveServiceMetadata(t *testing.T) {
 	})
 }
 
+func TestEntryAssemblyForPID(t *testing.T) {
+	t.Run("dotnet host", func(t *testing.T) {
+		root := t.TempDir()
+		want := filepath.Join(root, "app", "Orders.Api.dll")
+		writeDotnetFile(t, want, nil)
+		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{"Orders.Api.dll"}, nil, nil)
+
+		got, err := EntryAssemblyForPID(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("apphost", func(t *testing.T) {
+		root := t.TempDir()
+		want := filepath.Join(root, "app", "Orders.Api.dll")
+		writeDotnetFile(t, want, nil)
+		unexpected := errors.New("must not inspect")
+		fileInfo := mockDotnetProcess(t, root, "/app/Orders.Api", nil, unexpected, unexpected)
+
+		got, err := EntryAssemblyForPID(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("missing entry assembly", func(t *testing.T) {
+		root := t.TempDir()
+		fileInfo := mockDotnetProcess(t, root, "/usr/bin/dotnet", []string{"Orders.Api.dll"}, nil, nil)
+
+		_, err := EntryAssemblyForPID(fileInfo)
+
+		require.Error(t, err)
+	})
+}
+
 func TestReadDepsJSON(t *testing.T) {
 	t.Run("ambiguous application versions are ignored", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "Orders.Api.deps.json")

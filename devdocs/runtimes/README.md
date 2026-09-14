@@ -7,7 +7,7 @@ services without requiring runtime SDK changes in the target process.
 ## Supported runtimes
 
 - [Go](go.md): BPF-based snapshots for the currently implemented Go runtime metrics.
-- [JVM](jvm.md): HotSpot memory-pool probes for JVM memory metrics.
+- [JVM](jvm.md): HotSpot memory-pool probes and Java agent readings for JVM runtime metrics.
 - [Node.js](nodejs.md): event-loop, GC and heap metrics reported by the injected OBI agent over a BPF side channel.
 - [Python](python.md): eBPF-triggered CPython garbage-collector counters for
   the main interpreter.

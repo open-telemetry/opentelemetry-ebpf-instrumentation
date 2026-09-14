@@ -7,7 +7,6 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -16,77 +15,134 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
+	"unsafe"
 
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 var useTLS = flag.Bool("tls", false, "use TLS for the loopback connection")
+
+type target struct {
+	plainAddress string
+	tlsAddress   string
+	tlsConfig    *tls.Config
+}
 
 func main() {
 	flag.Parse()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		values := r.Header.Values("Traceparent")
-		_, _ = fmt.Fprintf(w, "%d:%s", len(values), strings.Join(values, ","))
+		fmt.Fprintf(w, "%d:%s", len(values), strings.Join(values, ","))
 	})
 
-	client, url, stop, err := startServer(handler)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
-		os.Exit(1)
+	plainListener, err := net.Listen("tcp", "127.0.0.1:0")
+	check(err)
+	go servePlaintext(plainListener, handler)
+
+	tlsServer := httptest.NewUnstartedServer(handler)
+	tlsServer.EnableHTTP2 = true
+	tlsServer.StartTLS()
+	defer tlsServer.Close()
+
+	fixture := target{
+		plainAddress: plainListener.Addr().String(),
+		tlsAddress:   tlsServer.Listener.Addr().String(),
+		tlsConfig:    &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2"}},
 	}
-	defer stop()
 
 	fmt.Println("READY")
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		switch scanner.Text() {
+		case "PLAINTEXT_BUFFERED":
+			report(fixture.request(false, false))
+		case "PLAINTEXT_IMMEDIATE":
+			report(fixture.request(false, true))
+		case "TLS_BUFFERED":
+			report(fixture.request(true, false))
+		case "TLS_IMMEDIATE":
+			report(fixture.request(true, true))
 		case "REQUEST":
-			report(call(client, url))
+			report(fixture.request(*useTLS, false))
 		case "EXIT":
 			return
 		}
 	}
 }
 
-func startServer(handler http.Handler) (*http.Client, string, func(), error) {
-	if *useTLS {
-		server := httptest.NewUnstartedServer(handler)
-		server.EnableHTTP2 = true
-		server.StartTLS()
-		return server.Client(), server.URL, server.Close, nil
+func servePlaintext(listener net.Listener, handler http.Handler) {
+	server := &http2.Server{}
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		go server.ServeConn(conn, &http2.ServeConnOpts{Handler: handler})
 	}
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, "", nil, err
-	}
-	server := &http.Server{Handler: h2c.NewHandler(handler, &http2.Server{})}
-	go func() { _ = server.Serve(listener) }()
-
-	transport := &http2.Transport{
-		AllowHTTP: true,
-		DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, network, address)
-		},
-	}
-	stop := func() {
-		transport.CloseIdleConnections()
-		_ = server.Close()
-	}
-	return &http.Client{Transport: transport}, "http://" + listener.Addr().String(), stop, nil
 }
 
-func call(client *http.Client, url string) (string, error) {
-	response, err := client.Get(url)
+func (t target) request(useTLS, immediate bool) (string, error) {
+	conn, err := net.Dial("tcp", t.plainAddress)
+	scheme := "http"
+	authority := t.plainAddress
+	if useTLS {
+		conn, err = tls.Dial("tcp", t.tlsAddress, t.tlsConfig.Clone())
+		scheme = "https"
+		authority = t.tlsAddress
+	}
 	if err != nil {
 		return "", err
 	}
-	defer response.Body.Close()
-	result, err := io.ReadAll(response.Body)
-	return string(result), err
+	defer conn.Close()
+
+	transport := &http2.Transport{}
+	client, err := transport.NewClientConn(conn)
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
+
+	if immediate {
+		// Frames are larger than this buffer, so bufio.Writer bypasses it and
+		// calls conn.Write before Framer.WriteHeaders returns.
+		if err := setFramerWriter(client, bufio.NewWriterSize(conn, 1)); err != nil {
+			return "", err
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodGet, scheme+"://"+authority+"/", http.NoBody)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.RoundTrip(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	return string(body), err
+}
+
+func setFramerWriter(client *http2.ClientConn, writer io.Writer) error {
+	clientValue := reflect.ValueOf(client).Elem()
+	framerField := clientValue.FieldByName("fr")
+	if !framerField.IsValid() {
+		return fmt.Errorf("http2.ClientConn.fr field not found")
+	}
+	framer := reflect.NewAt(framerField.Type(), unsafe.Pointer(framerField.UnsafeAddr())).Elem()
+	framerValue := framer.Interface().(*http2.Framer)
+
+	writerField := reflect.ValueOf(framerValue).Elem().FieldByName("w")
+	if !writerField.IsValid() {
+		return fmt.Errorf("http2.Framer.w field not found")
+	}
+	writable := reflect.NewAt(writerField.Type(), unsafe.Pointer(writerField.UnsafeAddr())).Elem()
+	writable.Set(reflect.ValueOf(writer))
+	return nil
 }
 
 func report(result string, err error) {
@@ -95,4 +151,11 @@ func report(result string, err error) {
 		return
 	}
 	fmt.Printf("TP_RESULT=%s\n", result)
+}
+
+func check(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

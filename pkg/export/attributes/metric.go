@@ -380,6 +380,12 @@ var (
 		Unit:    "1",
 		Type:    InstrumentGauge,
 	})
+	JVMGCDuration = metric(Name{
+		Section: "jvm.gc.duration",
+		OTEL:    "jvm.gc.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
 	NodejsEventLoopTime = metric(Name{
 		Section: "nodejs.eventloop.time",
 		OTEL:    "nodejs.eventloop.time",

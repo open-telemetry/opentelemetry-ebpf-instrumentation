@@ -96,6 +96,15 @@ func testGenericHeaderExtraction(t *testing.T) {
 	_, ok = jaeger.FindIn(parent.Tags, "http.request.header.accept")
 	assert.False(t, ok, "Accept header should be excluded")
 
+	// Compared against the header so the client's UA string is not baked in.
+	uaHeader, ok := jaeger.FindIn(parent.Tags, "http.request.header.user-agent")
+	require.True(t, ok, "expected User-Agent request header on span")
+	headerVal, valOk := jaeger.TagFirstStringValue(uaHeader)
+	require.True(t, valOk)
+	uaSemconv, ok := jaeger.FindIn(parent.Tags, "user_agent.original")
+	require.True(t, ok, "expected user_agent.original alongside the captured header")
+	assert.Equal(t, headerVal, uaSemconv.Value)
+
 	// Verify included response headers appear on the span.
 	// The test server sets X-Dice-Roll and Content-Type response headers.
 	tag, ok = jaeger.FindIn(parent.Tags, "http.response.header.x-dice-roll")

@@ -64,6 +64,18 @@ func TestPartialRouteMatcherWildcards(t *testing.T) {
 	assert.Equal(t, "/admin/{role}/users/{id}", m.Find("/admin/moderator/users/789"))
 }
 
+func TestPartialRouteMatcherDotnetWildcards(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/customers/{id:int}",
+		"/archive/{id?}",
+		"/files/{**path}",
+	})
+
+	assert.Equal(t, "/customers/{id:int}", m.Find("/customers/42"))
+	assert.Equal(t, "/archive/{id?}", m.Find("/archive/2026"))
+	assert.Equal(t, "/files/{**path}", m.Find("/files/a/b/c"))
+}
+
 func TestPartialRouteMatcherExactMatches(t *testing.T) {
 	m := NewPartialRouteMatcher([]string{
 		"/health",
@@ -417,4 +429,27 @@ func TestMatchedPartsSliceExpansion(t *testing.T) {
 	result := m.findCombined(tokens, 0, make([]string, 0), 0)
 
 	assert.Equal(t, "/api/v1/users/{id}/profile/settings/preferences/notifications", result)
+}
+
+func TestPartialMatcherPythonParams(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/api",
+		"/users/<int:user_id>",
+		"/items/{item_id:uuid}",
+	})
+
+	assert.Equal(t, "/api/users/<int:user_id>", m.Find("/api/users/42"))
+	assert.Equal(t, "/api/items/{item_id:uuid}", m.Find("/api/items/5fecd08b"))
+}
+
+func TestPartialMatcherPythonPathParams(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{"/api", "/files/<path:name>"})
+
+	assert.Equal(t, "/api/files/<path:name>", m.Find("/api/files/a/b/c.txt"))
+}
+
+func TestMatcherSkipsNonTerminalPathParam(t *testing.T) {
+	m := NewMatcher([]string{"/files/{name:path}/metadata"})
+
+	assert.Empty(t, m.Find("/files/a/b/metadata"))
 }

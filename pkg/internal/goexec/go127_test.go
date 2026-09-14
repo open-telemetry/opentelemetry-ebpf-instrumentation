@@ -15,7 +15,7 @@ import (
 func TestGo127HTTP2BinaryMetadata(t *testing.T) {
 	goVersion, _, err := getGoDetails(smallELF)
 	require.NoError(t, err)
-	if !goVersionAtLeast(goVersion, "1.27.0") {
+	if !goVersionAtLeast(goVersion, minGoRuntimeTypeMetadataVersion) {
 		t.Skip("Go 1.27 HTTP/2 metadata is not available")
 	}
 	elfFile := compileELF(

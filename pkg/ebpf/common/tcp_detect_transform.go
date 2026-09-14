@@ -153,12 +153,9 @@ func kafkaSpanEmittingExtras(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 	if len(infos) > 1 {
 		extra := make([]request.Span, 0, len(infos)-1)
 		for _, info := range infos[1:] {
-			s := TCPToKafkaToSpan(event, info)
-			// Zero the SpanID so the pipeline assigns a unique one; otherwise every
-			// topic span from this request would share the event's SpanID.
-			s.SpanID = trace.SpanID{}
-			extra = append(extra, s)
+			extra = append(extra, TCPToKafkaToSpan(event, info))
 		}
+		detachExtraSpans(extra)
 		emitTCPExtraSpans(parseCtx, event, extra...)
 	}
 	return primary, true
@@ -475,10 +472,7 @@ func matchRedis(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer
 	}
 
 	if len(spans) > 1 {
-		// clear SpanID on extras so tracesgen assigns fresh IDs
-		for i := 1; i < len(spans); i++ {
-			spans[i].SpanID = trace.SpanID{}
-		}
+		detachExtraSpans(spans[1:])
 		emitTCPExtraSpans(parseCtx, event, spans[1:]...)
 	}
 
@@ -550,11 +544,7 @@ func matchAMQP(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer,
 			return request.Span{}, true, true, nil
 		}
 		if len(spans) > 1 {
-			// Clear SpanID on extras so tracesgen assigns fresh IDs; otherwise
-			// every clone exports with the captured SpanID, violating OTel.
-			for i := 1; i < len(spans); i++ {
-				spans[i].SpanID = trace.SpanID{}
-			}
+			detachExtraSpans(spans[1:])
 			emitTCPExtraSpans(parseCtx, event, spans[1:]...)
 		}
 		return spans[0], false, true, nil

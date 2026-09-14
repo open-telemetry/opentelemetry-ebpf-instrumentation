@@ -517,8 +517,20 @@ static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skop
 
     if (bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY) == 0) {
         bpf_map_update_elem(&tracked_sock_cookies, &cookie, &(u8){1}, BPF_ANY);
+        bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_STATE_CB_FLAG);
     }
     bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
+}
+
+// every full-socket death path goes through tcp_set_state(TCP_CLOSE), which is
+// also when the kernel unhashes the socket from sock_dir
+static __always_inline void bpf_sock_ops_state_cb(struct bpf_sock_ops *skops) {
+    if (skops->args[1] != BPF_TCP_CLOSE) {
+        return;
+    }
+
+    const u64 cookie = bpf_get_socket_cookie(skops);
+    bpf_map_delete_elem(&tracked_sock_cookies, &cookie);
 }
 
 static __always_inline void bpf_sock_ops_passive_est_cb(struct bpf_sock_ops *skops) {
@@ -654,6 +666,9 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     case BPF_SOCK_OPS_PARSE_HDR_OPT_CB:
         bpf_sock_ops_parse_hdr_cb(skops);
         break;
+    case BPF_SOCK_OPS_STATE_CB:
+        bpf_sock_ops_state_cb(skops);
+        break;
     default:
         break;
     }
@@ -687,7 +702,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
         return false;
     }
 
-    if (!msg->data || msg->data >= msg->data_end) {
+    if (!msg->data || msg->data + 1 > msg->data_end) {
         invalidate_msg_buffers(e_key);
         return false;
     }
@@ -719,6 +734,9 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
     }
 
     msg_ptr[0] = 0;
+    // clamp again at the use: verifiers before 5.10 drop the bound when the value
+    // is spilled to the stack between the clamp above and this read
+    bpf_clamp_umax(window, k_msg_buffer_size_max);
     bpf_probe_read_kernel(msg_ptr, window, msg->data);
     bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
 
@@ -928,7 +946,7 @@ extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
 
     unsigned char *ptr = msg->data + offset;
 
-    if ((void *)ptr + TP_SIZE >= msg->data_end) {
+    if ((void *)ptr + TP_SIZE + 1 > msg->data_end) {
         bpf_d_printk("not enough space [%s]", __FUNCTION__);
         return false;
     }
@@ -1299,7 +1317,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
     const unsigned char *e = msg->data_end;
     unsigned char *ptr = b + (niter * k_max_chunk_size);
 
-    if (ptr >= e) {
+    if (ptr + 1 > e) {
         return SK_PASS;
     }
 
@@ -1312,7 +1330,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
     }
 
     for (u32 i = 0; i < data_size; ++i) {
-        if ((ptr + TP_SIZE >= e) || is_eoh(ptr)) {
+        if ((ptr + TP_SIZE + 1 > e) || is_eoh(ptr)) {
             bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
             break;
         }

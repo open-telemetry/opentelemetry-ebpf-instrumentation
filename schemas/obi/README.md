@@ -9,7 +9,7 @@ upstream dependency it forms the complete contract of what OBI emits
 
 Weaver has **no precedence or merge semantics** between a local group and the
 groups a dependency contributes to the resolved registry
-(`groups/dns.yaml` imports all upstream groups). When the same attribute id is
+(`--include-unreferenced` pulls in all upstream groups). When the same attribute id is
 declared by more than one group, live-check silently resolves
 the duplicate in favor of the group whose id sorts **last lexicographically** —
 including the upstream `span.*` / `metric.*` groups that `ref` an attribute
@@ -49,7 +49,7 @@ Until weaver defines local-wins override semantics, every override in
   `unknown` are deliberately NOT declared and keep failing the suites.
 - **Open-ended value space, re-typed as string**: upstream declares an enum,
   but the real value space is unbounded by design — domain-specific error
-  codes (`error.type`) or provider/MCP operation vocabularies
+  codes (`error.type`) or provider operation vocabularies
   (`gen_ai.operation.name`). Enumerating these is impossible, so the override
   re-types the attribute as a plain `string` with examples. Weaver then
   validates presence/type but not membership. For these attributes the

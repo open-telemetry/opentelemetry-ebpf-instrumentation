@@ -57,3 +57,11 @@ groups:
           `gen_ai.input.messages` / `gen_ai.output.messages` capture
           attributes.
         examples: ['{"conversation_id":"conv_abc123"}']
+      - id: obi.http.response.observed
+        type: boolean
+        stability: development
+        brief: >
+          Present and false on an HTTP span whose response was never seen;
+          absent otherwise. `http.response.status_code` is emitted instead
+          once a response is observed.
+        examples: [false]

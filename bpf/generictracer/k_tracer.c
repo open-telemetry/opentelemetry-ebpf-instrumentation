@@ -26,6 +26,7 @@
 
 #include <generictracer/dns.h>
 #include <generictracer/k_send_receive.h>
+#include <generictracer/send_buffer.h>
 #include <generictracer/k_tracer_defs.h>
 #include <generictracer/k_unix_sock.h>
 #include <generictracer/maps/active_accept_args.h>
@@ -493,7 +494,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
 
     bpf_dbg_printk("=== kprobe/tcp_sendmsg id=%d, sock=%llx, size=%d ===", id, sk, size);
 
-    send_args_t s_args = {.size = size, .buffer_read = 0};
+    send_args_t s_args = {.size = size, .buffer_read = 0, .sock_ptr = (u64)sk};
 
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
@@ -610,7 +611,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
                         bpf_map_delete_elem(&msg_buffers, &e_key);
                         // Logically last for !ssl.
                         handle_buf_with_connection(
-                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport, sk);
                     }
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);
@@ -644,6 +645,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
 
     send_args_t s_args = {
         .buffer_read = 0,
+        .sock_ptr = (u64)sk,
     };
 
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
@@ -709,7 +711,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                         bpf_map_delete_elem(&msg_buffers, &e_key);
                         // Logically last for !ssl.
                         handle_buf_with_connection(
-                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
+                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport, sk);
                     }
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);
@@ -748,24 +750,7 @@ int BPF_KRETPROBE_GUARDED(obi_kretprobe_tcp_sendmsg, int sent_len) {
             finish_possible_delayed_http_request(&s_args->p_conn);
         }
 
-        if (!s_args->buffer_read) {
-            backup_buffer_t *backup =
-                bpf_map_lookup_elem(&sock_filter_buffers, &s_args->p_conn.conn);
-            if (backup) {
-                bpf_map_delete_elem(&active_send_args, &id);
-                // Don't delete the sock filter buffer, there might be a receive message that will
-                // need it.
-
-                // Logically last, doesn't return it tail calls
-                handle_buf_with_connection(ctx,
-                                           &s_args->p_conn,
-                                           backup->buf,
-                                           s_args->size,
-                                           NO_SSL,
-                                           TCP_SEND,
-                                           s_args->orig_dport);
-            }
-        }
+        flush_backup_send_buffer(ctx, id, s_args);
     }
 
     bpf_map_delete_elem(&active_send_args, &id);
@@ -835,7 +820,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         unreadable = is_conn_unreadable(&info.conn);
     }
 
-    force_sent_event(id, &sock_p, &info, unreadable, &current_key);
+    force_sent_event(id, &sock_p, &info, unreadable, &current_key, sk);
 
     if (success) {
         //dbg_print_http_connection_info(&info.conn);
@@ -1173,8 +1158,14 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             if (buf && copied_len) {
                 bpf_map_delete_elem(&active_recv_args, &id);
                 // doesn't return must be logically last statement
-                handle_buf_with_connection(
-                    ctx, &info, buf, copied_len, NO_SSL, TCP_RECV, orig_dport);
+                handle_buf_with_connection(ctx,
+                                           &info,
+                                           buf,
+                                           copied_len,
+                                           NO_SSL,
+                                           TCP_RECV,
+                                           orig_dport,
+                                           (struct sock *)sock_ptr);
             }
         } else {
             bpf_dbg_printk("identified SSL connection, ignoring: [%llx]...", *ssl);

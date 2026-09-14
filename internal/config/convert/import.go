@@ -2519,14 +2519,16 @@ func cloneHTTPParsingRules(values []obiconfig.HTTPParsingRule) []obiconfig.HTTPP
 
 type runtimeCIDRDefinition interface {
 	~struct {
-		CIDR string `yaml:"cidr" json:"cidr"`
-		Name string `yaml:"name" json:"name"`
+		CIDR    string `yaml:"cidr" json:"cidr"`
+		Name    string `yaml:"name" json:"name"`
+		Mapping bool   `yaml:"-" json:"-"`
 	}
 }
 
 type runtimeCIDRDefinitionValue struct {
-	CIDR string `yaml:"cidr" json:"cidr"`
-	Name string `yaml:"name" json:"name"`
+	CIDR    string `yaml:"cidr" json:"cidr"`
+	Name    string `yaml:"name" json:"name"`
+	Mapping bool   `yaml:"-" json:"-"`
 }
 
 func cloneRuntimeCIDRDefinitions[T runtimeCIDRDefinition](_ []T, definitions schema.CIDRDefinitions) []T {

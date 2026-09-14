@@ -328,6 +328,21 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 	assert.Equal(t, -1, p)
 }
 
+func TestHTTPInfoEventToSpan_HostHeaderCase(t *testing.T) {
+	for _, header := range []string{"Host", "host"} {
+		t.Run(header, func(t *testing.T) {
+			event := BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+			event.ConnInfo.D_port = 443
+			copy(event.Buf[:], "HEAD / HTTP/1.1\r\n"+header+": example.com\r\n\r\n")
+
+			span, ignored, err := HTTPInfoEventToSpan(nil, &event)
+			require.NoError(t, err)
+			assert.False(t, ignored)
+			assert.Equal(t, "http;example.com", span.Statement)
+		})
+	}
+}
+
 func TestHTTPInfoParsing(t *testing.T) {
 	t.Run("Test basic parsing", func(t *testing.T) {
 		tr := makeHTTPInfo("POST", "/users", "127.0.0.1", "127.0.0.2", 12345, 8080, 200, 5)

@@ -8,7 +8,7 @@ routes:
 otel_metrics_export:
   endpoint: http://otelcol:4318
 otel_traces_export:
-  endpoint: http://jaeger:4318
+  endpoint: http://otelcol:4318
   otel_sdk_log_level: debug
 attributes:
   kubernetes:

@@ -81,7 +81,7 @@ func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "couchbase",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -189,7 +189,7 @@ func testREDMetricsPythonCouchbaseDefaultCollection(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "couchbase-default",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -244,7 +244,7 @@ func testREDMetricsPythonCouchbaseError(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "couchbase-error",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -302,7 +302,7 @@ func testREDMetricsPythonCouchbaseSQLPP(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "sqlpp",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -355,7 +355,7 @@ func testREDMetricsPythonCouchbaseSQLPPError(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "sqlpp-error",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -394,7 +394,7 @@ func testREDMetricsPythonCouchbaseSQLPPWithContext(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "sqlpp-with-context",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{

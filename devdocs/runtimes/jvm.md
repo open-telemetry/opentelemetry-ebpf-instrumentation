@@ -1,8 +1,8 @@
 # JVM runtime metrics
 
-With `application_runtime` enabled, OBI collects memory, class loading, thread,
-and CPU values from instrumented Java services and exports the following metric
-set.
+With `application_runtime` enabled, OBI collects memory, garbage-collection,
+class loading, thread, and CPU values from instrumented Java services and
+exports the following metric set.
 
 ## Metrics
 
@@ -12,6 +12,7 @@ set.
 | `jvm.memory.committed` | `jvm_memory_committed_bytes` | HotSpot `hotspot:mem__pool__gc__*` USDT probes | Emits current committed memory per JVM memory pool. |
 | `jvm.memory.limit` | `jvm_memory_limit_bytes` | HotSpot `hotspot:mem__pool__gc__*` USDT probes | Emits configured maximum memory per JVM memory pool when HotSpot reports a finite value. |
 | `jvm.memory.used_after_last_gc` | `jvm_memory_used_after_last_gc_bytes` | HotSpot `hotspot:mem__pool__gc__end` USDT probe | Emits per-pool used memory after GC completion. |
+| `jvm.gc.duration` | `jvm_gc_duration_seconds` | Java `GarbageCollectionNotificationInfo` | Histogram of per-cycle GC durations, with `jvm.gc.name` and `jvm.gc.action`; one observation per collection. |
 | `jvm.class.loaded` | `jvm_class_loaded_total` | Java `ClassLoadingMXBean` | Emits the cumulative number of classes loaded since the JVM started. |
 | `jvm.class.unloaded` | `jvm_class_unloaded_total` | Java `ClassLoadingMXBean` | Emits the cumulative number of classes unloaded since the JVM started. |
 | `jvm.class.count` | `jvm_class_count` | Java `ClassLoadingMXBean` | Emits the current number of loaded classes. |
@@ -32,18 +33,22 @@ metrics:
 ```
 
 `jvm_runtime_metrics.sampling_interval` controls HotSpot memory event sampling
-and Java agent class, thread, and CPU collection.
+and Java agent class, thread, and CPU collection. GC durations are observed per
+collection and are not subject to this interval.
 
 ```yaml
 jvm_runtime_metrics:
   sampling_interval: 1s
 ```
 
+The GC histogram boundaries default to the semconv advisory values and can be
+overridden through the exporter `buckets.jvm_gc_duration_histogram` option.
+
 `javaagent.enabled` (default `true`) controls the injected Java agent. Setting
-it to `false` disables the agent-backed class, thread, and CPU metrics. HotSpot
-memory metrics continue through their USDT probes, independently of the agent.
-OBI logs a warning when `application_runtime` is enabled while the Java agent
-is disabled.
+it to `false` disables the agent-backed GC duration, class, thread, and CPU
+metrics. HotSpot memory metrics continue through their USDT probes,
+independently of the agent. OBI logs a warning when `application_runtime` is
+enabled while the Java agent is disabled.
 
 ## Collection path
 
@@ -58,11 +63,12 @@ metrics export queue:
 3. The BPF probes sample according to `jvm_runtime_metrics.sampling_interval`,
    read HotSpot event arguments, and submit JVM runtime events through the shared
    BPF event ring buffer.
-4. When the Java agent is enabled, OBI starts its runtime sampler during agent
-   attachment. The sampler reads the JVM management beans according to
-   `jvm_runtime_metrics.sampling_interval` and sends class, thread, and CPU
-   snapshots through the agent ioctl channel.
-5. The generic tracer converts both raw JVM event types into `RuntimeMetricSnapshot`
+4. When the Java agent is enabled, OBI starts its runtime sampler and registers
+   GC notification listeners during agent attachment. The sampler reads the JVM
+   management beans according to `jvm_runtime_metrics.sampling_interval`. The
+   listeners report each completed collection. Both paths send their values
+   through the agent ioctl channel.
+5. The generic tracer converts the raw JVM events into `RuntimeMetricSnapshot`
    values and forwards them through the runtime metrics queue.
 6. OTEL and Prometheus exporters consume queued snapshots, apply per-service
    `application_runtime` feature gating, and emit the metrics.
@@ -71,7 +77,8 @@ metrics export queue:
 
 Memory snapshots update when HotSpot emits memory-pool GC probe events, subject
 to `sampling_interval`. Class, thread, and CPU snapshots update at the same
-configured interval after Java agent attachment.
+configured interval after Java agent attachment. GC duration observations are
+event-driven and update after every collection reported by the JVM.
 
 Intervals shorter than the 1 second default increase management-bean CPU and
 allocation costs proportionally. The Java agent contains a JMH benchmark for

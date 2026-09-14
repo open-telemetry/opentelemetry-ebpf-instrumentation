@@ -5,11 +5,13 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"net"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,7 +23,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -33,7 +34,9 @@ const timeout = 5 * time.Second
 func TestFilter(t *testing.T) {
 	ctx := t.Context()
 
-	promPort := testutil.FreeTCPPort(t)
+	registry := prometheus.NewRegistry()
+	promServer := httptest.NewServer(promhttp.HandlerFor(registry, promhttp.HandlerOpts{Registry: registry}))
+	t.Cleanup(promServer.Close)
 
 	stats := Stats{
 		agentIP: net.ParseIP("1.2.3.4"),
@@ -42,9 +45,9 @@ func TestFilter(t *testing.T) {
 		},
 		cfg: &obi.Config{
 			Prometheus: prom.PrometheusConfig{
-				Path: "/metrics",
-				Port: promPort,
-				TTL:  time.Hour,
+				Registry: registry,
+				Path:     "/metrics",
+				TTL:      time.Hour,
 			},
 			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo},
 			Attributes: obi.Attributes{Select: attributes.Selection{
@@ -104,7 +107,7 @@ func TestFilter(t *testing.T) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		allMetrics, err := promtest.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
+		allMetrics, err := promtest.Scrape(promServer.URL)
 		require.NoError(ct, err)
 
 		// Filter for only the metrics you want to verify

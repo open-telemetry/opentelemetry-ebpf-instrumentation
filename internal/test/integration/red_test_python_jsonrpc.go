@@ -38,7 +38,7 @@ func jsonRPCCall(url, method string, id int, params any) (*http.Response, error)
 
 func testPythonJSONRPCServer(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/rpc"
 	)
 

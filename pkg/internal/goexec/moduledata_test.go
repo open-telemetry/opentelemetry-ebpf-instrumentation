@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/goabi"
 )
 
 // Synthetic ELF layout used by all moduledata tests.
@@ -47,13 +49,13 @@ const (
 	testMDEtext     uint64 = 184
 )
 
-var testMDOffsets = moduledataOffsets{
-	pcHeader:  testMDPcHeader,
-	pclntable: testMDPclntable,
-	minpc:     testMDMinpc,
-	maxpc:     testMDMaxpc,
-	text:      testMDText,
-	etext:     testMDEtext,
+var testMDOffsets = goabi.Moduledata{
+	PCHeader:  testMDPcHeader,
+	PCLNTable: testMDPclntable,
+	MinPC:     testMDMinpc,
+	MaxPC:     testMDMaxpc,
+	Text:      testMDText,
+	EText:     testMDEtext,
 }
 
 // ELF struct sizes (Elf64_* ABI, fixed for 64-bit).
@@ -232,17 +234,17 @@ func TestLoadGo127ModuledataOffsets(t *testing.T) {
 
 	actual, err := loadModuledataOffsets(elfF)
 	require.NoError(t, err)
-	require.Equal(t, moduledataOffsets{
-		pcHeader:    testMDPcHeader,
-		pclntable:   testMDPclntable,
-		minpc:       testMDMinpc,
-		maxpc:       testMDMaxpc,
-		text:        testMDText,
-		etext:       testMDEtext,
-		types:       296,
-		typedesclen: 304,
-		itaboffset:  320,
-		itabsize:    328,
+	require.Equal(t, goabi.Moduledata{
+		PCHeader:    testMDPcHeader,
+		PCLNTable:   testMDPclntable,
+		MinPC:       testMDMinpc,
+		MaxPC:       testMDMaxpc,
+		Text:        testMDText,
+		EText:       testMDEtext,
+		Types:       296,
+		TypeDescLen: 304,
+		ITabOffset:  320,
+		ITabSize:    328,
 	}, actual)
 }
 

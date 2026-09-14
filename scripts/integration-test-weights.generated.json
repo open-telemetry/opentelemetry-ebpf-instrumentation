@@ -35,6 +35,7 @@
   "TestPHPFMUnixSock": 77,
   "TestPHPFMUnixSockNginxSupportFloor": 179,
   "TestPerAppFeatures": 103,
+  "TestPythonRuntimeMetricsProm": 1171,
   "TestSampler": 123,
   "TestSemconvVersionMatchesManifest": 0,
   "TestStat_GoStatMetrics": 93,

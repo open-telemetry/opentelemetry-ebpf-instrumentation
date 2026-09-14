@@ -13,7 +13,8 @@ public enum OperationType {
   VT_MOUNT((byte) 4),
   // virtual thread unmounted from the calling carrier; payload unused
   VT_UNMOUNT((byte) 5),
-  JVM_RUNTIME_SNAPSHOT((byte) 6);
+  JVM_RUNTIME_SNAPSHOT((byte) 6),
+  JVM_GC_DURATION((byte) 7);
 
   public final byte code;
 

@@ -19,6 +19,7 @@ This describes the service topology of the vendored Online Boutique app (`Google
 ```mermaid
 graph TD
     adservice["adservice<br/>:9555 gRPC"]
+    aerospike["aerospike<br/>:3000 Aerospike"]
     cartservice["cartservice<br/>:7070 gRPC"]
     checkoutservice["checkoutservice<br/>:5050 gRPC"]
     currencyservice["currencyservice<br/>:7000 gRPC"]
@@ -27,6 +28,7 @@ graph TD
     loadgenerator["loadgenerator"]
     paymentservice["paymentservice<br/>:50051 gRPC"]
     productcatalogservice["productcatalogservice<br/>:3550 gRPC"]
+    recentlyviewed["recentlyviewed<br/>:8080 HTTP"]
     recommendationservice["recommendationservice<br/>:8080 gRPC"]
     redis_cart["redis-cart<br/>:6379 Redis"]
     shippingservice["shippingservice<br/>:50051 gRPC"]
@@ -43,9 +45,11 @@ graph TD
     frontend -->|gRPC| checkoutservice
     frontend -->|gRPC| currencyservice
     frontend -->|gRPC| productcatalogservice
+    frontend -->|HTTP| recentlyviewed
     frontend -->|gRPC| recommendationservice
     frontend -->|gRPC| shippingservice
     loadgenerator -->|HTTP| frontend
+    recentlyviewed -->|Aerospike| aerospike
     recommendationservice -->|gRPC| productcatalogservice
 
     classDef go fill:darkturquoise,stroke:teal,color:black;
@@ -54,13 +58,15 @@ graph TD
     classDef dotnet fill:rebeccapurple,stroke:indigo,color:white;
     classDef java fill:darkorange,stroke:chocolate,color:black;
     classDef datastore fill:firebrick,stroke:darkred,color:white;
+    classDef datastore_aerospike fill:indianred,stroke:brown,color:white;
 
     class checkoutservice,frontend,productcatalogservice,shippingservice go;
     class emailservice,loadgenerator,recommendationservice python;
     class currencyservice,paymentservice nodejs;
     class cartservice dotnet;
-    class adservice java;
+    class adservice,recentlyviewed java;
     class redis_cart datastore;
+    class aerospike datastore_aerospike;
 ```
 <!-- /generated:graph -->
 
@@ -70,7 +76,8 @@ graph TD
 <span style="color:forestgreen">■</span> Node.js &nbsp;
 <span style="color:rebeccapurple">■</span> C# / .NET &nbsp;
 <span style="color:darkorange">■</span> Java &nbsp;
-<span style="color:firebrick">■</span> Redis (datastore)
+<span style="color:firebrick">■</span> Redis (datastore) &nbsp;
+<span style="color:indianred">■</span> Aerospike (datastore)
 <!-- /generated:legend -->
 
 ## Connections
@@ -93,9 +100,11 @@ environment variables in the manifests.
 | frontend | checkoutservice | `checkoutservice:5050` | gRPC |
 | frontend | currencyservice | `currencyservice:7000` | gRPC |
 | frontend | productcatalogservice | `productcatalogservice:3550` | gRPC |
+| frontend | recentlyviewed | `recentlyviewed:8080` | HTTP |
 | frontend | recommendationservice | `recommendationservice:8080` | gRPC |
 | frontend | shippingservice | `shippingservice:50051` | gRPC |
 | loadgenerator | frontend | `frontend:80` | HTTP |
+| recentlyviewed | aerospike | `aerospike:3000` | Aerospike |
 | recommendationservice | productcatalogservice | `productcatalogservice:3550` | gRPC |
 <!-- /generated:connections -->
 
@@ -110,6 +119,7 @@ detected from each service's source tree under [`app/src`](./app/src).
 | Service | Language | Source marker |
 | --- | --- | --- |
 | adservice | Java | `build.gradle` |
+| aerospike | Aerospike (datastore) | upstream `aerospike/aerospike-server` image |
 | cartservice | C# / .NET | `cartservice.csproj` |
 | checkoutservice | Go | `go.mod` |
 | currencyservice | Node.js | `package.json` |
@@ -118,6 +128,7 @@ detected from each service's source tree under [`app/src`](./app/src).
 | loadgenerator | Python | `requirements.txt` |
 | paymentservice | Node.js | `package.json` |
 | productcatalogservice | Go | `go.mod` |
+| recentlyviewed | Java | `pom.xml` |
 | recommendationservice | Python | `requirements.txt` |
 | redis-cart | Redis (datastore) | upstream `redis:alpine` image |
 | shippingservice | Go | `go.mod` |

@@ -82,6 +82,9 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 	for _, symbol := range gotracer.GoAutoSDKActivationProbeSymbols() {
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}
+	for _, symbol := range gotracer.GoHTTP2FlushProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
 	for _, symbol := range gotracer.GoH2OwnershipProbeSymbols() {
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}

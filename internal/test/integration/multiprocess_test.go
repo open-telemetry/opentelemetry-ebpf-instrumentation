@@ -282,7 +282,7 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=ruby&operation=GET%20%2Fusers")
+		resp, err := http.Get(jaegerQueryURL + "?service=testapi&operation=GET%20%2Fusers")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
