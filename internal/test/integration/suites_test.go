@@ -455,7 +455,7 @@ func TestSuite_Rails(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`, `TESTSERVER_IMAGE=`+obiTestImgRails)
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "testapi") })
-	t.Run("Rails harvested routes", testRailsHarvestedRoutes)
+	t.Run("Rails harvested routes", func(t *testing.T) { testRailsHarvestedRoutes(t, "testapi") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())

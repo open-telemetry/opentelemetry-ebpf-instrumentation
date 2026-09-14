@@ -243,7 +243,7 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 	}
 }
 
-func testRailsHarvestedRoutes(t *testing.T) {
+func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	for _, tc := range []struct {
 		path  string
@@ -258,12 +258,12 @@ func testRailsHarvestedRoutes(t *testing.T) {
 				ti.DoHTTPGet(t, "http://localhost:3041"+tc.path, http.StatusOK)
 			}
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="my-ruby-app",http_request_method="GET",http_route="` + tc.route + `",url_path="` + tc.path + `"}`)
+				results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="` + serviceName + `",http_request_method="GET",http_route="` + tc.route + `",url_path="` + tc.path + `"}`)
 				require.NoError(ct, err)
 				enoughPromResults(ct, results)
 			}, testTimeout, 100*time.Millisecond)
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				resp, err := http.Get(jaegerQueryURL + "?service=my-ruby-app")
+				resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName)
 				require.NoError(ct, err)
 				defer resp.Body.Close()
 				require.Equal(ct, http.StatusOK, resp.StatusCode)
