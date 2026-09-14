@@ -69,9 +69,10 @@ func djangoCallEnd(stmt string, open int) int {
 	var quote byte
 	for i := open; i < len(stmt); i++ {
 		if quote != 0 {
-			if stmt[i] == '\\' {
+			switch stmt[i] {
+			case '\\':
 				i++
-			} else if stmt[i] == quote {
+			case quote:
 				quote = 0
 			}
 			continue
