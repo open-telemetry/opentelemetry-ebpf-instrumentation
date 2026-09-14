@@ -394,6 +394,44 @@ static void test_resume_keeps_unstored_span(void) {
     check_u64(36, thread_span(), "the top frame stays current");
 }
 
+static void test_grpc_client_overflow_preserves_shared_context(void) {
+    reset();
+    begin(k_obi_ctx_http_server, span(40), 100);
+    begin(k_obi_ctx_sql, span(41), 200);
+    begin(k_obi_ctx_sql, span(42), 210);
+    begin(k_obi_ctx_sql, span(43), 220);
+    check_u64(k_obi_ctx_max_depth, stack()->depth, "shared context stack is full");
+
+    begin(k_obi_ctx_grpc_client, span(44), 230);
+    begin(k_obi_ctx_grpc_client, span(45), 240);
+    check_u64(2,
+              stack()->overflow[k_obi_ctx_grpc_client],
+              "nested gRPC client calls overflow the shared context stack");
+    check_u64(45, thread_span(), "deepest overflowed gRPC client is current");
+
+    end(k_obi_ctx_grpc_client, span(45));
+    check_u64(1,
+              stack()->overflow[k_obi_ctx_grpc_client],
+              "inner gRPC client return consumes only its overflow frame");
+    check_u64(43, thread_span(), "inner gRPC client return restores the tracked parent context");
+
+    end(k_obi_ctx_grpc_client, span(44));
+    check_u64(0,
+              stack()->overflow[k_obi_ctx_grpc_client],
+              "outer gRPC client return clears its overflow frame");
+    check_u64(43, thread_span(), "overflowed frames do not corrupt the tracked parent context");
+
+    end(k_obi_ctx_sql, span(43));
+    check_u64(42, thread_span(), "first shared parent is restored");
+    end(k_obi_ctx_sql, span(42));
+    check_u64(41, thread_span(), "second shared parent is restored");
+    end(k_obi_ctx_sql, span(41));
+    check_u64(40, thread_span(), "server parent is restored");
+    end(k_obi_ctx_http_server, span(40));
+    check(stack() == NULL, "all gRPC and shared context frames unwind cleanly");
+    check_u64(0, thread_span(), "no stale gRPC context remains after unwind");
+}
+
 static void test_stack_off(void) {
     struct pt_regs regs = {.sp = 0x7000};
     test_stack_hi = 0x7400;
@@ -415,6 +453,7 @@ int main(void) {
     test_unrelated_end_keeps_overflow_accounting();
     test_resume();
     test_resume_keeps_unstored_span();
+    test_grpc_client_overflow_preserves_shared_context();
     test_stack_off();
 
     if (failures) {

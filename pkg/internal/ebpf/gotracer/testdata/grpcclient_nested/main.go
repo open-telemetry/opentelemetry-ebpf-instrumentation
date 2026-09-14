@@ -44,11 +44,17 @@ type testResp struct {
 
 type testService interface{}
 
-var eofAlias error = io.EOF
+var (
+	eofAlias error = io.EOF
+	fakeEOF  error = errors.New("EOF")
+)
 
 func init() {
 	if eofAlias == nil {
 		panic("io.EOF alias was not initialized")
+	}
+	if fakeEOF == nil {
+		panic("fake EOF was not initialized")
 	}
 }
 
@@ -330,7 +336,7 @@ func main() {
 				continue
 			}
 			streamPtr := (*struct{ tab, data unsafe.Pointer })(unsafe.Pointer(&stream)).data
-			grpcClientStreamFinish(streamPtr, errors.New("EOF"))
+			grpcClientStreamFinish(streamPtr, fakeEOF)
 			report(cmd, nil)
 
 		case "STREAM_RACE_ALREADY_CANCELLED":

@@ -238,8 +238,7 @@ static void test_stream_pointer_reuse(void) {
         &early_grpc_client_finishes, sizeof(go_addr_key_t), sizeof(grpc_client_early_finish_t));
     mock_register(
         &ongoing_grpc_client_streams, sizeof(go_addr_key_t), sizeof(grpc_client_stream_state_t));
-    mock_register(
-        &tracked_grpc_client_streams, sizeof(go_addr_key_t), sizeof(u8));
+    mock_register(&tracked_grpc_client_streams, sizeof(go_addr_key_t), sizeof(u8));
 
     const go_addr_key_t stream_key = {.pid = 0x42, .addr = 0x5000};
     u8 dummy = 1;

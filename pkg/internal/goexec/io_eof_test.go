@@ -21,13 +21,17 @@ func TestFindIoEOF_Unstripped(t *testing.T) {
 	syms, err := elfFile.Symbols()
 	require.NoError(t, err)
 	var expected uint64
+	var fakeEOF uint64
 	for _, s := range syms {
 		if s.Name == "io.EOF" {
 			expected = s.Value
-			break
+		}
+		if s.Name == "main.fakeEOF" {
+			fakeEOF = s.Value
 		}
 	}
 	require.NotZero(t, expected, "symbol io.EOF should exist in unstripped binary")
+	require.NotZero(t, fakeEOF, "fixture fake EOF should exist in unstripped binary")
 
 	impls, err := findInterfaceImpls(elfFile)
 	require.NoError(t, err)
@@ -36,9 +40,32 @@ func TestFindIoEOF_Unstripped(t *testing.T) {
 	directEOF, err := findIoEOF(elfFile)
 	require.NoError(t, err)
 	assert.Equal(t, expected, directEOF)
+	assert.NotEqual(t, fakeEOF, directEOF)
+
+	candidates, err := findIoEOFCandidates(elfFile)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(candidates), 2, "fixture must produce an EOF ambiguity")
+	assert.Contains(t, candidates, expected)
+	assert.Contains(t, candidates, fakeEOF)
 }
 
 func TestFindIoEOF_Stripped(t *testing.T) {
+	unstripped := compileELF(
+		tools.ProjectDir() + "/pkg/internal/ebpf/gotracer/testdata/grpcclient_nested/main.go",
+	)
+	t.Cleanup(func() { require.NoError(t, unstripped.Close()) })
+
+	syms, err := unstripped.Symbols()
+	require.NoError(t, err)
+	var expected uint64
+	for _, s := range syms {
+		if s.Name == "io.EOF" {
+			expected = s.Value
+			break
+		}
+	}
+	require.NotZero(t, expected, "symbol io.EOF should exist in unstripped binary")
+
 	elfFile := compileELF(
 		tools.ProjectDir()+"/pkg/internal/ebpf/gotracer/testdata/grpcclient_nested/main.go",
 		"-ldflags", "-s -w",
@@ -52,4 +79,9 @@ func TestFindIoEOF_Stripped(t *testing.T) {
 	directEOF, err := findIoEOF(elfFile)
 	require.NoError(t, err)
 	assert.Equal(t, impls["io.EOF"], directEOF)
+	assert.Equal(t, expected, directEOF, "stripped discovery must choose canonical io.EOF")
+
+	candidates, err := findIoEOFCandidates(elfFile)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(candidates), 2, "fixture must remain ambiguous after stripping")
 }

@@ -607,6 +607,33 @@ func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 	assert.False(t, tracer.goChannelLinkProbesEnabled())
 }
 
+func TestRegisterIoEOFLoadBiasSeparatesProcessesSharingExecutable(t *testing.T) {
+	originalLoadBias := findExeLoadBias
+	originalPIDInfo := lookupIoEOFPIDInfo
+	t.Cleanup(func() {
+		findExeLoadBias = originalLoadBias
+		lookupIoEOFPIDInfo = originalPIDInfo
+	})
+
+	findExeLoadBias = func(pid app.PID) (uint64, error) {
+		return uint64(pid) << 12, nil
+	}
+	lookupIoEOFPIDInfo = func(pid app.PID, ns uint32) (BpfPidInfo, error) {
+		return BpfPidInfo{HostPid: uint32(pid), UserPid: uint32(pid), Ns: ns}, nil
+	}
+
+	biases := &recordingIoEOFLoadBiasMap{entries: map[BpfPidInfo]uint64{}}
+	first := exec.New(exec.Init{Pid: 101, Ns: 7, Dev: 5, Ino: 10})
+	second := exec.New(exec.Init{Pid: 202, Ns: 7, Dev: 5, Ino: 10})
+
+	require.NoError(t, registerIoEOFLoadBias(first, biases))
+	require.NoError(t, registerIoEOFLoadBias(second, biases))
+
+	assert.Equal(t, uint64(101<<12), biases.entries[BpfPidInfo{HostPid: 101, UserPid: 101, Ns: 7}])
+	assert.Equal(t, uint64(202<<12), biases.entries[BpfPidInfo{HostPid: 202, UserPid: 202, Ns: 7}])
+	assert.Len(t, biases.entries, 2)
+}
+
 func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 	setContextPropagationSupportForTest(t, true)
 
@@ -1629,6 +1656,23 @@ func (m *recordingMapKeyDeleter) Delete(key any) error {
 type targetMapPut struct {
 	key   uint32
 	value uint64
+}
+
+type recordingIoEOFLoadBiasMap struct {
+	entries map[BpfPidInfo]uint64
+}
+
+func (m *recordingIoEOFLoadBiasMap) Put(key, value any) error {
+	pidInfo, ok := key.(BpfPidInfo)
+	if !ok {
+		panic("unexpected io.EOF load-bias key")
+	}
+	loadBias, ok := value.(uint64)
+	if !ok {
+		panic("unexpected io.EOF load-bias value")
+	}
+	m.entries[pidInfo] = loadBias
+	return nil
 }
 
 type recordingTargetMap struct {

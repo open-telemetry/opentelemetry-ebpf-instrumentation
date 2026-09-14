@@ -305,6 +305,7 @@ type Tracer struct {
 	runtimeMetricsEnabled             bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
+	goIoEOFByExecutable               map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
 	goRuntimeGCGoalSourceByExecutable map[executableIdentity]goRuntimeGCGoalSource
 	currentBinary                     executableIdentity
@@ -339,6 +340,7 @@ func New(
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
+		goIoEOFByExecutable:               map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
 		goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{},
 		goAutoSDKActivationByExecutable:   map[executableIdentity]bool{},
@@ -710,20 +712,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		// Keep the ELF-relative address in the executable-scoped table. The runtime
 		// address is process-specific for PIE binaries and is supplied through the
 		// PID-scoped load-bias map below.
-		if loadBias, err := procs.FindExeLoadBias(fileInfo.Pid()); err == nil {
-			offTable.Table[goexec.GoIoEOFAddress] = eofAddr
-			pidInfo, pidErr := runtimeMetricPIDInfo(fileInfo.Pid(), fileInfo.Ns())
-			if pidErr != nil {
-				p.log.Debug("io.EOF load-bias PID lookup failed", "pid", fileInfo.Pid(), "error", pidErr)
-			} else if p.bpfObjects.IoEofLoadBiases != nil {
-				if err := p.bpfObjects.IoEofLoadBiases.Put(pidInfo, loadBias); err != nil {
-					p.log.Debug("storing io.EOF load bias failed", "pid", fileInfo.Pid(), "error", err)
-				}
-			}
-		} else {
-			p.log.Debug("io.EOF load-bias lookup failed; disabling io.EOF normalization",
-				"pid", fileInfo.Pid(), "error", err)
-		}
+		offTable.Table[goexec.GoIoEOFAddress] = eofAddr
 	}
 
 	ino := fileInfo.Ino()
@@ -734,10 +723,13 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			"ino", ino,
 			"error", err)
 		delete(p.goAutoSDKActivationByExecutable, identity)
+		delete(p.goIoEOFByExecutable, identity)
 		delete(p.goRuntimeMetricMaskByExecutable, identity)
 		p.deleteRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns())
 		return
 	}
+	p.recordGoIoEOFAvailability(fileInfo, offTable.Table[goexec.GoIoEOFAddress] != missingGoOffset)
+	p.registerIoEOFLoadBias(fileInfo)
 	p.recordGoAutoSDKActivationSupport(fileInfo, offsets)
 	p.recordGoRuntimeMetricAvailability(fileInfo, offsets)
 	if hasBaseGoRuntimeMetrics(p.goRuntimeMetricMaskByExecutable[identity]) {
@@ -1587,6 +1579,50 @@ func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
 	return pidInfo, nil
 }
 
+type bpfMapPutter interface {
+	Put(key, value any) error
+}
+
+var (
+	findExeLoadBias    = procs.FindExeLoadBias
+	lookupIoEOFPIDInfo = runtimeMetricPIDInfo
+)
+
+func registerIoEOFLoadBias(fileInfo *exec.FileInfo, biases bpfMapPutter) error {
+	loadBias, err := findExeLoadBias(fileInfo.Pid())
+	if err != nil {
+		return fmt.Errorf("finding executable load bias: %w", err)
+	}
+
+	pidInfo, err := lookupIoEOFPIDInfo(fileInfo.Pid(), fileInfo.Ns())
+	if err != nil {
+		return fmt.Errorf("looking up PID info: %w", err)
+	}
+	if err := biases.Put(pidInfo, loadBias); err != nil {
+		return fmt.Errorf("storing load bias: %w", err)
+	}
+
+	return nil
+}
+
+func (p *Tracer) recordGoIoEOFAvailability(fileInfo *exec.FileInfo, available bool) {
+	if p.goIoEOFByExecutable == nil {
+		p.goIoEOFByExecutable = map[executableIdentity]bool{}
+	}
+	p.goIoEOFByExecutable[goOffsetsMapKey(fileInfo)] = available
+}
+
+func (p *Tracer) registerIoEOFLoadBias(fileInfo *exec.FileInfo) {
+	if p == nil || fileInfo == nil || !p.goIoEOFByExecutable[goOffsetsMapKey(fileInfo)] ||
+		p.bpfObjects.IoEofLoadBiases == nil {
+		return
+	}
+
+	if err := registerIoEOFLoadBias(fileInfo, p.bpfObjects.IoEofLoadBiases); err != nil && p.log != nil {
+		p.log.Debug("storing io.EOF load bias failed", "pid", fileInfo.Pid(), "error", err)
+	}
+}
+
 func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
 	if p == nil {
 		return
@@ -1597,6 +1633,7 @@ func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
 	}
 
 	p.currentBinary = goOffsetsMapKey(fileInfo)
+	p.registerIoEOFLoadBias(fileInfo)
 }
 
 func (p *Tracer) AddCloser(c ...io.Closer) {

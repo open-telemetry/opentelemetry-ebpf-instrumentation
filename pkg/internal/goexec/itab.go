@@ -90,19 +90,48 @@ func findIoEOF(ef *elf.File) (uint64, error) {
 		return 0, errors.New("io.EOF discovery only supports 64-bit ELF")
 	}
 
+	eofCandidates, err := findIoEOFCandidates(ef)
+	if err != nil {
+		return 0, err
+	}
+	if len(eofCandidates) == 1 {
+		return eofCandidates[0], nil
+	}
+
+	counts := ioEOFReferenceCounts(ef, eofCandidates)
+	var selected uint64
+	max := 0
+	unique := false
+	for _, candidate := range eofCandidates {
+		count := counts[candidate]
+		if count > max {
+			selected = candidate
+			max = count
+			unique = true
+		} else if count == max {
+			unique = false
+		}
+	}
+	if unique && max > 0 {
+		return selected, nil
+	}
+	return 0, fmt.Errorf("ambiguous io.EOF candidates found: %d", len(eofCandidates))
+}
+
+func findIoEOFCandidates(ef *elf.File) ([]uint64, error) {
 	rodataSec := ef.Section(".rodata")
 	dataSec := ef.Section(".data")
 	if rodataSec == nil || dataSec == nil {
-		return 0, errors.New("missing .rodata or .data section")
+		return nil, errors.New("missing .rodata or .data section")
 	}
 
 	rodata, err := rodataSec.Data()
 	if err != nil {
-		return 0, fmt.Errorf("reading .rodata section: %w", err)
+		return nil, fmt.Errorf("reading .rodata section: %w", err)
 	}
 	data, err := dataSec.Data()
 	if err != nil {
-		return 0, fmt.Errorf("reading .data section: %w", err)
+		return nil, fmt.Errorf("reading .data section: %w", err)
 	}
 
 	relocs := buildRelocationInfo(ef)
@@ -144,31 +173,10 @@ func findIoEOF(ef *elf.File) (uint64, error) {
 		eofCandidates = append(eofCandidates, dataSec.Addr+uint64(off))
 	}
 
-	if len(eofCandidates) == 1 {
-		return eofCandidates[0], nil
-	}
 	if len(eofCandidates) == 0 {
-		return 0, errors.New("io.EOF not found in .data")
+		return nil, errors.New("io.EOF not found in .data")
 	}
-
-	counts := ioEOFReferenceCounts(ef, eofCandidates)
-	var selected uint64
-	max := 0
-	unique := false
-	for _, candidate := range eofCandidates {
-		count := counts[candidate]
-		if count > max {
-			selected = candidate
-			max = count
-			unique = true
-		} else if count == max {
-			unique = false
-		}
-	}
-	if unique && max > 0 {
-		return selected, nil
-	}
-	return 0, fmt.Errorf("ambiguous io.EOF candidates found: %d", len(eofCandidates))
+	return eofCandidates, nil
 }
 
 func ioEOFReferenceCounts(ef *elf.File, candidates []uint64) map[uint64]int {
