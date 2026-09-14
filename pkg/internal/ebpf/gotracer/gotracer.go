@@ -16,6 +16,7 @@ package gotracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 
 import (
 	"context"
+	"debug/elf"
 	"errors"
 	"fmt"
 	"io"
@@ -691,8 +692,17 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			symbol: "*crypto/tls.Conn",
 			field:  goexec.TLSConnTypeAddress,
 		},
+		{
+			symbol: "io.EOF",
+			field:  goexec.GoIoEOFAddress,
+		},
 	} {
 		if address, ok := offsets.ITypes[iType.symbol]; ok {
+			if fileInfo != nil && fileInfo.ELF() != nil && fileInfo.ELF().Type == elf.ET_DYN {
+				if base, err := procs.FindExeBaseAddr(fileInfo.Pid()); err == nil {
+					address += base
+				}
+			}
 			offTable.Table[iType.field] = address
 		}
 	}

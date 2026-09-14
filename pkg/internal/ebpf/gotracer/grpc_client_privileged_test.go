@@ -358,6 +358,32 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 		assertNoStaleStreams(t, tracer)
 	})
 
+	// 1b. Regression: errors.New("EOF") must remain non-zero error status (unlike io.EOF)
+	t.Run("stream_err_new_eof", func(t *testing.T) {
+		collector.clear()
+		res := send("STREAM_ERR_NEW_EOF")
+		require.Contains(t, res, "STATUS=OK")
+
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			grpcSpans := collector.getGRPCClientSpans()
+			var streamSpans []request.Span
+			for _, s := range grpcSpans {
+				if s.Path == "/TestService/Stream" {
+					streamSpans = append(streamSpans, s)
+				}
+			}
+			assert.Len(c, streamSpans, 1, "stream span should be emitted upon finish")
+			if len(streamSpans) == 1 {
+				assert.Equal(c, "/TestService/Stream", streamSpans[0].Path)
+				assert.NotEqual(c, 0, streamSpans[0].Status, "errors.New(\"EOF\") must produce error status != 0")
+				assert.True(c, streamSpans[0].TraceID.IsValid())
+				assert.True(c, streamSpans[0].SpanID.IsValid())
+			}
+		}, 10*time.Second, 100*time.Millisecond)
+
+		assertNoStaleStreams(t, tracer)
+	})
+
 	// 2. Race: context already cancelled prior to NewStream
 	t.Run("stream_race_already_cancelled", func(t *testing.T) {
 		collector.clear()

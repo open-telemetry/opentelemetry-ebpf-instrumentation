@@ -763,38 +763,35 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
     return 0;
 }
 
-// Checks whether a Go error is io.EOF.
-// In Go, io.EOF is an error interface where:
-// - err_itab points to runtime.itab (*errors.errorString)
-// - err_data points to an errors.errorString struct containing string { str *byte, len int }
-// For io.EOF, len is 3 and str points to "EOF".
+// Checks whether a Go error is io.EOF by comparing interface equality:
+// err == io.EOF (exact itab and data pointer match).
 // grpc-go normalizes io.EOF to nil in (*clientStream).finish:
 //     if err == io.EOF { err = nil }
-static __always_inline bool is_err_io_eof(void *err_itab, void *err_data) {
-    if (!err_itab || !err_data) {
+static __always_inline bool is_err_io_eof(off_table_t *ot, void *err_itab, void *err_data) {
+    if (!err_itab || !err_data || !ot) {
         return false;
     }
 
-    void *str_ptr = NULL;
-    if (bpf_probe_read(&str_ptr, sizeof(str_ptr), err_data) != 0 || !str_ptr) {
+    const u64 io_eof_addr = go_offset_of(ot, (go_offset){.v = _io_eof_addr});
+    if (!io_eof_addr || io_eof_addr == (u64)-1) {
         return false;
     }
 
-    u64 str_len = 0;
-    if (bpf_probe_read(&str_len, sizeof(str_len), (void *)((unsigned char *)err_data + 8)) != 0) {
+    void *expected_itab = NULL;
+    if (bpf_probe_read_user(&expected_itab, sizeof(expected_itab), (void *)io_eof_addr) != 0 ||
+        !expected_itab) {
         return false;
     }
 
-    if (str_len != 3) {
+    void *expected_data = NULL;
+    if (bpf_probe_read_user(&expected_data,
+                            sizeof(expected_data),
+                            (void *)(io_eof_addr + k_go_iface_data_offset)) != 0 ||
+        !expected_data) {
         return false;
     }
 
-    char buf[4] = {0};
-    if (bpf_probe_read(buf, 3, str_ptr) != 0) {
-        return false;
-    }
-
-    return (buf[0] == 'E' && buf[1] == 'O' && buf[2] == 'F');
+    return (err_itab == expected_itab && err_data == expected_data);
 }
 
 SEC("uprobe/clientStream_finish")
@@ -806,8 +803,9 @@ int GUARDED_PROG(obi_uprobe_clientStream_finish, struct pt_regs *, ctx) {
         return 0;
     }
 
+    off_table_t *ot = get_offsets_table();
     void *err = err_itab;
-    if (err && is_err_io_eof(err_itab, err_data)) {
+    if (err && is_err_io_eof(ot, err_itab, err_data)) {
         err = NULL;
     }
 

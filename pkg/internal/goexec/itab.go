@@ -47,6 +47,10 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 		}
 	}
 	for _, s := range symbols {
+		if s.Name == "io.EOF" {
+			implementations["io.EOF"] = s.Value
+			continue
+		}
 		// Name is in format: go:itab.*net/http.response,net/http.ResponseWriter or go.itab.*net/http.response,net/http.ResponseWriter on old versions
 		if !isITabEntry(s.Name) {
 			continue

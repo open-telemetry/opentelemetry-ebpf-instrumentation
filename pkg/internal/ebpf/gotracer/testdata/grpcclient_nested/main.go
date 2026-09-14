@@ -16,11 +16,15 @@ import (
 	"os"
 	"sync"
 	"time"
+	"unsafe"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding"
 )
+
+//go:linkname grpcClientStreamFinish google.golang.org/grpc.(*clientStream).finish
+func grpcClientStreamFinish(cs unsafe.Pointer, err error)
 
 type jsonCodec struct{}
 
@@ -309,6 +313,16 @@ func main() {
 					break
 				}
 			}
+			report(cmd, nil)
+
+		case "STREAM_ERR_NEW_EOF":
+			stream, err := connA.NewStream(context.Background(), &streamDesc, "/TestService/Stream")
+			if err != nil {
+				report(cmd, err)
+				continue
+			}
+			streamPtr := (*struct{ tab, data unsafe.Pointer })(unsafe.Pointer(&stream)).data
+			grpcClientStreamFinish(streamPtr, errors.New("EOF"))
 			report(cmd, nil)
 
 		case "STREAM_RACE_ALREADY_CANCELLED":
