@@ -19,7 +19,7 @@ import (
 
 const (
 	maxRailsRoutesBytes int64 = 2 * 1024 * 1024
-	maxRailsRouteFiles        = 64
+	maxRailsRouteFiles        = 256
 )
 
 var (
@@ -138,6 +138,9 @@ func readRailsRouteFile(ctx context.Context, path string) ([]string, []string, e
 func scanRailsRoutes(ctx context.Context, reader io.Reader) ([]string, []string, error) {
 	var routes, draws []string
 	scanner := bufio.NewScanner(reader)
+	// bufio.Scanner defaults to a 64KiB token limit; match it to the read budget
+	// above so a single long line doesn't abort the scan with ErrTooLong.
+	scanner.Buffer(nil, int(maxRailsRoutesBytes))
 	inComment := false
 	var pending string
 	for scanner.Scan() {

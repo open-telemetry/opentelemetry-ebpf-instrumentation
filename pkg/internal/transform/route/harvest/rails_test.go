@@ -42,6 +42,11 @@ func TestScanRailsRoutes(t *testing.T) {
 		{"comments", "# get '/ignored'\n=begin\nget '/ignored'\n=end\nget '/health', to: 'health#show' # comment\nget '/health'", []string{"/health"}},
 		{"dynamic paths", "get \"/users/#{name}\"\nget PREFIX + '/users'\nget '/users' + suffix\nresources :users, path: user_path\nresources :users, param: dynamic_param\nget /pattern/", nil},
 		{"unsupported patterns", "get '/users(/:id)'\nget '/files/*path'", nil},
+		// The comma-based continuation rule only joins lines while the previous
+		// line ends in a trailing comma; an "only: [" opening its own line breaks
+		// that chain. The declaration is then parsed with an unresolved "only:"
+		// value, which safely drops the whole resource instead of guessing.
+		{"multiline array without trailing comma on open bracket", "resources :users,\n  only: [\n    :index,\n    :show\n  ]", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			routes, _, err := scanRailsRoutes(t.Context(), strings.NewReader(tc.source))
@@ -49,6 +54,16 @@ func TestScanRailsRoutes(t *testing.T) {
 			assert.ElementsMatch(t, tc.want, routes)
 		})
 	}
+}
+
+// A line longer than bufio.Scanner's default 64KiB token limit must not abort
+// the scan; the scanner buffer is sized to the same budget as maxRailsRoutesBytes.
+func TestScanRailsRoutesLongLine(t *testing.T) {
+	padding := strings.Repeat(" ", 128*1024)
+	source := fmt.Sprintf("# %s\nget '/health'", padding)
+	routes, _, err := scanRailsRoutes(t.Context(), strings.NewReader(source))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/health"}, routes)
 }
 
 func TestRailsRouteMatcher(t *testing.T) {
@@ -113,12 +128,18 @@ func TestExtractRailsRoutesUnsafeFiles(t *testing.T) {
 	}
 }
 
+type erroringReader struct{}
+
+func (erroringReader) Read([]byte) (int, error) {
+	return 0, errors.New("boom")
+}
+
 func TestScanRailsRoutesCancellationAndReadError(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, _, err := scanRailsRoutes(ctx, strings.NewReader(`resources :users`))
 	require.ErrorIs(t, err, context.Canceled)
-	_, _, err = scanRailsRoutes(t.Context(), strings.NewReader(strings.Repeat("x", 128*1024)))
+	_, _, err = scanRailsRoutes(t.Context(), erroringReader{})
 	require.Error(t, err)
 }
 
