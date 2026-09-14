@@ -150,7 +150,130 @@ func findIoEOF(ef *elf.File) (uint64, error) {
 	if len(eofCandidates) == 0 {
 		return 0, errors.New("io.EOF not found in .data")
 	}
+
+	counts := ioEOFReferenceCounts(ef, eofCandidates)
+	var selected uint64
+	max := 0
+	unique := false
+	for _, candidate := range eofCandidates {
+		count := counts[candidate]
+		if count > max {
+			selected = candidate
+			max = count
+			unique = true
+		} else if count == max {
+			unique = false
+		}
+	}
+	if unique && max > 0 {
+		return selected, nil
+	}
 	return 0, fmt.Errorf("ambiguous io.EOF candidates found: %d", len(eofCandidates))
+}
+
+func ioEOFReferenceCounts(ef *elf.File, candidates []uint64) map[uint64]int {
+	counts := make(map[uint64]int, len(candidates))
+	known := make(map[uint64]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		known[candidate] = struct{}{}
+	}
+	for _, value := range buildRelocationInfo(ef).explicit {
+		if _, ok := known[value]; ok {
+			counts[value]++
+		}
+	}
+
+	for _, prog := range ef.Progs {
+		if prog.Type != elf.PT_LOAD || prog.Flags&elf.PF_X == 0 {
+			continue
+		}
+		text, err := readProgramData(prog)
+		if err != nil {
+			continue
+		}
+		for i := 0; i+8 <= len(text); i++ {
+			value := ef.ByteOrder.Uint64(text[i : i+8])
+			if _, ok := known[value]; ok {
+				counts[value]++
+			}
+		}
+
+		if ef.Machine == elf.EM_X86_64 {
+			for i := 0; i+7 <= len(text); i++ {
+				if !isRipRelativeMemoryReference(text, i) {
+					continue
+				}
+				disp := int64(int32(ef.ByteOrder.Uint32(text[i+3 : i+7])))
+				address := prog.Vaddr + uint64(i) + 7 + uint64(disp)
+				if _, ok := known[address]; ok {
+					counts[address]++
+				}
+			}
+		} else if ef.Machine == elf.EM_AARCH64 {
+			for i := 0; i+8 <= len(text); i += 4 {
+				address, ok := arm64PageAddress(text, i, prog.Vaddr)
+				if !ok {
+					continue
+				}
+				if _, ok := known[address]; ok {
+					counts[address]++
+				}
+			}
+		}
+	}
+	return counts
+}
+
+func readProgramData(prog *elf.Prog) ([]byte, error) {
+	if prog.Filesz > uint64(^uint(0)>>1) {
+		return nil, errors.New("executable segment is too large")
+	}
+	data := make([]byte, int(prog.Filesz))
+	if _, err := prog.ReadAt(data, 0); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func isRipRelativeMemoryReference(text []byte, i int) bool {
+	if text[i]&0xf0 != 0x40 || i+7 > len(text) {
+		return false
+	}
+	opcode := text[i+1]
+	if opcode != 0x8b && opcode != 0x8d && opcode != 0x89 && opcode != 0x39 && opcode != 0x3b &&
+		opcode != 0x81 && opcode != 0x83 {
+		return false
+	}
+	return text[i+2]&0xc7 == 0x05
+}
+
+func arm64PageAddress(text []byte, i int, base uint64) (uint64, bool) {
+	adrp := binary.LittleEndian.Uint32(text[i : i+4])
+	if adrp&0x9f000000 != 0x90000000 {
+		return 0, false
+	}
+
+	register := adrp & 0x1f
+	immlo := (adrp >> 29) & 0x3
+	immhi := (adrp >> 5) & 0x7ffff
+	imm := int64((immhi << 2) | immlo)
+	if imm&(1<<20) != 0 {
+		imm |= ^int64(0) << 21
+	}
+	page := (base + uint64(i)) &^ 0xfff
+	page = uint64(int64(page) + (imm << 12))
+
+	for j := i + 4; j+4 <= len(text) && j <= i+16; j += 4 {
+		add := binary.LittleEndian.Uint32(text[j : j+4])
+		if add&0x7f000000 != 0x11000000 {
+			continue
+		}
+		if add&0x1f != register || (add>>5)&0x1f != register {
+			continue
+		}
+		return page + uint64((add>>10)&0xfff), true
+	}
+	return 0, false
 }
 
 func findInterfaceImplsFromModuledata(ef *elf.File, targetVersion goversion.Version) (map[string]uint64, error) {

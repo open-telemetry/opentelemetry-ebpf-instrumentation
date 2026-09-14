@@ -620,15 +620,11 @@ int GUARDED_PROG(obi_uprobe_clientStream_withRetry, struct pt_regs *, ctx) {
     return 0;
 }
 
-// Secondary stream_ptr capture / defensive compatibility fallback.
-// In normal execution, withRetry above is authoritative; this return probe ensures
-// stream_ptr is populated even if withRetry was unavailable or bypassed.
-// Clearing stream_constructor_active first guarantees that post-streamer interceptor
-// actions cannot be treated as constructor-time work.
+// Ends the constructor-time scope used to recognize the authoritative withRetry hook.
+// If that hook was unavailable or bypassed, this path deliberately does not associate the
+// returned pointer with prior generation state.
 SEC("uprobe/newClientStreamWithParams")
 int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, ctx) {
-    void *stream_ptr = GO_PARAM2(ctx);
-
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -642,9 +638,6 @@ int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, 
 
     grpc_client_constructor_end(current);
 
-    if (!current->stream_ptr && stream_ptr) {
-        current->stream_ptr = (u64)stream_ptr;
-    }
     return 0;
 }
 
@@ -676,6 +669,7 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
             u8 dummy = 1;
             bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
             bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+            bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
         }
         go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
         return 0;
@@ -695,7 +689,6 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
     grpc_client_stream_state_t state = {
         .invocation = inv,
         .conn = {0},
-        .claimed = 0,
     };
 
     if (inv.transport_ptr) {
@@ -708,10 +701,11 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
         }
     }
 
-    // Publish ongoing stream state with claimed=0.
+    // Publish ongoing stream state before reconciling a finish observed during construction.
     if (bpf_map_update_elem(&ongoing_grpc_client_streams, &s_key, &state, BPF_ANY) != 0) {
         // Map update failed (e.g. map full): clean up early finish marker and fail safely
         bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+        bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
         go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
         return 0;
     }
@@ -719,14 +713,12 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
     // Lookup early marker AFTER publication
     grpc_client_early_finish_t *early = bpf_map_lookup_elem(&early_grpc_client_finishes, &s_key);
     if (early) {
-        grpc_client_stream_state_t *st = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
-        if (st && __sync_bool_compare_and_swap(&st->claimed, 0ULL, 1ULL)) {
+        if (grpc_client_claim_stream(&s_key)) {
             grpc_client_emit_with_conn(&inv, &state.conn, early->has_err ? (void *)1 : NULL);
         }
-        u8 dummy = 1;
-        bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
         bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
         bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+        bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
     }
 
     go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
@@ -736,6 +728,7 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
 
 SEC("uprobe/ClientConn_Close")
 int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
+    (void)ctx;
     return 0;
 }
 
@@ -765,17 +758,23 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
 
 // Checks whether a Go error is io.EOF by comparing interface equality:
 // err == io.EOF (exact itab and data pointer match).
-// grpc-go normalizes io.EOF to nil in (*clientStream).finish:
-//     if err == io.EOF { err = nil }
 static __always_inline bool is_err_io_eof(off_table_t *ot, void *err_itab, void *err_data) {
     if (!err_itab || !err_data || !ot) {
         return false;
     }
 
-    const u64 io_eof_addr = go_offset_of(ot, (go_offset){.v = _io_eof_addr});
+    u64 io_eof_addr = go_offset_of(ot, (go_offset){.v = _io_eof_addr});
     if (!io_eof_addr || io_eof_addr == (u64)-1) {
         return false;
     }
+
+    pid_info pid = {};
+    task_pid(&pid);
+    u64 *load_bias = bpf_map_lookup_elem(&io_eof_load_biases, &pid);
+    if (!load_bias) {
+        return false;
+    }
+    io_eof_addr += *load_bias;
 
     void *expected_itab = NULL;
     if (bpf_probe_read_user(&expected_itab, sizeof(expected_itab), (void *)io_eof_addr) != 0 ||
@@ -794,16 +793,35 @@ static __always_inline bool is_err_io_eof(off_table_t *ot, void *err_itab, void 
     return (err_itab == expected_itab && err_data == expected_data);
 }
 
-SEC("uprobe/clientStream_finish")
-int GUARDED_PROG(obi_uprobe_clientStream_finish, struct pt_regs *, ctx) {
-    void *stream_ptr = GO_PARAM1(ctx);
+// csAttempt.finish is called by clientStream.finish while cs.finished is already true and
+// cs.mu is held. This observes the winner selected by grpc-go, while retry cleanup calls are
+// ignored because cs.finished is still false.
+SEC("uprobe/csAttempt_finish")
+int GUARDED_PROG(obi_uprobe_csAttempt_finish, struct pt_regs *, ctx) {
+    void *attempt_ptr = GO_PARAM1(ctx);
     void *err_itab = GO_PARAM2(ctx);
     void *err_data = GO_PARAM3(ctx);
-    if (!stream_ptr) {
+    if (!attempt_ptr) {
         return 0;
     }
 
     off_table_t *ot = get_offsets_table();
+    const u64 cs_offset = go_offset_of(ot, (go_offset){.v = _grpc_cs_attempt_cs_pos});
+    const u64 finished_offset =
+        go_offset_of(ot, (go_offset){.v = _grpc_client_stream_finished_pos});
+    if (cs_offset == (u64)-1 || finished_offset == (u64)-1) {
+        return 0;
+    }
+
+    void *stream_ptr = NULL;
+    u8 finished = 0;
+    if (bpf_probe_read_user(&stream_ptr, sizeof(stream_ptr), attempt_ptr + cs_offset) != 0 ||
+        !stream_ptr ||
+        bpf_probe_read_user(&finished, sizeof(finished), stream_ptr + finished_offset) != 0 ||
+        !finished) {
+        return 0;
+    }
+
     void *err = err_itab;
     if (err && is_err_io_eof(ot, err_itab, err_data)) {
         err = NULL;
@@ -812,15 +830,15 @@ int GUARDED_PROG(obi_uprobe_clientStream_finish, struct pt_regs *, ctx) {
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, stream_ptr);
 
-    // 1. If published state exists: attempt state claim (0 -> 1)
+    // The completed map is the generation's claim record. BPF_NOEXIST is serialized by the
+    // kernel map implementation and is supported on the repository's minimum kernels.
     grpc_client_stream_state_t *state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
     if (state) {
-        if (__sync_bool_compare_and_swap(&state->claimed, 0ULL, 1ULL)) {
+        if (grpc_client_claim_stream(&s_key)) {
             grpc_client_emit_with_conn(&state->invocation, &state->conn, err);
-            u8 dummy = 1;
-            bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
             bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
             bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+            bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
         }
         return 0;
     }
@@ -831,35 +849,19 @@ int GUARDED_PROG(obi_uprobe_clientStream_finish, struct pt_regs *, ctx) {
         return 0;
     }
 
-    // 3. Insert early marker with BPF_NOEXIST (first early finish wins marker)
+    // A clientStream created by ClientConn.Invoke is unary and never enters this map. Do not
+    // create an unreconcilable early marker for it.
+    u8 *tracked = bpf_map_lookup_elem(&tracked_grpc_client_streams, &s_key);
+    if (!tracked) {
+        return 0;
+    }
+
+    // 3. Insert early marker with BPF_NOEXIST. The actual winner has already been selected by
+    // grpc-go, so this marker only bridges the finish-before-NewStream-return window.
     grpc_client_early_finish_t early = {
         .has_err = err ? 1 : 0,
     };
     bpf_map_update_elem(&early_grpc_client_finishes, &s_key, &early, BPF_NOEXIST);
-
-    // If finish was called synchronously on the creator goroutine during stream creation,
-    // record stream_ptr on the active invocation so ClientConn_NewStream_return can clean up.
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
-    grpc_client_invocation_stack_t *stack =
-        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-    grpc_client_func_invocation_t *current = grpc_client_current(stack);
-    if (current && current->func_type == k_grpc_client_func_type_new_stream) {
-        current->stream_ptr = (u64)stream_ptr;
-    }
-
-    // 4. Lookup published state AGAIN in case publication raced with early marker insertion
-    state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
-    if (state) {
-        if (__sync_bool_compare_and_swap(&state->claimed, 0ULL, 1ULL)) {
-            grpc_client_emit_with_conn(&state->invocation, &state->conn, err);
-            u8 dummy = 1;
-            bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
-            bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
-            bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
-        }
-    }
 
     return 0;
 }

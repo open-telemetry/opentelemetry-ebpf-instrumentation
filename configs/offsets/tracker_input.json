@@ -128,6 +128,12 @@
       ],
       "google.golang.org/grpc/internal/transport.ClientStream": [
         "[1.69.0]Stream"
+      ],
+      "google.golang.org/grpc.csAttempt": [
+        "cs"
+      ],
+      "google.golang.org/grpc.clientStream": [
+        "finished"
       ]
     }
   },

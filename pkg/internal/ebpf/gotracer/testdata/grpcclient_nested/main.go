@@ -44,6 +44,14 @@ type testResp struct {
 
 type testService interface{}
 
+var eofAlias error = io.EOF
+
+func init() {
+	if eofAlias == nil {
+		panic("io.EOF alias was not initialized")
+	}
+}
+
 func handleUnary(
 	_ any,
 	_ context.Context,

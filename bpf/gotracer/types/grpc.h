@@ -51,7 +51,6 @@ typedef struct grpc_client_stream_state {
     grpc_client_func_invocation_t invocation;
     connection_info_t conn;
     u32 _pad;
-    u64 claimed;
 } grpc_client_stream_state_t;
 
 typedef struct grpc_client_early_finish {

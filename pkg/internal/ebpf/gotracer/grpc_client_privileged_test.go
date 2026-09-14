@@ -203,6 +203,16 @@ func assertNoStaleStreams(t *testing.T, tr *Tracer) {
 		}
 		assert.NoError(c, earlyIter.Err())
 		assert.Zero(c, earlyCount, "early_grpc_client_finishes should have no stale entries")
+
+		var trackedVal uint8
+		trackedIter := tr.bpfObjects.TrackedGrpcClientStreams.Iterate()
+		trackedCount := 0
+		for trackedIter.Next(&key, &trackedVal) {
+			trackedCount++
+			t.Logf("STALE tracked_grpc_client_streams: pid=%d addr=%x", key.Pid, key.Addr)
+		}
+		assert.NoError(c, trackedIter.Err())
+		assert.Zero(c, trackedCount, "tracked_grpc_client_streams should have no stale entries")
 	}, 5*time.Second, 100*time.Millisecond)
 }
 
@@ -323,11 +333,18 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
 			assert.Len(c, grpcSpans, 4, "exactly 4 tracked spans should be emitted when stack capacity is 4")
+			sort.Slice(grpcSpans, func(i, j int) bool { return grpcSpans[i].Start < grpcSpans[j].Start })
 			spanIDs := make(map[trace.SpanID]struct{})
-			for _, s := range grpcSpans {
+			for i, s := range grpcSpans {
 				assert.Equal(c, "/TestService/Unary", s.Path)
 				assert.Equal(c, 0, s.Status)
 				spanIDs[s.SpanID] = struct{}{}
+				if i > 0 {
+					assert.Equal(c,
+						grpcSpans[i-1].SpanID,
+						s.ParentSpanID,
+						"returning from an overflowed nested call must restore its tracked parent context")
+				}
 			}
 			assert.Len(c, spanIDs, 4, "all 4 tracked spans must have unique span IDs")
 		}, 10*time.Second, 100*time.Millisecond)
@@ -340,6 +357,18 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 
 	targetBin := buildGRPCNestedClientTarget(t)
 	send, collector, tracer := startGRPCNestedClientTarget(t, targetBin)
+
+	// Unary Invoke also uses grpc-go's clientStream internally, but it never
+	// publishes a tracked NewStream generation. It must not consume the early
+	// finish map used by streaming RPCs.
+	t.Run("unary_does_not_pollute_early_finishes", func(t *testing.T) {
+		collector.clear()
+		for i := 0; i < 50; i++ {
+			res := send("UNARY")
+			require.Contains(t, res, "STATUS=OK")
+		}
+		assertNoStaleStreams(t, tracer)
+	})
 
 	// 1. Normal streaming RPC
 	t.Run("stream_normal", func(t *testing.T) {
