@@ -763,12 +763,52 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
     return 0;
 }
 
+// Checks whether a Go error is io.EOF.
+// In Go, io.EOF is an error interface where:
+// - err_itab points to runtime.itab (*errors.errorString)
+// - err_data points to an errors.errorString struct containing string { str *byte, len int }
+// For io.EOF, len is 3 and str points to "EOF".
+// grpc-go normalizes io.EOF to nil in (*clientStream).finish:
+//     if err == io.EOF { err = nil }
+static __always_inline bool is_err_io_eof(void *err_itab, void *err_data) {
+    if (!err_itab || !err_data) {
+        return false;
+    }
+
+    void *str_ptr = NULL;
+    if (bpf_probe_read(&str_ptr, sizeof(str_ptr), err_data) != 0 || !str_ptr) {
+        return false;
+    }
+
+    u64 str_len = 0;
+    if (bpf_probe_read(&str_len, sizeof(str_len), (void *)((unsigned char *)err_data + 8)) != 0) {
+        return false;
+    }
+
+    if (str_len != 3) {
+        return false;
+    }
+
+    char buf[4] = {0};
+    if (bpf_probe_read(buf, 3, str_ptr) != 0) {
+        return false;
+    }
+
+    return (buf[0] == 'E' && buf[1] == 'O' && buf[2] == 'F');
+}
+
 SEC("uprobe/clientStream_finish")
 int GUARDED_PROG(obi_uprobe_clientStream_finish, struct pt_regs *, ctx) {
     void *stream_ptr = GO_PARAM1(ctx);
-    void *err = GO_PARAM2(ctx);
+    void *err_itab = GO_PARAM2(ctx);
+    void *err_data = GO_PARAM3(ctx);
     if (!stream_ptr) {
         return 0;
+    }
+
+    void *err = err_itab;
+    if (err && is_err_io_eof(err_itab, err_data)) {
+        err = NULL;
     }
 
     go_addr_key_t s_key = {};

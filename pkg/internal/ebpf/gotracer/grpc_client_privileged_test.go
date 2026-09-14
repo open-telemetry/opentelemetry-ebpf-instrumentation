@@ -349,6 +349,7 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 			assert.Len(c, streamSpans, 1, "stream span should be emitted upon finish")
 			if len(streamSpans) == 1 {
 				assert.Equal(c, "/TestService/Stream", streamSpans[0].Path)
+				assert.Equal(c, 0, streamSpans[0].Status, "normally completed stream must have OK status")
 				assert.True(c, streamSpans[0].TraceID.IsValid())
 				assert.True(c, streamSpans[0].SpanID.IsValid())
 			}
