@@ -41,6 +41,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -1037,8 +1038,8 @@ func attachGoAutoSDKActivationProbe(
 		return nil, fmt.Errorf("opening target executable: %w", err)
 	}
 
-	activationLink, err := executable.Uprobe(
-		"",
+	activationLink, err := uprobe.Attach(
+		executable,
 		probe.program,
 		goAutoSDKActivationUprobeOptions(probe, pid),
 	)
@@ -1070,10 +1071,10 @@ func validateGoAutoSDKProcessStartTime(pid app.PID, expected uint64) error {
 func goAutoSDKActivationUprobeOptions(
 	probe goAutoSDKActivationProbe,
 	pid app.PID,
-) *link.UprobeOptions {
-	return &link.UprobeOptions{
-		Address: probe.offset,
-		PID:     int(pid),
+) uprobe.Options {
+	return uprobe.Options{
+		Addresses: []uint64{probe.offset},
+		PID:       uint32(pid),
 	}
 }
 

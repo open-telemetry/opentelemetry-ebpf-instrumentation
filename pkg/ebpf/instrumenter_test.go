@@ -973,12 +973,11 @@ func TestProcessScopedGoProbeRegistrationIsDeferred(t *testing.T) {
 func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
 	linkCloser := &countingCloser{}
 	groupCloser := &reverseCloser{closers: []io.Closer{linkCloser}}
-	i := &instrumenter{
-		optionalGoProbeGroupClosers: []io.Closer{groupCloser},
-	}
+	pt := &ProcessTracer{log: slog.Default()}
+	i := &instrumenter{closables: []io.Closer{groupCloser, groupCloser}}
 
-	i.rollbackOptionalGoProbeGroups()
-	i.rollbackOptionalGoProbeGroups()
+	pt.unlinkInstrumenter(i)
+	pt.unlinkInstrumenter(i)
 
 	assert.Equal(t, int32(1), linkCloser.closes.Load())
 }

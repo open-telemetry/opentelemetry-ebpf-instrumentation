@@ -12,6 +12,8 @@ import (
 
 	"github.com/cilium/ebpf/link"
 	"golang.org/x/sys/unix"
+
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 )
 
 func (p *Tracer) ResolveUprobeTarget(executable *link.Executable, offset uint64) (uint64, uint64, error) {
@@ -34,10 +36,10 @@ func (p *Tracer) ResolveUprobeTarget(executable *link.Executable, offset uint64)
 
 	// This temporary link makes the kernel pass its real target inode to the
 	// uprobe_register kprobe. The program is inert in the target process.
-	temporaryProbe, err := executable.Uprobe(
-		"",
+	temporaryProbe, err := uprobe.Attach(
+		executable,
 		p.bpfObjects.ObiCaptureGoExecutableIdentity,
-		&link.UprobeOptions{Address: offset},
+		uprobe.Options{Addresses: []uint64{offset}},
 	)
 	if err != nil {
 		return 0, 0, fmt.Errorf("registering temporary uprobe: %w", err)

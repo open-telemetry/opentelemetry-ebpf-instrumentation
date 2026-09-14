@@ -861,9 +861,9 @@ func TestGoAutoSDKActivationUprobeOptionsArePIDScoped(t *testing.T) {
 		app.PID(456),
 	)
 
-	assert.Equal(t, uint64(0x1234), options.Address)
-	assert.Equal(t, 456, options.PID)
-	assert.Zero(t, options.Cookie)
+	assert.Equal(t, []uint64{0x1234}, options.Addresses)
+	assert.Equal(t, uint32(456), options.PID)
+	assert.False(t, options.Return)
 }
 
 func TestDuplicateAllowPIDKeepsOneActivationLink(t *testing.T) {
