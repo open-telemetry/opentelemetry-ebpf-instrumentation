@@ -25,6 +25,7 @@ func TestReadDotEnvAppName(t *testing.T) {
 		{name: "comments and unrelated assignments", contents: "\n# comment\nOTHER=value\nAPP_NAME=Orders\n", want: "Orders"},
 		{name: "hash without separating whitespace", contents: "APP_NAME=Orders#blue\n", want: "Orders#blue"},
 		{name: "inline comment", contents: "APP_NAME=Orders API # production\n", want: "Orders API"},
+		{name: "later assignment overrides earlier assignment", contents: "APP_NAME=old-name\nAPP_NAME=new-name\n", want: "new-name"},
 		{name: "invalid assignment followed by valid one", contents: "APP_NAME=${BASE_NAME}\nAPP_NAME=Orders\n", want: "Orders"},
 		{name: "comment value followed by valid one", contents: "APP_NAME= # disabled\nAPP_NAME=Orders\n", want: "Orders"},
 		{name: "wrong key", contents: "APPLICATION_NAME=Orders\n"},

@@ -18,6 +18,8 @@ func readDotEnvAppName(path string) string {
 		return ""
 	}
 
+	result := ""
+
 	for line := range bytes.SplitSeq(data, []byte{'\n'}) {
 		assignment := strings.TrimSpace(strings.TrimSuffix(string(line), "\r"))
 		if assignment == "" || strings.HasPrefix(assignment, "#") {
@@ -29,10 +31,10 @@ func readDotEnvAppName(path string) string {
 			continue
 		}
 		if value, ok := literalDotEnvValue(value); ok {
-			return value
+			result = value
 		}
 	}
-	return ""
+	return result
 }
 
 // we read what's in .env, but we do some sanity checks that the name
