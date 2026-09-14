@@ -831,6 +831,30 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = append(attrs, request.AWSSQSQueueURL(sqs.QueueURL))
 		}
 
+		if span.SubType == request.HTTPSubtypeAWSSNS && span.AWS != nil {
+			sns := span.AWS.SNS
+			attrs = append(attrs, semconv.MessagingSystemAWSSNS, request.MessagingOperationName(sns.OperationName))
+			if sns.OperationType != "" {
+				attrs = append(attrs, request.MessagingOperationType(sns.OperationType))
+			}
+			if sns.TopicARN != "" {
+				attrs = append(attrs, semconv.AWSSNSTopicARN(sns.TopicARN), request.MessagingDestinationName(sns.Destination))
+			}
+			if sns.MessageID != "" {
+				attrs = append(attrs, request.MessagingMessageID(sns.MessageID))
+			}
+			if sns.OperationName == "PublishBatch" {
+				attrs = append(attrs, semconv.MessagingBatchMessageCount(sns.BatchCount))
+			}
+			if sns.Meta.RequestID != "" {
+				attrs = append(attrs, semconv.AWSRequestID(sns.Meta.RequestID))
+			}
+			attrs = append(attrs, semconv.CloudRegion(sns.Meta.Region))
+			if sns.ErrorCode != "" {
+				attrs = append(attrs, request.ErrorType(sns.ErrorCode))
+			}
+		}
+
 		if span.SubType == request.HTTPSubtypeOpenAI && span.GenAI != nil && span.GenAI.OpenAI != nil {
 			ai := span.GenAI.OpenAI
 			attrs = append(attrs, semconv.GenAIProviderNameOpenAI)

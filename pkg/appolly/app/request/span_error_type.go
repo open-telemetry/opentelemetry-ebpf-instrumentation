@@ -44,6 +44,9 @@ func SpanErrorType(span *Span) string {
 // parsedErrorType reports the error a protocol parser extracted from the
 // payload, which some protocols report inside a 2xx response.
 func parsedErrorType(span *Span) string {
+	if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil && span.AWS.SNS.ErrorCode != "" {
+		return span.AWS.SNS.ErrorCode
+	}
 	if span.DBError.ErrorCode != "" {
 		return span.DBError.ErrorCode
 	}

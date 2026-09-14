@@ -239,6 +239,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return semconv.MessagingSystemAWSSQS
 			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil {
+				return semconv.MessagingSystemAWSSNS
+			}
 			return attribute.KeyValue{}
 		}
 	case attr.MessagingDestination:
@@ -255,6 +258,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return semconv.MessagingDestinationName(span.AWS.SQS.Destination)
 			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil {
+				return semconv.MessagingDestinationName(span.AWS.SNS.Destination)
+			}
 			return semconv.MessagingDestinationName("")
 		}
 	case attr.MessagingOpName:
@@ -262,6 +268,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			switch {
 			case span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil:
 				return MessagingOperationName(span.AWS.SQS.OperationName)
+			case span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil:
+				return MessagingOperationName(span.AWS.SNS.OperationName)
 			case span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer ||
 				span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer ||
 				span.Type == EventTypeNATSClient || span.Type == EventTypeNATSServer ||
@@ -284,6 +292,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				opType = span.AWS.SQS.OperationType
 			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil {
+				opType = span.AWS.SNS.OperationType
+			}
 			if opType == "" {
 				// messaging.operation.type is a semconv enum: omit the
 				// attribute rather than emitting an empty (invalid) variant.
@@ -295,6 +306,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(span *Span) attribute.KeyValue {
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return MessagingMessageID(span.AWS.SQS.MessageID)
+			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil {
+				return MessagingMessageID(span.AWS.SNS.MessageID)
 			}
 			return MessagingMessageID("")
 		}
@@ -369,6 +383,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
 				return AWSRequestID(s.AWS.SQS.Meta.RequestID)
 			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
+				return AWSRequestID(s.AWS.SNS.Meta.RequestID)
+			}
 			return AWSRequestID("")
 		}
 	case attr.AWSExtendedRequestID:
@@ -399,6 +416,20 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return AWSSQSQueueURL("")
 		}
+	case attr.AWSSNSTopicARN:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil && s.AWS.SNS.TopicARN != "" {
+				return semconv.AWSSNSTopicARN(s.AWS.SNS.TopicARN)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.MessagingBatchCount:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil && s.AWS.SNS.OperationName == "PublishBatch" {
+				return semconv.MessagingBatchMessageCount(s.AWS.SNS.BatchCount)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.CloudRegion:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
@@ -406,6 +437,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
 				return CloudRegion(s.AWS.SQS.Meta.Region)
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
+				return CloudRegion(s.AWS.SNS.Meta.Region)
 			}
 			return CloudRegion("")
 		}
