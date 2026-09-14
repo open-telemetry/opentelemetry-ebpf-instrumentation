@@ -650,7 +650,7 @@ func TestRuntimeMetricCleanupKeepsIoEOFLoadBias(t *testing.T) {
 	tracer.deleteRuntimeMetricTarget(key.pid, key.ns)
 
 	assert.NotContains(t, tracer.runtimeMetricTargetKeys, key)
-	assert.Contains(t, tracer.ioEOFLoadBiasKeys, ioEOFLoadBiasKey{pid: key.pid, ns: key.ns})
+	assert.Contains(t, tracer.ioEOFLoadBiasKeys, ioEOFLoadBiasKey(key))
 	assert.Equal(t, uint64(0x1000), biases.entries[pidInfo])
 }
 
@@ -660,17 +660,17 @@ func TestBlockPIDRemovesIoEOFLoadBias(t *testing.T) {
 	tracer := activationLifecycleTestTracer(func(app.PID) (uint64, error) {
 		return 0, nil
 	})
-	tracer.ioEOFLoadBiasKeys = map[ioEOFLoadBiasKey]BpfPidInfo{{pid: key.pid, ns: key.ns}: pidInfo}
+	tracer.ioEOFLoadBiasKeys = map[ioEOFLoadBiasKey]BpfPidInfo{ioEOFLoadBiasKey(key): pidInfo}
 
 	tracer.BlockPID(key.pid, key.ns)
 
-	assert.NotContains(t, tracer.ioEOFLoadBiasKeys, ioEOFLoadBiasKey{pid: key.pid, ns: key.ns})
+	assert.NotContains(t, tracer.ioEOFLoadBiasKeys, ioEOFLoadBiasKey(key))
 }
 
 func TestDeleteIoEOFLoadBiasRemovesTrackedEntry(t *testing.T) {
 	key := runtimeMetricTargetKey{pid: 101, ns: 7}
 	pidInfo := BpfPidInfo{HostPid: 101, UserPid: 101, Ns: 7}
-	ioEOFKey := ioEOFLoadBiasKey{pid: key.pid, ns: key.ns}
+	ioEOFKey := ioEOFLoadBiasKey(key)
 	keys := map[ioEOFLoadBiasKey]BpfPidInfo{ioEOFKey: pidInfo}
 	biases := &recordingIoEOFLoadBiasMap{entries: map[BpfPidInfo]uint64{pidInfo: 0x1000}}
 

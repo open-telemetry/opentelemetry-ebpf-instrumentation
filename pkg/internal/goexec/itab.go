@@ -100,19 +100,19 @@ func findIoEOF(ef *elf.File) (uint64, error) {
 
 	counts := ioEOFReferenceCounts(ef, eofCandidates)
 	var selected uint64
-	max := 0
+	maxCount := 0
 	unique := false
 	for _, candidate := range eofCandidates {
 		count := counts[candidate]
-		if count > max {
+		if count > maxCount {
 			selected = candidate
-			max = count
+			maxCount = count
 			unique = true
-		} else if count == max {
+		} else if count == maxCount {
 			unique = false
 		}
 	}
-	if unique && max > 0 {
+	if unique && maxCount > 0 {
 		return selected, nil
 	}
 	return 0, fmt.Errorf("ambiguous io.EOF candidates found: %d", len(eofCandidates))
