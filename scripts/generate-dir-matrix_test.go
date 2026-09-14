@@ -76,8 +76,7 @@ func runGenerateDirMatrix(t *testing.T, searchDir, excludePattern string) (strin
 	}
 
 	var stderr string
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		stderr = string(exitErr.Stderr)
 	}
 

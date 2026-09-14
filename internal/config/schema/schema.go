@@ -168,8 +168,7 @@ func yamlFieldType(valueType reflect.Type, name string) (reflect.Type, bool) {
 		return nil, false
 	}
 
-	for i := 0; i < valueType.NumField(); i++ {
-		field := valueType.Field(i)
+	for field := range valueType.Fields() {
 		if !field.IsExported() || field.Name == "AdditionalProperties" {
 			continue
 		}

@@ -11,11 +11,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
-// intPtr returns a pointer to the given int value
-func intPtr(v int) *int { return &v }
-
-func stringPtr(v string) *string { return &v }
-
 func TestHTTPConfigClientEnabled(t *testing.T) {
 	assert.False(t, (HTTPConfig{}).ClientEnabled())
 	assert.False(t, (HTTPConfig{GraphQL: GraphQLConfig{Enabled: true}}).ClientEnabled())
@@ -77,7 +72,7 @@ func TestEnrichmentConfig_Validate_HeaderRules(t *testing.T) {
 					Action:            HTTPParsingActionInclude,
 					Type:              HTTPParsingRuleTypeHeaders,
 					Scope:             HTTPParsingScopeAll,
-					ObfuscationString: stringPtr("[REDACTED]"),
+					ObfuscationString: new("[REDACTED]"),
 					Match: HTTPParsingMatch{
 						Patterns: []services.GlobAttr{services.NewGlob("Authorization")},
 					},
@@ -126,7 +121,7 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 					Action:            HTTPParsingActionObfuscate,
 					Type:              HTTPParsingRuleTypeBody,
 					Scope:             HTTPParsingScopeAll,
-					ObfuscationString: stringPtr("[REDACTED]"),
+					ObfuscationString: new("[REDACTED]"),
 					Match: HTTPParsingMatch{
 						ObfuscationJSONPaths: []JSONPathExpr{jsonPath},
 					},
@@ -194,7 +189,7 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 					Action:            HTTPParsingActionExclude,
 					Type:              HTTPParsingRuleTypeBody,
 					Scope:             HTTPParsingScopeAll,
-					ObfuscationString: stringPtr("[REDACTED]"),
+					ObfuscationString: new("[REDACTED]"),
 					Match:             HTTPParsingMatch{},
 				},
 			},
@@ -209,8 +204,8 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 					Scope:  HTTPParsingScopeAll,
 					Match: HTTPParsingMatch{
 						ResponseStatusCode: &NumericRange{
-							GreaterEquals: intPtr(500),
-							LessEquals:    intPtr(599),
+							GreaterEquals: new(500),
+							LessEquals:    new(599),
 						},
 					},
 				},
@@ -225,8 +220,8 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 					Scope:  HTTPParsingScopeAll,
 					Match: HTTPParsingMatch{
 						ResponseStatusCode: &NumericRange{
-							GreaterEquals: intPtr(200),
-							LessEquals:    intPtr(200),
+							GreaterEquals: new(200),
+							LessEquals:    new(200),
 						},
 					},
 				},
@@ -241,8 +236,8 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 					Scope:  HTTPParsingScopeAll,
 					Match: HTTPParsingMatch{
 						ResponseStatusCode: &NumericRange{
-							GreaterEquals: intPtr(599),
-							LessEquals:    intPtr(500),
+							GreaterEquals: new(599),
+							LessEquals:    new(500),
 						},
 					},
 				},
