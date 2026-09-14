@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -1842,7 +1843,9 @@ func testPythonAsyncGenericToThread(t *testing.T) {
 func verifyPythonCancelledToThreadIsolation(
 	ct *assert.CollectT, service, reusePath, workerPath string,
 ) {
-	resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&operation=GET%20" + reusePath)
+	tags, err := json.Marshal(map[string]string{"url.path": reusePath, "span.kind": "server"})
+	require.NoError(ct, err)
+	resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&tags=" + url.QueryEscape(string(tags)))
 	require.NoError(ct, err)
 	if resp == nil {
 		return
@@ -1852,17 +1855,13 @@ func verifyPythonCancelledToThreadIsolation(
 
 	var tq jaeger.TracesQuery
 	require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-	reuseTraces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: reusePath})
+	reuseTraces := tq.FindBySpan(
+		jaeger.Tag{Key: "url.path", Type: "string", Value: reusePath},
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+	)
 	require.NotEmpty(ct, reuseTraces)
 
-	var reuseTrace *jaeger.Trace
-	for i := range reuseTraces {
-		if len(reuseTraces[i].FindByOperationName("GET "+reusePath, "server")) > 0 {
-			reuseTrace = &reuseTraces[i]
-			break
-		}
-	}
-	require.NotNil(ct, reuseTrace)
+	reuseTrace := &reuseTraces[0]
 	require.Empty(ct, reuseTrace.FindByOperationName("GET "+workerPath, "client"))
 
 	resp, err = http.Get(jaegerQueryURL + "?service=" + service + "&operation=GET%20" + workerPath)
