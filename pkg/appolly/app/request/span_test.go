@@ -261,6 +261,8 @@ func TestTraceName(t *testing.T) {
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
 		{name: "JSON-RPC no method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Version: "2.0"}}, expected: "jsonrpc"},
+		{name: "Go net/rpc qualified method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1}}, expected: "Arith/Traceme"},
+		{name: "JSON-RPC dotted method stays whole", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "inventory.lookup.v2", Version: "2.0"}}, expected: "inventory.lookup.v2"},
 		{name: "JSON-RPC client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "getUser", Version: "2.0"}}, expected: "getUser"},
 
 		// Other spans
@@ -2192,6 +2194,51 @@ func TestMessagingOperationTypeOf(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, MessagingOperationTypeOf(tc.operationName))
+		})
+	}
+}
+
+func TestJSONRPCQualifiedMethod(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		want   string
+	}{
+		{"Arith.Multiply", "Arith/Multiply"},
+		{"Arith.Traceme", "Arith/Traceme"},
+		// A namespaced service keeps its dots; only the method separates.
+		{"com.example.EchoService.Echo", "com.example.EchoService/Echo"},
+		// net/rpc assigns the dot no special meaning beyond the split, so a
+		// service named `rpc` is a service like any other.
+		{"rpc.discover", "rpc/discover"},
+		// Nothing to qualify.
+		{"subtract", "subtract"},
+		{"", ""},
+		// Malformed input is passed through rather than mangled.
+		{".leading", ".leading"},
+		{"trailing.", "trailing."},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			rpc := &JSONRPC{Method: tc.method, Version: JSONRPCVersionV1}
+			assert.Equal(t, tc.want, rpc.QualifiedMethod())
+		})
+	}
+}
+
+// Only net/rpc names a service with a dot. JSON-RPC takes arbitrary method
+// names, so a payload-extracted method must survive untouched however many
+// dots it carries.
+func TestJSONRPCQualifiedMethodLeavesPayloadExtractedMethodsAlone(t *testing.T) {
+	for _, version := range []string{"2.0", ""} {
+		t.Run("version "+version, func(t *testing.T) {
+			for _, method := range []string{
+				"inventory.lookup.v2",
+				"Arith.Multiply",
+				"rpc.discover",
+				"subtract",
+			} {
+				rpc := &JSONRPC{Method: method, Version: version}
+				assert.Equal(t, method, rpc.QualifiedMethod())
+			}
 		})
 	}
 }

@@ -35,8 +35,6 @@ type jsonRPCError struct {
 }
 
 const (
-	// JSONRPCVersionV1 Golang net.rpc.jsonrpc only supports V1
-	JSONRPCVersionV1   = "1.0"
 	jsonRPCVersionV2   = "2.0"
 	jsonRPCContentType = "application/json-rpc"
 )

@@ -605,6 +605,24 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 		omitted bool
 	}{
 		{
+			name:     "rpc.method - qualified from the Go net/rpc service name",
+			attrName: attr.RPCMethod,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1},
+			},
+			expected: "Arith/Traceme",
+		},
+		{
+			name:     "rpc.method - a payload-extracted dotted method is left whole",
+			attrName: attr.RPCMethod,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "inventory.lookup.v2", Version: "2.0"},
+			},
+			expected: "inventory.lookup.v2",
+		},
+		{
 			name:     "protocol version - JSON-RPC span",
 			attrName: attr.JSONRPCProtocolVersion,
 			span:     jsonrpcSpan,
