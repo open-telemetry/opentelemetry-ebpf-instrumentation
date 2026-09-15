@@ -28,14 +28,13 @@ func TestEnabledFlagDisablesInjectionEntirely(t *testing.T) {
 	require.True(t, NewNodeInjector(&cfg).Enabled())
 }
 
-func TestNewExecutableSkipsDeno(t *testing.T) {
+func TestAcceptsSkipsDeno(t *testing.T) {
 	cfg := obi.DefaultConfig
 	cfg.NodeJS.Enabled = true
 	cfg.TracePrinter = debug.TracePrinterText
 
 	injector := NewNodeInjector(&cfg)
 	require.True(t, injector.Enabled())
-	require.NotPanics(t, func() {
-		injector.NewExecutable(&ebpf.Instrumentable{Type: svc.InstrumentableDeno})
-	})
+	require.False(t, injector.Accepts(&ebpf.Instrumentable{Type: svc.InstrumentableDeno}))
+	require.True(t, injector.Accepts(&ebpf.Instrumentable{Type: svc.InstrumentableNodejs}))
 }

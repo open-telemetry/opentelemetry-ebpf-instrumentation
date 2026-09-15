@@ -107,16 +107,63 @@ The injected agent reports in-process readings over an eBPF side channel:
   `MessagePort`, ...) are dropped before export (debug-logged). Node
   reports TCP connections as `TCPSocketWrap`; they are exported under the
   semconv member that documents them, `TCPWrap`.
-- The inspector must be reachable: injection is skipped when the application
-  registers its own `SIGUSR1` handler, and fails when the environment blocks
-  the inspector (e.g. seccomp) — in both cases the metrics are silently
-  absent (an error is logged).
+- The inspector must be reachable: injection is skipped when OBI will not send
+  `SIGUSR1` (see below), and fails when the environment blocks the inspector
+  (e.g. seccomp) — in both cases the metrics are silently absent (an error is
+  logged).
+- A process reaches the injector only if discovery typed it Node.js, which it
+  does from the executable's own symbols (`node::NodeMainInstance`,
+  `node::Environment`, `node::Start`) or a mapped `libnode.so`, never from the
+  name of the binary. The N-API surface does not count towards this, because
+  Bun re-exports it, and neither do libuv's symbols, which every runtime
+  linking libuv carries. A Bun binary installed as `node` is therefore not
+  typed Node.js and is never signalled or injected.
+- That type is not private to the injector. It also selects the
+  `telemetry.sdk.language` resource attribute, the `package.json` service-name
+  resolution, and Node.js route harvesting. A build that names none of the
+  symbols and maps no `libnode.so` loses all four, and because Node links
+  `libstdc++`, it is typed C++ rather than generic, so the emitted
+  `telemetry.sdk.language` is wrong rather than merely absent. Official builds
+  for 18 through 24 on glibc and musl, `strip -s` builds, distribution packages,
+  single-executable applications, `pkg` bundles and Electron all carry the
+  symbols; a build linked without `-rdynamic` is the shape that would not.
+- `SIGUSR1` is withheld unless the signal cannot terminate the process and the
+  application has no handler of its own. Each refusal is logged once, with a
+  `reason`:
+  - `SigCgt`/`SigIgn` in `/proc/<pid>/status` show `SIGUSR1` neither caught nor
+    ignored, so sending it would terminate the process. A runtime is briefly in
+    this state after `exec`, so OBI waits for it to install its handler before
+    giving up;
+  - `/proc/<pid>/status` could not be read;
+  - libuv's signal tree shows a handler the application registered;
+  - the application's source files mention `SIGUSR1`. This last check runs only
+    when the libuv tree is unreadable, and is still fail-open: a scan that
+    cannot complete reads as handler-free.
 - **Main-thread event loop only**: `perf_hooks` are per-thread and the agent
   runs on the main isolate, so `worker_threads` loops are not measured (the
   same scope as the standard OTel Node.js SDK). See the design notes for
   options to extend coverage.
 - Injection is single-shot per discovered process; a transient failure at
   process startup is not retried.
+- Injection runs on one worker goroutine off the discovery loop, because it
+  waits on the target: for the runtime's own signal handler, and for the
+  inspector to answer. The queue holds 100 pending processes; beyond that a
+  process is dropped with a warning and is not injected. A queued process is
+  pinned to the incarnation discovery saw, by start time and a process handle,
+  so the executable read and the signal cannot land on an unrelated program
+  that inherited the same PID in the meantime. The rest still works from the
+  number: the gates read `/proc/<pid>`, and the inspector conversation enters a
+  network namespace by PID, so a recycled PID can be the process examined and,
+  where an inspector is already listening and no signal is needed, the one
+  injected. Shutdown cancels the wait for the signal handler, but not the
+  inspector conversation past it, which runs on its own deadlines.
+- Injections never overlap, across runtimes as well as within one. Attaching to
+  a JVM switches OBI's own euid and egid process-wide, which would otherwise
+  cost a concurrent Node.js injection its access to `/proc/<pid>/mem` and its
+  network namespace, so the Java and Node.js workers take turns through one
+  shared slot. Pinning the process, which discovery does before queuing it, is
+  outside that slot and still runs under whatever credentials an attach happens
+  to hold, so it can fail for a process OBI would otherwise have injected.
 - The inspector port (9229) is per network namespace, so among processes that
   share one — `cluster` workers, for instance — only the first to bind it is
   injected; the others log an attach error and report no metrics.

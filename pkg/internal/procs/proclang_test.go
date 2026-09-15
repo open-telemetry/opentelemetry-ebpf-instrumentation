@@ -31,8 +31,10 @@ func TestModuleDetection(t *testing.T) {
 	assert.Equal(t, svc.InstrumentableJava, instrumentableFromModuleMap("/usr/lib\\//libjvm.so/dklksjdf"))
 	assert.Equal(t, svc.InstrumentableJava, instrumentableFromModuleMap("libjvm.so"))
 	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromModuleMap("/usr/lib\\//libj9vm25.so/dklksjdf")) // OpenJDK only for now
-	assert.Equal(t, svc.InstrumentableNodejs, instrumentableFromModuleMap("/usr/bin/node"))
-	assert.Equal(t, svc.InstrumentableNodejs, instrumentableFromModuleMap("node"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromModuleMap("/usr/bin/node"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromModuleMap("node"))
+	assert.Equal(t, svc.InstrumentableNodejs, instrumentableFromModuleMap("/usr/lib/x86_64-linux-gnu/libnode.so.108"))
+	assert.Equal(t, svc.InstrumentableNodejs, instrumentableFromModuleMap("libnode.so"))
 	assert.Equal(t, svc.InstrumentableDeno, instrumentableFromModuleMap("/usr/bin/deno"))
 	assert.Equal(t, svc.InstrumentableDeno, instrumentableFromModuleMap("deno"))
 	assert.Equal(t, "deno-rust", instrumentableFromModuleMap("deno").String())
@@ -58,6 +60,25 @@ func TestSymbolDetection(t *testing.T) {
 	assert.Equal(t, svc.InstrumentableJavaNative, instrumentableFromSymbolName("graal_testing"))
 	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromSymbolName("graal"))
 	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromSymbolName("rust"))
+}
+
+func TestNodeSymbolDetection(t *testing.T) {
+	assert.Equal(t, svc.InstrumentableNodejs,
+		instrumentableFromSymbolName("_ZN4node16NodeMainInstanceC1EPN2v812ArrayBufferE"))
+	assert.Equal(t, svc.InstrumentableNodejs,
+		instrumentableFromSymbolName("_ZN4node11EnvironmentD1Ev"))
+	assert.Equal(t, svc.InstrumentableNodejs,
+		instrumentableFromSymbolName("_ZN4node5StartEiPPc"))
+
+	// The N-API surface Bun re-exports must not identify a runtime, nor must
+	// libuv's symbols, which every runtime linking libuv carries.
+	assert.Equal(t, svc.InstrumentableGeneric,
+		instrumentableFromSymbolName("_ZN4node12MakeCallbackEPN2v87IsolateE"))
+	assert.Equal(t, svc.InstrumentableGeneric,
+		instrumentableFromSymbolName("_ZN4node6Buffer4CopyEPNS_11EnvironmentE"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromSymbolName("uv__signal_tree"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromSymbolName("uv_run"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromSymbolName("node"))
 }
 
 func TestPathDetection(t *testing.T) {
