@@ -201,12 +201,16 @@ func attachPerfEvents(exe *link.Executable, prog *ebpf.Program, opts Options) (i
 	return links, nil
 }
 
-type perfEventLinks []link.Link
+type perfEventLinks []io.Closer
 
+// the kernel waits for RCU grace periods per perf event released, so the events
+// of one attachment are released together rather than one after another
 func (l perfEventLinks) Close() error {
-	var err error
-	for _, lk := range l {
-		err = errors.Join(err, lk.Close())
+	errs := make([]error, len(l))
+	var wg sync.WaitGroup
+	for i, lk := range l {
+		wg.Go(func() { errs[i] = lk.Close() })
 	}
-	return err
+	wg.Wait()
+	return errors.Join(errs...)
 }
