@@ -791,24 +791,33 @@ func TestProcessKafkaEventConsumerGroupLeave(t *testing.T) {
 }
 
 // A membership expires when no membership request renewed it, and Fetch lookups do not
-// renew it: a recycled pid cannot inherit the previous process' group for long.
+// renew it. The deadline is per membership: a recycled pid heartbeating for its own
+// group must not keep the previous process' groups alive.
 func TestProcessKafkaEventConsumerGroupExpiry(t *testing.T) {
-	const ttl = 200 * time.Millisecond
+	const ttl = time.Minute
 	groups := NewKafkaConsumerGroups(64, ttl)
+	start := time.Now()
+	clock := start
+	groups.now = func() time.Time { return clock }
 	consumer := kafkaEventFromPid(7, 42)
 
 	processKafka(t, groups, consumer, joinGroupMyGroup)
-	time.Sleep(ttl / 2)
+	clock = start.Add(ttl / 2)
 	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
-	time.Sleep(ttl/2 + ttl/4)
+	clock = start.Add(ttl + ttl/4)
 	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "lookups must not extend the ttl")
+	assert.Equal(t, 0, groups.lru.Len(), "a process without memberships is dropped")
 
+	// pid reused within the ttl: the previous process joined my-group, the new one
+	// heartbeats for hb-group only
+	clock = start.Add(2 * ttl)
 	processKafka(t, groups, consumer, joinGroupMyGroup)
-	time.Sleep(ttl / 2)
-	processKafka(t, groups, consumer, heartbeatHbGroup) // renews the entry (and makes it a two-group process)
-	time.Sleep(ttl / 2)
-	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders), "renewed by the heartbeat: still resident")
-	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "two groups: no fallback")
+	clock = start.Add(2*ttl + ttl/2)
+	processKafka(t, groups, consumer, heartbeatHbGroup)
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "two groups until the inherited one expires")
+	clock = start.Add(3*ttl + ttl/4)
+	assert.Equal(t, "hb-group", fetchGroup(t, groups, consumer, fetchImportant), "inherited membership expired, own group is the single one")
+	assert.Equal(t, "hb-group", fetchGroup(t, groups, consumer, fetchOrders), "the inherited subscription is gone too")
 }
 
 // Kafka Connect workers (protocol_type "connect") and Schema Registry ("sr") coordinate
