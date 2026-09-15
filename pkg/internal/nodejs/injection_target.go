@@ -19,8 +19,12 @@ var openProcessHandle = procs.OpenProcessHandle
 // alone would let a recycled one be identified, signaled and injected in the
 // original's place.
 type InjectionTarget struct {
-	Pid     app.PID
-	Process *procs.ProcessHandle
+	Pid app.PID
+	// StartTime is the same identity the handle was opened against. The queue
+	// closes the handle once the injection returns, so reopening the process at
+	// shutdown needs the token rather than the descriptor.
+	StartTime uint64
+	Process   *procs.ProcessHandle
 }
 
 // InjectionTargetFrom pins the process inspected by discovery. The caller owns
@@ -28,12 +32,14 @@ type InjectionTarget struct {
 // queue.
 func InjectionTargetFrom(ie *ebpf.Instrumentable) (InjectionTarget, error) {
 	pid := ie.FileInfo.Pid()
-	process, err := openProcessHandle(pid, ie.FileInfo.StartTime())
+	startTime := ie.FileInfo.StartTime()
+
+	process, err := openProcessHandle(pid, startTime)
 	if err != nil {
 		return InjectionTarget{}, fmt.Errorf("capturing stable identity for process %d: %w", pid, err)
 	}
 
-	return InjectionTarget{Pid: pid, Process: process}, nil
+	return InjectionTarget{Pid: pid, StartTime: startTime, Process: process}, nil
 }
 
 func (t InjectionTarget) PID() app.PID {

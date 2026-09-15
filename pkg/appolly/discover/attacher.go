@@ -132,6 +132,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	in := ta.InputInstrumentables.Subscribe(msg.SubscriberName("traceAttacher"))
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
+		defer ta.nodeInjector.UninjectAll()
 
 		// One slot for both queues: a Java attach switches OBI's credentials
 		// process-wide, which a concurrent injection of any runtime would run
@@ -207,6 +208,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 						_ = instr.Obj.FileInfo.ELF().Close()
 					}
 				case EventDeleted:
+					ta.nodeInjector.Forget(instr.Obj.FileInfo.Pid())
 					ta.notifyProcessDeletion(&instr.Obj)
 				}
 			}

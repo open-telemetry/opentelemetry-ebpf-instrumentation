@@ -563,8 +563,8 @@ func TestAttachAgent_RefusalWithholdsTheSignal(t *testing.T) {
 	cfg.TracePrinter = debug.TracePrinterText
 	injector := NewNodeInjector(&cfg)
 
-	target := InjectionTarget{Pid: pid, Process: handle}
-	err = injector.attachAgent(context.Background(), target, testBinaryELF(t))
+	target := InjectionTarget{Pid: pid, StartTime: startTime, Process: handle}
+	injected, err := injector.attachAgent(context.Background(), target, testBinaryELF(t))
 
 	// Asserted before the error, so that a regression here reports the signal
 	// rather than whatever the injection went on to fail at afterwards.
@@ -573,5 +573,8 @@ func TestAttachAgent_RefusalWithholdsTheSignal(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatalf("attachAgent returned an error: %v", err)
+	}
+	if injected {
+		t.Fatal("attachAgent reported an injection into a process the gates refused")
 	}
 }
