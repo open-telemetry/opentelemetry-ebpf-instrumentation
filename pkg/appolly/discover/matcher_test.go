@@ -185,7 +185,7 @@ ebpf:
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	filteredProcesses := filteredProcessesQu.Subscribe()
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil, nil)(t.Context())
 	require.NoError(t, err)
 	go matcherFunc(t.Context())
 	defer filteredProcessesQu.Close()
