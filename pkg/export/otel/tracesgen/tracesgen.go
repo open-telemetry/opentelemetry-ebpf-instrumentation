@@ -833,7 +833,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 		if span.SubType == request.HTTPSubtypeAWSSNS && span.AWS != nil {
 			sns := span.AWS.SNS
-			attrs = append(attrs, semconv.MessagingSystemAWSSNS, request.MessagingOperationName(sns.OperationName))
+			attrs = append(attrs,
+				request.RPCSystem("aws-api"),
+				semconv.MessagingSystemAWSSNS,
+				request.MessagingOperationName(sns.OperationName),
+			)
 			if sns.OperationType != "" {
 				attrs = append(attrs, request.MessagingOperationType(sns.OperationType))
 			}

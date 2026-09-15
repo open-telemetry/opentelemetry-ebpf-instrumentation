@@ -6,6 +6,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -20,8 +21,7 @@ import (
 var snsEndpoint = regexp.MustCompile(`^(?:sns(?:-fips)?|vpce-[a-z0-9-]+\.sns)\.([a-z0-9-]+)\.(?:vpce\.)?(?:amazonaws\.com(?:\.cn)?|api\.aws)$`)
 
 type awsSNSResponse struct {
-	XMLName xml.Name
-	Meta    struct {
+	Meta struct {
 		RequestID string `xml:"RequestId"`
 	} `xml:"ResponseMetadata"`
 	RequestID string `xml:"RequestId"`
@@ -63,14 +63,12 @@ func AWSSNSSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	host := extractHostname(req)
 	endpoint := snsEndpoint.FindStringSubmatch(strings.ToLower(host))
 	topicARN := params.Get("TopicArn")
-	topic := snsTopicARN(topicARN)
-	namespace := strings.TrimPrefix(strings.TrimPrefix(response.XMLName.Space, "https://"), "http://")
-	if len(endpoint) == 0 && topic == nil && namespace != "sns.amazonaws.com/doc/2010-03-31/" {
-		return *baseSpan, false
-	}
 	if topicARN == "" {
 		topicARN = response.CreateTopic.TopicARN
-		topic = snsTopicARN(topicARN)
+	}
+	topic := snsTopicARN(topicARN)
+	if len(endpoint) == 0 && topic == nil {
+		return *baseSpan, false
 	}
 
 	// SNS also returns request IDs in XML, including on Query API errors.
@@ -132,13 +130,10 @@ func snsRequestParams(req *http.Request) (url.Values, bool) {
 		if err != nil || mediaType != "application/x-www-form-urlencoded" {
 			return nil, false
 		}
-		body, err := io.ReadAll(req.Body)
+		body, readErr := io.ReadAll(req.Body)
 		req.Body = io.NopCloser(bytes.NewReader(body))
-		if err != nil {
-			return nil, false
-		}
-		params, err := url.ParseQuery(string(body))
-		return params, err == nil
+		params, parseErr := url.ParseQuery(string(body))
+		return params, (readErr == nil && parseErr == nil) || errors.Is(readErr, io.ErrUnexpectedEOF)
 	default:
 		return nil, false
 	}
