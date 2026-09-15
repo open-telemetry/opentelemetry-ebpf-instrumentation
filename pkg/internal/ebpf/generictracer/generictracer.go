@@ -167,35 +167,37 @@ func (p *Tracer) rebuildValidPids() error {
 	return nil
 }
 
-// pid_cache is an LRU hash the BPF side keeps inserting into. When it is
-// full, kernel evictions can invalidate the walk cursor and the kernel then
-// restarts the walk from the first key, hence the bound. Best effort is
-// enough: whatever a walk misses ages out with the LRU or goes on the next
-// rebuild.
+// pid_cache is an LRU hash the BPF side keeps inserting into. A cursor walk
+// over it is unreliable: when the map is full, evicting the cursor key makes
+// the kernel restart the walk from the first bucket. Deleting the first key
+// until the map is empty needs no cursor. The loop ends when the map is
+// empty; the 2×MaxEntries bound is a safety net that only matters if BPF
+// inserts faster than we delete.
 func (p *Tracer) clearPidCache() error {
 	cache := p.bpfObjects.PidCache
 	if cache == nil {
 		return nil
 	}
 
-	keys := make([]uint32, 0, cache.MaxEntries())
 	var key uint32
+	deleted := 0
 
-	err := cache.NextKey(nil, &key)
-	for err == nil && len(keys) < cap(keys) {
-		keys = append(keys, key)
-		err = cache.NextKey(key, &key)
-	}
-	if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-		return fmt.Errorf("walking the BPF pid cache: %w", err)
-	}
-
-	for _, k := range keys {
-		err := cache.Delete(k)
-		if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-			return fmt.Errorf("clearing pid %d from the BPF pid cache: %w", k, err)
+	for range 2 * cache.MaxEntries() {
+		if err := cache.NextKey(nil, &key); err != nil {
+			if errors.Is(err, ebpf.ErrKeyNotExist) {
+				p.log.Debug("BPF pid cache drained", "deleted", deleted)
+				return nil
+			}
+			return fmt.Errorf("walking the BPF pid cache: %w", err)
 		}
+
+		if err := cache.Delete(key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			return fmt.Errorf("clearing pid %d from the BPF pid cache: %w", key, err)
+		}
+		deleted++
 	}
+
+	p.log.Warn("BPF pid cache drain hit its bound; inserts are outpacing deletes", "deleted", deleted)
 
 	return nil
 }
