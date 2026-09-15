@@ -1465,7 +1465,7 @@ func (r *metricsReporter) labelValuesForNodeMeta(service *svc.Attrs, nodeMeta *m
 		{name: attr.Name("telemetry.sdk.name"), value: attr.VendorSDKName},
 		{name: attr.Name("telemetry.sdk.version"), value: attr.VendorSDKVersion},
 		{name: attr.Name("telemetry.distro.name"), value: attr.TelemetryDistroName},
-		{name: attr.Name("telemetry.distro.version"), value: attr.TelemetryDistroVersion},
+		{name: attr.Name("telemetry.distro.version"), value: attr.TelemetryDistroVersion()},
 		{name: attr.Source, value: attr.VendorPrefix},
 		{name: attr.Name("os.type"), value: "linux"},
 	}
