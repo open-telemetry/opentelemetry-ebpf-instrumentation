@@ -626,7 +626,7 @@ func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 	tracer.recordGoAutoSDKActivationSupport(fileInfo, goAutoSDKSpanContextOffsets())
 	groups := tracer.GoProbeGroups()
 	require.Len(t, groups, 1)
-	assert.Equal(t, goAutoSDKActivationPrerequisiteSymbols, groups[0].Prerequisites)
+	assert.Equal(t, goAutoSDKActivationPrerequisiteSymbols, groups[0].RequiresAll)
 	expectedSymbols := []string{
 		"go.opentelemetry.io/auto/sdk.(*tracer).start",
 		"context.WithValue",
@@ -799,9 +799,9 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 	assert.Equal(t, slices.Concat(expectedSymbols...), GoH2OwnershipProbeSymbols())
 
 	for i, group := range groups[:3] {
-		require.Len(t, group.Prerequisites, 1)
+		require.Len(t, group.RequiresAll, 1)
 		require.Len(t, group.Probes, 2)
-		assert.Contains(t, group.Prerequisites[0], "writeHeaders")
+		assert.Contains(t, group.RequiresAll[0], "writeHeaders")
 		assert.Equal(t, expectedSymbols[i][0], group.Probes[0].Symbol)
 		assert.Equal(t, expectedSymbols[i][1], group.Probes[1].Symbol)
 		assert.NotNil(t, group.Probes[0].Probe)
