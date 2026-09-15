@@ -16,7 +16,8 @@
       "bufio.Writer": ["buf", "n", "wr"],
       "net.TCPConn": ["conn"],
       "net.conn": ["fd"],
-      "net.netFD": ["laddr", "raddr"],
+      "net.netFD": ["laddr", "raddr", "pfd"],
+      "internal/poll.FD": ["Sysfd"],
       "net/http.persistConn": ["conn", "tlsState"],
       "net/http.conn": ["rwc", "tlsState"],
       "net/http.http2ClientConn": [

@@ -34,10 +34,12 @@
 #include <logger/bpf_dbg.h>
 
 #include <maps/incoming_trace_map.h>
+#include <maps/grpc_h2_owned_streams.h>
 #include <maps/go_h2_owned_streams.h>
 #include <maps/msg_buffers.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/sock_dir.h>
+#include <maps/socket_cookie.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tracked_sock_cookies.h>
 
@@ -514,6 +516,11 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
 // Helper that writes in the sock map for a sock_ops program
 static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skops) {
     const u64 cookie = bpf_get_socket_cookie(skops);
+    struct bpf_sock *sk = skops->sk;
+
+    if (sk) {
+        bpf_sk_storage_get(&socket_cookie, sk, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+    }
 
     if (bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY) == 0) {
         bpf_map_update_elem(&tracked_sock_cookies, &cookie, &(u8){1}, BPF_ANY);
@@ -806,6 +813,30 @@ static __always_inline bool consume_go_h2_owned_stream(struct sk_msg_md *msg, u3
         return false;
     }
     bpf_map_delete_elem(&go_h2_owned_streams, &key);
+    return true;
+}
+
+static __always_inline bool consume_grpc_h2_owned_stream(struct sk_msg_md *msg, u32 stream_id) {
+    struct bpf_sock *sk = msg->sk;
+    if (!sk) {
+        return false;
+    }
+
+    const u64 *cookie = bpf_sk_storage_get(&socket_cookie, sk, NULL, 0);
+    if (!cookie || !*cookie) {
+        return false;
+    }
+
+    grpc_h2_owned_stream_key_t key = {
+        .socket_cookie = *cookie,
+        .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
+        .stream_id = stream_id,
+    };
+    if (!bpf_map_lookup_elem(&grpc_h2_owned_streams, &key)) {
+        return false;
+    }
+
+    bpf_map_delete_elem(&grpc_h2_owned_streams, &key);
     return true;
 }
 
@@ -1543,7 +1574,10 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
                 return SK_PASS;
             }
 
-            if (consume_go_h2_owned_stream(msg, f.stream_id)) {
+            const bool application_owned = t_ctx->go_grpc_conn
+                                               ? consume_grpc_h2_owned_stream(msg, f.stream_id)
+                                               : consume_go_h2_owned_stream(msg, f.stream_id);
+            if (application_owned) {
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
                 return SK_PASS;
             }
