@@ -618,12 +618,9 @@ func testGRPCPersistentDynTable(t *testing.T) {
 			resp.Body.Close()
 		}
 		for i, id := range traceIDs {
-			var tq jaeger.TracesQuery
 			ok := assert.EventuallyWithT(ct, func(ctt *assert.CollectT) {
-				resp, err := http.Get(jaegerQueryURL + "/" + id)
+				tq, err := fetchTrace(id)
 				require.NoError(ctt, err)
-				defer resp.Body.Close()
-				require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
 				require.NotEmpty(ctt, tq.Data, "trace %s not in jaeger", id)
 				svcs := traceServices(tq.Data[0])
 				for _, svc := range relayServices {
@@ -633,6 +630,13 @@ func testGRPCPersistentDynTable(t *testing.T) {
 				}
 			}, 20*time.Second, time.Second)
 			if !ok {
+				// read the trace again here: a timed out EventuallyWithT returns while its
+				// last condition goroutine is still running, so whatever that goroutine
+				// decoded is still being written to
+				tq, err := fetchTrace(id)
+				if err != nil {
+					t.Logf("iter=%d trace=%s: cannot read the trace to dump it: %v", i, id, err)
+				}
 				lastFailed = append(lastFailed, struct {
 					iter int
 					id   string
@@ -645,6 +649,24 @@ func testGRPCPersistentDynTable(t *testing.T) {
 		}
 		require.Empty(ct, lastFailed, "iterations missing services after retries")
 	}, 4*time.Minute, 5*time.Second)
+}
+
+// fetchTrace reads one trace from jaeger into a value owned by the caller, so it
+// stays valid no matter what an abandoned assertion goroutine is still doing
+func fetchTrace(id string) (jaeger.TracesQuery, error) {
+	var tq jaeger.TracesQuery
+
+	resp, err := http.Get(jaegerQueryURL + "/" + id)
+	if err != nil {
+		return tq, err
+	}
+	defer resp.Body.Close()
+
+	if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+		return tq, err
+	}
+
+	return tq, nil
 }
 
 func dumpTrace(t *testing.T, iter int, id string, tq jaeger.TracesQuery) {
