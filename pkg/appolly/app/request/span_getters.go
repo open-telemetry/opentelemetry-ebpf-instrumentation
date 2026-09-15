@@ -560,10 +560,48 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return attribute.String(string(attr.JSONRPCRequestID), "")
 		}
+	case attr.MCPMethodName:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.Method != "" {
+				return attribute.String(string(attr.MCPMethodName), mcp.Method)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.MCPProtocolVersion:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.ProtocolVer != "" {
+				return attribute.String(string(attr.MCPProtocolVersion), mcp.ProtocolVer)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.MCPResourceURI:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.ResourceURI != "" {
+				return attribute.String(string(attr.MCPResourceURI), mcp.ResourceURI)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.GenAIToolName:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.ToolName != "" {
+				return attribute.String(string(attr.GenAIToolName), mcp.ToolName)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.GenAIPromptName:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.PromptName != "" {
+				return attribute.String(string(attr.GenAIPromptName), mcp.PromptName)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.RPCResponseStatusCode:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
 				return semconv.RPCResponseStatusCode(SunRPCResponseStatusCode(s.Status))
+			}
+			if mcp := s.MCP(); mcp != nil && mcp.ErrorCode != 0 {
+				return semconv.RPCResponseStatusCode(strconv.Itoa(mcp.ErrorCode))
 			}
 			if s.Type == EventTypeGRPC || s.Type == EventTypeGRPCClient {
 				// GRPCStatusCodeString returns "" for statuses outside the
