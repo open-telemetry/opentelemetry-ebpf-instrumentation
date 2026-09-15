@@ -6,6 +6,8 @@
 # in every mode but "inflight" the outgoing calls happen after the response is
 # provably over, so they must not inherit the inbound request's trace. In
 # "inflight" the calls happen while the response is still open, so they must.
+# Readiness requests only return the selected response, allowing the test to
+# wait for instrumentation without issuing calls that belong to the scenario.
 
 import os
 import socket
@@ -71,15 +73,19 @@ while True:
         if not request:
             break
 
+        ready = request.startswith(b"GET /ready ")
+
         if MODE == "inflight":
             conn.sendall(INFLIGHT_START)
-            call_targets(conn)
+            if not ready:
+                call_targets(conn)
             conn.sendall(INFLIGHT_END)
             continue
 
         for piece in RESPONSES[MODE]:
             conn.sendall(piece)
 
-        call_targets(conn)
+        if not ready:
+            call_targets(conn)
 
     conn.close()

@@ -48,6 +48,7 @@ func TestServerTraceNotLatchedOntoLaterClientCalls(t *testing.T) {
 		{name: "calls during the response", port: 8085, service: "latchsrv-inflight", status: http.StatusOK, detached: false},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
+			waitForLatchServerInstrumentation(t, mode.port, mode.status, mode.service)
 			driveLatchServer(t, mode.port, mode.status)
 			if mode.detached {
 				assertCallsDetached(t, mode.service)
@@ -58,6 +59,23 @@ func TestServerTraceNotLatchedOntoLaterClientCalls(t *testing.T) {
 	}
 
 	require.NoError(t, compose.Close())
+}
+
+func waitForLatchServerInstrumentation(t *testing.T, port, wantStatus int, service string) {
+	t.Helper()
+
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	defer client.CloseIdleConnections()
+
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/ready", port))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+
+		return resp.StatusCode == wantStatus && hasSpansInJaeger(service)
+	}, 2*time.Minute, time.Second, "waiting for OBI to instrument %s", service)
 }
 
 // driveLatchServer sends latchRequests requests over one keep-alive connection,
