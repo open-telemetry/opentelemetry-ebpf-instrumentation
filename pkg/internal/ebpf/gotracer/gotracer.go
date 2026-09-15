@@ -41,6 +41,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -487,39 +488,6 @@ func (p *Tracer) constants() map[string]any {
 	m["max_transaction_time"] = uint64(p.cfg.MaxTransactionTime.Nanoseconds())
 
 	return m
-}
-
-func (p *Tracer) SetupTailCalls() {
-	// Order must match the k_tail_* enum in bpf/generictracer/k_tracer_tailcall.h
-	for i, prog := range []*ebpf.Program{
-		// HTTP/1
-		p.bpfObjects.ObiProtocolHttp,           // 0  k_tail_protocol_http
-		p.bpfObjects.ObiContinueProtocolHttp,   // 1  k_tail_continue_protocol_http
-		p.bpfObjects.ObiContinue2ProtocolHttp,  // 2  k_tail_continue2_protocol_http
-		p.bpfObjects.ObiContinueProtocolHttpTp, // 3  k_tail_continue_protocol_http_tp
-		// TCP
-		p.bpfObjects.ObiProtocolTcp, // 4  k_tail_protocol_tcp
-		// Generic
-		p.bpfObjects.ObiHandleBufWithArgs, // 5  k_tail_handle_buf_with_args
-		p.bpfObjects.ObiContinueNetfdRead, // 6  k_tail_continue_netfd_read
-		// HTTP/2 + gRPC
-		p.bpfObjects.ObiProtocolHttp2,                                   // 7
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                         // 8
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,               // 9
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,                 // 10
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
-		// Large buffer multi-batch emission
-		p.bpfObjects.ObiLargeBufEmitContinue,                            // 13  k_tail_large_buf_emit_continue
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit,   // 14
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerHuffman,  // 15
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerHuffscan, // 16
-	} {
-		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
-		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
-			p.log.Error("error loading info tail call jump table", "error", err)
-		}
-	}
 }
 
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
@@ -1037,8 +1005,8 @@ func attachGoAutoSDKActivationProbe(
 		return nil, fmt.Errorf("opening target executable: %w", err)
 	}
 
-	activationLink, err := executable.Uprobe(
-		"",
+	activationLink, err := uprobe.Attach(
+		executable,
 		probe.program,
 		goAutoSDKActivationUprobeOptions(probe, pid),
 	)
@@ -1070,10 +1038,10 @@ func validateGoAutoSDKProcessStartTime(pid app.PID, expected uint64) error {
 func goAutoSDKActivationUprobeOptions(
 	probe goAutoSDKActivationProbe,
 	pid app.PID,
-) *link.UprobeOptions {
-	return &link.UprobeOptions{
-		Address: probe.offset,
-		PID:     int(pid),
+) uprobe.Options {
+	return uprobe.Options{
+		Addresses: []uint64{probe.offset},
+		PID:       uint32(pid),
 	}
 }
 
