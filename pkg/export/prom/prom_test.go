@@ -140,7 +140,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	containsTargetInfoCloudAccount := regexp.MustCompile(`\ntarget_info\{[^\n]*cloud_account_id=`)
 	containsTargetInfoK8sPod := regexp.MustCompile(`\ntarget_info\{[^\n]*k8s_pod_name=`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
-	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*cloud_host_id="my-host"`)
+	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{cloud_host_id="my-host"\}`)
 	containsJob := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*job="default/test-app".*`)
 	containsInstance := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*instance="test-app-1".*"`)
 
@@ -1614,4 +1614,35 @@ func TestREDMetricsUnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
 		assert.NotContains(ct, exported, "http_client_response_body_size_bytes_count",
 			"a response nobody saw was reported as having a size")
 	}, timeout, 100*time.Millisecond)
+}
+
+// The span metric names are selected per naming mode from declarations shared with the OTLP
+// exporter. Selecting the wrong declaration renames a published series and still compiles, so
+// both modes are pinned here.
+func TestSpanMetricsNames(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		features        export.Features
+		expectedLatency string
+		expectedCalls   string
+	}{
+		{
+			name:            "otel naming",
+			features:        export.FeatureSpanOTel,
+			expectedLatency: "traces_span_metrics_duration_seconds",
+			expectedCalls:   "traces_span_metrics_calls_total",
+		},
+		{
+			name:            "legacy naming",
+			features:        export.FeatureSpanLegacy,
+			expectedLatency: "traces_spanmetrics_latency",
+			expectedCalls:   "traces_spanmetrics_calls_total",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mp := &perapp.GlobalMetricsConfig{Features: tc.features}
+			assert.Equal(t, tc.expectedLatency, spanMetricsLatencyName(mp))
+			assert.Equal(t, tc.expectedCalls, spanMetricsCallsName(mp))
+		})
+	}
 }

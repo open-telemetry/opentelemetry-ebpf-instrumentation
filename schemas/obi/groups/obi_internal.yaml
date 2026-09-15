@@ -73,6 +73,7 @@ groups:
     attributes:
       - ref: instance
       - ref: job
+      - ref: host.id
 
   # The trace-pipeline counterpart of `target.info`. Only emitted when any
   # span-metrics feature is enabled — i.e. one of `application_span`,
@@ -89,9 +90,11 @@ groups:
     brief: >
       OBI counterpart of `target.info` for the traces pipeline. Carries the
       resource attribute set of every traced service so dashboards can
-      join trace metrics back to service identity.
+      join trace metrics back to service identity, including the host id
+      that the span metrics themselves do not carry.
     attributes:
       - ref: source
+      - ref: host.id
 
   # OBI-invented per-host meta-metric — there is no upstream /
   # collector-contrib analogue. Carries the upstream `host.id` attribute.

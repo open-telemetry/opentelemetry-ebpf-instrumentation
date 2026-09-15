@@ -37,32 +37,17 @@ func mlog() *slog.Logger {
 	return slog.With("component", "otel.MetricsReporter")
 }
 
-const (
-	// SpanMetricsLatency and rest of metrics below haven't been yet moved to the
-	// pkg/export/attributes/metric.go file as we are disabling user-provided attribute
-	// selection for them. They are very specific metrics with an opinionated format
-	// for Span Metrics and Service Graph Metrics functionalities
-	SpanMetricsLatency = "traces_spanmetrics_latency"
-	SpanMetricsCalls   = "traces_spanmetrics_calls_total"
-	// SpanMetricsLatencyOTel and SpanMetricsCallsOTel use OTel dot notation,
-	// matching the default `traces.span.metrics` namespace of the
-	// collector-contrib spanmetricsconnector. The Prometheus exporter emits the
-	// underscore counterparts (see pkg/export/prom).
-	SpanMetricsLatencyOTel   = "traces.span.metrics.duration"
-	SpanMetricsCallsOTel     = "traces.span.metrics.calls"
-	SpanMetricsRequestSizes  = "traces_spanmetrics_size_total"
-	SpanMetricsResponseSizes = "traces_spanmetrics_response_size_total"
-	// TracesTargetInfo, TargetInfo and TracesHostInfo use OTel dot notation.
-	// The Prometheus exporter keeps the underscore variants of these names
-	// (see pkg/export/prom), following the OpenMetrics convention.
-	TracesTargetInfo = "traces.target.info"
-	TargetInfo       = "target.info"
-	TracesHostInfo   = "traces.host.info"
+// Span metrics and info metrics are not user-selectable: they are very specific metrics with
+// an opinionated format for the Span Metrics functionality. Their names are declared in
+// pkg/export/attributes so that the Prometheus exporter derives its own names from the same
+// definition instead of hand-writing them a second time.
+var (
+	SpanMetricsRequestSizes  = attributes.SpanMetricsRequestSize.OTEL
+	SpanMetricsResponseSizes = attributes.SpanMetricsResponseSize.OTEL
+	TracesTargetInfo         = attributes.TracesTargetInfo.OTEL
+	TargetInfo               = attributes.TargetInfo.OTEL
+	TracesHostInfo           = attributes.TracesHostInfo.OTEL
 )
-
-// CloudHostIDKey is the host ID attribute for cloud provider integrations,
-// used for traces_target_info
-var CloudHostIDKey = attribute.Key("cloud.host.id")
 
 // MetricTypes contains all the supported metric type prefixes used for filtering attributes
 var MetricTypes = []string{
@@ -426,12 +411,19 @@ func (mr *MetricsReporter) usesLegacySpanNames() bool {
 	return mr.jointMetricsCfg.Features.LegacySpanMetrics()
 }
 
-func (mr *MetricsReporter) spanMetricsLatencyName() string {
+// spanMetricsDuration is the declaration selected by the configured feature. Callers must take
+// the name and the unit from it together: the legacy declaration's absent unit is what keeps its
+// derived Prometheus name free of a _seconds suffix.
+func (mr *MetricsReporter) spanMetricsDuration() attributes.Name {
 	if mr.usesLegacySpanNames() {
-		return SpanMetricsLatency
+		return attributes.SpanMetricsLatencyLegacy
 	}
 
-	return SpanMetricsLatencyOTel
+	return attributes.SpanMetricsDurationOTel
+}
+
+func (mr *MetricsReporter) spanMetricsLatencyName() string {
+	return mr.spanMetricsDuration().OTEL
 }
 
 func (mr *MetricsReporter) spanMetricOptions() []metric.Option {
@@ -629,10 +621,10 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 
 func (mr *MetricsReporter) spanMetricsCallsName() string {
 	if mr.usesLegacySpanNames() {
-		return SpanMetricsCalls
+		return attributes.SpanMetricsCallsLegacy.OTEL
 	}
 
-	return SpanMetricsCallsOTel
+	return attributes.SpanMetricsCallsOTel.OTEL
 }
 
 func (mr *MetricsReporter) setupSpanSizeMeters(m *Metrics, meter instrument.Meter) error {
@@ -681,13 +673,9 @@ func (mr *MetricsReporter) setupSpanMeters(m *Metrics, meter instrument.Meter) e
 
 	spanMetricAttrs := mr.spanMetricAttributes()
 
-	instrumentOpts := []instrument.Float64HistogramOption{}
+	duration := mr.spanMetricsDuration()
 
-	if !mr.usesLegacySpanNames() {
-		instrumentOpts = append(instrumentOpts, instrument.WithUnit("s"))
-	}
-
-	spanMetricsLatency, err := meter.Float64Histogram(mr.spanMetricsLatencyName(), instrumentOpts...)
+	spanMetricsLatency, err := meter.Float64Histogram(duration.OTEL, instrument.WithUnit(duration.Unit))
 	if err != nil {
 		return fmt.Errorf("creating span metric histogram for latency: %w", err)
 	}
@@ -709,8 +697,9 @@ func (mr *MetricsReporter) setupHostInfoMeter(meter instrument.Meter) error {
 	if err != nil {
 		return fmt.Errorf("creating span metric traces host info: %w", err)
 	}
+	// No ExposedName: only the Prometheus exporter reads it, to name a label whose getter
+	// returns a bare value. Here Get returns the key with the value.
 	attr := attributes.Field[*request.Span, attribute.KeyValue]{
-		ExposedName: string(CloudHostIDKey),
 		Get: func(_ *request.Span) attribute.KeyValue {
 			return semconv.HostID(mr.nodeMeta.HostID)
 		},
@@ -900,9 +889,12 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 }
 
 // spanMetricAttributes follow a given specification, so their attribute getters are predefined and can't be
-// selected by the user
+// selected by the user.
+//
+// The host id is absent by design: it lives on the resource (otelcfg.resourceAttrs), which both
+// exporters render as target_info{host_id}.
 func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
-	return append(attributes.OpenTelemetryGetters(
+	return attributes.OpenTelemetryGetters(
 		mr.attrGetters, []attr.Name{
 			attr.ServiceName,
 			attr.ServiceInstanceID,
@@ -912,14 +904,6 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 			attr.StatusCode,
 			attr.Source,
 			attr.TelemetrySDKLanguage,
-		}),
-		// hostID is not taken from the span but common to the metrics reporter,
-		// so the getter is injected here directly
-		attributes.Field[*request.Span, attribute.KeyValue]{
-			ExposedName: string(attr.HostID.OTEL()),
-			Get: func(_ *request.Span) attribute.KeyValue {
-				return semconv.HostID(mr.nodeMeta.HostID)
-			},
 		})
 }
 

@@ -44,24 +44,26 @@ var timeNow = time.Now
 // for both application-level and trace-level metrics.
 var CloudHostIDKey = "cloud_host_id"
 
-// using labels and names that are equivalent names to the OTEL attributes
-// but following the different naming conventions
+// Span metric, service graph and info metric names in Prometheus convention, derived from the
+// OTLP definitions the OTEL exporter instruments, declared in pkg/export/attributes.
+var (
+	SpanMetricsLatency       = attributes.SpanMetricsLatencyLegacy.Prom
+	SpanMetricsLatencyOTel   = attributes.SpanMetricsDurationOTel.Prom
+	SpanMetricsCalls         = attributes.SpanMetricsCallsLegacy.Prom
+	SpanMetricsCallsOTel     = attributes.SpanMetricsCallsOTel.Prom
+	SpanMetricsRequestSizes  = attributes.SpanMetricsRequestSize.Prom
+	SpanMetricsResponseSizes = attributes.SpanMetricsResponseSize.Prom
+	TracesTargetInfo         = attributes.TracesTargetInfo.Prom
+	TracesHostInfo           = attributes.TracesHostInfo.Prom
+	TargetInfo               = attributes.TargetInfo.Prom
+
+	ServiceGraphClient = attributes.ServiceGraphClient.Prom
+	ServiceGraphServer = attributes.ServiceGraphServer.Prom
+	ServiceGraphFailed = attributes.ServiceGraphFailed.Prom
+	ServiceGraphTotal  = attributes.ServiceGraphTotal.Prom
+)
+
 const (
-	SpanMetricsLatency       = "traces_spanmetrics_latency"
-	SpanMetricsLatencyOTel   = "traces_span_metrics_duration_seconds"
-	SpanMetricsCalls         = "traces_spanmetrics_calls_total"
-	SpanMetricsCallsOTel     = "traces_span_metrics_calls_total"
-	SpanMetricsRequestSizes  = "traces_spanmetrics_size_total"
-	SpanMetricsResponseSizes = "traces_spanmetrics_response_size_total"
-	TracesTargetInfo         = "traces_target_info"
-	TracesHostInfo           = "traces_host_info"
-	TargetInfo               = "target_info"
-
-	ServiceGraphClient = "traces_service_graph_request_client_seconds"
-	ServiceGraphServer = "traces_service_graph_request_server_seconds"
-	ServiceGraphFailed = "traces_service_graph_request_failed_total"
-	ServiceGraphTotal  = "traces_service_graph_request_total"
-
 	serviceNameKey      = "service_name"
 	serviceNamespaceKey = "service_namespace"
 
