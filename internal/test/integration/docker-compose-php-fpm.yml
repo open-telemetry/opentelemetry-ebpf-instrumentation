@@ -19,7 +19,7 @@ services:
     volumes:
       - ./components/php/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf
       - ./components/php/php.ini:/usr/local/etc/php/php.ini
-      - ./components/php/index.php:/var/www/html/index.php
+      - ./components/php/:/var/www/html
     environment:
       PM_STRATEGY: static
       PM_MAX_CHILDREN: 100
@@ -32,6 +32,51 @@ services:
       PM_MIN_SPARE_SERVERS: 5
       PM_MAX_SPARE_SERVERS: 20
       PM_PROCESS_IDLE_TIMEOUT: 10s
+
+  php-harvest-nginx:
+    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    mem_limit: 128m
+    container_name: hatest-php-harvest-nginx
+    ports:
+      - "8082:80"
+      - "8083:81"
+      - "8084:82"
+    volumes:
+      - ./components/php/harvest/nginx.conf:/etc/nginx/nginx.conf
+      - ./components/php/harvest/laravel/public:/var/www/laravel/public:ro
+      - ./components/php/harvest/symfony/public:/var/www/symfony-harvest/public:ro
+      - ./components/php/harvest/slim/public:/var/www/slim/public:ro
+    depends_on:
+      - php-harvest-laravel
+      - php-harvest-symfony
+      - php-harvest-slim
+
+  php-harvest-laravel:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/laravel/Dockerfile
+    image: hatest-php-harvest-laravel
+    mem_limit: 256m
+    container_name: hatest-php-harvest-laravel
+    environment:
+      APP_DEBUG: "true"
+      LOG_CHANNEL: stderr
+
+  php-harvest-symfony:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/symfony/Dockerfile
+    image: hatest-php-harvest-symfony
+    mem_limit: 256m
+    container_name: hatest-php-harvest-symfony
+
+  php-harvest-slim:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/slim/Dockerfile
+    image: hatest-php-harvest-slim
+    mem_limit: 256m
+    container_name: hatest-php-harvest-slim
 
   symfony-nginx:
     image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
@@ -83,6 +128,8 @@ services:
     depends_on:
       nginx:
         condition: service_started
+      php-harvest-nginx:
+        condition: service_started
       symfony-nginx:
         condition: service_started
 
@@ -122,7 +169,7 @@ services:
     image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus
     command:
-      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --config.file=/etc/prometheus/prometheus-config-no-scrape.yml
       - --web.enable-lifecycle
       - --web.route-prefix=/
       - --log.level=debug

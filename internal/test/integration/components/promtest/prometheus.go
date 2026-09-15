@@ -39,12 +39,14 @@ type Client struct {
 }
 
 func (c *Client) Query(promQL string) ([]Result, error) {
-	qurl := "http://" + c.HostPort + "/api/v1/query?query=" + url.PathEscape(promQL)
+	qurl := "http://" + c.HostPort + "/api/v1/query?query=" + url.QueryEscape(promQL)
 	log.Debug("querying prometheus", "query", promQL, "url", qurl)
 	resp, err := http.Get(qurl)
 	if err != nil {
 		return nil, fmt.Errorf("querying prometheus: %w", err)
 	}
+	defer resp.Body.Close()
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("can't read response body: %w", err)
