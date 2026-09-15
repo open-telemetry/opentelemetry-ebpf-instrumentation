@@ -1,0 +1,15 @@
+{
+    "name": "obi/symfony-echo-api",
+    "version": "1.2.3",
+    "license": "Apache-2.0",
+    "type": "project",
+    "require": {
+        "php": ">=8.2",
+        "symfony/framework-bundle": "7.4.*"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    }
+}

@@ -523,8 +523,7 @@ func (g *SchemaGenerator) buildInlineTypeSchemas(rootType reflect.Type) map[stri
 		}
 		visited[t] = true
 
-		for i := 0; i < t.NumField(); i++ {
-			field := t.Field(i)
+		for field := range t.Fields() {
 			if !reflectsField(field) {
 				continue
 			}

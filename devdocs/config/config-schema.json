@@ -972,8 +972,10 @@
               "all",
               "application",
               "application_host",
+              "application_red",
               "application_runtime",
               "application_service_graph",
+              "application_sizes",
               "application_span_otel",
               "ebpf",
               "network",
@@ -1217,7 +1219,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes",
-          "default": 256,
+          "default": 768,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         }
       },
@@ -2365,7 +2367,7 @@
         },
         "provider": {
           "type": "string",
-          "description": "Name reported in the gen_ai.system span attribute"
+          "description": "Name reported in the gen_ai.provider.name span attribute. A name the attribute's enum has no member for is reported as `custom`."
         }
       },
       "type": "object"

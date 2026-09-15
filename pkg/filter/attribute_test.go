@@ -23,11 +23,6 @@ import (
 
 const timeout = 5 * time.Second
 
-// Helper to return a pointer to an int value for the numeric comparisons
-func intPtr(i int) *int {
-	return &i
-}
-
 func strGetters() attributes.NamedGetters[*ebpf.Record, string] {
 	cfg := ebpf.RecordGettersConfig{PortGuessPolicy: flowdef.PortGuessOrdinal}
 	return ebpf.RecordStringGetters(cfg)
@@ -200,7 +195,7 @@ func TestAttributeFilter_NumericComparisons(t *testing.T) {
 
 	// Test multiple numeric comparisons: status code must be in [200, 400) range
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
-		"http.response.status_code": MatchDefinition{GreaterEquals: intPtr(200), LessThan: intPtr(400)},
+		"http.response.status_code": MatchDefinition{GreaterEquals: new(200), LessThan: new(400)},
 	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -278,7 +273,7 @@ func TestAttributeFilter_NumericEquality(t *testing.T) {
 	output := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
 
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
-		"http.response.status_code": MatchDefinition{Equals: intPtr(200)},
+		"http.response.status_code": MatchDefinition{Equals: new(200)},
 	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -341,7 +336,7 @@ func TestAttributeFilter_NumericNotEquals(t *testing.T) {
 	output := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
 
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
-		"http.response.status_code": MatchDefinition{NotEquals: intPtr(500)},
+		"http.response.status_code": MatchDefinition{NotEquals: new(500)},
 	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -404,7 +399,7 @@ func TestAttributeFilter_NumericAndGlob(t *testing.T) {
 	output := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
 
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
-		"http.response.status_code": MatchDefinition{GreaterEquals: intPtr(200), LessThan: intPtr(300)},
+		"http.response.status_code": MatchDefinition{GreaterEquals: new(200), LessThan: new(300)},
 		"http.request.method":       MatchDefinition{Match: "GET"},
 	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
@@ -482,7 +477,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 
 	// Filter for error responses (>= 400) with write methods (POST, PUT, PATCH)
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
-		"http.response.status_code": MatchDefinition{GreaterEquals: intPtr(400)},
+		"http.response.status_code": MatchDefinition{GreaterEquals: new(400)},
 		"http.request.method":       MatchDefinition{Match: "P*"},
 	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
@@ -587,7 +582,7 @@ func TestAttributeFilter_VerificationError(t *testing.T) {
 		// valid attribute with double match definition
 		{"obi.ip": MatchDefinition{Match: "foo", NotMatch: "foo"}},
 		// valid attribute with invalid mixed glob and numeric comparisons
-		{"http.response.status_code": MatchDefinition{Match: "2*", GreaterEquals: intPtr(200)}},
+		{"http.response.status_code": MatchDefinition{Match: "2*", GreaterEquals: new(200)}},
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%v", tc), func(t *testing.T) {

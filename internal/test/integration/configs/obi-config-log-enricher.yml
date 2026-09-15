@@ -14,10 +14,13 @@ attributes:
       include: ["*"]
 ebpf:
   log_enricher:
+    # The log enricher selects the suite's target with the same variables as the
+    # instrumentation selection (OTEL_EBPF_OPEN_PORT, OTEL_EBPF_EXECUTABLE_PATH),
+    # so the two selections cannot drift. The defaults match nothing.
     services:
       - service:
-        - open_ports: "8380,50051,3030,8085,3040,8388"
-        - exe_path: "*substsh*"
+        - open_ports: "${OTEL_EBPF_OPEN_PORT:-0}"
+        - exe_path: "*${OTEL_EBPF_EXECUTABLE_PATH:-@none@}*"
 discovery:
   min_process_age: "0s"
 log_config: "yaml"

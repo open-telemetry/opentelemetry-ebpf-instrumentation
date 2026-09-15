@@ -970,6 +970,15 @@ type MCPCall struct {
 	ErrorMessage      string `json:"errorMessage,omitempty"`
 }
 
+// MCP returns the MCP call this span describes, or nil when it describes
+// something else.
+func (s *Span) MCP() *MCPCall {
+	if s.SubType != HTTPSubtypeMCP || s.GenAI == nil {
+		return nil
+	}
+	return s.GenAI.MCP
+}
+
 // MCPMethodToolsCall is the MCP method name for a tool call, the one method
 // that carries a GenAI operation name.
 const MCPMethodToolsCall = "tools/call"
@@ -1889,8 +1898,8 @@ func SpanStatusMessage(span *Span) string {
 		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
 			return span.JSONRPC.ErrorMessage
 		}
-		if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorMessage != "" {
-			return span.GenAI.MCP.ErrorMessage
+		if mcp := span.MCP(); mcp != nil && mcp.ErrorMessage != "" {
+			return mcp.ErrorMessage
 		}
 	case EventTypeDNS:
 		if span.Status != 0 {
@@ -1919,7 +1928,7 @@ func HTTPSpanStatusCode(span *Span) string {
 	}
 
 	// MCP errors are signaled in the JSON-RPC response body.
-	if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorCode != 0 {
+	if mcp := span.MCP(); mcp != nil && mcp.ErrorCode != 0 {
 		return StatusCodeError
 	}
 
@@ -2147,8 +2156,8 @@ func (s *Span) TraceName() string {
 			return InvokeModelOperationName
 		}
 
-		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
-			return s.GenAI.MCP.SpanName()
+		if mcp := s.MCP(); mcp != nil {
+			return mcp.SpanName()
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeEmbedding && s.GenAI != nil && s.GenAI.Embedding != nil {
@@ -2596,6 +2605,30 @@ func (s *Span) GenAIOperationName() string {
 	return ""
 }
 
+// genAIProviderNames is the value space of `gen_ai.provider.name`, mirroring the
+// enum declared in schemas/obi/groups/gen_ai/registry.yaml. Adding a provider
+// requires adding its member there too; a test asserts the two agree.
+var genAIProviderNames = map[string]struct{}{
+	"openai": {}, "gcp.gen_ai": {}, "gcp.vertex_ai": {}, "gcp.gemini": {},
+	"anthropic": {}, "cohere": {}, "azure.ai.inference": {}, "azure.ai.openai": {},
+	"ibm.watsonx.ai": {}, "aws.bedrock": {}, "perplexity": {}, "x_ai": {},
+	"deepseek": {}, "groq": {}, "mistral_ai": {}, "qwen": {}, "voyage": {},
+	"jina": {}, "pinecone": {}, "qdrant": {}, "milvus": {}, "zilliz": {},
+	"chroma": {}, "weaviate": {}, "generic": {}, "ollama": {}, "litellm": {},
+	"vllm": {}, "localai": {}, "openrouter": {}, "custom": {},
+}
+
+// openAICompatibleProviderName maps a configured gateway provider onto the
+// attribute's value space. The name is free-form configuration and the
+// attribute is a closed enum, so a gateway with no member reports as `custom`;
+// the gateway itself stays identifiable through `server.address`.
+func openAICompatibleProviderName(configured string) string {
+	if _, ok := genAIProviderNames[configured]; ok {
+		return configured
+	}
+	return "custom"
+}
+
 func (s *Span) GenAIProviderName() string {
 	if s.GenAI == nil {
 		return ""
@@ -2616,10 +2649,7 @@ func (s *Span) GenAIProviderName() string {
 		return "ollama"
 	}
 	if s.GenAI.OpenAICompatible != nil {
-		if s.GenAI.OpenAICompatible.ProviderName != "" {
-			return s.GenAI.OpenAICompatible.ProviderName
-		}
-		return "custom"
+		return openAICompatibleProviderName(s.GenAI.OpenAICompatible.ProviderName)
 	}
 	if s.GenAI.Bedrock != nil {
 		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()

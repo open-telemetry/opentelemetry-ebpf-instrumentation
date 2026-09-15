@@ -13,9 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -671,4 +673,23 @@ func TestResourceAttrsFromEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A component that vendors OBI sets buildinfo.Version at runtime (see the package comment on
+// pkg/buildinfo), which happens after OBI's own package initialization. The distro version must
+// therefore be read when the resource is built, not snapshotted into a package-level variable.
+func TestResourceAttrsHonourRuntimeBuildinfoVersion(t *testing.T) {
+	original := buildinfo.Version
+	t.Cleanup(func() { buildinfo.Version = original })
+	buildinfo.Version = "v9.9.9-vendored"
+
+	attrs := resourceAttrs(&meta.NodeMeta{}, &svc.Attrs{UID: svc.UID{Name: "svc"}})
+
+	for _, kv := range attrs {
+		if kv.Key == semconv.TelemetryDistroVersionKey {
+			assert.Equal(t, "v9.9.9-vendored", kv.Value.AsString())
+			return
+		}
+	}
+	t.Fatalf("%s not found in resource attributes", semconv.TelemetryDistroVersionKey)
 }

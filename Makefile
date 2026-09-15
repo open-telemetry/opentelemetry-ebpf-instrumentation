@@ -28,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.15
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.16
 
 OCI_BIN ?= docker
 
@@ -163,6 +163,15 @@ WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE)
 lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
+
+# The schemacheck provenance tests resolve the registry through the pinned
+# weaver image, so they cannot run under the `-short` unit-test targets. They
+# run here instead, alongside lint-schema, which already provides both the
+# container runtime and the pre-fetched upstream semconv registry.
+.PHONY: test-schema
+test-schema: fetch-upstream-semconv
+	@echo "### Testing OBI semantic-convention registry provenance"
+	go test -race -count=1 ./internal/schemacheck/...
 
 .PHONY: check-schema-files
 check-schema-files:

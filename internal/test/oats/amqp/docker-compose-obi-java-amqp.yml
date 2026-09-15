@@ -90,7 +90,6 @@ services:
       - live-check
       - --registry
       - /obi-registry
-      - --include-unreferenced
       - --inactivity-timeout
       - "300"
       - --otlp-grpc-port

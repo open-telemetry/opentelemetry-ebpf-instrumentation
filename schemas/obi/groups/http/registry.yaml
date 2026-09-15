@@ -1,0 +1,48 @@
+# OBI's HTTP telemetry: the body-capture attributes OBI adds on top of upstream
+# semconv, its narrowed copies of the upstream HTTP metrics, and its HTTP span
+# contract. The metric groups carry the obi.upstream_override annotation so the
+# schemacheck drift test pins unit/instrument/stability to upstream.
+groups:
+  - id: registry.obi.http
+    type: attribute_group
+    display_name: OBI HTTP Attributes
+    brief: >
+      HTTP attributes OBI emits that are not part of upstream semconv
+      (captured request/response bodies).
+    attributes:
+      - id: http.request.body.content
+        type: string
+        stability: development
+        brief: >
+          Captured HTTP request body content. Only populated when OBI's body
+          capture is enabled and subject to OBI's body-extraction rules
+          (size limits, content-type filtering, obfuscation).
+        note: >
+          Tracks the upstream semantic-conventions proposal
+          https://github.com/open-telemetry/semantic-conventions/pull/3521
+          ("add http.{request,response}.body.content"). Declared in the OBI
+          registry until that proposal is merged and released, at which point
+          this attribute moves to upstream semconv.
+        examples: ['{"user":"alice"}']
+      - id: http.response.body.content
+        type: string
+        stability: development
+        brief: >
+          Captured HTTP response body content. Only populated when OBI's body
+          capture is enabled and subject to OBI's body-extraction rules
+          (size limits, content-type filtering, obfuscation).
+        note: >
+          Tracks the upstream semantic-conventions proposal
+          https://github.com/open-telemetry/semantic-conventions/pull/3521
+          ("add http.{request,response}.body.content"). Declared in the OBI
+          registry until that proposal is merged and released, at which point
+          this attribute moves to upstream semconv.
+        examples: ['{"status":"ok"}']
+      - id: obi.http.response.observed
+        type: boolean
+        stability: development
+        brief: >
+          Present and false on an HTTP span whose response was never seen;
+          absent otherwise. `http.response.status_code` is emitted instead
+          once a response is observed.
+        examples: [false]

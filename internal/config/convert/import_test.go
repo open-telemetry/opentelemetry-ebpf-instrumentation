@@ -51,7 +51,7 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.LogFormat, got.LogFormat)
 	require.Equal(t, obi.DefaultConfig.LogConfig, got.LogConfig)
 	require.Equal(t, obi.DefaultConfig.InternalMetrics, got.InternalMetrics)
-	require.Equal(t, export.FeatureApplicationRED, got.Metrics.Features)
+	require.Equal(t, export.FeatureApplicationRED|export.FeatureApplicationSizes, got.Metrics.Features)
 	require.Contains(t, got.Traces.Instrumentations, instrumentations.InstrumentationHTTP)
 	require.Contains(t, got.Traces.Instrumentations, instrumentations.InstrumentationSunRPC)
 	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationDNS)
@@ -171,6 +171,117 @@ func TestV2ToRuntimeRejectsNegativeChannelBufferLength(t *testing.T) {
 		},
 	})
 	require.EqualError(t, err, "capture.channels.buffer_len must be greater than or equal to zero")
+}
+
+// A parsed v2 document that never mentions body_size_metrics inherits the default, which
+// matches what v1 emits for the "application" bundle. Existing v2 documents keep their
+// telemetry unchanged.
+func TestV2ToRuntimeHTTPBodySizeMetricsDefaultsOn(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		http string
+	}{
+		{name: "no instrumentation section", http: ""},
+		{name: "empty http section", http: "\n      instrumentation:\n        http: {}"},
+		{
+			name: "enabled without the key",
+			http: "\n      instrumentation:\n        http:\n          enabled:\n            traces: true\n            metrics: true",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match:
+            process:
+              exe_path_glob: ["*srv*"]` + tt.http + "\n"))
+			require.NoError(t, err)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+			require.True(t, got.Metrics.Features.AppRED())
+			require.True(t, got.Metrics.Features.AppSizes())
+		})
+	}
+}
+
+// Setting the key to false is how a v2 document drops them.
+func TestV2ToRuntimeHTTPBodySizeMetricsExplicitlyOff(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match:
+            process:
+              exe_path_glob: ["*srv*"]
+      instrumentation:
+        http:
+          enabled:
+            traces: true
+            metrics: true
+            body_size_metrics: false
+`))
+	require.NoError(t, err)
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.True(t, got.Metrics.Features.AppRED())
+	require.False(t, got.Metrics.Features.AppSizes())
+}
+
+func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("disabled explicitly", func(t *testing.T) {
+		t.Parallel()
+
+		_, ext := RuntimeToV2(nil)
+		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = false
+
+		got, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+		require.True(t, got.Metrics.Features.AppRED())
+		require.False(t, got.Metrics.Features.AppSizes())
+	})
+
+	t.Run("enabled alongside the HTTP metrics", func(t *testing.T) {
+		t.Parallel()
+
+		_, ext := RuntimeToV2(nil)
+		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = true
+
+		got, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+		require.True(t, got.Metrics.Features.AppRED())
+		require.True(t, got.Metrics.Features.AppSizes())
+	})
+
+	// the histograms ride on the HTTP application metric pipeline, so turning the metrics
+	// off drops them too rather than producing a half-configured state
+	t.Run("follows the HTTP metrics switch", func(t *testing.T) {
+		t.Parallel()
+
+		_, ext := RuntimeToV2(nil)
+		ext.Capture.Instrumentation.HTTP.Enabled.Metrics = false
+		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = true
+
+		got, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+		require.False(t, got.Metrics.Features.AppSizes())
+	})
 }
 
 func TestV2ToRuntimeCompleteInstrumentationCanDisableAerospike(t *testing.T) {
@@ -1286,7 +1397,7 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.CacheActiveTimeout, got.NetworkFlows.CacheActiveTimeout)
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.Deduper, got.NetworkFlows.Deduper)
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.ListenInterfaces, got.NetworkFlows.ListenInterfaces)
-	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, got.Metrics.Features)
+	require.Equal(t, export.FeatureApplicationRED|export.FeatureApplicationSizes|export.FeatureNetwork, got.Metrics.Features)
 	require.Equal(t, "198.51.100.1", got.Stats.AgentIP)
 	require.Equal(t, obi.DefaultConfig.Stats.AgentIPIface, got.Stats.AgentIPIface)
 	require.Equal(t, obi.DefaultConfig.Stats.AgentIPType, got.Stats.AgentIPType)
@@ -1359,6 +1470,9 @@ func TestV2ToRuntimePartialStandaloneSectionsPreserveDefaults(t *testing.T) {
 		Correlation: &schema.Correlation{
 			LogTraceAnnotation: schema.LogTraceAnnotation{
 				Enabled: true,
+				Match: []schema.RuleMatch{
+					{Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/*"}}},
+				},
 			},
 		},
 		Daemon: &schema.Daemon{
@@ -1375,8 +1489,115 @@ func TestV2ToRuntimePartialStandaloneSectionsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.InternalMetrics, got.InternalMetrics)
 	require.Equal(t, obi.DefaultConfig.Prometheus.SpanMetricsServiceCacheSize, got.Prometheus.SpanMetricsServiceCacheSize)
 	require.True(t, got.EBPF.LogEnricher.Enabled())
+	require.Len(t, got.EBPF.LogEnricher.Services, 1)
+	require.True(t, got.EBPF.LogEnricher.Services[0].Service[0].Path.MatchString("/srv/app"))
 	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.CacheTTL, got.EBPF.LogEnricher.CacheTTL)
 	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.AsyncWriterWorkers, got.EBPF.LogEnricher.AsyncWriterWorkers)
+}
+
+// log_trace_annotation.match becomes the log enricher's own selection, one selector per
+// clause, next to an untouched capture selection
+func TestDocumentToRuntimeLogTraceAnnotationMatch(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+file_format: "1.0"
+extensions:
+  obi:
+    version: '2.0'
+    capture:
+      policy:
+        default_action: exclude
+      rules:
+        - action: include
+          match:
+            process:
+              exe_path_glob:
+                - /frontend
+                - /backend
+    correlation:
+      log_trace_annotation:
+        enabled: true
+        match:
+          - process:
+              exe_path_glob: [/frontend]
+          - kubernetes:
+              namespace_glob: [prod-*]
+`
+	doc, _, err := schema.ParseStandaloneYAML([]byte(src))
+	require.NoError(t, err)
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.Len(t, got.Discovery.Instrument, 1)
+	require.True(t, got.Discovery.Instrument[0].Path.MatchString("/backend"))
+
+	require.True(t, got.EBPF.LogEnricher.Enabled())
+	require.Len(t, got.EBPF.LogEnricher.Services, 2)
+	frontend := got.EBPF.LogEnricher.Services[0].Service[0]
+	require.True(t, frontend.Path.MatchString("/frontend"))
+	require.False(t, frontend.Path.MatchString("/backend"))
+	prod := got.EBPF.LogEnricher.Services[1].Service[0]
+	require.False(t, prod.Path.IsSet())
+	require.True(t, prod.Metadata[services.AttrNamespace].MatchString("prod-payments"))
+}
+
+func TestV2ToRuntimeLogTraceAnnotationRejectsInvalidSelection(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		match []schema.RuleMatch
+		want  string
+	}{
+		{
+			name: "enabled without match",
+			want: "correlation.log_trace_annotation.match must select at least one workload",
+		},
+		{
+			name:  "empty clause",
+			match: []schema.RuleMatch{{}},
+			want:  "correlation.log_trace_annotation.match[0] must define",
+		},
+		{
+			name:  "regex predicate",
+			match: []schema.RuleMatch{{Process: schema.RuleProcessMatch{ExePathRegex: "^/srv/.*"}}},
+			want:  "correlation.log_trace_annotation.match[0]: regex predicates are not supported",
+		},
+		{
+			name:  "exports_otlp predicate",
+			match: []schema.RuleMatch{{Process: schema.RuleProcessMatch{ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317}}}},
+			want:  "correlation.log_trace_annotation.match[0].process.exports_otlp is not supported",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Correlation: &schema.Correlation{
+					LogTraceAnnotation: schema.LogTraceAnnotation{Enabled: true, Match: tc.match},
+				},
+			})
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestV2ToRuntimeLogTraceAnnotationDisabled(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	ext.Correlation.LogTraceAnnotation.Enabled = false
+	ext.Correlation.LogTraceAnnotation.Match = []schema.RuleMatch{
+		{Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/*"}}},
+	}
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.False(t, got.EBPF.LogEnricher.Enabled())
+	require.Empty(t, got.EBPF.LogEnricher.Services)
 }
 
 func TestV2ToRuntimePartialPlainTextDisablePreservesOtherDefaults(t *testing.T) {

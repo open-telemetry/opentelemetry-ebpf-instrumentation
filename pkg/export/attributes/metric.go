@@ -224,6 +224,18 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	MCPClientOperationDuration = metric(Name{
+		Section: "mcp.client.operation.duration",
+		OTEL:    "mcp.client.operation.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
+	MCPServerOperationDuration = metric(Name{
+		Section: "mcp.server.operation.duration",
+		OTEL:    "mcp.server.operation.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
 	GoRuntimeMemoryLimit = metric(Name{
 		Section: "go.memory.limit",
 		OTEL:    "go.memory.limit",

@@ -1,0 +1,53 @@
+# Config v2 twin of obi-config-log-enricher-unselected.yml: the log trace annotation
+# selection matches none of the instrumented processes (no test server listens on port 1).
+file_format: "1.0"
+log_level: debug
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 500ms
+        min_process_age: 0s
+      rules:
+        - action: exclude
+          match:
+            process:
+              exports_otlp:
+                port: 4317
+                protocol: protobuf
+        - action: include
+          match:
+            process:
+              open_ports: "${OTEL_EBPF_OPEN_PORT:-0}"
+        - action: include
+          match:
+            process:
+              exe_path_glob: ["*${OTEL_EBPF_EXECUTABLE_PATH:-@none@}*"]
+      engine:
+        batching:
+          batch_timeout: 10ms
+        debug:
+          bpf: true
+      instrumentation:
+        http:
+          track_request_headers: true
+          request_timeout: 5s
+          routes:
+            incoming:
+              patterns:
+                - /basic/:rnd
+              unmatched: path
+              ignored_patterns:
+                - /metrics
+    correlation:
+      log_trace_annotation:
+        enabled: true
+        match:
+          - process:
+              open_ports: "1"
+    daemon:
+      logging:
+        config_format: yaml
+        debug_trace_output: text

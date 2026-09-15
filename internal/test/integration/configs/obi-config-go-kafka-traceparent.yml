@@ -8,7 +8,7 @@ ebpf:
   log_enricher:
     services:
       - service:
-        - exe_path: testserver
+        - exe_path: "*testserver"
 discovery:
   min_process_age: "0s"
 log_config: "yaml"

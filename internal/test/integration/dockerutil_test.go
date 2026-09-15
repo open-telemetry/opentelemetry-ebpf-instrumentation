@@ -205,7 +205,6 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 		dockertest.WithCmd([]string{
 			"registry", "live-check",
 			"--registry", "/obi-registry",
-			"--include-unreferenced",
 			"--inactivity-timeout", "300",
 			"--otlp-grpc-address", "0.0.0.0",
 			"--admin-port", "4320",
