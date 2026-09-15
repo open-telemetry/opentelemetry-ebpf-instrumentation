@@ -4,11 +4,14 @@
 package uprobe
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func uprobeTestSpec() *ebpf.CollectionSpec {
@@ -52,6 +55,52 @@ func TestMarkMultiProgramsKeepsTailCallProgramsAsPerfEvents(t *testing.T) {
 
 	assert.Equal(t, ebpf.AttachNone, spec.Programs["caller"].AttachType)
 	assert.Equal(t, ebpf.AttachNone, spec.Programs["target"].AttachType)
+}
+
+type blockingCloser struct {
+	entered chan<- struct{}
+	release <-chan struct{}
+	err     error
+}
+
+func (c blockingCloser) Close() error {
+	c.entered <- struct{}{}
+	<-c.release
+	return c.err
+}
+
+// every address of one attachment falls back to its own perf event, and they
+// must be released together: a sequential Close would never reach the last one
+func TestPerfEventLinksCloseTogether(t *testing.T) {
+	const links = 4
+	entered := make(chan struct{}, links)
+	release := make(chan struct{})
+
+	perf := make(perfEventLinks, 0, links)
+	for i := range links {
+		perf = append(perf, blockingCloser{
+			entered: entered,
+			release: release,
+			err:     fmt.Errorf("link %d", i),
+		})
+	}
+
+	closed := make(chan error, 1)
+	go func() { closed <- perf.Close() }()
+
+	for i := range links {
+		select {
+		case <-entered:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("only %d of %d links reached Close: they are released one after another", i, links)
+		}
+	}
+	close(release)
+
+	err := <-closed
+	for i := range links {
+		require.ErrorContains(t, err, fmt.Sprintf("link %d", i))
+	}
 }
 
 func TestMultiOptionsReplicateRefCtrOffset(t *testing.T) {
