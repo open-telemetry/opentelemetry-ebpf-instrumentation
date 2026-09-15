@@ -161,6 +161,8 @@ const (
 	GrpcServerStreamStream
 	GrpcServerStreamStPtr
 	GrpcClientStreamStream
+	GrpcCSAttemptCsPos
+	GrpcClientStreamFinishedPos
 	// go manual spans
 	GoTracerDelegatePos
 	GoTracerAttributeOptOffset
@@ -241,6 +243,7 @@ const (
 	// Go connection interface types
 	GrpcSyscallConnTypeAddress
 	TLSConnTypeAddress
+	GoIoEOFAddress
 )
 
 //go:embed offsets.json
@@ -329,6 +332,18 @@ var structMembers = map[string]structInfo{
 		lib: "google.golang.org/grpc",
 		fields: map[string]GoOffset{
 			"Stream": GrpcClientStreamStream,
+		},
+	},
+	"google.golang.org/grpc.csAttempt": {
+		lib: "google.golang.org/grpc",
+		fields: map[string]GoOffset{
+			"cs": GrpcCSAttemptCsPos,
+		},
+	},
+	"google.golang.org/grpc.clientStream": {
+		lib: "google.golang.org/grpc",
+		fields: map[string]GoOffset{
+			"finished": GrpcClientStreamFinishedPos,
 		},
 	},
 	"google.golang.org/grpc/internal/status.Status": {

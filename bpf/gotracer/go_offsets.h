@@ -84,6 +84,8 @@ typedef enum {
     _grpc_server_stream_stream,
     _grpc_server_stream_st_ptr_pos,
     _grpc_client_stream_stream,
+    _grpc_cs_attempt_cs_pos,
+    _grpc_client_stream_finished_pos,
     // go manual spans
     _tracer_delegate_pos,
     _tracer_attribute_opt_off,
@@ -164,6 +166,7 @@ typedef enum {
     // Go connection interface types
     _grpc_syscall_conn_type_addr,
     _tls_conn_type_addr,
+    _io_eof_addr,
     _last_go_offset,
 } go_offset_const;
 

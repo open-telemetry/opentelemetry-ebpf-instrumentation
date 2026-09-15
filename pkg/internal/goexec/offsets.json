@@ -758,6 +758,42 @@
         ]
       }
     },
+    "google.golang.org/grpc.csAttempt": {
+      "cs": {
+        "versions": {
+          "oldest": "1.40.0",
+          "newest": "1.83.2"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.40.0"
+          },
+          {
+            "offset": 16,
+            "since": "1.59.0"
+          }
+        ]
+      }
+    },
+    "google.golang.org/grpc.clientStream": {
+      "finished": {
+        "versions": {
+          "oldest": "1.40.0",
+          "newest": "1.83.2"
+        },
+        "offsets": [
+          {
+            "offset": 216,
+            "since": "1.40.0"
+          },
+          {
+            "offset": 208,
+            "since": "1.59.0"
+          }
+        ]
+      }
+    },
     "google.golang.org/grpc/internal/transport.ClientStream": {
       "Stream": {
         "versions": {

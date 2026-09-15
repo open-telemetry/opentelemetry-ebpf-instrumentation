@@ -5,6 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 
+#include <common/connection_info.h>
 #include <common/tp_info.h>
 
 #include <gotracer/types/stream_key.h>
@@ -16,6 +17,11 @@ typedef struct grpc_srv_func_invocation {
     tp_info_t tp;
 } grpc_srv_func_invocation_t;
 
+enum {
+    k_grpc_client_func_type_invoke = 0,
+    k_grpc_client_func_type_new_stream = 1,
+};
+
 typedef struct grpc_client_func_invocation {
     u64 start_monotime_ns;
     u64 cc;
@@ -23,7 +29,33 @@ typedef struct grpc_client_func_invocation {
     u64 method_len;
     tp_info_t tp;
     u64 flags;
+    u64 stream_ptr;
+    u64 transport_ptr;
+    u32 stack_off;
+    u32 func_type;
+    u32 stream_constructor_active;
+    u32 _pad;
 } grpc_client_func_invocation_t;
+
+enum { k_grpc_client_max_depth = 4 };
+
+typedef struct grpc_client_invocation_stack {
+    grpc_client_func_invocation_t frames[k_grpc_client_max_depth];
+    u32 depth;
+    u32 overflow;
+    u32 unstored_stack_off;
+    u32 _pad;
+} grpc_client_invocation_stack_t;
+
+typedef struct grpc_client_stream_state {
+    grpc_client_func_invocation_t invocation;
+    connection_info_t conn;
+    u32 _pad;
+} grpc_client_stream_state_t;
+
+typedef struct grpc_client_early_finish {
+    u32 has_err;
+} grpc_client_early_finish_t;
 
 typedef struct transport_new_client_invocation {
     grpc_client_func_invocation_t inv;
