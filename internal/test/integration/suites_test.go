@@ -1078,6 +1078,17 @@ func TestSuite_PythonAWSSQS(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonAWSSNS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-aws.yml", path.Join(pathOutput, "test-suite-python-aws-sns.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	t.Cleanup(func() { runWeaverValidation(t) })
+	t.Run("Python AWS SNS", testPythonAWSSNS)
+}
+
 func TestSuite_NodeJSDist(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodejs-dist.yml", path.Join(pathOutput, "test-suite-nodejs-dist.log"))
 	require.NoError(t, err)
