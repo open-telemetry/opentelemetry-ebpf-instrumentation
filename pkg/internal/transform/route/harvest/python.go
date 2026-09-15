@@ -52,40 +52,39 @@ func ExtractPythonRoutes(fi *exec.FileInfo) (*RouteHarvesterResult, error) {
 
 func extractPythonRoutes(dir string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
-	routes := map[string]struct{}{}
-	djangoFiles := map[string][]djangoRoute{}
+	e := pythonExtractor{
+		routes:       map[string]struct{}{},
+		djangoRoutes: map[string][]djangoRoute{},
+	}
 	kind := PartialRoutes
-	err := walkPythonFiles(dir, func(path string) error {
-		declarations, err := scanPythonFile(path, routes)
-		if err != nil {
+	err := walkPythonFiles(dir, func(path string) {
+		if err := e.scanFile(path); err != nil {
 			log.Debug("error processing file", "file", path, "error", err)
-			return nil
+			return
 		}
-		djangoFiles[path] = declarations
-		if len(declarations) > 0 {
+		if len(e.djangoRoutes[path]) > 0 {
 			kind = CompleteRoutes
 		}
-		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scan Python directory: %w", err)
 	}
 
-	resolveDjangoRoutes(dir, djangoFiles, routes)
+	resolveDjangoRoutes(dir, e.djangoRoutes, e.routes)
 
-	result := make([]string, 0, len(routes))
-	for route := range routes {
+	result := make([]string, 0, len(e.routes))
+	for route := range e.routes {
 		result = append(result, route)
 	}
 	sort.Strings(result)
 	return &RouteHarvesterResult{Routes: result, Kind: kind}, nil
 }
 
-func walkPythonFiles(root string, fn func(string) error) error {
+func walkPythonFiles(root string, fn func(string)) error {
 	return walkPythonFilesN(root, maxPythonFiles, fn)
 }
 
-func walkPythonFilesN(root string, maxFiles int, fn func(string) error) error {
+func walkPythonFilesN(root string, maxFiles int, fn func(string)) error {
 	files, err := os.ReadDir(root)
 	if err != nil {
 		return err
@@ -108,9 +107,7 @@ func walkPythonFilesN(root string, maxFiles int, fn func(string) error) error {
 				return nil
 			}
 			scanned++
-			if err := fn(path); err != nil {
-				return err
-			}
+			fn(path)
 			if scanned >= maxFiles {
 				limit = true
 				return filepath.SkipAll
@@ -134,10 +131,15 @@ func skipPythonDir(name string) bool {
 	return ok
 }
 
-func scanPythonFile(path string, routes map[string]struct{}) ([]djangoRoute, error) {
+type pythonExtractor struct {
+	routes       map[string]struct{}
+	djangoRoutes map[string][]djangoRoute
+}
+
+func (e *pythonExtractor) scanFile(path string) error {
 	file, _ := langtools.OpenMetadataFile(path, maxPythonFileBytes)
 	if file == nil {
-		return nil, nil
+		return nil
 	}
 	defer file.Close()
 
@@ -145,7 +147,7 @@ func scanPythonFile(path string, routes map[string]struct{}) ([]djangoRoute, err
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
 	scanStmt := func(text string) {
-		scanPythonStmt(text, routes)
+		scanPythonStmt(text, e.routes)
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -191,7 +193,11 @@ func scanPythonFile(path string, routes map[string]struct{}) ([]djangoRoute, err
 			depth = 0
 		}
 	}
-	return djangoRoutes, scan.Err()
+	if err := scan.Err(); err != nil {
+		return err
+	}
+	e.djangoRoutes[path] = djangoRoutes
+	return nil
 }
 
 func scanPythonStmt(stmt string, routes map[string]struct{}) {

@@ -176,9 +176,8 @@ func TestWalkPythonFilesStopsAtLimit(t *testing.T) {
 	}
 
 	count := 0
-	err := walkPythonFilesN(dir, 2, func(string) error {
+	err := walkPythonFilesN(dir, 2, func(string) {
 		count++
-		return nil
 	})
 
 	require.NoError(t, err)

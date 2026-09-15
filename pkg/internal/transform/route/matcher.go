@@ -97,7 +97,12 @@ func find(path []string, pathNode *node) string {
 	// if the current path resolved to an explicit path folder, keep searching through the
 	// child node
 	if child, ok := pathNode.Child[path[0]]; ok {
-		return find(path[1:], child)
+		if fullRoute := find(path[1:], child); fullRoute != "" {
+			return fullRoute
+		}
+		if pathNode.AnyPath == nil {
+			return ""
+		}
 	}
 	// otherwise, try the pattern children in definition order; the first match wins,
 	// so more specific patterns (e.g. "@:username") must be declared before a catch-all

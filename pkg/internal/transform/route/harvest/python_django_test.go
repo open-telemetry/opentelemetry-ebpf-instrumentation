@@ -28,10 +28,14 @@ urlpatterns = [
 ]
 `), 0o644))
 
-	declarations, err := scanPythonFile(file, map[string]struct{}{})
+	e := pythonExtractor{
+		routes:       map[string]struct{}{},
+		djangoRoutes: map[string][]djangoRoute{},
+	}
+	err := e.scanFile(file)
 
 	require.NoError(t, err)
-	assert.Equal(t, []djangoRoute{{path: "orders/<int:order_id>/"}}, declarations)
+	assert.Equal(t, []djangoRoute{{path: "orders/<int:order_id>/"}}, e.djangoRoutes[file])
 }
 
 func TestExtractPythonDjangoImportAliasInclude(t *testing.T) {

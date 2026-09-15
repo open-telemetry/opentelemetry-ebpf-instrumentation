@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
 
 type djangoRoute struct {
@@ -93,14 +95,19 @@ func djangoCallEnd(stmt string, open int) int {
 }
 
 func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
-	if wrapper := djangoI18nStart.FindStringIndex(stmt); wrapper != nil {
-		routes := scanDjango(stmt[:wrapper[0]], aliases)
+	var routes []djangoRoute
+	for {
+		wrapper := djangoI18nStart.FindStringIndex(stmt)
+		if wrapper == nil {
+			return append(routes, scanDjangoPaths(stmt, aliases)...)
+		}
+		routes = append(routes, scanDjangoPaths(stmt[:wrapper[0]], aliases)...)
 		end := djangoCallEnd(stmt, wrapper[1]-1)
 		if end < 0 {
 			return routes
 		}
 		// Prefix only declarations inside the wrapper, including mounts for child modules.
-		localized := scanDjango(stmt[wrapper[1]:end], aliases)
+		localized := scanDjangoPaths(stmt[wrapper[1]:end], aliases)
 		if djangoI18nUnprefixedDefault.MatchString(stmt[wrapper[1]:end]) {
 			// The default language also serves these routes without a language prefix.
 			routes = append(routes, localized...)
@@ -109,26 +116,25 @@ func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
 			localized[i].path = "<language>/" + localized[i].path
 		}
 		routes = append(routes, localized...)
-		return append(routes, scanDjango(stmt[end+1:], aliases)...)
+		stmt = stmt[end+1:]
 	}
+}
 
+func scanDjangoPaths(stmt string, aliases map[string]string) []djangoRoute {
 	var routes []djangoRoute
 	for _, match := range djangoPathPattern.FindAllStringSubmatch(stmt, -1) {
-		// The path literal has separate captures for double and single quotes.
-		route := match[1]
+		route := match[1] // Double-quoted route.
 		if route == "" {
-			route = match[2]
+			route = match[2] // Single-quoted route.
 		}
 
-		// A literal include, such as include("checkout.urls"), names the module directly.
-		includeModule := match[3]
+		includeModule := match[3] // Double-quoted include module.
 		if includeModule == "" {
-			includeModule = match[4]
+			includeModule = match[4] // Single-quoted include module.
 		}
 
-		// A non-literal include can refer to an imported alias, such as checkout_urls.
-		if match[6] != "" {
-			includeModule = aliases[match[7]]
+		if match[6] != "" { // Non-literal include() call.
+			includeModule = aliases[match[7]] // Imported module alias.
 			if includeModule == "" {
 				// An unresolved include is a mount whose endpoints are unknown.
 				continue
@@ -139,7 +145,7 @@ func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
 		routes = append(routes, djangoRoute{
 			path:          route,
 			includeModule: includeModule,
-			admin:         match[5] != "",
+			admin:         match[5] != "", // admin.site.urls.
 		})
 	}
 	return routes
@@ -150,6 +156,9 @@ func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
 func indexDjangoModules(root string, files map[string][]djangoRoute) map[string]string {
 	modules := make(map[string]string, len(files))
 	for file := range files {
+		if !langtools.PathWithinBoundary(root, file) {
+			continue
+		}
 		rel, err := filepath.Rel(root, file)
 		if err != nil {
 			continue

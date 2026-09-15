@@ -88,6 +88,17 @@ func TestFindPatternFallsBackToAnyPath(t *testing.T) {
 	assert.Equal(t, "/admin/:id/settings", m.Find("/admin/token/settings"))
 }
 
+func TestFindExactChildFallsBackToAnyPath(t *testing.T) {
+	const (
+		exact    = "/files/static"
+		suffixed = "/files/<path:name>/metadata"
+	)
+	m := NewMatcher([]string{exact, suffixed})
+
+	assert.Equal(t, exact, m.Find("/files/static"))
+	assert.Equal(t, suffixed, m.Find("/files/static/x/metadata"))
+}
+
 func TestFindDotnetParameters(t *testing.T) {
 	m := NewMatcher([]string{
 		"/customers/{id:int}",
