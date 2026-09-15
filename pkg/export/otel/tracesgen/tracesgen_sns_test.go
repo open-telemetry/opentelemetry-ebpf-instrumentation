@@ -45,6 +45,7 @@ func TestSNSAttributes(t *testing.T) {
 			// These spans describe the HTTP transport; they do not supply message creation context.
 			assert.Equal(t, trace2.SpanKindClient, spanKind(span))
 			assert.Contains(t, attrs, semconv.MessagingSystemAWSSNS)
+			assert.Contains(t, attrs, request.RPCSystem("aws-api"))
 			assert.Contains(t, attrs, request.MessagingOperationName(operation))
 			assert.Contains(t, attrs, semconv.CloudRegion("eu-west-1"))
 			assert.Contains(t, attrs, semconv.AWSRequestID("req-1"))

@@ -31,7 +31,7 @@ func TestAWSSNSSpan(t *testing.T) {
 		{name: "publish", action: "Publish", response: publishResponse, wantMessage: "message-1", wantTopic: topicARN},
 		{name: "GET query", action: "Publish", get: true, response: publishResponse, wantMessage: "message-1", wantTopic: topicARN},
 		{name: "custom endpoint", host: "localstack:4566", action: "Publish", response: publishResponse, wantMessage: "message-1", wantTopic: topicARN},
-		{name: "create topic XML identity", host: "localstack:4566", action: "CreateTopic", noTopic: true, response: `<CreateTopicResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><CreateTopicResult><TopicArn>` + topicARN + `</TopicArn></CreateTopicResult></CreateTopicResponse>`, wantTopic: topicARN},
+		{name: "create topic response ARN identity", host: "localstack:4566", action: "CreateTopic", noTopic: true, response: `<CreateTopicResponse><CreateTopicResult><TopicArn>` + topicARN + `</TopicArn></CreateTopicResult></CreateTopicResponse>`, wantTopic: topicARN},
 		{name: "list topics without destination", action: "ListTopics", noTopic: true},
 		{name: "add permission", action: "AddPermission", wantTopic: topicARN},
 		{name: "remove permission", action: "RemovePermission", wantTopic: topicARN},
@@ -115,14 +115,27 @@ func TestAWSSNSSpan(t *testing.T) {
 }
 
 func TestAWSSNSTruncatedCapture(t *testing.T) {
-	body := "Action=Publish&TopicArn=arn:aws:sns:eu-west-1:123456789012:orders&Message=partial"
-	req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(fmt.Sprintf("POST / HTTP/1.1\r\nHost: sns.eu-west-1.amazonaws.com\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\n%s", len(body)+50, body))))
+	params := url.Values{
+		"Action":   {"Publish"},
+		"Message":  {strings.Repeat("/", maxCapturedPayloadBytes)},
+		"TopicArn": {"arn:aws:sns:eu-west-1:123456789012:orders"},
+		"Version":  {"2010-03-31"},
+	}
+	body := params.Encode()
+	rawRequest := fmt.Sprintf("POST / HTTP/1.1\r\nHost: sns.eu-west-1.amazonaws.com\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
+	require.Greater(t, len(rawRequest), maxCapturedPayloadBytes)
+	req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(rawRequest[:maxCapturedPayloadBytes])))
 	require.NoError(t, err)
 	resp := &http.Response{Body: http.NoBody}
 	base := request.Span{Type: request.EventTypeHTTPClient}
-	_, ok := AWSSNSSpan(&base, req, resp)
-	assert.False(t, ok)
-	assert.Nil(t, base.AWS)
+	span, ok := AWSSNSSpan(&base, req, resp)
+	require.True(t, ok)
+	require.NotNil(t, span.AWS)
+	assert.Equal(t, request.HTTPSubtypeAWSSNS, span.SubType)
+	assert.Equal(t, "Publish", span.AWS.SNS.OperationName)
+	assert.Equal(t, request.MessagingSend, span.AWS.SNS.OperationType)
+	assert.Equal(t, "eu-west-1", span.AWS.SNS.Meta.Region)
+	assert.Empty(t, span.AWS.SNS.TopicARN)
 }
 
 func TestAWSSNSEndpoints(t *testing.T) {
