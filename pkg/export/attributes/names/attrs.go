@@ -121,12 +121,18 @@ func HTTPResponseHeaderKey(name string) string {
 // as custom metrics, since at the moment they don't follow any semantic convention for them.
 // This value can be overridden when OBI is vendored as a library (e.g. from the OTEL collector)
 var (
-	VendorPrefix           = "obi"
-	VendorSDKName          = "opentelemetry"
-	VendorSDKVersion       = "unknown"
-	TelemetryDistroName    = "opentelemetry-ebpf-instrumentation"
-	TelemetryDistroVersion = buildinfo.Version
+	VendorPrefix        = "obi"
+	VendorSDKName       = "opentelemetry"
+	VendorSDKVersion    = "unknown"
+	TelemetryDistroName = "opentelemetry-ebpf-instrumentation"
 )
+
+// TelemetryDistroVersion reports the distro version to set on emitted resources. It reads
+// buildinfo.Version on each call because a component that vendors OBI overrides that variable
+// at runtime, after this package is initialized.
+func TelemetryDistroVersion() string {
+	return buildinfo.Version
+}
 
 func init() {
 	if info, ok := debug.ReadBuildInfo(); ok {

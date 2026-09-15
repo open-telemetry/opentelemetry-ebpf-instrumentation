@@ -312,7 +312,7 @@ func (mr *SvcGraphMetricsReporter) tracesResourceAttributes(service *svc.Attrs) 
 		semconv.TelemetrySDKNameKey.String(attr.VendorSDKName),
 		semconv.TelemetrySDKVersion(attr.VendorSDKVersion),
 		semconv.TelemetryDistroName(attr.TelemetryDistroName),
-		semconv.TelemetryDistroVersion(attr.TelemetryDistroVersion),
+		semconv.TelemetryDistroVersion(attr.TelemetryDistroVersion()),
 		request.SourceMetric(attr.VendorPrefix),
 		semconv.OSTypeKey.String("linux"),
 	}
