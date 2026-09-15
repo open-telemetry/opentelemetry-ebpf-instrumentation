@@ -1,0 +1,70 @@
+groups:
+  # Kafka, MQTT, NATS, AMQP. The kind follows the messaging operation, not the
+  # side OBI observed the exchange from: send and publish are producer,
+  # process is consumer, and receive and settle are client, because OBI
+  # observes the exchange with the broker rather than what the application
+  # afterwards does with the message. The attribute set is the union OBI emits
+  # across systems and is identical for all three kinds.
+  - id: span.obi.messaging.producer
+    type: span
+    span_kind: producer
+    stability: development
+    brief: OBI messaging producer span.
+    attributes:
+      - ref: messaging.system
+      - ref: messaging.destination.name
+      - ref: messaging.operation.type
+      - ref: messaging.client.id
+      - ref: messaging.destination.partition.id
+      - ref: messaging.kafka.offset
+      - ref: messaging.message.envelope.size
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: error.type
+      - ref: messaging.operation.name
+  - id: span.obi.messaging.consumer
+    type: span
+    span_kind: consumer
+    stability: development
+    brief: OBI messaging consumer span.
+    attributes:
+      - ref: messaging.system
+      - ref: messaging.destination.name
+      - ref: messaging.operation.type
+      - ref: messaging.client.id
+      - ref: messaging.destination.partition.id
+      - ref: messaging.kafka.offset
+      - ref: messaging.message.envelope.size
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: error.type
+      - ref: messaging.operation.name
+  - id: span.obi.messaging.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI messaging client span, for a receive or a settle operation.
+    attributes:
+      - ref: messaging.system
+      - ref: messaging.destination.name
+      - ref: messaging.operation.type
+      - ref: messaging.client.id
+      - ref: messaging.destination.partition.id
+      - ref: messaging.kafka.offset
+      - ref: messaging.message.envelope.size
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: span.metrics.skip
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: error.type
+      - ref: messaging.operation.name

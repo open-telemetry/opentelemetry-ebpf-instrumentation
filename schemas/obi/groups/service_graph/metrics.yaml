@@ -1,0 +1,85 @@
+groups:
+  # Counter has no explicit OTLP unit set; mirror that here so live-check
+  # doesn't complain "Unit should be '1', but found ''".
+  - id: metric.obi.traces_service_graph_request_total
+    type: metric
+    metric_name: traces_service_graph_request_total
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Total number of edges in the service graph, grouped by client / server.
+    attributes:
+      - ref: client
+      - ref: server
+      - ref: connection_type
+      - ref: client_service_namespace
+      - ref: server_service_namespace
+      - ref: source
+      - ref: client_k8s_namespace_name
+      - ref: server_k8s_namespace_name
+      - ref: client_k8s_cluster_name
+      - ref: server_k8s_cluster_name
+
+  # Counter has no explicit OTLP unit set; mirror that here so live-check
+  # doesn't complain "Unit should be '1', but found ''".
+  - id: metric.obi.traces_service_graph_request_failed_total
+    type: metric
+    metric_name: traces_service_graph_request_failed_total
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Total number of failed edges in the service graph, grouped by
+      client / server.
+    attributes:
+      - ref: client
+      - ref: server
+      - ref: connection_type
+      - ref: client_service_namespace
+      - ref: server_service_namespace
+      - ref: source
+      - ref: client_k8s_namespace_name
+      - ref: server_k8s_namespace_name
+      - ref: client_k8s_cluster_name
+      - ref: server_k8s_cluster_name
+
+  - id: metric.obi.traces_service_graph_request_server
+    type: metric
+    metric_name: traces_service_graph_request_server
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      Server-side request duration distribution per service-graph edge.
+    attributes:
+      - ref: client
+      - ref: server
+      - ref: connection_type
+      - ref: client_service_namespace
+      - ref: server_service_namespace
+      - ref: source
+      - ref: client_k8s_namespace_name
+      - ref: server_k8s_namespace_name
+      - ref: client_k8s_cluster_name
+      - ref: server_k8s_cluster_name
+
+  - id: metric.obi.traces_service_graph_request_client
+    type: metric
+    metric_name: traces_service_graph_request_client
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      Client-side request duration distribution per service-graph edge.
+    attributes:
+      - ref: client
+      - ref: server
+      - ref: connection_type
+      - ref: client_service_namespace
+      - ref: server_service_namespace
+      - ref: source
+      - ref: client_k8s_namespace_name
+      - ref: server_k8s_namespace_name
+      - ref: client_k8s_cluster_name
+      - ref: server_k8s_cluster_name

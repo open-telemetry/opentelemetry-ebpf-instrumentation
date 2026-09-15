@@ -2,7 +2,7 @@
 # Copyright The OpenTelemetry Authors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Render the OBI telemetry reference (attributes + metrics) from the
+# Render the OBI telemetry reference (attributes + metrics + spans) from the
 # semantic-convention registry under `schemas/obi/` into `site/docs/`, which is
 # published to GitHub Pages by publish-schemas.yml.
 #
@@ -47,6 +47,12 @@ trap 'rm -f "$resolved"' EXIT
 # `--include-unreferenced` keeps OBI's standalone override and marker groups in
 # the resolution. Weaver exits non-zero because of the expected duplicate
 # diagnostics, so validity is judged by the payload, not the exit code.
+#
+# live-check resolves without the flag, so these pages are deliberately a
+# superset of the enforced contract: a group no signal references is
+# documented here but is not something live-check can hold OBI to. The
+# alternative — dropping the flag — would leave those groups undocumented,
+# which is worse for a reference whose job is to describe what OBI declares.
 "$OCI_BIN" run --rm \
   -v "$REGISTRY:/obi-registry:ro,z" \
   -w /obi-registry \
@@ -61,7 +67,7 @@ if ! jq -e '.groups | length > 0' "$resolved" >/dev/null 2>&1; then
 fi
 
 mkdir -p "$TARGET"
-for page in readme attributes metrics; do
+for page in readme attributes metrics spans; do
   case "$page" in
     readme) out="README.md" ;;
     *) out="$page.md" ;;
@@ -69,4 +75,4 @@ for page in readme attributes metrics; do
   jq -r --arg page "$page" -f "$JQ_PROGRAM" "$resolved" > "$TARGET/$out"
 done
 
-echo "generate-schema-docs: rendered README.md attributes.md metrics.md into $TARGET"
+echo "generate-schema-docs: rendered README.md attributes.md metrics.md spans.md into $TARGET"

@@ -164,6 +164,15 @@ lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
+# The schemacheck provenance tests resolve the registry through the pinned
+# weaver image, so they cannot run under the `-short` unit-test targets. They
+# run here instead, alongside lint-schema, which already provides both the
+# container runtime and the pre-fetched upstream semconv registry.
+.PHONY: test-schema
+test-schema: fetch-upstream-semconv
+	@echo "### Testing OBI semantic-convention registry provenance"
+	go test -race -count=1 ./internal/schemacheck/...
+
 .PHONY: check-schema-files
 check-schema-files:
 	@echo "### Checking published OBI telemetry schema files"

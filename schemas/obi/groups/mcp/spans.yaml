@@ -1,0 +1,60 @@
+# OBI recognises Model Context Protocol calls on an HTTP client request. MCP is
+# its own span type upstream rather than a GenAI operation — `IsGenAISubtype`
+# excludes it, because it is a tool and resource protocol rather than a model
+# provider and so has no `gen_ai.provider.name` to report.
+#
+# MCP traffic seen on the *server* side stays on `span.obi.http.server`, which
+# OBI enriches in place; that span genuinely is an inbound HTTP request.
+groups:
+  - id: span.obi.mcp.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI Model Context Protocol client span.
+    attributes:
+      - ref: mcp.method.name
+        requirement_level: required
+      - ref: mcp.protocol.version
+        requirement_level:
+          conditionally_required: if the peer reported a protocol version
+      - ref: mcp.resource.uri
+        requirement_level:
+          conditionally_required: if the request named a resource
+      - ref: mcp.session.id
+        requirement_level:
+          conditionally_required: if the exchange is part of a session
+      # Set to `execute_tool` for a tool call and left unset otherwise, so it
+      # cannot be required here.
+      - ref: gen_ai.operation.name
+        requirement_level:
+          conditionally_required: if the operation executes a tool
+      - ref: gen_ai.tool.name
+        requirement_level:
+          conditionally_required: if the operation executes a tool
+      - ref: gen_ai.tool.type
+        requirement_level:
+          conditionally_required: if the operation executes a tool
+      - ref: gen_ai.tool.call.arguments
+        requirement_level: opt_in
+      - ref: gen_ai.tool.call.result
+        requirement_level: opt_in
+      - ref: gen_ai.prompt.name
+        requirement_level:
+          conditionally_required: if the request named a prompt template
+      - ref: jsonrpc.request.id
+        requirement_level:
+          conditionally_required: if the request carried a JSON-RPC id
+      - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the response carried a JSON-RPC error code
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
+      - ref: span.metrics.skip
+        requirement_level: opt_in
