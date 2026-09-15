@@ -12,6 +12,7 @@ Generated from [`config-schema.json`](config-schema.json).
 - [Top-Level Properties](#top-level-properties)
 - [`attributes`](#attributes)
 - [`discovery`](#discovery)
+- [`dotnet_runtime_metrics`](#dotnet-runtime-metrics)
 - [`ebpf`](#ebpf)
 - [`filter`](#filter)
 - [`health_check`](#health-check)
@@ -149,6 +150,13 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `discovery.route_harvester_advanced.java_harvest_delay` | `duration` | `OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY` | `5s` | `30s`, `5m`, `1ms`, etc |  |  |
+
+## `dotnet_runtime_metrics`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `dotnet_runtime_metrics.sampling_interval` | `duration` | `OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL` | `1s` | `30s`, `5m`, `1ms`, etc |  | Sets the collection interval requested from System.Runtime EventCounters. It also sets the delay before reconnecting after a collection session ends. |
+| `dotnet_runtime_metrics.timeout` | `duration` | `OBI_DOTNET_RUNTIME_METRICS_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  | Bounds diagnostic IPC setup and EventPipe session shutdown. |
 
 ## `ebpf`
 
