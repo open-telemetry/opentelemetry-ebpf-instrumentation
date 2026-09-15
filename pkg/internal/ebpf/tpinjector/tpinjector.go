@@ -266,7 +266,7 @@ func (p *Tracer) AddCloser(c ...io.Closer) {
 func (p *Tracer) closeAllReverse(closers []io.Closer) {
 	for _, c := range slices.Backward(closers) {
 		if err := c.Close(); err != nil {
-			p.log.Debug("error detaching tpinjector resource", "error", err)
+			p.log.Warn("error detaching tpinjector resource", "error", err)
 		}
 	}
 }
