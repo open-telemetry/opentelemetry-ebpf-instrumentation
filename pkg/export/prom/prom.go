@@ -242,6 +242,7 @@ type metricsReporter struct {
 	jvmRuntimeMetrics    jvmRuntimeMetricsCollector
 	nodejsRuntimeMetrics nodejsRuntimeMetricsCollector
 	pythonRuntimeMetrics pythonRuntimeMetricsCollector
+	dotnetRuntimeMetrics dotnetRuntimeMetricsCollector
 
 	promConnect *connector.PrometheusManager
 
@@ -798,6 +799,7 @@ func newReporter(
 		mr.jvmRuntimeMetrics = newJVMRuntimeMetricsCollector(cfg)
 		mr.nodejsRuntimeMetrics = newNodejsRuntimeMetricsCollector(cfg)
 		mr.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(runtimeLabelNames, timeNow, cfg.TTL)
+		mr.dotnetRuntimeMetrics = newDotnetRuntimeMetricsCollector(runtimeLabelNames, timeNow, cfg.TTL)
 	}
 
 	// testing aid
@@ -891,6 +893,7 @@ func newReporter(
 		registeredMetrics = append(registeredMetrics, mr.jvmRuntimeMetrics.collectors()...)
 		registeredMetrics = append(registeredMetrics, mr.nodejsRuntimeMetrics.collectors()...)
 		registeredMetrics = append(registeredMetrics, mr.pythonRuntimeMetrics.collectors()...)
+		registeredMetrics = append(registeredMetrics, mr.dotnetRuntimeMetrics.collections)
 	}
 
 	if is.GPUEnabled() {
@@ -1535,6 +1538,7 @@ func (r *metricsReporter) deleteMetricsForAttributeUpdate(previous, current *svc
 		return
 	}
 	r.pythonRuntimeMetrics.delete(r.labelValuesTargetInfo(previous))
+	r.dotnetRuntimeMetrics.delete(r.labelValuesTargetInfo(previous))
 	r.deleteEventMetrics(previous)
 }
 
