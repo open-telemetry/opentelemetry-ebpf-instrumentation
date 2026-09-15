@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	// maxTopicsPerProcess bounds the per-topic entries kept for one process.
-	maxTopicsPerProcess = 1024
+	// maxGroupsPerProcess bounds the memberships kept for one process.
+	maxGroupsPerProcess = 64
+	// maxTopicsPerGroup bounds the subscription kept for one membership.
+	maxTopicsPerGroup = 1024
 
 	// kafkaConsumerGroupTTL bounds how long a membership outlives the requests that
 	// assert it. Members heartbeat every few seconds (heartbeat.interval.ms 3s, KIP-848
@@ -37,45 +39,56 @@ type KafkaProcess struct {
 	Pid uint32
 }
 
-type kafkaGroupEntry struct {
-	group string
-	// ambiguous marks a topic consumed by two groups of the same process. Such an entry
-	// never resolves to a group again.
-	ambiguous bool
+// kafkaMembership is what is known about one group a process is a member of.
+type kafkaMembership struct {
+	// foreign marks a group whose JoinGroup or SyncGroup named a protocol other than
+	// "consumer" (Kafka Connect, Schema Registry): it coordinates through the same APIs
+	// but is no consumer group. A Heartbeat seen before that JoinGroup leaves it unset.
+	foreign bool
+	// topics is the group's subscription as far as it was observed: replaced by a fully
+	// captured JoinGroup subscription, extended by the topics other requests name.
+	topics map[string]struct{}
 }
 
-// learnTopic folds group into current; a different group makes the entry ambiguous.
-func learnTopic(current kafkaGroupEntry, group string) kafkaGroupEntry {
-	if current.ambiguous || current.group == group {
-		return current
+func (m *kafkaMembership) addTopics(topics []*kafkaparser.GroupTopic, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) {
+	for _, topic := range topics {
+		name := resolveTopicName(topic.Name, topic.UUID, kafkaTopicUUIDToName)
+		if name == "" {
+			continue
+		}
+		if _, found := m.topics[name]; !found && len(m.topics) >= maxTopicsPerGroup {
+			continue
+		}
+		m.topics[name] = struct{}{}
 	}
-	if current.group == "" {
-		return kafkaGroupEntry{group: group}
-	}
-	return kafkaGroupEntry{ambiguous: true}
 }
 
-// kafkaProcessGroups is the membership state of one process.
+// kafkaProcessGroups is the membership state of one process, by group id.
 type kafkaProcessGroups struct {
-	// groups the process is a member of. The value marks a foreign group: one whose
-	// JoinGroup or SyncGroup named a protocol other than "consumer" (Kafka Connect,
-	// Schema Registry), which coordinates through the same APIs but is no consumer group.
-	// A Heartbeat seen before that JoinGroup adds the group as a (presumed) consumer group.
-	groups map[string]bool
-	// topics maps each topic the requests named to the group consuming it.
-	topics map[string]kafkaGroupEntry
+	groups map[string]*kafkaMembership
 }
 
-func newKafkaProcessGroups() *kafkaProcessGroups {
-	return &kafkaProcessGroups{groups: map[string]bool{}, topics: map[string]kafkaGroupEntry{}}
+// membership returns the state of group, creating it unless the process already holds
+// maxGroupsPerProcess memberships (nil then).
+func (p *kafkaProcessGroups) membership(group string) *kafkaMembership {
+	m, found := p.groups[group]
+	if found {
+		return m
+	}
+	if len(p.groups) >= maxGroupsPerProcess {
+		return nil
+	}
+	m = &kafkaMembership{topics: map[string]struct{}{}}
+	p.groups[group] = m
+	return m
 }
 
 // consumerGroup returns the only consumer group the process is a member of, "" when
 // there is none or more than one.
 func (p *kafkaProcessGroups) consumerGroup() string {
 	single := ""
-	for group, foreign := range p.groups {
-		if foreign {
+	for group, m := range p.groups {
+		if m.foreign {
 			continue
 		}
 		if single != "" {
@@ -86,40 +99,33 @@ func (p *kafkaProcessGroups) consumerGroup() string {
 	return single
 }
 
-func (p *kafkaProcessGroups) learnTopics(topics []*kafkaparser.GroupTopic, group string, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) {
-	for _, topic := range topics {
-		name := resolveTopicName(topic.Name, topic.UUID, kafkaTopicUUIDToName)
-		if name == "" {
+// topicGroup returns the consumer group whose subscription holds topic. subscribed is
+// false when no group does; group is "" when more than one does.
+func (p *kafkaProcessGroups) topicGroup(topic string) (group string, subscribed bool) {
+	for candidate, m := range p.groups {
+		if m.foreign {
 			continue
 		}
-		current, found := p.topics[name]
-		if !found && len(p.topics) >= maxTopicsPerProcess {
+		if _, found := m.topics[topic]; !found {
 			continue
 		}
-		p.topics[name] = learnTopic(current, group)
-	}
-}
-
-// forgetGroup drops group and the topic entries attributed to it; ambiguous entries
-// stay ambiguous, since the other group consuming the topic is still a member.
-func (p *kafkaProcessGroups) forgetGroup(group string) {
-	delete(p.groups, group)
-	for topic, entry := range p.topics {
-		if entry.group == group {
-			delete(p.topics, topic)
+		if subscribed {
+			return "", true
 		}
+		group, subscribed = candidate, true
 	}
+	return group, subscribed
 }
 
 // KafkaConsumerGroups remembers, per process, the consumer groups it is a member of and
-// which topic each group consumes. Membership is learned from the requests only a
-// member sends (JoinGroup, SyncGroup, Heartbeat, ConsumerGroupHeartbeat) and forgotten
-// when the member leaves. OffsetCommit and OffsetFetch name a group without proving
+// the subscription of each. Membership is learned from the requests only a member
+// sends (JoinGroup, SyncGroup, Heartbeat, ConsumerGroupHeartbeat) and forgotten when
+// the member leaves. OffsetCommit and OffsetFetch name a group without proving
 // membership (the admin client sends them for any group), so they only add topics to
-// a membership already established. A process member of a single consumer group
-// reports it for every Fetch whose topic has no entry: KIP-227 session fetches carry no
-// topic, a topic UUID may not be resolved yet, and Heartbeat and SyncGroup carry no
-// topics at all.
+// a membership already established. A Fetch is attributed to the one group subscribed
+// to its topic, else to the one consumer group the process is a member of: KIP-227
+// session fetches carry no topic, a topic UUID may not be resolved yet, and Heartbeat
+// and SyncGroup carry no topics at all.
 //
 // Entries expire ttl after the last membership request; a Fetch lookup never extends
 // them, so a recycled pid cannot keep the previous process' group alive.
@@ -131,21 +137,31 @@ func NewKafkaConsumerGroups(size int, ttl time.Duration) *KafkaConsumerGroups {
 	return &KafkaConsumerGroups{lru: expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl)}
 }
 
-// Join records that proc is a member of req's group, and of the topics req names.
-// Topics referenced by UUID are resolved through kafkaTopicUUIDToName and skipped when
-// unknown.
+// Join records that proc is a member of req's group. A complete subscription
+// (req.Subscription) replaces the topics known for that group, so a rebalance with a
+// changed subscription drops the old topics; anything else adds to them. Topics
+// referenced by UUID are resolved through kafkaTopicUUIDToName and skipped when unknown.
 func (g *KafkaConsumerGroups) Join(proc KafkaProcess, req *kafkaparser.GroupRequest, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) {
 	if g == nil {
 		return
 	}
 	state, found := g.lru.Get(proc)
 	if !found {
-		state = newKafkaProcessGroups()
+		state = &kafkaProcessGroups{groups: map[string]*kafkaMembership{}}
 	}
-	foreign := req.ProtocolType != "" && req.ProtocolType != kafkaparser.ConsumerProtocolType
-	state.groups[req.GroupID] = state.groups[req.GroupID] || foreign
-	if !foreign {
-		state.learnTopics(req.Topics, req.GroupID, kafkaTopicUUIDToName)
+	m := state.membership(req.GroupID)
+	if m == nil {
+		return
+	}
+	switch {
+	case m.foreign || (req.ProtocolType != "" && req.ProtocolType != kafkaparser.ConsumerProtocolType):
+		m.foreign = true
+		m.topics = nil // whatever was added while the group passed for a consumer group is dead weight
+	case req.Subscription:
+		m.topics = map[string]struct{}{}
+		m.addTopics(req.Topics, kafkaTopicUUIDToName)
+	default:
+		m.addTopics(req.Topics, kafkaTopicUUIDToName)
 	}
 	g.lru.Add(proc, state) // also on an existing entry: every membership request renews the ttl
 }
@@ -167,7 +183,7 @@ func (g *KafkaConsumerGroups) Leave(proc KafkaProcess, group string) {
 	if _, member := state.groups[group]; !member {
 		return
 	}
-	state.forgetGroup(group)
+	delete(state.groups, group)
 	if len(state.groups) == 0 {
 		g.lru.Remove(proc)
 	}
@@ -183,16 +199,17 @@ func (g *KafkaConsumerGroups) Enrich(proc KafkaProcess, req *kafkaparser.GroupRe
 	if !found {
 		return
 	}
-	if foreign, member := state.groups[req.GroupID]; !member || foreign {
+	m, member := state.groups[req.GroupID]
+	if !member || m.foreign {
 		return
 	}
-	state.learnTopics(req.Topics, req.GroupID, kafkaTopicUUIDToName)
+	m.addTopics(req.Topics, kafkaTopicUUIDToName)
 }
 
-// Lookup returns the group consuming topic in proc. Without a per-topic entry, either
-// because the topic is unknown or because its subscription was never seen (Heartbeat
-// only after a mid-stream attach, JoinGroup cut by the kernel buffer), it falls back to
-// the single consumer group the process is a member of. Empty otherwise.
+// Lookup returns the group consuming topic in proc: the one group subscribed to it,
+// or, when no subscription names it (unknown topic, Heartbeat only after a mid-stream
+// attach, JoinGroup cut by the kernel buffer), the single consumer group the process is
+// a member of. Empty when several groups qualify or none does.
 func (g *KafkaConsumerGroups) Lookup(proc KafkaProcess, topic string) string {
 	if g == nil {
 		return ""
@@ -201,11 +218,8 @@ func (g *KafkaConsumerGroups) Lookup(proc KafkaProcess, topic string) string {
 	if !found {
 		return ""
 	}
-	if entry, found := state.topics[topic]; found {
-		if entry.ambiguous {
-			return ""
-		}
-		return entry.group
+	if group, subscribed := state.topicGroup(topic); subscribed {
+		return group
 	}
 	return state.consumerGroup()
 }

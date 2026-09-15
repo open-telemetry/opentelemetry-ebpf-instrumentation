@@ -317,6 +317,7 @@ func TestParseGroupRequest(t *testing.T) {
 		expectUUIDs        []UUID
 		expectMemberEpoch  int
 		expectProtocolType string
+		expectSubscription bool
 	}{
 		{
 			name:               "join group v5 (non-flexible), consumer subscription",
@@ -324,6 +325,7 @@ func TestParseGroupRequest(t *testing.T) {
 			expectGroupID:      "my-group",
 			expectProtocolType: "consumer",
 			expectTopics:       []string{"orders", "audit"},
+			expectSubscription: true,
 		},
 		{
 			name:               "join group v7 (flexible), consumer subscription",
@@ -331,6 +333,7 @@ func TestParseGroupRequest(t *testing.T) {
 			expectGroupID:      "my-group",
 			expectProtocolType: "consumer",
 			expectTopics:       []string{"orders", "audit"},
+			expectSubscription: true,
 		},
 		{
 			// Groups with another protocol_type (e.g. Kafka Connect's "connect") carry
@@ -398,10 +401,11 @@ func TestParseGroupRequest(t *testing.T) {
 			expectUUIDs:   []UUID{ordersUUID, auditUUID},
 		},
 		{
-			name:          "consumer group heartbeat v0, subscribed topic names",
-			packet:        consumerGroupHeartbeatV0("my-group", 0, []string{"orders", "audit"}, nil),
-			expectGroupID: "my-group",
-			expectTopics:  []string{"orders", "audit"},
+			name:               "consumer group heartbeat v0, subscribed topic names",
+			packet:             consumerGroupHeartbeatV0("my-group", 0, []string{"orders", "audit"}, nil),
+			expectGroupID:      "my-group",
+			expectTopics:       []string{"orders", "audit"},
+			expectSubscription: true,
 		},
 		{
 			name:          "consumer group heartbeat v0, unchanged subscription, owned partitions",
@@ -429,11 +433,13 @@ func TestParseGroupRequest(t *testing.T) {
 			expectTopics:  []string{"orders"},
 		},
 		{
+			// cut list: a partial subscription must not replace a complete one learned earlier
 			name:               "join group metadata length shorter than its topic list",
 			packet:             joinGroupV7ShortMetadata("my-group", "orders", "audit"),
 			expectGroupID:      "my-group",
 			expectProtocolType: "consumer",
 			expectTopics:       []string{"orders"},
+			expectSubscription: false,
 		},
 		{
 			name:      "empty group id",
@@ -461,6 +467,7 @@ func TestParseGroupRequest(t *testing.T) {
 			assert.Equal(t, tt.expectGroupID, req.GroupID)
 			assert.Equal(t, tt.expectMemberEpoch, req.MemberEpoch)
 			assert.Equal(t, tt.expectProtocolType, req.ProtocolType)
+			assert.Equal(t, tt.expectSubscription, req.Subscription)
 
 			var names []string
 			var uuids []UUID

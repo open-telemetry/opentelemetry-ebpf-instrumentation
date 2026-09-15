@@ -29,6 +29,10 @@ type GroupRequest struct {
 	// request carries none). Only ConsumerProtocolType groups are consumer groups: Kafka
 	// Connect ("connect") and Schema Registry ("sr") coordinate through the same APIs.
 	ProtocolType string
+	// Subscription reports that Topics is the member's complete subscription (a JoinGroup
+	// or ConsumerGroupHeartbeat whose topic list was captured in full), replacing what was
+	// learned before, rather than the topics one request happened to touch.
+	Subscription bool
 }
 
 const (
@@ -133,39 +137,40 @@ func parseJoinGroup(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (*
 	if err != nil {
 		return req, nil
 	}
-	req.Topics = parseConsumerSubscriptionTopics(&metadata)
+	req.Topics, req.Subscription = parseConsumerSubscriptionTopics(&metadata)
 	return req, nil
 }
 
 // parseConsumerSubscriptionTopics reads the topics of a ConsumerProtocolSubscription
-// payload from a reader bounded to that payload. The payload has its own non-flexible
-// encoding regardless of the enclosing request version:
+// payload from a reader bounded to that payload, reporting whether the whole list was
+// read. The payload has its own non-flexible encoding regardless of the enclosing
+// request version:
 //
 //	version => INT16
 //	topics => INT32 count, STRING each
 //	(user_data, owned_partitions, ... not read)
-func parseConsumerSubscriptionTopics(r *largebuf.LargeBufferReader) []*GroupTopic {
+func parseConsumerSubscriptionTopics(r *largebuf.LargeBufferReader) ([]*GroupTopic, bool) {
 	if _, err := readInt16(r); err != nil { // version
-		return nil
+		return nil, false
 	}
 	count, err := readInt32(r)
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	count = min(count, maxGroupTopics)
+	complete := count >= 0 && count <= maxGroupTopics
 	var topics []*GroupTopic
-	for range count {
+	for range min(count, maxGroupTopics) {
 		size, err := readInt16(r)
 		if err != nil || size < 1 {
-			return topics
+			return topics, false
 		}
 		name, err := readValidatedString(r, size)
 		if err != nil {
-			return topics
+			return topics, false
 		}
 		topics = append(topics, &GroupTopic{Name: name})
 	}
-	return topics
+	return topics, complete
 }
 
 /*
@@ -354,6 +359,9 @@ func parseConsumerGroupHeartbeat(r *largebuf.LargeBufferReader, header KafkaRequ
 		}
 		req.Topics = append(req.Topics, &GroupTopic{Name: name})
 	}
+	// a non-null list is the member's whole subscription (null means unchanged); the
+	// owned partitions appended below are consumed topics, so they belong to it too
+	req.Subscription = namesLen > 0 && namesLen <= maxGroupTopics
 	if header.APIVersion() >= 1 {
 		if err = skipString(r, header); err != nil { // subscribed_topic_regex
 			return req, nil
