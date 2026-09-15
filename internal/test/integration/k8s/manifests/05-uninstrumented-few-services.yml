@@ -109,8 +109,8 @@ spec:
                   - go-progs
       containers:
         - name: testserver
-          image: testserver:dev
-          imagePullPolicy: Never # loaded into Kind from localhost
+          image: ghcr.io/open-telemetry/obi-testimg:go-0.1.2@sha256:b3e65ac053586943bcfbba0af32a0ec1cfb3fa64add67f92a742d8431835be39
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               hostPort: 8080
@@ -150,7 +150,7 @@ spec:
                   - other-progs
       containers:
         - name: utestserver
-          image: 'ghcr.io/open-telemetry/obi-testimg:rails-0.1.0'
+          image: ghcr.io/open-telemetry/obi-testimg:rails-0.1.2@sha256:ea4b000400f06ba09e7e0e5cbaa09c04da8417024ecc163ef942f657b5ef4266
           imagePullPolicy: IfNotPresent
           ports:          
           - containerPort: 3040
