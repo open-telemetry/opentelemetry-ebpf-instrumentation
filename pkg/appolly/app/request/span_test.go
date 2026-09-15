@@ -724,7 +724,8 @@ func TestSerializeJSONSpans(t *testing.T) {
 				Code:     123,
 			},
 			MessagingInfo: &MessagingInfo{
-				Partition: 5,
+				HasPartition: true,
+				Partition:    5,
 			},
 		}
 
