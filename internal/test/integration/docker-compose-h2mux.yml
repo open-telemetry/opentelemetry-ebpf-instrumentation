@@ -1,0 +1,59 @@
+services:
+  h2mux-server:
+    build:
+      context: ./components/h2mux/server
+    image: hatest-h2mux-server
+    environment:
+      BATCH: "${H2MUX_STREAMS:-5}"
+      OTEL_SERVICE_NAME: h2mux-server
+    ports:
+      - "8080:8080"
+
+  h2mux-client:
+    build:
+      context: ./components/h2mux/client
+    image: hatest-h2mux-client
+    environment:
+      TARGET_HOST: h2mux-server
+      TARGET_PORT: "8080"
+      STREAMS: "${H2MUX_STREAMS:-5}"
+      OTEL_SERVICE_NAME: h2mux-client
+    depends_on:
+      h2mux-server:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-h2mux.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /sys/fs/cgroup:/sys/fs/cgroup
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-h2mux:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    init: true
+    pid: "host"
+    cgroup: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "all"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: "1s"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+    depends_on:
+      h2mux-server:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"

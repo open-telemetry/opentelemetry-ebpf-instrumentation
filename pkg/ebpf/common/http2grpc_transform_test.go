@@ -305,6 +305,40 @@ func TestHTTP2ResponseDoesNotPolluteRequestTable(t *testing.T) {
 	}
 }
 
+// Multiplexed HTTP/2 responses share one connection, and a server dynamic-indexes a repeated
+// non-static :status: the first response inserts it, later ones reference it from the dynamic
+// table. Decoding the blocks in wire order must keep the response decoder in sync so every
+// stream resolves its status; a dropped or out-of-order block would freeze the table and turn
+// every later :status into <BAD INDEX> (status 0). This guards the userspace side of the
+// multiplexed-HTTP/2 fix, which relies on the frame scanner feeding every response HEADERS
+// frame in order.
+func TestHTTP2MultiplexedResponseStatusStaysInSync(t *testing.T) {
+	const status = 512
+
+	// One encoder models one server: the repeated non-static :status is inserted once and then
+	// referenced from the dynamic table on the following streams.
+	var buf bytes.Buffer
+	enc := hpack.NewEncoder(&buf)
+	blocks := make([][]byte, 5)
+	for i := range blocks {
+		buf.Reset()
+		require.NoError(t, enc.WriteField(hpack.HeaderField{Name: ":status", Value: strconv.Itoa(status)}))
+		blocks[i] = append([]byte(nil), buf.Bytes()...)
+	}
+	// A later block must be shorter than the first, proving the encoder dynamic-indexed the
+	// repeated :status; otherwise a desynced table would still pass this test.
+	require.Less(t, len(blocks[len(blocks)-1]), len(blocks[0]),
+		"encoder must dynamic-index the repeated :status for this to exercise table sync")
+
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	framer := byteFramer(nil)
+	for i, block := range blocks {
+		st, _, ok := readRetMetaFrame(parseContext, 1, framer, headersFrame(t, block))
+		require.Truef(t, ok, "stream %d: response must decode a :status", i)
+		assert.Equalf(t, status, st, "stream %d: :status must stay in sync across multiplexed responses", i)
+	}
+}
+
 // encodeHPACK writes fields with a real encoder, so the representation each field gets is not
 // this test's guess. tableSizes are applied first, which makes the encoder emit size updates
 // ahead of the block.
