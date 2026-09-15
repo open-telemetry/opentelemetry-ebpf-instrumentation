@@ -55,6 +55,7 @@ func TestPrometheusNames(t *testing.T) {
 		{GoRuntimeProcessorLimit, "go_processor_limit"},
 		{GoRuntimeConfigGOGC, "go_config_gogc_percent"},
 		{GoRuntimeScheduleDuration, "go_schedule_duration_seconds"},
+		{DotnetGCCollections, "dotnet_gc_collections_total"},
 		{JVMMemoryUsed, "jvm_memory_used_bytes"},
 		{JVMMemoryCommitted, "jvm_memory_committed_bytes"},
 		{JVMMemoryLimit, "jvm_memory_limit_bytes"},
