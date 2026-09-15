@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	cpythonruntime "go.opentelemetry.io/obi/pkg/internal/cpython/runtime"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
@@ -253,31 +254,29 @@ func attachPythonRuntimeProbe(
 	program *ebpf.Program,
 	pid int,
 	probe cpythonruntime.GCCompletionProbe,
-) (link.Link, error) {
-	options, returnProbe, err := pythonRuntimeUprobeOptions(pid, probe)
+) (io.Closer, error) {
+	options, err := pythonRuntimeUprobeOptions(pid, probe)
 	if err != nil {
 		return nil, err
 	}
-	if !returnProbe {
-		return executable.Uprobe("", program, options)
-	}
-	return executable.Uretprobe("", program, options)
+	return uprobe.Attach(executable, program, options)
 }
 
-// pythonRuntimeUprobeOptions converts a resolved GC completion probe into link options.
+// pythonRuntimeUprobeOptions converts a resolved GC completion probe into attach options.
 func pythonRuntimeUprobeOptions(
 	pid int,
 	probe cpythonruntime.GCCompletionProbe,
-) (*link.UprobeOptions, bool, error) {
-	options := &link.UprobeOptions{Address: probe.FileOffset, PID: pid}
+) (uprobe.Options, error) {
+	options := uprobe.Options{Addresses: []uint64{probe.FileOffset}, PID: uint32(pid)}
 	switch probe.Kind {
 	case cpythonruntime.GCCompletionProbeUSDT:
 		options.RefCtrOffset = probe.SemaphoreOffset
-		return options, false, nil
+		return options, nil
 	case cpythonruntime.GCCompletionProbePrivateReturn:
-		return options, true, nil
+		options.Return = true
+		return options, nil
 	default:
-		return nil, false, errors.New("unknown Python runtime GC completion probe")
+		return uprobe.Options{}, errors.New("unknown Python runtime GC completion probe")
 	}
 }
 
