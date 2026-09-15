@@ -39,10 +39,9 @@ import (
 // injectable function reference for testing
 var timeNow = time.Now
 
-// CloudHostIDKey is the attribute key used to label metrics with the host id
-// of the monitored entity, as reported by the executable inspector. It is used
-// for both application-level and trace-level metrics.
-var CloudHostIDKey = "cloud_host_id"
+// CloudHostIDKey names the host id on traces_host_info. It is a variable so that a component
+// vendoring OBI can label the host with its own key.
+var CloudHostIDKey = attr.HostID.Prom()
 
 // using labels and names that are equivalent names to the OTEL attributes
 // but following the different naming conventions
