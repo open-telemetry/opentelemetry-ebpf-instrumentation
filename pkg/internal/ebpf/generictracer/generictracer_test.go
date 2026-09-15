@@ -592,3 +592,29 @@ func TestClearPidCacheOnEmptyMap(t *testing.T) {
 	require.NoError(t, tracer.clearPidCache())
 	assert.Equal(t, 0, pidCacheLen(t, pidCache))
 }
+
+// A clear that cannot run (here: the map is gone) must not fail the rebuild:
+// the filter bits are already written and AllowPID still has to put its
+// positive entry.
+func TestRebuildValidPidsSurvivesClearFailure(t *testing.T) {
+	validPids, pidCache := newTestValidPids(t), newTestPidCache(t)
+
+	const ns, nsPid = uint32(4026532701), app.PID(7)
+	tracer := &Tracer{
+		log: slog.Default(),
+		pidsFilter: fakeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+			ns: {nsPid: {}},
+		}},
+	}
+	tracer.bpfObjects.ValidPids = validPids
+	tracer.bpfObjects.PidCache = pidCache
+
+	require.NoError(t, pidCache.Close())
+
+	require.NoError(t, tracer.rebuildValidPids())
+
+	segment, bit := pidSegmentBit((uint64(ns) << 32) | uint64(nsPid))
+	var word uint64
+	require.NoError(t, validPids.Lookup(segment, &word))
+	assert.Equal(t, uint64(1)<<bit, word, "the filter is written even when the cache cannot be cleared")
+}

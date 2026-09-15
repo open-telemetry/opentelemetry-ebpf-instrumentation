@@ -158,28 +158,40 @@ func (p *Tracer) rebuildValidPids() error {
 
 	// pid_cache also holds negative answers, which the new filter may
 	// invalidate. Clearing it after the segments are written makes every
-	// process re-evaluate once against the new filter.
-	return p.clearPidCache()
+	// process re-evaluate once against the new filter. A failed clear must
+	// not fail the rebuild: the filter is already correct.
+	if err := p.clearPidCache(); err != nil {
+		p.log.Warn("failed to clear the BPF pid cache; stale entries age out with the LRU", "error", err)
+	}
+
+	return nil
 }
 
+// pid_cache is an LRU hash the BPF side keeps inserting into. When it is
+// full, kernel evictions can invalidate the walk cursor and the kernel then
+// restarts the walk from the first key, hence the bound. Best effort is
+// enough: whatever a walk misses ages out with the LRU or goes on the next
+// rebuild.
 func (p *Tracer) clearPidCache() error {
-	if p.bpfObjects.PidCache == nil {
+	cache := p.bpfObjects.PidCache
+	if cache == nil {
 		return nil
 	}
 
-	var key, value uint32
-	var keys []uint32
+	keys := make([]uint32, 0, cache.MaxEntries())
+	var key uint32
 
-	iter := p.bpfObjects.PidCache.Iterate()
-	for iter.Next(&key, &value) {
+	err := cache.NextKey(nil, &key)
+	for err == nil && len(keys) < cap(keys) {
 		keys = append(keys, key)
+		err = cache.NextKey(key, &key)
 	}
-	if err := iter.Err(); err != nil {
-		return fmt.Errorf("iterating the BPF pid cache: %w", err)
+	if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		return fmt.Errorf("walking the BPF pid cache: %w", err)
 	}
 
 	for _, k := range keys {
-		err := p.bpfObjects.PidCache.Delete(k)
+		err := cache.Delete(k)
 		if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
 			return fmt.Errorf("clearing pid %d from the BPF pid cache: %w", k, err)
 		}
