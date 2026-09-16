@@ -300,8 +300,10 @@ int BPF_KPROBE_GUARDED(obi_cuda_stream_create_with_flags, void *stream, unsigned
 }
 
 SEC("uprobe/cudaStreamCreateWithPriority")
-int BPF_KPROBE_GUARDED(
-    obi_cuda_stream_create_with_priority, void *stream, unsigned int flags, int priority) {
+int BPF_KPROBE_GUARDED(obi_cuda_stream_create_with_priority,
+                       void *stream,
+                       unsigned int flags,
+                       int priority) {
     (void)ctx;
     (void)stream;
     (void)flags;
@@ -355,8 +357,10 @@ int BPF_KPROBE_GUARDED(obi_cuda_event_record, void *event, void *stream) {
 }
 
 SEC("uprobe/cudaEventRecordWithFlags")
-int BPF_KPROBE_GUARDED(
-    obi_cuda_event_record_with_flags, void *event, void *stream, unsigned int flags) {
+int BPF_KPROBE_GUARDED(obi_cuda_event_record_with_flags,
+                       void *event,
+                       void *stream,
+                       unsigned int flags) {
     (void)ctx;
     (void)event;
     (void)stream;

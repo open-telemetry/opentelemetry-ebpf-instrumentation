@@ -64,8 +64,8 @@ cudaError_t cudaGraphLaunch(cudaGraphExec_t graphExec, cudaStream_t stream);
 cudaError_t cudaMemset(void *devPtr, int value, size_t count);
 cudaError_t cudaStreamCreate(cudaStream_t *stream);
 cudaError_t cudaStreamCreateWithFlags(cudaStream_t *stream, unsigned int flags);
-cudaError_t cudaStreamCreateWithPriority(cudaStream_t *stream, unsigned int flags,
-                                         int priority);
+cudaError_t cudaStreamCreateWithPriority(cudaStream_t *stream,
+                                         unsigned int flags, int priority);
 cudaError_t cudaStreamDestroy(cudaStream_t stream);
 cudaError_t cudaEventRecord(cudaEvent_t event, cudaStream_t stream);
 cudaError_t cudaEventRecordWithFlags(cudaEvent_t event, cudaStream_t stream,
