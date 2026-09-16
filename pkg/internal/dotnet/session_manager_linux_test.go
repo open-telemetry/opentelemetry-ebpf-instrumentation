@@ -161,14 +161,13 @@ func TestSessionManagerStopsForUnsupportedRuntime(t *testing.T) {
 					responses = append(responses, response)
 				}
 			}
-			// Keep the full diagnostic socket name within the Unix path limit.
-			tempDir, err := os.MkdirTemp("", "dotnet-ipc-")
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, os.RemoveAll(tempDir)) })
-			path := filepath.Join(tempDir, fmt.Sprintf("dotnet-diagnostic-%d-%d-socket", namespacePID, startTime))
+			// Bind a short name to stay within the Unix socket path limit.
+			tempDir := t.TempDir()
+			path := filepath.Join(tempDir, "s")
 			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = listener.Close() })
+			require.NoError(t, os.Rename(path, filepath.Join(tempDir, fmt.Sprintf("dotnet-diagnostic-%d-%d-socket", namespacePID, startTime))))
 			require.NoError(t, listener.SetDeadline(time.Now().Add(2*time.Second)))
 			served := make(chan error, 1)
 			go func() {
