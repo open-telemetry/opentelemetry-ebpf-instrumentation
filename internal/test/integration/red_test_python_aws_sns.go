@@ -43,7 +43,7 @@ func testPythonAWSSNS(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, op := range []string{"CreateTopic", "Publish", "PublishBatch", "GetTopicAttributes", "DeleteTopic"} {
-			span := fetchAWSSpanByOP(ct, "sns."+op)
+			span := fetchAWSSpanByOP(ct, "SNS."+op)
 			for key, expected := range map[string]any{
 				"messaging.system":           "aws.sns",
 				"messaging.operation.name":   op,

@@ -114,6 +114,35 @@ func TestAWSSNSSpan(t *testing.T) {
 	}
 }
 
+func TestAWSSNSBodyLimit(t *testing.T) {
+	for _, oversizedRequest := range []bool{false, true} {
+		t.Run(fmt.Sprintf("oversized request=%t", oversizedRequest), func(t *testing.T) {
+			requestBody := "Action=Publish&TopicArn=arn:aws:sns:eu-west-1:123456789012:orders&Message=hello"
+			responseBody := "<PublishResponse><PublishResult><MessageId>message-1</MessageId></PublishResult>" + strings.Repeat(" ", maxCapturedPayloadBytes) + "</PublishResponse>"
+			if oversizedRequest {
+				requestBody += strings.Repeat("x", maxCapturedPayloadBytes)
+				responseBody = ""
+			}
+			req, err := http.NewRequest(http.MethodPost, "https://sns.eu-west-1.amazonaws.com/", strings.NewReader(requestBody))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp := &http.Response{Body: io.NopCloser(strings.NewReader(responseBody))}
+			span, ok := AWSSNSSpan(&request.Span{}, req, resp)
+			assert.Equal(t, !oversizedRequest, ok)
+			if ok {
+				assert.Equal(t, "orders", span.AWS.SNS.Destination)
+				assert.Empty(t, span.AWS.SNS.MessageID)
+			}
+			restoredRequest, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			assert.Equal(t, requestBody, string(restoredRequest))
+			restoredResponse, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, responseBody, string(restoredResponse))
+		})
+	}
+}
+
 func TestAWSSNSTruncatedCapture(t *testing.T) {
 	params := url.Values{
 		"Action":   {"Publish"},

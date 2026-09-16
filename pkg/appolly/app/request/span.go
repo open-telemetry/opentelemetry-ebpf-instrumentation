@@ -2128,7 +2128,7 @@ func (s *Span) TraceName() string {
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
-			return "sns." + s.AWS.SNS.OperationName
+			return "SNS." + s.AWS.SNS.OperationName
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeSQLPP {

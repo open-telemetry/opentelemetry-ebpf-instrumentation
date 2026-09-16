@@ -40,12 +40,13 @@ func TestSNSAttributes(t *testing.T) {
 			}
 			span := &request.Span{Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeAWSSNS, Method: "POST", Path: "/", Status: 200, AWS: &request.AWS{SNS: sns}}
 			attrs := TraceAttributesSelector(span, defaultTraceAttrs(t))
-			assert.Equal(t, "sns."+operation, span.TraceName())
+			assert.Equal(t, "SNS."+operation, span.TraceName())
 			assert.Equal(t, "messaging_system", span.ServiceGraphConnectionType())
 			// These spans describe the HTTP transport; they do not supply message creation context.
 			assert.Equal(t, trace2.SpanKindClient, spanKind(span))
 			assert.Contains(t, attrs, semconv.MessagingSystemAWSSNS)
 			assert.Contains(t, attrs, request.RPCSystem("aws-api"))
+			assert.Contains(t, attrs, semconv.RPCMethod("SNS/"+operation))
 			assert.Contains(t, attrs, request.MessagingOperationName(operation))
 			assert.Contains(t, attrs, semconv.CloudRegion("eu-west-1"))
 			assert.Contains(t, attrs, semconv.AWSRequestID("req-1"))

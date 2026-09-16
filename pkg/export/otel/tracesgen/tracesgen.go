@@ -835,6 +835,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			sns := span.AWS.SNS
 			attrs = append(attrs,
 				request.RPCSystem("aws-api"),
+				semconv.RPCMethod("SNS/"+sns.OperationName),
 				semconv.MessagingSystemAWSSNS,
 				request.MessagingOperationName(sns.OperationName),
 			)

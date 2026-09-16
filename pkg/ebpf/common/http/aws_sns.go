@@ -4,7 +4,6 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
-	"bytes"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -52,8 +51,7 @@ func AWSSNSSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		return *baseSpan, false
 	}
 
-	responseBody, err := io.ReadAll(resp.Body)
-	resp.Body = io.NopCloser(bytes.NewReader(responseBody))
+	responseBody, err := readAndRestoreBodyWithLimit(&resp.Body, maxCapturedPayloadBytes)
 	var response awsSNSResponse
 	if err != nil || xml.Unmarshal(responseBody, &response) != nil {
 		// Request metadata remains useful when the response body is truncated.
@@ -130,8 +128,7 @@ func snsRequestParams(req *http.Request) (url.Values, bool) {
 		if err != nil || mediaType != "application/x-www-form-urlencoded" {
 			return nil, false
 		}
-		body, readErr := io.ReadAll(req.Body)
-		req.Body = io.NopCloser(bytes.NewReader(body))
+		body, readErr := readAndRestoreBodyWithLimit(&req.Body, maxCapturedPayloadBytes)
 		params, parseErr := url.ParseQuery(string(body))
 		return params, (readErr == nil && parseErr == nil) || errors.Is(readErr, io.ErrUnexpectedEOF)
 	default:
