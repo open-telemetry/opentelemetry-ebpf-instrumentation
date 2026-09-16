@@ -2087,6 +2087,7 @@
                 "enum": [
                   "tcp_rtt",
                   "tcp_failed_connections",
+                  "tcp_successful_connections",
                   "tcp_retransmits",
                   "tcp_io"
                 ]

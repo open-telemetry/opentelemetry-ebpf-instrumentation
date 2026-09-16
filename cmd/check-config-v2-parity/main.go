@@ -397,6 +397,9 @@ func mustMapStatsFeatureDefaults(ex map[string]any) error {
 	if features.StatsTCPFailedConnections() {
 		want = append(want, "tcp_failed_connections")
 	}
+	if features.StatsTCPSuccessfulConnections() {
+		want = append(want, "tcp_successful_connections")
+	}
 	if features.StatsTCPRetransmits() {
 		want = append(want, "tcp_retransmits")
 	}

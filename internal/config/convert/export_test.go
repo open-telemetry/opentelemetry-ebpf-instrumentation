@@ -1022,6 +1022,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 		require.ElementsMatch(t, []string{
 			"tcp_rtt",
 			"tcp_failed_connections",
+			"tcp_successful_connections",
 			"tcp_retransmits",
 			"tcp_io",
 		}, value(t, ext.Capture.Network, "stats", "features"))
@@ -1040,6 +1041,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 		require.ElementsMatch(t, []string{
 			"tcp_rtt",
 			"tcp_failed_connections",
+			"tcp_successful_connections",
 			"tcp_retransmits",
 			"tcp_io",
 		}, value(t, ext.Capture.Network, "stats", "features"))
