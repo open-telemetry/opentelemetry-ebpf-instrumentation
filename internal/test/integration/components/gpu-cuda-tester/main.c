@@ -7,9 +7,12 @@
 // calls fire. Each iteration:
 //
 //   - cudaMalloc                    -> gpu.cuda.memory.allocations
-//   - cudaLaunchKernel              -> gpu.cuda.kernel.launch.calls + grid/block size
-//   - cudaMemcpy                    -> gpu.cuda.memory.copies (+ cuda.memcpy.kind)
-//   - cudaMemcpyAsync               -> gpu.cuda.memory.copies (+ cuda.memcpy.kind)
+//   - cudaLaunchKernel              -> gpu.cuda.kernel.launch.calls +
+//   grid/block size
+//   - cudaMemcpy                    -> gpu.cuda.memory.copies (+
+//   cuda.memcpy.kind)
+//   - cudaMemcpyAsync               -> gpu.cuda.memory.copies (+
+//   cuda.memcpy.kind)
 //   - cudaGraphLaunch               -> gpu.cuda.graph.launch.calls
 //   - cudaFree                      -> gpu.cuda.memory.free.bytes
 //   - cudaMemset                    -> gpu.cuda.memset.bytes
