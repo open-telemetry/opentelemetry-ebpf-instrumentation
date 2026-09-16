@@ -183,11 +183,11 @@ type GoProbe struct {
 // GoProbeGroup is an optional set of Go probes that must be attached atomically.
 type GoProbeGroup struct {
 	Name string
-	// RequiresAll requires every listed symbol to have been attached.
+	// RequiresAll requires every listed baseline symbol to have been attached.
 	RequiresAll []string
-	// RequiresAny requires at least one listed symbol to have been attached when non-empty.
+	// RequiresAny requires at least one listed baseline symbol to have been attached when non-empty.
 	RequiresAny []string
-	// ConflictsAny rejects the group when any listed symbol was attached.
+	// ConflictsAny rejects a symbol copy when an earlier group attached any listed symbol in that copy.
 	ConflictsAny []string
 	Probes       []GoProbe
 }

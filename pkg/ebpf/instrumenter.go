@@ -76,6 +76,16 @@ type processScopedGoProbeRegistration struct {
 	probe  ebpfcommon.GoProbe
 }
 
+type resolvedGoProbeGroup struct {
+	copyID string
+	group  ebpfcommon.GoProbeGroup
+}
+
+type goProbeGroupSymbol struct {
+	copyID string
+	symbol string
+}
+
 func (c *reverseCloser) Close() error {
 	c.once.Do(func() {
 		for _, v := range slices.Backward(c.closers) {
@@ -147,8 +157,9 @@ func (i *instrumenter) goprobes(p Tracer) error {
 	p.AddCloser(closers...)
 
 	if groupedTracer, ok := p.(goProbeGroupTracer); ok {
+		attachedGroupSymbols := map[goProbeGroupSymbol]struct{}{}
 		for _, group := range groupedTracer.GoProbeGroups() {
-			if !goProbeGroupEligible(group, attachedSymbols) {
+			if !goProbeGroupPrerequisitesAttached(group, attachedSymbols) {
 				continue
 			}
 			processScopedTracer, hasProcessScopedTracer := p.(processScopedGoProbeTracer)
@@ -156,17 +167,20 @@ func (i *instrumenter) goprobes(p Tracer) error {
 				continue
 			}
 			for _, resolvedGroup := range i.gatherGoProbeGroupOffsets(group) {
-				groupClosers := i.instrumentOptionalGoProbeGroup(i.exe, resolvedGroup)
+				if goProbeGroupConflictsWithAttached(resolvedGroup, attachedGroupSymbols) {
+					continue
+				}
+				groupClosers := i.instrumentOptionalGoProbeGroup(i.exe, resolvedGroup.group)
 				if len(groupClosers) == 0 {
 					continue
 				}
-				recordGoProbeGroupSymbols(resolvedGroup, attachedSymbols)
+				recordGoProbeGroupSymbols(resolvedGroup, attachedGroupSymbols)
 				closer := &reverseCloser{closers: groupClosers}
 				i.closables = append(i.closables, closer)
 				i.optionalGoProbeGroupClosers = append(i.optionalGoProbeGroupClosers, closer)
 				p.AddCloser(closer)
 				if hasProcessScopedTracer {
-					for _, candidate := range resolvedGroup.Probes {
+					for _, candidate := range resolvedGroup.group.Probes {
 						if candidate.ProcessScoped {
 							i.processScopedGoProbes = append(
 								i.processScopedGoProbes,
@@ -285,18 +299,11 @@ func goProbeGroupHasProcessScopedProbe(group ebpfcommon.GoProbeGroup) bool {
 	return false
 }
 
-func goProbeGroupEligible(
+func goProbeGroupPrerequisitesAttached(
 	group ebpfcommon.GoProbeGroup,
 	attachedSymbols map[string]bool,
 ) bool {
 	log := ilog().With("probes", "instrumentOptionalGoProbeGroup", "group", group.Name)
-	for _, symbol := range group.ConflictsAny {
-		if attachedSymbols[symbol] {
-			log.Debug("skipping optional uprobe group because a conflicting symbol was attached",
-				"function", symbol)
-			return false
-		}
-	}
 	for _, symbol := range group.RequiresAll {
 		if !attachedSymbols[symbol] {
 			log.Debug("skipping optional uprobe group because a required symbol was not attached",
@@ -318,12 +325,31 @@ func goProbeGroupEligible(
 	return false
 }
 
+func goProbeGroupConflictsWithAttached(
+	group resolvedGoProbeGroup,
+	attachedSymbols map[goProbeGroupSymbol]struct{},
+) bool {
+	log := ilog().With(
+		"probes", "instrumentOptionalGoProbeGroup",
+		"group", group.group.Name,
+		"copy_id", group.copyID,
+	)
+	for _, symbol := range group.group.ConflictsAny {
+		if _, ok := attachedSymbols[goProbeGroupSymbol{copyID: group.copyID, symbol: symbol}]; ok {
+			log.Debug("skipping optional uprobe group because a conflicting symbol was attached",
+				"function", symbol)
+			return true
+		}
+	}
+	return false
+}
+
 func recordGoProbeGroupSymbols(
-	group ebpfcommon.GoProbeGroup,
-	attachedSymbols map[string]bool,
+	group resolvedGoProbeGroup,
+	attachedSymbols map[goProbeGroupSymbol]struct{},
 ) {
-	for _, candidate := range group.Probes {
-		attachedSymbols[candidate.Symbol] = true
+	for _, candidate := range group.group.Probes {
+		attachedSymbols[goProbeGroupSymbol{copyID: group.copyID, symbol: candidate.Symbol}] = struct{}{}
 	}
 }
 
@@ -1309,7 +1335,7 @@ func applyGoProbeOffset(probe *ebpfcommon.ProbeDesc, offs goexec.FuncOffsets) bo
 	return !probe.Skip
 }
 
-func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) []ebpfcommon.GoProbeGroup {
+func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) []resolvedGoProbeGroup {
 	copyIDs := map[string]struct{}{}
 	resolvedBySymbol := make(map[string]map[string][]goexec.FuncOffsets, len(group.Probes))
 	for _, candidate := range group.Probes {
@@ -1335,13 +1361,16 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 	}
 	slices.Sort(orderedCopyIDs)
 
-	resolvedGroups := make([]ebpfcommon.GoProbeGroup, 0, len(orderedCopyIDs))
+	resolvedGroups := make([]resolvedGoProbeGroup, 0, len(orderedCopyIDs))
 	for _, copyID := range orderedCopyIDs {
-		resolved := ebpfcommon.GoProbeGroup{
-			Name:         group.Name,
-			RequiresAll:  append([]string(nil), group.RequiresAll...),
-			RequiresAny:  append([]string(nil), group.RequiresAny...),
-			ConflictsAny: append([]string(nil), group.ConflictsAny...),
+		resolved := resolvedGoProbeGroup{
+			copyID: copyID,
+			group: ebpfcommon.GoProbeGroup{
+				Name:         group.Name,
+				RequiresAll:  append([]string(nil), group.RequiresAll...),
+				RequiresAny:  append([]string(nil), group.RequiresAny...),
+				ConflictsAny: append([]string(nil), group.ConflictsAny...),
+			},
 		}
 		complete := true
 		for _, candidate := range group.Probes {
@@ -1362,7 +1391,7 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 					complete = false
 					break
 				}
-				resolved.Probes = append(resolved.Probes, ebpfcommon.GoProbe{
+				resolved.group.Probes = append(resolved.group.Probes, ebpfcommon.GoProbe{
 					Symbol:        candidate.Symbol,
 					Probe:         &probeCopy,
 					ProcessScoped: candidate.ProcessScoped,
