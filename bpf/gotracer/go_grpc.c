@@ -51,6 +51,77 @@
 #define OPTIMISTIC_GRPC_ENCODED_HEADER_LEN                                                         \
     49 // 1 + 1 + 8 + 1 +~ 38 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(38) + hpack(generated tracepanent id)
 
+enum { k_max_grpc_client_header_fields = 256 };
+
+typedef struct grpc_client_headers {
+    u32 stream_id;
+    u32 _pad;
+    go_slice_t fields;
+} grpc_client_headers_t;
+
+static __always_inline bool grpc_client_headers_are_app_owned(const go_slice_t *fields) {
+    if (fields->len <= 0) {
+        return false;
+    }
+
+    // HPACK accounts at least 32 bytes per field. This covers every field that can fit
+    // in grpc-go's planned 8 KiB default while keeping verifier work bounded. If the
+    // slice is larger or unreadable, preserve application data instead of injecting.
+    if (!fields->array || fields->len > k_max_grpc_client_header_fields) {
+        return true;
+    }
+
+    for (u16 i = 0; i < k_max_grpc_client_header_fields; i++) {
+        if (i >= fields->len) {
+            break;
+        }
+
+        grpc_header_field_t field = {};
+        if (bpf_probe_read_user(&field, sizeof(field), fields->array + (i * sizeof(field))) != 0) {
+            return true;
+        }
+        if (field.key_len != W3C_KEY_LENGTH) {
+            continue;
+        }
+
+        unsigned char name[W3C_KEY_LENGTH];
+        if (bpf_probe_read_user(name, sizeof(name), field.key_ptr) != 0) {
+            return true;
+        }
+        if (stricmp((const char *)name, "traceparent", W3C_KEY_LENGTH)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static __always_inline void
+mark_grpc_app_owned_stream(const go_addr_key_t *writer_key,
+                           const grpc_h2_header_observation_t *observation) {
+    bpf_map_update_elem(
+        &grpc_app_owned_writes, writer_key, &observation->stream.stream_id, BPF_ANY);
+    bpf_map_update_elem(
+        &grpc_owned_writer_by_request, &observation->request_key, writer_key, BPF_ANY);
+    if (!observation->stream.socket_cookie) {
+        return;
+    }
+
+    grpc_h2_owned_stream_key_t *previous =
+        bpf_map_lookup_elem(&grpc_owned_stream_by_request, &observation->request_key);
+    if (previous && (previous->socket_cookie != observation->stream.socket_cookie ||
+                     previous->pid != observation->stream.pid ||
+                     previous->stream_id != observation->stream.stream_id)) {
+        bpf_map_delete_elem(&grpc_h2_owned_streams, previous);
+    }
+    if (bpf_map_update_elem(&grpc_h2_owned_streams, &observation->stream, &(u8){1}, BPF_ANY) == 0) {
+        bpf_map_update_elem(&grpc_owned_stream_by_request,
+                            &observation->request_key,
+                            &observation->stream,
+                            BPF_ANY);
+    }
+}
+
 static __always_inline void grpc_server_conn_info(void *tr, connection_info_t *conn) {
     if (!tr || !conn) {
         return;
@@ -1152,10 +1223,13 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler, struct pt_regs
     }
     const pending_h2_invocation_t pending = *pending_ptr;
 
-    u32 stream_id = 0;
-    if (bpf_probe_read_user(&stream_id, sizeof(stream_id), hdr) != 0 || stream_id == 0) {
+    grpc_client_headers_t client_headers = {};
+    if (bpf_probe_read_user(&client_headers, sizeof(client_headers), hdr) != 0 ||
+        client_headers.stream_id == 0) {
         return 0;
     }
+
+    const u32 stream_id = client_headers.stream_id;
 
     go_addr_key_t conn_key = {
         .pid = pending.request_key.pid,
@@ -1182,6 +1256,10 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler, struct pt_regs
     go_addr_key_t writer_key = {};
     go_addr_key_from_id(&writer_key, GOROUTINE_PTR(ctx));
     bpf_map_update_elem(&grpc_h2_header_observations, &writer_key, &observation, BPF_ANY);
+
+    if (grpc_client_headers_are_app_owned(&client_headers.fields)) {
+        mark_grpc_app_owned_stream(&writer_key, &observation);
+    }
     return 0;
 }
 
@@ -1201,49 +1279,5 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler_returns, struct
     }
     bpf_map_delete_elem(&grpc_h2_header_observations, &writer_key);
     bpf_map_delete_elem(&grpc_app_owned_writes, &writer_key);
-    return 0;
-}
-
-SEC("uprobe/grpcHpackEncoderWriteField")
-int GUARDED_PROG(obi_uprobe_grpcHpackEncoderWriteField, struct pt_regs *, ctx) {
-    if (!g_bpf_header_propagation || (u64)GO_PARAM3(ctx) != W3C_KEY_LENGTH) {
-        return 0;
-    }
-
-    go_addr_key_t writer_key = {};
-    go_addr_key_from_id(&writer_key, GOROUTINE_PTR(ctx));
-    grpc_h2_header_observation_t *observation =
-        bpf_map_lookup_elem(&grpc_h2_header_observations, &writer_key);
-    if (!observation) {
-        return 0;
-    }
-
-    unsigned char name[W3C_KEY_LENGTH];
-    if (bpf_probe_read_user(name, sizeof(name), (void *)GO_PARAM2(ctx)) != 0 ||
-        !stricmp((const char *)name, "traceparent", W3C_KEY_LENGTH)) {
-        return 0;
-    }
-
-    bpf_map_update_elem(
-        &grpc_app_owned_writes, &writer_key, &observation->stream.stream_id, BPF_ANY);
-    bpf_map_update_elem(
-        &grpc_owned_writer_by_request, &observation->request_key, &writer_key, BPF_ANY);
-    if (!observation->stream.socket_cookie) {
-        return 0;
-    }
-
-    grpc_h2_owned_stream_key_t *previous =
-        bpf_map_lookup_elem(&grpc_owned_stream_by_request, &observation->request_key);
-    if (previous && (previous->socket_cookie != observation->stream.socket_cookie ||
-                     previous->pid != observation->stream.pid ||
-                     previous->stream_id != observation->stream.stream_id)) {
-        bpf_map_delete_elem(&grpc_h2_owned_streams, previous);
-    }
-    if (bpf_map_update_elem(&grpc_h2_owned_streams, &observation->stream, &(u8){1}, BPF_ANY) == 0) {
-        bpf_map_update_elem(&grpc_owned_stream_by_request,
-                            &observation->request_key,
-                            &observation->stream,
-                            BPF_ANY);
-    }
     return 0;
 }

@@ -377,6 +377,7 @@ type ownershipCase struct {
 	name        string
 	traceparent string
 	hold        bool
+	metadata    int
 }
 
 func runOwnershipBatch(ctx context.Context, addr, runID string) error {
@@ -399,6 +400,20 @@ func runOwnershipBatch(ctx context.Context, addr, runID string) error {
 	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
 		name:        "owned-invalid",
 		traceparent: invalidOwnershipTraceparent,
+	}); err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "owned-after-many",
+		traceparent: ownershipTraceparent,
+		metadata:    40,
+	}); err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "owned-after-limit",
+		traceparent: ownershipTraceparent,
+		metadata:    260,
 	}); err != nil {
 		return err
 	}
@@ -439,6 +454,9 @@ func invokeOwnership(
 	testCase ownershipCase,
 ) error {
 	pairs := []string{"x-obi-case", runID + "/" + testCase.name}
+	for i := 0; i < testCase.metadata; i++ {
+		pairs = append(pairs, fmt.Sprintf("x-obi-filler-%03d", i), "value")
+	}
 	if testCase.traceparent != "" {
 		pairs = append(pairs, "traceparent", testCase.traceparent)
 	}

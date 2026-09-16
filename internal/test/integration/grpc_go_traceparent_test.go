@@ -113,17 +113,19 @@ func testGRPCGoTraceparentOwnership(
 		logs, err := compose.LogsTail(2000, receiverService)
 		require.NoError(ct, err)
 		observations = parseGRPCOwnershipObservations(ct, logs, runID)
-		require.Len(ct, observations, 11)
+		require.Len(ct, observations, 13)
 	}, 30*time.Second, 250*time.Millisecond)
 
 	ownedCases := map[string]string{
-		"owned-index-1": grpcOwnedTraceparent,
-		"owned-index-2": grpcOwnedTraceparent,
-		"owned-index-3": grpcOwnedTraceparent,
-		"owned-index-4": grpcOwnedTraceparent,
-		"owned-invalid": grpcInvalidOwnedTraceparent,
-		"mux-owned-1":   grpcOwnedTraceparent,
-		"mux-owned-2":   grpcOwnedTraceparent,
+		"owned-index-1":     grpcOwnedTraceparent,
+		"owned-index-2":     grpcOwnedTraceparent,
+		"owned-index-3":     grpcOwnedTraceparent,
+		"owned-index-4":     grpcOwnedTraceparent,
+		"owned-invalid":     grpcInvalidOwnedTraceparent,
+		"owned-after-many":  grpcOwnedTraceparent,
+		"owned-after-limit": grpcOwnedTraceparent,
+		"mux-owned-1":       grpcOwnedTraceparent,
+		"mux-owned-2":       grpcOwnedTraceparent,
 	}
 	controlCases := map[string]struct{}{
 		"control-after-index": {},

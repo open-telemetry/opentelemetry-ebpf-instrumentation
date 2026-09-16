@@ -821,17 +821,18 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 		},
 		{
 			"google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler",
-			"golang.org/x/net/http2/hpack.(*Encoder).WriteField",
 		},
 	}
 	assert.Equal(t, slices.Concat(expectedSymbols...), GoH2OwnershipProbeSymbols())
 
 	for i, group := range groups[:4] {
-		require.Len(t, group.Probes, 2)
+		require.Len(t, group.Probes, len(expectedSymbols[i]))
 		assert.Equal(t, expectedSymbols[i][0], group.Probes[0].Symbol)
-		assert.Equal(t, expectedSymbols[i][1], group.Probes[1].Symbol)
 		assert.NotNil(t, group.Probes[0].Probe)
-		assert.NotNil(t, group.Probes[1].Probe)
+		if len(expectedSymbols[i]) > 1 {
+			assert.Equal(t, expectedSymbols[i][1], group.Probes[1].Symbol)
+			assert.NotNil(t, group.Probes[1].Probe)
+		}
 	}
 	require.Len(t, groups[0].RequiresAll, 1)
 	require.Len(t, groups[1].RequiresAll, 1)
