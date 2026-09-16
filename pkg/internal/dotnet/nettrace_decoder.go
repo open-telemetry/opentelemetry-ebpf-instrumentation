@@ -18,8 +18,9 @@ const (
 )
 
 const (
-	netTraceSequencePointHeaderSize = 8 + 4 // timestamp (uint64) and thread count (uint32).
-	netTraceSequencePointThreadSize = 8 + 4 // capture thread ID (uint64) and sequence (uint32).
+	netTraceSequencePointHeaderSize   = 8 + 4 // timestamp (uint64) and thread count (uint32).
+	netTraceSequencePointThreadIDSize = 8
+	netTraceSequencePointThreadSize   = netTraceSequencePointThreadIDSize + 4 // capture thread ID (uint64) and sequence (uint32).
 )
 
 type netTraceMetadata struct {
@@ -193,7 +194,7 @@ func (d *netTraceDecoder) checkSequencePoint(payload []byte) error {
 	}
 	for offset := netTraceSequencePointHeaderSize; offset < len(payload); offset += netTraceSequencePointThreadSize {
 		thread := binary.LittleEndian.Uint64(payload[offset:])
-		sequence := binary.LittleEndian.Uint32(payload[offset+8:])
+		sequence := binary.LittleEndian.Uint32(payload[offset+netTraceSequencePointThreadIDSize:])
 		if err := d.checkSequence(thread, sequence, false); err != nil {
 			return err
 		}

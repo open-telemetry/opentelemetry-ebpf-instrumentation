@@ -13,6 +13,10 @@ import (
 
 const ipcMagic = "DOTNET_IPC_V1\x00"
 
+const ipcHRESULTUnknownCommand = 0x80131385
+
+var errIPCUnknownCommand = errors.New("unknown diagnostic IPC command")
+
 const (
 	ipcCommandSetServer uint8 = 0xff
 	ipcResponseOK       uint8 = 0x00
@@ -103,6 +107,9 @@ func readIPCResponse(reader io.Reader) ([]byte, error) {
 			return nil, fmt.Errorf("invalid diagnostic IPC error payload size: %d", len(message.Payload))
 		}
 		code := binary.LittleEndian.Uint32(message.Payload)
+		if code == ipcHRESULTUnknownCommand {
+			return nil, fmt.Errorf("diagnostic IPC server error: HRESULT 0x%08x: %w", code, errIPCUnknownCommand)
+		}
 		return nil, fmt.Errorf("diagnostic IPC server error: HRESULT 0x%08x", code)
 	default:
 		return nil, fmt.Errorf("unexpected diagnostic IPC response command: %#x", message.Header.CommandID)

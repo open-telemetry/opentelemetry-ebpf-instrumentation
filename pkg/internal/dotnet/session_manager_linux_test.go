@@ -128,51 +128,96 @@ func TestSessionManagerProcessLifecycle(t *testing.T) {
 }
 
 func TestSessionManagerStopsForUnsupportedRuntime(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-	pid := app.PID(os.Getpid())
-	startTime, err := procs.StartTime(pid)
-	require.NoError(t, err)
-	pids, err := procs.FindNamespacedPids(pid)
-	require.NoError(t, err)
-	require.NotEmpty(t, pids)
-	namespacePID := uint64(pids[len(pids)-1])
-	payload := processInfo2Fixture(t)
-	binary.LittleEndian.PutUint64(payload, namespacePID)
-	payload = bytes.Replace(payload, []byte{'8', 0, '.', 0}, []byte{'7', 0, '.', 0}, 1)
-	response, err := encodeIPCMessage(ipcCommandSetServer, ipcResponseOK, payload)
-	require.NoError(t, err)
-	path, served := serveDiagnosticIPC(t, func(conn net.Conn) error {
-		if err := expectProcessInfo2Request(conn); err != nil {
-			return err
-		}
-		_, err := io.Copy(conn, bytes.NewReader(response))
-		return err
-	})
-	tempDir := filepath.Dir(path)
-	require.NoError(t, os.Rename(path, filepath.Join(tempDir, fmt.Sprintf("dotnet-diagnostic-%d-%d-socket", namespacePID, startTime))))
-	file := exec.New(exec.Init{
-		Pid: pid, StartTime: startTime,
-		Service: svc.Attrs{EnvVars: map[string]string{"TMPDIR": tempDir}},
-	})
-	queue := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot]()
-	sessionManager := NewSessionManager(ctx, 100*time.Millisecond, time.Second, queue)
-	t.Cleanup(sessionManager.Close)
-	require.NoError(t, sessionManager.Start(file))
+	for _, tc := range []struct {
+		name   string
+		errors []uint32
+	}{
+		{"old version", nil},
+		{"unknown command", []uint32{0x80131385}},
+		// A temporary failure must reach the next request before the worker stops.
+		{"temporary error then unknown command", []uint32{0x80131371, 0x80131385}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			pid := app.PID(os.Getpid())
+			startTime, err := procs.StartTime(pid)
+			require.NoError(t, err)
+			pids, err := procs.FindNamespacedPids(pid)
+			require.NoError(t, err)
+			require.NotEmpty(t, pids)
+			namespacePID := uint64(pids[len(pids)-1])
+			payload := processInfo2Fixture(t)
+			binary.LittleEndian.PutUint64(payload, namespacePID)
+			payload = bytes.Replace(payload, []byte{'8', 0, '.', 0}, []byte{'7', 0, '.', 0}, 1)
+			response, err := encodeIPCMessage(ipcCommandSetServer, ipcResponseOK, payload)
+			require.NoError(t, err)
+			responses := [][]byte{response}
+			if len(tc.errors) > 0 {
+				responses = nil
+				for _, code := range tc.errors {
+					response, err := encodeIPCMessage(ipcCommandSetServer, ipcResponseError, binary.LittleEndian.AppendUint32(nil, code))
+					require.NoError(t, err)
+					responses = append(responses, response)
+				}
+			}
+			// Keep the full diagnostic socket name within the Unix path limit.
+			tempDir, err := os.MkdirTemp("", "dotnet-ipc-")
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, os.RemoveAll(tempDir)) })
+			path := filepath.Join(tempDir, fmt.Sprintf("dotnet-diagnostic-%d-%d-socket", namespacePID, startTime))
+			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = listener.Close() })
+			require.NoError(t, listener.SetDeadline(time.Now().Add(2*time.Second)))
+			served := make(chan error, 1)
+			go func() {
+				for _, response := range responses {
+					conn, err := listener.Accept()
+					if err != nil {
+						served <- err
+						return
+					}
+					err = conn.SetDeadline(time.Now().Add(time.Second))
+					if err == nil {
+						err = expectProcessInfo2Request(conn)
+					}
+					if err == nil {
+						_, err = io.Copy(conn, bytes.NewReader(response))
+					}
+					_ = conn.Close()
+					if err != nil {
+						served <- err
+						return
+					}
+				}
+				served <- nil
+			}()
+			file := exec.New(exec.Init{
+				Pid: pid, StartTime: startTime,
+				Service: svc.Attrs{EnvVars: map[string]string{"TMPDIR": tempDir}},
+			})
+			queue := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot]()
+			sessionManager := NewSessionManager(ctx, 100*time.Millisecond, time.Second, queue)
+			t.Cleanup(sessionManager.Close)
+			require.NoError(t, sessionManager.Start(file))
 
-	done := make(chan struct{})
-	go func() {
-		sessionManager.workers.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		t.Fatal("session manager kept running after the runtime reported .NET 9")
+			done := make(chan struct{})
+			go func() {
+				sessionManager.workers.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+				require.NoError(t, ctx.Err(), "worker must stop before cancellation")
+			case <-ctx.Done():
+				t.Fatal("session manager kept retrying an unsupported runtime")
+			}
+			require.NoError(t, <-served)
+			sessionManager.mu.Lock()
+			remaining := len(sessionManager.targets)
+			sessionManager.mu.Unlock()
+			require.Zero(t, remaining)
+		})
 	}
-	require.NoError(t, <-served)
-	sessionManager.mu.Lock()
-	remaining := len(sessionManager.targets)
-	sessionManager.mu.Unlock()
-	require.Zero(t, remaining)
 }

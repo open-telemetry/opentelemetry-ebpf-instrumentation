@@ -33,6 +33,9 @@ func resolveDiagnosticSocket(ctx context.Context, tempDir string, namespacePID, 
 			return "", processInfo{}, ctx.Err()
 		}
 		if err != nil {
+			if errors.Is(err, errIPCUnknownCommand) {
+				unsupported++
+			}
 			failures = append(failures, fmt.Errorf("querying diagnostic socket %q: %w", path, err))
 			continue
 		}
