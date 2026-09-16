@@ -18,7 +18,10 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 )
 
-const grpcOwnedTraceparent = "00-33333333333333333333333333333333-4444444444444444-01"
+const (
+	grpcOwnedTraceparent        = "00-33333333333333333333333333333333-4444444444444444-01"
+	grpcInvalidOwnedTraceparent = "application-owned-invalid-value"
+)
 
 type grpcOwnershipObservation struct {
 	CaseID       string   `json:"case_id"`
@@ -110,16 +113,17 @@ func testGRPCGoTraceparentOwnership(
 		logs, err := compose.LogsTail(2000, receiverService)
 		require.NoError(ct, err)
 		observations = parseGRPCOwnershipObservations(ct, logs, runID)
-		require.Len(ct, observations, 10)
+		require.Len(ct, observations, 11)
 	}, 30*time.Second, 250*time.Millisecond)
 
-	ownedCases := map[string]struct{}{
-		"owned-index-1": {},
-		"owned-index-2": {},
-		"owned-index-3": {},
-		"owned-index-4": {},
-		"mux-owned-1":   {},
-		"mux-owned-2":   {},
+	ownedCases := map[string]string{
+		"owned-index-1": grpcOwnedTraceparent,
+		"owned-index-2": grpcOwnedTraceparent,
+		"owned-index-3": grpcOwnedTraceparent,
+		"owned-index-4": grpcOwnedTraceparent,
+		"owned-invalid": grpcInvalidOwnedTraceparent,
+		"mux-owned-1":   grpcOwnedTraceparent,
+		"mux-owned-2":   grpcOwnedTraceparent,
 	}
 	controlCases := map[string]struct{}{
 		"control-after-index": {},
@@ -140,8 +144,8 @@ func testGRPCGoTraceparentOwnership(
 		multiplexed = multiplexed || observation.MaxActive >= 2
 
 		traceparent := observation.Traceparents[0]
-		if _, owned := ownedCases[caseName]; owned {
-			require.Equal(t, grpcOwnedTraceparent, traceparent, caseName)
+		if expected, owned := ownedCases[caseName]; owned {
+			require.Equal(t, expected, traceparent, caseName)
 			continue
 		}
 		_, control := controlCases[caseName]

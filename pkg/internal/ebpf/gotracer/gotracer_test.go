@@ -69,6 +69,29 @@ func TestGoOffsetsMapKey(t *testing.T) {
 	}
 }
 
+func TestGRPCCorrelationMapsUseProcessScopedKeys(t *testing.T) {
+	type processAddressKey struct {
+		PID  uint64
+		Addr uint64
+	}
+	type grpcStreamKey struct {
+		Conn     processAddressKey
+		StreamID uint32
+		Pad      uint32
+	}
+
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	processKeySize := uint32(unsafe.Sizeof(processAddressKey{}))
+	assert.Equal(t, processKeySize, spec.Maps["grpc_conn_ptr_to_conn"].KeySize)
+	assert.Equal(t, processKeySize, spec.Maps["pending_h2_invocations"].KeySize)
+	assert.Equal(t,
+		uint32(unsafe.Sizeof(grpcStreamKey{})),
+		spec.Maps["ongoing_streams"].KeySize,
+	)
+}
+
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
 	const symbol = "golang.org/x/net/http2.(*Framer).WriteHeaders"
 	offTable := BpfOffTableT{}

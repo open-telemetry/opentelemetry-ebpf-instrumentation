@@ -27,7 +27,10 @@ import (
 
 const grpcCallTimeout = 10 * time.Second
 
-const ownershipTraceparent = "00-33333333333333333333333333333333-4444444444444444-01"
+const (
+	ownershipTraceparent        = "00-33333333333333333333333333333333-4444444444444444-01"
+	invalidOwnershipTraceparent = "application-owned-invalid-value"
+)
 
 // relayServicer is the interface that gRPC uses for HandlerType.
 type relayServicer interface {
@@ -392,6 +395,12 @@ func runOwnershipBatch(ctx context.Context, addr, runID string) error {
 		}); err != nil {
 			return err
 		}
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "owned-invalid",
+		traceparent: invalidOwnershipTraceparent,
+	}); err != nil {
+		return err
 	}
 	if err := invokeOwnership(ctx, conn, runID, ownershipCase{name: "control-after-index"}); err != nil {
 		return err

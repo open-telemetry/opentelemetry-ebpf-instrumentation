@@ -66,16 +66,16 @@ Parent lookup priority in `create_tp`:
 
 ### Go Uprobe Path
 
-1. **`transport_http2Client_NewStream`** — caches `conn_ptr → {connection_info, socket_cookie}` in `grpc_conn_ptr_to_conn`. The socket cookie comes from the Go connection's `netFD.pfd.Sysfd` and the current task's file table.
-2. **`controlBuffer.executeAndPut` → `loopyWriter.clientHeaderHandler`** — carries the request across the caller-to-writer goroutine handoff using the queued header pointer. The handler combines the cached socket cookie with the assigned stream ID.
-3. **`hpack.Encoder.WriteField`** — recognizes a syntactically valid application-provided `traceparent` and publishes an exact `{socket_cookie, pid, stream_id}` ownership marker. Names without valid values do not suppress OBI propagation.
-4. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. It stands down when the current writer goroutine observed a valid application field for that stream; otherwise it writes `outgoing_trace_map[{ports, stream_id}]`, marks the conn via `mark_go_grpc_client_conn`, and injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true. The local writer decision remains exact even when an older, pre-existing socket has no initialized cookie.
+1. **`transport_http2Client_NewStream`** — caches `{pid, conn_ptr} → {connection_info, socket_cookie}` in `grpc_conn_ptr_to_conn`. The socket cookie comes from the Go connection's `netFD.pfd.Sysfd` and the current task's file table.
+2. **`controlBuffer.executeAndPut` → `loopyWriter.clientHeaderHandler`** — carries the request across the caller-to-writer goroutine handoff using `{pid, queued_header_ptr}`. The handler publishes the stream state before serialization, so it does not depend on `NewStream` returning first, and combines the cached socket cookie with the assigned stream ID.
+3. **`hpack.Encoder.WriteField`** — recognizes an application-provided field named `traceparent` and publishes an exact `{socket_cookie, pid, stream_id}` ownership marker. The value is not copied or validated: field ownership alone prevents OBI from adding a duplicate.
+4. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. It stands down when the current writer goroutine observed an application field for that stream; otherwise it writes `outgoing_trace_map[{ports, stream_id}]`, marks the conn via `mark_go_grpc_client_conn`, and injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true. The stand-down path also marks the outgoing entry written, so socket fallback remains suppressed if socket-cookie storage is unavailable.
 
 ### sk_msg Per-Stream Fallback for Go gRPC Conns
 
 Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_conn` first: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, sets `tailcall_ctx.go_grpc_conn` and tail-calls `detect_h2`. No TCP option scheduling. Sockops records each established socket's cookie in shared `SK_STORAGE`; the TCP iterator does the same while backfilling pre-existing connections. On a HEADERS frame, `sk_msg` consumes an application-ownership marker only when that stored cookie, the sending PID, and the frame's stream ID all match. This is identity- and lifecycle-based: no timeout decides whether a marker is trustworthy.
 
-For streams OBI owns, the chain then honors the `written` handshake: `written=1` means the uprobe's user-buffer HPACK carries the traceparent — skip the frame; `written=0` means the uprobe write failed or went unconfirmed — the wire scan adopts an on-wire traceparent if one is found, otherwise `create_h2_tp` injects the stored tp. Streams with no stored tp at all are never touched on a Go conn (`go_grpc_conn` guard). Since `originateStream` publishes a tp for every client stream, that guard rarely fires now; TLS is kept out by the socket state machine instead — ciphertext has no preface and cannot pass the mid-stream sniff, so `detect_h2` never runs on it. HTTP/1 traffic from the same Go process is unmarked and goes through the HTTP/1 detection path.
+For streams OBI owns, the chain then honors the `written` handshake: `written=1` means the uprobe's user-buffer HPACK already carries a traceparent — either the application's field or OBI's committed write — so the socket path skips the frame. `written=0` means the uprobe write failed or went unconfirmed; the wire scan adopts an on-wire traceparent if one is found, otherwise `create_h2_tp` injects the stored tp. Streams with no stored tp at all are never touched on a Go conn (`go_grpc_conn` guard). The current `clientHeaderHandler` publishes a tp for every client stream before serialization; TLS is kept out by the socket state machine instead — ciphertext has no preface and cannot pass the mid-stream sniff, so `detect_h2` never runs on it. HTTP/1 traffic from the same Go process is unmarked and goes through the HTTP/1 detection path.
 
 ## Ingress
 
@@ -97,7 +97,7 @@ For streams OBI owns, the chain then honors the `written` handshake: `written=1`
 
 Writers:
 
-- **Go uprobes** (`loopyWriter.originateStream` + `grpcFramerWriteHeaders` entry) — `BPF_ANY` with `written=0`; the `WriteHeaders` return probe flips it to `written=1` only after every `bpf_probe_write_user` landed and `n == off + 9 + frame_len` still holds (a mid-write flush or CONTINUATION split moved the frame — patching then would corrupt the stream, so sk_msg injects instead)
+- **Go uprobes** (`loopyWriter.clientHeaderHandler` or legacy `originateStream`, plus `grpcFramerWriteHeaders` entry) — `BPF_ANY` with `written=0`; application ownership or a committed direct write flips it to `written=1`. A failed or uncertain direct write leaves socket fallback enabled.
 - **kprobe CLIENT** (`http2_grpc_start`) — `BPF_NOEXIST` with `written=0`, used only when no uprobe wrote first; span_id comes from `urand_bytes`
 - **sk_msg** (`find_existing_h2_tp` / `create_h2_tp`) — `BPF_ANY`, used by non-Go senders. Persists the traceparent that was just written onto the wire so kprobe CLIENT can adopt the same context
 

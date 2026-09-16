@@ -42,7 +42,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, stream_key_t);                    // key: conn_ptr + stream id
+    __type(key, grpc_stream_key_t);               // key: pid + conn_ptr + stream id
     __type(value, grpc_client_func_invocation_t); // stored info for the client request
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_streams SEC(".maps");
@@ -74,7 +74,7 @@ struct {
 // net.Conn* → connection and socket identity. Populated in NewStream.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64); // key: conn_ptr
+    __type(key, go_addr_key_t); // key: pid + conn_ptr
     __type(value, grpc_connection_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } grpc_conn_ptr_to_conn SEC(".maps");
@@ -83,7 +83,7 @@ struct {
 // the active grpc-go layout's header handler consumes it once stream_id is set.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64); // hdr pointer
+    __type(key, go_addr_key_t); // pid + hdr pointer
     __type(value, pending_h2_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } pending_h2_invocations SEC(".maps");

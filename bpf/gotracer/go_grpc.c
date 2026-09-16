@@ -464,37 +464,13 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     return 0;
 }
 
-static __always_inline void cleanup_grpc_pending_header(const go_addr_key_t *request_key) {
-    u64 *header_ptr = bpf_map_lookup_elem(&grpc_pending_header_by_request, request_key);
-    if (!header_ptr) {
-        return;
-    }
-
-    const u64 header_key = *header_ptr;
-    pending_h2_invocation_t *pending = bpf_map_lookup_elem(&pending_h2_invocations, &header_key);
-    if (pending && pending->request_key.pid == request_key->pid &&
-        pending->request_key.addr == request_key->addr) {
-        bpf_map_delete_elem(&pending_h2_invocations, &header_key);
-    }
+static __always_inline void cleanup_grpc_pending_ref(const go_addr_key_t *request_key) {
     bpf_map_delete_elem(&grpc_pending_header_by_request, request_key);
 }
 
-static __always_inline void cleanup_grpc_owned_stream(const go_addr_key_t *request_key) {
-    cleanup_grpc_pending_header(request_key);
-
-    go_addr_key_t *writer_key = bpf_map_lookup_elem(&grpc_owned_writer_by_request, request_key);
-    if (writer_key) {
-        bpf_map_delete_elem(&grpc_app_owned_writes, writer_key);
-        bpf_map_delete_elem(&grpc_owned_writer_by_request, request_key);
-    }
-
-    grpc_h2_owned_stream_key_t *owned_stream =
-        bpf_map_lookup_elem(&grpc_owned_stream_by_request, request_key);
-    if (!owned_stream) {
-        return;
-    }
-
-    bpf_map_delete_elem(&grpc_h2_owned_streams, owned_stream);
+static __always_inline void cleanup_grpc_request_refs(const go_addr_key_t *request_key) {
+    cleanup_grpc_pending_ref(request_key);
+    bpf_map_delete_elem(&grpc_owned_writer_by_request, request_key);
     bpf_map_delete_elem(&grpc_owned_stream_by_request, request_key);
 }
 
@@ -504,7 +480,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    cleanup_grpc_owned_stream(&g_key);
+    cleanup_grpc_request_refs(&g_key);
 
     grpc_client_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
@@ -604,7 +580,7 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
     }
 
     go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &invocation->tp);
-    cleanup_grpc_owned_stream(&g_key);
+    cleanup_grpc_request_refs(&g_key);
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
 
     return 0;
@@ -704,10 +680,10 @@ int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream, struct pt_regs *, c
                             &cached_grpc_client_connections, &cache_key, &grpc_conn, BPF_ANY);
 
                         if (conn_ptr_key) {
-                            bpf_map_update_elem(&grpc_conn_ptr_to_conn,
-                                                &(u64){(u64)conn_ptr_key},
-                                                &grpc_conn,
-                                                BPF_ANY);
+                            go_addr_key_t conn_key = {};
+                            go_addr_key_from_id(&conn_key, conn_ptr_key);
+                            bpf_map_update_elem(
+                                &grpc_conn_ptr_to_conn, &conn_key, &grpc_conn, BPF_ANY);
                         }
                     }
                 }
@@ -716,8 +692,9 @@ int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream, struct pt_regs *, c
             bpf_map_update_elem(&ongoing_client_connections, &g_key, &cached_conn->conn, BPF_ANY);
 
             if (conn_ptr_key) {
-                bpf_map_update_elem(
-                    &grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr_key}, cached_conn, BPF_ANY);
+                go_addr_key_t conn_key = {};
+                go_addr_key_from_id(&conn_key, conn_ptr_key);
+                bpf_map_update_elem(&grpc_conn_ptr_to_conn, &conn_key, cached_conn, BPF_ANY);
             }
         }
 
@@ -731,7 +708,7 @@ int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream, struct pt_regs *, c
                 transport_new_client_invocation_t wrapper = {};
                 wrapper.inv = *invocation;
                 wrapper.s_key.stream_id = 0;
-                wrapper.s_key.conn_ptr = (u64)conn_ptr_key;
+                go_addr_key_from_id(&wrapper.s_key.conn, conn_ptr_key);
 
                 bpf_map_update_elem(&transport_new_client_invocations, &g_key, &wrapper, BPF_ANY);
             } else {
@@ -801,7 +778,7 @@ int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream_Returns, struct pt_r
 
     bpf_dbg_printk("after return, stream_id=%d, conn_ptr=%llx",
                    wrapper->s_key.stream_id,
-                   wrapper->s_key.conn_ptr);
+                   wrapper->s_key.conn.addr);
 
     // This map is an LRU map, we can't be sure that all created streams are going to be
     // seen later by writeHeader to clean up this mapping.
@@ -866,14 +843,13 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
         bpf_dbg_printk("conn_ptr=%llx, stream_id=%d", conn_ptr, stream_id);
     }
 
-    stream_key_t key = {
+    grpc_stream_key_t key = {
         .stream_id = (u32)stream_id,
     };
-    key.conn_ptr = (u64)conn_ptr;
+    go_addr_key_from_id(&key.conn, conn_ptr);
 
     grpc_client_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_streams, &key);
-    grpc_connection_t *grpc_conn =
-        bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr});
+    grpc_connection_t *grpc_conn = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &key.conn);
     const connection_info_t *conn_info = grpc_conn ? &grpc_conn->conn : NULL;
 
     if (invocation) {
@@ -910,6 +886,18 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
         u32 *application_owned_stream = bpf_map_lookup_elem(&grpc_app_owned_writes, &g_key);
         if (observation && observation->stream.stream_id == (u32)stream_id &&
             application_owned_stream && *application_owned_stream == (u32)stream_id) {
+            if (conn_info) {
+                egress_key_t e_key = {
+                    .d_port = conn_info->d_port,
+                    .s_port = conn_info->s_port,
+                    .stream_id = (u32)stream_id,
+                };
+                sort_egress_key(&e_key);
+                tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
+                if (tp_p && tp_p->pid == pid_from_pid_tgid(bpf_get_current_pid_tgid())) {
+                    tp_p->written = 1;
+                }
+            }
             goto done;
         }
 
@@ -1046,17 +1034,66 @@ int GUARDED_PROG(obi_uprobe_grpc_controlBuffer_executeAndPut, struct pt_regs *, 
     if (!hdr) {
         return 0;
     }
-    u64 hdr_key = (u64)hdr;
+    go_addr_key_t hdr_key = {};
+    go_addr_key_from_id(&hdr_key, hdr);
     pending_h2_invocation_t pending = {
         .inv = wrapper->inv,
         .request_key = g_key,
-        .conn_ptr = wrapper->s_key.conn_ptr,
+        .conn_ptr = wrapper->s_key.conn.addr,
     };
-    cleanup_grpc_pending_header(&g_key);
+    cleanup_grpc_pending_ref(&g_key);
     bpf_map_update_elem(&pending_h2_invocations, &hdr_key, &pending, BPF_ANY);
-    bpf_map_update_elem(&grpc_pending_header_by_request, &g_key, &hdr_key, BPF_ANY);
+    bpf_map_update_elem(&grpc_pending_header_by_request, &g_key, &hdr_key.addr, BPF_ANY);
     bpf_dbg_printk("executeAndPut: stashed hdr=%llx conn=%llx", hdr, pending.conn_ptr);
     return 0;
+}
+
+static __always_inline void publish_grpc_stream(const pending_h2_invocation_t *pending,
+                                                u32 stream_id) {
+    grpc_stream_key_t key = {
+        .conn =
+            {
+                .pid = pending->request_key.pid,
+                .addr = pending->conn_ptr,
+            },
+        .stream_id = stream_id,
+    };
+    bpf_map_update_elem(&ongoing_streams, &key, &pending->inv, BPF_ANY);
+
+    grpc_connection_t *grpc_conn = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &key.conn);
+    const connection_info_t *conn_info = grpc_conn ? &grpc_conn->conn : NULL;
+    if (!conn_info || grpc_conn->pid != (u32)key.conn.pid ||
+        !valid_trace(pending->inv.tp.trace_id)) {
+        return;
+    }
+
+    tp_info_pid_t tp_p = {
+        .tp = pending->inv.tp,
+        .valid = 1,
+        .written = 0,
+        .pid = (u32)key.conn.pid,
+        .req_type = k_event_type_http_client,
+    };
+    egress_key_t e_key = {
+        .d_port = conn_info->d_port,
+        .s_port = conn_info->s_port,
+        .stream_id = stream_id,
+    };
+    sort_egress_key(&e_key);
+    bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
+
+    pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
+    sort_connection_info(&p_conn.conn);
+    mark_go_grpc_client_conn(&p_conn);
+}
+
+static __always_inline void consume_grpc_pending_header(const go_addr_key_t *header_key,
+                                                        const go_addr_key_t *request_key) {
+    bpf_map_delete_elem(&pending_h2_invocations, header_key);
+    u64 *tracked_header = bpf_map_lookup_elem(&grpc_pending_header_by_request, request_key);
+    if (tracked_header && *tracked_header == header_key->addr) {
+        bpf_map_delete_elem(&grpc_pending_header_by_request, request_key);
+    }
 }
 
 // loopyWriter side: streamID is now known; publish ongoing_streams.
@@ -1072,7 +1109,8 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_originateStream, struct pt_regs *, 
     if (!str || !hdr) {
         return 0;
     }
-    u64 hdr_key = (u64)hdr;
+    go_addr_key_t hdr_key = {};
+    go_addr_key_from_id(&hdr_key, hdr);
     pending_h2_invocation_t *pending_ptr = bpf_map_lookup_elem(&pending_h2_invocations, &hdr_key);
     if (!pending_ptr) {
         return 0;
@@ -1085,44 +1123,13 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_originateStream, struct pt_regs *, 
         return 0;
     }
 
-    stream_key_t key = {.conn_ptr = pending.conn_ptr, .stream_id = stream_id};
-    bpf_map_update_elem(&ongoing_streams, &key, &pending.inv, BPF_ANY);
-
-    bpf_map_delete_elem(&pending_h2_invocations, &hdr_key);
-    u64 *tracked_header =
-        bpf_map_lookup_elem(&grpc_pending_header_by_request, &pending.request_key);
-    if (tracked_header && *tracked_header == hdr_key) {
-        bpf_map_delete_elem(&grpc_pending_header_by_request, &pending.request_key);
-    }
+    publish_grpc_stream(&pending, stream_id);
+    consume_grpc_pending_header(&hdr_key, &pending.request_key);
 
     bpf_dbg_printk("originateStream: published ongoing_streams[conn=%llx, stream=%u]",
                    pending.conn_ptr,
                    stream_id);
 
-    // written=0 fallback: if grpcFramerWriteHeaders misses, sk_msg injects this tp on the wire
-    grpc_connection_t *grpc_conn =
-        bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &(u64){pending.conn_ptr});
-    const connection_info_t *conn_info = grpc_conn ? &grpc_conn->conn : NULL;
-    if (conn_info && valid_trace(pending.inv.tp.trace_id)) {
-        tp_info_pid_t tp_p = {0};
-        tp_p.tp = pending.inv.tp;
-        tp_p.valid = 1;
-        tp_p.written = 0;
-        tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
-        tp_p.req_type = k_event_type_http_client;
-
-        egress_key_t e_key = {
-            .d_port = conn_info->d_port,
-            .s_port = conn_info->s_port,
-            .stream_id = stream_id,
-        };
-        sort_egress_key(&e_key);
-        bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
-
-        pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
-        sort_connection_info(&p_conn.conn);
-        mark_go_grpc_client_conn(&p_conn);
-    }
     return 0;
 }
 
@@ -1137,7 +1144,8 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler, struct pt_regs
         return 0;
     }
 
-    const u64 hdr_key = (u64)hdr;
+    go_addr_key_t hdr_key = {};
+    go_addr_key_from_id(&hdr_key, hdr);
     pending_h2_invocation_t *pending_ptr = bpf_map_lookup_elem(&pending_h2_invocations, &hdr_key);
     if (!pending_ptr) {
         return 0;
@@ -1149,8 +1157,14 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler, struct pt_regs
         return 0;
     }
 
-    grpc_connection_t *grpc_conn =
-        bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &(u64){pending.conn_ptr});
+    go_addr_key_t conn_key = {
+        .pid = pending.request_key.pid,
+        .addr = pending.conn_ptr,
+    };
+    publish_grpc_stream(&pending, stream_id);
+    consume_grpc_pending_header(&hdr_key, &pending.request_key);
+
+    grpc_connection_t *grpc_conn = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &conn_key);
     if (!grpc_conn || grpc_conn->pid != pid_from_pid_tgid(bpf_get_current_pid_tgid())) {
         return 0;
     }
@@ -1190,40 +1204,9 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler_returns, struct
     return 0;
 }
 
-static __always_inline bool valid_grpc_traceparent_value(const void *value_ptr) {
-    unsigned char value[W3C_VAL_LENGTH];
-    if (!value_ptr || bpf_probe_read_user(value, sizeof(value), value_ptr) != 0 ||
-        value[2] != '-' || value[35] != '-' || value[52] != '-') {
-        return false;
-    }
-
-    bool trace_nonzero = false;
-    bool span_nonzero = false;
-#pragma unroll
-    for (u32 i = 0; i < W3C_VAL_LENGTH; i++) {
-        if (i == 2 || i == 35 || i == 52) {
-            continue;
-        }
-        if (reverse_hex[value[i]] == 0xff) {
-            return false;
-        }
-        if (i >= 3 && i < 35 && value[i] != '0') {
-            trace_nonzero = true;
-        }
-        if (i >= 36 && i < 52 && value[i] != '0') {
-            span_nonzero = true;
-        }
-    }
-
-    const bool forbidden_version =
-        (value[0] == 'f' || value[0] == 'F') && (value[1] == 'f' || value[1] == 'F');
-    return !forbidden_version && trace_nonzero && span_nonzero;
-}
-
 SEC("uprobe/grpcHpackEncoderWriteField")
 int GUARDED_PROG(obi_uprobe_grpcHpackEncoderWriteField, struct pt_regs *, ctx) {
-    if (!g_bpf_header_propagation || (u64)GO_PARAM3(ctx) != W3C_KEY_LENGTH ||
-        (u64)GO_PARAM5(ctx) != W3C_VAL_LENGTH) {
+    if (!g_bpf_header_propagation || (u64)GO_PARAM3(ctx) != W3C_KEY_LENGTH) {
         return 0;
     }
 
@@ -1238,10 +1221,6 @@ int GUARDED_PROG(obi_uprobe_grpcHpackEncoderWriteField, struct pt_regs *, ctx) {
     unsigned char name[W3C_KEY_LENGTH];
     if (bpf_probe_read_user(name, sizeof(name), (void *)GO_PARAM2(ctx)) != 0 ||
         !stricmp((const char *)name, "traceparent", W3C_KEY_LENGTH)) {
-        return 0;
-    }
-
-    if (!valid_grpc_traceparent_value((void *)GO_PARAM4(ctx))) {
         return 0;
     }
 

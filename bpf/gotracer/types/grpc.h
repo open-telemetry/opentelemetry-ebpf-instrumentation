@@ -28,9 +28,15 @@ typedef struct grpc_client_func_invocation {
     u64 flags;
 } grpc_client_func_invocation_t;
 
+typedef struct grpc_stream_key {
+    go_addr_key_t conn;
+    u32 stream_id;
+    u32 _pad;
+} grpc_stream_key_t;
+
 typedef struct transport_new_client_invocation {
     grpc_client_func_invocation_t inv;
-    stream_key_t s_key;
+    grpc_stream_key_t s_key;
 } transport_new_client_invocation_t;
 
 typedef struct grpc_framer_func_invocation {
