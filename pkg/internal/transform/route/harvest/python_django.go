@@ -318,7 +318,7 @@ func resolveDjangoRoutes(root string, files map[string][]djangoRoute, routes map
 			// Select this list's routes. Unassigned declarations, including those
 			// from i18n_patterns(), are treated as part of the file's urlpatterns.
 			if declaration.listName != listName &&
-				!(declaration.listName == "" && listName == "urlpatterns") {
+				(declaration.listName != "" || listName != "urlpatterns") {
 				continue
 			}
 			if declaration.includeList != "" {
