@@ -419,6 +419,12 @@ func (i *instrumenter) uprobeModules(p Tracer, pid app.PID, maps []*procfs.ProcM
 		}
 
 		lib = baseLib
+		if missing, ok := missingUprobeLibraryPrerequisite(lib, maps); !ok {
+			log.Debug("skipping uprobe library whose prerequisite is not loaded",
+				"lib", lib, "prerequisite", missing)
+			continue
+		}
+
 		log.Debug("finding library", "lib", lib)
 		instrPath, instrumentedIno, mappedPath, found := resolveInstrPath(pid, lib, maps, exePath, exeIno)
 		if found && mappedPath != "" {
@@ -491,6 +497,29 @@ func dedupModuleProbes(
 
 // matchVersionedUprobeLibrary reports whether a (possibly annotated) library name should be
 // instrumented for the given process.
+// uprobeLibraryPrerequisites names, per instrumented library, another library
+// that must be mapped by the process for its probes to be worth attaching.
+// libruby's probes only correlate on Puma, which loads puma_http11 while
+// booting.
+var uprobeLibraryPrerequisites = map[string]string{
+	"libruby": "puma_http11",
+}
+
+// missingUprobeLibraryPrerequisite reports whether a library's prerequisite is
+// mapped by the process, returning the prerequisite that was not found.
+func missingUprobeLibraryPrerequisite(lib string, maps []*procfs.ProcMap) (string, bool) {
+	prerequisite, ok := uprobeLibraryPrerequisites[lib]
+	if !ok {
+		return "", true
+	}
+
+	if procs.LibPath(prerequisite, maps) == nil {
+		return prerequisite, false
+	}
+
+	return "", true
+}
+
 func matchVersionedUprobeLibrary(name string, maps []*procfs.ProcMap) (string, bool, error) {
 	baseName, constraints, hasConstraint, err := parseVersionAnnotation(name)
 	if err != nil {
