@@ -7,9 +7,9 @@ Spans that OpenTelemetry eBPF Instrumentation emits, grouped by the shape OBI pr
 for each protocol it recognises. The span kind is part of the contract; which attributes
 appear depends on the enabled features and on `attributes.select`.
 
-## `span.obi.aws.client`
+## `span.obi.aws.s3.client`
 
-OBI AWS SDK client span (S3, SQS).
+OBI AWS S3 client span.
 
 | Span kind | Stability |
 | --- | --- |
@@ -21,6 +21,30 @@ OBI AWS SDK client span (S3, SQS).
 | `aws.request_id` | string | development | The AWS request ID as returned in the response headers `x-amzn-requestid`, `x-amzn-request-id` or `x-amz-request-id`. | 79b9da39-b7ae-508a-a6bc-864b2829c622; C9ER4AJX75574TDJ |
 | `aws.s3.bucket` | string | development | The S3 bucket name the request refers to. Corresponds to the `--bucket` parameter of the [S3 API](https://docs.aws.amazon.com/cli/latest/reference/s3api/index.html) operations. | some-bucket-name |
 | `aws.s3.key` | string | development | The S3 object key the request refers to. Corresponds to the `--key` parameter of the [S3 API](https://docs.aws.amazon.com/cli/latest/reference/s3api/index.html) operations. | someFile.yml |
+| `cloud.region` | string | development | The geographical region within a cloud provider. When associated with a resource, this attribute specifies the region where the resource operates. When calling services or APIs deployed on a cloud, this attribute identifies the region where the called destination is deployed. | us-central1; us-east-1 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
+| `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
+| `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
+| `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
+| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
+| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
+## `span.obi.aws.sqs.client`
+
+OBI AWS SQS client span.
+
+| Span kind | Stability |
+| --- | --- |
+| client | development |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `aws.extended_request_id` | string | development | The AWS extended request ID as returned in the response header `x-amz-id-2`. | wzHcyEWfmOGDIE5QOhTAqFDoDWP3y8IUvpNINCwL9N4TEHbUw0/gZJ+VZTmCNCWR7fezEN3eCiQ= |
+| `aws.request_id` | string | development | The AWS request ID as returned in the response headers `x-amzn-requestid`, `x-amzn-request-id` or `x-amz-request-id`. | 79b9da39-b7ae-508a-a6bc-864b2829c622; C9ER4AJX75574TDJ |
 | `aws.sqs.queue.url` | string | development | The URL of the AWS SQS Queue. It's a unique identifier for a queue in Amazon Simple Queue Service (SQS) and is used to access the queue and perform actions on it. | https://sqs.us-east-1.amazonaws.com/123456789012/MyQueue |
 | `cloud.region` | string | development | The geographical region within a cloud provider. When associated with a resource, this attribute specifies the region where the resource operates. When calling services or APIs deployed on a cloud, this attribute identifies the region where the called destination is deployed. | us-central1; us-east-1 |
 | `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
@@ -28,11 +52,10 @@ OBI AWS SDK client span (S3, SQS).
 | `messaging.message.id` | string | development | A value used by the messaging system as an identifier for the message, represented as a string. | 452a7c7c7c7048c2f887f61572b18fc2 |
 | `messaging.operation.name` | string | development | The system-specific name of the messaging operation. | ack; nack; send |
 | `messaging.operation.type` | enum | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
+| `messaging.system` | enum | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -152,9 +175,37 @@ OBI failed outbound connection span.
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.gen_ai.client`
+## `span.obi.gen_ai.embeddings.client`
 
-OBI GenAI client span.
+OBI GenAI embeddings client span.
+
+| Span kind | Stability |
+| --- | --- |
+| client | development |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `gen_ai.embeddings.dimension.count` | int | development | The number of dimensions the resulting output embeddings should have. | 512; 1024 |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
+| `gen_ai.request.embedding.input_count` | int | development | Number of inputs submitted to a GenAI embedding request. |  |
+| `gen_ai.request.encoding_formats` | string[] | development | The encoding formats requested in an embeddings operation, if specified. | ["base64"]; ["float","binary"] |
+| `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
+| `gen_ai.usage.input_tokens` | int | development | The number of tokens used in the GenAI input (prompt). | 100 |
+| `gen_ai.usage.output_tokens` | int | development | The number of tokens used in the GenAI response (completion). | 180 |
+| `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
+| `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
+| `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
+| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
+## `span.obi.gen_ai.inference.client`
+
+OBI GenAI inference client span.
 
 | Span kind | Stability |
 | --- | --- |
@@ -165,7 +216,6 @@ OBI GenAI client span.
 | `aws.bedrock.guardrail.id` | string | development | The unique identifier of the AWS Bedrock Guardrail. A [guardrail](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html) helps safeguard and prevent unwanted behavior from model responses or user messages. | sgi5gkybzqak |
 | `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.conversation.id` | string | development | The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation. | conv_5j66UpCpwteGg4YSxUnt7lPY |
-| `gen_ai.data_source.id` | string | development | The data source identifier. | H7STPQYOND |
 | `gen_ai.embeddings.dimension.count` | int | development | The number of dimensions the resulting output embeddings should have. | 512; 1024 |
 | `gen_ai.input.messages` | any | development | The chat history provided to the model as an input. | [   {     "role": "user",     "parts": [       {         "type": "text",         "content": "Weather in Paris?"       }     ]   },   {     "role": "assistant",     "parts": [       {         "type": "tool_call",         "id": "call_VSPygqKTWdrhaFErNvMV18Yl",         "name": "get_weather",         "arguments": {           "location": "Paris"         }       }     ]   },   {     "role": "tool",     "parts": [       {         "type": "tool_call_response",         "id": " call_VSPygqKTWdrhaFErNvMV18Yl",         "result": "rainy, 57°F"       }     ]   } ] |
 | `gen_ai.metadata` | string | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
@@ -174,7 +224,6 @@ OBI GenAI client span.
 | `gen_ai.output.type` | enum | development | Represents the content type requested by the client. | text; json; image; speech |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.choice.count` | int | development | The target number of candidate completions to return. | 3 |
-| `gen_ai.request.embedding.input_count` | int | development | Number of inputs submitted to a GenAI embedding request. |  |
 | `gen_ai.request.encoding_formats` | string[] | development | The encoding formats requested in an embeddings operation, if specified. | ["base64"]; ["float","binary"] |
 | `gen_ai.request.frequency_penalty` | double | development | The frequency penalty setting for the GenAI request. | 0.1 |
 | `gen_ai.request.max_tokens` | int | development | The maximum number of tokens the model generates for a request. | 100 |
@@ -183,14 +232,12 @@ OBI GenAI client span.
 | `gen_ai.request.seed` | int | development | Requests with same seed value more likely to return same result. | 100 |
 | `gen_ai.request.stop_sequences` | string[] | development | List of sequences that the model will use to stop generating further tokens. | ["forest","lived"] |
 | `gen_ai.request.stream` | boolean | development | Indicates whether the GenAI request was made in streaming mode. |  |
-| `gen_ai.request.temperature` | double | development | The temperature setting for the GenAI request. | 0.0 |
-| `gen_ai.request.top_k` | double | development | The top_k sampling setting for the GenAI request. | 1.0 |
-| `gen_ai.request.top_p` | double | development | The top_p sampling setting for the GenAI request. | 1.0 |
-| `gen_ai.rerank.top_n` | int | development | Number of top results requested from a GenAI rerank operation. |  |
+| `gen_ai.request.temperature` | double | development | The temperature setting for the GenAI request. | 0 |
+| `gen_ai.request.top_k` | double | development | The top_k sampling setting for the GenAI request. | 1 |
+| `gen_ai.request.top_p` | double | development | The top_p sampling setting for the GenAI request. | 1 |
 | `gen_ai.response.finish_reasons` | string[] | development | Array of reasons the model stopped generating tokens, corresponding to each generation received. | ["stop"]; ["stop","length"] |
 | `gen_ai.response.id` | string | development | The unique identifier for the completion. | chatcmpl-123 |
 | `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
-| `gen_ai.retrieval.top_k` | int | development | Number of top results requested from a GenAI vector-retrieval operation. |  |
 | `gen_ai.system_instructions` | any | development | The system message or instructions provided to the GenAI model separately from the chat history. | [   {     "type": "text",     "content": "You are an Agent that greet users, always use greetings tool to respond"   } ] ; [   {     "type": "text",     "content": "You are a language translator."   },   {     "type": "text",     "content": "Your mission is to translate text in English to French."   } ] |
 | `gen_ai.tool.definitions` | any | development | The list of tool definitions available to the GenAI agent or model. | [   {     "type": "function",     "name": "get_current_weather",     "description": "Get the current weather in a given location",     "parameters": {       "type": "object",       "properties": {         "location": {           "type": "string",           "description": "The city and state, e.g. San Francisco, CA"         },         "unit": {           "type": "string",           "enum": [             "celsius",             "fahrenheit"           ]         }       },       "required": [         "location",         "unit"       ]     }   } ] |
 | `gen_ai.usage.cache_creation.input_tokens` | int | development | The number of input tokens written to a provider-managed cache. | 25 |
@@ -205,6 +252,64 @@ OBI GenAI client span.
 | `openai.request.service_tier` | enum | development | The service tier requested. May be a specific tier, default, or auto. | auto; default |
 | `openai.response.service_tier` | string | development | The service tier used for the response. | scale; default |
 | `openai.response.system_fingerprint` | string | development | A fingerprint to track any eventual change in the Generative AI environment. | fp_44709d6fcb |
+| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
+## `span.obi.gen_ai.rerank.client`
+
+OBI GenAI rerank client span.
+
+| Span kind | Stability |
+| --- | --- |
+| client | development |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `gen_ai.input.messages` | any | development | The chat history provided to the model as an input. | [   {     "role": "user",     "parts": [       {         "type": "text",         "content": "Weather in Paris?"       }     ]   },   {     "role": "assistant",     "parts": [       {         "type": "tool_call",         "id": "call_VSPygqKTWdrhaFErNvMV18Yl",         "name": "get_weather",         "arguments": {           "location": "Paris"         }       }     ]   },   {     "role": "tool",     "parts": [       {         "type": "tool_call_response",         "id": " call_VSPygqKTWdrhaFErNvMV18Yl",         "result": "rainy, 57°F"       }     ]   } ] |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.output.messages` | any | development | Messages returned by the model where each message represents a specific model response (choice, candidate). | [   {     "role": "assistant",     "parts": [       {         "type": "text",         "content": "The weather in Paris is currently rainy with a temperature of 57°F."       }     ],     "finish_reason": "stop"   } ] |
+| `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
+| `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.rerank.top_n` | int | development | Number of top results requested from a GenAI rerank operation. |  |
+| `gen_ai.response.id` | string | development | The unique identifier for the completion. | chatcmpl-123 |
+| `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
+| `gen_ai.usage.input_tokens` | int | development | The number of tokens used in the GenAI input (prompt). | 100 |
+| `gen_ai.usage.output_tokens` | int | development | The number of tokens used in the GenAI response (completion). | 180 |
+| `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
+| `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
+| `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
+| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
+## `span.obi.gen_ai.retrieval.client`
+
+OBI GenAI vector-retrieval client span.
+
+| Span kind | Stability |
+| --- | --- |
+| client | development |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `gen_ai.data_source.id` | string | development | The data source identifier. | H7STPQYOND |
+| `gen_ai.input.messages` | any | development | The chat history provided to the model as an input. | [   {     "role": "user",     "parts": [       {         "type": "text",         "content": "Weather in Paris?"       }     ]   },   {     "role": "assistant",     "parts": [       {         "type": "tool_call",         "id": "call_VSPygqKTWdrhaFErNvMV18Yl",         "name": "get_weather",         "arguments": {           "location": "Paris"         }       }     ]   },   {     "role": "tool",     "parts": [       {         "type": "tool_call_response",         "id": " call_VSPygqKTWdrhaFErNvMV18Yl",         "result": "rainy, 57°F"       }     ]   } ] |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.output.messages` | any | development | Messages returned by the model where each message represents a specific model response (choice, candidate). | [   {     "role": "assistant",     "parts": [       {         "type": "text",         "content": "The weather in Paris is currently rainy with a temperature of 57°F."       }     ],     "finish_reason": "stop"   } ] |
+| `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
+| `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.response.id` | string | development | The unique identifier for the completion. | chatcmpl-123 |
+| `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
+| `gen_ai.usage.input_tokens` | int | development | The number of tokens used in the GenAI input (prompt). | 100 |
+| `gen_ai.usage.output_tokens` | int | development | The number of tokens used in the GenAI response (completion). | 180 |
+| `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
+| `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
+| `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |

@@ -133,6 +133,66 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.SkipSpanMetrics,
 			},
 		},
+		{
+			name:    "aws s3 client",
+			groupID: "span.obi.aws.s3.client",
+			span: &request.Span{
+				Type:         request.EventTypeHTTPClient,
+				SubType:      request.HTTPSubtypeAWSS3,
+				Host:         "10.0.0.1",
+				HostPort:     443,
+				Status:       500,
+				ProtoVersion: request.ProtoVersionHTTP11,
+				AWS: &request.AWS{S3: request.AWSS3{
+					Meta: request.AWSMeta{
+						RequestID:         "req-1",
+						ExtendedRequestID: "ext-1",
+						Region:            "us-east-1",
+					},
+					Method: "GetObject",
+					Bucket: "my-bucket",
+					Key:    "reports/q3.pdf",
+				}},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+			},
+		},
+		{
+			name:    "aws sqs client",
+			groupID: "span.obi.aws.sqs.client",
+			span: &request.Span{
+				Type:         request.EventTypeHTTPClient,
+				SubType:      request.HTTPSubtypeAWSSQS,
+				Host:         "10.0.0.1",
+				HostPort:     443,
+				Status:       500,
+				ProtoVersion: request.ProtoVersionHTTP11,
+				AWS: &request.AWS{SQS: request.AWSSQS{
+					Meta: request.AWSMeta{
+						RequestID:         "req-2",
+						ExtendedRequestID: "ext-2",
+						Region:            "us-east-1",
+					},
+					OperationName: "SendMessage",
+					OperationType: "send",
+					Destination:   "my-queue",
+					QueueURL:      "https://sqs.us-east-1.amazonaws.com/1/my-queue",
+					MessageID:     "msg-1",
+				}},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			declared := declaredSpanAttributes(t, tc.groupID)
