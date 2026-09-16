@@ -107,7 +107,9 @@ Writers:
 
 `http2_grpc_end` (kprobe stream end) deletes `outgoing_trace_map[{ports, stream_id}]` for that stream. The connection-scoped `delete_client_trace_info` only clears the `stream_id=0` entry, so without per-stream cleanup the per-stream entries leak until LRU eviction.
 
-Application-ownership markers are deleted when `sk_msg` consumes their HEADERS frame or when the originating gRPC request completes or is cancelled. The queued-header bridge also has a request-keyed reverse map, so request completion removes an unconsumed header-pointer entry without relying on address reuse or elapsed time.
+Each ownership stage has one forward entry, owned by the consumer that can determine when it is no longer needed, and a request-keyed reverse entry used only for bookkeeping. `clientHeaderHandler` consumes `pending_h2_invocations`; its return probe clears `grpc_h2_header_observations` and `grpc_app_owned_writes`; and `sk_msg` consumes `grpc_h2_owned_streams` when the exact socket cookie, process, and stream ID reach the wire.
+
+Request completion or cancellation deletes only `grpc_pending_header_by_request`, `grpc_owned_writer_by_request`, and `grpc_owned_stream_by_request`. It deliberately leaves the corresponding forward entries for a queued writer, active writer, or socket path to consume, because those consumers can run after the request goroutine completes. Forward entries that never reach their consumer remain bounded by their LRU maps.
 
 ## Why not TCP options
 
@@ -131,26 +133,27 @@ Connections established before OBI attached are recognized (mid-stream sniff), p
 
 **With uprobes**: Not affected.
 
-### Two uprobes for the loopyWriter race — `executeAndPut` + `originateStream`
+### Caller-to-writer handoff
 
 **The race.** When a Go gRPC client opens a new stream, two goroutines are involved:
 
 1. The caller goroutine runs `NewStream`, which builds a `*headerFrame` and queues it on the `controlBuffer`.
 2. The `loopyWriter` goroutine dequeues that `headerFrame`, assigns the HTTP/2 `stream_id`, and calls `framer.WriteHeaders`.
 
-Our HPACK injection lives in `framer.WriteHeaders` and looks up the trace context in `ongoing_streams[{conn_ptr, stream_id}]`. That map is populated at `NewStream_ret` on the caller goroutine. But `loopyWriter` can run `WriteHeaders` *before* `NewStream` has returned — so for the first HEADERS frame the lookup misses and the trace context goes out without `traceparent`.
+The direct HPACK injection in `framer.WriteHeaders` looks up the trace context in `ongoing_streams[{pid, conn_ptr, stream_id}]`. `NewStream_ret` populates that map on the caller goroutine, but `loopyWriter` can start serializing the first HEADERS frame before `NewStream` returns. Relying on the return probe alone therefore leaves a race where the lookup misses and no `traceparent` is injected.
 
-**Why two probes.**
+**Why the bridge is needed.**
 
-- At `NewStream_ret` we know the trace context but not yet a usable stream_id (the stream isn't queued yet).
-- At `WriteHeaders` we know the stream_id but we're on a different goroutine, so goroutine-keyed state from `NewStream` isn't visible.
+- On the caller goroutine, OBI knows the trace context before a usable stream ID has been assigned.
+- On the writer goroutine, grpc-go has assigned the stream ID, but goroutine-keyed state from `NewStream` is no longer visible.
 
-We need a key both goroutines can agree on. The `*headerFrame` pointer fits: it's allocated by `NewStream` and passed all the way to `loopyWriter`.
+The `*headerFrame` pointer is visible on both sides of the handoff. OBI combines it with the process ID so pointer reuse in another process cannot correlate unrelated requests.
 
 **The bridge** (`bpf/gotracer/go_grpc.c`):
 
-- **`(*controlBuffer).executeAndPut`** — runs on the caller goroutine just before the `headerFrame` is queued. Stashes the invocation in `pending_h2_invocations[hdr_ptr]`.
-- **`(*loopyWriter).originateStream`** — runs on the loopyWriter goroutine just before `WriteHeaders`. By now `outStream.id` is assigned. Looks up the stash by `hdr_ptr`, then publishes `ongoing_streams[{conn_ptr, stream_id}]` so the existing `grpcFramerWriteHeaders` uprobe sees it.
+- **`(*controlBuffer).executeAndPut`** — runs on the caller goroutine just before the `headerFrame` is queued. It stores the invocation in `pending_h2_invocations[{pid, hdr_ptr}]` and records a request-keyed reverse reference.
+- **`(*loopyWriter).clientHeaderHandler`** — the current grpc-go path runs after the stream ID has been assigned and before HPACK serialization. It consumes the pending entry, publishes `ongoing_streams[{pid, conn_ptr, stream_id}]` and `outgoing_trace_map`, and records the active writer observation used by `hpack.Encoder.WriteField`.
+- **`(*loopyWriter).originateStream`** — the retained legacy path consumes the same pending entry and publishes the stream state once `outStream.id` is available. It does not provide the current handler-scoped application-ownership observation; versioned selection for legacy ownership layouts remains follow-up work.
 
 ## Maps
 
@@ -162,10 +165,12 @@ We need a key both goroutines can agree on. The `*headerFrame` pointer fits: it'
 | `incoming_trace_map` | LRU_HASH | `connection_info_t` | `tp_info_pid_t` | Receiver trace context (HTTP/1 path only; gRPC uses per-stream maps) |
 | `socket_cookie` | SK_STORAGE | socket | `u64` | Stable socket identity shared by sockops, the TCP iterator, and `sk_msg` |
 | `grpc_h2_owned_streams` | LRU_HASH | `{socket_cookie, pid, stream_id}` | `u8` | Exact application-owned Go gRPC streams |
-| `grpc_conn_ptr_to_conn` | LRU_HASH | `u64 (conn_ptr)` | `grpc_connection_t` | Go conn pointer → TCP ports and socket identity |
-| `grpc_app_owned_writes` | LRU_HASH | `go_addr_key_t` | `u32 (stream_id)` | Direct-write ownership within the current loopyWriter call |
-| `grpc_owned_writer_by_request` | LRU_HASH | `go_addr_key_t` | `go_addr_key_t` | Request-completion cleanup for a direct-write marker |
+| `grpc_conn_ptr_to_conn` | LRU_HASH | `go_addr_key_t{pid, conn_ptr}` | `grpc_connection_t` | Go conn pointer → TCP ports and socket identity, scoped to one process |
+| `grpc_h2_header_observations` | LRU_HASH | `go_addr_key_t{pid, writer goroutine}` | `grpc_h2_header_observation_t{request_key, stream}` | Current header serialization observed by the loopyWriter |
+| `grpc_app_owned_writes` | LRU_HASH | `go_addr_key_t{pid, writer goroutine}` | `u32 (stream_id)` | Direct-write ownership within the current loopyWriter call |
+| `grpc_owned_writer_by_request` | LRU_HASH | `go_addr_key_t{pid, request goroutine}` | `go_addr_key_t{pid, writer goroutine}` | Reverse reference discarded by the writer return probe or request completion |
+| `grpc_owned_stream_by_request` | LRU_HASH | `go_addr_key_t{pid, request goroutine}` | `grpc_h2_owned_stream_key_t` | Reverse reference used to replace a request's socket ownership marker safely |
 | `ongoing_grpc_server_stream_tps` | LRU_HASH | `stream_key_t{tr_ptr, stream_id}` | `tp_info_t` | Per-stream parsed traceparent (Go gRPC server) |
-| `pending_h2_invocations` | LRU_HASH | `u64 (hdr ptr)` | `pending_h2_invocation_t{inv, conn_ptr}` | Two-hop bridge from `executeAndPut` to `originateStream` |
-| `grpc_pending_header_by_request` | LRU_HASH | `go_addr_key_t` | `u64 (hdr ptr)` | Lifecycle cleanup for an unconsumed bridge entry |
+| `pending_h2_invocations` | LRU_HASH | `go_addr_key_t{pid, hdr_ptr}` | `pending_h2_invocation_t{inv, request_key, conn_ptr}` | Caller-to-writer bridge consumed by the current header handler or legacy `originateStream` |
+| `grpc_pending_header_by_request` | LRU_HASH | `go_addr_key_t{pid, request goroutine}` | `u64 (hdr_ptr)` | Reverse reference discarded when the bridge is consumed or the request completes |
 | `go_grpc_client_conns` | LRU_HASH | `pid_connection_info_t` | `u8` | Marks Go gRPC client conns (via `mark_go_grpc_client_conn`); sk_msg bails on `is_go_grpc_client_conn` hit |
