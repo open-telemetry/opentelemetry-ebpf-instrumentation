@@ -250,12 +250,3 @@ groups:
         note: >
           OBI extension attribute, emitted on embedding spans until upstream
           semconv defines an official embedding input-count attribute.
-      - id: gen_ai.retrieval.top_k
-        type: int
-        stability: development
-        brief: >
-          Number of top results requested from a GenAI vector-retrieval
-          operation.
-        note: >
-          OBI extension attribute, emitted on vector-retrieval spans until
-          upstream semconv defines an official retrieval top-K attribute.
