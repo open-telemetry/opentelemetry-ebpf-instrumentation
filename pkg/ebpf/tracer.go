@@ -151,11 +151,14 @@ type ExecutableKey struct {
 // ProcessTracer instruments an executable with eBPF and provides the eBPF readers
 // that will forward the traces to later stages in the pipeline
 type ProcessTracer struct {
-	log                       *slog.Logger
-	metrics                   imetrics.Reporter
-	shutdownTimeout           time.Duration
-	bpffsPath                 string
+	log             *slog.Logger
+	metrics         imetrics.Reporter
+	shutdownTimeout time.Duration
+	bpffsPath       string
+	// instrumentablesMu guards the instrumentable maps and serializes
+	// attachment against shutdown
 	instrumentablesMu         sync.Mutex
+	stopped                   bool
 	nextExecutableGeneration  uint64
 	instrumentableGenerations map[ExecutableKey]uint64
 

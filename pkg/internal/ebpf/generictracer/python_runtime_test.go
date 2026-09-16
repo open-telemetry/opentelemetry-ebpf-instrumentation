@@ -55,23 +55,23 @@ func TestPythonRuntimeBPFObjects(t *testing.T) {
 }
 
 func TestPythonRuntimeProbeAttachmentOptions(t *testing.T) {
-	usdt, returnProbe, err := pythonRuntimeUprobeOptions(123, cpythonruntime.GCCompletionProbe{
+	usdt, err := pythonRuntimeUprobeOptions(123, cpythonruntime.GCCompletionProbe{
 		Kind: cpythonruntime.GCCompletionProbeUSDT, FileOffset: 0x200, SemaphoreOffset: 0x300,
 	})
 	require.NoError(t, err)
-	assert.False(t, returnProbe)
-	assert.Equal(t, uint64(0x200), usdt.Address)
+	assert.False(t, usdt.Return)
+	assert.Equal(t, []uint64{0x200}, usdt.Addresses)
 	assert.Equal(t, uint64(0x300), usdt.RefCtrOffset)
-	assert.Equal(t, 123, usdt.PID)
+	assert.Equal(t, uint32(123), usdt.PID)
 
-	private, returnProbe, err := pythonRuntimeUprobeOptions(456, cpythonruntime.GCCompletionProbe{
+	private, err := pythonRuntimeUprobeOptions(456, cpythonruntime.GCCompletionProbe{
 		Kind: cpythonruntime.GCCompletionProbePrivateReturn, FileOffset: 0x400,
 	})
 	require.NoError(t, err)
-	assert.True(t, returnProbe)
-	assert.Equal(t, uint64(0x400), private.Address)
+	assert.True(t, private.Return)
+	assert.Equal(t, []uint64{0x400}, private.Addresses)
 	assert.Zero(t, private.RefCtrOffset)
-	assert.Equal(t, 456, private.PID)
+	assert.Equal(t, uint32(456), private.PID)
 }
 
 func TestPythonRuntimeAllowIsIdempotent(t *testing.T) {
