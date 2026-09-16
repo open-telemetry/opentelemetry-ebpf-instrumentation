@@ -24,6 +24,15 @@ var gpuCounterMetricsExpected = []string{
 	"gpu_cuda_kernel_launch_calls_total",      // cudaLaunchKernel
 	"gpu_cuda_graph_launch_calls_total",       // cudaGraphLaunch
 	"gpu_cuda_memory_allocations_bytes_total", // cudaMalloc (unit "By")
+	"gpu_cuda_memory_free_bytes_total",        // cudaFree (unit "By")
+	"gpu_cuda_memset_bytes_total",             // cudaMemset (unit "By")
+	"gpu_cuda_stream_create_calls_total",      // cudaStreamCreate*
+	"gpu_cuda_stream_destroy_calls_total",     // cudaStreamDestroy
+	"gpu_cuda_event_record_calls_total",       // cudaEventRecord*
+	"gpu_cuda_event_synchronize_calls_total",  // cudaEventSynchronize
+	"gpu_cuda_stream_synchronize_calls_total", // cudaStreamSynchronize
+	"gpu_cuda_device_synchronize_calls_total", // cudaDeviceSynchronize
+	"gpu_cuda_host_register_bytes_total",      // cudaHostRegister (unit "By")
 }
 
 // gpuHistogramFamilyPrefixes are the CUDA histogram families. The collector

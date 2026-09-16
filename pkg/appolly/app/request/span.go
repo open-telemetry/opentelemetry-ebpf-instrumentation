@@ -52,6 +52,15 @@ const (
 	EventTypeGPUCudaGraphLaunch
 	EventTypeGPUCudaMalloc
 	EventTypeGPUCudaMemcpy
+	EventTypeGPUCudaFree
+	EventTypeGPUCudaMemset
+	EventTypeGPUCudaStreamCreate
+	EventTypeGPUCudaStreamDestroy
+	EventTypeGPUCudaEventRecord
+	EventTypeGPUCudaEventSynchronize
+	EventTypeGPUCudaStreamSynchronize
+	EventTypeGPUCudaDeviceSynchronize
+	EventTypeGPUCudaHostRegister
 	EventTypeFailedConnect
 	EventTypeDNS
 	EventTypeCouchbaseClient
@@ -184,6 +193,24 @@ func (t EventType) String() string {
 		return "CUDAMalloc"
 	case EventTypeGPUCudaMemcpy:
 		return "CUDAMemcpy"
+	case EventTypeGPUCudaFree:
+		return "CUDAFree"
+	case EventTypeGPUCudaMemset:
+		return "CUDAMemset"
+	case EventTypeGPUCudaStreamCreate:
+		return "CUDAStreamCreate"
+	case EventTypeGPUCudaStreamDestroy:
+		return "CUDAStreamDestroy"
+	case EventTypeGPUCudaEventRecord:
+		return "CUDAEventRecord"
+	case EventTypeGPUCudaEventSynchronize:
+		return "CUDAEventSynchronize"
+	case EventTypeGPUCudaStreamSynchronize:
+		return "CUDAStreamSynchronize"
+	case EventTypeGPUCudaDeviceSynchronize:
+		return "CUDADeviceSynchronize"
+	case EventTypeGPUCudaHostRegister:
+		return "CUDAHostRegister"
 	case EventTypeMongoClient:
 		return "MongoClient"
 	case EventTypeManualSpan:
@@ -1767,6 +1794,14 @@ func spanAttributes(s *Span) SpanAttributes {
 			"size": strconv.FormatInt(s.ContentLength, 10),
 			"kind": CudaMemcpyName(s.SubType),
 		}
+	case EventTypeGPUCudaFree, EventTypeGPUCudaMemset, EventTypeGPUCudaHostRegister:
+		return SpanAttributes{
+			"size": strconv.FormatInt(s.ContentLength, 10),
+		}
+	case EventTypeGPUCudaStreamCreate, EventTypeGPUCudaStreamDestroy,
+		EventTypeGPUCudaEventRecord, EventTypeGPUCudaEventSynchronize,
+		EventTypeGPUCudaStreamSynchronize, EventTypeGPUCudaDeviceSynchronize:
+		return SpanAttributes{}
 	case EventTypeMongoClient:
 		return SpanAttributes{
 			"serverAddr": SpanHost(s),
