@@ -158,7 +158,13 @@ func (e *pythonExtractor) scanFile(path string) error {
 			hasDjangoPath = true
 		}
 		if hasDjangoPath {
-			djangoRoutes = append(djangoRoutes, scanDjango(text, djangoAliases)...)
+			routes := scanDjango(text, djangoAliases)
+			if match := djangoListAssignmentPattern.FindStringSubmatch(text); match != nil {
+				for i := range routes {
+					routes[i].listName = match[1]
+				}
+			}
+			djangoRoutes = append(djangoRoutes, routes...)
 		}
 	}
 
@@ -175,7 +181,8 @@ func (e *pythonExtractor) scanFile(path string) error {
 			depth = parenDelta(line)
 			startsStmt := startsFastAPI(line) || startsFlask(line) ||
 				djangoImportStart.MatchString(line) ||
-				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line))
+				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
+					djangoListAssignmentPattern.MatchString(line))
 			if !startsStmt || depth <= 0 {
 				scanStmt(line)
 				continue
@@ -205,8 +212,33 @@ func scanPythonStmt(stmt string, routes map[string]struct{}) {
 	scanFlask(stmt, routes)
 }
 
+// parenDelta returns opening minus closing parentheses and square brackets on a
+// line, ignoring quoted text and comments.
 func parenDelta(line string) int {
-	return strings.Count(line, "(") - strings.Count(line, ")")
+	depth := 0
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		if quote != 0 {
+			switch line[i] {
+			case '\\':
+				i++
+			case quote:
+				quote = 0
+			}
+			continue
+		}
+		switch line[i] {
+		case '\'', '"':
+			quote = line[i]
+		case '#':
+			return depth
+		case '(', '[':
+			depth++
+		case ')', ']':
+			depth--
+		}
+	}
+	return depth
 }
 
 func addPyMatch(routes map[string]struct{}, re *regexp.Regexp, line string) {

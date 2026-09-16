@@ -6,6 +6,7 @@ package harvest // import "go.opentelemetry.io/obi/pkg/internal/transform/route/
 import (
 	"path/filepath"
 	"regexp"
+	"regexp/syntax"
 	"sort"
 	"strings"
 
@@ -14,6 +15,8 @@ import (
 
 type djangoRoute struct {
 	path          string
+	listName      string
+	includeList   string
 	includeModule string
 	admin         bool
 }
@@ -37,7 +40,7 @@ var djangoAdminRoutes = []string{
 }
 
 var djangoPathImportPattern = regexp.MustCompile(
-	`^from\s+django\.urls\s+import\s+(?:\(\s*)?(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*path\s*(?:,|\)|$|#)`,
+	`^from\s+django\.urls\s+import\s+(?:\(\s*)?(?:\w+(?:\s+as\s+\w+)?\s*,\s*)*(?:re_)?path\s*(?:,|\)|$|#)`,
 )
 
 var djangoImportStart = regexp.MustCompile(`^from\s+django\.urls\s+import\s*\(`)
@@ -50,7 +53,9 @@ var djangoImportAliasPattern = regexp.MustCompile(
 	`^import\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s+as\s+([A-Za-z_]\w*)\s*(?:#.*)?$`,
 )
 
-var djangoPathStart = regexp.MustCompile(`\bpath\s*\(`)
+var djangoPathStart = regexp.MustCompile(`\b(?:re_)?path\s*\(`)
+
+var djangoListAssignmentPattern = regexp.MustCompile(`^([A-Za-z_]\w*)\s*\+?=\s*\[`)
 
 var djangoI18nStart = regexp.MustCompile(`\bi18n_patterns\s*\(`)
 
@@ -59,10 +64,82 @@ var djangoI18nUnprefixedDefault = regexp.MustCompile(
 )
 
 var djangoPathPattern = regexp.MustCompile(
-	`\bpath\s*\(\s*(?:route\s*=\s*)?` + pyLit +
-		`\s*,\s*(?:view\s*=\s*)?(?:include\s*\(\s*` + pyLit + `|(admin\.site\.urls)\b` +
-		`|(include)\s*\(\s*(?:([A-Za-z_]\w*)\s*[,)])?)?`,
+	`\b(?:re_)?path\s*\(\s*(?:route\s*=\s*)?` + pyLit +
+		`\s*,\s*(?:view\s*=\s*)?(?:include\s*\(\s*(?:\(\s*)?` + pyLit + `|(admin\.site\.urls)\b` +
+		`|(include)\s*\(\s*(?:\(\s*)?(?:([A-Za-z_]\w*)\s*[,)])?)?`,
 )
+
+// djangoRegexRoute parses a supported re_path expression into a route template.
+// For example, ^articles/(?P<year>[0-9]{4})/$ becomes articles/<year>/.
+func djangoRegexRoute(pattern string) (string, bool) {
+	expr, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return "", false
+	}
+	return djangoRegexExprRoute(expr)
+}
+
+// djangoRegexExprRoute converts a parsed regex into a route template.
+// Example: ^articles/(?P<year>[0-9]{4})/$ returns ("articles/<year>/", true).
+func djangoRegexExprRoute(expr *syntax.Regexp) (string, bool) {
+	// The route matcher compares literal text case-sensitively.
+	if expr.Flags&syntax.FoldCase != 0 {
+		return "", false
+	}
+	switch expr.Op {
+	case syntax.OpBeginText, syntax.OpEndText:
+		// Anchors describe matching boundaries and contribute no path text.
+		return "", true
+	case syntax.OpLiteral:
+		return string(expr.Rune), true
+	case syntax.OpCapture:
+		body := expr.Sub[0]
+		// Both + and positive exact counts such as {4} produce non-empty parameters.
+		fixedCount := body.Op == syntax.OpRepeat && body.Min > 0 && body.Min == body.Max
+		if expr.Name == "" || (body.Op != syntax.OpPlus && !fixedCount) || body.Sub[0].Op != syntax.OpCharClass {
+			return "", false
+		}
+		class := body.Sub[0]
+		// Rune stores inclusive [low, high] pairs. A single-segment parameter
+		// requires every range to exclude the path separator.
+		for i := 0; i < len(class.Rune); i += 2 {
+			if class.Rune[i] <= '/' && '/' <= class.Rune[i+1] {
+				return "", false
+			}
+		}
+		return "<" + expr.Name + ">", true
+	case syntax.OpConcat:
+		// A route such as articles/<year>/ is a sequence of literals and captures.
+		// Every child must be supported for the complete template to be usable.
+		var route strings.Builder
+		for i, part := range expr.Sub {
+			// Captures must occupy a whole segment for the route matcher.
+			if part.Op == syntax.OpCapture {
+				// The preceding text must end at a slash or be empty.
+				// A prefix such as page(?P<num>[0-9]+) shares the capture's segment.
+				if route.Len() > 0 && !strings.HasSuffix(route.String(), "/") {
+					return "", false
+				}
+				if i+1 < len(expr.Sub) {
+					next := expr.Sub[i+1]
+					// A following slash or end anchor closes the segment.
+					// Text such as (?P<id>[0-9]+)\.html remains in the same segment.
+					if next.Op != syntax.OpEndText &&
+						(next.Op != syntax.OpLiteral || !strings.HasPrefix(string(next.Rune), "/")) {
+						return "", false
+					}
+				}
+			}
+			text, ok := djangoRegexExprRoute(part)
+			if !ok {
+				return "", false
+			}
+			route.WriteString(text)
+		}
+		return route.String(), true
+	}
+	return "", false
+}
 
 // djangoCallEnd finds the closing parenthesis for the call starting at open.
 // Parentheses inside quoted strings are part of the argument value.
@@ -127,23 +204,35 @@ func scanDjangoPaths(stmt string, aliases map[string]string) []djangoRoute {
 		if route == "" {
 			route = match[2] // Single-quoted route.
 		}
+		if strings.HasPrefix(match[0], "re_path") {
+			var ok bool
+			route, ok = djangoRegexRoute(route)
+			if !ok {
+				continue
+			}
+		}
 
 		includeModule := match[3] // Double-quoted include module.
 		if includeModule == "" {
 			includeModule = match[4] // Single-quoted include module.
 		}
 
+		var includeList string
 		if match[6] != "" { // Non-literal include() call.
 			includeModule = aliases[match[7]] // Imported module alias.
 			if includeModule == "" {
-				// An unresolved include is a mount whose endpoints are unknown.
-				continue
+				includeList = match[7]
+				if includeList == "" {
+					// An unresolved include is a mount whose endpoints are unknown.
+					continue
+				}
 			}
 		}
 
 		// The resolver expands includes and admin.site.urls; ordinary views are endpoints.
 		routes = append(routes, djangoRoute{
 			path:          route,
+			includeList:   includeList,
 			includeModule: includeModule,
 			admin:         match[5] != "", // admin.site.urls.
 		})
@@ -201,25 +290,46 @@ func djangoRootFiles(files map[string][]djangoRoute, modules map[string]string) 
 	return roots
 }
 
-// resolveDjangoRoutes collects endpoint paths from the scanned URL configurations.
+// resolveDjangoRoutes expands module and named-list includes from inferred root
+// files. Each visit carries the mount prefix accumulated from its parents;
+// endpoint paths are published with that prefix and a leading slash.
 func resolveDjangoRoutes(root string, files map[string][]djangoRoute, routes map[string]struct{}) {
 	const maxIncludeDepth = 32
 
 	modules := indexDjangoModules(root, files)
-	active := map[string]bool{}
-	var visit func(file, prefix string)
-	visit = func(file, prefix string) {
-		if active[file] || len(active) >= maxIncludeDepth {
+	// A file can contain several lists that include each other, so recursion
+	// tracking identifies both the file and the list being expanded.
+	type listKey struct {
+		file string
+		name string
+	}
+	active := map[listKey]bool{}
+	var visit func(file, listName, prefix string)
+	visit = func(file, listName, prefix string) {
+		key := listKey{file: file, name: listName}
+		if active[key] || len(active) >= maxIncludeDepth {
 			return
 		}
 		// Track the current chain so another mount can visit this file again.
-		active[file] = true
-		defer delete(active, file)
+		active[key] = true
+		defer delete(active, key)
 
 		for _, declaration := range files[file] {
+			// Select this list's routes. Unassigned declarations, including those
+			// from i18n_patterns(), are treated as part of the file's urlpatterns.
+			if declaration.listName != listName &&
+				!(declaration.listName == "" && listName == "urlpatterns") {
+				continue
+			}
+			if declaration.includeList != "" {
+				// A named-list include stays in this file and adds its mount prefix.
+				visit(file, declaration.includeList, prefix+declaration.path)
+				continue
+			}
 			if declaration.includeModule != "" {
+				// A module include starts at the child file's urlpatterns.
 				if child, ok := modules[declaration.includeModule]; ok {
-					visit(child, prefix+declaration.path)
+					visit(child, "urlpatterns", prefix+declaration.path)
 				}
 				continue
 			}
@@ -233,6 +343,7 @@ func resolveDjangoRoutes(root string, files map[string][]djangoRoute, routes map
 		}
 	}
 	for _, file := range djangoRootFiles(files, modules) {
-		visit(file, "")
+		// Included files are reached through their mounts rather than as roots.
+		visit(file, "urlpatterns", "")
 	}
 }
