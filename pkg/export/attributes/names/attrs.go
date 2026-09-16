@@ -306,6 +306,8 @@ const (
 	AWSS3Bucket          = Name(semconv.AWSS3BucketKey)
 	AWSS3Key             = Name(semconv.AWSS3KeyKey)
 	AWSSQSQueueURL       = Name(semconv.AWSSQSQueueURLKey)
+	AWSSNSTopicARN       = Name(semconv.AWSSNSTopicARNKey)
+	MessagingBatchCount  = Name(semconv.MessagingBatchMessageCountKey)
 
 	// Cloud
 	CloudRegion = Name(semconv.CloudRegionKey)

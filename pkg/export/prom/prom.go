@@ -1200,7 +1200,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
 			case span.SubType == request.HTTPSubtypeAWSS3 && r.rpcClientRecorded():
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
-			case span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && r.msgPublishRecorded():
+			case request.IsAWSMessagingClientOperation(span) && r.msgPublishRecorded():
 				r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 			case span.SubType == request.HTTPSubtypeMCP && r.is.GenAIEnabled():
 				r.observeHistogram(r.mcpClientOperationDuration.WithLabelValues(labelValues(span, r.attrMCPClientDuration)...).Metric, duration, span)

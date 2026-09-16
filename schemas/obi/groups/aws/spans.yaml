@@ -1,12 +1,11 @@
-# OBI's AWS SDK span contract. OBI surfaces AWS S3 and SQS calls detected on
+# OBI's AWS SDK span contract. OBI surfaces AWS S3, SQS and SNS calls detected on
 # the wire as client spans carrying the upstream aws.* / cloud.* attributes.
 # All attributes are upstream semconv, so no OBI-specific attributes are
 # declared here. The HTTP request/response attributes are absent:
-# `httpClientTransportScope` returns `httpTransportNone` for both subtypes.
+# `httpClientTransportScope` returns `httpTransportNone` for all three subtypes.
 #
-# S3 and SQS are separate groups because they are separate emitter branches
-# with disjoint attribute sets: an S3 call reports the object it addressed, an
-# SQS call the message it moved, and neither reports the other's. Declared as
+# S3, SQS and SNS are separate groups because their emitter branches report
+# different attribute sets for objects, queues and topics. Declared as
 # one group, no attribute beyond the shared AWS request metadata could be
 # `required`, and a consumer could not tell which attributes occur together.
 groups:
@@ -49,6 +48,32 @@ groups:
       - ref: server.address
       - ref: server.port
       - ref: messaging.operation.type
+      - ref: service.peer.name
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
+      - ref: error.type
+      - ref: span.metrics.skip
+
+  - id: span.obi.aws.sns.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI AWS SNS client span.
+    attributes:
+      - ref: rpc.system.name
+      - ref: rpc.method
+      - ref: messaging.system
+      - ref: messaging.operation.name
+      - ref: messaging.operation.type
+      - ref: messaging.destination.name
+      - ref: messaging.message.id
+      - ref: messaging.batch.message_count
+      - ref: aws.sns.topic.arn
+      - ref: cloud.region
+      - ref: aws.request_id
+      - ref: server.address
+      - ref: server.port
       - ref: service.peer.name
       - ref: network.peer.address
       - ref: network.peer.port

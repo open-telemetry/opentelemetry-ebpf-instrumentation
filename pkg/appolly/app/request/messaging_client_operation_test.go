@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestIsSQSMessagingClientOperation(t *testing.T) {
+func TestIsAWSMessagingClientOperation(t *testing.T) {
 	for _, tt := range []struct {
 		name          string
 		subType       int
@@ -35,6 +35,17 @@ func TestIsSQSMessagingClientOperation(t *testing.T) {
 			wantMessaging: true,
 		},
 		{
+			name:          "SNS Publish is a producer operation",
+			subType:       HTTPSubtypeAWSSNS,
+			aws:           &AWS{SNS: AWSSNS{OperationType: MessagingSend}},
+			wantMessaging: true,
+		},
+		{
+			name:    "SNS administration is not a messaging client operation",
+			subType: HTTPSubtypeAWSSNS,
+			aws:     &AWS{SNS: AWSSNS{OperationType: ""}},
+		},
+		{
 			name:    "queue administration is not a messaging client operation",
 			subType: HTTPSubtypeAWSSQS,
 			aws:     &AWS{SQS: AWSSQS{OperationType: ""}},
@@ -51,7 +62,7 @@ func TestIsSQSMessagingClientOperation(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			span := &Span{Type: EventTypeHTTPClient, SubType: tt.subType, AWS: tt.aws}
-			assert.Equal(t, tt.wantMessaging, IsSQSMessagingClientOperation(span))
+			assert.Equal(t, tt.wantMessaging, IsAWSMessagingClientOperation(span))
 		})
 	}
 }

@@ -33,6 +33,36 @@ OBI AWS S3 client span.
 | `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
+## `span.obi.aws.sns.client`
+
+OBI AWS SNS client span.
+
+| Span kind | Stability |
+| --- | --- |
+| client | development |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `aws.request_id` | string | development | The AWS request ID as returned in the response headers `x-amzn-requestid`, `x-amzn-request-id` or `x-amz-request-id`. | 79b9da39-b7ae-508a-a6bc-864b2829c622; C9ER4AJX75574TDJ |
+| `aws.sns.topic.arn` | string | development | The ARN of the AWS SNS Topic. An Amazon SNS [topic](https://docs.aws.amazon.com/sns/latest/dg/sns-create-topic.html) is a logical access point that acts as a communication channel. | arn:aws:sns:us-east-1:123456789012:mystack-mytopic-NZJ5JSMVGFIE |
+| `cloud.region` | string | development | The geographical region within a cloud provider. When associated with a resource, this attribute specifies the region where the resource operates. When calling services or APIs deployed on a cloud, this attribute identifies the region where the called destination is deployed. | us-central1; us-east-1 |
+| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `messaging.batch.message_count` | int | development | The number of messages sent, received, or processed in the scope of the batching operation. | 0; 1; 2 |
+| `messaging.destination.name` | string | development | The message destination name | MyQueue; MyTopic |
+| `messaging.message.id` | string | development | A value used by the messaging system as an identifier for the message, represented as a string. | 452a7c7c7c7048c2f887f61572b18fc2 |
+| `messaging.operation.name` | string | development | The system-specific name of the messaging operation. | ack; nack; send |
+| `messaging.operation.type` | enum | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
+| `messaging.system` | enum | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
+| `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
+| `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
+| `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
+| `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
+| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
+| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `span.metrics.skip` | boolean | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
 ## `span.obi.aws.sqs.client`
 
 OBI AWS SQS client span.
