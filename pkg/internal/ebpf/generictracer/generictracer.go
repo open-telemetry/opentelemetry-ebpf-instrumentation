@@ -555,7 +555,11 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Start:    p.bpfObjects.ObiUvFsAccess,
 			}},
 		},
-		"libruby": {
+		// Puma request-to-worker correlation. Both symbols are hot in any Ruby
+		// process, so attach only where the correlation can work: Ruby 4.0
+		// stopped routing Class#new through rb_obj_call_init_kw, and outside
+		// Puma it never fires at all (see uprobeLibraryPrerequisites).
+		"libruby[< 4.0]": {
 			"rb_ary_shift": {{
 				Required: false,
 				Start:    p.bpfObjects.ObiRbAryShift,

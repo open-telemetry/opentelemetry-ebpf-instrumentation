@@ -668,6 +668,51 @@ func TestGoFunctionCopyID(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// The libruby probes only correlate on Puma's own threads, so a Ruby process
+// that is not running Puma must not be probed at all.
+func TestMissingUprobeLibraryPrerequisite(t *testing.T) {
+	puma := makeProcMaps(
+		"/usr/local/lib/libruby.so.3.4.10",
+		"/usr/local/bundle/gems/puma-6.6.1/lib/puma/puma_http11.so",
+	)
+	plainRuby := makeProcMaps("/usr/local/lib/libruby.so.3.4.10")
+
+	missing, ok := missingUprobeLibraryPrerequisite("libruby", puma)
+	assert.True(t, ok, "libruby is probed when puma_http11 is mapped")
+	assert.Empty(t, missing)
+
+	missing, ok = missingUprobeLibraryPrerequisite("libruby", plainRuby)
+	assert.False(t, ok, "libruby is skipped when puma_http11 is absent")
+	assert.Equal(t, "puma_http11", missing)
+
+	missing, ok = missingUprobeLibraryPrerequisite("libssl.so", plainRuby)
+	assert.True(t, ok, "libraries without a prerequisite are unaffected")
+	assert.Empty(t, missing)
+}
+
+// Ruby 4.0 no longer routes the common Class#new path through
+// rb_obj_call_init_kw, so the Puma correlation cannot succeed there. The
+// generic tracer declares the library as "libruby[< 4.0]"; this covers how
+// that annotation resolves. The tracer side is asserted in its own package.
+func TestRubyUprobeLibraryIsGatedBelowRuby4(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		path     string
+		selected bool
+	}{
+		{name: "ruby 3.3 is probed", path: "/usr/local/lib/libruby.so.3.3.12", selected: true},
+		{name: "ruby 3.4 is probed", path: "/usr/local/lib/libruby.so.3.4.10", selected: true},
+		{name: "ruby 4.0 is skipped", path: "/usr/local/lib/libruby.so.4.0.1", selected: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, selected, err := matchVersionedUprobeLibrary("libruby[< 4.0]", makeProcMaps(tc.path))
+			require.NoError(t, err)
+			assert.Equal(t, "libruby", base)
+			assert.Equal(t, tc.selected, selected)
+		})
+	}
+}
+
 func TestMatchVersionedUprobeLibrary(t *testing.T) {
 	maps := makeProcMaps(
 		"/usr/local/lib/python3.11/lib-dynload/_asyncio.cpython-311-x86_64-linux-gnu.so",

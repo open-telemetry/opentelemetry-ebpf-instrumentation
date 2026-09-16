@@ -8,6 +8,7 @@ package generictracer
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -462,6 +463,23 @@ func readJVMTestBatch(t *testing.T, events <-chan []runtimemetrics.RuntimeMetric
 		t.Fatal("timed out waiting for JVM runtime events")
 		return nil
 	}
+}
+
+// The libruby probes sit on symbols the Ruby runtime exercises as a whole, and
+// they can only ever correlate on Puma below Ruby 4.0, so the library they are
+// declared under must carry the version constraint that gates them.
+func TestRubyUProbesAreVersionGated(t *testing.T) {
+	tracer := &Tracer{}
+
+	var rubyKeys []string
+	for lib := range tracer.UProbes() {
+		if strings.HasPrefix(lib, "libruby") {
+			rubyKeys = append(rubyKeys, lib)
+		}
+	}
+
+	require.Len(t, rubyKeys, 1, "exactly one libruby probe group")
+	assert.Equal(t, "libruby[< 4.0]", rubyKeys[0])
 }
 
 type fakeServiceFilter struct {
