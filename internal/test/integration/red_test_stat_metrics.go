@@ -55,6 +55,21 @@ func testStatMetricsTCPFailedConnectionsGo(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
+func testStatMetricsTCPSuccessfulConnectionsGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		clientResults, err := pq.Query(`obi_stat_tcp_successful_connections_total{dst_port="8080",network_tcp_handshake_role="client"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, clientResults)
+		assert.Positive(ct, totalPromCount(ct, clientResults))
+
+		serverResults, err := pq.Query(`obi_stat_tcp_successful_connections_total{src_port="8080",network_tcp_handshake_role="server"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, serverResults)
+		assert.Positive(ct, totalPromCount(ct, serverResults))
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testStatMetricsTCPRetransmitsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
