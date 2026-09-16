@@ -38,7 +38,6 @@ GenAI attributes OBI emits that are not part of upstream semconv.
 | `gen_ai.metadata` | string | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
 | `gen_ai.request.embedding.input_count` | int | development | Number of inputs submitted to a GenAI embedding request. |  |
 | `gen_ai.rerank.top_n` | int | development | Number of top results requested from a GenAI rerank operation. |  |
-| `gen_ai.retrieval.top_k` | int | development | Number of top results requested from a GenAI vector-retrieval operation. |  |
 
 ## `registry.obi.gpu`
 

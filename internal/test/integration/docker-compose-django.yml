@@ -1,0 +1,69 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/djangoserver/Dockerfile
+    image: hatest-djangoserver
+    ports:
+      - "8381:8380"
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
+    privileged: true
+    pid: "service:testserver"
+    volumes:
+      - ./configs:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-django:/var/run/obi
+    environment:
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config.yml
+      GOCOVERDIR: /coverage
+      OTEL_EBPF_OPEN_PORT: "8380"
+      OTEL_EBPF_EXECUTABLE_PATH: ""
+      OTEL_EBPF_SERVICE_NAME: django-testserver
+      OTEL_EBPF_SERVICE_NAMESPACE: integration-test
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_METRICS_INTERVAL: 1s
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: 1ms
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: 10ms
+      OTEL_EBPF_LOG_LEVEL: DEBUG
+    depends_on:
+      testserver:
+        condition: service_started
+      otelcol:
+        condition: service_started
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
+    volumes:
+      - ./configs:/etc/otelcol-config
+    depends_on:
+      jaeger:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    command: ["--config.file=/etc/prometheus/prometheus-config.yml"]
+    volumes:
+      - ./configs:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    ports:
+      - "16686:16686"
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro

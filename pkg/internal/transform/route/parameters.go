@@ -5,7 +5,7 @@ package route // import "go.opentelemetry.io/obi/pkg/internal/transform/route"
 
 import "strings"
 
-func validRoute(parts []string) bool {
+func validPartialRoute(parts []string) bool {
 	for i, part := range parts {
 		if tail, ok := routeParam(part); ok && tail && i != len(parts)-1 {
 			return false

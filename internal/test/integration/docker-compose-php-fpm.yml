@@ -19,7 +19,7 @@ services:
     volumes:
       - ./components/php/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf
       - ./components/php/php.ini:/usr/local/etc/php/php.ini
-      - ./components/php/:/var/www/html
+      - ./components/php/index.php:/var/www/html/index.php
     environment:
       PM_STRATEGY: static
       PM_MAX_CHILDREN: 100
@@ -135,7 +135,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
     container_name: otel-col
     deploy:
       resources:

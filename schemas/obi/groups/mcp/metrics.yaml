@@ -1,0 +1,42 @@
+groups:
+  - id: metric.obi.mcp.client.operation.duration
+    type: metric
+    metric_name: mcp.client.operation.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted mcp.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: error.type
+      - ref: gen_ai.prompt.name
+      - ref: gen_ai.tool.name
+      - ref: mcp.method.name
+      - ref: mcp.protocol.version
+      - ref: mcp.resource.uri
+        requirement_level: opt_in
+      - ref: rpc.response.status_code
+      - ref: server.address
+      - ref: server.port
+
+  - id: metric.obi.mcp.server.operation.duration
+    type: metric
+    metric_name: mcp.server.operation.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted mcp.server.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: error.type
+      - ref: gen_ai.prompt.name
+      - ref: gen_ai.tool.name
+      - ref: mcp.method.name
+      - ref: mcp.protocol.version
+      - ref: mcp.resource.uri
+        requirement_level: opt_in
+      - ref: rpc.response.status_code
