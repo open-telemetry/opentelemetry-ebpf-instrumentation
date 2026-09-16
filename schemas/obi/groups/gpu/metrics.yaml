@@ -56,3 +56,85 @@ groups:
       broken down by `cuda.memcpy.kind`.
     attributes:
       - ref: cuda.memcpy.kind
+
+  - id: metric.obi.gpu.cuda.memory.free.bytes
+    type: metric
+    metric_name: gpu.cuda.memory.free.bytes
+    instrument: counter
+    unit: "By"
+    stability: development
+    brief: >
+      Bytes released through CUDA device memory frees (cudaFree).
+
+  - id: metric.obi.gpu.cuda.memset.bytes
+    type: metric
+    metric_name: gpu.cuda.memset.bytes
+    instrument: counter
+    unit: "By"
+    stability: development
+    brief: >
+      Bytes set through CUDA memory set operations (cudaMemset).
+
+  - id: metric.obi.gpu.cuda.stream.create.calls
+    type: metric
+    metric_name: gpu.cuda.stream.create.calls
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of CUDA stream creations observed (cudaStreamCreate).
+
+  - id: metric.obi.gpu.cuda.stream.destroy.calls
+    type: metric
+    metric_name: gpu.cuda.stream.destroy.calls
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of CUDA stream destructions observed (cudaStreamDestroy).
+
+  - id: metric.obi.gpu.cuda.event.record.calls
+    type: metric
+    metric_name: gpu.cuda.event.record.calls
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of CUDA event records observed (cudaEventRecord).
+
+  - id: metric.obi.gpu.cuda.event.synchronize.calls
+    type: metric
+    metric_name: gpu.cuda.event.synchronize.calls
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of CUDA event synchronizations observed (cudaEventSynchronize).
+
+  - id: metric.obi.gpu.cuda.stream.synchronize.calls
+    type: metric
+    metric_name: gpu.cuda.stream.synchronize.calls
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of CUDA stream synchronizations observed (cudaStreamSynchronize).
+
+  - id: metric.obi.gpu.cuda.device.synchronize.calls
+    type: metric
+    metric_name: gpu.cuda.device.synchronize.calls
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of CUDA device synchronizations observed (cudaDeviceSynchronize).
+
+  - id: metric.obi.gpu.cuda.host.register.bytes
+    type: metric
+    metric_name: gpu.cuda.host.register.bytes
+    instrument: counter
+    unit: "By"
+    stability: development
+    brief: >
+      Bytes registered through CUDA host memory registration
+      (cudaHostRegister).
