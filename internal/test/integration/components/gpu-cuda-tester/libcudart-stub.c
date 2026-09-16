@@ -84,7 +84,8 @@ cudaError_t cudaStreamCreate(cudaStream_t *stream) {
   return 0;
 }
 
-cudaError_t cudaStreamCreateWithFlags(cudaStream_t *stream, unsigned int flags) {
+cudaError_t cudaStreamCreateWithFlags(cudaStream_t *stream,
+                                      unsigned int flags) {
   (void)flags;
   if (stream != NULL) {
     *stream = (cudaStream_t)0x11;
@@ -93,8 +94,8 @@ cudaError_t cudaStreamCreateWithFlags(cudaStream_t *stream, unsigned int flags) 
   return 0;
 }
 
-cudaError_t cudaStreamCreateWithPriority(cudaStream_t *stream, unsigned int flags,
-                                         int priority) {
+cudaError_t cudaStreamCreateWithPriority(cudaStream_t *stream,
+                                         unsigned int flags, int priority) {
   (void)flags;
   (void)priority;
   if (stream != NULL) {
