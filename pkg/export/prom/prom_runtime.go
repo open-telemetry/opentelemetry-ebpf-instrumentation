@@ -477,6 +477,7 @@ func runtimeServiceLabels() []string {
 		attr.ServiceName.Prom(),
 		attr.ServiceNamespace.Prom(),
 		attr.ServiceInstanceID.Prom(),
+		attr.Job.Prom(),
 	}
 }
 
@@ -489,6 +490,7 @@ func runtimeServiceLabelValuesForService(service svc.Attrs) []string {
 		service.UID.Name,
 		service.UID.Namespace,
 		service.UID.Instance,
+		service.Job(),
 	}
 }
 
