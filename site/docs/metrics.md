@@ -1022,7 +1022,7 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
 | `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
@@ -1142,7 +1142,47 @@ Smoothed round-trip time observed per TCP connection.
 | `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
 | `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
+| `service.name` | string | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | development | Source TCP/UDP port. |  |
+| `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.successful.connections`
+
+Count of TCP connections that completed the three-way handshake, broken down by `network.tcp.handshake.role`.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
+| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
