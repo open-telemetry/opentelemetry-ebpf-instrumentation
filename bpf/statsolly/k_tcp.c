@@ -58,7 +58,7 @@ static __always_inline void flush_tcp_io_accum(struct sock *sk,
         bpf_ringbuf_discard(se, 0);
         return;
     }
-    se->flags = k_event_stat_tcp_io;
+    se->flags = k_stat_type_tcp_io;
     se->direction = direction;
     se->count = accum->count;
     bpf_memcpy(se->bytes, accum->bytes, sizeof(se->bytes));
@@ -141,7 +141,7 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_close_srtt, struct sock *sk) {
         return 0;
     }
 
-    se->flags = k_event_stat_tcp_rtt;
+    se->flags = k_stat_type_tcp_rtt;
     se->srtt_us = srtt_us;
     se->conn = conn;
     const u8 *role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
