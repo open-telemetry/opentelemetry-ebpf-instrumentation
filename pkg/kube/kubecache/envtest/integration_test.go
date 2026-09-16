@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"sync/atomic"
@@ -384,21 +385,24 @@ func TestFilterByTimestamp(t *testing.T) {
 		svcClient.Start(ctx, ct, discardEventsBefore)
 	}, timeout, 100*time.Millisecond)
 
-	// Collect all snapshot events until SYNC_FINISHED. The snapshot and the live watch
-	// stream can race, so an object may arrive more than once before SYNC_FINISHED.
-	// We track unique names rather than asserting a fixed event count.
-	seenObjects := map[string]struct{}{}
-	for {
+	// API writes can reach the informer after its welcome snapshot, so collect both
+	// snapshot and live events until the expected objects and SYNC_FINISHED arrive.
+	expectedObjects := map[string]struct{}{
+		"service1-filter-by-ts": {},
+		"pod-filter-by-ts":      {},
+	}
+	allowedObjects := maps.Clone(expectedObjects)
+	syncFinished := false
+	for len(expectedObjects) > 0 || !syncFinished {
 		evnt := testutil.ReadChannel(t, svcClient.Messages, timeout)
 		if evnt.Type == informer.EventType_SYNC_FINISHED {
-			break
+			syncFinished = true
+			continue
 		}
-		if evnt.Resource != nil {
-			seenObjects[evnt.Resource.Name] = struct{}{}
-		}
+		require.NotNil(t, evnt.Resource)
+		require.Contains(t, allowedObjects, evnt.Resource.Name)
+		delete(expectedObjects, evnt.Resource.Name)
 	}
-	assert.Contains(t, seenObjects, "service1-filter-by-ts")
-	assert.Contains(t, seenObjects, "pod-filter-by-ts")
 
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Service{
 		ObjectMeta: v1.ObjectMeta{Name: "more-filter-by-ts", Namespace: "default"},
@@ -407,9 +411,15 @@ func TestFilterByTimestamp(t *testing.T) {
 			ClusterIP: "10.0.0.127", ClusterIPs: []string{"10.0.0.127"},
 		},
 	}))
-	evnt := testutil.ReadChannel(t, svcClient.Messages, timeout)
-	require.NotNil(t, evnt.Resource)
-	assert.Equal(t, "more-filter-by-ts", evnt.Resource.Name)
+	for {
+		evnt := testutil.ReadChannel(t, svcClient.Messages, timeout)
+		require.NotNil(t, evnt.Resource)
+		if evnt.Resource.Name == "more-filter-by-ts" {
+			break
+		}
+		// An event may be duplicated when the welcome snapshot races its AddFunc.
+		require.Contains(t, allowedObjects, evnt.Resource.Name)
+	}
 }
 
 func TestReconnectReceivesUpdatedObjectAfterFromTimestampEpoch(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/vishvananda/netlink"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -54,6 +55,8 @@ type Tracer struct {
 	libsMux          sync.Mutex
 	jvmGenerations   sync.Map
 	iters            []*ebpfcommon.Iter
+	iterMu           sync.Mutex
+	seenNetns        *expirable.LRU[uint64, struct{}]
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
 	pythonRuntime    *pythonRuntimeController
@@ -62,6 +65,21 @@ type Tracer struct {
 func tlog() *slog.Logger {
 	return slog.With("component", "generic.Tracer")
 }
+
+// Keep in sync with the BPF side, which asserts the relation between both
+// constants at compile time (bpf/pid/pid.h).
+const (
+	seenNetnsCacheLen = 1024
+	seenNetnsTTL      = 5 * time.Minute
+
+	// mirrors k_max_concurrent_pids (bpf/pid/maps/map_sizing.h): estimate of
+	// 1000 concurrent processes (including children) * 3 namespaces per pid
+	maxConcurrentPids = 3001
+	// mirrors k_prime_hash (bpf/pid/pid.h): closest prime below
+	// maxConcurrentPids * 64; modulo by a prime distributes the hash evenly
+	// across the segment bit array
+	primeHash = 192053
+)
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
 	tracer := &Tracer{
@@ -75,22 +93,11 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		instrumentedLibs: make(ebpfcommon.InstrumentedLibsT),
 		libsMux:          sync.Mutex{},
 		iters:            []*ebpfcommon.Iter{},
+		seenNetns:        expirable.NewLRU[uint64, struct{}](seenNetnsCacheLen, nil, seenNetnsTTL),
 	}
 	tracer.pythonRuntime = newPythonRuntimeController(tracer)
 	return tracer
 }
-
-// Keep in sync with the BPF side, which asserts the relation between both
-// constants at compile time (bpf/pid/pid.h).
-const (
-	// mirrors k_max_concurrent_pids (bpf/pid/maps/map_sizing.h): estimate of
-	// 1000 concurrent processes (including children) * 3 namespaces per pid
-	maxConcurrentPids = 3001
-	// mirrors k_prime_hash (bpf/pid/pid.h): closest prime below
-	// maxConcurrentPids * 64; modulo by a prime distributes the hash evenly
-	// across the segment bit array
-	primeHash = 192053
-)
 
 func pidSegmentBit(k uint64) (uint32, uint32) {
 	h := uint32(k % primeHash)
@@ -176,6 +183,8 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		pidU32 := uint32(pid)
 		_ = p.bpfObjects.PidCache.Put(pidU32, pidU32)
 	}
+
+	p.runItersForPID(pid)
 }
 
 func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
@@ -664,40 +673,50 @@ func (p *Tracer) Iters() []*ebpfcommon.Iter {
 }
 
 func (p *Tracer) runItersForPids() {
-	iters := p.Iters()
-	if len(iters) == 0 {
+	for _, pids := range p.pidsFilter.CurrentPIDs(ebpfcommon.PIDTypeKProbes) {
+		for pid := range pids {
+			p.runItersForPID(pid)
+		}
+	}
+}
+
+func (p *Tracer) runItersForPID(pid app.PID) {
+	if len(p.iters) == 0 {
 		return
 	}
 
-	seen := make(map[uint64]struct{})
+	info, err := os.Stat(fmt.Sprintf("/proc/%d/ns/net", pid))
+	if err != nil {
+		p.log.Debug("netns stat failed", "pid", pid, "error", err)
+		return
+	}
 
-	for _, pids := range p.pidsFilter.CurrentPIDs(ebpfcommon.PIDTypeKProbes) {
-		for pid := range pids {
-			info, err := os.Stat(fmt.Sprintf("/proc/%d/ns/net", pid))
-			if err != nil {
-				p.log.Debug("netns stat failed", "pid", pid, "error", err)
-				continue
-			}
+	inode := info.Sys().(*syscall.Stat_t).Ino
 
-			inode := info.Sys().(*syscall.Stat_t).Ino
-			if _, ok := seen[inode]; ok {
-				continue
-			}
-			seen[inode] = struct{}{}
+	p.iterMu.Lock()
+	defer p.iterMu.Unlock()
 
-			for _, it := range iters {
-				if err := netns.WithNetNS(int(pid), func() error {
-					return it.Run(p.log)
-				}); err != nil {
-					if errors.Is(err, os.ErrNotExist) {
-						p.log.Debug("process gone before iterating its netns", "pid", pid)
-						break
-					}
-					p.log.Error("error running iterator in netns", "pid", pid, "error", err)
-				}
+	if p.seenNetns == nil {
+		p.seenNetns = expirable.NewLRU[uint64, struct{}](seenNetnsCacheLen, nil, seenNetnsTTL)
+	}
+	if p.seenNetns.Contains(inode) {
+		return
+	}
+
+	for _, it := range p.iters {
+		if err := netns.WithNetNS(int(pid), func() error {
+			return it.Run(p.log)
+		}); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				p.log.Debug("process gone before iterating its netns", "pid", pid)
+				return
 			}
+			p.log.Error("error running iterator in netns", "pid", pid, "error", err)
+			return
 		}
 	}
+
+	p.seenNetns.Add(inode, struct{}{})
 }
 
 func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
