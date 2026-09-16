@@ -14,10 +14,11 @@ type StatType uint8
 // These alias the bpf2go-generated constants derived from enum stat_type in
 // bpf/statsolly/types.h, so kernel and userspace values cannot drift.
 const (
-	StatTypeTCPRtt              = StatType(StatsStatTypeK_statTypeTcpRtt)
-	StatTypeTCPFailedConnection = StatType(StatsStatTypeK_statTypeTcpFailedConnection)
-	StatTypeTCPRetransmit       = StatType(StatsStatTypeK_statTypeTcpRetransmit)
-	StatTypeTCPIo               = StatType(StatsStatTypeK_statTypeTcpIo)
+	StatTypeTCPRtt                  = StatType(StatsStatTypeK_statTypeTcpRtt)
+	StatTypeTCPFailedConnection     = StatType(StatsStatTypeK_statTypeTcpFailedConnection)
+	StatTypeTCPRetransmit           = StatType(StatsStatTypeK_statTypeTcpRetransmit)
+	StatTypeTCPIo                   = StatType(StatsStatTypeK_statTypeTcpIo)
+	StatTypeTCPSuccessfulConnection = StatType(StatsStatTypeK_statTypeTcpSuccessfulConnection)
 )
 
 type TCPFailReasonType string
@@ -86,11 +87,12 @@ const (
 // in pkg/internal/statsolly/ebpf/stat_getters.go and getDefinitions in
 // pkg/export/attributes/attr_defs.go
 type Stat struct {
-	Type                StatType             `json:"type"`
-	TCPRtt              *TCPRtt              `json:"-"`
-	TCPFailedConnection *TCPFailedConnection `json:"-"`
-	TCPRetransmit       bool                 `json:"-"`
-	TCPIo               *TCPIo               `json:"-"`
+	Type                    StatType                 `json:"type"`
+	TCPRtt                  *TCPRtt                  `json:"-"`
+	TCPFailedConnection     *TCPFailedConnection     `json:"-"`
+	TCPSuccessfulConnection *TCPSuccessfulConnection `json:"-"`
+	TCPRetransmit           bool                     `json:"-"`
+	TCPIo                   *TCPIo                   `json:"-"`
 
 	// Attrs of the flow record: source/destination, OBI IP, etc...
 	CommonAttrs pipe.CommonAttrs
@@ -104,6 +106,10 @@ type TCPRtt struct {
 type TCPFailedConnection struct {
 	Reason uint8 `json:"reason"`
 	Role   uint8 `json:"role"`
+}
+
+type TCPSuccessfulConnection struct {
+	Role uint8 `json:"role"`
 }
 
 type TCPIo struct {
@@ -135,6 +141,14 @@ type StatsTCPFailedConnection struct {
 	Reason uint8
 	Role   uint8
 	Pad    [1]uint8
+	Conn
+}
+
+type StatsTCPSuccessfulConnection struct {
+	_     structs.HostLayout
+	Flags uint8
+	Role  uint8
+	Pad   [2]uint8
 	Conn
 }
 
