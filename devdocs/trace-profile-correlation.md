@@ -27,6 +27,15 @@ The communication channel between OBI and the profiler is implemented via an eBP
 
 On startup, both OBI and the profiler will create the map and pin it if it doesn't exist.
 
+Keeping the map aligned with the request each thread is serving costs OBI a refresh on every async context switch of the instrumented process, so OBI only populates it when something reads it. A profiler is not visible to OBI, so it must be declared:
+
+```yaml
+ebpf:
+  populate_trace_context: true
+```
+
+or `OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT=true`. Without it the pin exists but stays empty, and every profile sample looks like it ran outside a span. See [When the map is populated](trace-log-correlation.md#when-the-map-is-populated).
+
 ### Data Model
 
 The shared eBPF map uses a minimal structure to store correlation data. OBI will be responsible for removing entries in order to avoid keeping stale contexts.

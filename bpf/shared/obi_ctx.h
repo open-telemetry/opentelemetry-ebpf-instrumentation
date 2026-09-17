@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_builtins.h>
 
+#include <common/globals.h>
 #include <common/tp_info.h>
 
 typedef struct obi_ctx_info {
@@ -29,6 +30,9 @@ static __always_inline obi_ctx_info_t *obi_ctx__get(const u64 pid_tgid) {
 }
 
 static __always_inline long obi_ctx__set(const u64 pid_tgid, const tp_info_t *info) {
+    if (!g_trace_ctx_map_enabled) {
+        return 0;
+    }
     obi_ctx_info_t obi_info = {};
     bpf_memcpy(obi_info.trace_id, info->trace_id, TRACE_ID_SIZE_BYTES);
     bpf_memcpy(obi_info.span_id, info->span_id, SPAN_ID_SIZE_BYTES);
@@ -36,5 +40,8 @@ static __always_inline long obi_ctx__set(const u64 pid_tgid, const tp_info_t *in
 }
 
 static __always_inline long obi_ctx__del(const u64 pid_tgid) {
+    if (!g_trace_ctx_map_enabled) {
+        return 0;
+    }
     return bpf_map_delete_elem(&traces_ctx_v1, &pid_tgid);
 }

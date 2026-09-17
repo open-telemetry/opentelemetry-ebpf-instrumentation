@@ -20,7 +20,9 @@
 #include <common/common.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
+#include <common/runtime.h>
 #include <common/trace_helpers.h>
+#include <common/trace_key.h>
 
 #include <gotracer/go_common.h>
 
@@ -37,6 +39,8 @@
 #include <logger/bpf_dbg.h>
 
 #include <maps/go_ongoing_http_client_requests.h>
+#include <maps/java_vt_threads.h>
+#include <maps/server_traces.h>
 
 #include <pid/pid_helpers.h>
 
@@ -829,12 +833,19 @@ static __always_inline bool current_obi_handoff(struct pt_regs *ctx, chan_handof
         return true;
     }
 
-    obi_ctx_info_t *obi_ctx = obi_ctx__get(bpf_get_current_pid_tgid());
-    if (obi_ctx && valid_trace(obi_ctx->trace_id) && valid_span(obi_ctx->span_id)) {
-        __builtin_memcpy(handoff->tp.trace_id, obi_ctx->trace_id, sizeof(handoff->tp.trace_id));
-        __builtin_memcpy(handoff->tp.span_id, obi_ctx->span_id, sizeof(handoff->tp.span_id));
-        *((u64 *)handoff->tp.parent_id) = 0;
-        handoff->tp.flags = 0;
+    // Last resort: the server request this thread is serving. The lookups above only
+    // see operations a Go uprobe started, so this is what covers a request the generic
+    // path traced
+    trace_key_t t_key = {0};
+    task_tid(&t_key.p_key);
+    if (java_vt_translate_tid(&t_key.p_key)) {
+        return false;
+    }
+    t_key.extra_id = extra_runtime_id();
+
+    tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, &t_key);
+    if (server_tp && server_tp->valid && valid_tp_info(&server_tp->tp)) {
+        tp_clone(&handoff->tp, &server_tp->tp);
         return true;
     }
 

@@ -115,6 +115,28 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	}
 }
 
+// runtime.casgstatus fires on every goroutine status transition and exists only
+// to keep traces_ctx_v1 current, so it must not be attached when nothing reads
+// that map.
+func TestCasgstatusProbeFollowsTraceContextPopulation(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	off := &Tracer{
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cfg: &config.EBPFTracer{},
+	}
+	require.NotContains(t, off.GoProbes(), "runtime.casgstatus")
+	require.Equal(t, false, off.constants()["g_trace_ctx_map_enabled"])
+
+	on := &Tracer{
+		log:                slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cfg:                &config.EBPFTracer{},
+		traceCtxMapEnabled: true,
+	}
+	require.Contains(t, on.GoProbes(), "runtime.casgstatus")
+	require.Equal(t, true, on.constants()["g_trace_ctx_map_enabled"])
+}
+
 func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 	var offTable BpfOffTableT
 

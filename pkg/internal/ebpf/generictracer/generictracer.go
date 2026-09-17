@@ -331,6 +331,8 @@ func (p *Tracer) constants() map[string]any {
 		m["nodejs_runtime_metrics_enabled"] = uint64(1)
 	}
 
+	m["g_trace_ctx_map_enabled"] = p.cfg.PopulateTraceContext()
+
 	return m
 }
 
@@ -765,6 +767,43 @@ func (p *Tracer) AlreadyInstrumentedLib(id uint64) bool {
 	return module != nil
 }
 
+// drainTraceContextMap empties traces_ctx_v1 when nothing is going to populate it.
+// The map is pinned, so entries written by a previous run survive this one, and
+// nothing would overwrite or delete them while population is off: a reader would
+// keep matching recycled pid_tgids against dead requests. Populating runs drain
+// themselves through obi_ctx__del as requests complete.
+func (p *Tracer) drainTraceContextMap() {
+	if p.cfg.PopulateTraceContext() || p.bpfObjects.TracesCtxV1 == nil {
+		return
+	}
+
+	var (
+		key     uint64
+		value   BpfObiCtxInfoT
+		drained int
+	)
+
+	it := p.bpfObjects.TracesCtxV1.Iterate()
+	for it.Next(&key, &value) {
+		if err := p.bpfObjects.TracesCtxV1.Delete(key); err != nil {
+			p.log.Debug("error draining stale trace context", "error", err)
+			continue
+		}
+		drained++
+	}
+
+	if err := it.Err(); err != nil {
+		p.log.Warn("could not fully drain the trace context map, a reader may see stale context",
+			"error", err, "drained", drained)
+		return
+	}
+
+	if drained > 0 {
+		p.log.Info("drained stale entries from the pinned trace context map",
+			"entries", drained)
+	}
+}
+
 func (p *Tracer) Run(
 	ctx context.Context,
 	ebpfEventContext *ebpfcommon.EBPFEventContext,
@@ -787,6 +826,8 @@ func (p *Tracer) Run(
 	} else {
 		p.log.Error("BPF Pids map is not created yet, this is a bug.")
 	}
+
+	p.drainTraceContextMap()
 
 	timeoutTicker := time.NewTicker(2 * time.Second)
 	parseContext := ebpfcommon.NewEBPFParseContext(&p.cfg.EBPF, eventsChan, p.pidsFilter)
