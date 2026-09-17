@@ -51,7 +51,7 @@ func NewProcessFinder(
 
 type processFinderStartConfig struct {
 	enrichedProcessEvents *msg.Queue[[]Event[ProcessAttrs]]
-	dynamicSelector       *DynamicPIDSelector
+	dynamicSelector       *DynamicSelector
 }
 
 // ProcessFinderStartOpt allows overriding some internal behavior of ProcessFinder.Start method.
@@ -67,10 +67,10 @@ func WithEnrichedProcessEvents(enrichedProcessEvents *msg.Queue[[]Event[ProcessA
 	}
 }
 
-// WithDynamicPIDSelector supplies the OBI dynamic selection set. Caller can pass discover.NewDynamicPIDSelector()
+// WithDynamicSelector supplies the OBI dynamic selection set. Caller can pass discover.NewDynamicSelector()
 // and later mutate it with AddPID/AddPIDs/AddK8sWorkload/RemovePIDs. When non-nil, the finder wires
 // it to the matcher and removed-PID notifications are used for synthetic deletes.
-func WithDynamicPIDSelector(selector *DynamicPIDSelector) ProcessFinderStartOpt {
+func WithDynamicSelector(selector *DynamicSelector) ProcessFinderStartOpt {
 	return func(cfg *processFinderStartConfig) {
 		cfg.dynamicSelector = selector
 	}
@@ -154,7 +154,7 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 		Metrics:             pf.ctxInfo.Metrics,
 		SpanSignalsShortcut: pf.tracesInput,
 		RuntimeMetrics:      pf.runtimeMetrics,
-		DynamicPIDSelector:     startConfig.dynamicSelector,
+		DynamicSelector:     startConfig.dynamicSelector,
 
 		InputInstrumentables: storedExecutableTypes,
 		EbpfEventContext:     pf.ebpfEventContext,
