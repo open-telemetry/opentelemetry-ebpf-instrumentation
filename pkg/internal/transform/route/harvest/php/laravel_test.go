@@ -97,7 +97,7 @@ func TestLaravelExtractorExtractCall(t *testing.T) {
 		{
 			name: "single resource",
 			code: `Route::resource('users', UserController::class)->only('show')`,
-			want: routeSet{"/api/users/{user}": {}},
+			want: routeSet{"/api/users/{users}": {}},
 		},
 		{
 			name: "batch resource",

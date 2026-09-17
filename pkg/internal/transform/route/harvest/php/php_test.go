@@ -27,16 +27,20 @@ func TestExtractRoutesFromLaravelFeatures(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"/api/photos/{photo}/comments/create",
-		"/api/comments/{comment}/edit",
-		"/api/photos/{photo}/comments",
-		"/api/v1/users/{user}",
+		"/api/photos/{photos}/comments/create",
+		"/api/comments/{comments}/edit",
+		"/api/photos/{photos}/comments",
+		"/api/v1/users/{users}",
 		"/api/admin/audit",
 		"/api/v1/status",
 		"/api/v1/users",
-		"/api/comments/{comment}",
+		"/api/comments/{comments}",
 		"/api/old",
 	}, routes)
+
+	matcher := route.NewPartialRouteMatcher(routes)
+	assert.Equal(t, "/api/v1/users/{users}", matcher.Find("/api/v1/users/42"))
+	assert.Equal(t, "/api/photos/{photos}/comments", matcher.Find("/api/photos/42/comments"))
 }
 
 func TestExtractRoutesSkipsLaravelAPIFileWithDynamicPrefix(t *testing.T) {
@@ -54,7 +58,7 @@ func TestExtractRoutesFromLaravelResourceVariants(t *testing.T) {
 		"/account/create",
 		"/account/edit",
 		"/profile/edit",
-		"/posts/{post}",
+		"/posts/{posts}",
 		"/settings",
 		"/account",
 		"/profile",

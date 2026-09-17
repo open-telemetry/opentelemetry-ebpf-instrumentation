@@ -21,7 +21,7 @@ import "strings"
 //	    -> resourceActionNames             ->only()/->except() modifier calls
 //	  -> addLaravelResource
 //	    -> laravelResourcePaths            builds the collection/member URL templates
-//	      -> resourceParameter             handles resource name into {param}
+//	      -> laravelResourceParameter       resolves the {param}
 var laravelResourceActions = []string{"index", "create", "store", "show", "edit", "update", "destroy"}
 
 func isLaravelResourceMethod(method string) bool {
@@ -123,6 +123,7 @@ type laravelResourceConfig struct {
 	actions       map[string]struct{}
 	onlyActions   []string
 	exceptActions []string
+	parameters    map[string]string
 	hasOnly       bool
 	shallow       bool
 	singleton     bool
@@ -147,6 +148,32 @@ func laravelResourceOptions(method string, optionArray []token, modifiers []lara
 			config.exceptActions = resourceActionNames(modifier.arguments)
 		case "shallow":
 			config.shallow = true
+		case "parameters":
+			argument := laravelResourceOptionArgument(modifier.arguments, 0)
+			if namedParameters, found := namedArgument(modifier.arguments, "parameters"); found {
+				argument = namedParameters
+			}
+			config.parameters = laravelResourceParameters(argument)
+		case "parameter":
+			resource, resourceFound := staticStringArgument(modifier.arguments, 0)
+			parameter, parameterFound := staticStringArgument(modifier.arguments, 1)
+			if namedResource, found := namedLiteralArgument(modifier.arguments, "previous"); found {
+				resource, resourceFound = namedResource, true
+			}
+			if namedParameter, found := namedLiteralArgument(modifier.arguments, "new"); found {
+				parameter, parameterFound = namedParameter, true
+			}
+			switch {
+			case !resourceFound:
+				config.parameters = nil
+			case !parameterFound:
+				delete(config.parameters, resource)
+			default:
+				if config.parameters == nil {
+					config.parameters = map[string]string{}
+				}
+				config.parameters[resource] = parameter
+			}
 		case "creatable":
 			addResourceActions(config.actions, "store", "destroy")
 			if method == "singleton" {
@@ -209,10 +236,36 @@ func applyLaravelResourceArray(config laravelResourceConfig, argument []token) l
 			config.exceptActions = resourceActionNames([][]token{value})
 		case "shallow":
 			config.shallow = len(value) == 1 && equalName(value[0], "true")
+		case "parameters":
+			config.parameters = laravelResourceParameters(value)
 		}
 	}
 
 	return applyLaravelResourceActionSelection(config)
+}
+
+func laravelResourceParameters(argument []token) map[string]string {
+	if len(argument) < 2 || argument[0].value != "[" || argument[len(argument)-1].value != "]" {
+		return nil
+	}
+
+	parameters := map[string]string{}
+	for _, item := range splitOnTopLevelCommas(argument[1 : len(argument)-1]) {
+		if len(item) < 3 || item[1].value != "=>" {
+			return nil
+		}
+		if item[0].kind != tokenString {
+			return nil
+		}
+		if len(item) != 3 || item[2].kind != tokenString {
+			delete(parameters, item[0].value)
+			continue
+		}
+
+		parameters[item[0].value] = item[2].value
+	}
+
+	return parameters
 }
 
 func applyLaravelResourceActionSelection(config laravelResourceConfig) laravelResourceConfig {
@@ -264,7 +317,7 @@ func addLaravelResource(prefix, name string, config laravelResourceConfig, route
 	}
 
 	for action := range config.actions {
-		if path, ok := paths[action]; ok {
+		if path, ok := paths[action]; ok && path != "" {
 			routes.add(joinRoutes(prefix, path))
 		}
 	}
@@ -286,35 +339,43 @@ func laravelResourcePaths(name string, config laravelResourceConfig) (string, st
 		return "", ""
 	}
 
-	collection := prefix
-	for index, part := range resourceParts {
-		collection = joinRoutes(collection, part)
-		if index < len(resourceParts)-1 {
-			collection = joinRoutes(collection, resourceParameter(part))
-		}
-	}
+	collection := laravelResourceCollection(prefix, resourceParts, config.parameters)
 
 	if config.singleton {
 		return collection, collection
 	}
 
 	lastResource := resourceParts[len(resourceParts)-1]
-	member := joinRoutes(collection, resourceParameter(lastResource))
+	parameter := laravelResourceParameter(lastResource, config.parameters)
+	member := joinRoutes(collection, parameter)
 	if config.shallow && len(resourceParts) > 1 {
-		member = joinRoutes(prefix, lastResource, resourceParameter(lastResource))
+		member = joinRoutes(prefix, lastResource, parameter)
 	}
 
 	return collection, member
 }
 
-func resourceParameter(resource string) string {
-	name := resource
-	if strings.HasSuffix(name, "ies") && len(name) > 3 {
-		name = strings.TrimSuffix(name, "ies") + "y"
-	} else {
-		name = strings.TrimSuffix(name, "s")
+func laravelResourceCollection(prefix string, resourceParts []string, parameters map[string]string) string {
+	collection := prefix
+	for index, resource := range resourceParts {
+		collection = joinRoutes(collection, resource)
+		if index == len(resourceParts)-1 {
+			continue
+		}
+
+		collection = joinRoutes(collection, laravelResourceParameter(resource, parameters))
 	}
 
-	name = strings.ReplaceAll(name, "-", "_")
-	return "{" + name + "}"
+	return collection
+}
+
+func laravelResourceParameter(resource string, parameters map[string]string) string {
+	// Placeholder names do not affect matching, so keep the plural resource
+	// name when no exact static override is available.
+	parameter := resource
+	if configured, ok := parameters[resource]; ok && configured != "" {
+		parameter = configured
+	}
+
+	return "{" + strings.ReplaceAll(parameter, "-", "_") + "}"
 }
