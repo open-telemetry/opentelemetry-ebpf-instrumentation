@@ -494,6 +494,9 @@ func decodeV1Config(data []byte, cfg *obi.Config, knownFields bool) error {
 	return nil
 }
 
+// The legacy decoder reports unknown fields only in TypeError messages. Recover
+// their YAML paths only when every decode error has that shape, so invalid known
+// fields remain hard failures.
 func unknownV1FieldPaths(data []byte, decodeErr error) ([]string, bool) {
 	var typeErr *legacyyaml.TypeError
 	if !errors.As(decodeErr, &typeErr) {
