@@ -121,7 +121,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	swi.Add(dynamicpid.MetadataDecoratorProvider(f.ctxInfo.DynamicPIDSelector, dynamicSelector,
 		f.ctxInfo.K8sInformer, recordAttrs, decoratedFlows, dynamicDecoratedFlows),
 		swarm.WithID("DynamicPIDMetadataDecorator"))
-	swi.Add(filter.ByDynamicPID(dynamicSelector, f.ctxInfo.K8sInformer,
+	swi.Add(filter.ByDynamicPID("net", dynamicSelector, f.ctxInfo.K8sInformer,
 		recordAttrs, dynamicDecoratedFlows, dynamicFilteredFlows),
 		swarm.WithID("DynamicPIDFilter"))
 
