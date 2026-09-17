@@ -46,14 +46,19 @@ type laravelExtractor struct {
 	routes    routeSet
 }
 
-func extractLaravelRoutes(file phpFile, root, apiPrefix string, routes routeSet) {
+func extractLaravelRoutes(file phpFile, root string, apiPrefix laravelAPIPrefix, routes routeSet) {
+	prefix, resolved := laravelFilePrefix(file.path, root, apiPrefix)
+	if !resolved {
+		return
+	}
+
 	extractor := laravelExtractor{
 		tokens:    file.tokens,
 		receivers: laravelRouteReceivers(file.tokens),
 		routes:    routes,
 	}
 
-	extractor.extract(0, len(file.tokens), laravelFilePrefix(file.path, root, apiPrefix))
+	extractor.extract(0, len(file.tokens), prefix)
 }
 
 func laravelRouteReceivers(tokens []token) map[string]struct{} {
@@ -289,17 +294,17 @@ func lastTopLevelArgumentStart(tokens []token, open, end int) int {
 	return start
 }
 
-func laravelFilePrefix(path, root, apiPrefix string) string {
-	if apiPrefix == "" {
-		return ""
-	}
-
+func laravelFilePrefix(path, root string, apiPrefix laravelAPIPrefix) (string, bool) {
 	relative, err := filepath.Rel(root, path)
 	if err != nil || filepath.ToSlash(relative) != "routes/api.php" {
-		return ""
+		return "", true
 	}
 
-	return apiPrefix
+	if apiPrefix.unresolved {
+		return "", false
+	}
+
+	return apiPrefix.value, true
 }
 
 func laravelRouteCall(tokens []token, pos int, receivers map[string]struct{}) (string, int, bool) {

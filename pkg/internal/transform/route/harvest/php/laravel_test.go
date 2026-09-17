@@ -22,7 +22,7 @@ func TestExtractLaravelRoutes(t *testing.T) {
 	}
 	routes := newRouteSet()
 
-	extractLaravelRoutes(file, root, "api", routes)
+	extractLaravelRoutes(file, root, laravelAPIPrefix{value: "api"}, routes)
 
 	assert.Equal(t, routeSet{"/api/users": {}}, routes)
 }
@@ -268,10 +268,25 @@ func containsToken(tokens []token, value string) bool {
 func TestLaravelFilePrefix(t *testing.T) {
 	root := t.TempDir()
 
-	assert.Equal(t, "/api", laravelFilePrefix(filepath.Join(root, "routes", "api.php"), root, "/api"))
-	assert.Empty(t, laravelFilePrefix(filepath.Join(root, "routes", "web.php"), root, "/api"))
-	assert.Empty(t, laravelFilePrefix(filepath.Join(root, "routes", "api.php"), root, ""))
-	assert.Empty(t, laravelFilePrefix(filepath.Join(filepath.Dir(root), "routes", "api.php"), root, "/api"))
+	prefix, harvest := laravelFilePrefix(filepath.Join(root, "routes", "api.php"), root, laravelAPIPrefix{value: "/api"})
+	assert.True(t, harvest)
+	assert.Equal(t, "/api", prefix)
+
+	prefix, harvest = laravelFilePrefix(filepath.Join(root, "routes", "api.php"), root, laravelAPIPrefix{})
+	assert.True(t, harvest)
+	assert.Empty(t, prefix)
+
+	prefix, harvest = laravelFilePrefix(filepath.Join(root, "routes", "web.php"), root, laravelAPIPrefix{unresolved: true})
+	assert.True(t, harvest)
+	assert.Empty(t, prefix)
+
+	prefix, harvest = laravelFilePrefix(filepath.Join(root, "routes", "api.php"), root, laravelAPIPrefix{unresolved: true})
+	assert.False(t, harvest)
+	assert.Empty(t, prefix)
+
+	prefix, harvest = laravelFilePrefix(filepath.Join(filepath.Dir(root), "routes", "api.php"), root, laravelAPIPrefix{value: "/api"})
+	assert.True(t, harvest)
+	assert.Empty(t, prefix)
 }
 
 func TestLaravelRouteReceivers(t *testing.T) {

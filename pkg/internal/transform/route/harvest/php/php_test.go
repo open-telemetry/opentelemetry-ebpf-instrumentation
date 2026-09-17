@@ -39,6 +39,13 @@ func TestExtractRoutesFromLaravelFeatures(t *testing.T) {
 	}, routes)
 }
 
+func TestExtractRoutesSkipsLaravelAPIFileWithDynamicPrefix(t *testing.T) {
+	routes, err := phpharvest.ExtractRoutes(context.Background(), filepath.Join("testdata", "laravel", "dynamic_api_prefix"))
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/health"}, routes)
+}
+
 func TestExtractRoutesFromLaravelResourceVariants(t *testing.T) {
 	routes, err := phpharvest.ExtractRoutes(context.Background(), filepath.Join("testdata", "laravel", "resource_variants"))
 

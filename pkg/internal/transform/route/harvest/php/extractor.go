@@ -13,9 +13,9 @@ func ExtractRoutes(ctx context.Context, root string) ([]string, error) {
 
 	routes := newRouteSet()
 	symfonyAttributes := map[string][]string{}
-	apiPrefix := ""
+	apiPrefix := laravelAPIPrefix{}
 	if found.laravel {
-		apiPrefix = laravelAPIPrefix(root)
+		apiPrefix = readLaravelAPIPrefix(root)
 	}
 
 	err := walkPHPFiles(ctx, root, func(file phpFile) {

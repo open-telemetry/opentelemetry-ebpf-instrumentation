@@ -13,7 +13,7 @@ func TestLaravelAPIPrefix(t *testing.T) {
 	tests := []struct {
 		name      string
 		bootstrap string
-		want      string
+		want      laravelAPIPrefix
 	}{
 		{name: "missing bootstrap"},
 		{
@@ -23,7 +23,7 @@ func TestLaravelAPIPrefix(t *testing.T) {
                     api: __DIR__.'/../routes/api.php',
                 );
             `,
-			want: "api",
+			want: laravelAPIPrefix{value: "api"},
 		},
 		{
 			name: "custom prefix",
@@ -33,7 +33,16 @@ func TestLaravelAPIPrefix(t *testing.T) {
                     apiPrefix: 'v2',
                 );
             `,
-			want: "v2",
+			want: laravelAPIPrefix{value: "v2"},
+		},
+		{
+			name: "empty literal prefix",
+			bootstrap: `<?php
+                Application::configure()->withRouting(
+                    api: __DIR__.'/../routes/api.php',
+                    apiPrefix: '',
+                );
+            `,
 		},
 		{
 			name: "no API route file",
@@ -48,13 +57,14 @@ func TestLaravelAPIPrefix(t *testing.T) {
 			bootstrap: `<?php return Application::configure();`,
 		},
 		{
-			name: "dynamic prefix stays bare",
+			name: "dynamic prefix is unresolved",
 			bootstrap: `<?php
                 Application::configure()->withRouting(
                     api: __DIR__.'/../routes/api.php',
                     apiPrefix: configuredPrefix(),
                 );
             `,
+			want: laravelAPIPrefix{unresolved: true},
 		},
 	}
 
@@ -65,7 +75,7 @@ func TestLaravelAPIPrefix(t *testing.T) {
 				writeSymfonyTestFile(t, root, "bootstrap/app.php", test.bootstrap)
 			}
 
-			assert.Equal(t, test.want, laravelAPIPrefix(root))
+			assert.Equal(t, test.want, readLaravelAPIPrefix(root))
 		})
 	}
 }

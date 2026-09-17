@@ -10,6 +10,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
 )
 
+type laravelAPIPrefix struct {
+	value      string
+	unresolved bool
+}
+
 // This file reads bootstrap/app.php to find the URL prefix Laravel applies
 // to routes/api.php, for example:
 //
@@ -22,13 +27,13 @@ import (
 //
 // Call flow:
 //
-//	laravelAPIPrefix
+//	readLaravelAPIPrefix
 //	  -> hasLaravelAPIRouteFile   confirms the "api:" argument is routes/api.php
 //	  -> namedArgument            reads the "apiPrefix:" argument
-func laravelAPIPrefix(root string) string {
+func readLaravelAPIPrefix(root string) laravelAPIPrefix {
 	data, _, err := langtools.ReadMetadataFile(filepath.Join(root, "bootstrap", "app.php"), maxPHPFileBytes)
 	if err != nil || data == nil {
-		return ""
+		return laravelAPIPrefix{}
 	}
 
 	tokens := lexPHP(data)
@@ -39,17 +44,17 @@ func laravelAPIPrefix(root string) string {
 
 		arguments := callArguments(tokens, pos+1)
 		if !hasLaravelAPIRouteFile(arguments) {
-			return ""
+			return laravelAPIPrefix{}
 		}
 
 		if _, configured := namedArgument(arguments, "apiPrefix"); !configured {
-			return "api"
+			return laravelAPIPrefix{value: "api"}
 		}
 
-		prefix, _ := namedLiteralArgument(arguments, "apiPrefix")
-		return prefix
+		prefix, resolved := namedLiteralArgument(arguments, "apiPrefix")
+		return laravelAPIPrefix{value: prefix, unresolved: !resolved}
 	}
-	return ""
+	return laravelAPIPrefix{}
 }
 
 func hasLaravelAPIRouteFile(arguments [][]token) bool {
