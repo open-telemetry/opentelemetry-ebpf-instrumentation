@@ -83,6 +83,18 @@ func TestExtractRoutesFromModernSymfonyProject(t *testing.T) {
 	}, routes)
 }
 
+func TestExtractRoutesFromModernSymfonyXMLProject(t *testing.T) {
+	routes, err := phpharvest.ExtractRoutes(context.Background(), filepath.Join("testdata", "symfony", "modern_xml"))
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"/api/admin/{id}",
+		"/v1/users/{id}",
+		"/health",
+		"/status",
+	}, routes)
+}
+
 func TestExtractRoutesFromLegacySymfonyProject(t *testing.T) {
 	routes, err := phpharvest.ExtractRoutes(context.Background(), filepath.Join("testdata", "symfony", "legacy"))
 

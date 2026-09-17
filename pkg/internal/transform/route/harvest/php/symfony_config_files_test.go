@@ -12,21 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSymfonyYAMLEntries(t *testing.T) {
+func TestSymfonyConfigEntries(t *testing.T) {
 	t.Run("discovers supported regular files", func(t *testing.T) {
 		root := t.TempDir()
 		routesYAML := writeSymfonyTestFile(t, root, "config/routes.yaml", "routes: {}")
 		routesYML := writeSymfonyTestFile(t, root, "config/routes.yml", "routes: {}")
+		routesXML := writeSymfonyTestFile(t, root, "config/routes.xml", "<routes/>")
 		alpha := writeSymfonyTestFile(t, root, "config/routes/alpha.YAML", "routes: {}")
 		beta := writeSymfonyTestFile(t, root, "config/routes/beta.yml", "routes: {}")
-		writeSymfonyTestFile(t, root, "config/routes/ignored.xml", "<routes/>")
+		gamma := writeSymfonyTestFile(t, root, "config/routes/gamma.XML", "<routes/>")
+		writeSymfonyTestFile(t, root, "config/routes/ignored.php", "<?php")
 		require.NoError(t, os.Mkdir(filepath.Join(root, "config", "routes", "directory.yaml"), 0o750))
 
-		assert.Equal(t, []string{routesYAML, routesYML, alpha, beta}, symfonyYAMLEntries(root))
+		assert.Equal(t, []string{routesYAML, routesYML, routesXML, alpha, beta, gamma}, symfonyConfigEntries(root))
 	})
 
 	t.Run("missing config", func(t *testing.T) {
-		assert.Nil(t, symfonyYAMLEntries(t.TempDir()))
+		assert.Nil(t, symfonyConfigEntries(t.TempDir()))
 	})
 }
 
@@ -75,5 +77,23 @@ func TestIsYAMLFile(t *testing.T) {
 	}
 	for _, path := range []string{"routes.xml", "routes.yaml.bak", "routes"} {
 		assert.False(t, isYAMLFile(path), path)
+	}
+}
+
+func TestIsXMLFile(t *testing.T) {
+	for _, path := range []string{"routes.xml", "ROUTES.XML", "/config/routes.Xml", ".xml"} {
+		assert.True(t, isXMLFile(path), path)
+	}
+	for _, path := range []string{"routes.yaml", "routes.xml.bak", "routes"} {
+		assert.False(t, isXMLFile(path), path)
+	}
+}
+
+func TestIsSymfonyConfigFile(t *testing.T) {
+	for _, path := range []string{"routes.yaml", "routes.yml", "routes.xml"} {
+		assert.True(t, isSymfonyConfigFile(path), path)
+	}
+	for _, path := range []string{"routes.php", "routes.json", "routes"} {
+		assert.False(t, isSymfonyConfigFile(path), path)
 	}
 }

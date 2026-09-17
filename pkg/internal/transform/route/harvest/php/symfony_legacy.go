@@ -16,6 +16,6 @@ func extractSymfonyLegacyConfigRoutes(projectRoot string, routes routeSet) {
 
 	xmlTraversal := newSymfonyConfigTraversal()
 	for _, entry := range legacySymfonyXMLEntries(projectRoot) {
-		extractSymfonyXMLFile(projectRoot, entry, "", xmlTraversal, routes)
+		extractSymfonyXMLFile(projectRoot, entry, "", xmlTraversal, nil, nil, routes)
 	}
 }

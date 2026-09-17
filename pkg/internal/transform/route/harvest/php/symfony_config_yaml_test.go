@@ -53,6 +53,7 @@ self_import:
 func TestExtractSymfonyYAMLMapping(t *testing.T) {
 	root := t.TempDir()
 	base := filepath.Join(root, "config")
+	writeSymfonyTestFile(t, root, "config/imported.xml", `<routes><route id="imported" path="/from-xml"/></routes>`)
 	routes := newRouteSet()
 
 	extractSymfonyYAMLMapping(root, base, &yaml.Node{Kind: yaml.SequenceNode}, "", newSymfonyConfigTraversal(), nil, nil, routes)
@@ -67,6 +68,9 @@ legacy:
   pattern: /legacy
 unsupported_import:
   resource: '@Bundle/routes.yaml'
+xml_import:
+  resource: imported.xml
+  prefix: /xml
 `),
 		"/api",
 		newSymfonyConfigTraversal(),
@@ -75,7 +79,11 @@ unsupported_import:
 		routes,
 	)
 
-	assert.Equal(t, routeSet{"/api/modern": {}, "/api/legacy": {}}, routes)
+	assert.Equal(t, routeSet{
+		"/api/modern":       {},
+		"/api/legacy":       {},
+		"/api/xml/from-xml": {},
+	}, routes)
 }
 
 func TestSymfonyYAMLPath(t *testing.T) {

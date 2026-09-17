@@ -9,12 +9,13 @@ import (
 	"strings"
 )
 
-func symfonyYAMLEntries(projectRoot string) []string {
+func symfonyConfigEntries(projectRoot string) []string {
 	configDirectory := filepath.Join(projectRoot, "config")
 
 	entries := existingFiles(
 		filepath.Join(configDirectory, "routes.yaml"),
 		filepath.Join(configDirectory, "routes.yml"),
+		filepath.Join(configDirectory, "routes.xml"),
 	)
 
 	files, err := os.ReadDir(filepath.Join(configDirectory, "routes"))
@@ -23,12 +24,16 @@ func symfonyYAMLEntries(projectRoot string) []string {
 	}
 
 	for _, file := range files {
-		if file.Type().IsRegular() && isYAMLFile(file.Name()) {
+		if file.Type().IsRegular() && isSymfonyConfigFile(file.Name()) {
 			entries = append(entries, filepath.Join(configDirectory, "routes", file.Name()))
 		}
 	}
 
 	return entries
+}
+
+func isSymfonyConfigFile(path string) bool {
+	return isYAMLFile(path) || isXMLFile(path)
 }
 
 func localSymfonyResource(projectRoot, baseDirectory, resource string) (string, bool) {
@@ -64,4 +69,8 @@ func existingFiles(paths ...string) []string {
 func isYAMLFile(path string) bool {
 	extension := strings.ToLower(filepath.Ext(path))
 	return extension == ".yaml" || extension == ".yml"
+}
+
+func isXMLFile(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".xml")
 }

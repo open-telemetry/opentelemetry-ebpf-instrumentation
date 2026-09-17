@@ -26,10 +26,10 @@ func TestExtractSymfonyXMLFile(t *testing.T) {
 	traversal := newSymfonyConfigTraversal()
 	routes := newRouteSet()
 
-	extractSymfonyXMLFile(root, entry, "/root", traversal, routes)
-	extractSymfonyXMLFile(root, entry, "/root", traversal, routes)
-	extractSymfonyXMLFile(root, malformed, "", traversal, routes)
-	extractSymfonyXMLFile(root, filepath.Join(root, "missing.xml"), "", traversal, routes)
+	extractSymfonyXMLFile(root, entry, "/root", traversal, nil, nil, routes)
+	extractSymfonyXMLFile(root, entry, "/root", traversal, nil, nil, routes)
+	extractSymfonyXMLFile(root, malformed, "", traversal, nil, nil, routes)
+	extractSymfonyXMLFile(root, filepath.Join(root, "missing.xml"), "", traversal, nil, nil, routes)
 
 	assert.Equal(t, routeSet{
 		"/root/users":     {},
@@ -51,15 +51,35 @@ func TestExtractSymfonyXMLImport(t *testing.T) {
 	root := t.TempDir()
 	base := filepath.Join(root, "app", "config")
 	writeSymfonyTestFile(t, root, "app/config/imported.xml", `<routes><route path="/users"/></routes>`)
+	writeSymfonyTestFile(t, root, "app/config/imported.yaml", "members:\n  path: /members\n")
+	controller := filepath.Join(root, "src", "Controller", "UserController.php")
+	attributes := map[string][]string{controller: {"/profile"}}
+	imported := map[string]struct{}{}
 	routes := newRouteSet()
 	traversal := newSymfonyConfigTraversal()
 
-	extractSymfonyXMLImport(root, base, "/api", symfonyXMLStart("import", "resource", "imported.xml", "prefix", "/v1"), traversal, routes)
-	extractSymfonyXMLImport(root, base, "/v2", symfonyXMLStart("import", "resource", "imported.xml"), traversal, routes)
-	extractSymfonyXMLImport(root, base, "", symfonyXMLStart("import", "resource", "ignored.yaml"), traversal, routes)
-	extractSymfonyXMLImport(root, base, "", symfonyXMLStart("import", "resource", "../../../outside.xml"), traversal, routes)
+	extractSymfonyXMLImport(root, base, "/api", symfonyXMLStart("import", "resource", "imported.xml", "prefix", "/v1"), traversal, attributes, imported, routes)
+	extractSymfonyXMLImport(root, base, "/v2", symfonyXMLStart("import", "resource", "imported.xml"), traversal, attributes, imported, routes)
+	extractSymfonyXMLImport(root, base, "/yaml", symfonyXMLStart("import", "resource", "imported.yaml"), traversal, attributes, imported, routes)
+	extractSymfonyXMLImport(root, base, "", symfonyXMLStart("import", "resource", "../../src/Controller", "type", "ATTRIBUTE", "prefix", "/v3"), traversal, attributes, imported, routes)
+	extractSymfonyXMLImport(root, base, "", symfonyXMLStart("import", "resource", "../../../outside.xml"), traversal, attributes, imported, routes)
 
-	assert.Equal(t, routeSet{"/api/v1/users": {}, "/v2/users": {}}, routes)
+	assert.Equal(t, routeSet{
+		"/api/v1/users": {},
+		"/v2/users":     {},
+		"/yaml/members": {},
+		"/v3/profile":   {},
+	}, routes)
+	assert.Equal(t, map[string]struct{}{controller: {}}, imported)
+}
+
+func TestIsSymfonyXMLAttributeImport(t *testing.T) {
+	for _, typeName := range []string{"attribute", "ATTRIBUTE", "annotation", "Annotation"} {
+		assert.True(t, isSymfonyXMLAttributeImport(symfonyXMLStart("import", "type", typeName)), typeName)
+	}
+
+	assert.False(t, isSymfonyXMLAttributeImport(symfonyXMLStart("import", "type", "service")))
+	assert.False(t, isSymfonyXMLAttributeImport(symfonyXMLStart("import")))
 }
 
 func TestXMLAttribute(t *testing.T) {

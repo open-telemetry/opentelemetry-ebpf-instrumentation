@@ -15,6 +15,8 @@ import (
 func extractSymfonyXMLFile(
 	projectRoot, filePath, routePrefix string,
 	traversal *symfonyConfigTraversal,
+	attributes map[string][]string,
+	imported map[string]struct{},
 	routes routeSet,
 ) {
 	if !traversal.enter(filePath, routePrefix) {
@@ -51,6 +53,8 @@ func extractSymfonyXMLFile(
 				routePrefix,
 				startElement,
 				traversal,
+				attributes,
+				imported,
 				routes,
 			)
 		}
@@ -70,15 +74,27 @@ func extractSymfonyXMLImport(
 	projectRoot, baseDirectory, routePrefix string,
 	startElement xml.StartElement,
 	traversal *symfonyConfigTraversal,
+	attributes map[string][]string,
+	imported map[string]struct{},
 	routes routeSet,
 ) {
 	resource, ok := localSymfonyResource(projectRoot, baseDirectory, xmlAttribute(startElement, "resource"))
-	if !ok || !strings.EqualFold(filepath.Ext(resource), ".xml") {
+	if !ok {
 		return
 	}
 
 	importPrefix := joinRoutes(routePrefix, xmlAttribute(startElement, "prefix"))
-	extractSymfonyXMLFile(projectRoot, resource, importPrefix, traversal, routes)
+	if isSymfonyXMLAttributeImport(startElement) {
+		addImportedSymfonyAttributes(resource, importPrefix, attributes, imported, routes)
+		return
+	}
+
+	extractSymfonyConfigFile(projectRoot, resource, importPrefix, traversal, attributes, imported, routes)
+}
+
+func isSymfonyXMLAttributeImport(startElement xml.StartElement) bool {
+	typeName := strings.ToLower(xmlAttribute(startElement, "type"))
+	return typeName == "attribute" || typeName == "annotation"
 }
 
 func xmlAttribute(startElement xml.StartElement, name string) string {

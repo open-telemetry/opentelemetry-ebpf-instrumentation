@@ -186,7 +186,7 @@ func laravelGroup(calls []laravelCall) (laravelCall, string, bool) {
 			}
 
 			if !ok {
-				// The prefix appeares to be dynamic and can't be resolved.
+				// The prefix appears to be dynamic and can't be resolved.
 				// if we extract the group's routes without it, it would record them under the
 				// wrong (unprefixed) path, so we give up on this group entirely.
 				return laravelCall{}, "", false

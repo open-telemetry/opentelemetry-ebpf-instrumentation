@@ -86,9 +86,7 @@ func extractSymfonyYAMLMapping(
 			continue
 		}
 
-		if isYAMLFile(importPath) {
-			extractSymfonyYAMLFile(projectRoot, importPath, importPrefix, traversal, attributes, imported, routes)
-		}
+		extractSymfonyConfigFile(projectRoot, importPath, importPrefix, traversal, attributes, imported, routes)
 	}
 }
 

@@ -43,3 +43,18 @@ admin_users:
 	}, routes)
 	assert.Equal(t, map[string]struct{}{controller: {}}, imported)
 }
+
+func TestExtractSymfonyConfigFile(t *testing.T) {
+	root := t.TempDir()
+	yamlFile := writeSymfonyTestFile(t, root, "config/routes.yaml", "yaml:\n  path: /yaml\n")
+	xmlFile := writeSymfonyTestFile(t, root, "config/routes.xml", `<routes><route id="xml" path="/xml"/></routes>`)
+	unsupportedFile := writeSymfonyTestFile(t, root, "config/routes.json", `{}`)
+	routes := newRouteSet()
+	traversal := newSymfonyConfigTraversal()
+
+	for _, file := range []string{yamlFile, xmlFile, unsupportedFile} {
+		extractSymfonyConfigFile(root, file, "/api", traversal, nil, nil, routes)
+	}
+
+	assert.Equal(t, routeSet{"/api/yaml": {}, "/api/xml": {}}, routes)
+}
