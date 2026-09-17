@@ -261,7 +261,7 @@ func TestTraceName(t *testing.T) {
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
 		{name: "JSON-RPC no method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Version: "2.0"}}, expected: "jsonrpc"},
-		{name: "Go net/rpc qualified method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1}}, expected: "Arith/Traceme"},
+		{name: "Go net/rpc qualified method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1, ServiceQualified: true}}, expected: "Arith/Traceme"},
 		{name: "JSON-RPC dotted method stays whole", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "inventory.lookup.v2", Version: "2.0"}}, expected: "inventory.lookup.v2"},
 		{name: "JSON-RPC client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "getUser", Version: "2.0"}}, expected: "getUser"},
 
@@ -2218,7 +2218,7 @@ func TestJSONRPCQualifiedMethod(t *testing.T) {
 		{"trailing.", "trailing."},
 	} {
 		t.Run(tc.method, func(t *testing.T) {
-			rpc := &JSONRPC{Method: tc.method, Version: JSONRPCVersionV1}
+			rpc := &JSONRPC{Method: tc.method, Version: JSONRPCVersionV1, ServiceQualified: true}
 			assert.Equal(t, tc.want, rpc.QualifiedMethod())
 		})
 	}
@@ -2226,9 +2226,9 @@ func TestJSONRPCQualifiedMethod(t *testing.T) {
 
 // Only net/rpc names a service with a dot. JSON-RPC takes arbitrary method
 // names, so a payload-extracted method must survive untouched however many
-// dots it carries.
+// dots it carries, whatever protocol version it declares.
 func TestJSONRPCQualifiedMethodLeavesPayloadExtractedMethodsAlone(t *testing.T) {
-	for _, version := range []string{"2.0", ""} {
+	for _, version := range []string{"2.0", JSONRPCVersionV1, ""} {
 		t.Run("version "+version, func(t *testing.T) {
 			for _, method := range []string{
 				"inventory.lookup.v2",

@@ -95,6 +95,12 @@ func JSONRPCSpanFromParsed(baseSpan *request.Span, resp *http.Response, parsed *
 		Version: version,
 	}
 
+	// The body names no service, so qualification can only come from what the
+	// uprobe already read off the request header.
+	if baseSpan.JSONRPC != nil {
+		result.ServiceQualified = baseSpan.JSONRPC.ServiceQualified
+	}
+
 	if len(rpcReq.ID) > 0 && string(rpcReq.ID) != "null" {
 		result.RequestID = rawIDString(rpcReq.ID)
 	}

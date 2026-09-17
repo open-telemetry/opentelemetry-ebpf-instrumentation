@@ -2116,9 +2116,10 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Status:  200,
 			SubType: request.HTTPSubtypeJSONRPC,
 			JSONRPC: &request.JSONRPC{
-				Method:    "Arith.Traceme",
-				Version:   request.JSONRPCVersionV1,
-				RequestID: "1",
+				Method:           "Arith.Traceme",
+				Version:          request.JSONRPCVersionV1,
+				RequestID:        "1",
+				ServiceQualified: true,
 			},
 		}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})

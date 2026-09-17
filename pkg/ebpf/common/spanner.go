@@ -33,6 +33,8 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 		jsonRPC = &request.JSONRPC{
 			Method:  pattern,
 			Version: request.JSONRPCVersionV1,
+			// net/rpc's readRequestHeader parsed a `Service.Method` header.
+			ServiceQualified: true,
 		}
 		pattern = path
 		subType = request.HTTPSubtypeJSONRPC

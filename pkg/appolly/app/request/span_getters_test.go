@@ -609,7 +609,7 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 			attrName: attr.RPCMethod,
 			span: &Span{
 				SubType: HTTPSubtypeJSONRPC,
-				JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1},
+				JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1, ServiceQualified: true},
 			},
 			expected: "Arith/Traceme",
 		},
