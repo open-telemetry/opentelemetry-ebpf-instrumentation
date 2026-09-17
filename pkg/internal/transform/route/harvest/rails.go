@@ -26,7 +26,7 @@ var (
 	railsDraw          = regexp.MustCompile(`^draw\b\s*\(?\s*(.*)$`)
 	railsDeclaration   = regexp.MustCompile(`^(get|post|put|patch|delete|head|options|match|resources|resource|namespace|scope)\b\s*\(?\s*(.*)$`)
 	railsLiteral       = regexp.MustCompile(`^(?:'([^'\\]*)'|"([^"\\#]*)"|:([A-Za-z_][A-Za-z_0-9]*))(\s*(?:,|\)|=>|do\b|$))`)
-	railsAPIOnly       = regexp.MustCompile(`^config\.api_only\s*=\s*true\s*$`)
+	railsAPIOnly       = regexp.MustCompile(`^config\.api_only\s*=\s*(true|false)\s*$`)
 	railsPathOption    = regexp.MustCompile(`(?:^|,\s*)(?:path:|:path\s*=>)\s*(.*)$`)
 	railsActionsOption = regexp.MustCompile(`(?:^|,\s*)(?:(only|except):|:(only|except)\s*=>)\s*(\[[^\]]*\]|%i\[[^\]]*\]|[^,)]*)`)
 	railsParamOption   = regexp.MustCompile(`(?:^|,\s*)(?:param:|:param\s*=>)\s*(.*)$`)
@@ -160,6 +160,7 @@ func readRailsAPIOnly(ctx context.Context, path string) (bool, error) {
 	scanner := bufio.NewScanner(io.LimitReader(file, maxRailsFileBytes))
 	scanner.Buffer(nil, int(maxRailsFileBytes))
 	inComment := false
+	apiOnly := false
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return false, err
@@ -174,11 +175,11 @@ func readRailsAPIOnly(ctx context.Context, path string) (bool, error) {
 			}
 			continue
 		}
-		if railsAPIOnly.MatchString(stripRailsComment(line)) {
-			return true, nil
+		if match := railsAPIOnly.FindStringSubmatch(stripRailsComment(line)); match != nil {
+			apiOnly = match[1] == "true"
 		}
 	}
-	return false, scanner.Err()
+	return apiOnly, scanner.Err()
 }
 
 func (s railsRouteScanner) readRouteFile(ctx context.Context, path string) ([]string, []string, error) {

@@ -124,6 +124,8 @@ func TestReadRailsAPIOnly(t *testing.T) {
 		{"commented", "# config.api_only = true", false},
 		{"block commented", "=begin\nconfig.api_only = true\n=end", false},
 		{"dynamic", "config.api_only = ENV.fetch('API_ONLY')", false},
+		{"last assignment wins", "config.api_only = true\nconfig.api_only = false", false},
+		{"last assignment enables", "config.api_only = false\nconfig.api_only = true", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "application.rb")
