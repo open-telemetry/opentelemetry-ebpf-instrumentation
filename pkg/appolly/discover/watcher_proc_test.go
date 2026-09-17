@@ -330,12 +330,11 @@ func TestMinProcessAge(t *testing.T) {
 }
 
 // TestForgetPIDs_ReemitsExistingProcess verifies that when a PID was already seen by the watcher,
-// sending it on addedPIDsNotify (forget) causes the next poll to emit EventCreated again.
-// This supports the use case of adding an existing process to the dynamic PID selector.
+// forgetting it causes the next poll to emit EventCreated again.
+// This supports the use case of adding an existing process to the dynamic selector.
 func TestForgetPIDs_ReemitsExistingProcess(t *testing.T) {
 	p1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030}}
 	p2 := ProcessAttrs{pid: 2, openPorts: []uint32{123}}
-	addedCh := make(chan []app.PID, 1)
 	acc := pollAccounter{
 		interval: time.Hour,
 		cfg:      &obi.Config{},
@@ -353,7 +352,6 @@ func TestForgetPIDs_ReemitsExistingProcess(t *testing.T) {
 		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config) error {
 			return nil
 		},
-		addedPIDsNotify: addedCh,
 	}
 	procs, err := acc.listProcesses(false)
 	require.NoError(t, err)

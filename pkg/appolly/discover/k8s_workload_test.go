@@ -4,6 +4,7 @@
 package discover
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,4 +121,30 @@ func TestDynamicPIDSelector_WorkloadOptsUpdatePropagatesToMaterializedPIDs(t *te
 	entry, ok := d.GetPID(9)
 	require.True(t, ok)
 	assert.Equal(t, "updated", entry.ServiceName)
+}
+
+func TestDynamicMatcher_MaterializesWorkloadWhenPIDAlreadySelected(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPID(11, selection.DynamicPIDOptions{ServiceName: "explicit"})
+	require.NoError(t, d.AddK8sWorkload(selection.K8sWorkloadRef{
+		Kind: "Deployment", Namespace: "ns", Name: "checkout",
+	}, selection.DynamicPIDOptions{ServiceName: "from-deploy"}))
+
+	m := &DynamicMatcher{
+		Log:             slog.Default(),
+		DynamicPIDSelector: d.appSignals(),
+	}
+	pm := m.matchDynamicCriteria(ProcessAttrs{
+		pid: 11,
+		metadata: map[string]string{
+			services.AttrNamespace:      "ns",
+			services.AttrDeploymentName: "checkout",
+		},
+	}, &services.ProcessInfo{Pid: 11, ExePath: "/bin/test"})
+	require.NotNil(t, pm)
+
+	require.NoError(t, d.RemoveK8sWorkload(selection.K8sWorkloadRef{
+		Kind: "Deployment", Namespace: "ns", Name: "checkout",
+	}))
+	assert.True(t, d.IncludesPID(11), "explicit AddPID must survive workload removal")
 }
