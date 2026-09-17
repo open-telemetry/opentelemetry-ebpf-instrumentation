@@ -348,7 +348,7 @@ func parseConsumerGroupHeartbeat(r *largebuf.LargeBufferReader, header KafkaRequ
 	if err = r.Skip(Int32Len); err != nil { // rebalance_timeout_ms
 		return req, nil
 	}
-	namesLen, err := readArrayLength(r, header)
+	namesLen, namesNull, err := readCompactNullableArrayLength(r)
 	if err != nil {
 		return req, nil
 	}
@@ -359,9 +359,10 @@ func parseConsumerGroupHeartbeat(r *largebuf.LargeBufferReader, header KafkaRequ
 		}
 		req.Topics = append(req.Topics, &GroupTopic{Name: name})
 	}
-	// a non-null list is the member's whole subscription (null means unchanged); the
-	// owned partitions appended below are consumed topics, so they belong to it too
-	req.Subscription = namesLen > 0 && namesLen <= maxGroupTopics
+	// A non-null list is the member's whole subscription, null means unchanged. Empty
+	// is a real subscription: a member subscribed by regex joins with an empty list.
+	// The owned partitions appended below are consumed topics, so they belong to it too.
+	req.Subscription = !namesNull && namesLen <= maxGroupTopics
 	if header.APIVersion() >= 1 {
 		if err = skipString(r, header); err != nil { // subscribed_topic_regex
 			return req, nil
@@ -506,9 +507,19 @@ func readBytesLength(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (
 // readCompactLength decodes a compact length prefix (uvarint of length + 1);
 // null (0) yields 0.
 func readCompactLength(r *largebuf.LargeBufferReader) (int, error) {
+	size, _, err := readCompactNullableArrayLength(r)
+	return size, err
+}
+
+// readCompactNullableArrayLength decodes a COMPACT_NULLABLE_ARRAY length prefix,
+// telling a null array (0) apart from an empty one (1).
+func readCompactNullableArrayLength(r *largebuf.LargeBufferReader) (length int, null bool, err error) {
 	size, err := readUnsignedVarint(r)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return max(size-1, 0), nil
+	if size == 0 {
+		return 0, true, nil
+	}
+	return size - 1, false, nil
 }

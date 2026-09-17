@@ -414,6 +414,14 @@ func TestParseGroupRequest(t *testing.T) {
 			expectUUIDs:   []UUID{ordersUUID},
 		},
 		{
+			// a member subscribed by regex joins with an empty, non-null name list
+			// (GroupCoordinatorService, Kafka 4.1): that replaces its subscription too
+			name:               "consumer group heartbeat v0, empty subscription",
+			packet:             consumerGroupHeartbeatV0("my-group", 0, []string{}, nil),
+			expectGroupID:      "my-group",
+			expectSubscription: true,
+		},
+		{
 			name:          "consumer group heartbeat v0, nothing but the group id",
 			packet:        consumerGroupHeartbeatV0("my-group", 0, nil, nil),
 			expectGroupID: "my-group",

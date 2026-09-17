@@ -635,6 +635,7 @@ OBI-emitted messaging.process.duration
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error, which OBI cannot yet determine for a consume operation | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `messaging.consumer.group.name` | string | `conditionally_required`: if OBI attributed the fetch to a single consumer group of the process | development | The name of the consumer group with which a consumer is associated. | my-group; indexer |
 | `messaging.destination.name` | string | `conditionally_required`: if the exchange named a destination | development | The message destination name | MyQueue; MyTopic |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
