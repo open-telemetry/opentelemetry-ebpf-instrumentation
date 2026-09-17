@@ -630,8 +630,8 @@ func unknownV1HTTPParsingMatchPaths(data []byte) []string {
 
 func taggedYAMLFields(structType reflect.Type) map[string]struct{} {
 	fields := make(map[string]struct{}, structType.NumField())
-	for index := range structType.NumField() {
-		name, _, _ := strings.Cut(structType.Field(index).Tag.Get("yaml"), ",")
+	for field := range structType.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
 		if name != "" && name != "-" {
 			fields[name] = struct{}{}
 		}
