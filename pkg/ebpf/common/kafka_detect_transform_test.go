@@ -474,7 +474,7 @@ func TestProcessKafkaRequestProduceMultiTopic(t *testing.T) {
 //   - leaveGroup*:         LeaveGroup v5, GroupId "my-group" / "other-group"
 //   - cghJoinCghGroup:     ConsumerGroupHeartbeat v0, GroupId "cgh-group", member epoch 0, subscription [orders]
 //   - cghLeaveCghGroup:    ConsumerGroupHeartbeat v0, GroupId "cgh-group", member epoch -1 (leave)
-//   - cghJoinCghGroupAudit / cghUnchangedCghGroup: ConsumerGroupHeartbeat v0, GroupId "cgh-group", subscription [audit] / null (unchanged)
+//   - cghJoinCghGroupAudit / cghUnchangedCghGroup / cghEmptyCghGroup: ConsumerGroupHeartbeat v0, GroupId "cgh-group", subscription [audit] / null (unchanged) / [] (regex member)
 //   - joinGroupConnectCluster / heartbeatConnectCluster / leaveGroupConnectCluster: JoinGroup v5 protocol_type "connect" / Heartbeat v4 / LeaveGroup v5, GroupId "connect-cluster"
 //   - syncGroupSchemaRegistry: SyncGroup v5, GroupId "schema-registry", protocol_type "sr"
 //   - offsetCommitHbGroupOrders: OffsetCommit v8, GroupId "hb-group", topic orders
@@ -494,6 +494,7 @@ var (
 	cghJoinCghGroup            = []byte{0, 0, 0, 69, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 2, 7, 111, 114, 100, 101, 114, 115, 0, 0, 0}
 	cghJoinCghGroupAudit       = []byte{0, 0, 0, 68, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 2, 6, 97, 117, 100, 105, 116, 0, 0, 0}
 	cghUnchangedCghGroup       = []byte{0, 0, 0, 62, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 5, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0}
+	cghEmptyCghGroup           = []byte{0, 0, 0, 62, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 5, 0, 0, 255, 255, 255, 255, 1, 0, 0, 0}
 	cghLeaveCghGroup           = []byte{0, 0, 0, 62, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 255, 255, 255, 255, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0}
 	joinGroupConnectCluster    = []byte{0, 0, 0, 89, 0, 11, 0, 5, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 15, 99, 111, 110, 110, 101, 99, 116, 45, 99, 108, 117, 115, 116, 101, 114, 0, 0, 39, 16, 0, 0, 117, 48, 0, 0, 255, 255, 0, 7, 99, 111, 110, 110, 101, 99, 116, 0, 0, 0, 1, 0, 5, 114, 97, 110, 103, 101, 0, 0, 0, 14, 0, 1, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0}
 	heartbeatConnectCluster    = []byte{0, 0, 0, 60, 0, 12, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 16, 99, 111, 110, 110, 101, 99, 116, 45, 99, 108, 117, 115, 116, 101, 114, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0}
@@ -880,7 +881,7 @@ func TestProcessKafkaEventConsumerGroupSubscriptionChanges(t *testing.T) {
 		assert.Equal(t, "my-group", groups.Lookup(proc, "audit"))
 	})
 
-	t.Run("a KIP-848 heartbeat naming the subscription replaces it, a null one keeps it", func(t *testing.T) {
+	t.Run("a KIP-848 heartbeat with a non-null subscription replaces it, a null one keeps it", func(t *testing.T) {
 		kip848 := kafkaEventFromPid(7, 77)
 		processKafka(t, groups, kip848, cghJoinCghGroup)  // cgh-group: orders
 		processKafka(t, groups, kip848, joinGroupMyGroup) // my-group: orders, audit
@@ -890,6 +891,8 @@ func TestProcessKafkaEventConsumerGroupSubscriptionChanges(t *testing.T) {
 		assert.Empty(t, groups.Lookup(KafkaProcess{Ns: 7, Pid: 77}, "audit"), "audit now shared")
 		processKafka(t, groups, kip848, cghUnchangedCghGroup) // null subscription: unchanged
 		assert.Empty(t, groups.Lookup(KafkaProcess{Ns: 7, Pid: 77}, "audit"), "still shared")
+		processKafka(t, groups, kip848, cghEmptyCghGroup) // empty, non-null: the member moved to a regex subscription
+		assert.Equal(t, "my-group", groups.Lookup(KafkaProcess{Ns: 7, Pid: 77}, "audit"), "released by cgh-group")
 	})
 
 	t.Run("a partial subscription (cut by the kernel buffer) only adds", func(t *testing.T) {
