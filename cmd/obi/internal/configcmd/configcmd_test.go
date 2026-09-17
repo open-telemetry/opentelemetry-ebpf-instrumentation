@@ -595,6 +595,92 @@ func TestRunMigrateReceiver(t *testing.T) {
 	)
 }
 
+func TestRunMigrateAllowPartial(t *testing.T) {
+	path := writeConfig(t, "partial-v1.yaml", `
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+metrics:
+  features: [application]
+otel_metrics_export:
+  endpoint: http://collector:4318
+otel_traces_export:
+  endpoint: http://collector:4318
+  insecure_skip_verify: true
+  instrumentations: [http]
+ebpf:
+  unknown_debug: true
+bpf_debug: true
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(
+		t,
+		stderr.String(),
+		"partially migrated v1 config to OBI config v2; manual changes are required",
+	)
+	for _, path := range []string{
+		"bpf_debug",
+		"ebpf.unknown_debug",
+		"otel_metrics_export.endpoint",
+		"otel_traces_export.endpoint",
+		"otel_traces_export.insecure_skip_verify",
+		"otel_traces_export.instrumentations",
+	} {
+		require.Contains(t, stderr.String(), "  - "+path+"\n")
+	}
+}
+
+func TestRunMigrateAllowPartialReturnsSuccessForCompleteMigration(t *testing.T) {
+	path := writeConfig(t, "v1.yaml", representativeV1)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitSuccess, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(t, stderr.String(), "migrated v1 config to OBI config v2\n")
+	require.NotContains(t, stderr.String(), "partially migrated")
+}
+
+func TestRunMigrateAllowPartialReceiver(t *testing.T) {
+	path := writeConfig(t, "receiver-v1.yaml", `
+open_port: "8080"
+otel_traces_export:
+  endpoint: http://collector:4317
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run(
+		[]string{"migrate", "--allow-partial", "--mode=receiver", path},
+		&stdout,
+		&stderr,
+	)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeReceiver))
+	require.Contains(t, stderr.String(), "  - otel_traces_export.endpoint\n")
+}
+
+func TestRunMigrateAllowPartialRejectsInvalidKnownField(t *testing.T) {
+	path := writeConfig(t, "invalid-v1.yaml", `
+ebpf:
+  wakeup_len: invalid
+unknown_field: true
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitError, exitCode)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "decode v1 YAML fields")
+}
+
 func TestMigrateConfigReceiverRejectsWrongInputShape(t *testing.T) {
 	_, _, err := migrateConfigForMode(
 		[]byte("version: \"2.0\"\npolicy: {}\n"),

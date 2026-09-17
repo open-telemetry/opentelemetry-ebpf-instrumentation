@@ -38,6 +38,7 @@ const (
 	ExitSuccess = 0
 	ExitError   = 1
 	ExitUsage   = 2
+	ExitPartial = 3
 )
 
 type validationMode string
@@ -171,9 +172,10 @@ func runMigrate(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("obi config migrate", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
-		fmt.Fprintln(flags.Output(), "usage: obi config migrate [--mode=standalone|receiver] <path>")
+		fmt.Fprintln(flags.Output(), "usage: obi config migrate [--allow-partial] [--mode=standalone|receiver] <path>")
 		flags.PrintDefaults()
 	}
+	allowPartial := flags.Bool("allow-partial", false, "write valid v2 output when some v1 fields cannot be preserved")
 	mode := flags.String("mode", string(validationModeStandalone), "migration mode: standalone or receiver")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -196,7 +198,11 @@ func runMigrate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "migration failed: read %s: %v\n", flags.Arg(0), err)
 		return ExitError
 	}
-	output, report, err := migrateConfigForMode(data, selectedMode)
+	output, report, partial, err := migrateConfigForModeWithOptions(
+		data,
+		selectedMode,
+		migrationOptions{allowPartial: *allowPartial},
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "migration failed: %v\n", err)
 		return ExitError
@@ -207,6 +213,9 @@ func runMigrate(args []string, stdout, stderr io.Writer) int {
 	}
 	if report != "" {
 		fmt.Fprint(stderr, report)
+	}
+	if partial {
+		return ExitPartial
 	}
 	return ExitSuccess
 }
@@ -219,6 +228,19 @@ func migrateConfigForMode(
 	data []byte,
 	mode validationMode,
 ) ([]byte, string, error) {
+	output, report, _, err := migrateConfigForModeWithOptions(data, mode, migrationOptions{})
+	return output, report, err
+}
+
+type migrationOptions struct {
+	allowPartial bool
+}
+
+func migrateConfigForModeWithOptions(
+	data []byte,
+	mode validationMode,
+	options migrationOptions,
+) ([]byte, string, bool, error) {
 	replaced := obiconfig.ReplaceEnv(data)
 	var v2Err error
 	switch mode {
@@ -227,24 +249,24 @@ func migrateConfigForMode(
 	case validationModeReceiver:
 		_, v2Err = schema.ParseReceiverYAML(replaced)
 	default:
-		return nil, "", fmt.Errorf("%w %q; expected standalone or receiver", errInvalidMode, mode)
+		return nil, "", false, fmt.Errorf("%w %q; expected standalone or receiver", errInvalidMode, mode)
 	}
 	if v2Err == nil {
-		return nil, "", fmt.Errorf("input is already a %s OBI config v2 document", mode)
+		return nil, "", false, fmt.Errorf("input is already a %s OBI config v2 document", mode)
 	} else {
 		if _, ok := errors.AsType[*schema.NotV2Error](v2Err); !ok {
-			return nil, "", fmt.Errorf("source is not supported v1 YAML: %w", v2Err)
+			return nil, "", false, fmt.Errorf("source is not supported v1 YAML: %w", v2Err)
 		}
 	}
-	cfg, err := loadV1ConfigForMode(replaced, mode)
+	cfg, unknown, err := loadV1ConfigForMode(replaced, mode, options.allowPartial)
 	if err != nil {
-		return nil, "", err
+		return nil, "", false, err
 	}
 	if err := validateRuntimeConfig(cfg, mode); err != nil {
-		return nil, "", fmt.Errorf("v1 runtime configuration: %w", err)
+		return nil, "", false, fmt.Errorf("v1 runtime configuration: %w", err)
 	}
 	if err := validateMigratableSelectorRefinements(cfg); err != nil {
-		return nil, "", err
+		return nil, "", false, err
 	}
 
 	doc, ext := convert.RuntimeToV2(cfg)
@@ -267,19 +289,21 @@ func migrateConfigForMode(
 		}
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("verify migrated config v2: %w", err)
+		return nil, "", false, fmt.Errorf("verify migrated config v2: %w", err)
 	}
 	unsupported, err := changedInputFields(replaced, cfg, roundTripped)
 	if err != nil {
-		return nil, "", fmt.Errorf("verify migrated fields: %w", err)
+		return nil, "", false, fmt.Errorf("verify migrated fields: %w", err)
 	}
+	unsupported = append(unsupported, unknown...)
 	if mode == validationModeReceiver {
 		unsupported = append(unsupported, receiverExporterPaths(replaced)...)
-		sort.Strings(unsupported)
-		unsupported = slices.Compact(unsupported)
 	}
-	if len(unsupported) != 0 {
-		return nil, "", fmt.Errorf(
+	sort.Strings(unsupported)
+	unsupported = slices.Compact(unsupported)
+	partial := len(unsupported) != 0
+	if partial && !options.allowPartial {
+		return nil, "", false, fmt.Errorf(
 			"fields are outside the supported v1-to-v2 migration contract: %s",
 			strings.Join(unsupported, ", "),
 		)
@@ -299,14 +323,17 @@ func migrateConfigForMode(
 		})
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("encode config v2 YAML: %w", err)
+		return nil, "", false, fmt.Errorf("encode config v2 YAML: %w", err)
 	}
 	output = obiconfig.EscapeEnv(output)
 	if err := validateConfig(output, mode); err != nil {
-		return nil, "", fmt.Errorf("migrated config v2 did not validate: %w", err)
+		return nil, "", false, fmt.Errorf("migrated config v2 did not validate: %w", err)
 	}
 
-	return output, migrationReport(replaced), nil
+	if partial {
+		return output, partialMigrationReport(replaced, unsupported), true, nil
+	}
+	return output, migrationReport(replaced), false, nil
 }
 
 func validateMigratableSelectorRefinements(cfg *obi.Config) error {
@@ -384,7 +411,52 @@ func preserveV1DNSMetrics(cfg *obi.Config, ext *schema.Extension) {
 	}
 }
 
-func loadV1ConfigForMode(data []byte, mode validationMode) (*obi.Config, error) {
+func loadV1ConfigForMode(data []byte, mode validationMode, allowUnknown bool) (*obi.Config, []string, error) {
+	cfg, err := newV1Config(mode)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return cfg, nil, nil
+	}
+
+	err = decodeV1Config(data, cfg, true)
+	var unknown []string
+	if err != nil && allowUnknown {
+		if paths, ok := unknownV1FieldPaths(data, err); ok {
+			cfg, err = newV1Config(mode)
+			if err != nil {
+				return nil, nil, err
+			}
+			err = decodeV1Config(data, cfg, false)
+			unknown = paths
+		}
+	}
+	if err != nil {
+		if paths := unsupportedFeaturePathsFromYAML(data); len(paths) != 0 {
+			return nil, nil, fmt.Errorf(
+				"decode v1 YAML fields at %s: %w",
+				strings.Join(paths, ", "),
+				err,
+			)
+		}
+		return nil, nil, fmt.Errorf("decode v1 YAML fields: %w", err)
+	}
+
+	cfg.Attributes.Select.Normalize()
+	if cfg.OTELMetrics.EndpointEnabled() && cfg.OTELMetrics.DeprFeatures != 0 {
+		cfg.Metrics.Features = cfg.OTELMetrics.DeprFeatures
+	} else if cfg.Prometheus.EndpointEnabled() && cfg.Prometheus.DeprFeatures != 0 {
+		cfg.Metrics.Features = cfg.Prometheus.DeprFeatures
+	}
+	if cfg.NetworkFlows.Enable {
+		cfg.Metrics.Features |= featureexport.FeatureNetwork
+	}
+
+	return cfg, unknown, nil
+}
+
+func newV1Config(mode validationMode) (*obi.Config, error) {
 	cfg := obi.DefaultConfig
 	if cfg.Routes != nil {
 		routes := *cfg.Routes
@@ -401,42 +473,86 @@ func loadV1ConfigForMode(data []byte, mode validationMode) (*obi.Config, error) 
 	default:
 		return nil, fmt.Errorf("%w %q; expected standalone or receiver", errInvalidMode, mode)
 	}
-	if len(bytes.TrimSpace(data)) == 0 {
-		return &cfg, nil
-	}
+	return &cfg, nil
+}
+
+func decodeV1Config(data []byte, cfg *obi.Config, knownFields bool) error {
 	// V1 custom unmarshallers use gopkg.in/yaml.v3.Node, so decoding through
 	// go.yaml.in/yaml/v3 would bypass their compatibility behavior.
 	decoder := legacyyaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&cfg); err != nil {
-		if paths := unsupportedFeaturePathsFromYAML(data); len(paths) != 0 {
-			return nil, fmt.Errorf(
-				"decode v1 YAML fields at %s: %w",
-				strings.Join(paths, ", "),
-				err,
-			)
-		}
-		return nil, fmt.Errorf("decode v1 YAML fields: %w", err)
+	decoder.KnownFields(knownFields)
+	if err := decoder.Decode(cfg); err != nil {
+		return err
 	}
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return nil, errors.New("v1 YAML must contain exactly one document")
+			return errors.New("v1 YAML must contain exactly one document")
 		}
-		return nil, fmt.Errorf("decode trailing v1 YAML: %w", err)
+		return fmt.Errorf("decode trailing v1 YAML: %w", err)
+	}
+	return nil
+}
+
+func unknownV1FieldPaths(data []byte, decodeErr error) ([]string, bool) {
+	var typeErr *legacyyaml.TypeError
+	if !errors.As(decodeErr, &typeErr) {
+		return nil, false
 	}
 
-	cfg.Attributes.Select.Normalize()
-	if cfg.OTELMetrics.EndpointEnabled() && cfg.OTELMetrics.DeprFeatures != 0 {
-		cfg.Metrics.Features = cfg.OTELMetrics.DeprFeatures
-	} else if cfg.Prometheus.EndpointEnabled() && cfg.Prometheus.DeprFeatures != 0 {
-		cfg.Metrics.Features = cfg.Prometheus.DeprFeatures
-	}
-	if cfg.NetworkFlows.Enable {
-		cfg.Metrics.Features |= featureexport.FeatureNetwork
+	var lines []int
+	for _, message := range typeErr.Errors {
+		line, remainder, ok := strings.Cut(message, ": field ")
+		if !ok || !strings.HasPrefix(line, "line ") ||
+			!strings.Contains(remainder, " not found in type ") {
+			return nil, false
+		}
+		lineNumber, err := strconv.Atoi(strings.TrimPrefix(line, "line "))
+		if err != nil {
+			return nil, false
+		}
+		lines = append(lines, lineNumber)
 	}
 
-	return &cfg, nil
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, false
+	}
+	pathsByLine := map[int]string{}
+	collectYAMLKeyPaths(&root, nil, pathsByLine)
+	paths := make([]string, 0, len(lines))
+	for _, line := range lines {
+		path, ok := pathsByLine[line]
+		if !ok {
+			return nil, false
+		}
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return slices.Compact(paths), true
+}
+
+func collectYAMLKeyPaths(node *yaml.Node, prefix yamlPath, paths map[int]string) {
+	switch node.Kind {
+	case yaml.DocumentNode:
+		if len(node.Content) != 0 {
+			collectYAMLKeyPaths(node.Content[0], prefix, paths)
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i]
+			value := node.Content[i+1]
+			path := appendPath(prefix, key.Value)
+			paths[key.Line] = formatPath(path)
+			collectYAMLKeyPaths(value, path, paths)
+		}
+	case yaml.SequenceNode:
+		for i, child := range node.Content {
+			collectYAMLKeyPaths(child, appendPath(prefix, i), paths)
+		}
+	case yaml.AliasNode:
+		collectYAMLKeyPaths(node.Alias, prefix, paths)
+	}
 }
 
 func setReceiverConsumers(cfg *obi.Config) {
@@ -1091,10 +1207,27 @@ func migrationDiscoverySelectorField(path, prefix string) (string, bool) {
 }
 
 func migrationReport(data []byte) string {
+	return strings.Join(migrationReportLines(data, false), "\n") + "\n"
+}
+
+func partialMigrationReport(data []byte, unsupported []string) string {
+	lines := migrationReportLines(data, true)
+	lines = append(lines, "- v1 fields not preserved exactly and requiring manual migration:")
+	for _, path := range unsupported {
+		lines = append(lines, "  - "+path)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func migrationReportLines(data []byte, partial bool) []string {
 	var root map[string]any
 	_ = yaml.Unmarshal(data, &root)
 
-	lines := []string{"migrated v1 config to OBI config v2"}
+	status := "migrated v1 config to OBI config v2"
+	if partial {
+		status = "partially migrated v1 config to OBI config v2; manual changes are required"
+	}
+	lines := []string{status}
 	if hasAnyPath(root, "filter.application", "filter.network", "filter.stats") {
 		lines = append(lines, "- fanned out v1 attribute filters to signal-scoped v2 filters")
 	}
@@ -1118,7 +1251,7 @@ func migrationReport(data []byte) string {
 	if hasAnyPath(root, "otel_traces_export", "otel_metrics_export", "prometheus_export") {
 		lines = append(lines, "- moved exporter configuration into top-level OpenTelemetry providers")
 	}
-	return strings.Join(lines, "\n") + "\n"
+	return lines
 }
 
 func hasDiscoveryRoutes(root map[string]any) bool {
