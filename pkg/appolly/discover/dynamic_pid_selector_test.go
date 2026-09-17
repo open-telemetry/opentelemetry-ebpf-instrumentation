@@ -19,6 +19,15 @@ import (
 	"go.opentelemetry.io/obi/pkg/selection"
 )
 
+const (
+	dynamicPIDNotifyBufferSize = dynamicNotifyBufferSize
+	dynamicPIDNotifyPendingMax = dynamicNotifyPendingMax
+)
+
+func newDynamicPIDSubscriber(ctx context.Context, maxPending int) *dynamicBatchSubscriber[app.PID] {
+	return newDynamicBatchSubscriber[app.PID](ctx, maxPending)
+}
+
 // pidMultisetEqual reports whether a and b contain the same PIDs with the same multiplicity.
 func pidMultisetEqual(a, b []app.PID) bool {
 	if len(a) != len(b) {
@@ -328,14 +337,14 @@ func TestDynamicPIDSelector_NotifyContextRemovesSubscriberOnCancel(t *testing.T)
 	cancel()
 
 	require.Eventually(t, func() bool {
-		d.rootView.notifier.addedMu.Lock()
-		defer d.rootView.notifier.addedMu.Unlock()
-		return len(d.rootView.notifier.addedSubscribers) == 0
+		d.rootView.notifier.added.mu.Lock()
+		defer d.rootView.notifier.added.mu.Unlock()
+		return len(d.rootView.notifier.added.subscribers) == 0
 	}, 2*time.Second, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		d.rootView.notifier.removedMu.Lock()
-		defer d.rootView.notifier.removedMu.Unlock()
-		return len(d.rootView.notifier.removedSubscribers) == 0
+		d.rootView.notifier.removed.mu.Lock()
+		defer d.rootView.notifier.removed.mu.Unlock()
+		return len(d.rootView.notifier.removed.subscribers) == 0
 	}, 2*time.Second, 10*time.Millisecond)
 
 	_, ok := <-added
@@ -384,11 +393,11 @@ func TestDynamicPIDSelector_AddPIDs_Notify(t *testing.T) {
 // span multiple receives; the consumer must drain until the expected multiset is complete.
 func TestDynamicPIDSelector_QueueNoDrop(t *testing.T) {
 	d := NewDynamicPIDSelector()
-	d.AddPIDs(1, 2, 3, 4)
 	removedCh := d.RemovedNotify()
 	addedCh := d.AddedPIDsNotify()
 
-	<-addedCh
+	d.AddPIDs(1, 2, 3, 4)
+	readPIDNotifyBatchesUntil(t, addedCh, []app.PID{1, 2, 3, 4})
 
 	d.RemovePIDs(1)
 	d.RemovePIDs(2, 3)
@@ -397,6 +406,24 @@ func TestDynamicPIDSelector_QueueNoDrop(t *testing.T) {
 	d.AddPIDs(10, 20)
 	d.AddPIDs(30)
 	readPIDNotifyBatchesUntil(t, addedCh, []app.PID{10, 20, 30})
+}
+
+// TestDynamicPIDSelector_NoNotifyWithoutSubscribers checks that adds before any subscriber are
+// not replayed later; callers recover current membership via GetPIDs.
+func TestDynamicPIDSelector_NoNotifyWithoutSubscribers(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(1, 2, 3)
+
+	ch := d.AddedPIDsNotify()
+	select {
+	case got := <-ch:
+		t.Fatalf("expected no replay of pre-subscribe adds, got %v", got)
+	default:
+	}
+
+	pids, ok := d.GetPIDs()
+	require.True(t, ok)
+	assert.ElementsMatch(t, []app.PID{1, 2, 3}, pids)
 }
 
 func TestDynamicPIDSelector_AddPID_WithOptions(t *testing.T) {
