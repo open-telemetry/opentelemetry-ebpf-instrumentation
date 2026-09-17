@@ -52,9 +52,6 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.HTTPRequestMethod:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Method == "" {
-				return attribute.KeyValue{}
-			}
 			if !IsKnownHTTPMethod(s.Method) {
 				return HTTPRequestMethod(HTTPMethodOther)
 			}
