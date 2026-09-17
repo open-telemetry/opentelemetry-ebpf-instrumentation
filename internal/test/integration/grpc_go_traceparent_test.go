@@ -60,11 +60,15 @@ func TestSuite_GRPCGoTraceparentOwnership(t *testing.T) {
 
 	t.Run("plaintext", func(t *testing.T) {
 		testGRPCGoTraceparentOwnership(
-			t, compose, 18082, "go-ownership-receiver", strings.Repeat("a", 32))
+			t, compose, 18082, "go-ownership-receiver", strings.Repeat("a", 32), false)
 	})
 	t.Run("TLS", func(t *testing.T) {
 		testGRPCGoTraceparentOwnership(
-			t, compose, 18083, "go-ownership-receiver-tls", strings.Repeat("b", 32))
+			t, compose, 18083, "go-ownership-receiver-tls", strings.Repeat("b", 32), false)
+	})
+	t.Run("wrapped connection", func(t *testing.T) {
+		testGRPCGoTraceparentOwnership(
+			t, compose, 18082, "go-ownership-receiver", strings.Repeat("c", 32), true)
 	})
 }
 
@@ -95,12 +99,16 @@ func testGRPCGoTraceparentOwnership(
 	port int,
 	receiverService string,
 	outerTraceID string,
+	wrapped bool,
 ) {
 	t.Helper()
 
 	runID := fmt.Sprintf("%d-%d", port, time.Now().UnixNano())
 	req, err := http.NewRequest(http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/ownership?run=%s", port, runID), nil)
+		fmt.Sprintf(
+			"http://127.0.0.1:%d/ownership?run=%s&wrapped=%t", port, runID, wrapped),
+		nil,
+	)
 	require.NoError(t, err)
 	req.Header.Set("traceparent", fmt.Sprintf("00-%s-eeeeeeeeeeeeeeee-01", outerTraceID))
 	resp, err := http.DefaultClient.Do(req)

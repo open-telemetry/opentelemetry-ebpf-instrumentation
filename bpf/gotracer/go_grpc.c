@@ -1238,20 +1238,19 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler, struct pt_regs
     publish_grpc_stream(&pending, stream_id);
     consume_grpc_pending_header(&hdr_key, &pending.request_key);
 
-    grpc_connection_t *grpc_conn = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &conn_key);
-    if (!grpc_conn || grpc_conn->pid != pid_from_pid_tgid(bpf_get_current_pid_tgid())) {
-        return 0;
-    }
-
     grpc_h2_header_observation_t observation = {
         .stream =
             {
-                .socket_cookie = grpc_conn->socket_cookie,
-                .pid = grpc_conn->pid,
+                .pid = pending.request_key.pid,
                 .stream_id = stream_id,
             },
         .request_key = pending.request_key,
     };
+
+    grpc_connection_t *grpc_conn = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &conn_key);
+    if (grpc_conn && grpc_conn->pid == pid_from_pid_tgid(bpf_get_current_pid_tgid())) {
+        observation.stream.socket_cookie = grpc_conn->socket_cookie;
+    }
 
     go_addr_key_t writer_key = {};
     go_addr_key_from_id(&writer_key, GOROUTINE_PTR(ctx));

@@ -156,9 +156,21 @@ var (
 )
 
 func nextHopConn(addr string) (*grpc.ClientConn, error) {
+	return nextHopConnWithMode(addr, false)
+}
+
+// wrappedConn keeps the embedded connection away from offset zero so OBI
+// cannot interpret it as the concrete net.TCPConn layout.
+type wrappedConn struct {
+	_ uintptr
+	net.Conn
+}
+
+func nextHopConnWithMode(addr string, wrap bool) (*grpc.ClientConn, error) {
 	nextHopConnsMu.Lock()
 	defer nextHopConnsMu.Unlock()
-	if c, ok := nextHopConns[addr]; ok {
+	cacheKey := fmt.Sprintf("%s/%t", addr, wrap)
+	if c, ok := nextHopConns[cacheKey]; ok {
 		return c, nil
 	}
 	var transportCredentials credentials.TransportCredentials
@@ -167,11 +179,21 @@ func nextHopConn(addr string) (*grpc.ClientConn, error) {
 	} else {
 		transportCredentials = insecure.NewCredentials()
 	}
-	c, err := grpc.NewClient(addr, grpc.WithTransportCredentials(transportCredentials))
+	dialOptions := []grpc.DialOption{grpc.WithTransportCredentials(transportCredentials)}
+	if wrap {
+		dialOptions = append(dialOptions, grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+			if err != nil {
+				return nil, err
+			}
+			return &wrappedConn{Conn: conn}, nil
+		}))
+	}
+	c, err := grpc.NewClient(addr, dialOptions...)
 	if err != nil {
 		return nil, err
 	}
-	nextHopConns[addr] = c
+	nextHopConns[cacheKey] = c
 	return c, nil
 }
 
@@ -259,7 +281,11 @@ func main() {
 		if ownershipNextHop != "" {
 			http.HandleFunc("/ownership", func(w http.ResponseWriter, r *http.Request) {
 				if err := runOwnershipBatch(
-					r.Context(), ownershipNextHop, r.URL.Query().Get("run")); err != nil {
+					r.Context(),
+					ownershipNextHop,
+					r.URL.Query().Get("run"),
+					r.URL.Query().Get("wrapped") == "true",
+				); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
@@ -380,11 +406,11 @@ type ownershipCase struct {
 	metadata    int
 }
 
-func runOwnershipBatch(ctx context.Context, addr, runID string) error {
+func runOwnershipBatch(ctx context.Context, addr, runID string, wrapConn bool) error {
 	if runID == "" {
 		return fmt.Errorf("run is required")
 	}
-	conn, err := nextHopConn(addr)
+	conn, err := nextHopConnWithMode(addr, wrapConn)
 	if err != nil {
 		return err
 	}

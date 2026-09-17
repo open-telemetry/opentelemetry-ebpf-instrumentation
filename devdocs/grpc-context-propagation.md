@@ -67,7 +67,7 @@ Parent lookup priority in `create_tp`:
 ### Go Uprobe Path
 
 1. **`transport_http2Client_NewStream`** — caches `{pid, conn_ptr} → {connection_info, socket_cookie}` in `grpc_conn_ptr_to_conn`. The socket cookie comes from the Go connection's `netFD.pfd.Sysfd` and the current task's file table.
-2. **`controlBuffer.executeAndPut` → `loopyWriter.clientHeaderHandler`** — carries the request across the caller-to-writer goroutine handoff using `{pid, queued_header_ptr}`. The handler publishes the stream state before serialization, so it does not depend on `NewStream` returning first, and combines the cached socket cookie with the assigned stream ID. It also scans the handler's HPACK field slice once for an application-provided `traceparent` and publishes an exact `{socket_cookie, pid, stream_id}` ownership marker. The value is not copied or validated: field ownership alone prevents OBI from adding a duplicate. The scan examines up to 256 fields. Longer or unreadable slices are conservatively treated as application-owned, preserving application data at the cost of skipping OBI injection for that stream.
+2. **`controlBuffer.executeAndPut` → `loopyWriter.clientHeaderHandler`** — carries the request across the caller-to-writer goroutine handoff using `{pid, queued_header_ptr}`. The handler publishes the stream state before serialization, so it does not depend on `NewStream` returning first, and combines the assigned stream ID with the cached socket cookie when one is available. It also scans the handler's HPACK field slice once for an application-provided `traceparent`. Writer-local ownership does not require connection metadata; when a socket cookie is available, the handler also publishes the exact `{socket_cookie, pid, stream_id}` ownership marker used by socket fallback. The value is not copied or validated: field ownership alone prevents OBI from adding a duplicate. The scan examines up to 256 fields. Longer or unreadable slices are conservatively treated as application-owned, preserving application data at the cost of skipping OBI injection for that stream.
 3. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. It stands down when the current writer goroutine observed an application field for that stream; otherwise it writes `outgoing_trace_map[{ports, stream_id}]`, marks the conn via `mark_go_grpc_client_conn`, and injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true. The stand-down path also marks the outgoing entry written, so socket fallback remains suppressed if socket-cookie storage is unavailable.
 
 ### sk_msg Per-Stream Fallback for Go gRPC Conns
@@ -136,8 +136,8 @@ Connections established before OBI attached are recognized (mid-stream sniff), p
 
 **The race.** When a Go gRPC client opens a new stream, two goroutines are involved:
 
-1. The caller goroutine runs `NewStream`, which builds a `*headerFrame` and queues it on the `controlBuffer`.
-2. The `loopyWriter` goroutine dequeues that `headerFrame`, assigns the HTTP/2 `stream_id`, and calls `framer.WriteHeaders`.
+1. The caller goroutine runs `NewStream`, which builds a queued header object and sends it to the `controlBuffer`.
+2. The `loopyWriter` goroutine dequeues that object, establishes the HTTP/2 `stream_id`, and calls `framer.WriteHeaders`.
 
 The direct HPACK injection in `framer.WriteHeaders` looks up the trace context in `ongoing_streams[{pid, conn_ptr, stream_id}]`. `NewStream_ret` populates that map on the caller goroutine, but `loopyWriter` can start serializing the first HEADERS frame before `NewStream` returns. Relying on the return probe alone therefore leaves a race where the lookup misses and no `traceparent` is injected.
 
@@ -146,13 +146,13 @@ The direct HPACK injection in `framer.WriteHeaders` looks up the trace context i
 - On the caller goroutine, OBI knows the trace context before a usable stream ID has been assigned.
 - On the writer goroutine, grpc-go has assigned the stream ID, but goroutine-keyed state from `NewStream` is no longer visible.
 
-The `*headerFrame` pointer is visible on both sides of the handoff. OBI combines it with the process ID so pointer reuse in another process cannot correlate unrelated requests.
+The queued header object's pointer is visible on both sides of the handoff. OBI combines it with the process ID so pointer reuse in another process cannot correlate unrelated requests.
 
 **The bridge** (`bpf/gotracer/go_grpc.c`):
 
-- **`(*controlBuffer).executeAndPut`** — runs on the caller goroutine just before the `headerFrame` is queued. It stores the invocation in `pending_h2_invocations[{pid, hdr_ptr}]` and records a request-keyed reverse reference.
-- **`(*loopyWriter).clientHeaderHandler`** — the current grpc-go path runs after the stream ID has been assigned and before HPACK serialization. It consumes the pending entry, publishes `ongoing_streams[{pid, conn_ptr, stream_id}]` and `outgoing_trace_map`, scans the handler's HPACK fields for application ownership, and records the active writer observation used by `grpcFramerWriteHeaders`.
-- **`(*loopyWriter).originateStream`** — the retained legacy path consumes the same pending entry and publishes the stream state once `outStream.id` is available. It does not provide the current handler-scoped application-ownership observation; versioned selection for legacy ownership layouts remains follow-up work.
+- **`(*controlBuffer).executeAndPut`** — runs on the caller goroutine just before the header object is queued. It stores the invocation in `pending_h2_invocations[{pid, hdr_ptr}]` and records a request-keyed reverse reference.
+- **`(*loopyWriter).clientHeaderHandler`** — the current grpc-go path consumes a `*clientHeaders` object after the stream ID has been assigned and before HPACK serialization. It consumes the pending entry, publishes `ongoing_streams[{pid, conn_ptr, stream_id}]` and `outgoing_trace_map`, scans the handler's HPACK fields for application ownership, and records the active writer observation used by `grpcFramerWriteHeaders`.
+- **`(*loopyWriter).originateStream`** — the retained legacy path consumes a `*headerFrame` pending entry and publishes the stream state once `outStream.id` is available. It does not provide the current handler-scoped application-ownership observation; versioned selection for legacy ownership layouts remains follow-up work.
 
 ## Maps
 
