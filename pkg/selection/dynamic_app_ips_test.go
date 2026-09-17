@@ -119,7 +119,7 @@ func TestDynamicAppIPs_withStore_doesNotAdmitTrafficForUnknownPID(t *testing.T) 
 
 	pid := app.PID(os.Getpid())
 	sel := &stubPIDSelector{pids: []app.PID{pid}}
-	tracker := NewDynamicAppIPs(sel, newTestKubeStore(t))
+	tracker := NewDynamicAppIPs("test", sel, newTestKubeStore(t))
 	tracker.addBatch([]app.PID{pid})
 
 	host := pipe.IPAddr(net.ParseIP("192.168.1.10"))
@@ -136,7 +136,7 @@ func TestDynamicAppIPs_addBatch_usesResolvedIPs(t *testing.T) {
 	})
 
 	sel := &stubPIDSelector{pids: []app.PID{99}}
-	tracker := NewDynamicAppIPs(sel, nil)
+	tracker := NewDynamicAppIPs("test", sel, nil)
 	tracker.addBatch([]app.PID{99})
 
 	src := pipe.IPAddr(net.ParseIP("10.1.1.5"))
@@ -148,7 +148,7 @@ func TestDynamicAppIPs_sharedHostNetNS_doesNotAdmitUnselectedHostTraffic(t *test
 	stubSharedHostNetNS(t)
 
 	sel := &stubPIDSelector{pids: []app.PID{100}}
-	tracker := NewDynamicAppIPs(sel, nil)
+	tracker := NewDynamicAppIPs("test", sel, nil)
 	tracker.addBatch([]app.PID{100})
 
 	host := pipe.IPAddr(net.ParseIP("192.168.1.10"))
@@ -160,7 +160,7 @@ func TestDynamicAppIPs_twoSelectedInSharedNetNS_neitherGetsHostIPs(t *testing.T)
 	stubSharedHostNetNS(t)
 
 	sel := &stubPIDSelector{pids: []app.PID{10, 20}}
-	tracker := NewDynamicAppIPs(sel, nil)
+	tracker := NewDynamicAppIPs("test", sel, nil)
 	tracker.addBatch([]app.PID{10, 20})
 
 	host := pipe.IPAddr(net.ParseIP("192.168.1.10"))
@@ -180,7 +180,7 @@ func TestDynamicAppIPs_twoIsolatedNetNS_eachKeepsOwnIP(t *testing.T) {
 	})
 
 	sel := &stubPIDSelector{pids: []app.PID{10, 20}}
-	tracker := NewDynamicAppIPs(sel, nil)
+	tracker := NewDynamicAppIPs("test", sel, nil)
 	tracker.addBatch([]app.PID{10, 20})
 
 	dst := pipe.IPAddr(net.ParseIP("8.8.8.8"))
@@ -200,7 +200,7 @@ func TestDynamicAppIPs_twoIsolatedNetNS_eachKeepsOwnIP(t *testing.T) {
 
 func TestDynamicAppIPs_Allows_emptySelectorBlocks(t *testing.T) {
 	sel := &stubPIDSelector{}
-	tracker := NewDynamicAppIPs(sel, nil)
+	tracker := NewDynamicAppIPs("test", sel, nil)
 
 	attrs := &pipe.CommonAttrs{
 		SrcAddr: pipe.IPAddr(net.ParseIP("10.0.0.1")),
@@ -214,7 +214,7 @@ func TestDynamicAppIPs_Allows_emptySelectorBlocks(t *testing.T) {
 
 func TestDynamicAppIPs_Allows_matchingIP(t *testing.T) {
 	sel := &stubPIDSelector{pids: []app.PID{99}}
-	tracker := NewDynamicAppIPs(sel, nil)
+	tracker := NewDynamicAppIPs("test", sel, nil)
 	tracker.addBatch([]app.PID{99})
 	tracker.mu.Lock()
 	tracker.pidToIPs[99] = []string{"10.1.1.5"}
@@ -232,7 +232,7 @@ func TestDynamicAppIPs_Allows_matchingIP(t *testing.T) {
 
 func TestDynamicAppIPs_removeBatch(t *testing.T) {
 	sel := &stubPIDSelector{pids: []app.PID{1}}
-	tracker := NewDynamicAppIPs(sel, nil)
+	tracker := NewDynamicAppIPs("test", sel, nil)
 	tracker.mu.Lock()
 	tracker.pidToIPs[1] = []string{"10.0.0.1"}
 	tracker.allowedIPs["10.0.0.1"] = 1
@@ -252,7 +252,7 @@ func TestDynamicAppIPs_removeBatch(t *testing.T) {
 
 func TestDynamicAppIPs_sharedPodIP(t *testing.T) {
 	sel := &stubPIDSelector{pids: []app.PID{1, 2}}
-	tracker := NewDynamicAppIPs(sel, nil)
+	tracker := NewDynamicAppIPs("test", sel, nil)
 
 	tracker.mu.Lock()
 	tracker.pidToIPs[1] = []string{"10.0.0.5"}
