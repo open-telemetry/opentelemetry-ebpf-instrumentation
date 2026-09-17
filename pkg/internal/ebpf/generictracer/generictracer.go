@@ -237,42 +237,6 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants()}}, nil
 }
 
-func (p *Tracer) SetupTailCalls() {
-	// Order must match the k_tail_* enum in bpf/generictracer/k_tracer_tailcall.h
-	for i, prog := range []*ebpf.Program{
-		// HTTP/1
-		p.bpfObjects.ObiProtocolHttp,           // 0  k_tail_protocol_http
-		p.bpfObjects.ObiContinueProtocolHttp,   // 1  k_tail_continue_protocol_http
-		p.bpfObjects.ObiContinue2ProtocolHttp,  // 2  k_tail_continue2_protocol_http
-		p.bpfObjects.ObiContinueProtocolHttpTp, // 3  k_tail_continue_protocol_http_tp
-		// TCP
-		p.bpfObjects.ObiProtocolTcp, // 4  k_tail_protocol_tcp
-		// generic
-		p.bpfObjects.ObiHandleBufWithArgs, // 5  k_tail_handle_buf_with_args
-		nil,                               // 6  k_tail_continue_netfd_read (gotracer-only)
-		// HTTP/2 + gRPC
-		p.bpfObjects.ObiProtocolHttp2,                                   // 7
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                         // 8
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,               // 9
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,                 // 10
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
-		// Large buffer multi-batch emission
-		p.bpfObjects.ObiLargeBufEmitContinue,                            // 13  k_tail_large_buf_emit_continue
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit,   // 14
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerHuffman,  // 15
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerHuffscan, // 16
-	} {
-		if prog == nil {
-			continue
-		}
-		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
-		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
-			p.log.Error("error loading info tail call jump table", "error", err)
-		}
-	}
-}
-
 func (p *Tracer) constants() map[string]any {
 	m := make(map[string]any, 2)
 

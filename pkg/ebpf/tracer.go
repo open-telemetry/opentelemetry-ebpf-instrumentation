@@ -66,8 +66,6 @@ type CommonTracer interface {
 	// AddCloser adds io.Closer instances that need to be invoked when the
 	// Run function ends.
 	AddCloser(c ...io.Closer)
-	// SetupTailCalls sets up any tail call jump tables after all specs are loaded.
-	SetupTailCalls()
 }
 
 type KprobesTracer interface {
