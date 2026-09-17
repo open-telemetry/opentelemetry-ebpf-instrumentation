@@ -265,6 +265,14 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 				assert.NotEqual(c, inner.SpanID, outer.SpanID, "span IDs must be unique")
 				assert.True(c, inner.TraceID.IsValid())
 				assert.True(c, outer.TraceID.IsValid())
+				assert.Equal(c,
+					outer.TraceID,
+					inner.TraceID,
+					"nested invocation must remain in the parent's trace")
+				assert.Equal(c,
+					outer.SpanID,
+					inner.ParentSpanID,
+					"nested invocation must use the outer span as its parent")
 				t.Logf("nested_same_connection: outer TraceID=%s SpanID=%s ParentSpanID=%s", outer.TraceID, outer.SpanID, outer.ParentSpanID)
 				t.Logf("nested_same_connection: inner TraceID=%s SpanID=%s ParentSpanID=%s", inner.TraceID, inner.SpanID, inner.ParentSpanID)
 			}
@@ -295,6 +303,14 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 				assert.NotEqual(c, inner.SpanID, outer.SpanID, "span IDs must be unique")
 				assert.True(c, inner.TraceID.IsValid())
 				assert.True(c, outer.TraceID.IsValid())
+				assert.Equal(c,
+					outer.TraceID,
+					inner.TraceID,
+					"nested invocation must remain in the parent's trace")
+				assert.Equal(c,
+					outer.SpanID,
+					inner.ParentSpanID,
+					"nested invocation must use the outer span as its parent")
 			}
 		}, 10*time.Second, 100*time.Millisecond)
 	})
@@ -320,6 +336,18 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 					t.Logf("recursive_unary[%d]: TraceID=%s SpanID=%s ParentSpanID=%s", i, s.TraceID, s.SpanID, s.ParentSpanID)
 				}
 				assert.Len(c, spanIDs, 3, "all 3 spans must have unique span IDs")
+
+				for i := 1; i < len(grpcSpans); i++ {
+					assert.Equal(c,
+						grpcSpans[0].TraceID,
+						grpcSpans[i].TraceID,
+						"recursive invocations must remain in the same trace")
+
+					assert.Equal(c,
+						grpcSpans[i-1].SpanID,
+						grpcSpans[i].ParentSpanID,
+						"recursive invocation must be parented by the previous depth")
+				}
 			}
 		}, 10*time.Second, 100*time.Millisecond)
 	})
