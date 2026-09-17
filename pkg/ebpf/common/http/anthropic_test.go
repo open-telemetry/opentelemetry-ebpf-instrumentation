@@ -515,3 +515,29 @@ data: {"type":"message_stop"}
 	assert.Empty(t, toolCalls)
 	assert.Equal(t, "msg_02", resp.ID)
 }
+
+// An error response carries no `type` of its own, so the operation has to come
+// from the request path.
+func TestAnthropicSpan_ErrorResponseStillReportsOperation(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.anthropic.com/v1/messages", anthropicRequestBody)
+	resp := makeGzipResponse(t, http.StatusBadRequest, anthropicHeaders(),
+		`{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}`)
+
+	span, ok := AnthropicSpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.Anthropic)
+	assert.NotEmpty(t, span.GenAI.Anthropic.Output.Type)
+}
+
+// A response truncated out of the capture buffer parses to nothing at all.
+func TestAnthropicSpan_UnparseableResponseFallsBackToPath(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.anthropic.com/v1/messages", anthropicRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, anthropicHeaders(), `{"type":`)
+
+	span, ok := AnthropicSpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.Anthropic)
+	assert.Equal(t, request.MessageOperationName, span.GenAI.Anthropic.Output.Type)
+}

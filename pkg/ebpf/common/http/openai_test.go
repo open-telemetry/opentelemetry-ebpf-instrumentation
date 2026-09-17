@@ -434,3 +434,43 @@ func TestOpenAISpan_Embeddings(t *testing.T) {
 	assert.Equal(t, "The food was delicious", ai.Request.Input) // raw field
 	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"The food was delicious"}]}]`, ai.Request.GetInput())
 }
+
+// A gateway or Azure deployment serves the same endpoint under a prefix, which
+// an exact path match missed.
+func TestOpenAISpan_PrefixedPathReportsOperation(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://gw.internal/openai/v1/chat/completions", completionsRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.ChatOperationName, span.GenAI.OpenAI.OperationName)
+}
+
+// /v1/completions had no case at all, so the legacy endpoint reported nothing.
+func TestOpenAISpan_LegacyCompletionsReportsOperation(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/completions", completionsRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.CompletionOperationName, span.GenAI.OpenAI.OperationName)
+	assert.Equal(t, "text_completions", span.GenAI.OpenAI.APIType)
+}
+
+// An endpoint outside the ones the switch names still has to report something:
+// gen_ai.operation.name is required, and header-based detection fires on every
+// OpenAI endpoint, not only the five OBI can classify.
+func TestOpenAISpan_UnknownEndpointReportsOther(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/moderations", completionsRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAI.OperationName)
+}

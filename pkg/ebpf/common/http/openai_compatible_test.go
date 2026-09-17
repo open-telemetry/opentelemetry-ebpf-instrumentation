@@ -483,3 +483,35 @@ func TestOpenAICompatibleSpan_SparseReportedUsage(t *testing.T) {
 		})
 	}
 }
+
+// The responses case set only the API type, so every Responses-API call through
+// a gateway reported no operation at all.
+func TestOpenAICompatibleSpan_ResponsesReportsOperation(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/responses", compatibleChatRequestBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+	span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAICompatible)
+	assert.Equal(t, request.ResponseOperationName, span.GenAI.OpenAICompatible.OperationName)
+	assert.Equal(t, "responses", span.GenAI.OpenAICompatible.APIType)
+}
+
+// A gateway is matched by host, so any path on that host reaches the parser.
+func TestOpenAICompatibleSpan_UnknownEndpointReportsOther(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/rerank", compatibleChatRequestBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+	span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAICompatible)
+	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAICompatible.OperationName)
+}

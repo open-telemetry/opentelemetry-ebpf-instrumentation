@@ -1030,6 +1030,8 @@ const (
 	ResponseOperationName     = "response"
 	ConversationOperationName = "conversation"
 	ExecuteToolOperationName  = "execute_tool"
+	MessageOperationName      = "message"
+	OtherOperationName        = "_OTHER"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as

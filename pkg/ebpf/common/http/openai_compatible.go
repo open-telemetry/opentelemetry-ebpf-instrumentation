@@ -79,6 +79,7 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 
 	// Use strings.Contains instead of exact path matching to support
 	// gateways mounted under a path prefix (e.g. /litellm/v1/chat/completions).
+	parsedResponse.OperationName = request.OtherOperationName
 	if req.URL != nil {
 		switch {
 		case strings.Contains(req.URL.Path, "/v1/chat/completions"):
@@ -91,7 +92,10 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 			parsedResponse.OperationName = request.EmbeddingOperationName
 			parsedResponse.APIType = "embeddings"
 		case strings.Contains(req.URL.Path, "/v1/responses"):
+			parsedResponse.OperationName = request.ResponseOperationName
 			parsedResponse.APIType = "responses"
+		default:
+			parsedResponse.OperationName = request.OtherOperationName
 		}
 	}
 

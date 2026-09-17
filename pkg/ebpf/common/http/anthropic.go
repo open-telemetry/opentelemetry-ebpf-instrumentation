@@ -142,6 +142,10 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		}
 	}
 
+	if parsedResponse.Type == "" {
+		parsedResponse.Type = anthropicOperation(req)
+	}
+
 	baseSpan.SubType = request.HTTPSubtypeAnthropic
 	baseSpan.GenAI = &request.GenAI{
 		Anthropic: &request.VendorAnthropic{
@@ -152,6 +156,17 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	}
 
 	return *baseSpan, true
+}
+
+// anthropicOperation names the operation from the request path, for responses
+// that carry no `type` of their own: an error body, or one truncated out of the
+// capture buffer.
+func anthropicOperation(req *http.Request) string {
+	if strings.Contains(requestPath(req), "/v1/complete") {
+		return request.CompletionOperationName
+	}
+
+	return request.MessageOperationName
 }
 
 // AnthropicStreamEvent represents different types of streaming events

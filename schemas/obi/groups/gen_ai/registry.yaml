@@ -26,6 +26,13 @@ groups:
   #   emits only the upstream-defined 'execute_tool', and nothing at all for
   #   methods that are not tool calls.
   #
+  #   An endpoint OBI cannot identify reports '_OTHER', the same marker
+  #   upstream gives `http.request.method` for a method the instrumentation
+  #   does not know. It is deliberately not `custom`: that marks a value we
+  #   know but have no member for, and since this attribute is an open string
+  #   every operation OBI can read is emitted verbatim, so the only residual
+  #   case is one it could not identify at all.
+  #
   # See ../../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
   - id: x.obi.gen_ai

@@ -135,20 +135,29 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	// responses don't): the operation name feeds required metric attributes
 	// (gen_ai.client.operation.duration / token.usage), so failed calls must
 	// carry it too.
+	parsedResponse.OperationName = request.OtherOperationName
 	if req.URL != nil {
+		// Matched as a suffix rather than exactly: Azure and gateway deployments
+		// mount the same endpoints under a prefix. Chat completions is tested
+		// first because it also ends in /completions.
 		path := strings.TrimSuffix(req.URL.Path, "/")
-		switch path {
-		case "/v1/chat/completions":
+		switch {
+		case strings.HasSuffix(path, "/chat/completions"):
 			parsedResponse.OperationName = request.ChatOperationName
 			parsedResponse.APIType = "chat_completions"
-		case "/v1/embeddings":
+		case strings.HasSuffix(path, "/completions"):
+			parsedResponse.OperationName = request.CompletionOperationName
+			parsedResponse.APIType = "text_completions"
+		case strings.HasSuffix(path, "/embeddings"):
 			parsedResponse.OperationName = request.EmbeddingOperationName
 			parsedResponse.APIType = "embeddings"
-		case "/v1/responses":
+		case strings.HasSuffix(path, "/responses"):
 			parsedResponse.OperationName = request.ResponseOperationName
 			parsedResponse.APIType = "responses"
-		case "/v1/conversations":
+		case strings.HasSuffix(path, "/conversations"):
 			parsedResponse.OperationName = request.ConversationOperationName
+		default:
+			parsedResponse.OperationName = request.OtherOperationName
 		}
 	}
 

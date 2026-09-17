@@ -701,10 +701,10 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.ErrorType))
 	})
 
-	t.Run("test OpenAI trace generation omits empty operation name", func(t *testing.T) {
-		// gen_ai.operation.name must not be emitted as an empty string:
-		// when the operation could not be classified (e.g. an error response
-		// parsed before the request body), the attribute must be omitted
+	t.Run("test OpenAI trace generation marks an unclassified operation", func(t *testing.T) {
+		// gen_ai.operation.name is required, so an operation that could not be
+		// classified reports the unknown marker rather than being omitted or
+		// emitted as an empty string
 		span := request.Span{
 			Type:    request.EventTypeHTTPClient,
 			SubType: request.HTTPSubtypeOpenAI,
@@ -719,7 +719,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.GenAIProviderNameKey, "openai")
-		ensureTraceAttrNotExists(t, attrs, semconv.GenAIOperationNameKey)
+		ensureTraceStrAttr(t, attrs, semconv.GenAIOperationNameKey, request.OtherOperationName)
 	})
 
 	t.Run("test Mongo trace generation", func(t *testing.T) {
