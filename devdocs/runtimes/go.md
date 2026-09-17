@@ -3,8 +3,35 @@
 With `application_runtime` enabled, OBI collects Go runtime values from
 instrumented Go services and exports the following metric set.
 
-Go runtime metrics require the binary's symbol table. Stripped builds, including
-builds using `-ldflags=-s`, are not supported.
+OBI resolves runtime globals from ELF object symbols when they are available.
+Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
+fallback currently recovers only `runtime.gomaxprocs`; stripped binaries remain
+disabled until it can recover the other mandatory runtime globals.
+
+## Stripped global recovery
+
+Go retains function metadata in `.gopclntab` after `-ldflags=-s` removes the ELF
+object symbols. The fallback uses that metadata to locate and bound
+`runtime.procresize`, whose processor-count validation reads `runtime.gomaxprocs`.
+
+On `amd64`, the resolver decodes `procresize` and matches this sequence:
+
+```text
+MOV  register, [RIP+displacement]
+TEST register, register
+JL   invalidArg
+```
+
+The `MOV` reads the four-byte `gomaxprocs` global. Its target ELF address is the
+instruction address plus its length and signed displacement. The resolver
+requires the complete, aligned four-byte candidate to belong to a readable and
+writable `PT_LOAD` memory range. It uses the segment's in-memory size so globals
+in zero-initialized BSS are valid, and rejects matches that identify different
+addresses.
+
+After validation, the resolver adds the executable's process load bias. The
+resulting process address is the value that the BPF runtime metrics collector
+uses to read `gomaxprocs` from the target process.
 
 ## Metrics
 
