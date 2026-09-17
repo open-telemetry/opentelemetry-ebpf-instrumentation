@@ -143,7 +143,7 @@ int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
         return 0;
     }
 
-    se->flags = k_event_stat_tcp_failed_connection;
+    se->flags = k_stat_type_tcp_failed_connection;
     se->reason = reason;
     se->conn = conn;
 
@@ -180,7 +180,7 @@ int obi_stats_raw_tp_tcp_retransmit_skb(struct bpf_raw_tracepoint_args *ctx) {
         return 0;
     }
 
-    se->flags = k_event_stat_tcp_retransmit;
+    se->flags = k_stat_type_tcp_retransmit;
     se->conn = conn;
 
     bpf_ringbuf_submit(se, stats_events_flags());
