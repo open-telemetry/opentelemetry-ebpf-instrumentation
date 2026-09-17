@@ -94,6 +94,25 @@ func TestIsSymfonyAttributeImport(t *testing.T) {
 	assert.False(t, isSymfonyAttributeImport(parseSymfonyYAMLDefinition(t, "route:\n  resource: routes.yaml\n")))
 }
 
+func TestSymfonyYAMLResource(t *testing.T) {
+	tests := []struct {
+		name       string
+		definition string
+		expected   string
+	}{
+		{name: "scalar", definition: "route:\n  resource: ../src/Controller/\n", expected: "../src/Controller/"},
+		{name: "mapping", definition: "route:\n  resource: {path: ../src/Controller/, namespace: App\\Controller}\n", expected: "../src/Controller/"},
+		{name: "mapping without path", definition: "route:\n  resource: {namespace: App\\Controller}\n"},
+		{name: "sequence", definition: "route:\n  resource: [../src/Controller/]\n"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.expected, symfonyYAMLResource(parseSymfonyYAMLDefinition(t, test.definition)))
+		})
+	}
+}
+
 func TestYAMLScalar(t *testing.T) {
 	definition := parseSymfonyYAMLDefinition(t, `
 route:

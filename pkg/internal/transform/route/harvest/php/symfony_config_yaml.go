@@ -70,7 +70,7 @@ func extractSymfonyYAMLMapping(
 			routes.add(joinRoutes(routePrefix, routePath))
 		}
 
-		resource := yamlScalar(routeDefinition, "resource")
+		resource := symfonyYAMLResource(routeDefinition)
 		if resource == "" {
 			continue
 		}
@@ -106,6 +106,23 @@ func isSymfonyAttributeImport(definition *yaml.Node) bool {
 	return typeName == "attribute" || typeName == "annotation"
 }
 
+func symfonyYAMLResource(definition *yaml.Node) string {
+	resource := yamlValue(definition, "resource")
+	if resource == nil {
+		return ""
+	}
+
+	if resource.Kind == yaml.ScalarNode {
+		return resource.Value
+	}
+
+	// symfony 6.2+ accepts resource mappings containing path and namespace
+	if resource.Kind == yaml.MappingNode {
+		return yamlScalar(resource, "path")
+	}
+	return ""
+}
+
 // yamlScalar retrieves a named scalar value from a YAML mapping, for example:
 // route:
 //
@@ -115,10 +132,18 @@ func isSymfonyAttributeImport(definition *yaml.Node) bool {
 // yamlScalar(route, "path")    -> "/users"
 // yamlScalar(route, "methods") -> ""
 func yamlScalar(mapping *yaml.Node, name string) string {
+	value := yamlValue(mapping, name)
+	if value == nil || value.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return value.Value
+}
+
+func yamlValue(mapping *yaml.Node, name string) *yaml.Node {
 	for pos := 0; pos+1 < len(mapping.Content); pos += 2 {
-		if mapping.Content[pos].Value == name && mapping.Content[pos+1].Kind == yaml.ScalarNode {
-			return mapping.Content[pos+1].Value
+		if mapping.Content[pos].Value == name {
+			return mapping.Content[pos+1]
 		}
 	}
-	return ""
+	return nil
 }

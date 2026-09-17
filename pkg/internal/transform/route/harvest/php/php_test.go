@@ -96,6 +96,13 @@ func TestExtractRoutesFromImportedSymfonyAttributes(t *testing.T) {
 	assert.Equal(t, []string{"/api/orders/{id}"}, routes)
 }
 
+func TestExtractRoutesFromMappedSymfonyAttributes(t *testing.T) {
+	routes, err := phpharvest.ExtractRoutes(context.Background(), filepath.Join("testdata", "symfony", "mapped_attributes"))
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/api/users/{id}"}, routes)
+}
+
 func TestExtractRoutesFromSlimFourProject(t *testing.T) {
 	routes, err := phpharvest.ExtractRoutes(context.Background(), filepath.Join("testdata", "slim", "v4"))
 
