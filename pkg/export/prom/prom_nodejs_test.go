@@ -60,6 +60,7 @@ func nodejsServiceLabels() map[string]string {
 		"service_name":        "orders",
 		"service_namespace":   "prod",
 		"service_instance_id": "orders-1",
+		"job":                 "prod/orders",
 	}
 }
 

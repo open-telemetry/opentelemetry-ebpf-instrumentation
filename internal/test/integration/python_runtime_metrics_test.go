@@ -499,6 +499,7 @@ func pythonRuntimeMetricValues(t require.TestingT, pq pythonRuntimePrometheus, q
 
 	values := make([]uint64, 0, len(results))
 	for _, result := range results {
+		require.Equal(t, "integration-test/python-runtime-metrics", result.Metric["job"])
 		require.Len(t, result.Value, prometheusInstantVectorValueLen)
 		value, parseErr := strconv.ParseUint(fmt.Sprint(result.Value[1]), 10, 64)
 		require.NoError(t, parseErr)
