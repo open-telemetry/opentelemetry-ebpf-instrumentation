@@ -49,6 +49,17 @@ func TestReadPHPString(t *testing.T) {
 		{name: "single quote escape", data: `'it\'s'`, want: "it's", wantNext: 7, wantStatic: true},
 		{name: "single quote preserves unknown escape", data: `'\d+'`, want: `\d+`, wantNext: 5, wantStatic: true},
 		{name: "double quote escape", data: `"quoted\""`, want: `quoted"`, wantNext: 10, wantStatic: true},
+		{
+			name:       "double quote control escapes",
+			data:       `"\n\r\t\v\e\f"`,
+			want:       "\n\r\t\v\x1b\f",
+			wantNext:   len(`"\n\r\t\v\e\f"`),
+			wantStatic: true,
+		},
+		{name: "double quote octal escape", data: `"\057users"`, want: "/users", wantNext: 11, wantStatic: true},
+		{name: "double quote octal overflow", data: `"\400"`, want: "\x00", wantNext: 6, wantStatic: true},
+		{name: "double quote hexadecimal escape", data: `"\x2Fusers"`, want: "/users", wantNext: len(`"\x2Fusers"`), wantStatic: true},
+		{name: "double quote Unicode escape", data: `"\u{1F600}"`, want: "😀", wantNext: 11, wantStatic: true},
 		{name: "double quote interpolation", data: `"hello $name"`, want: "hello $name", wantNext: 13},
 		{name: "double quote curly interpolation", data: `"hello {$name}"`, want: "hello {$name}", wantNext: 15},
 		{name: "double quote legacy curly interpolation", data: `"hello ${name}"`, want: "hello ${name}", wantNext: 15},
@@ -56,6 +67,7 @@ func TestReadPHPString(t *testing.T) {
 		{name: "dollar not followed by name is literal", data: `"price $5"`, want: "price $5", wantNext: 10, wantStatic: true},
 		{name: "trailing dollar is literal", data: `"total $"`, want: "total $", wantNext: 9, wantStatic: true},
 		{name: "double quote preserves unknown escape", data: `"\d+"`, want: `\d+`, wantNext: 5, wantStatic: true},
+		{name: "double quote preserves PCRE hexadecimal escape", data: `"\x{2F}"`, want: `\x{2F}`, wantNext: 8, wantStatic: true},
 		{name: "offset", data: `xx'route'`, start: 2, want: "route", wantNext: 9, wantStatic: true},
 		{name: "unterminated", data: `'broken`, wantNext: 7},
 	}
@@ -68,6 +80,140 @@ func TestReadPHPString(t *testing.T) {
 			assert.Equal(t, test.wantNext, next)
 			assert.Equal(t, test.wantStatic, static)
 		})
+	}
+}
+
+func TestDecodePHPStringEscape(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		start    int
+		quote    byte
+		want     string
+		wantNext int
+	}{
+		{name: "double quoted newline", data: `\n`, quote: '"', want: "\n", wantNext: 2},
+		{name: "double quoted quote", data: `\"`, quote: '"', want: `"`, wantNext: 2},
+		{name: "double quoted backslash", data: `\\`, quote: '"', want: `\`, wantNext: 2},
+		{name: "double quoted dollar", data: `\$`, quote: '"', want: `$`, wantNext: 2},
+		{name: "double quoted unknown escape", data: `\d`, quote: '"', want: `\d`, wantNext: 2},
+		{name: "single quoted quote", data: `\'`, quote: '\'', want: `'`, wantNext: 2},
+		{name: "single quoted backslash", data: `\\`, quote: '\'', want: `\`, wantNext: 2},
+		{name: "single quoted newline stays escaped", data: `\n`, quote: '\'', want: `\n`, wantNext: 2},
+		{name: "offset", data: `xx\t`, start: 2, quote: '"', want: "\t", wantNext: 4},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value, next := decodePHPStringEscape([]byte(test.data), test.start, test.quote)
+
+			assert.Equal(t, test.want, value)
+			assert.Equal(t, test.wantNext, next)
+		})
+	}
+}
+
+func TestDecodePHPOctalEscape(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		start    int
+		want     string
+		wantNext int
+	}{
+		{name: "one digit", data: `\7rest`, want: "\a", wantNext: 2},
+		{name: "two digits", data: `\57rest`, want: "/", wantNext: 3},
+		{name: "three digits", data: `\101rest`, want: "A", wantNext: 4},
+		{name: "stops after three digits", data: `\0577`, want: "/", wantNext: 4},
+		{name: "overflows to one byte", data: `\400`, want: "\x00", wantNext: 4},
+		{name: "offset", data: `xx\101`, start: 2, want: "A", wantNext: 6},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value, next := decodePHPOctalEscape([]byte(test.data), test.start)
+
+			assert.Equal(t, test.want, value)
+			assert.Equal(t, test.wantNext, next)
+		})
+	}
+}
+
+func TestDecodePHPHexEscape(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		start    int
+		want     string
+		wantNext int
+		wantOK   bool
+	}{
+		{name: "one digit", data: `\x2rest`, want: "\x02", wantNext: 3, wantOK: true},
+		{name: "two digits", data: `\x2Frest`, want: "/", wantNext: 4, wantOK: true},
+		{name: "lowercase digit", data: `\xarest`, want: "\n", wantNext: 3, wantOK: true},
+		{name: "stops after two digits", data: `\x2F7`, want: "/", wantNext: 4, wantOK: true},
+		{name: "missing digit", data: `\x`},
+		{name: "invalid digit", data: `\xZ`},
+		{name: "offset", data: `xx\x41`, start: 2, want: "A", wantNext: 6, wantOK: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value, next, ok := decodePHPHexEscape([]byte(test.data), test.start)
+
+			assert.Equal(t, test.want, value)
+			assert.Equal(t, test.wantNext, next)
+			assert.Equal(t, test.wantOK, ok)
+		})
+	}
+}
+
+func TestDecodePHPUnicodeEscape(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		start    int
+		want     string
+		wantNext int
+		wantOK   bool
+	}{
+		{name: "ASCII", data: `\u{41}rest`, want: "A", wantNext: 6, wantOK: true},
+		{name: "multibyte", data: `\u{1F600}`, want: "😀", wantNext: 9, wantOK: true},
+		{name: "missing braces", data: `\u41`},
+		{name: "empty", data: `\u{}`},
+		{name: "non hexadecimal", data: `\u{route}`},
+		{name: "missing closing brace", data: `\u{41`},
+		{name: "invalid codepoint", data: `\u{110000}`},
+		{name: "surrogate", data: `\u{D800}`},
+		{name: "offset", data: `xx\u{2F}`, start: 2, want: "/", wantNext: 8, wantOK: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value, next, ok := decodePHPUnicodeEscape([]byte(test.data), test.start)
+
+			assert.Equal(t, test.want, value)
+			assert.Equal(t, test.wantNext, next)
+			assert.Equal(t, test.wantOK, ok)
+		})
+	}
+}
+
+func TestIsOctalDigit(t *testing.T) {
+	for _, char := range []byte("01234567") {
+		assert.True(t, isOctalDigit(char), "character %q", char)
+	}
+	for _, char := range []byte("89aAfF") {
+		assert.False(t, isOctalDigit(char), "character %q", char)
+	}
+}
+
+func TestIsHexDigit(t *testing.T) {
+	for _, char := range []byte("0123456789aAbBcCdDeEfF") {
+		assert.True(t, isHexDigit(char), "character %q", char)
+	}
+	for _, char := range []byte("gGxX{}") {
+		assert.False(t, isHexDigit(char), "character %q", char)
 	}
 }
 

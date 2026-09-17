@@ -27,6 +27,22 @@ func TestExtractLaravelRoutes(t *testing.T) {
 	assert.Equal(t, routeSet{"/api/users": {}}, routes)
 }
 
+func TestExtractLaravelRoutesDecodesDoubleQuotedEscapes(t *testing.T) {
+	root := t.TempDir()
+	file := phpFile{
+		path: filepath.Join(root, "routes", "web.php"),
+		tokens: lexPHP([]byte(`
+            use Illuminate\Support\Facades\Route;
+            Route::get("\x2Fusers", fn () => null);
+        `)),
+	}
+	routes := newRouteSet()
+
+	extractLaravelRoutes(file, root, laravelAPIPrefix{}, routes)
+
+	assert.Equal(t, routeSet{"/users": {}}, routes)
+}
+
 func TestLaravelExtractorExtractsNestedGroups(t *testing.T) {
 	tokens := lexPHP([]byte(`
         use Illuminate\Support\Facades\Route;

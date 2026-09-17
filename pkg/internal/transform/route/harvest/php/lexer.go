@@ -3,7 +3,11 @@
 
 package php // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/php"
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+	"unicode/utf8"
+)
 
 type tokenKind uint8
 
@@ -86,22 +90,113 @@ func readPHPString(source []byte, start int) (string, int, bool) {
 			continue
 		}
 
-		pos++
-		escapedCharacter := source[pos]
-		shouldUnescape := escapedCharacter == quote ||
-			escapedCharacter == '\\' ||
-			(quote == '"' && escapedCharacter == '$')
-		if shouldUnescape {
-			value.WriteByte(escapedCharacter)
-			continue
-		}
-
-		// preserve unknown escapes such as \d, which commonly appears in route requirements
-		value.WriteByte('\\')
-		value.WriteByte(escapedCharacter)
+		escaped, nextPosition := decodePHPStringEscape(source, pos, quote)
+		value.WriteString(escaped)
+		pos = nextPosition - 1
 	}
 
 	return "", len(source), false
+}
+
+func decodePHPStringEscape(source []byte, start int, quote byte) (string, int) {
+	escaped := source[start+1]
+	if escaped == quote || escaped == '\\' || quote == '"' && escaped == '$' {
+		return string(escaped), start + 2
+	}
+
+	if quote == '\'' {
+		return string(source[start : start+2]), start + 2
+	}
+
+	switch escaped {
+	case 'n':
+		return "\n", start + 2
+	case 'r':
+		return "\r", start + 2
+	case 't':
+		return "\t", start + 2
+	case 'v':
+		return "\v", start + 2
+	case 'e':
+		return "\x1b", start + 2
+	case 'f':
+		return "\f", start + 2
+	case 'x':
+		if value, next, ok := decodePHPHexEscape(source, start); ok {
+			return value, next
+		}
+	case 'u':
+		if value, next, ok := decodePHPUnicodeEscape(source, start); ok {
+			return value, next
+		}
+	default:
+		if isOctalDigit(escaped) {
+			return decodePHPOctalEscape(source, start)
+		}
+	}
+
+	// PHP preserves unknown escapes, including common regex escapes such as \d.
+	return string(source[start : start+2]), start + 2
+}
+
+func decodePHPOctalEscape(source []byte, start int) (string, int) {
+	end := start + 1
+	limit := min(start+4, len(source))
+	for end < limit && isOctalDigit(source[end]) {
+		end++
+	}
+
+	value, _ := strconv.ParseUint(string(source[start+1:end]), 8, 16)
+	// PHP silently truncates overflowing octal escapes to one byte.
+	return string([]byte{byte(value)}), end
+}
+
+func decodePHPHexEscape(source []byte, start int) (string, int, bool) {
+	digits := start + 2
+	if digits >= len(source) || !isHexDigit(source[digits]) {
+		return "", start, false
+	}
+
+	end := digits + 1
+	if end < len(source) && isHexDigit(source[end]) {
+		end++
+	}
+
+	value, _ := strconv.ParseUint(string(source[digits:end]), 16, 8)
+	return string([]byte{byte(value)}), end, true
+}
+
+func decodePHPUnicodeEscape(source []byte, start int) (string, int, bool) {
+	digits := start + 3
+	if digits > len(source) || source[start+2] != '{' {
+		return "", start, false
+	}
+
+	end := digits
+	for end < len(source) && isHexDigit(source[end]) {
+		end++
+	}
+	if end == digits || end >= len(source) || source[end] != '}' {
+		return "", start, false
+	}
+
+	value, err := strconv.ParseUint(string(source[digits:end]), 16, 32)
+	character := rune(value)
+	if err != nil || !utf8.ValidRune(character) {
+		return "", start, false
+	}
+
+	return string(character), end + 1, true
+}
+
+func isOctalDigit(char byte) bool {
+	return char >= '0' && char <= '7'
+}
+
+func isHexDigit(char byte) bool {
+	return char >= '0' && char <= '9' ||
+		char >= 'a' && char <= 'f' ||
+		char >= 'A' && char <= 'F'
 }
 
 func startsPHPInterpolation(source []byte, position int) bool {
