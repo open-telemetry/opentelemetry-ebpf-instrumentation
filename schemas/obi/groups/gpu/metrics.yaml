@@ -56,3 +56,4 @@ groups:
       broken down by `cuda.memcpy.kind`.
     attributes:
       - ref: cuda.memcpy.kind
+        requirement_level: recommended

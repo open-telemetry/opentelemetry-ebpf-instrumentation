@@ -26,7 +26,10 @@ groups:
     stability: development
     attributes:
       - ref: go.cpu.state
+        requirement_level: required
       - ref: go.cpu.detailed_state
+        requirement_level:
+          recommended: if the runtime reported a detailed state
   - id: metric.obi.go.goroutine.count
     type: metric
     metric_name: go.goroutine.count
@@ -109,6 +112,7 @@ groups:
     stability: development
     attributes:
       - ref: go.memory.type
+        requirement_level: recommended
   - id: metric.obi.go.processor.limit
     type: metric
     metric_name: go.processor.limit

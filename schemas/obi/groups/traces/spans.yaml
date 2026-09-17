@@ -10,7 +10,18 @@ groups:
     brief: OBI failed outbound connection span.
     attributes:
       - ref: client.address
+        requirement_level: recommended
       - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
       - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+      # This group exists only for connections that failed: SpanStatusCode
+      # reports an error unconditionally and SpanErrorType falls through to
+      # `_OTHER`, so the attribute is always present.
       - ref: error.type
+        requirement_level: required

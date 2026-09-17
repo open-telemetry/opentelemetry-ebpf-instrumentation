@@ -11,50 +11,119 @@ groups:
     brief: OBI inbound HTTP server span.
     attributes:
       - ref: http.request.method
+        requirement_level: required
       - ref: http.response.status_code
+        requirement_level:
+          conditionally_required: if a response was observed
+      # A FastCGI params frame longer than the capture buffer arrives cut off,
+      # and both of these are read from it. A key past the cut is unknown
+      # rather than absent, so neither is guaranteed on that path.
       - ref: url.path
+        requirement_level:
+          conditionally_required: if the front end reported a request URI, and the params frame carrying it was captured whole
       - ref: url.scheme
+        requirement_level:
+          conditionally_required: if the front end reported a scheme, and the params frame carrying it was captured whole
       - ref: url.query
+        requirement_level:
+          conditionally_required: if the request carried a query string
       - ref: http.route
+        requirement_level:
+          conditionally_required: if route collection is enabled and the route was matched
       - ref: client.address
+        requirement_level: recommended
       - ref: server.address
+        requirement_level: recommended
       - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: http.request.body.size
+        requirement_level: recommended
       - ref: http.response.body.size
+        requirement_level: recommended
       - ref: http.request.body.content
+        requirement_level: opt_in
       - ref: http.response.body.content
+        requirement_level: opt_in
       - ref: http.request.header
+        requirement_level: opt_in
       - ref: http.response.header
+        requirement_level: opt_in
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
       - ref: graphql.operation.name
+        requirement_level:
+          conditionally_required: if the request was identified as GraphQL
       - ref: graphql.operation.type
+        requirement_level:
+          conditionally_required: if the request was identified as GraphQL
       - ref: graphql.document
+        requirement_level: opt_in
       - ref: mcp.method.name
+        requirement_level:
+          conditionally_required: if the request was identified as MCP
       - ref: mcp.resource.uri
+        requirement_level:
+          conditionally_required: if the request was identified as MCP
       - ref: mcp.session.id
+        requirement_level:
+          recommended: if the request was identified as MCP
       - ref: mcp.protocol.version
+        requirement_level:
+          recommended: if the request was identified as MCP
       - ref: gen_ai.operation.name
+        requirement_level:
+          conditionally_required: if the request was identified as a GenAI or MCP operation
       - ref: gen_ai.tool.name
+        requirement_level:
+          conditionally_required: if the operation executes a tool
       - ref: gen_ai.tool.type
+        requirement_level:
+          recommended: if the operation executes a tool
       - ref: gen_ai.tool.call.arguments
+        requirement_level: opt_in
       - ref: gen_ai.tool.call.result
+        requirement_level: opt_in
       - ref: gen_ai.prompt.name
+        requirement_level:
+          conditionally_required: if the request named a prompt template
       - ref: jsonrpc.request.id
+        requirement_level:
+          conditionally_required: if the request was identified as JSON-RPC or MCP
       - ref: jsonrpc.protocol.version
+        requirement_level:
+          conditionally_required: if the request was identified as JSON-RPC or MCP
       - ref: rpc.system.name
+        requirement_level:
+          conditionally_required: if the call was identified as an RPC protocol
       - ref: rpc.method
+        requirement_level:
+          conditionally_required: if the call was identified as an RPC protocol
       - ref: rpc.method_original
         requirement_level:
-          conditionally_required: If and only if it's different than `rpc.method`.
+          conditionally_required: if the qualified method differs from the raw one
       - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the RPC protocol reported a status code
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: http.request.method_original
-        requirement_level: opt_in
+        requirement_level:
+          conditionally_required: if the wire method was read and differs from `http.request.method`
       - ref: user_agent.original
-        requirement_level: opt_in
+        requirement_level:
+          recommended: if the request carried a user agent header
       - ref: obi.http.response.observed
         requirement_level:
           conditionally_required: if no response was observed
@@ -65,36 +134,122 @@ groups:
     brief: OBI outbound HTTP client span.
     attributes:
       - ref: http.request.method
+        requirement_level: required
       - ref: http.response.status_code
-      - ref: url.full
-      - ref: url.scheme
-      - ref: url.query
-      - ref: server.address
-      - ref: server.port
-      - ref: service.peer.name
-      - ref: http.request.body.size
-      - ref: http.response.body.size
-      - ref: http.request.body.content
-      - ref: http.response.body.content
-      - ref: http.request.header
-      - ref: http.response.header
-      - ref: rpc.system.name
-      - ref: rpc.method
-      - ref: rpc.method_original
         requirement_level:
-          conditionally_required: If and only if it's different than `rpc.method`.
-      - ref: rpc.response.status_code
-      - ref: jsonrpc.protocol.version
-      - ref: jsonrpc.request.id
-      - ref: span.metrics.skip
-      - ref: network.peer.address
-      - ref: network.peer.port
-      - ref: network.protocol.version
-      - ref: error.type
-      - ref: http.request.method_original
+          conditionally_required: if a response was observed
+      - ref: url.full
+        requirement_level:
+          conditionally_required: if the scheme or the host was captured on the connection
+      - ref: url.scheme
+        requirement_level:
+          conditionally_required: if the scheme was captured on the connection
+      - ref: url.query
+        requirement_level:
+          conditionally_required: if the request carried a query string
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
+      - ref: http.request.body.size
+        requirement_level: recommended
+      - ref: http.response.body.size
+        requirement_level: recommended
+      - ref: http.request.body.content
         requirement_level: opt_in
+      - ref: http.response.body.content
+        requirement_level: opt_in
+      - ref: http.request.header
+        requirement_level: opt_in
+      - ref: http.response.header
+        requirement_level: opt_in
+      - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
+      - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+      - ref: http.request.method_original
+        requirement_level:
+          conditionally_required: if the wire method was read and differs from `http.request.method`
       - ref: user_agent.original
         requirement_level: opt_in
       - ref: obi.http.response.observed
         requirement_level:
           conditionally_required: if no response was observed
+
+  # JSON-RPC over HTTP takes the default-deny transport scope, so the span
+  # reports the RPC convention alone and none of the HTTP request or response
+  # attributes a plain HTTP client span carries.
+  - id: span.obi.jsonrpc.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI outbound JSON-RPC over HTTP client span.
+    attributes:
+      - ref: rpc.system.name
+        requirement_level: required
+      - ref: rpc.method
+        requirement_level: required
+      # Go net/rpc names a method `Service.Method`, which the span reports as
+      # `Service/Method`; the raw form is emitted alongside it only then.
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: if the qualified method differs from the raw one
+      - ref: jsonrpc.protocol.version
+        requirement_level:
+          conditionally_required: upstream declares it conditional; OBI always emits it, since it recognises only JSON-RPC 2.0
+      - ref: jsonrpc.request.id
+        requirement_level:
+          conditionally_required: if the request carried a JSON-RPC id
+      - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the response carried a JSON-RPC error code
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
+      - ref: http.request.header
+        requirement_level: opt_in
+      - ref: http.response.header
+        requirement_level: opt_in
+      - ref: http.request.body.content
+        requirement_level: opt_in
+      - ref: http.response.body.content
+        requirement_level: opt_in
+      - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
+      - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+      - ref: user_agent.original
+        requirement_level: opt_in
