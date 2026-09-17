@@ -645,6 +645,7 @@ func TestRuntimeMetricCleanupKeepsIoEOFLoadBias(t *testing.T) {
 		runtimeMetricsEnabled:   false,
 		runtimeMetricTargetKeys: map[runtimeMetricTargetKey]BpfPidInfo{key: pidInfo},
 		ioEOFLoadBiasKeys:       map[ioEOFLoadBiasKey]BpfPidInfo{{pid: key.pid, ns: key.ns}: pidInfo},
+		ioEOFLoadBiasMap:        biases,
 	}
 
 	tracer.deleteRuntimeMetricTarget(key.pid, key.ns)
@@ -652,6 +653,11 @@ func TestRuntimeMetricCleanupKeepsIoEOFLoadBias(t *testing.T) {
 	assert.NotContains(t, tracer.runtimeMetricTargetKeys, key)
 	assert.Contains(t, tracer.ioEOFLoadBiasKeys, ioEOFLoadBiasKey(key))
 	assert.Equal(t, uint64(0x1000), biases.entries[pidInfo])
+
+	tracer.deleteIoEOFLoadBias(key.pid, key.ns)
+
+	assert.NotContains(t, tracer.ioEOFLoadBiasKeys, ioEOFLoadBiasKey(key))
+	assert.NotContains(t, biases.entries, pidInfo)
 }
 
 func TestBlockPIDRemovesIoEOFLoadBias(t *testing.T) {

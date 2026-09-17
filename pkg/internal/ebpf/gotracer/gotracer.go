@@ -310,6 +310,7 @@ type Tracer struct {
 	runtimeMetricsEnabled             bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
 	ioEOFLoadBiasKeys                 map[ioEOFLoadBiasKey]BpfPidInfo
+	ioEOFLoadBiasMap                  mapKeyDeleter
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goIoEOFByExecutable               map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
@@ -1588,10 +1589,6 @@ type bpfMapPutter interface {
 	Put(key, value any) error
 }
 
-type bpfMapDeleter interface {
-	Delete(key any) error
-}
-
 var (
 	findExeLoadBias    = procs.FindExeLoadBias
 	lookupIoEOFPIDInfo = runtimeMetricPIDInfo
@@ -1618,7 +1615,7 @@ func deleteIoEOFLoadBias(
 	keys map[ioEOFLoadBiasKey]BpfPidInfo,
 	pid app.PID,
 	ns uint32,
-	biases bpfMapDeleter,
+	biases mapKeyDeleter,
 ) error {
 	key := ioEOFLoadBiasKey{pid: pid, ns: ns}
 	pidInfo, ok := keys[key]
@@ -1665,8 +1662,8 @@ func (p *Tracer) deleteIoEOFLoadBias(pid app.PID, ns uint32) {
 	if p == nil || p.ioEOFLoadBiasKeys == nil {
 		return
 	}
-	var biases bpfMapDeleter
-	if p.bpfObjects.IoEofLoadBiases != nil {
+	biases := p.ioEOFLoadBiasMap
+	if biases == nil && p.bpfObjects.IoEofLoadBiases != nil {
 		biases = p.bpfObjects.IoEofLoadBiases
 	}
 	if err := deleteIoEOFLoadBias(p.ioEOFLoadBiasKeys, pid, ns, biases); err != nil && p.log != nil {

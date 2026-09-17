@@ -404,11 +404,11 @@ static __always_inline void grpc_client_emit_with_conn(
     trace->end_monotime_ns = bpf_ktime_get_ns();
 
     void *method_ptr = (void *)invocation->method;
-    void *method_len = (void *)invocation->method_len;
+    u64 method_len = invocation->method_len;
 
-    bpf_dbg_printk("method_ptr=%lx, method_len=%d", method_ptr, method_len);
+    bpf_dbg_printk("method_ptr=%lx, method_len=%llu", method_ptr, method_len);
 
-    if (!read_go_str_n("method", method_ptr, (u64)method_len, trace->path, sizeof(trace->path))) {
+    if (!read_go_str_n("method", method_ptr, method_len, trace->path, sizeof(trace->path))) {
         bpf_dbg_printk("can't read grpc client method");
         bpf_ringbuf_discard(trace, 0);
         return;
@@ -447,14 +447,14 @@ static __always_inline void clientConnStart(void *goroutine_addr,
                                             void *cc_ptr,
                                             void *ctx_ptr,
                                             void *method_ptr,
-                                            void *method_len,
+                                            u64 method_len,
                                             u64 stack_off,
                                             u32 func_type) {
     grpc_client_func_invocation_t invocation = {
         .start_monotime_ns = bpf_ktime_get_ns(),
         .cc = (u64)cc_ptr,
         .method = (u64)method_ptr,
-        .method_len = (u64)method_len,
+        .method_len = method_len,
         .tp = {0},
         .flags = 0,
         .stream_ptr = 0,
@@ -500,9 +500,37 @@ static __always_inline void clientConnStart(void *goroutine_addr,
         return;
     }
 
-    if (grpc_client_push(&g_key, stack, &invocation)) {
-        go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, (u32)stack_off);
+    obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, &g_key);
+
+    if (stack->depth > 0 && stack->overflow == 0 &&
+        stack->frames[grpc_client_slot(stack->depth - 1)].stack_off == (u32)stack_off) {
+        // Tracked restart: Go grew the stack and restarted the function at the same depth.
+        const grpc_client_func_invocation_t *top =
+            &stack->frames[grpc_client_slot(stack->depth - 1)];
+        invocation.tp = top->tp;
+        invocation.flags = top->flags;
+    } else if (stack->overflow > 0 && stack->unstored_stack_off == (u32)stack_off) {
+        // Overflow restart: Go grew the stack and restarted an unstored frame.
+        if (st && st->unstored_kind == k_obi_ctx_grpc_client &&
+            st->unstored_stack_off == (u32)stack_off) {
+            invocation.tp = st->unstored_tp;
+            invocation.flags = st->unstored_tp.flags;
+        }
+    } else {
+        // Genuine nested call: derive a new child TP from the active parent context.
+        const tp_info_t *parent_tp = st ? obi_ctx__current(st) : NULL;
+        if (!parent_tp && stack->depth > 0) {
+            parent_tp = &stack->frames[grpc_client_slot(stack->depth - 1)].tp;
+        }
+        if (parent_tp) {
+            tp_from_parent(&invocation.tp, (tp_info_t *)parent_tp);
+            urand_bytes(invocation.tp.span_id, SPAN_ID_SIZE_BYTES);
+            invocation.flags = parent_tp->flags;
+        }
     }
+
+    grpc_client_push(&g_key, stack, &invocation);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, (u32)stack_off);
 }
 
 SEC("uprobe/ClientConn_Invoke")
@@ -515,7 +543,7 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke, struct pt_regs *, ctx) {
     void *cc_ptr = GO_PARAM1(ctx);
     void *ctx_ptr = GO_PARAM3(ctx);
     void *method_ptr = GO_PARAM4(ctx);
-    void *method_len = GO_PARAM5(ctx);
+    u64 method_len = (u64)GO_PARAM5(ctx);
 
     clientConnStart(goroutine_addr,
                     cc_ptr,
@@ -539,7 +567,7 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     void *cc_ptr = GO_PARAM1(ctx);
     void *ctx_ptr = GO_PARAM3(ctx);
     void *method_ptr = GO_PARAM5(ctx);
-    void *method_len = GO_PARAM6(ctx);
+    u64 method_len = (u64)GO_PARAM6(ctx);
 
     clientConnStart(goroutine_addr,
                     cc_ptr,
@@ -655,8 +683,12 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
         return 0;
     }
 
+    bool was_overflow = stack->overflow > 0;
     grpc_client_func_invocation_t inv = {};
     if (!grpc_client_pop(&g_key, stack, &inv)) {
+        if (was_overflow) {
+            go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
+        }
         return 0;
     }
 
@@ -744,8 +776,12 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
         return 0;
     }
 
+    bool was_overflow = stack->overflow > 0;
     grpc_client_func_invocation_t inv = {};
     if (!grpc_client_pop(&g_key, stack, &inv)) {
+        if (was_overflow) {
+            go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
+        }
         return 0;
     }
 
