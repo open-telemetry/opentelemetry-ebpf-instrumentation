@@ -14,11 +14,11 @@ import (
 )
 
 type DynamicMatcher struct {
-	Log                *slog.Logger
+	Log             *slog.Logger
 	DynamicPIDSelector *dynamicPIDSignalView
-	Input              <-chan []Event[ProcessAttrs]
-	Output             *msg.Queue[[]Event[ProcessMatch]]
-	ProcessHistory     map[app.PID]ProcessMatch
+	Input           <-chan []Event[ProcessAttrs]
+	Output          *msg.Queue[[]Event[ProcessMatch]]
+	ProcessHistory  map[app.PID]ProcessMatch
 	// RemovedPIDsNotify, when set, carries the PIDs removed from the dynamic selector so the
 	// matcher can emit targeted synthetic deletes without rescanning ProcessHistory.
 	RemovedPIDsNotify <-chan []app.PID
@@ -35,21 +35,25 @@ func dynamicMatcherProvider(
 	}
 
 	dynamicMatcher := &DynamicMatcher{
-		Log:                slog.With("component", "discover.DynamicMatcher"),
+		Log:             slog.With("component", "discover.DynamicMatcher"),
 		DynamicPIDSelector: dynamicPIDs,
-		Input:              input.Subscribe(msg.SubscriberName("discover.DynamicMatcher")),
-		Output:             output,
-		ProcessHistory:     map[app.PID]ProcessMatch{},
+		Input:           input.Subscribe(msg.SubscriberName("discover.DynamicMatcher")),
+		Output:          output,
+		ProcessHistory:  map[app.PID]ProcessMatch{},
 	}
 	return swarm.DirectInstance(dynamicMatcher.Run)
 }
 
 func (m *DynamicMatcher) Run(ctx context.Context) {
 	defer m.Output.Close()
+	if m.DynamicPIDSelector == nil {
+		m.Log.Debug("no dynamic selector, stopping node")
+		return
+	}
 	m.Log.Debug("starting dynamic matcher node")
 
 	removedPIDsNotify := m.RemovedPIDsNotify
-	if removedPIDsNotify == nil && m.DynamicPIDSelector != nil {
+	if removedPIDsNotify == nil {
 		removedPIDsNotify = m.DynamicPIDSelector.RemovedNotifyContext(ctx)
 	}
 
@@ -100,6 +104,9 @@ func (m *DynamicMatcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMat
 
 func (m *DynamicMatcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 	if _, ok := m.ProcessHistory[obj.pid]; ok {
+		// Already instrumented (e.g. via AddPID). Still rematerialize so a later
+		// AddK8sWorkload attaches the workload source and opts for this PID.
+		m.DynamicPIDSelector.materializeMatchingWorkloads(obj.pid, obj.metadata)
 		return Event[ProcessMatch]{}, false
 	}
 
@@ -136,10 +143,13 @@ func (m *DynamicMatcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], b
 }
 
 func (m *DynamicMatcher) matchDynamicCriteria(obj ProcessAttrs, proc *services.ProcessInfo) *ProcessMatch {
+	// Always attempt materialization so a workload source is attached even when the PID was
+	// already selected explicitly (AddPID). Otherwise RemoveK8sWorkload would not account for
+	// that source, and workload opts would never apply to an already-selected PID.
+	m.DynamicPIDSelector.materializeMatchingWorkloads(proc.Pid, obj.metadata)
 	if !m.DynamicPIDSelector.IncludesPID(proc.Pid) {
 		return nil
 	}
-
 	selector := m.DynamicPIDSelector.SelectorForPID(proc.Pid)
 	if selector == nil {
 		return nil
@@ -165,6 +175,8 @@ func (m *DynamicMatcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], b
 		return Event[ProcessMatch]{}, false
 	}
 	delete(m.ProcessHistory, obj.pid)
+	// Drop materialized workload sources for this PID. Explicit AddPID selection is kept.
+	m.DynamicPIDSelector.clearWorkloadSources(obj.pid)
 	m.Log.Debug("stopped process", "pid", procMatch.Process.Pid, "comm", procMatch.Process.ExePath)
 	return Event[ProcessMatch]{Type: EventDeleted, Obj: procMatch}, true
 }

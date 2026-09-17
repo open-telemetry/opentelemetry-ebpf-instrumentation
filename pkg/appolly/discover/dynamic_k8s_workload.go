@@ -194,6 +194,46 @@ func (d *DynamicPIDSelector) removeWorkload(mask dynamicPIDSignal, key workloadK
 	}
 }
 
+// clearWorkloadSources drops all workload membership for the given PIDs while leaving any
+// explicit AddPID/AddPIDs selection intact. Used when a process terminates so materialized
+// workload PIDs do not leak; a later matching process rematerializes under the same workload.
+func (d *DynamicPIDSelector) clearWorkloadSources(pids ...app.PID) {
+	if len(pids) == 0 {
+		return
+	}
+	removedByView := map[*dynamicPIDSignalView][]app.PID{}
+
+	d.mu.Lock()
+	for _, pid := range pids {
+		rec, ok := d.byPID[pid]
+		if !ok || len(rec.fromWorkloads) == 0 {
+			continue
+		}
+		oldMask := rec.signals
+		rec.fromWorkloads = nil
+		newMask := rec.recomputedSignals()
+		rec.signals = newMask
+		if newMask == 0 {
+			delete(d.byPID, pid)
+		} else {
+			d.byPID[pid] = rec
+		}
+		if newMask == oldMask {
+			continue
+		}
+		for _, view := range d.views() {
+			if view.contains(oldMask) && !view.contains(newMask) {
+				removedByView[view] = append(removedByView[view], pid)
+			}
+		}
+	}
+	d.mu.Unlock()
+
+	for view, batch := range removedByView {
+		view.notifier.notifyRemoved(batch)
+	}
+}
+
 func (d *DynamicPIDSelector) getWorkloads(mask dynamicPIDSignal) []selection.K8sWorkloadRef {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -218,6 +258,11 @@ func compareK8sWorkloadRef(a, b selection.K8sWorkloadRef) int {
 		return c
 	}
 	return strings.Compare(a.Name, b.Name)
+}
+
+// clearWorkloadSources drops workload membership for pids while keeping explicit AddPID selection.
+func (v *dynamicPIDSignalView) clearWorkloadSources(pids ...app.PID) {
+	v.parent.clearWorkloadSources(pids...)
 }
 
 // materializeMatchingWorkloads finds a selected workload that matches process metadata for
