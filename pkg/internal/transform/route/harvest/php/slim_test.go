@@ -45,9 +45,9 @@ func TestExtractSlimRoutesExpandsOptionalSegments(t *testing.T) {
 	extractSlimRoutes(tokens, routes)
 
 	assert.Equal(t, routeSet{
-		"/service/archives":                       {},
-		"/service/archives/{year:[0-9]+}":         {},
-		"/service/archives/{year:[0-9]+}/{month}": {},
+		"/service/archives":                {},
+		"/service/archives/{year}":         {},
+		"/service/archives/{year}/{month}": {},
 	}, routes)
 }
 

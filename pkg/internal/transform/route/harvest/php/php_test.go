@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 	phpharvest "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/php"
 )
 
@@ -109,8 +110,14 @@ func TestExtractRoutesFromSlimFourProject(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"/service/api/nested/echo/{value}",
-		"/service/api/users/{id:[0-9]+}",
+		"/service/api/news/{*params}",
+		"/service/api/users/{id}",
+		"/service/api/news",
 	}, routes)
+
+	matcher := route.NewPartialRouteMatcher(routes)
+	assert.Equal(t, "/service/api/users/{id}", matcher.Find("/service/api/users/1234"))
+	assert.Equal(t, "/service/api/news/{*params}", matcher.Find("/service/api/news/2026/09/17"))
 }
 
 func TestExtractRoutesFromSlimThreeProject(t *testing.T) {

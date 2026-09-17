@@ -25,10 +25,10 @@ import (
 //	 -> slimBasePath
 //	 -> slimExtractor.extract
 //	    -> slimRouteCall
-//	    -> slimRoutePath -> expandSlimOptionalSegments
+//	    -> slimRoutePath -> slimRouteVariants
 //	    -> slimExtractor.extractGroup
 //	       -> slimCallbackBody / slimCallbackVariable
-//	       -> expandSlimOptionalSegments (the group's own pattern)
+//	       -> slimRouteVariants (the group's own pattern)
 //	       -> slimExtractor.extract for nested routes, once per resolved prefix
 var slimRoutePathArgs = map[string]int{
 	"any": 0, "delete": 0, "get": 0, "options": 0,
@@ -72,7 +72,7 @@ func (e slimExtractor) extract(start, end int, variables map[string]struct{}, pr
 		}
 
 		if path, ok := slimRoutePath(call); ok {
-			for _, route := range expandSlimOptionalSegments(joinRoutes(prefix, path)) {
+			for _, route := range slimRouteVariants(joinRoutes(prefix, path)) {
 				e.routes.add(route)
 			}
 		}
@@ -123,7 +123,7 @@ func (e slimExtractor) extractGroup(call slimCall, variables map[string]struct{}
 
 	// A group's own pattern can carry optional segments too (e.g. "/api[/v2]"),
 	// so every route nested inside it must be extracted once per resolved prefix.
-	for _, resolvedPrefix := range expandSlimOptionalSegments(groupPrefix) {
+	for _, resolvedPrefix := range slimRouteVariants(groupPrefix) {
 		e.extract(bodyStart+1, bodyEnd, callbackVars, joinRoutes(prefix, resolvedPrefix), !hasVariable)
 	}
 }
