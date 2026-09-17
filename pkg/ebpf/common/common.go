@@ -302,6 +302,7 @@ type pendingGoHTTPClientRequest struct {
 type pendingGoHTTPClientKey struct {
 	conn    BpfConnectionInfoT
 	traceID trace.TraceID
+	spanID  trace.SpanID
 }
 
 type EBPFParseContext struct {
