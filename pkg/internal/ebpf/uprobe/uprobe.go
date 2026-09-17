@@ -174,6 +174,10 @@ func uprobeMultiTwin(spec *ebpf.CollectionSpec, table string, twins map[string]b
 	}
 	twins[twinName] = true
 	twin := spec.Maps[twinName]
+	if twin == nil {
+		// a clone reached a table nobody twinned: leave it, the kernel refuses the load
+		return table
+	}
 	for i, kv := range twin.Contents {
 		if target := progArrayEntry(kv.Value); target != "" {
 			twin.Contents[i] = ebpf.MapKV{Key: kv.Key, Value: uprobeMultiClone(spec, target, twins)}

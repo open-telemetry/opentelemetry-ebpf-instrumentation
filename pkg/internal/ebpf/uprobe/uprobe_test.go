@@ -118,6 +118,19 @@ func TestMarkMultiProgramsKeepsTailCallProgramsAsPerfEventsWithoutTwinTable(t *t
 	assert.Len(t, spec.Programs, 8)
 }
 
+// a target tail-calling into a second table without a twin must not crash the loader
+func TestMarkMultiProgramsSurvivesUntwinnedTableBehindTheTwin(t *testing.T) {
+	spec := uprobeTestSpec()
+	spec.Maps["other_table"] = &ebpf.MapSpec{Type: ebpf.ProgramArray}
+	spec.Programs["target"].Instructions = tailCallInto("other_table")
+
+	markMultiPrograms(spec)
+
+	clone := spec.Programs["target_um"]
+	require.NotNil(t, clone)
+	assert.Equal(t, "other_table", clone.Instructions[0].Reference())
+}
+
 type blockingCloser struct {
 	entered chan<- struct{}
 	release <-chan struct{}
