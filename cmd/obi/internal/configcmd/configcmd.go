@@ -262,6 +262,7 @@ func migrateConfigForModeWithOptions(
 	if err != nil {
 		return nil, "", false, err
 	}
+	unknown = append(unknown, unknownV1HTTPParsingMatchPaths(replaced)...)
 	if err := validateRuntimeConfig(cfg, mode); err != nil {
 		return nil, "", false, fmt.Errorf("v1 runtime configuration: %w", err)
 	}
@@ -494,6 +495,11 @@ func decodeV1Config(data []byte, cfg *obi.Config, knownFields bool) error {
 	return nil
 }
 
+type yamlFieldLocation struct {
+	line int
+	name string
+}
+
 // The legacy decoder reports unknown fields only in TypeError messages. Recover
 // their YAML paths only when every decode error has that shape, so invalid known
 // fields remain hard failures.
@@ -503,39 +509,45 @@ func unknownV1FieldPaths(data []byte, decodeErr error) ([]string, bool) {
 		return nil, false
 	}
 
-	var lines []int
+	var fields []yamlFieldLocation
 	for _, message := range typeErr.Errors {
 		line, remainder, ok := strings.Cut(message, ": field ")
-		if !ok || !strings.HasPrefix(line, "line ") ||
-			!strings.Contains(remainder, " not found in type ") {
+		name, typeName, fieldOK := strings.Cut(remainder, " not found in type ")
+		if !ok || !fieldOK || name == "" || typeName == "" ||
+			!strings.HasPrefix(line, "line ") {
 			return nil, false
 		}
 		lineNumber, err := strconv.Atoi(strings.TrimPrefix(line, "line "))
 		if err != nil {
 			return nil, false
 		}
-		lines = append(lines, lineNumber)
+		fields = append(fields, yamlFieldLocation{line: lineNumber, name: name})
 	}
 
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, false
 	}
-	pathsByLine := map[int]string{}
-	collectYAMLKeyPaths(&root, nil, pathsByLine)
-	paths := make([]string, 0, len(lines))
-	for _, line := range lines {
-		path, ok := pathsByLine[line]
-		if !ok {
+	pathsByField := map[yamlFieldLocation][]string{}
+	collectYAMLKeyPaths(&root, nil, pathsByField)
+	paths := make([]string, 0, len(fields))
+	for _, field := range fields {
+		candidates := pathsByField[field]
+		if len(candidates) == 0 {
 			return nil, false
 		}
-		paths = append(paths, path)
+		paths = append(paths, candidates[0])
+		pathsByField[field] = candidates[1:]
 	}
 	sort.Strings(paths)
 	return slices.Compact(paths), true
 }
 
-func collectYAMLKeyPaths(node *yaml.Node, prefix yamlPath, paths map[int]string) {
+func collectYAMLKeyPaths(
+	node *yaml.Node,
+	prefix yamlPath,
+	paths map[yamlFieldLocation][]string,
+) {
 	switch node.Kind {
 	case yaml.DocumentNode:
 		if len(node.Content) != 0 {
@@ -546,7 +558,8 @@ func collectYAMLKeyPaths(node *yaml.Node, prefix yamlPath, paths map[int]string)
 			key := node.Content[i]
 			value := node.Content[i+1]
 			path := appendPath(prefix, key.Value)
-			paths[key.Line] = formatPath(path)
+			location := yamlFieldLocation{line: key.Line, name: key.Value}
+			paths[location] = append(paths[location], formatPath(path))
 			collectYAMLKeyPaths(value, path, paths)
 		}
 	case yaml.SequenceNode:
@@ -556,6 +569,74 @@ func collectYAMLKeyPaths(node *yaml.Node, prefix yamlPath, paths map[int]string)
 	case yaml.AliasNode:
 		collectYAMLKeyPaths(node.Alias, prefix, paths)
 	}
+}
+
+func unknownV1HTTPParsingMatchPaths(data []byte) []string {
+	var source any
+	if err := yaml.Unmarshal(data, &source); err != nil {
+		return nil
+	}
+	rawRules, ok := valueAtPath(source, yamlPath{
+		"ebpf", "payload_extraction", "http", "enrichment", "rules",
+	})
+	if !ok {
+		return nil
+	}
+	rules, ok := rawRules.([]any)
+	if !ok {
+		return nil
+	}
+	matchFields := taggedYAMLFields(reflect.TypeFor[obiconfig.HTTPParsingMatch]())
+	rangeFields := taggedYAMLFields(reflect.TypeFor[obiconfig.NumericRange]())
+
+	var paths []string
+	for index, rawRule := range rules {
+		rule, ok := rawRule.(map[string]any)
+		if !ok {
+			continue
+		}
+		match, ok := rule["match"].(map[string]any)
+		if !ok {
+			continue
+		}
+		matchPath := yamlPath{
+			"ebpf", "payload_extraction", "http", "enrichment", "rules", index, "match",
+		}
+		for name, value := range match {
+			if _, ok := matchFields[name]; !ok {
+				paths = append(paths, formatPath(appendPath(matchPath, name)))
+				continue
+			}
+			if name != "response_status_code" {
+				continue
+			}
+			rangeConfig, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			for rangeName := range rangeConfig {
+				if _, ok := rangeFields[rangeName]; !ok {
+					paths = append(paths, formatPath(appendPath(
+						appendPath(matchPath, name),
+						rangeName,
+					)))
+				}
+			}
+		}
+	}
+	sort.Strings(paths)
+	return slices.Compact(paths)
+}
+
+func taggedYAMLFields(structType reflect.Type) map[string]struct{} {
+	fields := make(map[string]struct{}, structType.NumField())
+	for index := range structType.NumField() {
+		name, _, _ := strings.Cut(structType.Field(index).Tag.Get("yaml"), ",")
+		if name != "" && name != "-" {
+			fields[name] = struct{}{}
+		}
+	}
+	return fields
 }
 
 func setReceiverConsumers(cfg *obi.Config) {

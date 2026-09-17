@@ -635,6 +635,76 @@ bpf_debug: true
 	}
 }
 
+func TestRunMigrateAllowPartialReportsCustomUnmarshalUnknownFields(t *testing.T) {
+	path := writeConfig(t, "custom-unmarshal-unknown-v1.yaml", `
+open_port: "8080"
+trace_printer: text
+ebpf:
+  payload_extraction:
+    http:
+      enrichment:
+        enabled: true
+        policy:
+          default_action:
+            headers: exclude
+            body: exclude
+        rules:
+          - action: include
+            type: headers
+            scope: request
+            match:
+              patterns: [x-*]
+              unknown_match: true
+              response_status_code:
+                greater_equals: 200
+                unknown_range: 300
+`)
+	var strictStdout, strictStderr bytes.Buffer
+
+	strictExitCode := run([]string{"migrate", path}, &strictStdout, &strictStderr)
+
+	require.Equal(t, ExitError, strictExitCode)
+	require.Empty(t, strictStdout.String())
+	for _, path := range []string{
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.unknown_match",
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.response_status_code.unknown_range",
+	} {
+		require.Contains(t, strictStderr.String(), path)
+	}
+
+	var partialStdout, partialStderr bytes.Buffer
+	partialExitCode := run(
+		[]string{"migrate", "--allow-partial", path},
+		&partialStdout,
+		&partialStderr,
+	)
+
+	require.Equal(t, ExitPartial, partialExitCode, partialStderr.String())
+	require.NoError(t, validateConfig(partialStdout.Bytes(), validationModeStandalone))
+	for _, path := range []string{
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.unknown_match",
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.response_status_code.unknown_range",
+	} {
+		require.Contains(t, partialStderr.String(), "  - "+path+"\n")
+	}
+}
+
+func TestRunMigrateAllowPartialReportsFlowMappingUnknownFields(t *testing.T) {
+	path := writeConfig(t, "flow-unknown-v1.yaml", `
+open_port: "8080"
+trace_printer: text
+ebpf: {unknown_one: true, unknown_two: false}
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(t, stderr.String(), "  - ebpf.unknown_one\n")
+	require.Contains(t, stderr.String(), "  - ebpf.unknown_two\n")
+}
+
 func TestRunMigrateAllowPartialReturnsSuccessForCompleteMigration(t *testing.T) {
 	path := writeConfig(t, "v1.yaml", representativeV1)
 	var stdout, stderr bytes.Buffer
