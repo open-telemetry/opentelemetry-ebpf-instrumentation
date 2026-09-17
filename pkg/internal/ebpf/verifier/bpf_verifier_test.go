@@ -27,6 +27,7 @@ import (
 	logenricherbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/logenricher"
 	loggerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/logger"
 	tpinjectorbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 	watcherbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/watcher"
 	netollybpf "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	rdnsxdpbpf "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
@@ -73,6 +74,7 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 		if spec.Programs["obi_protocol_http"] != nil {
 			ebpfcommon.FixupSpec(spec, false)
 		}
+		uprobe.PrepareSpecs(spec)
 
 		if len(consts) > 0 && consts[0] != nil {
 			err := ebpfconvenience.RewriteConstants(spec, consts[0])

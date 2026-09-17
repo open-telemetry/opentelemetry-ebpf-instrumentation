@@ -5,7 +5,7 @@
   "type": "project",
   "require": {
     "php": ">=8.2",
-    "symfony/framework-bundle": "7.4.18"
+    "symfony/framework-bundle": "8.1.7"
   },
   "autoload": {
     "psr-4": {

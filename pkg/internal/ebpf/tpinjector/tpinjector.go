@@ -245,8 +245,6 @@ func (p *Tracer) iterConstants() map[string]any {
 	}
 }
 
-func (p *Tracer) SetupTailCalls() {}
-
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}

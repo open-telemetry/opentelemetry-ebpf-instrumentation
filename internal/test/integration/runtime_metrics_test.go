@@ -83,6 +83,7 @@ func TestRuntimeHistogramPrometheusQueryUsesOneEvaluation(t *testing.T) {
 
 func testRuntimeMetricsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
+
 	monotonicMetrics := []struct {
 		runtimeName string
 		obiName     string
@@ -175,6 +176,13 @@ func testRuntimeMetricsGo(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		forceRuntimeGC(ct)
 		current := readRuntimeMetrics(ct)
+		results, err := pq.Query(`go_memory_limit_bytes`)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+		for _, result := range results {
+			require.Equal(ct, "testserver", result.Metric["service_name"])
+			require.Equal(ct, "integration-test/testserver", result.Metric["job"])
+		}
 		for _, metric := range monotonicMetrics {
 			obiValue := runtimeMetricValue(ct, pq, metric.obiName)
 			assertRuntimeMetricObserved(ct, expected, current, metric.runtimeName, obiValue, metric.obiName)

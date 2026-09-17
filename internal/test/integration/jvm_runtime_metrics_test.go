@@ -124,6 +124,7 @@ func assertJVMRuntimeMetricService(t require.TestingT, results []promtest.Result
 	for _, result := range results {
 		require.Equal(t, "jvm-runtime", result.Metric["service_name"])
 		require.Equal(t, "integration-test", result.Metric["service_namespace"])
+		require.Equal(t, "integration-test/jvm-runtime", result.Metric["job"])
 	}
 }
 

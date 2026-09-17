@@ -15,6 +15,8 @@
 
 //go:build obi_bpf_ignore
 
+#include <gotracer/jump_table_extra.h>
+
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>

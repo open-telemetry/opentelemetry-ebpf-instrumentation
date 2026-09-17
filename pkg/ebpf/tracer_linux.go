@@ -288,9 +288,6 @@ func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tra
 		return fmt.Errorf("loading and assigning BPF objects: %w", err)
 	}
 
-	// Setup any tail call jump tables
-	p.SetupTailCalls()
-
 	i := instrumenter{} // dummy instrumenter to setup the kprobes, socket filters and tracepoint probes
 
 	// Kprobes to be used for native instrumentation points
