@@ -97,12 +97,16 @@ static __always_inline bool grpc_client_headers_are_app_owned(const go_slice_t *
 }
 
 static __always_inline void
-mark_grpc_app_owned_stream(const go_addr_key_t *writer_key,
-                           const grpc_h2_header_observation_t *observation) {
+mark_grpc_app_owned_write(const go_addr_key_t *writer_key,
+                          const grpc_h2_header_observation_t *observation) {
     bpf_map_update_elem(
         &grpc_app_owned_writes, writer_key, &observation->stream.stream_id, BPF_ANY);
     bpf_map_update_elem(
         &grpc_owned_writer_by_request, &observation->request_key, writer_key, BPF_ANY);
+}
+
+static __always_inline void
+replace_grpc_h2_owned_stream(const grpc_h2_header_observation_t *observation) {
     if (!observation->stream.socket_cookie) {
         return;
     }
@@ -1257,7 +1261,8 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler, struct pt_regs
     bpf_map_update_elem(&grpc_h2_header_observations, &writer_key, &observation, BPF_ANY);
 
     if (grpc_client_headers_are_app_owned(&client_headers.fields)) {
-        mark_grpc_app_owned_stream(&writer_key, &observation);
+        mark_grpc_app_owned_write(&writer_key, &observation);
+        replace_grpc_h2_owned_stream(&observation);
     }
     return 0;
 }
