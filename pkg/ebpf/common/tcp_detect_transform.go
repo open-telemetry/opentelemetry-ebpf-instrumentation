@@ -298,9 +298,8 @@ func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequ
 
 func matchFastCGI(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
 	if maybeFastCGI(requestBuffer) {
-		op, uri, status := detectFastCGI(requestBuffer, responseBuffer)
-		if status >= 0 {
-			return TCPToFastCGIToSpan(event, op, uri, status), false, true, nil
+		if req, ok := detectFastCGI(requestBuffer, responseBuffer); ok {
+			return TCPToFastCGIToSpan(event, req), false, true, nil
 		}
 	}
 	return request.Span{}, false, false, nil
