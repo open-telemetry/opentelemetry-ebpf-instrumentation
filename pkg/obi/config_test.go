@@ -68,6 +68,32 @@ func TestJoinMetricsConfigIncludesPerServiceFeatures(t *testing.T) {
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureApplicationRuntime|export.FeatureNetwork, joint.Features)
 }
 
+// traces_ctx_v1 is only populated when something reads it. The default config
+// must not populate it: the upkeep costs a refresh on every async context
+// switch of the instrumented runtime.
+func TestPopulateTraceContext(t *testing.T) {
+	assert.False(t, DefaultConfig.PopulateTraceContext())
+
+	explicit := DefaultConfig
+	explicit.EBPF.PopulateTraceContext = true
+	assert.True(t, explicit.PopulateTraceContext())
+
+	logEnricher := DefaultConfig
+	logEnricher.EBPF.LogEnricher.Services = []config.LogEnricherServiceConfig{{}}
+	assert.True(t, logEnricher.PopulateTraceContext())
+
+	manualSpans := DefaultConfig
+	manualSpans.NodeJS.ManualSpans = true
+	assert.True(t, manualSpans.PopulateTraceContext())
+
+	// nodejs.enabled is the global opt-out: with it off the injector is never
+	// installed, so the span bridge that would read the map does not exist.
+	injectorOff := DefaultConfig
+	injectorOff.NodeJS.Enabled = false
+	injectorOff.NodeJS.ManualSpans = true
+	assert.False(t, injectorOff.PopulateTraceContext())
+}
+
 func TestConfig_Overrides(t *testing.T) {
 	userConfig := bytes.NewBufferString(`
 log_format: json

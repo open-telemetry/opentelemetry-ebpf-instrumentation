@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -63,6 +64,8 @@ func TestAgentCodeGatesRuntimeMetrics(t *testing.T) {
 		"RT_ENABLED placeholder missing or duplicated in fdextractor.js")
 	require.Equal(t, 1, strings.Count(_extractorCode, tracesEnabledPlaceholder),
 		"TRACES_ENABLED placeholder missing or duplicated in fdextractor.js")
+	require.Equal(t, 1, strings.Count(_extractorCode, ctxHookEnabledPlaceholder),
+		"CTX_HOOK_ENABLED placeholder missing or duplicated in fdextractor.js")
 
 	off := &NodeInjector{cfg: &obi.Config{}}
 	require.Equal(t, _extractorCode, off.agentCode())
@@ -78,6 +81,103 @@ func TestAgentCodeGatesRuntimeMetrics(t *testing.T) {
 	require.Equal(t, 1, strings.Count(tracesOnly.agentCode(), tracesEnabledOn))
 	require.Contains(t, tracesOnly.agentCode(), rtEnabledPlaceholder,
 		"traces-only injection must not enable runtime sampling")
+	require.Contains(t, tracesOnly.agentCode(), ctxHookEnabledPlaceholder,
+		"tracing alone must not install the per-callback context hook")
+}
+
+// TestAgentCodeGatesCtxHook pins the before hook to the same predicate that
+// drives the g_traces_ctx_v1_enabled BPF constant: it is installed only when
+// something reads traces_ctx_v1.
+func TestAgentCodeGatesCtxHook(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  obi.Config
+	}{
+		{
+			name: "explicit opt-in",
+			cfg: obi.Config{
+				EBPF:         config.EBPFTracer{PopulateTraceContext: true},
+				TracePrinter: "text",
+			},
+		},
+		{
+			name: "log enricher",
+			cfg: obi.Config{
+				EBPF: config.EBPFTracer{LogEnricher: config.LogEnricherConfig{
+					Services: []config.LogEnricherServiceConfig{{}},
+				}},
+				TracePrinter: "text",
+			},
+		},
+		{
+			name: "manual spans",
+			cfg: obi.Config{
+				NodeJS:       obi.NodeJSConfig{Enabled: true, ManualSpans: true},
+				TracePrinter: "text",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := (&NodeInjector{cfg: &tc.cfg}).agentCode()
+			require.Equal(t, 1, strings.Count(code, ctxHookEnabledOn))
+			require.Equal(t, 1, strings.Count(code, tracesEnabledOn),
+				"the hook needs the propagation machinery it reads the fd from")
+		})
+	}
+
+	// A metrics-only injection leaves the propagation machinery out, so the hook has
+	// no ALS store to read the fd from even when the substitution enables it. The JS
+	// keeps it inert by nesting it inside the TRACES_ENABLED block.
+	metricsOnly := &NodeInjector{cfg: &obi.Config{
+		EBPF:    config.EBPFTracer{PopulateTraceContext: true},
+		Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+	}}
+	code := metricsOnly.agentCode()
+	require.Contains(t, code, tracesEnabledPlaceholder)
+
+	tracesAt := strings.Index(code, "if (TRACES_ENABLED) {")
+	require.NotEqual(t, -1, tracesAt, "traces block not found in fdextractor.js")
+	hookAt := strings.Index(code, "if (CTX_HOOK_ENABLED) {")
+	require.NotEqual(t, -1, hookAt, "ctx hook block not found in fdextractor.js")
+
+	tracesEnd := matchingBrace(t, code, tracesAt+len("if (TRACES_ENABLED) "))
+	require.True(t, tracesAt < hookAt && hookAt < tracesEnd,
+		"the ctx hook must stay nested inside the traces gate")
+}
+
+// matchingBrace returns the index of the brace closing the one at open, skipping
+// braces inside string literals and comments.
+func matchingBrace(t *testing.T, src string, open int) int {
+	t.Helper()
+	require.Equal(t, byte('{'), src[open])
+
+	depth := 0
+	for i := open; i < len(src); i++ {
+		switch c := src[i]; c {
+		case '"', '\'', '`':
+			for i++; i < len(src) && src[i] != c; i++ {
+				if src[i] == '\\' {
+					i++
+				}
+			}
+		case '/':
+			switch {
+			case strings.HasPrefix(src[i:], "//"):
+				i += strings.IndexByte(src[i:], '\n')
+			case strings.HasPrefix(src[i:], "/*"):
+				i += strings.Index(src[i:], "*/") + 1
+			}
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	require.Fail(t, "unbalanced braces in fdextractor.js")
+	return -1
 }
 
 // TestV8HeapEmissionFieldOrder pins the h-record wire layout the BPF decoder

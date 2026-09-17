@@ -41,6 +41,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
@@ -302,6 +303,7 @@ type Tracer struct {
 	closers                           []io.Closer
 	disabledRouteHarvesting           bool
 	supportsBPFLoop                   bool
+	traceCtxMapEnabled                bool
 	runtimeMetricsEnabled             bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
@@ -336,6 +338,7 @@ func New(
 		metrics:                           metrics,
 		disabledRouteHarvesting:           disabledRouteHarvesting,
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
+		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
@@ -469,6 +472,7 @@ func (p *Tracer) constants() map[string]any {
 		"attr_type_stringslice":          uint64(attribute.STRINGSLICE),
 		"g_bpf_traceparent_enabled":      true,
 		"g_bpf_loop_enabled":             p.supportsBPFLoop,
+		"g_traces_ctx_v1_enabled":        p.traceCtxMapEnabled,
 	}
 
 	if p.cfg.TrackRequestHeaders ||
@@ -1635,9 +1639,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeRuntimeNewproc1,
 			End:   p.bpfObjects.ObiUprobeRuntimeNewproc1Return,
 		}},
-		"runtime.casgstatus": {{
-			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
-		}},
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
 			Start: p.bpfObjects.ObiUprobeServeHTTP,
@@ -2034,6 +2035,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 	}
 
+	// runtime.casgstatus fires on every goroutine status transition and exists only
+	// to keep traces_ctx_v1 pointing at the span the thread is currently running
+	if p.traceCtxMapEnabled {
+		m["runtime.casgstatus"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
+		}}
+	}
+
 	// HTTP Header extraction
 	// with bpf_loop we scan the buffer with a single uprobe - this is less overhead
 	// otherwise we have a probe per header net/textproto.(*Reader).readContinuedLineSlice
@@ -2408,6 +2417,11 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	}()
 
 	p.SetEventContext(ebpfEventContext)
+
+	if !p.traceCtxMapEnabled {
+		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
+	}
+
 	ebpfcommon.SharedRingbuf(
 		ebpfEventContext,
 		p.cfg,

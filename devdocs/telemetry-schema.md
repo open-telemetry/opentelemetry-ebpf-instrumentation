@@ -110,6 +110,15 @@ section empty once drained.
   override the target's, and targets that declare `OTEL_RESOURCE_ATTRIBUTES` of their own
   no longer discard the whole deployment-wide layer, so they start carrying the agent's
   other keys. The target's own declaration still wins over both for the keys it declares.
+- The pinned `traces_ctx_v1` map is no longer populated by default. It is what an external
+  reader correlates against, so a profiler doing trace-profile correlation stops matching
+  samples to spans until `ebpf.populate_trace_context` (`OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT`)
+  is set to `true`. OBI's own readers, the log enricher and the Node.js manual span bridge,
+  turn population on by themselves and are unaffected.
+- Go channel span links may be emitted less often. Handoff correlation resolves the sender
+  from the per-goroutine protocol maps and falls back to `traces_ctx_v1`, so a handoff that
+  relied on that fallback now emits no link. Handoffs whose sender is covered by a protocol
+  map are unaffected. `ebpf.populate_trace_context: true` restores the fallback.
 
 ## Hosting notes
 
