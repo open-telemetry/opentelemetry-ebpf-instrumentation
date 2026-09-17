@@ -107,7 +107,7 @@ func validateWorkloadRef(ref selection.K8sWorkloadRef) (selection.K8sWorkloadRef
 //
 // TODO: ReplicaSet, Job, and Pod selection may be added later. Holding off because overlapping
 // selections raise unresolved questions about attribute precedence and inheritance (whose
-// DynamicPIDOptions win when a process matches multiple identities), and that policy looks more
+// DynamicOptions win when a process matches multiple identities), and that policy looks more
 // like a config surface than something to hard-code in the selector.
 func metadataAttrForKind(kind string) string {
 	switch kind {

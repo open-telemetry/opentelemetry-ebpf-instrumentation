@@ -18,35 +18,35 @@ import (
 //
 // Supported kinds are top-level controllers only: Deployment, StatefulSet, DaemonSet, and
 // CronJob (see ParseK8sWorkload).
-func (d *DynamicPIDSelector) AddK8sWorkload(obj any, opts selection.DynamicPIDOptions) error {
+func (d *DynamicSelector) AddK8sWorkload(obj any, opts selection.DynamicOptions) error {
 	return d.rootView.AddK8sWorkload(obj, opts)
 }
 
 // RemoveK8sWorkload drops a previously selected Kubernetes workload from all signals and
 // dematerializes PIDs that were selected only because of that workload.
-func (d *DynamicPIDSelector) RemoveK8sWorkload(obj any) error {
+func (d *DynamicSelector) RemoveK8sWorkload(obj any) error {
 	return d.rootView.RemoveK8sWorkload(obj)
 }
 
 // GetK8sWorkloads returns workloads selected for any supported signal.
-func (d *DynamicPIDSelector) GetK8sWorkloads() []selection.K8sWorkloadRef {
+func (d *DynamicSelector) GetK8sWorkloads() []selection.K8sWorkloadRef {
 	return d.rootView.GetK8sWorkloads()
 }
 
 // WorkloadsChangedNotifyContext reports when the selected workload set changes for any
 // supported signal. Callers that need the current set should call GetK8sWorkloads.
-func (d *DynamicPIDSelector) WorkloadsChangedNotifyContext(ctx context.Context) <-chan struct{} {
+func (d *DynamicSelector) WorkloadsChangedNotifyContext(ctx context.Context) <-chan struct{} {
 	return d.workloadsChangedNotifier.SubscribeContext(ctx)
 }
 
 // TargetsChangedNotifyContext reports when workload selection changes such that the process
 // watcher should rescan already-tracked processes.
-func (d *DynamicPIDSelector) TargetsChangedNotifyContext(ctx context.Context) <-chan struct{} {
+func (d *DynamicSelector) TargetsChangedNotifyContext(ctx context.Context) <-chan struct{} {
 	return d.targetsChangedNotifier.SubscribeContext(ctx)
 }
 
 // AddK8sWorkload selects a Kubernetes workload for this signal view.
-func (v *dynamicPIDSignalView) AddK8sWorkload(obj any, opts selection.DynamicPIDOptions) error {
+func (v *dynamicPIDSignalView) AddK8sWorkload(obj any, opts selection.DynamicOptions) error {
 	ref, err := ParseK8sWorkload(obj)
 	if err != nil {
 		return err
@@ -76,11 +76,11 @@ func (v *dynamicPIDSignalView) WorkloadsChangedNotifyContext(ctx context.Context
 }
 
 var (
-	_ selection.K8sWorkloadSelector = (*DynamicPIDSelector)(nil)
+	_ selection.K8sWorkloadSelector = (*DynamicSelector)(nil)
 	_ selection.K8sWorkloadSelector = (*dynamicPIDSignalView)(nil)
 )
 
-func (d *DynamicPIDSelector) addWorkload(mask dynamicPIDSignal, key workloadKey, opts *selection.DynamicPIDOptions) {
+func (d *DynamicSelector) addWorkload(mask dynamicPIDSignal, key workloadKey, opts *selection.DynamicOptions) {
 	if mask == 0 {
 		return
 	}
@@ -127,7 +127,7 @@ func (d *DynamicPIDSelector) addWorkload(mask dynamicPIDSignal, key workloadKey,
 	}
 }
 
-func (d *DynamicPIDSelector) removeWorkload(mask dynamicPIDSignal, key workloadKey) {
+func (d *DynamicSelector) removeWorkload(mask dynamicPIDSignal, key workloadKey) {
 	if mask == 0 {
 		return
 	}
@@ -194,7 +194,7 @@ func (d *DynamicPIDSelector) removeWorkload(mask dynamicPIDSignal, key workloadK
 	}
 }
 
-func (d *DynamicPIDSelector) getWorkloads(mask dynamicPIDSignal) []selection.K8sWorkloadRef {
+func (d *DynamicSelector) getWorkloads(mask dynamicPIDSignal) []selection.K8sWorkloadRef {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	if len(d.byWorkload) == 0 {
@@ -230,7 +230,7 @@ func (v *dynamicPIDSignalView) materializeMatchingWorkloads(pid app.PID, meta ma
 	if !ok {
 		return
 	}
-	opts := selection.DynamicPIDOptions{
+	opts := selection.DynamicOptions{
 		ServiceName:        attrs.serviceName,
 		ServiceNamespace:   attrs.serviceNamespace,
 		ResourceAttributes: attrs.resourceAttributes,
@@ -238,7 +238,7 @@ func (v *dynamicPIDSignalView) materializeMatchingWorkloads(pid app.PID, meta ma
 	v.parent.addSignalsFrom(signals, &opts, &key, uint32(pid))
 }
 
-func (d *DynamicPIDSelector) findMatchingWorkload(
+func (d *DynamicSelector) findMatchingWorkload(
 	mask dynamicPIDSignal,
 	meta map[string]string,
 ) (workloadKey, dynamicPIDAttributes, dynamicPIDSignal, bool) {

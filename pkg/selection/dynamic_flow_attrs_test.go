@@ -21,7 +21,7 @@ type stubMultiPIDSelector struct {
 	attrsUpdate chan app.PID
 }
 
-func (s *stubMultiPIDSelector) AddPID(uint32, DynamicPIDOptions) {}
+func (s *stubMultiPIDSelector) AddPID(uint32, DynamicOptions) {}
 func (s *stubMultiPIDSelector) AddPIDs(...uint32)                {}
 func (s *stubMultiPIDSelector) RemovePIDs(...uint32)             {}
 func (s *stubMultiPIDSelector) Traces() MutablePIDSelector       { return s }

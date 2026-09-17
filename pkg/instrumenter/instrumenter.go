@@ -63,11 +63,12 @@ func RunWithContextInfo(
 		opt(ctxInfo)
 	}
 
-	// Enable App O11y when config enables it or when the caller passed a dynamic PID selector
+	// Enable App O11y when config enables it or when the caller passed a dynamic selector
+	// (which can select by PID and/or Kubernetes workload).
 	// (allows an "empty" instrumenter that only instruments PIDs added via the selector).
-	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.DynamicPIDSelector != nil
-	net := cfg.Enabled(obi.FeatureNetO11y) || ctxInfo.DynamicPIDSelector != nil
-	stats := cfg.Enabled(obi.FeatureStatsO11y) || ctxInfo.DynamicPIDSelector != nil
+	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.DynamicSelector != nil
+	net := cfg.Enabled(obi.FeatureNetO11y) || ctxInfo.DynamicSelector != nil
+	stats := cfg.Enabled(obi.FeatureStatsO11y) || ctxInfo.DynamicSelector != nil
 
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)

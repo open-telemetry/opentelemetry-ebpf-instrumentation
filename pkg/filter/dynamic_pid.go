@@ -15,7 +15,7 @@ import (
 )
 
 // ByDynamicPID provides a pipeline node that keeps only records whose source or destination IP
-// belongs to a dynamically selected application (via DynamicPIDSelector). When the selector is nil,
+// belongs to a dynamically selected application (via DynamicSelector). When the selector is nil,
 // the node is bypassed. name identifies this tracker among kube store observers (e.g. "net", "stats").
 func ByDynamicPID[T any](
 	name string,

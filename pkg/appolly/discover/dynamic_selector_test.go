@@ -59,8 +59,8 @@ func readPIDNotifyBatchesUntil(t *testing.T, ch <-chan []app.PID, want []app.PID
 	}
 }
 
-func TestDynamicPIDSelector_AddPIDs_RemovePIDs_GetPIDs(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_AddPIDs_RemovePIDs_GetPIDs(t *testing.T) {
+	d := NewDynamicSelector()
 	pids, ok := d.GetPIDs()
 	assert.False(t, ok)
 	assert.Nil(t, pids)
@@ -86,8 +86,8 @@ func TestDynamicPIDSelector_AddPIDs_RemovePIDs_GetPIDs(t *testing.T) {
 	assert.Nil(t, pids)
 }
 
-func TestDynamicPIDSelector_Subviews(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_Subviews(t *testing.T) {
+	d := NewDynamicSelector()
 
 	d.Traces().AddPIDs(1, 2)
 	d.AppMetrics().AddPIDs(2, 3)
@@ -116,8 +116,8 @@ func TestDynamicPIDSelector_Subviews(t *testing.T) {
 	assert.False(t, d.NetworkMetrics().IncludesPID(3))
 }
 
-func TestDynamicPIDSelector_AppUnionNotifications(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_AppUnionNotifications(t *testing.T) {
+	d := NewDynamicSelector()
 	tracesAdded := d.Traces().AddedPIDsNotify()
 	metricsAdded := d.AppMetrics().AddedPIDsNotify()
 	appAdded := d.appSignals().AddedPIDsNotify()
@@ -165,8 +165,8 @@ func TestDynamicPIDSelector_AppUnionNotifications(t *testing.T) {
 	assert.Equal(t, []app.PID{42}, <-rootRemoved)
 }
 
-func TestDynamicPIDSelector_NotifyBroadcastsToAllSubscribers(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_NotifyBroadcastsToAllSubscribers(t *testing.T) {
+	d := NewDynamicSelector()
 	addedOne := d.AddedPIDsNotify()
 	addedTwo := d.AddedPIDsNotify()
 	removedOne := d.RemovedNotify()
@@ -199,8 +199,8 @@ func readPIDNotifyBatch(t *testing.T, ch <-chan []app.PID) []app.PID {
 	return nil
 }
 
-func TestDynamicPIDSelector_AddedNotifyDoesNotBlockBehindFullSubscriber(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_AddedNotifyDoesNotBlockBehindFullSubscriber(t *testing.T) {
+	d := NewDynamicSelector()
 	stale := d.AddedPIDsNotify()
 
 	for pid := uint32(1); pid <= dynamicPIDNotifyBufferSize; pid++ {
@@ -218,8 +218,8 @@ func TestDynamicPIDSelector_AddedNotifyDoesNotBlockBehindFullSubscriber(t *testi
 	assert.Equal(t, []app.PID{dynamicPIDNotifyBufferSize + 1}, readPIDNotifyBatch(t, stale))
 }
 
-func TestDynamicPIDSelector_RemovedNotifyDoesNotBlockBehindFullSubscriber(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_RemovedNotifyDoesNotBlockBehindFullSubscriber(t *testing.T) {
+	d := NewDynamicSelector()
 	for pid := uint32(1); pid <= dynamicPIDNotifyBufferSize+1; pid++ {
 		d.AddPIDs(pid)
 	}
@@ -328,8 +328,8 @@ func TestDynamicPIDSubscriber_PreservesDuplicatePendingPIDEdges(t *testing.T) {
 	<-subscriber.done
 }
 
-func TestDynamicPIDSelector_NotifyContextRemovesSubscriberOnCancel(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_NotifyContextRemovesSubscriberOnCancel(t *testing.T) {
+	d := NewDynamicSelector()
 	ctx, cancel := context.WithCancel(t.Context())
 	added := d.AddedPIDsNotifyContext(ctx)
 	removed := d.RemovedNotifyContext(ctx)
@@ -353,8 +353,8 @@ func TestDynamicPIDSelector_NotifyContextRemovesSubscriberOnCancel(t *testing.T)
 	assert.False(t, ok)
 }
 
-func TestDynamicPIDSelector_RemovePIDs_Notify(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_RemovePIDs_Notify(t *testing.T) {
+	d := NewDynamicSelector()
 	d.AddPIDs(42, 100)
 	ch := d.RemovedNotify()
 
@@ -367,8 +367,8 @@ func TestDynamicPIDSelector_RemovePIDs_Notify(t *testing.T) {
 	assert.Equal(t, []app.PID{42}, got)
 }
 
-func TestDynamicPIDSelector_AddPIDs_Notify(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_AddPIDs_Notify(t *testing.T) {
+	d := NewDynamicSelector()
 	ch := d.AddedPIDsNotify()
 
 	d.AddPIDs(42, 100)
@@ -388,11 +388,11 @@ func TestDynamicPIDSelector_AddPIDs_Notify(t *testing.T) {
 	assert.Equal(t, []app.PID{99}, got)
 }
 
-// TestDynamicPIDSelector_QueueNoDrop verifies that rapid AddPIDs/RemovePIDs are all delivered
+// TestDynamicSelector_QueueNoDrop verifies that rapid AddPIDs/RemovePIDs are all delivered
 // on the notify channels (nothing dropped). With a buffered notify channel, one logical burst can
 // span multiple receives; the consumer must drain until the expected multiset is complete.
-func TestDynamicPIDSelector_QueueNoDrop(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_QueueNoDrop(t *testing.T) {
+	d := NewDynamicSelector()
 	removedCh := d.RemovedNotify()
 	addedCh := d.AddedPIDsNotify()
 
@@ -408,10 +408,10 @@ func TestDynamicPIDSelector_QueueNoDrop(t *testing.T) {
 	readPIDNotifyBatchesUntil(t, addedCh, []app.PID{10, 20, 30})
 }
 
-// TestDynamicPIDSelector_NoNotifyWithoutSubscribers checks that adds before any subscriber are
+// TestDynamicSelector_NoNotifyWithoutSubscribers checks that adds before any subscriber are
 // not replayed later; callers recover current membership via GetPIDs.
-func TestDynamicPIDSelector_NoNotifyWithoutSubscribers(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_NoNotifyWithoutSubscribers(t *testing.T) {
+	d := NewDynamicSelector()
 	d.AddPIDs(1, 2, 3)
 
 	ch := d.AddedPIDsNotify()
@@ -426,9 +426,9 @@ func TestDynamicPIDSelector_NoNotifyWithoutSubscribers(t *testing.T) {
 	assert.ElementsMatch(t, []app.PID{1, 2, 3}, pids)
 }
 
-func TestDynamicPIDSelector_AddPID_WithOptions(t *testing.T) {
-	d := NewDynamicPIDSelector()
-	d.Traces().AddPID(42, selection.DynamicPIDOptions{
+func TestDynamicSelector_AddPID_WithOptions(t *testing.T) {
+	d := NewDynamicSelector()
+	d.Traces().AddPID(42, selection.DynamicOptions{
 		ServiceName:      "custom-svc",
 		ServiceNamespace: "custom-ns",
 		ResourceAttributes: map[string]string{
@@ -452,8 +452,8 @@ func TestDynamicPIDSelector_AddPID_WithOptions(t *testing.T) {
 	assert.Equal(t, "staging", attrs[attr.Name("deployment.environment")])
 }
 
-func TestDynamicPIDSelector_GetPID_SetPID(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_GetPID_SetPID(t *testing.T) {
+	d := NewDynamicSelector()
 	d.AddPIDs(42)
 
 	entry, ok := d.GetPID(42)
@@ -473,19 +473,19 @@ func TestDynamicPIDSelector_GetPID_SetPID(t *testing.T) {
 	assert.False(t, d.SetPID(selection.DynamicPIDEntry{PID: 99, ServiceName: "missing"}))
 }
 
-func TestDynamicPIDSelector_AddPID_UpdatesExistingAttributes(t *testing.T) {
-	d := NewDynamicPIDSelector()
-	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "first"})
-	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "updated"})
+func TestDynamicSelector_AddPID_UpdatesExistingAttributes(t *testing.T) {
+	d := NewDynamicSelector()
+	d.Traces().AddPID(42, selection.DynamicOptions{ServiceName: "first"})
+	d.Traces().AddPID(42, selection.DynamicOptions{ServiceName: "updated"})
 
 	entry, ok := d.GetPID(42)
 	require.True(t, ok)
 	assert.Equal(t, "updated", entry.ServiceName)
 }
 
-func TestDynamicPIDSelector_AttributesSharedAcrossSignals(t *testing.T) {
-	d := NewDynamicPIDSelector()
-	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "shared-svc"})
+func TestDynamicSelector_AttributesSharedAcrossSignals(t *testing.T) {
+	d := NewDynamicSelector()
+	d.Traces().AddPID(42, selection.DynamicOptions{ServiceName: "shared-svc"})
 
 	d.AppMetrics().AddPIDs(42)
 	entry, ok := d.GetPID(42)
@@ -495,8 +495,8 @@ func TestDynamicPIDSelector_AttributesSharedAcrossSignals(t *testing.T) {
 	assert.True(t, d.AppMetrics().IncludesPID(42))
 }
 
-func TestDynamicPIDSelector_SetPID_UpdatesFileInfo(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_SetPID_UpdatesFileInfo(t *testing.T) {
+	d := NewDynamicSelector()
 	d.AddPIDs(42)
 
 	fi := exec.New(exec.Init{
@@ -522,8 +522,8 @@ func TestDynamicPIDSelector_SetPID_UpdatesFileInfo(t *testing.T) {
 	assert.Equal(t, "payments", snap.Metadata["team"])
 }
 
-func TestDynamicPIDSelector_SetPID_NotifiesFileInfoUpdate(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_SetPID_NotifiesFileInfoUpdate(t *testing.T) {
+	d := NewDynamicSelector()
 	d.AddPIDs(42)
 
 	fi := exec.New(exec.Init{Pid: 42, Service: svc.Attrs{DynamicSelectorPID: 42}})
@@ -539,8 +539,8 @@ func TestDynamicPIDSelector_SetPID_NotifiesFileInfoUpdate(t *testing.T) {
 	assert.Same(t, fi, notified)
 }
 
-func TestDynamicPIDSelector_SetPID_NotifiesAttrsUpdated(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_SetPID_NotifiesAttrsUpdated(t *testing.T) {
+	d := NewDynamicSelector()
 	d.AddPIDs(7)
 
 	ch := d.AttrsUpdatedNotify()

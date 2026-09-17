@@ -46,14 +46,14 @@ func TestServiceNameTemplate(t *testing.T) {
 	assert.Nil(t, temp)
 }
 
-// TestRun_WithDynamicPIDSelector verifies that when the caller passes a selector via
-// WithDynamicPIDSelector, Run uses it and the caller can add/remove PIDs on it directly—
+// TestRun_WithDynamicSelector verifies that when the caller passes a selector via
+// WithDynamicSelector, Run uses it and the caller can add/remove PIDs on it directly—
 // no callback or reference to the instrumenter is needed.
-func TestRun_WithDynamicPIDSelector(t *testing.T) {
+func TestRun_WithDynamicSelector(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sel := discover.NewDynamicPIDSelector()
+	sel := discover.NewDynamicSelector()
 	cfg := &obi.Config{
 		ChannelBufferLen: 1,
 		Traces:           otelcfg.TracesConfig{TracesEndpoint: "http://localhost:0"},
@@ -65,7 +65,7 @@ func TestRun_WithDynamicPIDSelector(t *testing.T) {
 	}
 	require.True(t, cfg.Enabled(obi.FeatureAppO11y), "test config must enable App O11y")
 
-	opts := []Option{WithDynamicPIDSelector(sel)}
+	opts := []Option{WithDynamicSelector(sel)}
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, cfg, opts...) }()
 

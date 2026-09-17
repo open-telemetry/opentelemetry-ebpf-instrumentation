@@ -92,7 +92,7 @@ type traceAttacher struct {
 	// Is able to find process lifetime duration
 	processAgeFunc func(app.PID) time.Duration
 
-	DynamicPIDSelector *DynamicPIDSelector
+	DynamicSelector *DynamicSelector
 }
 
 type executableTracer struct {
@@ -560,7 +560,7 @@ func (ta *traceAttacher) monitorPIDs(ctx context.Context, tracer *ebpf.ProcessTr
 	}
 	ie.CopyToServiceAttributes()
 
-	if ta.DynamicPIDSelector != nil {
+	if ta.DynamicSelector != nil {
 		ta.registerDynamicFileInfo(ie)
 	}
 
@@ -629,25 +629,25 @@ func (ta *traceAttacher) registerDynamicFileInfo(ie *ebpf.Instrumentable) {
 	if owner == 0 {
 		owner = ie.FileInfo.Pid()
 	}
-	ta.DynamicPIDSelector.RegisterFileInfo(owner, ie.FileInfo)
-	ta.DynamicPIDSelector.RegisterFileInfo(ie.FileInfo.Pid(), ie.FileInfo)
+	ta.DynamicSelector.RegisterFileInfo(owner, ie.FileInfo)
+	ta.DynamicSelector.RegisterFileInfo(ie.FileInfo.Pid(), ie.FileInfo)
 	for _, pid := range ie.ChildPids {
-		ta.DynamicPIDSelector.RegisterFileInfo(pid, ie.FileInfo)
+		ta.DynamicSelector.RegisterFileInfo(pid, ie.FileInfo)
 	}
 }
 
 func (ta *traceAttacher) unregisterDynamicFileInfo(ie *ebpf.Instrumentable) {
-	if ta.DynamicPIDSelector == nil {
+	if ta.DynamicSelector == nil {
 		return
 	}
 	owner := ie.FileInfo.ServiceAttrs().DynamicSelectorPID
 	if owner == 0 {
 		owner = ie.FileInfo.Pid()
 	}
-	ta.DynamicPIDSelector.UnregisterFileInfo(owner, ie.FileInfo)
-	ta.DynamicPIDSelector.UnregisterFileInfo(ie.FileInfo.Pid(), ie.FileInfo)
+	ta.DynamicSelector.UnregisterFileInfo(owner, ie.FileInfo)
+	ta.DynamicSelector.UnregisterFileInfo(ie.FileInfo.Pid(), ie.FileInfo)
 	for _, pid := range ie.ChildPids {
-		ta.DynamicPIDSelector.UnregisterFileInfo(pid, ie.FileInfo)
+		ta.DynamicSelector.UnregisterFileInfo(pid, ie.FileInfo)
 	}
 }
 

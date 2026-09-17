@@ -23,10 +23,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/selection"
 )
 
-// This example shows why DynamicPIDSelector exists beyond OBI's static discovery
+// This example shows why DynamicSelector exists beyond OBI's static discovery
 // (exe_path, cmd_args, open_ports, …): a vendored host can decide at runtime which
-// PIDs to instrument, which signals to enable, and which service identity/resource
-// attributes to attach — then change those attributes later without a config reload.
+// PIDs (or Kubernetes workloads) to instrument, which signals to enable, and which
+// service identity/resource attributes to attach — then change those attributes later
+// without a config reload.
 //
 // Start the example, then drive selection from another shell:
 //
@@ -59,7 +60,7 @@ func main() {
 	exportedSpans := msg.NewQueue[[]request.Span](
 		msg.ChannelBufferLen(config.ChannelBufferLen), msg.Name("exportedSpans"))
 
-	selector := discover.NewDynamicPIDSelector()
+	selector := discover.NewDynamicSelector()
 
 	go myOwnSpanExporter(ctx, exportedSpans)
 	go serveControlPlane(ctx, selector)
@@ -72,12 +73,12 @@ func runVendoredInstrumenter(
 	ctx context.Context,
 	config obi.Config,
 	exportedSpans *msg.Queue[[]request.Span],
-	selector *discover.DynamicPIDSelector,
+	selector *discover.DynamicSelector,
 ) {
-	log.Print("starting eBPF instrumentation with dynamic PID selector...")
+	log.Print("starting eBPF instrumentation with dynamic selector...")
 	if err := instrumenter.Run(ctx, &config,
 		instrumenter.OverrideAppExportQueue(exportedSpans),
-		instrumenter.WithDynamicPIDSelector(selector),
+		instrumenter.WithDynamicSelector(selector),
 	); err != nil {
 		fmt.Println("Error running eBPF instrumentation. Exiting: " + err.Error())
 		os.Exit(1)
@@ -111,14 +112,14 @@ type selectRequest struct {
 	Signals []telemetrySignal `json:"signals"`
 }
 
-func serveControlPlane(ctx context.Context, selector *discover.DynamicPIDSelector) {
+func serveControlPlane(ctx context.Context, selector *discover.DynamicSelector) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /select", func(w http.ResponseWriter, r *http.Request) {
 		req, ok := decodeSelectRequest(w, r)
 		if !ok {
 			return
 		}
-		opts := selection.DynamicPIDOptions{
+		opts := selection.DynamicOptions{
 			ServiceName:        req.ServiceName,
 			ServiceNamespace:   req.ServiceNamespace,
 			ResourceAttributes: req.ResourceAttributes,
@@ -185,9 +186,9 @@ func serveControlPlane(ctx context.Context, selector *discover.DynamicPIDSelecto
 }
 
 func addToSignals(
-	selector *discover.DynamicPIDSelector,
+	selector *discover.DynamicSelector,
 	pid uint32,
-	opts selection.DynamicPIDOptions,
+	opts selection.DynamicOptions,
 	signals []telemetrySignal,
 ) {
 	if len(signals) == 0 {

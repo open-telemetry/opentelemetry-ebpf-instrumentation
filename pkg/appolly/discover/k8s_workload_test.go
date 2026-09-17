@@ -43,13 +43,13 @@ func TestParseK8sWorkload(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDynamicPIDSelector_AddRemoveK8sWorkload(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_AddRemoveK8sWorkload(t *testing.T) {
+	d := NewDynamicSelector()
 	require.Empty(t, d.GetK8sWorkloads())
 
 	require.NoError(t, d.AddK8sWorkload(selection.K8sWorkloadRef{
 		Kind: "Deployment", Namespace: "payments", Name: "checkout",
-	}, selection.DynamicPIDOptions{ServiceName: "checkout"}))
+	}, selection.DynamicOptions{ServiceName: "checkout"}))
 
 	got := d.GetK8sWorkloads()
 	require.Len(t, got, 1)
@@ -61,11 +61,11 @@ func TestDynamicPIDSelector_AddRemoveK8sWorkload(t *testing.T) {
 	assert.Empty(t, d.GetK8sWorkloads())
 }
 
-func TestDynamicPIDSelector_MaterializeAppliesFullSignalMask(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_MaterializeAppliesFullSignalMask(t *testing.T) {
+	d := NewDynamicSelector()
 	require.NoError(t, d.AddK8sWorkload(selection.K8sWorkloadRef{
 		Kind: "Deployment", Namespace: "ns", Name: "checkout",
-	}, selection.DynamicPIDOptions{ServiceName: "checkout"}))
+	}, selection.DynamicOptions{ServiceName: "checkout"}))
 
 	meta := map[string]string{
 		services.AttrNamespace:      "ns",
@@ -82,12 +82,12 @@ func TestDynamicPIDSelector_MaterializeAppliesFullSignalMask(t *testing.T) {
 	assert.False(t, d.IncludesPID(42))
 }
 
-func TestDynamicPIDSelector_ExplicitPIDSurvivesWorkloadRemoval(t *testing.T) {
-	d := NewDynamicPIDSelector()
-	d.AddPID(7, selection.DynamicPIDOptions{ServiceName: "explicit"})
+func TestDynamicSelector_ExplicitPIDSurvivesWorkloadRemoval(t *testing.T) {
+	d := NewDynamicSelector()
+	d.AddPID(7, selection.DynamicOptions{ServiceName: "explicit"})
 	require.NoError(t, d.AddK8sWorkload(selection.K8sWorkloadRef{
 		Kind: "Deployment", Namespace: "ns", Name: "checkout",
-	}, selection.DynamicPIDOptions{ServiceName: "from-deploy"}))
+	}, selection.DynamicOptions{ServiceName: "from-deploy"}))
 
 	meta := map[string]string{
 		services.AttrNamespace:      "ns",
@@ -105,10 +105,10 @@ func TestDynamicPIDSelector_ExplicitPIDSurvivesWorkloadRemoval(t *testing.T) {
 	assert.Equal(t, "from-deploy", entry.ServiceName)
 }
 
-func TestDynamicPIDSelector_WorkloadOptsUpdatePropagatesToMaterializedPIDs(t *testing.T) {
-	d := NewDynamicPIDSelector()
+func TestDynamicSelector_WorkloadOptsUpdatePropagatesToMaterializedPIDs(t *testing.T) {
+	d := NewDynamicSelector()
 	ref := selection.K8sWorkloadRef{Kind: "Deployment", Namespace: "ns", Name: "checkout"}
-	require.NoError(t, d.AddK8sWorkload(ref, selection.DynamicPIDOptions{ServiceName: "first"}))
+	require.NoError(t, d.AddK8sWorkload(ref, selection.DynamicOptions{ServiceName: "first"}))
 
 	meta := map[string]string{
 		services.AttrNamespace:      "ns",
@@ -117,22 +117,22 @@ func TestDynamicPIDSelector_WorkloadOptsUpdatePropagatesToMaterializedPIDs(t *te
 	d.appSignals().materializeMatchingWorkloads(9, meta)
 	require.True(t, d.IncludesPID(9))
 
-	require.NoError(t, d.AddK8sWorkload(ref, selection.DynamicPIDOptions{ServiceName: "updated"}))
+	require.NoError(t, d.AddK8sWorkload(ref, selection.DynamicOptions{ServiceName: "updated"}))
 	entry, ok := d.GetPID(9)
 	require.True(t, ok)
 	assert.Equal(t, "updated", entry.ServiceName)
 }
 
 func TestDynamicMatcher_MaterializesWorkloadWhenPIDAlreadySelected(t *testing.T) {
-	d := NewDynamicPIDSelector()
-	d.AddPID(11, selection.DynamicPIDOptions{ServiceName: "explicit"})
+	d := NewDynamicSelector()
+	d.AddPID(11, selection.DynamicOptions{ServiceName: "explicit"})
 	require.NoError(t, d.AddK8sWorkload(selection.K8sWorkloadRef{
 		Kind: "Deployment", Namespace: "ns", Name: "checkout",
-	}, selection.DynamicPIDOptions{ServiceName: "from-deploy"}))
+	}, selection.DynamicOptions{ServiceName: "from-deploy"}))
 
 	m := &DynamicMatcher{
 		Log:             slog.Default(),
-		DynamicPIDSelector: d.appSignals(),
+		DynamicSelector: d.appSignals(),
 	}
 	pm := m.matchDynamicCriteria(ProcessAttrs{
 		pid: 11,

@@ -15,7 +15,7 @@ import (
 
 type DynamicMatcher struct {
 	Log             *slog.Logger
-	DynamicPIDSelector *dynamicPIDSignalView
+	DynamicSelector *dynamicPIDSignalView
 	Input           <-chan []Event[ProcessAttrs]
 	Output          *msg.Queue[[]Event[ProcessMatch]]
 	ProcessHistory  map[app.PID]ProcessMatch
@@ -36,7 +36,7 @@ func dynamicMatcherProvider(
 
 	dynamicMatcher := &DynamicMatcher{
 		Log:             slog.With("component", "discover.DynamicMatcher"),
-		DynamicPIDSelector: dynamicPIDs,
+		DynamicSelector: dynamicPIDs,
 		Input:           input.Subscribe(msg.SubscriberName("discover.DynamicMatcher")),
 		Output:          output,
 		ProcessHistory:  map[app.PID]ProcessMatch{},
@@ -46,7 +46,7 @@ func dynamicMatcherProvider(
 
 func (m *DynamicMatcher) Run(ctx context.Context) {
 	defer m.Output.Close()
-	if m.DynamicPIDSelector == nil {
+	if m.DynamicSelector == nil {
 		m.Log.Debug("no dynamic selector, stopping node")
 		return
 	}
@@ -54,7 +54,7 @@ func (m *DynamicMatcher) Run(ctx context.Context) {
 
 	removedPIDsNotify := m.RemovedPIDsNotify
 	if removedPIDsNotify == nil {
-		removedPIDsNotify = m.DynamicPIDSelector.RemovedNotifyContext(ctx)
+		removedPIDsNotify = m.DynamicSelector.RemovedNotifyContext(ctx)
 	}
 
 	for {
@@ -143,11 +143,11 @@ func (m *DynamicMatcher) matchDynamicCriteria(obj ProcessAttrs, proc *services.P
 	// Always attempt materialization so a workload source is attached even when the PID was
 	// already selected explicitly (AddPID). Otherwise RemoveK8sWorkload would not account for
 	// that source, and workload opts would never apply to an already-selected PID.
-	m.DynamicPIDSelector.materializeMatchingWorkloads(proc.Pid, obj.metadata)
-	if !m.DynamicPIDSelector.IncludesPID(proc.Pid) {
+	m.DynamicSelector.materializeMatchingWorkloads(proc.Pid, obj.metadata)
+	if !m.DynamicSelector.IncludesPID(proc.Pid) {
 		return nil
 	}
-	selector := m.DynamicPIDSelector.SelectorForPID(proc.Pid)
+	selector := m.DynamicSelector.SelectorForPID(proc.Pid)
 	if selector == nil {
 		return nil
 	}
