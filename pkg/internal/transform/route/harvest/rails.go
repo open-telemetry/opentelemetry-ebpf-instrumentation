@@ -27,9 +27,9 @@ var (
 	railsDeclaration   = regexp.MustCompile(`^(get|post|put|patch|delete|head|options|match|resources|resource|namespace|scope)\b\s*\(?\s*(.*)$`)
 	railsLiteral       = regexp.MustCompile(`^(?:'([^'\\]*)'|"([^"\\#]*)"|:([A-Za-z_][A-Za-z_0-9]*))(\s*(?:,|\)|=>|do\b|$))`)
 	railsAPIOnly       = regexp.MustCompile(`^config\.api_only\s*=\s*true\s*$`)
-	railsPathOption    = regexp.MustCompile(`(?:^|,\s*)path:\s*(.*)$`)
-	railsActionsOption = regexp.MustCompile(`(?:^|,\s*)(only|except):\s*(\[[^\]]*\]|%i\[[^\]]*\]|[^,)]*)`)
-	railsParamOption   = regexp.MustCompile(`(?:^|,\s*)param:\s*(.*)$`)
+	railsPathOption    = regexp.MustCompile(`(?:^|,\s*)(?:path:|:path\s*=>)\s*(.*)$`)
+	railsActionsOption = regexp.MustCompile(`(?:^|,\s*)(?:(only|except):|:(only|except)\s*=>)\s*(\[[^\]]*\]|%i\[[^\]]*\]|[^,)]*)`)
+	railsParamOption   = regexp.MustCompile(`(?:^|,\s*)(?:param:|:param\s*=>)\s*(.*)$`)
 
 	railsDefaultResourceActions = [...]string{"index", "create", "show", "update", "destroy", "new", "edit"}
 	railsAPIOnlyResourceActions = [...]string{"index", "create", "show", "update", "destroy"}
@@ -295,11 +295,14 @@ func (s railsRouteScanner) resourceRoutes(kind, path, param, args string) []stri
 	var selectionKind string
 	if option := railsActionsOption.FindStringSubmatch(args); option != nil {
 		var ok bool
-		selectedActions, ok = railsActions(strings.TrimSpace(option[2]))
+		selectedActions, ok = railsActions(strings.TrimSpace(option[3]))
 		if !ok {
 			return nil
 		}
 		selectionKind = option[1]
+		if selectionKind == "" {
+			selectionKind = option[2]
+		}
 	}
 	var routes []string
 	for _, action := range s.resourceActions {
@@ -374,8 +377,13 @@ func railsLiteralValues(value string) ([]string, bool) {
 		if match == nil {
 			break
 		}
+		// Hash-rocket keys are options (`:only => :show`), not resource names.
+		delimiter := strings.TrimSpace(match[4])
+		if delimiter == "=>" {
+			break
+		}
 		values = append(values, match[1]+match[2]+match[3])
-		if strings.TrimSpace(match[4]) != "," {
+		if delimiter != "," {
 			break
 		}
 		value = value[len(match[0]):]
