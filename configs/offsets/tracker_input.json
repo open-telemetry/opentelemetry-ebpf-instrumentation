@@ -43,7 +43,7 @@
       "bufio.Reader": ["buf", "w"],
       "runtime.mstats": [
         "numgc",
-        "[1.23.0]heapStats",
+        "[1.17.0]heapStats",
         "[1.23.0]stacks_sys",
         "[1.23.0]mspan_sys",
         "[1.23.0]mcache_sys",

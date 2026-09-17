@@ -5,13 +5,18 @@ instrumented Go services and exports the following metric set.
 
 OBI resolves runtime globals from ELF object symbols when they are available.
 Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
-fallback currently recovers only `runtime.gomaxprocs`; stripped binaries remain
-disabled until it can recover the other mandatory runtime globals.
+fallback currently recovers `runtime.gomaxprocs` and `runtime.memstats`; stripped
+runtime metrics remain disabled until it also recovers `runtime.gcController`.
 
 ## Stripped global recovery
 
 Go retains function metadata in `.gopclntab` after `-ldflags=-s` removes the ELF
-object symbols. The fallback uses that metadata to locate and bound
+object symbols. The fallback parses this metadata to locate runtime functions
+and read their bounded instruction ranges.
+
+### Processor limit
+
+The resolver locates
 `runtime.procresize`, whose processor-count validation reads `runtime.gomaxprocs`.
 
 On `amd64`, the resolver decodes `procresize` and matches this sequence:
@@ -32,6 +37,37 @@ addresses.
 After validation, the resolver adds the executable's process load bias. The
 resulting process address is the value that the BPF runtime metrics collector
 uses to read `gomaxprocs` from the target process.
+
+### Memory statistics
+
+The resolver locates `runtime.(*mcache).refill` and
+`runtime.(*consistentHeapStats).acquire` through the same Go function metadata.
+Inside `refill`, Go calls:
+
+```go
+stats := memstats.heapStats.acquire()
+```
+
+On `amd64`, the receiver is passed in RAX. The resolver matches the instructions
+that prepare the receiver and call the identified method:
+
+```text
+LEA  RAX, [RIP+displacement]  // Address of memstats.heapStats
+CALL acquire                // Destination must match acquire's entry address
+```
+
+The LEA gives the incoming receiver's address. Subtracting its generated field
+offset recovers the containing global:
+
+```text
+memstats base = heapStats address - heapStats field offset
+```
+
+The field offset is 5960 bytes for Go 1.17/1.18 and zero for Go 1.19 through 1.27.1.
+The resolver rejects missing metadata, conflicting addresses, invalid alignment,
+storage ranges, and arithmetic overflow. After adding the process load bias,
+it supplies the base address to the existing BPF collector, which reads the
+metric values using field offsets.
 
 ## Metrics
 

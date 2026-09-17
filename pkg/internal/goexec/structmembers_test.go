@@ -598,6 +598,27 @@ func TestSetGoAutoSDKActivationSupportRequiresSupportedArchitecture(t *testing.T
 	}
 }
 
+func TestPrefetchedGoRuntimeHeapStatsOffset(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		version string
+		want    uint64
+	}{
+		{"1.17.0", 5960},
+		{"1.18.0", 5960},
+		{"1.19.0", 0},
+		{"1.23.0", 0},
+		{"1.27.1", 0},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			offset, found := track.Find("runtime.mstats", "heapStats", tc.version)
+			require.True(t, found)
+			require.Equal(t, tc.want, offset)
+		})
+	}
+}
+
 func TestPrefetchedGoRuntimeMemoryOffsets(t *testing.T) {
 	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	require.NoError(t, err)
@@ -615,7 +636,6 @@ func TestPrefetchedGoRuntimeMemoryOffsets(t *testing.T) {
 		{structName: "runtime.heapStatsDelta", fieldName: "largeAllocCount", go123: 64, go125: 56},
 		{structName: "runtime.heapStatsDelta", fieldName: "smallAllocCount", go123: 72, go125: 64},
 		{structName: "runtime.heapStatsDelta", fieldName: "smallFreeCount", go123: 632, go125: 624},
-		{structName: "runtime.mstats", fieldName: "heapStats", go123: 0, go125: 0},
 		{structName: "runtime.mstats", fieldName: "stacks_sys", go123: 3544, go125: 3520},
 		{structName: "runtime.mstats", fieldName: "mspan_sys", go123: 3552, go125: 3528},
 		{structName: "runtime.mstats", fieldName: "mcache_sys", go123: 3560, go125: 3536},

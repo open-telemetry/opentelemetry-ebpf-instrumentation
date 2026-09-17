@@ -15,3 +15,9 @@ import (
 func resolveGOMAXPROCSFromCode(_ *elf.File, _ uint64, _ []byte) (uint64, error) {
 	return 0, errors.New("stripped Go runtime global address recovery requires amd64")
 }
+
+// resolveRuntimeMetricReceiverFromCode reports that receiver recovery requires
+// the amd64 instruction matcher.
+func resolveRuntimeMetricReceiverFromCode(_ uint64, _ []byte, _ uint64) (uint64, error) {
+	return 0, errors.New("stripped Go runtime global address recovery requires amd64")
+}

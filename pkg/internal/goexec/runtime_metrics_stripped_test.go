@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveGOMAXPROCSStripped(t *testing.T) {
+func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 	objcopy, err := exec.LookPath("objcopy")
 	require.NoError(t, err)
 	for _, build := range []struct {
@@ -42,13 +42,17 @@ func TestResolveGOMAXPROCSStripped(t *testing.T) {
 			t.Cleanup(func() { _ = oracle.Close() })
 			symbols, err := oracle.Symbols()
 			require.NoError(t, err)
-			var want uint64
+			var want, wantMemstats uint64
 			for _, symbol := range symbols {
 				if symbol.Name == "runtime.gomaxprocs" {
 					want = symbol.Value
 				}
+				if symbol.Name == "runtime.memstats" {
+					wantMemstats = symbol.Value
+				}
 			}
 			require.NotZero(t, want)
+			require.NotZero(t, wantMemstats)
 
 			// Strip a copy of the same link so the symbol oracle's addresses stay valid.
 			output, err = exec.Command(objcopy, "--strip-all", original, stripped).CombinedOutput()
@@ -81,7 +85,7 @@ func TestResolveGOMAXPROCSStripped(t *testing.T) {
 			partial, err := resolveRuntimeMetricSymbols(f, loadBias)
 			require.EqualError(t, err, "stripped Go runtime global address recovery is not implemented")
 			require.Equal(t, want+loadBias, partial.GOMAXPROCSAddr)
-			require.Zero(t, partial.MemstatsAddr)
+			require.Equal(t, wantMemstats+loadBias, partial.MemstatsAddr)
 			require.Zero(t, partial.GCControllerAddr)
 			_, err = resolveRuntimeMetricSymbols(f, math.MaxUint64)
 			require.EqualError(t, err, "gomaxprocs process address overflows")
@@ -109,7 +113,43 @@ func TestResolveGOMAXPROCSStripped(t *testing.T) {
 				// This is a separate link: its layout can differ from the symbol oracle.
 				// Exact-address verification is covered by the objcopy case above.
 				require.NotZero(t, address)
+				partial, err := resolveRuntimeMetricSymbols(linked, loadBias)
+				require.EqualError(t, err, "stripped Go runtime global address recovery is not implemented")
+				require.Greater(t, partial.MemstatsAddr, loadBias)
 			})
+		})
+	}
+}
+
+func TestRuntimeMetricMemstatsBase(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		heapStats, offset, want uint64
+		wantError               string
+	}{
+		{"first field", 0x2000, 0, 0x2000, ""},
+		{"older layout", 0x2000 + 5960, 5960, 0x2000, ""},
+		{"subtraction underflow", 0x2000, 0x2008, 0, "invalid memstats.heapStats field offset"},
+		{"zero base", 0x2000, 0x2000, 0, "invalid memstats.heapStats field offset"},
+		{"misaligned field", 0x2001, 0, 0, "invalid memstats.heapStats storage"},
+		{"misaligned base", 0x2008, 1, 0, "invalid memstats storage"},
+		{"base outside segment", 0x2000, 8, 0, "invalid memstats storage"},
+		{"field at segment end", 0x4000, 0, 0, "invalid memstats.heapStats storage"},
+		{"field fits exactly", 0x3ff8, 0, 0x3ff8, ""},
+		{"address overflow", math.MaxUint64 - 7, 0, 0, "invalid memstats.heapStats storage"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+				Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_W,
+				Vaddr: 0x2000, Filesz: 0x100, Memsz: 0x2000,
+			}}}}
+			got, err := runtimeMetricMemstatsBase(f, tc.heapStats, tc.offset)
+			if tc.wantError != "" {
+				require.EqualError(t, err, tc.wantError)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.want, got)
 		})
 	}
 }

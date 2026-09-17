@@ -47,6 +47,28 @@ func resolveGOMAXPROCSFromCode(f *elf.File, functionELFAddress uint64, code []by
 	return uniqueRuntimeMetricAddress(candidates)
 }
 
+// resolveRuntimeMetricReceiverFromCode finds the address passed to a method.
+// For memstats.heapStats.acquire(), the LEA supplies &memstats.heapStats;
+// subtracting the field offset to recover memstats is the caller's responsibility.
+func resolveRuntimeMetricReceiverFromCode(functionELFAddress uint64, code []byte, methodELFAddress uint64) (uint64, error) {
+	instructions, err := decodeRuntimeMetricX86Instructions(code)
+	if err != nil {
+		return 0, err
+	}
+	var candidates []uint64
+	for index, instruction := range instructions {
+		if !isRuntimeMetricReceiverCall(instructions, index, functionELFAddress, methodELFAddress) {
+			continue
+		}
+		address, ok := runtimeMetricRIPTarget(functionELFAddress, instruction)
+		if !ok || address == 0 {
+			continue
+		}
+		candidates = append(candidates, address)
+	}
+	return uniqueRuntimeMetricAddress(candidates)
+}
+
 // decodeRuntimeMetricX86Instructions turns file bytes into instructions.
 func decodeRuntimeMetricX86Instructions(code []byte) ([]runtimeMetricX86Instruction, error) {
 	var instructions []runtimeMetricX86Instruction
@@ -93,6 +115,61 @@ func isGOMAXPROCSLoadSequence(instructions []runtimeMetricX86Instruction, index 
 		branch.Op == x86asm.JL
 }
 
+// isRuntimeMetricReceiverCall recognizes method calls such as this in mcache.refill:
+//
+//	stats := memstats.heapStats.acquire()
+//
+//	LEA  RAX, [RIP + displacement] // Pass &memstats.heapStats as the receiver.
+//	CALL acquire                  // Invoke consistentHeapStats.acquire.
+//
+// Go's amd64 register ABI passes the receiver in RAX.
+func isRuntimeMetricReceiverCall(instructions []runtimeMetricX86Instruction, index int, functionELFAddress, methodELFAddress uint64) bool {
+	if index < 0 || index >= len(instructions) {
+		return false
+	}
+	load := instructions[index].inst
+	memory, ok := load.Args[1].(x86asm.Mem)
+	if load.Op != x86asm.LEA || load.Args[0] != x86asm.RAX || !ok || memory.Base != x86asm.RIP || memory.Index != 0 {
+		return false
+	}
+
+	// Only padding may separate the receiver setup from the call.
+	index++
+	for index < len(instructions) && instructions[index].inst.Op == x86asm.NOP {
+		index++
+	}
+	if index == len(instructions) {
+		return false
+	}
+	target, ok := runtimeMetricCallTarget(functionELFAddress, instructions[index])
+	return ok && target == methodELFAddress
+}
+
+// runtimeMetricCallTarget decodes the CALL part of a method call such as
+// memstats.heapStats.acquire() in mcache.refill:
+//
+//	0x420486: e8 95 eb 01 00  CALL 0x43f020
+//	          next instruction + stored displacement = destination
+//	          0x42048b         + 0x1eb95             = 0x43f020
+//
+// Comparing the destination with acquire.Entry identifies the call to acquire.
+func runtimeMetricCallTarget(functionELFAddress uint64, instruction runtimeMetricX86Instruction) (uint64, bool) {
+	relative, ok := instruction.inst.Args[0].(x86asm.Rel)
+	if instruction.inst.Op != x86asm.CALL || !ok || instruction.offsetInFunction < 0 || instruction.inst.Len <= 0 {
+		return 0, false
+	}
+	instructionELFAddress, ok := procs.AddSignedOffset(functionELFAddress, int64(instruction.offsetInFunction))
+	if !ok {
+		return 0, false
+	}
+	// The displacement is relative to the address immediately after the CALL.
+	nextInstructionELFAddress, ok := procs.AddSignedOffset(instructionELFAddress, int64(instruction.inst.Len))
+	if !ok {
+		return 0, false
+	}
+	return procs.AddSignedOffset(nextInstructionELFAddress, int64(relative))
+}
+
 // runtimeMetricRIPTarget calculates the ELF address read by a RIP-relative load:
 // function address + instruction offset + instruction length + displacement.
 func runtimeMetricRIPTarget(functionELFAddress uint64, instruction runtimeMetricX86Instruction) (uint64, bool) {
@@ -109,5 +186,7 @@ func runtimeMetricRIPTarget(functionELFAddress uint64, instruction runtimeMetric
 	if !ok {
 		return 0, false
 	}
-	return procs.AddSignedOffset(nextInstructionELFAddress, memory.Disp)
+	// RIP-relative operands encode a signed 32-bit displacement. x86asm can
+	// expose its raw bits as a positive int64, so sign-extend before adding it.
+	return procs.AddSignedOffset(nextInstructionELFAddress, int64(int32(memory.Disp)))
 }

@@ -4,8 +4,13 @@
 package goexec
 
 import (
+	"bytes"
 	"debug/elf"
 	"errors"
+
+	trackeroffsets "github.com/grafana/go-offsets-tracker/pkg/offsets"
+
+	"go.opentelemetry.io/obi/internal/goversion"
 )
 
 // resolveRuntimeMetricSymbolsFromCode recovers runtime global addresses from Go
@@ -42,13 +47,86 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 	if err != nil {
 		return RuntimeMetricSymbols{}, err
 	}
+
+	// We want the address of memstats.heapStats. mcache.refill passes it as the
+	// receiver of acquire(), so we recover it from the instructions before the call.
+	// https://github.com/golang/go/blob/go1.27.1/src/runtime/mcache.go#L149
+	refill := table.LookupFunc("runtime.(*mcache).refill")
+	if refill == nil {
+		return RuntimeMetricSymbols{}, errors.New("runtime.(*mcache).refill function not found")
+	}
+	if refill.End <= refill.Entry || refill.End-refill.Entry > maximumRuntimeFunctionSize {
+		return RuntimeMetricSymbols{}, errors.New("invalid runtime.(*mcache).refill function bounds")
+	}
+	code, err = readVirtualMemoryWithFlags(f, refill.Entry, refill.End-refill.Entry, elf.PF_X)
+	if err != nil {
+		return RuntimeMetricSymbols{}, err
+	}
+	acquire := table.LookupFunc("runtime.(*consistentHeapStats).acquire")
+	if acquire == nil {
+		return RuntimeMetricSymbols{}, errors.New("runtime.(*consistentHeapStats).acquire function not found")
+	}
+	heapStatsELFAddress, err := resolveRuntimeMetricReceiverFromCode(refill.Entry, code, acquire.Entry)
+	if err != nil {
+		return RuntimeMetricSymbols{}, err
+	}
+	heapStatsOffset, err := runtimeMetricHeapStatsOffset(f)
+	if err != nil {
+		return RuntimeMetricSymbols{}, err
+	}
+	memstatsELFAddress, err := runtimeMetricMemstatsBase(f, heapStatsELFAddress, heapStatsOffset)
+	if err != nil {
+		return RuntimeMetricSymbols{}, err
+	}
+
 	// A PIE executable can be loaded at a different address on each run. Apply
 	// that process's adjustment once, after identifying the global in the file.
 	if loadBias > ^uint64(0)-gomaxprocsELFAddress {
 		return RuntimeMetricSymbols{}, errors.New("gomaxprocs process address overflows")
 	}
 	gomaxprocsProcessAddress := loadBias + gomaxprocsELFAddress
-	return RuntimeMetricSymbols{GOMAXPROCSAddr: gomaxprocsProcessAddress}, errors.New("stripped Go runtime global address recovery is not implemented")
+	if loadBias > ^uint64(0)-memstatsELFAddress {
+		return RuntimeMetricSymbols{}, errors.New("memstats process address overflows")
+	}
+	return RuntimeMetricSymbols{
+		GOMAXPROCSAddr: gomaxprocsProcessAddress,
+		MemstatsAddr:   loadBias + memstatsELFAddress,
+	}, errors.New("stripped Go runtime global address recovery is not implemented")
+}
+
+// runtimeMetricMemstatsBase moves from &memstats.heapStats back to memstats.
+// The range through the first 64-bit heapStats field must fit writable memory.
+func runtimeMetricMemstatsBase(f *elf.File, heapStatsELFAddress, heapStatsOffset uint64) (uint64, error) {
+	const heapStatsCounterSize = 8
+	if heapStatsELFAddress%heapStatsCounterSize != 0 || !runtimeMetricWritableRange(f, heapStatsELFAddress, heapStatsCounterSize) {
+		return 0, errors.New("invalid memstats.heapStats storage")
+	}
+	if heapStatsOffset >= heapStatsELFAddress {
+		return 0, errors.New("invalid memstats.heapStats field offset")
+	}
+	memstatsELFAddress := heapStatsELFAddress - heapStatsOffset
+	if memstatsELFAddress%heapStatsCounterSize != 0 || !runtimeMetricWritableRange(f, memstatsELFAddress, heapStatsOffset+heapStatsCounterSize) {
+		return 0, errors.New("invalid memstats storage")
+	}
+	return memstatsELFAddress, nil
+}
+
+// runtimeMetricHeapStatsOffset locates heapStats within memstats for the target's
+// Go version. A missing generated offset is an error; a zero offset is valid.
+func runtimeMetricHeapStatsOffset(f *elf.File) (uint64, error) {
+	versionString, _, err := getGoDetails(f)
+	if err != nil {
+		return 0, err
+	}
+	version, err := goversion.Parse(versionString)
+	if err != nil {
+		return 0, err
+	}
+	track, err := trackeroffsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	if err != nil {
+		return 0, err
+	}
+	return generatedABIFact(track, "runtime.mstats", "heapStats", version)
 }
 
 // runtimeMetricWritableRange checks that the whole global fits in a readable,

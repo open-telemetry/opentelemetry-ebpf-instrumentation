@@ -13,6 +13,89 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 )
 
+func TestResolveRuntimeMetricReceiverFromCode(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		addresses []uint64
+		want      uint64
+		wantError string
+	}{
+		{"single", []uint64{0x3000}, 0x3000, ""},
+		{"backward receiver", []uint64{0x800}, 0x800, ""},
+		{"repeated", []uint64{0x3000, 0x3000}, 0x3000, ""},
+		{"conflicting", []uint64{0x3000, 0x4000}, 0, "ambiguous runtime global address"},
+		{"zero address", []uint64{0}, 0, "runtime global address not found"},
+		{"missing", nil, 0, "runtime global address not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const functionAddress = uint64(0x1000)
+			var code []byte
+			for _, address := range tc.addresses {
+				// LEA RAX,[RIP+disp]; CALL the method at 0x2000.
+				start := len(code)
+				code = append(code, 0x48, 0x8d, 0x05, 0, 0, 0, 0, 0xe8, 0, 0, 0, 0)
+				binary.LittleEndian.PutUint32(code[start+3:start+7], uint32(int64(address)-int64(functionAddress)-int64(start+7)))
+				binary.LittleEndian.PutUint32(code[start+8:start+12], uint32(0x2000-functionAddress-uint64(start+12)))
+			}
+			got, err := resolveRuntimeMetricReceiverFromCode(functionAddress, code, 0x2000)
+			if tc.wantError != "" {
+				require.EqualError(t, err, tc.wantError)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestRuntimeMetricCallTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		base         uint64
+		displacement x86asm.Rel
+		want         uint64
+		ok           bool
+	}{
+		{"backward call", 0x1000, -0x105, 0xf00, true},
+		{"displacement underflow", 0, -6, 0, false},
+		{"instruction end overflow", math.MaxUint64 - 3, 0, 0, false},
+		{"displacement overflow", math.MaxUint64 - 5, 1, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			instruction := runtimeMetricX86Instruction{inst: x86asm.Inst{Op: x86asm.CALL, Len: 5, Args: x86asm.Args{tc.displacement}}}
+			got, ok := runtimeMetricCallTarget(tc.base, instruction)
+			require.Equal(t, tc.ok, ok)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestRuntimeMetricReceiverCall(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		setup  []byte
+		target uint64
+		want   bool
+	}{
+		{"receiver in RAX", []byte{0x48, 0x8d, 0x05, 0, 0, 0, 0}, 0x2000, true},
+		{"NOP padding", []byte{0x48, 0x8d, 0x05, 0, 0, 0, 0, 0x90}, 0x2000, true},
+		{"wrong method", []byte{0x48, 0x8d, 0x05, 0, 0, 0, 0}, 0x3000, false},
+		{"receiver in RCX", []byte{0x48, 0x8d, 0x0d, 0, 0, 0, 0}, 0x2000, false},
+		{"receiver overwritten", []byte{0x48, 0x8d, 0x05, 0, 0, 0, 0, 0x31, 0xc0}, 0x2000, false},
+		{"MOV reads contents instead of address", []byte{0x48, 0x8b, 0x05, 0, 0, 0, 0}, 0x2000, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const functionAddress = 0x1000
+			code := append(append([]byte(nil), tc.setup...), 0xe8, 0, 0, 0, 0)
+			// CALL stores the distance from its end to the called method.
+			binary.LittleEndian.PutUint32(code[len(code)-4:], uint32(tc.target-(functionAddress+uint64(len(code)))))
+			instructions, err := decodeRuntimeMetricX86Instructions(code)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, isRuntimeMetricReceiverCall(instructions, 0, functionAddress, 0x2000))
+		})
+	}
+}
+
 func TestResolveGOMAXPROCSFromCode(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
