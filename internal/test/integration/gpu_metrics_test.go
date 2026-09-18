@@ -45,8 +45,14 @@ var gpuHistogramFamilyPrefixes = []string{
 	"gpu_cuda_memory_copies",     // cudaMemcpy / cudaMemcpyAsync
 }
 
-// TestGPUCudaMetrics brings up a target that dynamically links a stub
-// libcudart.so and calls the CUDA Runtime API in a loop. OBI (with CUDA
+// gpuDriverService is the service name OBI derives from the driver target's
+// executable. Scoping queries to it proves the cu* uprobes fire for a process
+// that maps libcuda.so.1 alone, without any libcudart.
+const gpuDriverService = "gpu-cuda-driver-tester"
+
+// TestGPUCudaMetrics brings up two targets: one that dynamically links a stub
+// libcudart.so and calls the CUDA Runtime API in a loop, and one that links a
+// stub libcuda.so.1 and calls the CUDA Driver API. OBI (with CUDA
 // instrumentation forced on) attaches its gpuevent uprobes to those symbols by
 // name — needing no GPU or NVIDIA driver — so every call emits a gpu.cuda.*
 // metric. The collector fans the OTLP stream out to a Prometheus exporter
@@ -110,5 +116,38 @@ func TestGPUCudaMetrics(t *testing.T) {
 			}
 			t.Logf("observed gpu_cuda_* metric series: %v", names)
 		}
+	})
+
+	// The driver target maps libcuda.so.1 alone, so its series prove the cu*
+	// uprobes fire independently of the libcudart target.
+	t.Run("gpu.cuda.* metrics from the CUDA Driver API target", func(t *testing.T) {
+		pq := promtest.Client{HostPort: prometheusHostPort}
+
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for _, name := range []string{
+				"gpu_cuda_kernel_launch_calls_total", // cuLaunchKernel / cuLaunchKernelEx
+				"gpu_cuda_graph_launch_calls_total",  // cuGraphLaunch
+			} {
+				q := name + `{service_name="` + gpuDriverService + `"}`
+				results, err := pq.Query(q)
+				if !assert.NoError(ct, err, "querying %s", q) {
+					continue
+				}
+				assert.NotEmptyf(ct, results, "driver API metric %s should be present", name)
+			}
+			// cuLaunchKernel / cuLaunchKernelEx must feed the same grid and
+			// block-size histograms as the runtime API launches.
+			for _, prefix := range []string{
+				"gpu_cuda_kernel_grid_size",
+				"gpu_cuda_kernel_block_size",
+			} {
+				q := `{__name__=~"` + prefix + `.*_count",service_name="` + gpuDriverService + `"}`
+				results, err := pq.Query(q)
+				if !assert.NoError(ct, err, "querying %s", q) {
+					continue
+				}
+				assert.NotEmptyf(ct, results, "driver API histogram family %s should be present", prefix)
+			}
+		}, testTimeout, 500*time.Millisecond)
 	})
 }

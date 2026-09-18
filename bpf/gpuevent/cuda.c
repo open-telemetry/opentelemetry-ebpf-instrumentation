@@ -86,6 +86,33 @@ static __always_inline void submit_call_event(const u8 flags) {
     bpf_ringbuf_submit(e, 0);
 }
 
+static __always_inline void submit_kernel_launch(const u64 func_off,
+                                                 const u32 grid_x,
+                                                 const u32 grid_y,
+                                                 const u32 grid_z,
+                                                 const u32 block_x,
+                                                 const u32 block_y,
+                                                 const u32 block_z) {
+    cuda_kernel_launch_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
+    if (!e) {
+        bpf_dbg_printk("Failed to allocate ringbuf entry");
+        return;
+    }
+
+    e->flags = k_event_kernel_launch;
+    task_pid(&e->pid_info);
+
+    e->kern_func_off = func_off;
+    e->grid_x = grid_x;
+    e->grid_y = grid_y;
+    e->grid_z = grid_z;
+    e->block_x = block_x;
+    e->block_y = block_y;
+    e->block_z = block_z;
+
+    bpf_ringbuf_submit(e, 0);
+}
+
 SEC("uprobe/cudaLaunchKernel")
 int BPF_KPROBE_GUARDED(
     obi_cuda_launch, u64 func_off, u64 grid_xy, u64 grid_z, u64 block_xy, u64 block_z) {
@@ -98,24 +125,64 @@ int BPF_KPROBE_GUARDED(
 
     bpf_dbg_printk("=== uprobe/cudaLaunchKernel id=%llx ===", id);
 
-    cuda_kernel_launch_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
-    if (!e) {
-        bpf_dbg_printk("Failed to allocate ringbuf entry");
+    submit_kernel_launch(func_off,
+                         (u32)grid_xy,
+                         (u32)(grid_xy >> 32),
+                         (u32)grid_z,
+                         (u32)block_xy,
+                         (u32)(block_xy >> 32),
+                         (u32)block_z);
+
+    return 0;
+}
+
+// cuLaunchKernel(const void *func, u32 grid_x, u32 grid_y, u32 grid_z, u32 block_x, u32 block_y,
+//                u32 block_z, u32 shared_mem_bytes, CUstream stream, void **params, void **extra)
+// The seventh argument does not fit in registers: it spills to the stack on
+// x86-64 and is passed in x6 on arm64.
+SEC("uprobe/cuLaunchKernel")
+int BPF_KPROBE_GUARDED(
+    obi_cu_launch, void *func, u32 grid_x, u32 grid_y, u32 grid_z, u32 block_x, u32 block_y) {
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
         return 0;
     }
 
-    e->flags = k_event_kernel_launch;
-    task_pid(&e->pid_info);
+    bpf_dbg_printk("=== uprobe/cuLaunchKernel id=%llx ===", id);
 
-    e->kern_func_off = func_off;
-    e->grid_x = (u32)grid_xy;
-    e->grid_y = (u32)(grid_xy >> 32);
-    e->grid_z = (u32)grid_z;
-    e->block_x = (u32)block_xy;
-    e->block_y = (u32)(block_xy >> 32);
-    e->block_z = (u32)block_z;
+    u64 block_z = 0;
+#if defined(__TARGET_ARCH_x86)
+    bpf_probe_read_user(&block_z, sizeof(u32), (const void *)(PT_REGS_SP(ctx) + 8));
+#elif defined(__TARGET_ARCH_arm64)
+    block_z = ((PT_REGS_ARM64 *)ctx)->regs[6];
+#endif
 
-    bpf_ringbuf_submit(e, 0);
+    submit_kernel_launch((u64)func, grid_x, grid_y, grid_z, block_x, block_y, (u32)block_z);
+
+    return 0;
+}
+
+// cuLaunchKernelEx(const CUlaunchConfig *config, void *func, void **params, void **extra)
+SEC("uprobe/cuLaunchKernelEx")
+int BPF_KPROBE_GUARDED(obi_cu_launch_ex, void *config, void *func, void **params, void **extra) {
+    (void)ctx;
+    (void)params;
+    (void)extra;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cuLaunchKernelEx id=%llx ===", id);
+
+    cu_launch_config_t cfg = {};
+    bpf_probe_read_user(&cfg, sizeof(cfg), config);
+
+    submit_kernel_launch(
+        (u64)func, cfg.grid_x, cfg.grid_y, cfg.grid_z, cfg.block_x, cfg.block_y, cfg.block_z);
+
     return 0;
 }
 
