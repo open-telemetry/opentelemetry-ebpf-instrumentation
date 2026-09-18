@@ -77,6 +77,24 @@ func TestSuite_Go(t *testing.T) {
 	}
 }
 
+func TestSuite_GoTraceFSUprobes(t *testing.T) {
+	compose, err := docker.ComposeSuite(
+		"docker-compose-go-tracefs-uprobes.yml",
+		path.Join(pathOutput, "test-suite-go-tracefs-uprobes.log"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, compose.Close())
+	})
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=testserver`)
+	require.NoError(t, compose.Up())
+
+	t.Run("RED metrics", func(t *testing.T) {
+		waitForTestComponents(t, instrumentedServiceStdURL)
+		testREDMetricsForHTTPLibrary(t, instrumentedServiceStdURL, "testserver", "integration-test")
+	})
+}
+
 func TestSuiteNestedTraces(t *testing.T) {
 	// We run the test depending on what the host environment is. If the host is in lockdown mode integrity
 	// the nesting of spans will be limited. If we are in none (which should be in any non secure boot environment, e.g. Virtual Machines or CI)
