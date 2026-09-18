@@ -1,6 +1,6 @@
 {
   "require": {
     "symfony/framework-bundle": "^7.0",
-    "api-platform/core": "^4.0"
+    "api-platform/core": "^5.0"
   }
 }
