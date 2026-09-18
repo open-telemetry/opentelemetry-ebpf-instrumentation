@@ -241,7 +241,10 @@ OBI currently documents the following GPU execution instrumentation support:
 
 | Library | Baseline | Instrumented primitives | Limitations |
 |:--------|:---------|:------------------------|:------------|
-| `libcuda` | `>= 7.0` | `cudaLaunchKernel`, `cudaGraphLaunch`, `cudaMalloc`, `cudaMemcpy`, `cudaMemcpyAsync` | None documented |
+| `libcudart` | `>= 7.0` | `cudaLaunchKernel`, `cudaGraphLaunch`, `cudaMalloc`, `cudaFree`, `cudaMemset`, `cudaMemcpy`, `cudaMemcpyAsync`, `cudaStreamCreate`, `cudaStreamCreateWithFlags`, `cudaStreamCreateWithPriority`, `cudaStreamDestroy`, `cudaEventRecord`, `cudaEventRecordWithFlags`, `cudaEventSynchronize`, `cudaStreamSynchronize`, `cudaDeviceSynchronize`, `cudaHostRegister` | None documented |
+| `libcuda` | `>= 7.0` | `cuLaunchKernel`, `cuLaunchKernelEx`, `cuGraphLaunch` | None documented |
+
+Since the CUDA runtime implements the driver API, OBI skips the `libcuda` probes in processes that also map `libcudart`, to avoid duplicating kernel launch telemetry.
 
 ## Explicitly Out Of Scope
 
