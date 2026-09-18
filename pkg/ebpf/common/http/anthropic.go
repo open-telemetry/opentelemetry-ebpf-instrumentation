@@ -16,6 +16,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
+const (
+	anthropicMessagesPath = "/v1/messages"
+	anthropicCompletePath = "/v1/complete"
+)
+
 type anthropicContentBlock struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
@@ -142,6 +147,8 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		}
 	}
 
+	parsedResponse.Type = anthropicOperation(req)
+
 	baseSpan.SubType = request.HTTPSubtypeAnthropic
 	baseSpan.GenAI = &request.GenAI{
 		Anthropic: &request.VendorAnthropic{
@@ -152,6 +159,22 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	}
 
 	return *baseSpan, true
+}
+
+// anthropicOperation names the operation from the request path, which is the
+// only part of the exchange that names it consistently. A response body reports
+// `message`/`completion` when the call succeeded, `error` when it failed, and
+// nothing at all when it was truncated out of the capture buffer, so reading it
+// would split one endpoint across several operation names.
+func anthropicOperation(req *http.Request) string {
+	switch path := requestPath(req); {
+	case strings.Contains(path, anthropicMessagesPath):
+		return request.MessageOperationName
+	case strings.Contains(path, anthropicCompletePath):
+		return request.CompletionOperationName
+	}
+
+	return request.OtherOperationName
 }
 
 // AnthropicStreamEvent represents different types of streaming events
