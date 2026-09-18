@@ -856,6 +856,7 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
 
 done:
     cleanup_http2_owned_stream(&g_key);
+    bpf_map_delete_elem(&http2_header_observations, &g_key);
     bpf_map_delete_elem(&go_ongoing_http_client_requests, &g_key);
     bpf_map_delete_elem(&ongoing_http_client_requests_data, &g_key);
     bpf_map_delete_elem(&ongoing_client_connections, &g_key);
@@ -1238,6 +1239,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
     go_addr_key_from_id(&writer_key, goroutine_addr);
     const u8 *observation = bpf_map_lookup_elem(&http2_header_observations, &writer_key);
     const bool app_owned = observation && *observation;
+    bpf_map_delete_elem(&http2_header_observations, &writer_key);
 
     go_addr_key_t g_key = writer_key;
     http2_owned_stream_ref_t owned_ref = {};

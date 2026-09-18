@@ -28,6 +28,19 @@ services:
       testserver:
         condition: service_started
 
+  testclient-stdlib-legacy:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/gohttp2/client_stdlib_legacy/Dockerfile
+    image: hatest-testclient-stdlib-legacy
+    environment:
+      TARGET_URL: "https://testserver:7373"
+    ports:
+      - "7577:7575"
+    depends_on:
+      testserver:
+        condition: service_started
+
   testserver:
     build:
       context: ../../..
@@ -70,6 +83,9 @@ services:
         condition: service_started
 
       testclient-xnet-legacy:
+        condition: service_started
+
+      testclient-stdlib-legacy:
         condition: service_started
 
   # OpenTelemetry Collector — fans OBI's OTLP push out to jaeger (production
