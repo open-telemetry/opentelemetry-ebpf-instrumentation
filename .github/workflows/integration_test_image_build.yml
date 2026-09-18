@@ -59,7 +59,7 @@ jobs:
           images: "${{ env.REGISTRY }}/${{ env.IMAGE }}"
 
       - name: Build and push by digest
-        uses: ./.github/actions/integration-test-image-build
+        uses: $/.github/actions/integration-test-image-build
         with:
           labels: ${{ steps.meta.outputs.labels }}
           platform: ${{ matrix.platform.platform }}
