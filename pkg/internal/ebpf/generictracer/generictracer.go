@@ -56,10 +56,13 @@ type Tracer struct {
 	jvmGenerations   sync.Map
 	iters            []*ebpfcommon.Iter
 	iterMu           sync.Mutex
-	seenNetns        *expirable.LRU[uint64, struct{}]
-	eventCtx         *ebpfcommon.EBPFEventContext
-	jvmUSDTManager   ebpfcommon.USDTSpecManager
-	pythonRuntime    *pythonRuntimeController
+	// set once the kernel refuses the map batch API (RHEL 8); the per-key
+	// drain is used from then on
+	pidCacheBatchUnsupported bool
+	seenNetns                *expirable.LRU[uint64, struct{}]
+	eventCtx                 *ebpfcommon.EBPFEventContext
+	jvmUSDTManager           ebpfcommon.USDTSpecManager
+	pythonRuntime            *pythonRuntimeController
 }
 
 func tlog() *slog.Logger {
@@ -75,6 +78,10 @@ const (
 	// mirrors k_max_concurrent_pids (bpf/pid/maps/map_sizing.h): estimate of
 	// 1000 concurrent processes (including children) * 3 namespaces per pid
 	maxConcurrentPids = 3001
+	// keys deleted per BPF_MAP_LOOKUP_AND_DELETE_BATCH syscall when draining
+	// pid_cache; a hash bucket larger than this fails the batch with ENOSPC,
+	// impossible for 3001 well-distributed u32 keys
+	pidCacheDrainBatchLen = 1024
 	// mirrors k_prime_hash (bpf/pid/pid.h): closest prime below
 	// maxConcurrentPids * 64; modulo by a prime distributes the hash evenly
 	// across the segment bit array
@@ -156,6 +163,88 @@ func (p *Tracer) rebuildValidPids() error {
 		}
 	}
 
+	// pid_cache also holds negative answers, which the new filter may
+	// invalidate. Clearing it after the segments are written makes every
+	// process re-evaluate once against the new filter. A failed clear must
+	// not fail the rebuild: the filter is already correct.
+	if err := p.clearPidCache(); err != nil {
+		p.log.Warn("failed to clear the BPF pid cache; stale entries age out with the LRU", "error", err)
+	}
+
+	return nil
+}
+
+// pid_cache is an LRU hash the BPF side keeps inserting into. A GET_NEXT_KEY
+// walk over it is unreliable: when the map is full, evicting the cursor key
+// makes the kernel restart the walk from the first bucket. The batch API
+// walks by bucket index instead and drains the map in a few syscalls.
+// Kernels without it (RHEL 8) fall back to deleting the first key until the
+// map is empty, which needs no cursor either.
+func (p *Tracer) clearPidCache() error {
+	cache := p.bpfObjects.PidCache
+	if cache == nil {
+		return nil
+	}
+
+	if !p.pidCacheBatchUnsupported {
+		deleted, err := drainPidCacheBatch(cache)
+		if !errors.Is(err, ebpf.ErrNotSupported) {
+			if err == nil {
+				p.log.Debug("BPF pid cache drained", "deleted", deleted, "mode", "batch")
+			}
+			return err
+		}
+
+		p.log.Warn("map batch deletion is not supported, falling back to per-key deletion. This"+
+			" is expected in RHEL8-based systems", "error", err)
+		p.pidCacheBatchUnsupported = true
+	}
+
+	return p.drainPidCacheByKey(cache)
+}
+
+func drainPidCacheBatch(cache *ebpf.Map) (int, error) {
+	keys := make([]uint32, pidCacheDrainBatchLen)
+	values := make([]uint32, pidCacheDrainBatchLen)
+	cursor := ebpf.MapBatchCursor{}
+	deleted := 0
+
+	for {
+		n, err := cache.BatchLookupAndDelete(&cursor, keys, values, nil)
+		deleted += n
+
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return deleted, nil
+		}
+		if err != nil {
+			return deleted, fmt.Errorf("batch deleting the BPF pid cache: %w", err)
+		}
+	}
+}
+
+// The loop ends when the map is empty; the 2×MaxEntries bound is a safety
+// net that only matters if BPF inserts faster than we delete.
+func (p *Tracer) drainPidCacheByKey(cache *ebpf.Map) error {
+	var key uint32
+	deleted := 0
+
+	for range 2 * cache.MaxEntries() {
+		if err := cache.NextKey(nil, &key); err != nil {
+			if errors.Is(err, ebpf.ErrKeyNotExist) {
+				p.log.Debug("BPF pid cache drained", "deleted", deleted, "mode", "per-key")
+				return nil
+			}
+			return fmt.Errorf("walking the BPF pid cache: %w", err)
+		}
+
+		if err := cache.Delete(key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			return fmt.Errorf("clearing pid %d from the BPF pid cache: %w", key, err)
+		}
+		deleted++
+	}
+
+	p.log.Warn("BPF pid cache drain hit its bound; inserts are outpacing deletes", "deleted", deleted)
+
 	return nil
 }
 
@@ -178,7 +267,10 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		return
 	}
 
-	// Keep the cache consistent with the updated filter.
+	// A kprobe that read the old filter just before the rebuild may cache
+	// "not selected" for this pid after the drain; this overwrite fixes it.
+	// The BPF side inserts negatives with BPF_NOEXIST, so the reverse order
+	// cannot undo this entry either.
 	if p.bpfObjects.PidCache != nil {
 		pidU32 := uint32(pid)
 		_ = p.bpfObjects.PidCache.Put(pidU32, pidU32)
@@ -203,13 +295,6 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
-		return
-	}
-
-	// Remove from cache so next access re-evaluates.
-	if p.bpfObjects.PidCache != nil {
-		pidU32 := uint32(pid)
-		_ = p.bpfObjects.PidCache.Delete(pidU32)
 	}
 }
 
