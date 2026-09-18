@@ -260,6 +260,36 @@ OBI-emitted go.schedule.duration
 
 No attributes.
 
+## `gpu.cuda.device.synchronize.calls`
+
+Count of CUDA device synchronizations observed (cudaDeviceSynchronize).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+No attributes.
+
+## `gpu.cuda.event.record.calls`
+
+Count of CUDA event records observed (cudaEventRecord).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+No attributes.
+
+## `gpu.cuda.event.synchronize.calls`
+
+Count of CUDA event synchronizations observed (cudaEventSynchronize).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+No attributes.
+
 ## `gpu.cuda.graph.launch.calls`
 
 Count of CUDA graph launches observed (cudaGraphLaunch).
@@ -267,6 +297,16 @@ Count of CUDA graph launches observed (cudaGraphLaunch).
 | Instrument | Unit | Stability |
 | --- | --- | --- |
 | counter | 1 | development |
+
+No attributes.
+
+## `gpu.cuda.host.register.bytes`
+
+Bytes registered through CUDA host memory registration (cudaHostRegister).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | development |
 
 No attributes.
 
@@ -321,6 +361,56 @@ Distribution of CUDA memory copy sizes (cudaMemcpy / cudaMemcpyAsync), broken do
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
+
+## `gpu.cuda.memory.free.bytes`
+
+Bytes released through CUDA device memory frees (cudaFree).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | development |
+
+No attributes.
+
+## `gpu.cuda.memset.bytes`
+
+Bytes set through CUDA memory set operations (cudaMemset).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | development |
+
+No attributes.
+
+## `gpu.cuda.stream.create.calls`
+
+Count of CUDA stream creations observed (cudaStreamCreate).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+No attributes.
+
+## `gpu.cuda.stream.destroy.calls`
+
+Count of CUDA stream destructions observed (cudaStreamDestroy).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+No attributes.
+
+## `gpu.cuda.stream.synchronize.calls`
+
+Count of CUDA stream synchronizations observed (cudaStreamSynchronize).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+No attributes.
 
 ## `http.client.request.body.size`
 
