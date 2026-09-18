@@ -31,6 +31,7 @@ const MaxJSFileScanBytes int64 = 10 * 1024 * 1024
 const (
 	maxNestDecoratorValues = 64
 	maxNestRouteVariants   = 256
+	maxJSStringConsts      = 256
 )
 
 // /root is purposefully missing, since we need it to star the file walk
@@ -142,6 +143,7 @@ type FrameworkPatterns struct {
 	URLPatternPathname *regexp.Regexp
 	// key of the 'baseURL' member of a URLPattern init object
 	URLPatternBaseURL *regexp.Regexp
+	ConstDeclaration  *regexp.Regexp
 	// Fallback
 	Fallback *regexp.Regexp
 
@@ -166,11 +168,11 @@ type nextRoutesManifest struct {
 
 func newFrameworkPatterns() *FrameworkPatterns {
 	return &FrameworkPatterns{
-		// Matches: app.get('/users/:id', ...), router.post("/items", ...)
-		Typical: regexp.MustCompile(`\.(get|post|put|patch|delete|head|options|all)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]`),
+		// Matches: app.get(..., ...), router.post(..., ...)
+		Typical: regexp.MustCompile(`\.(get|post|put|patch|delete|head|options|all)\s*\(`),
 
-		// Matches: .route('/path')
-		ExpressRoute: regexp.MustCompile(`\.route\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]\s*\)`),
+		// Matches: .route(...)
+		ExpressRoute: regexp.MustCompile(`\.route\s*\(`),
 
 		// Matches: fastify.route({ method: 'GET', url: '/path' })
 		FastifyRoute: regexp.MustCompile(`\.route\s*\(\s*\{[^}]*method:\s*['"\x60](\w+)['"\x60][^}]*url:\s*['"\x60]([^'"\x60]+)['"\x60]`),
@@ -178,8 +180,8 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Matches: server.route({ method: 'GET', path: '/users/{id}' })
 		Hapi: regexp.MustCompile(`\.route\s*\(\s*\{[^}]*method:\s*['"](\w+)['"][^}]*path:\s*['"\x60]([^'"\x60]+)['"\x60]`),
 
-		// Matches: server.get('/path', ...), server.post('/users/:id', ...)
-		Restify: regexp.MustCompile(`\.(get|post|put|patch|del|head|opts)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]`),
+		// Matches: server.get(...), server.del(...)
+		Restify: regexp.MustCompile(`\.(get|post|put|patch|del|head|opts)\s*\(`),
 
 		// Matches: @Get('/users/:id'), @Post('/items'), and bare decorators such
 		// as @Post(), which NestJS routes at the controller prefix
@@ -245,6 +247,9 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		URLPatternPathname: jsObjectKeyPattern("pathname"),
 		URLPatternBaseURL:  jsObjectKeyPattern("baseURL"),
 
+		// Matches: const prefix = '/api', const base: string = '/api'
+		ConstDeclaration: regexp.MustCompile(`^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\s*)?=\s*`),
+
 		// Fallback (e.g. NextJS)
 		Fallback: regexp.MustCompile(`['"\x60](/[^'"\x60]+)['"\x60]`),
 
@@ -291,6 +296,7 @@ type RouteExtractor struct {
 	// urlPatternCall buffers the arguments of the URLPattern call currently
 	// being scanned, nil when no call is open
 	urlPatternCall *urlPatternCall
+	jsConsts       map[string]string
 
 	// application-level NestJS settings, harvested from any scanned file
 	// (typically main.ts) and applied to Nest routes after the scan
@@ -313,6 +319,7 @@ func NewRouteExtractor() *RouteExtractor {
 	return &RouteExtractor{
 		patterns: newFrameworkPatterns(),
 		routes:   []RoutePattern{},
+		jsConsts: map[string]string{},
 		log:      slog.With("component", "route.harvester.js"),
 	}
 }
@@ -327,29 +334,31 @@ func NewCompiledRouteExtractor() *RouteExtractor {
 }
 
 func (e *RouteExtractor) expressPendingRoute(filePath, line string, lineNum int) bool {
-	if matches := e.patterns.ExpressRoute.FindStringSubmatch(line); len(matches) > 1 {
-		e.routes = append(e.routes, RoutePattern{
-			Method: "ALL",
-			Path:   matches[1],
-			File:   filePath,
-			Line:   lineNum,
-		})
-		return true
+	_, path := e.resolveRouteCall(line, e.patterns.ExpressRoute)
+	if path == "" {
+		return false
 	}
-	return false
+	e.routes = append(e.routes, RoutePattern{
+		Method: "ALL",
+		Path:   path,
+		File:   filePath,
+		Line:   lineNum,
+	})
+	return true
 }
 
 func (e *RouteExtractor) handleTypicalRoute(filePath, line string, lineNum int) bool {
-	if matches := e.patterns.Typical.FindStringSubmatch(line); len(matches) > 2 {
-		e.routes = append(e.routes, RoutePattern{
-			Method: strings.ToUpper(matches[1]),
-			Path:   matches[2],
-			File:   filePath,
-			Line:   lineNum,
-		})
-		return true
+	method, path := e.resolveRouteCall(line, e.patterns.Typical)
+	if path == "" {
+		return false
 	}
-	return false
+	e.routes = append(e.routes, RoutePattern{
+		Method: strings.ToUpper(method),
+		Path:   path,
+		File:   filePath,
+		Line:   lineNum,
+	})
+	return true
 }
 
 func (e *RouteExtractor) handleFastifyRoute(filePath, line string, lineNum int) bool {
@@ -380,24 +389,24 @@ func (e *RouteExtractor) handleHapi(filePath, line string, lineNum int) bool {
 }
 
 func (e *RouteExtractor) handleRestify(filePath, line string, lineNum int) bool {
-	if matches := e.patterns.Restify.FindStringSubmatch(line); len(matches) > 2 {
-		method := matches[1]
-		// Normalize restify methods: del -> DELETE, opts -> OPTIONS
-		switch method {
-		case "del":
-			method = "delete"
-		case "opts":
-			method = "options"
-		}
-		e.routes = append(e.routes, RoutePattern{
-			Method: strings.ToUpper(method),
-			Path:   matches[2],
-			File:   filePath,
-			Line:   lineNum,
-		})
-		return true
+	method, path := e.resolveRouteCall(line, e.patterns.Restify)
+	if path == "" {
+		return false
 	}
-	return false
+	// Normalize restify methods: del -> DELETE, opts -> OPTIONS
+	switch method {
+	case "del":
+		method = "delete"
+	case "opts":
+		method = "options"
+	}
+	e.routes = append(e.routes, RoutePattern{
+		Method: strings.ToUpper(method),
+		Path:   path,
+		File:   filePath,
+		Line:   lineNum,
+	})
+	return true
 }
 
 // quotedStrings returns the contents of every quoted string in s: the single
@@ -1319,11 +1328,23 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	e.nestRouteVariants = 0
 	e.inEnableVersioning = false
 	e.urlPatternCall = nil
+	clear(e.jsConsts)
 
+	inBlockComment := false
 	for scanner.Scan() {
 		lineNum++
 		line = scanner.Text()
 		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		current := strings.TrimSpace(line)
+		if inBlockComment {
+			inBlockComment = !strings.Contains(current, "*/")
+			continue
+		}
+		if strings.HasPrefix(current, "/*") && !strings.Contains(current, "*/") {
+			inBlockComment = true
 			continue
 		}
 		if strings.Contains(line, ";") {
@@ -1339,6 +1360,8 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || trimmed == "" {
 			continue
 		}
+
+		e.recordStringDeclaration(current)
 
 		// a non-decorator line (typically the method signature) ends the
 		// decorator stack of a buffered NestJS method
@@ -1499,7 +1522,11 @@ func (e *RouteExtractor) CleanupRegexPath(path string) string {
 			continue
 		case '{':
 			if p[len(p)-1] == '}' {
-				p = "{" + e.patterns.CleanID.ReplaceAllString(parts[i], "") + "}"
+				name := parts[i]
+				if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
+					name = name[dot+1:]
+				}
+				p = "{" + e.patterns.CleanID.ReplaceAllString(name, "") + "}"
 				keep = append(keep, p)
 				continue
 			}
