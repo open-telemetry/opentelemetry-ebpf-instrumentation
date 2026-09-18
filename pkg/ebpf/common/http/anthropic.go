@@ -16,6 +16,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
+const (
+	anthropicMessagesPath = "/v1/messages"
+	anthropicCompletePath = "/v1/complete"
+)
+
 type anthropicContentBlock struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
@@ -142,9 +147,7 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		}
 	}
 
-	if parsedResponse.Type == "" || parsedResponse.Type == anthropicErrorType {
-		parsedResponse.Type = anthropicOperation(req)
-	}
+	parsedResponse.Type = anthropicOperation(req)
 
 	baseSpan.SubType = request.HTTPSubtypeAnthropic
 	baseSpan.GenAI = &request.GenAI{
@@ -158,18 +161,20 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	return *baseSpan, true
 }
 
-// An error body reports `type: error` rather than the operation it failed.
-const anthropicErrorType = "error"
-
-// anthropicOperation names the operation from the request path, for responses
-// that carry no `type` of their own: an error body, or one truncated out of the
-// capture buffer.
+// anthropicOperation names the operation from the request path, which is the
+// only part of the exchange that names it consistently. A response body reports
+// `message`/`completion` when the call succeeded, `error` when it failed, and
+// nothing at all when it was truncated out of the capture buffer, so reading it
+// would split one endpoint across several operation names.
 func anthropicOperation(req *http.Request) string {
-	if strings.Contains(requestPath(req), "/v1/complete") {
+	switch path := requestPath(req); {
+	case strings.Contains(path, anthropicMessagesPath):
+		return request.MessageOperationName
+	case strings.Contains(path, anthropicCompletePath):
 		return request.CompletionOperationName
 	}
 
-	return request.MessageOperationName
+	return request.OtherOperationName
 }
 
 // AnthropicStreamEvent represents different types of streaming events

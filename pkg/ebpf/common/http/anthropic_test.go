@@ -516,28 +516,65 @@ data: {"type":"message_stop"}
 	assert.Equal(t, "msg_02", resp.ID)
 }
 
-// An error response carries no `type` of its own, so the operation has to come
-// from the request path.
-func TestAnthropicSpan_ErrorResponseStillReportsOperation(t *testing.T) {
-	req := makeRequest(t, http.MethodPost, "http://api.anthropic.com/v1/messages", anthropicRequestBody)
-	resp := makeGzipResponse(t, http.StatusBadRequest, anthropicHeaders(),
-		`{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}`)
+// The request path names the operation for every outcome, so one endpoint keeps
+// one operation name across a success, an error and a truncated capture. An
+// unrecognized path reports _OTHER rather than being grouped with the Messages
+// API.
+func TestAnthropicSpan_OperationComesFromTheRequestPath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		body string
+		want string
+	}{
+		{
+			name: "messages success",
+			path: "http://api.anthropic.com/v1/messages",
+			body: anthropicResponseBody,
+			want: request.MessageOperationName,
+		},
+		{
+			name: "messages error",
+			path: "http://api.anthropic.com/v1/messages",
+			body: anthropicErrorResponseBody,
+			want: request.MessageOperationName,
+		},
+		{
+			// Anthropic reports `type: completion` here, which would split the
+			// endpoint across two operation names if the body were read.
+			name: "legacy complete success",
+			path: "http://api.anthropic.com/v1/complete",
+			body: `{"type":"completion","model":"claude-2.1","completion":"hi","stop_reason":"stop_sequence"}`,
+			want: request.CompletionOperationName,
+		},
+		{
+			name: "legacy complete error",
+			path: "http://api.anthropic.com/v1/complete",
+			body: anthropicErrorResponseBody,
+			want: request.CompletionOperationName,
+		},
+		{
+			name: "unknown endpoint",
+			path: "http://api.anthropic.com/v1/models",
+			body: `{"type":"model","id":"claude-sonnet-4-6"}`,
+			want: request.OtherOperationName,
+		},
+		{
+			name: "unknown endpoint truncated",
+			path: "http://api.anthropic.com/v1/models",
+			body: `{"type":`,
+			want: request.OtherOperationName,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, tc.path, anthropicRequestBody)
+			resp := makeGzipResponse(t, http.StatusOK, anthropicHeaders(), tc.body)
 
-	span, ok := AnthropicSpan(&request.Span{}, req, resp)
+			span, ok := AnthropicSpan(&request.Span{}, req, resp)
 
-	require.True(t, ok)
-	require.NotNil(t, span.GenAI.Anthropic)
-	assert.Equal(t, request.MessageOperationName, span.GenAI.Anthropic.Output.Type)
-}
-
-// A response truncated out of the capture buffer parses to nothing at all.
-func TestAnthropicSpan_UnparseableResponseFallsBackToPath(t *testing.T) {
-	req := makeRequest(t, http.MethodPost, "http://api.anthropic.com/v1/messages", anthropicRequestBody)
-	resp := makeGzipResponse(t, http.StatusOK, anthropicHeaders(), `{"type":`)
-
-	span, ok := AnthropicSpan(&request.Span{}, req, resp)
-
-	require.True(t, ok)
-	require.NotNil(t, span.GenAI.Anthropic)
-	assert.Equal(t, request.MessageOperationName, span.GenAI.Anthropic.Output.Type)
+			require.True(t, ok)
+			require.NotNil(t, span.GenAI.Anthropic)
+			assert.Equal(t, tc.want, span.GenAI.Anthropic.Output.Type)
+		})
+	}
 }
