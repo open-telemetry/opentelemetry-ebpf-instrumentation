@@ -410,6 +410,26 @@ func TestDetectFastCGIRequestMetadata(t *testing.T) {
 			uri:    "/a",
 		},
 		{
+			// A TLS-terminating proxy leaves REQUEST_SCHEME describing its own
+			// hop into PHP-FPM; the client's scheme is the forwarded one.
+			name:   "X-Forwarded-Proto wins over REQUEST_SCHEME",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "REQUEST_SCHEME": "http", "HTTP_X_FORWARDED_PROTO": "https"},
+			scheme: "https",
+			uri:    "/a",
+		},
+		{
+			name:   "left-most X-Forwarded-Proto entry is the client's",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "REQUEST_SCHEME": "http", "HTTP_X_FORWARDED_PROTO": "https, http"},
+			scheme: "https",
+			uri:    "/a",
+		},
+		{
+			name:   "an unrecognized X-Forwarded-Proto falls back to REQUEST_SCHEME",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "REQUEST_SCHEME": "http", "HTTP_X_FORWARDED_PROTO": "gopher"},
+			scheme: "http",
+			uri:    "/a",
+		},
+		{
 			name:   "HTTPS on implies https",
 			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "HTTPS": "on"},
 			scheme: "https",

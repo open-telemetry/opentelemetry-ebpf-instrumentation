@@ -24,6 +24,7 @@ const (
 	scriptNameKey           = "SCRIPT_NAME"
 	queryStringKey          = "QUERY_STRING"
 	requestSchemeKey        = "REQUEST_SCHEME"
+	forwardedProtoKey       = "HTTP_X_FORWARDED_PROTO"
 	httpsKey                = "HTTPS"
 	httpHostKey             = "HTTP_HOST"
 	serverNameKey           = "SERVER_NAME"
@@ -154,11 +155,18 @@ func parseHeader(b *largebuf.LargeBuffer) ([]byte, error) {
 	}
 }
 
-// cgiScheme reports the scheme of the original client request. REQUEST_SCHEME
-// carries it directly; HTTPS is the older convention and is set to a truthy
-// value only for TLS. Neither present means the front end did not say, and
-// guessing would be wrong for any TLS-terminated site.
+// cgiScheme reports the scheme of the original client request. Semconv asks
+// for the client's scheme, so X-Forwarded-Proto wins: behind a TLS-terminating
+// proxy REQUEST_SCHEME describes the hop into PHP-FPM and reads `http` for a
+// request the client made over TLS. REQUEST_SCHEME carries the scheme directly
+// otherwise; HTTPS is the older convention and is set to a truthy value only
+// for TLS. None present means the front end did not say, and guessing would be
+// wrong for any TLS-terminated site.
 func cgiScheme(kv map[string]string) string {
+	if scheme := forwardedProto(kv[forwardedProtoKey]); scheme != "" {
+		return scheme
+	}
+
 	if scheme := kv[requestSchemeKey]; scheme != "" {
 		return scheme
 	}
@@ -166,6 +174,19 @@ func cgiScheme(kv map[string]string) string {
 	switch kv[httpsKey] {
 	case "on", "1":
 		return "https"
+	}
+
+	return ""
+}
+
+// forwardedProto reads the left-most entry of an X-Forwarded-Proto list, which
+// is the scheme the client used. The header arrives from the wire, so anything
+// outside the two schemes semconv defines is discarded rather than reported.
+func forwardedProto(header string) string {
+	proto, _, _ := strings.Cut(header, ",")
+	switch proto = strings.ToLower(strings.TrimSpace(proto)); proto {
+	case "http", "https":
+		return proto
 	}
 
 	return ""
