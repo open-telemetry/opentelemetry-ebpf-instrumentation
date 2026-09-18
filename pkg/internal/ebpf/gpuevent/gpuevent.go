@@ -197,6 +197,17 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Start: p.bpfObjects.ObiCudaHostRegister,
 			}},
 		},
+		"libcuda.so": {
+			"cuLaunchKernel": {{
+				Start: p.bpfObjects.ObiCuLaunch,
+			}},
+			"cuLaunchKernelEx": {{
+				Start: p.bpfObjects.ObiCuLaunchEx,
+			}},
+			"cuGraphLaunch": {{
+				Start: p.bpfObjects.ObiGraphLaunch,
+			}},
+		},
 	}
 }
 

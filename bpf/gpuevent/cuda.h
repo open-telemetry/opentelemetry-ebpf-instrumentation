@@ -55,3 +55,18 @@ typedef struct cuda_malloc_ctx {
     u64 dev_ptr_addr;
     s64 size;
 } cuda_malloc_ctx_t;
+
+// User-memory view of the driver API CUlaunchConfig passed to cuLaunchKernelEx:
+// seven u32 grid/block dimensions plus sharedMemBytes, four bytes of padding,
+// then the stream handle.
+typedef struct cu_launch_config {
+    u32 grid_x;
+    u32 grid_y;
+    u32 grid_z;
+    u32 block_x;
+    u32 block_y;
+    u32 block_z;
+    u32 shared_mem_bytes;
+    u32 _pad;
+    u64 stream;
+} cu_launch_config_t;
