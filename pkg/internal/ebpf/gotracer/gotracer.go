@@ -299,6 +299,7 @@ type Tracer struct {
 	disabledRouteHarvesting           bool
 	supportsBPFLoop                   bool
 	runtimeMetricsEnabled             bool
+	traceCtxMapEnabled                bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
@@ -333,6 +334,7 @@ func New(
 		disabledRouteHarvesting:           disabledRouteHarvesting,
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
+		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -465,6 +467,7 @@ func (p *Tracer) constants() map[string]any {
 		"attr_type_stringslice":          uint64(attribute.STRINGSLICE),
 		"g_bpf_traceparent_enabled":      true,
 		"g_bpf_loop_enabled":             p.supportsBPFLoop,
+		"g_trace_ctx_map_enabled":        p.traceCtxMapEnabled,
 	}
 
 	if p.cfg.TrackRequestHeaders ||
@@ -1621,9 +1624,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeRuntimeNewproc1,
 			End:   p.bpfObjects.ObiUprobeRuntimeNewproc1Return,
 		}},
-		"runtime.casgstatus": {{
-			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
-		}},
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
 			Start: p.bpfObjects.ObiUprobeServeHTTP,
@@ -2017,6 +2017,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		m[goChannelLinkProbeSymbols[2]] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRuntimeChanrecv2,
 			End:   p.bpfObjects.ObiUprobeRuntimeChanrecv2Return,
+		}}
+	}
+
+	// runtime.casgstatus fires on every goroutine status transition and exists only
+	// to keep traces_ctx_v1 pointing at the span the thread is currently running
+	if p.traceCtxMapEnabled {
+		m["runtime.casgstatus"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
 		}}
 	}
 

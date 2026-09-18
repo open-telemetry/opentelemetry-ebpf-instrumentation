@@ -189,6 +189,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"g_trace_ctx_map_enabled", []any{true, false}},
 	})
 
 	// nodejs_runtime_metrics_enabled only gates the decode path in nodejs.c,
@@ -214,6 +215,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"g_trace_ctx_map_enabled", []any{true, false}},
 	})
 	loadAndVerify(t, "gotracer/Bpf/no-write-user", gotracerbpf.LoadBpf, map[string]any{
 		"g_bpf_header_propagation":       true,

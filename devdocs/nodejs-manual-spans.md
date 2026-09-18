@@ -132,7 +132,11 @@ unusable input) the sentinel anchor is used, as before.
 
 At sentinel time, BPF looks up `traces_ctx_v1` for the current thread — the
 same map the `-ctx/` sentinels maintain, pointing at the trace context of
-the in-flight request being processed by the current async context:
+the in-flight request being processed by the current async context. Manual
+spans are one of the readers that turn that map's population on, so enabling
+`nodejs.manual_spans` also installs the `async_hooks` before hook that emits
+the `-ctx/` sentinels (see
+[When the map is populated](trace-log-correlation.md#when-the-map-is-populated)):
 
 - If found, the span is **re-anchored**: it inherits the request's trace ID,
   and bridge-root spans (no in-bridge parent) are parented under OBI's
