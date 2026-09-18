@@ -520,9 +520,12 @@ func TestSpanOTELGetters_HTTPRequestMethod(t *testing.T) {
 		assert.Equal(t, "GET", kv.Value.AsString())
 	})
 
-	t.Run("omitted when method is empty", func(t *testing.T) {
+	// Semconv: a method the instrumentation does not know MUST be reported as
+	// _OTHER, and one the parser could not read is not known.
+	t.Run("clamped when method is empty", func(t *testing.T) {
 		kv := getter(&Span{Method: ""})
-		assert.False(t, kv.Valid(), "empty method must yield an invalid KeyValue so it is dropped")
+		require.True(t, kv.Valid())
+		assert.Equal(t, HTTPMethodOther, kv.Value.AsString())
 	})
 
 	// http.request.method is a closed enum, so an unclamped metric label is a
