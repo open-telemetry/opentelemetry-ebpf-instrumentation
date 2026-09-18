@@ -226,6 +226,7 @@ const (
 	SkipSpanMetrics        = Name("span.metrics.skip")
 	JVMMemoryType          = Name("jvm.memory.type")
 	JVMMemoryPoolName      = Name("jvm.memory.pool.name")
+	JVMLanguage            = Name("jvm.language")
 	JVMThreadDaemon        = Name("jvm.thread.daemon")
 	JVMGCName              = Name("jvm.gc.name")
 	JVMGCAction            = Name("jvm.gc.action")
