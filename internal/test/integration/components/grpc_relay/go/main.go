@@ -5,22 +5,32 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const grpcCallTimeout = 10 * time.Second
+
+const (
+	ownershipTraceparent        = "00-33333333333333333333333333333333-4444444444444444-01"
+	invalidOwnershipTraceparent = "application-owned-invalid-value"
+)
 
 // relayServicer is the interface that gRPC uses for HandlerType.
 type relayServicer interface {
@@ -31,10 +41,14 @@ type relayServicer interface {
 type relayServer struct {
 	nextHop     string
 	nextHopHTTP string // when set, forward via HTTP GET instead of gRPC
+	observe     bool
 }
 
 func (s *relayServer) Relay(ctx context.Context, _ *emptypb.Empty) (*emptypb.Empty, error) {
 	log.Println("received Relay RPC")
+	if s.observe {
+		observeRelay(ctx)
+	}
 	if s.nextHopHTTP != "" {
 		if err := callNextHopHTTP(ctx, s.nextHopHTTP); err != nil {
 			return nil, err
@@ -45,6 +59,75 @@ func (s *relayServer) Relay(ctx context.Context, _ *emptypb.Empty) (*emptypb.Emp
 		}
 	}
 	return &emptypb.Empty{}, nil
+}
+
+var observedConcurrency struct {
+	sync.Mutex
+	runs map[string]*concurrencyState
+}
+
+type concurrencyState struct {
+	active    int
+	maxActive int
+}
+
+type ownershipObservation struct {
+	CaseID       string   `json:"case_id"`
+	Traceparents []string `json:"traceparents"`
+	Peer         string   `json:"peer"`
+	MaxActive    int      `json:"max_active"`
+}
+
+func observeRelay(ctx context.Context) {
+	md, _ := metadata.FromIncomingContext(ctx)
+	caseID := ""
+	if values := md.Get("x-obi-case"); len(values) == 1 {
+		caseID = values[0]
+	}
+	runID := caseID
+	if slash := strings.IndexByte(caseID, '/'); slash >= 0 {
+		runID = caseID[:slash]
+	}
+
+	observedConcurrency.Lock()
+	if observedConcurrency.runs == nil {
+		observedConcurrency.runs = map[string]*concurrencyState{}
+	}
+	state := observedConcurrency.runs[runID]
+	if state == nil {
+		state = &concurrencyState{}
+		observedConcurrency.runs[runID] = state
+	}
+	state.active++
+	if state.active > state.maxActive {
+		state.maxActive = state.active
+	}
+	observedConcurrency.Unlock()
+	defer func() {
+		observedConcurrency.Lock()
+		state.active--
+		observedConcurrency.Unlock()
+	}()
+
+	if len(md.Get("x-obi-hold")) > 0 {
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	observedConcurrency.Lock()
+	maxActive := state.maxActive
+	observedConcurrency.Unlock()
+	peerAddr := ""
+	if remote, ok := peer.FromContext(ctx); ok {
+		peerAddr = remote.Addr.String()
+	}
+	observation := ownershipObservation{
+		CaseID:       caseID,
+		Traceparents: md.Get("traceparent"),
+		Peer:         peerAddr,
+		MaxActive:    maxActive,
+	}
+	encoded, _ := json.Marshal(observation)
+	log.Printf("OBI_GRPC_OBSERVATION %s", encoded)
 }
 
 func callNextHopHTTP(ctx context.Context, url string) error {
@@ -73,16 +156,44 @@ var (
 )
 
 func nextHopConn(addr string) (*grpc.ClientConn, error) {
+	return nextHopConnWithMode(addr, false)
+}
+
+// wrappedConn keeps the embedded connection away from offset zero so OBI
+// cannot interpret it as the concrete net.TCPConn layout.
+type wrappedConn struct {
+	_ uintptr
+	net.Conn
+}
+
+func nextHopConnWithMode(addr string, wrap bool) (*grpc.ClientConn, error) {
 	nextHopConnsMu.Lock()
 	defer nextHopConnsMu.Unlock()
-	if c, ok := nextHopConns[addr]; ok {
+	cacheKey := fmt.Sprintf("%s/%t", addr, wrap)
+	if c, ok := nextHopConns[cacheKey]; ok {
 		return c, nil
 	}
-	c, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	var transportCredentials credentials.TransportCredentials
+	if os.Getenv("GRPC_NEXT_HOP_TLS") == "1" {
+		transportCredentials = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	} else {
+		transportCredentials = insecure.NewCredentials()
+	}
+	dialOptions := []grpc.DialOption{grpc.WithTransportCredentials(transportCredentials)}
+	if wrap {
+		dialOptions = append(dialOptions, grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+			if err != nil {
+				return nil, err
+			}
+			return &wrappedConn{Conn: conn}, nil
+		}))
+	}
+	c, err := grpc.NewClient(addr, dialOptions...)
 	if err != nil {
 		return nil, err
 	}
-	nextHopConns[addr] = c
+	nextHopConns[cacheKey] = c
 	return c, nil
 }
 
@@ -129,14 +240,27 @@ func main() {
 		nextHopMux = nextHop
 	}
 
-	srv := &relayServer{nextHop: nextHop, nextHopHTTP: nextHopHTTP}
+	srv := &relayServer{
+		nextHop:     nextHop,
+		nextHopHTTP: nextHopHTTP,
+		observe:     os.Getenv("OBSERVE_TRACEPARENT") == "1",
+	}
 
 	if grpcPort != "" {
 		lis, err := net.Listen("tcp", ":"+grpcPort)
 		if err != nil {
 			log.Fatal(err)
 		}
-		s := grpc.NewServer()
+		var serverOptions []grpc.ServerOption
+		if os.Getenv("GRPC_TLS") == "1" {
+			creds, err := credentials.NewServerTLSFromFile(
+				"/server_test_cert.pem", "/server_test_key.pem")
+			if err != nil {
+				log.Fatal(err)
+			}
+			serverOptions = append(serverOptions, grpc.Creds(creds))
+		}
+		s := grpc.NewServer(serverOptions...)
 		s.RegisterService(&relayServiceDesc, srv)
 		log.Printf("gRPC listening on :%s", grpcPort)
 		go func() { log.Fatal(s.Serve(lis)) }()
@@ -153,6 +277,21 @@ func main() {
 	}
 
 	if httpPort != "" {
+		ownershipNextHop := os.Getenv("OWNERSHIP_NEXT_HOP")
+		if ownershipNextHop != "" {
+			http.HandleFunc("/ownership", func(w http.ResponseWriter, r *http.Request) {
+				if err := runOwnershipBatch(
+					r.Context(),
+					ownershipNextHop,
+					r.URL.Query().Get("run"),
+					r.URL.Query().Get("wrapped") == "true",
+				); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+		}
 		http.HandleFunc("/relay", func(w http.ResponseWriter, r *http.Request) {
 			if err := callNextHop(r.Context(), nextHop); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -258,4 +397,100 @@ func main() {
 		// Block forever when running as gRPC-only relay/terminal
 		select {}
 	}
+}
+
+type ownershipCase struct {
+	name        string
+	traceparent string
+	hold        bool
+	metadata    int
+}
+
+func runOwnershipBatch(ctx context.Context, addr, runID string, wrapConn bool) error {
+	if runID == "" {
+		return fmt.Errorf("run is required")
+	}
+	conn, err := nextHopConnWithMode(addr, wrapConn)
+	if err != nil {
+		return err
+	}
+
+	for i := 1; i <= 4; i++ {
+		if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+			name:        fmt.Sprintf("owned-index-%d", i),
+			traceparent: ownershipTraceparent,
+		}); err != nil {
+			return err
+		}
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "owned-invalid",
+		traceparent: invalidOwnershipTraceparent,
+	}); err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "owned-after-many",
+		traceparent: ownershipTraceparent,
+		metadata:    40,
+	}); err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "owned-after-limit",
+		traceparent: ownershipTraceparent,
+		metadata:    260,
+	}); err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{name: "control-after-index"}); err != nil {
+		return err
+	}
+
+	concurrent := []ownershipCase{
+		{name: "mux-owned-1", traceparent: ownershipTraceparent, hold: true},
+		{name: "mux-control-1", hold: true},
+		{name: "mux-owned-2", traceparent: ownershipTraceparent, hold: true},
+		{name: "mux-control-2", hold: true},
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, len(concurrent))
+	for _, testCase := range concurrent {
+		wg.Add(1)
+		go func(testCase ownershipCase) {
+			defer wg.Done()
+			errs <- invokeOwnership(ctx, conn, runID, testCase)
+		}(testCase)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+
+	return invokeOwnership(ctx, conn, runID, ownershipCase{name: "control-after-mux"})
+}
+
+func invokeOwnership(
+	ctx context.Context,
+	conn *grpc.ClientConn,
+	runID string,
+	testCase ownershipCase,
+) error {
+	pairs := []string{"x-obi-case", runID + "/" + testCase.name}
+	for i := 0; i < testCase.metadata; i++ {
+		pairs = append(pairs, fmt.Sprintf("x-obi-filler-%03d", i), "value")
+	}
+	if testCase.traceparent != "" {
+		pairs = append(pairs, "traceparent", testCase.traceparent)
+	}
+	if testCase.hold {
+		pairs = append(pairs, "x-obi-hold", "1")
+	}
+	callCtx, cancel := context.WithTimeout(
+		metadata.AppendToOutgoingContext(ctx, pairs...), grpcCallTimeout)
+	defer cancel()
+	return conn.Invoke(callCtx, "/relay.Relay/Relay", &emptypb.Empty{}, &emptypb.Empty{})
 }

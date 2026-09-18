@@ -467,9 +467,10 @@ func collectRelease(
 
 func configureGoBuild() func() {
 	previous, existed := os.LookupEnv("GOFLAGS")
+	// These flags are also read by downloaded Go toolchains, including Go 1.17.
 	// Go 1.27 makes x/net/http2 a wrapper. Inspect its legacy structs while the
 	// standard-library query covers the replacement.
-	_ = os.Setenv("GOFLAGS", strings.TrimSpace(previous+" -buildvcs=false -tags=http2legacy"))
+	_ = os.Setenv("GOFLAGS", strings.TrimSpace(previous+" -tags=http2legacy"))
 	return func() {
 		if existed {
 			_ = os.Setenv("GOFLAGS", previous)
