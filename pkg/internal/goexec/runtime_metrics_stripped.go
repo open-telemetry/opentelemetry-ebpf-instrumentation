@@ -236,18 +236,3 @@ func runtimeMetricWritableRange(f *elf.File, address, size uint64) bool {
 	}
 	return false
 }
-
-// uniqueRuntimeMetricAddress accepts repeated references to one address, but
-// rejects distinct candidates because instruction matching cannot choose between them.
-func uniqueRuntimeMetricAddress(candidates []uint64) (uint64, error) {
-	if len(candidates) == 0 {
-		return 0, errors.New("runtime global address not found")
-	}
-	address := candidates[0]
-	for _, candidate := range candidates[1:] {
-		if candidate != address {
-			return 0, errors.New("ambiguous runtime global address")
-		}
-	}
-	return address, nil
-}

@@ -5,6 +5,7 @@ package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 
 import (
 	"debug/elf"
+	"errors"
 	"fmt"
 
 	"golang.org/x/arch/x86/x86asm"
@@ -70,6 +71,21 @@ func resolveRuntimeMetricReceiverFromCode(functionELFAddress uint64, code []byte
 		}
 	}
 	return uniqueRuntimeMetricAddress(candidates)
+}
+
+// uniqueRuntimeMetricAddress accepts repeated references to one address, but
+// rejects distinct candidates because instruction matching cannot choose between them.
+func uniqueRuntimeMetricAddress(candidates []uint64) (uint64, error) {
+	if len(candidates) == 0 {
+		return 0, errors.New("runtime global address not found")
+	}
+	address := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if candidate != address {
+			return 0, errors.New("ambiguous runtime global address")
+		}
+	}
+	return address, nil
 }
 
 // decodeRuntimeMetricX86Instructions turns file bytes into instructions.
