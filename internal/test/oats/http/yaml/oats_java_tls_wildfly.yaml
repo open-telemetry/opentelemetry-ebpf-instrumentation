@@ -1,0 +1,22 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-java-tls-wildfly.yml
+  - ../../weaver/docker-compose-weaver.yml
+input:
+- path: /api/test-s3
+  headers:
+    Accept: text/plain
+interval: 2s
+expected:
+  traces:
+  - traceql: '{ .url.full = "https://minio/test-bucket/test-file.txt" && .server.address = "minio" }'
+    equals: GET /test-bucket/test-file.txt
+    attributes:
+      server.address: minio
+      server.port: '9000'
+      url.full: https://minio/test-bucket/test-file.txt
+  - traceql: '{ .url.full = "https://minio/test-bucket/test-file.txt" && .obi.http.response.observed = false }'
+    count:
+      min: 0
+      max: 0
