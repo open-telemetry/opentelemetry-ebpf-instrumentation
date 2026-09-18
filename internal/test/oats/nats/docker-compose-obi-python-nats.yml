@@ -1,6 +1,6 @@
 services:
   nats:
-    image: docker.io/nats:2.14.0-alpine@sha256:df3dbf7615519c64c1ecf5bff1811e0f1349e980e12cf8edac882a53cf3f9dd9
+    image: docker.io/nats:2.15.0-alpine@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
     ports:
       - "4222:4222"
   testserver:
