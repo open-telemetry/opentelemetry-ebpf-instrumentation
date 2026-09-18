@@ -40,6 +40,7 @@ type instrumenter struct {
 	uprobeKey             ExecutableKey
 	offsets               *goexec.Offsets
 	exe                   *link.Executable
+	exePath               string
 	closables             []io.Closer
 	processScopedGoProbes []processScopedGoProbeRegistration
 	modules               map[uint64]struct{}
@@ -48,7 +49,7 @@ type instrumenter struct {
 }
 
 type uprobeTargetResolver interface {
-	ResolveUprobeTarget(*link.Executable, uint64) (uint64, uint64, error)
+	ResolveUprobeTarget(*link.Executable, string, uint64) (uint64, uint64, error)
 }
 
 const goUprobeTargetProbeSymbol = "runtime.newproc1"
@@ -159,7 +160,7 @@ func (pt *ProcessTracer) Run(
 	for {
 		select {
 		// notifying before OBI times out on finish
-		case <-time.After(3 * pt.shutdownTimeout / 4):
+		case <-time.After(3 * uprobe.EffectiveShutdownTimeout(pt.shutdownTimeout) / 4):
 			pt.log.Warn("some process tracers did not finish",
 				"tracers", unfinishedTracerTypes(runningTracers), "probes_released", probesReleased.Load())
 			hasWarned = true
@@ -410,6 +411,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 	i := instrumenter{
 		key:         ExecutableKey{Dev: ie.FileInfo.Dev(), Ino: ie.FileInfo.Ino()},
 		exe:         exe,
+		exePath:     ie.FileInfo.ProExeLinkPath(),
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields
 		modules:     map[uint64]struct{}{},
 		metrics:     pt.metrics,
@@ -432,7 +434,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 		p.RegisterOffsets(ie.FileInfo, ie.Offsets)
 	}
 
-	if uprobeKey, ok := pt.resolveUprobeTarget(exe, ie.Offsets); ok {
+	if uprobeKey, ok := pt.resolveUprobeTarget(exe, ie.FileInfo.ProExeLinkPath(), ie.Offsets); ok {
 		i.uprobeKey = uprobeKey
 		if existing := pt.instrumenterForUprobeTarget(uprobeKey); existing != nil {
 			for _, p := range pt.Programs {
@@ -478,7 +480,11 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 	return nil
 }
 
-func (pt *ProcessTracer) resolveUprobeTarget(exe *link.Executable, offsets *goexec.Offsets) (ExecutableKey, bool) {
+func (pt *ProcessTracer) resolveUprobeTarget(
+	exe *link.Executable,
+	exePath string,
+	offsets *goexec.Offsets,
+) (ExecutableKey, bool) {
 	if pt.Type != Go || offsets == nil {
 		return ExecutableKey{}, false
 	}
@@ -494,7 +500,7 @@ func (pt *ProcessTracer) resolveUprobeTarget(exe *link.Executable, offsets *goex
 			continue
 		}
 
-		dev, ino, err := resolver.ResolveUprobeTarget(exe, probes[0].Start)
+		dev, ino, err := resolver.ResolveUprobeTarget(exe, exePath, probes[0].Start)
 		if err != nil {
 			ptlog().Debug("resolving kernel uprobe target failed", "error", err)
 			return ExecutableKey{}, false

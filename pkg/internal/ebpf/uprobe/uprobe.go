@@ -13,6 +13,8 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
@@ -20,6 +22,22 @@ import (
 	"github.com/cilium/ebpf/link"
 	"golang.org/x/sys/unix"
 )
+
+const traceFSShutdownTimeoutMultiplier = 3
+
+var traceFSFallbackUsed atomic.Bool
+
+// EffectiveShutdownTimeout allows extra time for tracefs uprobes to be removed.
+// this is trully only needed for kernels 5.15 - 5.19. earlier than 5.15 allow us to
+// use the PMU for uprobes without SYS_ADMIN and after 5.19 we can use whole group
+// delete of the tracefs probes on shutdown. 6.6+ supports uprobe_multi, so we don't
+// even need these tracefs legacy uprobes.
+func EffectiveShutdownTimeout(configured time.Duration) time.Duration {
+	if traceFSFallbackUsed.Load() {
+		return traceFSShutdownTimeoutMultiplier * configured
+	}
+	return configured
+}
 
 // one decision shared by load-time attach types and attach-time links
 var multiSupported = sync.OnceValue(func() bool {
@@ -210,13 +228,14 @@ type Options struct {
 	Return       bool
 }
 
-// Attach uses one uprobe_multi link, or perf events where the kernel refuses it with EINVAL
-func Attach(exe *link.Executable, prog *ebpf.Program, opts Options) (io.Closer, error) {
+// Attach uses one uprobe_multi link, or perf events where the kernel refuses it with EINVAL.
+// A perf uprobe denied with EACCES is retried through tracefs.
+func Attach(exe *link.Executable, path string, prog *ebpf.Program, opts Options) (io.Closer, error) {
 	if len(opts.Addresses) == 0 {
 		return nil, errors.New("attaching uprobe: no addresses")
 	}
 	if !multiSupported() {
-		return attachPerfEvents(exe, prog, opts)
+		return attachLegacy(exe, path, prog, opts)
 	}
 	closer, multiErr := attachMulti(exe, prog, opts)
 	if multiErr == nil {
@@ -225,7 +244,7 @@ func Attach(exe *link.Executable, prog *ebpf.Program, opts Options) (io.Closer, 
 	if !errors.Is(multiErr, unix.EINVAL) {
 		return nil, multiErr
 	}
-	closer, err := attachPerfEvents(exe, prog, opts)
+	closer, err := attachLegacy(exe, path, prog, opts)
 	if err != nil {
 		return nil, errors.Join(multiErr, err)
 	}
@@ -251,6 +270,13 @@ func multiOptions(opts Options) *link.UprobeMultiOptions {
 	return multiOpts
 }
 
+func attachLegacy(exe *link.Executable, path string, prog *ebpf.Program, opts Options) (io.Closer, error) {
+	return attachWithTraceFSFallback(
+		func() (io.Closer, error) { return attachPerfEvents(exe, prog, opts) },
+		func() (io.Closer, error) { return attachTraceFS(path, prog, opts) },
+	)
+}
+
 func attachPerfEvents(exe *link.Executable, prog *ebpf.Program, opts Options) (io.Closer, error) {
 	links := make(perfEventLinks, 0, len(opts.Addresses))
 	for _, address := range opts.Addresses {
@@ -274,6 +300,31 @@ func attachPerfEvents(exe *link.Executable, prog *ebpf.Program, opts Options) (i
 		return links[0], nil
 	}
 	return links, nil
+}
+
+var traceFSFallbackLog = sync.OnceFunc(func() {
+	slog.Info("attached uprobe through tracefs because PMU access was denied")
+})
+
+func attachWithTraceFSFallback(
+	attachPerf func() (io.Closer, error),
+	attachTraceFS func() (io.Closer, error),
+) (io.Closer, error) {
+	closer, err := attachPerf()
+	if err == nil || !errors.Is(err, unix.EACCES) {
+		return closer, err
+	}
+
+	slog.Debug("failed to use uprobe with PMU, likely no SYS_ADMIN capability provided, trying tracefs attach", "error", err)
+
+	closer, traceFSErr := attachTraceFS()
+	if traceFSErr != nil {
+		slog.Debug("cannot attach tracefs based uprobe, maybe CAP_DAC_OVERRIDE is missing or tracefs/debugfs not mounted", "error", traceFSErr)
+		return nil, errors.Join(err, traceFSErr)
+	}
+	traceFSFallbackUsed.Store(true)
+	traceFSFallbackLog()
+	return closer, nil
 }
 
 type perfEventLinks []io.Closer

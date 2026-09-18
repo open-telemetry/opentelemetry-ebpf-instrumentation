@@ -310,7 +310,7 @@ func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 		}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 	require.NoError(t, err)
 	assert.Empty(t, closers)
 	assert.False(t, attached["skipped_optional_symbol"])
@@ -376,7 +376,7 @@ func TestOptionalProbeAttachmentFailureDoesNotSatisfyGroupPrerequisite(t *testin
 		}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 
 	require.NoError(t, err)
 	assert.Empty(t, closers)
@@ -392,7 +392,7 @@ func TestZeroLinkProbeDoesNotSatisfyGroupPrerequisite(t *testing.T) {
 		"synthetic-start": {{}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 
 	require.NoError(t, err)
 	assert.Empty(t, closers)
@@ -1133,11 +1133,12 @@ func TestResolveUprobeTarget(t *testing.T) {
 		goUprobeTargetProbeSymbol: {{Start: 123}},
 	}}
 
-	key, ok := pt.resolveUprobeTarget(nil, offsets)
+	key, ok := pt.resolveUprobeTarget(nil, "/proc/123/exe", offsets)
 
 	require.True(t, ok)
 	assert.Equal(t, ExecutableKey{Dev: 7, Ino: 11}, key)
 	assert.Equal(t, uint64(123), resolver.offset)
+	assert.Equal(t, "/proc/123/exe", resolver.path)
 }
 
 func TestResolveUprobeTargetFallsBackToSeparateAttachment(t *testing.T) {
@@ -1147,7 +1148,7 @@ func TestResolveUprobeTargetFallsBackToSeparateAttachment(t *testing.T) {
 		goUprobeTargetProbeSymbol: {{Start: 123}},
 	}}
 
-	_, ok := pt.resolveUprobeTarget(nil, offsets)
+	_, ok := pt.resolveUprobeTarget(nil, "/proc/123/exe", offsets)
 
 	assert.False(t, ok)
 }
@@ -1239,14 +1240,17 @@ type stubUprobeTargetResolver struct {
 	stubTracer
 	dev    uint64
 	ino    uint64
+	path   string
 	offset uint64
 	err    error
 }
 
 func (s *stubUprobeTargetResolver) ResolveUprobeTarget(
 	_ *link.Executable,
+	path string,
 	offset uint64,
 ) (uint64, uint64, error) {
+	s.path = path
 	s.offset = offset
 	return s.dev, s.ino, s.err
 }

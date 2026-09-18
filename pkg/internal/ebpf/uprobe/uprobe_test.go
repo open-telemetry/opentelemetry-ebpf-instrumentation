@@ -4,14 +4,21 @@
 package uprobe
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
+	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func tailCallInto(table string) asm.Instructions {
@@ -191,4 +198,172 @@ func TestMultiOptionsWithoutRefCtrOffset(t *testing.T) {
 	assert.Equal(t, []uint64{7}, opts.Addresses)
 	assert.Nil(t, opts.RefCtrOffsets)
 	assert.Zero(t, opts.PID)
+}
+
+type nopCloser struct{}
+
+func (nopCloser) Close() error { return nil }
+
+func TestAttachWithTraceFSFallbackUsesPMUWithoutTryingTraceFS(t *testing.T) {
+	resetTraceFSFallback(t)
+	want := nopCloser{}
+	traceFSCalls := 0
+
+	got, err := attachWithTraceFSFallback(
+		func() (io.Closer, error) { return want, nil },
+		func() (io.Closer, error) {
+			traceFSCalls++
+			return nil, nil
+		},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Zero(t, traceFSCalls)
+	assert.False(t, traceFSFallbackUsed.Load())
+}
+
+func TestAttachWithTraceFSFallbackRetriesEACCES(t *testing.T) {
+	resetTraceFSFallback(t)
+	want := nopCloser{}
+	perfCalls := 0
+	traceFSCalls := 0
+
+	got, err := attachWithTraceFSFallback(
+		func() (io.Closer, error) {
+			perfCalls++
+			return nil, fmt.Errorf("opening perf uprobe: %w", unix.EACCES)
+		},
+		func() (io.Closer, error) {
+			traceFSCalls++
+			return want, nil
+		},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Equal(t, 1, perfCalls)
+	assert.Equal(t, 1, traceFSCalls)
+	assert.True(t, traceFSFallbackUsed.Load())
+}
+
+func TestAttachWithTraceFSFallbackKeepsOtherErrors(t *testing.T) {
+	wantErr := errors.New("perf failed")
+	traceFSCalls := 0
+
+	_, err := attachWithTraceFSFallback(
+		func() (io.Closer, error) { return nil, wantErr },
+		func() (io.Closer, error) {
+			traceFSCalls++
+			return nopCloser{}, nil
+		},
+	)
+
+	require.ErrorIs(t, err, wantErr)
+	assert.Zero(t, traceFSCalls)
+}
+
+func TestAttachWithTraceFSFallbackPreservesBothErrors(t *testing.T) {
+	resetTraceFSFallback(t)
+	traceFSErr := errors.New("tracefs failed")
+
+	_, err := attachWithTraceFSFallback(
+		func() (io.Closer, error) { return nil, unix.EACCES },
+		func() (io.Closer, error) { return nil, traceFSErr },
+	)
+
+	require.ErrorIs(t, err, unix.EACCES)
+	require.ErrorIs(t, err, traceFSErr)
+	assert.False(t, traceFSFallbackUsed.Load())
+}
+
+func TestEffectiveShutdownTimeout(t *testing.T) {
+	resetTraceFSFallback(t)
+	const configured = 10 * time.Second
+
+	assert.Equal(t, configured, EffectiveShutdownTimeout(configured))
+
+	traceFSFallbackUsed.Store(true)
+	assert.Equal(t, 3*configured, EffectiveShutdownTimeout(configured))
+}
+
+func resetTraceFSFallback(t *testing.T) {
+	t.Helper()
+	traceFSFallbackUsed.Store(false)
+	t.Cleanup(func() { traceFSFallbackUsed.Store(false) })
+}
+
+func TestWritableTraceFSMountSkipsReadOnlyMount(t *testing.T) {
+	mounts := []*procfs.MountInfo{
+		{FSType: "tracefs", Root: "/", MountPoint: "/sys/kernel/tracing", Options: map[string]string{"ro": ""}},
+		{FSType: "tracefs", Root: "/", MountPoint: "/sys/kernel/debug/tracing", Options: map[string]string{"rw": ""}},
+	}
+
+	assert.Equal(t, "/sys/kernel/debug/tracing", writableTraceFSMount(mounts))
+}
+
+func TestTraceFSEventCloseRemovesEventOnce(t *testing.T) {
+	eventsFile := filepath.Join(t.TempDir(), "uprobe_events")
+	require.NoError(t, os.WriteFile(eventsFile, nil, 0o600))
+	event := &traceFSEvent{eventsFile: eventsFile, group: "obi_abcd", name: "probe"}
+
+	require.NoError(t, event.Close())
+	require.NoError(t, event.Close())
+
+	commands, err := os.ReadFile(eventsFile)
+	require.NoError(t, err)
+	assert.Equal(t, "-:obi_abcd/probe", string(commands))
+}
+
+func TestTraceFSLinksRemoveGroupOnce(t *testing.T) {
+	eventsFile := filepath.Join(t.TempDir(), "uprobe_events")
+	require.NoError(t, os.WriteFile(eventsFile, nil, 0o600))
+
+	links := []*traceFSLink{
+		newTestTraceFSLink(t, &traceFSEvent{eventsFile: eventsFile, group: "obi_abcd", name: "probe_0"}),
+		newTestTraceFSLink(t, &traceFSEvent{eventsFile: eventsFile, group: "obi_abcd", name: "probe_1"}),
+	}
+	group := &traceFSEventGroup{eventsFile: eventsFile, name: "obi_abcd"}
+	batch := &traceFSLinks{links: links, group: group}
+
+	require.NoError(t, batch.Close())
+	require.NoError(t, batch.Close())
+
+	commands, err := os.ReadFile(eventsFile)
+	require.NoError(t, err)
+	assert.Equal(t, "-:obi_abcd/", string(commands))
+}
+
+func TestTraceFSLinksFallBackToIndividualRemoval(t *testing.T) {
+	eventsFile := filepath.Join(t.TempDir(), "uprobe_events")
+	require.NoError(t, os.WriteFile(eventsFile, nil, 0o600))
+
+	links := []*traceFSLink{
+		newTestTraceFSLink(t, &traceFSEvent{eventsFile: eventsFile, group: "obi_abcd", name: "probe_0"}),
+		newTestTraceFSLink(t, &traceFSEvent{eventsFile: eventsFile, group: "obi_abcd", name: "probe_1"}),
+	}
+	group := &traceFSEventGroup{eventsFile: t.TempDir(), name: "obi_abcd"}
+
+	require.NoError(t, (&traceFSLinks{links: links, group: group}).Close())
+
+	commands, err := os.ReadFile(eventsFile)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"-:obi_abcd/probe_0", "-:obi_abcd/probe_1"}, splitTraceFSCommands(string(commands)))
+}
+
+func newTestTraceFSLink(t *testing.T, event *traceFSEvent) *traceFSLink {
+	t.Helper()
+	fd, err := unix.Eventfd(0, unix.EFD_CLOEXEC)
+	require.NoError(t, err)
+	return &traceFSLink{fd: fd, event: event}
+}
+
+func splitTraceFSCommands(commands string) []string {
+	const commandPrefix = "-:"
+	commands = strings.TrimPrefix(commands, commandPrefix)
+	parts := strings.Split(commands, commandPrefix)
+	for i := range parts {
+		parts[i] = commandPrefix + parts[i]
+	}
+	return parts
 }
