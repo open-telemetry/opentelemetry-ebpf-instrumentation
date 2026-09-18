@@ -26,20 +26,17 @@ const (
 	requestSchemeKey        = "REQUEST_SCHEME"
 	forwardedProtoKey       = "HTTP_X_FORWARDED_PROTO"
 	httpsKey                = "HTTPS"
-	httpHostKey             = "HTTP_HOST"
-	serverNameKey           = "SERVER_NAME"
 	responseError           = 7 // FCGI_STDERR
 	responseStatusKey       = "Status: "
 )
 
 // fastCGIRequest is the request metadata the params table carries. The FastCGI
-// hop itself describes none of it: the scheme, host and URI belong to the HTTP
+// hop itself describes none of it: the scheme and URI belong to the HTTP
 // request the front end received, and are only knowable from these keys.
 type fastCGIRequest struct {
 	method string
 	uri    string
 	scheme string
-	host   string
 	status int
 }
 
@@ -227,11 +224,6 @@ func detectFastCGI(b, rb *largebuf.LargeBuffer) (fastCGIRequest, bool) {
 			uri = uri + "?" + qs
 		}
 
-		host := kv[httpHostKey]
-		if host == "" {
-			host = kv[serverNameKey]
-		}
-
 		// Translate the status code into HTTP, 200 OK, 500 ERR
 		status := 200
 
@@ -258,7 +250,6 @@ func detectFastCGI(b, rb *largebuf.LargeBuffer) (fastCGIRequest, bool) {
 			method: method,
 			uri:    uri,
 			scheme: cgiScheme(kv),
-			host:   host,
 			status: status,
 		}, true
 	}
@@ -281,8 +272,8 @@ func TCPToFastCGIToSpan(trace *TCPRequestInfo, req fastCGIRequest) request.Span 
 	}
 
 	schemeHost := ""
-	if req.scheme != "" || req.host != "" {
-		schemeHost = req.scheme + request.SchemeHostSeparator + req.host
+	if req.scheme != "" {
+		schemeHost = req.scheme + request.SchemeHostSeparator
 	}
 
 	return request.Span{
