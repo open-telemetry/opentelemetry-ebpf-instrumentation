@@ -16,7 +16,7 @@ services:
         condition: service_started
 
   rtestserver:
-    image: ghcr.io/open-telemetry/obi-testimg:rust-0.1.0@sha256:3989aa18c1e23cbb5a4c511ae1ad3456f94a9b967fd916bc21ee10c1d940a95d
+    image: ghcr.io/open-telemetry/obi-testimg:rust-0.1.3@sha256:b76147c36641b1658231cbf82f5731e73b8c6c8a407c22e853f8c06deda7aebe
     ports:
       - 8091:8090
 
@@ -40,7 +40,7 @@ services:
       - 3031:3030
 
   utestserver:
-    image: ghcr.io/open-telemetry/obi-testimg:rails-0.1.0@sha256:7a72159a113b9044378c42f7ea27ab00673c6a0ebfe3ac205cc006f46606b36c
+    image: ghcr.io/open-telemetry/obi-testimg:rails-0.1.3@sha256:a2a1f3dc2f8588d0f8cb1859a8b88f308f97b8491d581daa5ce833df96c79103
     ports:
       - 3041:3040
 
