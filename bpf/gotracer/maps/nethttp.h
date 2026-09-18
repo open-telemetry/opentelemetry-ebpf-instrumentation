@@ -58,10 +58,16 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } http2_req_map SEC(".maps");
 
+typedef struct http2_header_observation {
+    u64 request_go;
+    u8 app_owned;
+    u8 _pad[7];
+} http2_header_observation_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: goroutine serializing request headers
-    __type(value, u8);          // positive only after writeHeader observes traceparent
+    __type(value, http2_header_observation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } http2_header_observations SEC(".maps");
 

@@ -178,40 +178,34 @@ func testHTTP2GO(t *testing.T, compose *docker.Compose, useHTTPProtocols bool) {
 
 func testHTTP2TraceparentOwnership(t *testing.T, compose *docker.Compose) {
 	tests := []struct {
-		name             string
-		service          string
-		url              string
-		transports       []string
-		expectsInjection bool
+		name       string
+		service    string
+		url        string
+		transports []string
 	}{
 		{
-			name:             "current",
-			service:          "testclient",
-			url:              "http://localhost:7575/run",
-			transports:       []string{"tls", "plaintext"},
-			expectsInjection: true,
+			name:       "current",
+			service:    "testclient",
+			url:        "http://localhost:7575/run",
+			transports: []string{"tls", "plaintext"},
 		},
 		{
-			name:             "legacy x/net",
-			service:          "testclient-xnet-legacy",
-			url:              "http://localhost:7576/run",
-			transports:       []string{"tls", "plaintext"},
-			expectsInjection: false,
+			name:       "legacy x/net",
+			service:    "testclient-xnet-legacy",
+			url:        "http://localhost:7576/run",
+			transports: []string{"tls", "plaintext"},
 		},
 		{
-			name:             "legacy stdlib",
-			service:          "testclient-stdlib-legacy",
-			url:              "http://localhost:7577/run",
-			transports:       []string{"tls"},
-			expectsInjection: false,
+			name:       "legacy stdlib",
+			service:    "testclient-stdlib-legacy",
+			url:        "http://localhost:7577/run",
+			transports: []string{"tls"},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			testHTTP2TraceparentOwnershipClient(
-				t, compose, test.service, test.url, test.transports, test.expectsInjection,
-			)
+			testHTTP2TraceparentOwnershipClient(t, compose, test.service, test.url, test.transports)
 		})
 	}
 }
@@ -222,7 +216,6 @@ func testHTTP2TraceparentOwnershipClient(
 	service string,
 	url string,
 	transports []string,
-	expectsInjection bool,
 ) {
 	client := &http.Client{Timeout: time.Minute}
 
@@ -245,7 +238,7 @@ func testHTTP2TraceparentOwnershipClient(
 					if result.Transport != transport {
 						continue
 					}
-					if err := validateHTTP2OwnershipResult(result, expectsInjection); err == nil {
+					if err := validateHTTP2OwnershipResult(result); err == nil {
 						return
 					} else {
 						lastErr = err
@@ -273,7 +266,7 @@ func parseHTTP2OwnershipResults(logs string) []http2OwnershipResult {
 	return results
 }
 
-func validateHTTP2OwnershipResult(result http2OwnershipResult, expectsInjection bool) error {
+func validateHTTP2OwnershipResult(result http2OwnershipResult) error {
 	if result.Error != "" {
 		return fmt.Errorf("client error: %s", result.Error)
 	}
@@ -296,7 +289,7 @@ func validateHTTP2OwnershipResult(result http2OwnershipResult, expectsInjection 
 		return fmt.Errorf("control request count: got %d, want 2", len(result.Controls))
 	}
 	for i, observation := range result.Controls {
-		if err := validateHTTP2UnownedObservation(observation, expectsInjection); err != nil {
+		if err := validateHTTP2InjectedObservation(observation); err != nil {
 			return fmt.Errorf("control request %d: %w", i, err)
 		}
 	}
@@ -304,27 +297,13 @@ func validateHTTP2OwnershipResult(result http2OwnershipResult, expectsInjection 
 	if err := validateHTTP2Observation(result.MuxOwned, http2MuxTraceparent); err != nil {
 		return fmt.Errorf("owned multiplexed request: %w", err)
 	}
-	if err := validateHTTP2UnownedObservation(result.MuxPlain, expectsInjection); err != nil {
+	if err := validateHTTP2InjectedObservation(result.MuxPlain); err != nil {
 		return fmt.Errorf("plain multiplexed request: %w", err)
 	}
 	if result.MuxOwned.RemoteAddr != result.MuxPlain.RemoteAddr ||
 		result.MuxOwned.RemoteAddr != remoteAddr {
 		return fmt.Errorf("multiplexed requests did not share persistent connection %q: owned=%q plain=%q",
 			remoteAddr, result.MuxOwned.RemoteAddr, result.MuxPlain.RemoteAddr)
-	}
-	return nil
-}
-
-func validateHTTP2UnownedObservation(observation http2HeaderObservation, expectsInjection bool) error {
-	if expectsInjection {
-		return validateHTTP2InjectedObservation(observation)
-	}
-	if observation.Protocol != "HTTP/2.0" {
-		return fmt.Errorf("protocol: got %q, want HTTP/2.0", observation.Protocol)
-	}
-	if len(observation.Traceparents) != 0 {
-		return fmt.Errorf("traceparent count: got %d, want 0 (%q)",
-			len(observation.Traceparents), observation.Traceparents)
 	}
 	return nil
 }
