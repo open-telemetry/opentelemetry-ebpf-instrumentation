@@ -11,12 +11,19 @@ import java.io.InputStream;
 import java.net.Socket;
 
 public class ProxyInputStream extends InputStream {
+  private static final String JDK_APP_INPUT_STREAM =
+      "sun.security.ssl.SSLSocketImpl$AppInputStream";
+
   private final InputStream delegate;
   private final Socket socket;
 
   public ProxyInputStream(InputStream delegate, Socket socket) {
     this.delegate = delegate;
     this.socket = socket;
+  }
+
+  public static boolean requiresProxy(String streamClassName) {
+    return !JDK_APP_INPUT_STREAM.equals(streamClassName);
   }
 
   @Override
