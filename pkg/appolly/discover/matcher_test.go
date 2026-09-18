@@ -38,7 +38,7 @@ func TestMatchersMutuallyExclusive(t *testing.T) {
 	cfgCriteria := FindingCriteria(&pipeConfig)
 
 	t.Run("dynamic_mode_static_is_noop_config_match_ignored", func(t *testing.T) {
-		sel := NewDynamicPIDSelector()
+		sel := NewDynamicSelector()
 		sel.AddPIDs(7)
 
 		inQ := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
@@ -534,7 +534,7 @@ func TestCriteriaMatcherExcludedChildDoesNotInheritParentMatch(t *testing.T) {
 }
 
 func TestDynamicMatcher_ChildInheritsDynamicSelectorPID(t *testing.T) {
-	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector := NewDynamicSelector()
 	dynamicSelector.AddPIDs(100)
 
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
@@ -851,7 +851,7 @@ func TestMatchProcess_TargetPIDsDoNotBypassOtherCriteria(t *testing.T) {
 }
 
 func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
-	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector := NewDynamicSelector()
 	dynamicSelector.AddPIDs(42)
 
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
@@ -901,7 +901,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 }
 
 func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
-	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector := NewDynamicSelector()
 	dynamicSelector.AddPIDs(42, 100)
 
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
@@ -941,8 +941,8 @@ func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
 }
 
 func TestCriteriaMatcher_DynamicTargetPIDs_WithOptions(t *testing.T) {
-	dynamicSelector := NewDynamicPIDSelector()
-	dynamicSelector.Traces().AddPID(42, selection.DynamicPIDOptions{
+	dynamicSelector := NewDynamicSelector()
+	dynamicSelector.Traces().AddPID(42, selection.DynamicOptions{
 		ServiceName:      "runtime-svc",
 		ServiceNamespace: "runtime-ns",
 		ResourceAttributes: map[string]string{
