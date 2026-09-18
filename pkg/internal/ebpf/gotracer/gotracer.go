@@ -55,6 +55,11 @@ type runtimeMetricTargetKey struct {
 	ns  uint32
 }
 
+type ioEOFLoadBiasKey struct {
+	pid app.PID
+	ns  uint32
+}
+
 type executableIdentity = BpfGoExecutableKeyT
 
 // Linux's internal dev_t reserves its lower 20 bits for the minor number.
@@ -191,6 +196,11 @@ var goGRPCBufWriterOffsetFields = [...]goexec.GoOffset{
 	goexec.GrpcTransportBufWriterConnPos,
 }
 
+var goGRPCClientLifecycleOffsetFields = [...]goexec.GoOffset{
+	goexec.GrpcCSAttemptCsPos,
+	goexec.GrpcClientStreamFinishedPos,
+}
+
 var goRuntimeMetricOffsetFields = [...]goexec.GoOffset{
 	goexec.RuntimeMemstatsNumGCPos,
 	goexec.RuntimeGCControllerMemoryLimitPos,
@@ -300,7 +310,10 @@ type Tracer struct {
 	supportsBPFLoop                   bool
 	runtimeMetricsEnabled             bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
+	ioEOFLoadBiasKeys                 map[ioEOFLoadBiasKey]BpfPidInfo
+	ioEOFLoadBiasMap                  mapKeyDeleter
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
+	goIoEOFByExecutable               map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
 	goRuntimeGCGoalSourceByExecutable map[executableIdentity]goRuntimeGCGoalSource
 	currentBinary                     executableIdentity
@@ -334,7 +347,9 @@ func New(
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
+		ioEOFLoadBiasKeys:                 map[ioEOFLoadBiasKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
+		goIoEOFByExecutable:               map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
 		goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{},
 		goAutoSDKActivationByExecutable:   map[executableIdentity]bool{},
@@ -406,6 +421,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.deleteRuntimeMetricTarget(pid, ns)
+	p.deleteIoEOFLoadBias(pid, ns)
 }
 
 func (p *Tracer) supportsContextPropagation() bool {
@@ -497,6 +513,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	initMissingGoOffsets(&offTable, goChannelOffsetFields[:])
 	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
 	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
+	initMissingGoOffsets(&offTable, goGRPCClientLifecycleOffsetFields[:])
 	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
 	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
 	// Set the field offsets and the logLevel for the Go BPF program in a map
@@ -573,6 +590,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcServerStreamStream,
 		goexec.GrpcServerStreamStPtr,
 		goexec.GrpcClientStreamStream,
+		goexec.GrpcCSAttemptCsPos,
+		goexec.GrpcClientStreamFinishedPos,
 		// go manual spans
 		goexec.GoTracerDelegatePos,
 		// go runtime channels
@@ -665,6 +684,14 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		}
 	}
 
+	offTable.Table[goexec.GoIoEOFAddress] = missingGoOffset
+	if eofAddr, ok := offsets.ITypes["io.EOF"]; ok && eofAddr != 0 && fileInfo != nil {
+		// Keep the ELF-relative address in the executable-scoped table. The runtime
+		// address is process-specific for PIE binaries and is supplied through the
+		// PID-scoped load-bias map below.
+		offTable.Table[goexec.GoIoEOFAddress] = eofAddr
+	}
+
 	ino := fileInfo.Ino()
 	identity := goOffsetsMapKey(fileInfo)
 	if err := p.bpfObjects.GoOffsetsMap.Put(identity, offTable); err != nil {
@@ -673,10 +700,13 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			"ino", ino,
 			"error", err)
 		delete(p.goAutoSDKActivationByExecutable, identity)
+		delete(p.goIoEOFByExecutable, identity)
 		delete(p.goRuntimeMetricMaskByExecutable, identity)
 		p.deleteRuntimeMetricTarget(fileInfo.Pid(), fileInfo.Ns())
 		return
 	}
+	p.recordGoIoEOFAvailability(fileInfo, offTable.Table[goexec.GoIoEOFAddress] != missingGoOffset)
+	p.registerIoEOFLoadBias(fileInfo)
 	p.recordGoAutoSDKActivationSupport(fileInfo, offsets)
 	p.recordGoRuntimeMetricAvailability(fileInfo, offsets)
 	if hasBaseGoRuntimeMetrics(p.goRuntimeMetricMaskByExecutable[identity]) {
@@ -1523,6 +1553,92 @@ func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
 	return pidInfo, nil
 }
 
+type bpfMapPutter interface {
+	Put(key, value any) error
+}
+
+var (
+	findExeLoadBias    = procs.FindExeLoadBias
+	lookupIoEOFPIDInfo = runtimeMetricPIDInfo
+)
+
+func registerIoEOFLoadBias(fileInfo *exec.FileInfo, biases bpfMapPutter) (BpfPidInfo, error) {
+	loadBias, err := findExeLoadBias(fileInfo.Pid())
+	if err != nil {
+		return BpfPidInfo{}, fmt.Errorf("finding executable load bias: %w", err)
+	}
+
+	pidInfo, err := lookupIoEOFPIDInfo(fileInfo.Pid(), fileInfo.Ns())
+	if err != nil {
+		return BpfPidInfo{}, fmt.Errorf("looking up PID info: %w", err)
+	}
+	if err := biases.Put(pidInfo, loadBias); err != nil {
+		return BpfPidInfo{}, fmt.Errorf("storing load bias: %w", err)
+	}
+
+	return pidInfo, nil
+}
+
+func deleteIoEOFLoadBias(
+	keys map[ioEOFLoadBiasKey]BpfPidInfo,
+	pid app.PID,
+	ns uint32,
+	biases mapKeyDeleter,
+) error {
+	key := ioEOFLoadBiasKey{pid: pid, ns: ns}
+	pidInfo, ok := keys[key]
+	if !ok {
+		return nil
+	}
+	delete(keys, key)
+	if biases == nil {
+		return nil
+	}
+	if err := biases.Delete(pidInfo); err != nil {
+		return fmt.Errorf("deleting load bias: %w", err)
+	}
+	return nil
+}
+
+func (p *Tracer) recordGoIoEOFAvailability(fileInfo *exec.FileInfo, available bool) {
+	if p.goIoEOFByExecutable == nil {
+		p.goIoEOFByExecutable = map[executableIdentity]bool{}
+	}
+	p.goIoEOFByExecutable[goOffsetsMapKey(fileInfo)] = available
+}
+
+func (p *Tracer) registerIoEOFLoadBias(fileInfo *exec.FileInfo) {
+	if p == nil || fileInfo == nil || !p.goIoEOFByExecutable[goOffsetsMapKey(fileInfo)] ||
+		p.bpfObjects.IoEofLoadBiases == nil {
+		return
+	}
+
+	pidInfo, err := registerIoEOFLoadBias(fileInfo, p.bpfObjects.IoEofLoadBiases)
+	if err != nil {
+		if p.log != nil {
+			p.log.Debug("storing io.EOF load bias failed", "pid", fileInfo.Pid(), "error", err)
+		}
+		return
+	}
+	if p.ioEOFLoadBiasKeys == nil {
+		p.ioEOFLoadBiasKeys = map[ioEOFLoadBiasKey]BpfPidInfo{}
+	}
+	p.ioEOFLoadBiasKeys[ioEOFLoadBiasKey{pid: fileInfo.Pid(), ns: fileInfo.Ns()}] = pidInfo
+}
+
+func (p *Tracer) deleteIoEOFLoadBias(pid app.PID, ns uint32) {
+	if p == nil || p.ioEOFLoadBiasKeys == nil {
+		return
+	}
+	biases := p.ioEOFLoadBiasMap
+	if biases == nil && p.bpfObjects.IoEofLoadBiases != nil {
+		biases = p.bpfObjects.IoEofLoadBiases
+	}
+	if err := deleteIoEOFLoadBias(p.ioEOFLoadBiasKeys, pid, ns, biases); err != nil && p.log != nil {
+		p.log.Debug("deleting io.EOF load bias failed", "pid", pid, "ns", ns, "error", err)
+	}
+}
+
 func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
 	if p == nil {
 		return
@@ -1533,6 +1649,7 @@ func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
 	}
 
 	p.currentBinary = goOffsetsMapKey(fileInfo)
+	p.registerIoEOFLoadBias(fileInfo)
 }
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
@@ -1784,11 +1901,15 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"google.golang.org/grpc.(*ClientConn).Close": {{
 			Start: p.bpfObjects.ObiUprobeClientConnClose,
 		}},
-		"google.golang.org/grpc.(*clientStream).RecvMsg": {{
-			End: p.bpfObjects.ObiUprobeClientStreamRecvMsgReturn,
+		"google.golang.org/grpc.newClientStreamWithParams": {{
+			Start: p.bpfObjects.ObiUprobeNewClientStreamWithParams,
+			End:   p.bpfObjects.ObiUprobeNewClientStreamWithParamsReturn,
 		}},
-		"google.golang.org/grpc.(*clientStream).CloseSend": {{
-			End: p.bpfObjects.ObiUprobeClientConnInvokeReturn,
+		"google.golang.org/grpc.(*clientStream).withRetry": {{
+			Start: p.bpfObjects.ObiUprobeClientStreamWithRetry,
+		}},
+		"google.golang.org/grpc.(*csAttempt).finish": {{
+			Start: p.bpfObjects.ObiUprobeCsAttemptFinish,
 		}},
 		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream": {{
 			Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream,

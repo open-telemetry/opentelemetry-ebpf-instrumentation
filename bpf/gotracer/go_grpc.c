@@ -42,6 +42,7 @@
 #include <pid/pid_helpers.h>
 
 #include <gotracer/go_obi_ctx.h>
+#include <gotracer/grpc_client_stack.h>
 
 #define TRANSPORT_HTTP2 1
 #define TRANSPORT_HANDLER 2
@@ -384,19 +385,84 @@ int GUARDED_PROG(obi_uprobe_transport_writeStatus, struct pt_regs *, ctx) {
 }
 
 /* GRPC client */
+static __always_inline void grpc_client_emit_with_conn(
+    const grpc_client_func_invocation_t *invocation, const connection_info_t *conn, void *err) {
+    if (!invocation) {
+        return;
+    }
+
+    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
+    if (!trace) {
+        bpf_dbg_printk("can't reserve space in the ringbuffer");
+        return;
+    }
+
+    task_pid(&trace->pid);
+    trace->type = k_event_type_grpc_client;
+    trace->start_monotime_ns = invocation->start_monotime_ns;
+    trace->go_start_monotime_ns = invocation->start_monotime_ns;
+    trace->end_monotime_ns = bpf_ktime_get_ns();
+
+    void *method_ptr = (void *)invocation->method;
+    u64 method_len = invocation->method_len;
+
+    bpf_dbg_printk("method_ptr=%lx, method_len=%llu", method_ptr, method_len);
+
+    if (!read_go_str_n("method", method_ptr, method_len, trace->path, sizeof(trace->path))) {
+        bpf_dbg_printk("can't read grpc client method");
+        bpf_ringbuf_discard(trace, 0);
+        return;
+    }
+
+    if (conn && (conn->s_port != 0 || conn->d_port != 0)) {
+        bpf_memcpy(&trace->conn, conn, sizeof(connection_info_t));
+    } else {
+        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
+    }
+
+    trace->tp = invocation->tp;
+    trace->status = (err) ? 2 : 0;
+
+    bpf_ringbuf_submit(trace, get_flags());
+}
+
+static __always_inline void grpc_client_emit(const grpc_client_func_invocation_t *invocation,
+                                             void *err) {
+    if (!invocation) {
+        return;
+    }
+
+    const connection_info_t *conn = NULL;
+    if (invocation->transport_ptr) {
+        go_addr_key_t cache_key = {};
+        go_addr_key_from_id(&cache_key, (void *)invocation->transport_ptr);
+        conn = bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
+    }
+
+    grpc_client_emit_with_conn(invocation, conn, err);
+}
+
+/* GRPC client */
 static __always_inline void clientConnStart(void *goroutine_addr,
                                             void *cc_ptr,
                                             void *ctx_ptr,
                                             void *method_ptr,
-                                            void *method_len,
-                                            u64 stack_off) {
+                                            u64 method_len,
+                                            u64 stack_off,
+                                            u32 func_type) {
     grpc_client_func_invocation_t invocation = {
         .start_monotime_ns = bpf_ktime_get_ns(),
         .cc = (u64)cc_ptr,
         .method = (u64)method_ptr,
-        .method_len = (u64)method_len,
+        .method_len = method_len,
         .tp = {0},
         .flags = 0,
+        .stream_ptr = 0,
+        .transport_ptr = 0,
+        .stack_off = (u32)stack_off,
+        .func_type = func_type,
+        .stream_constructor_active = 0,
+        ._pad = 0,
     };
     off_table_t *ot = get_offsets_table();
     go_addr_key_t g_key = {};
@@ -417,12 +483,54 @@ static __always_inline void clientConnStart(void *goroutine_addr,
         bpf_dbg_printk("No ctx_ptr: %llx", ctx_ptr);
     }
 
-    // Write event
-    if (bpf_map_update_elem(&ongoing_grpc_client_requests, &g_key, &invocation, BPF_ANY)) {
-        bpf_dbg_printk("can't update grpc client map element");
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    if (!stack) {
+        grpc_client_invocation_stack_t *fresh = grpc_client_stack_scratch_mem();
+        if (!fresh) {
+            return;
+        }
+        bpf_memset(fresh, 0, sizeof(*fresh));
+        fresh->frames[0] = invocation;
+        fresh->depth = 1;
+        if (bpf_map_update_elem(&ongoing_grpc_client_requests, &g_key, fresh, BPF_ANY) != 0) {
+            return;
+        }
+        go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, (u32)stack_off);
+        return;
     }
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, stack_off);
+    obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, &g_key);
+
+    if (stack->depth > 0 && stack->overflow == 0 &&
+        stack->frames[grpc_client_slot(stack->depth - 1)].stack_off == (u32)stack_off) {
+        // Tracked restart: Go grew the stack and restarted the function at the same depth.
+        const grpc_client_func_invocation_t *top =
+            &stack->frames[grpc_client_slot(stack->depth - 1)];
+        invocation.tp = top->tp;
+        invocation.flags = top->flags;
+    } else if (stack->overflow > 0 && stack->unstored_stack_off == (u32)stack_off) {
+        // Overflow restart: Go grew the stack and restarted an unstored frame.
+        if (st && st->unstored_kind == k_obi_ctx_grpc_client &&
+            st->unstored_stack_off == (u32)stack_off) {
+            invocation.tp = st->unstored_tp;
+            invocation.flags = st->unstored_tp.flags;
+        }
+    } else {
+        // Genuine nested call: derive a new child TP from the active parent context.
+        const tp_info_t *parent_tp = st ? obi_ctx__current(st) : NULL;
+        if (!parent_tp && stack->depth > 0) {
+            parent_tp = &stack->frames[grpc_client_slot(stack->depth - 1)].tp;
+        }
+        if (parent_tp) {
+            tp_from_parent(&invocation.tp, (tp_info_t *)parent_tp);
+            urand_bytes(invocation.tp.span_id, SPAN_ID_SIZE_BYTES);
+            invocation.flags = parent_tp->flags;
+        }
+    }
+
+    grpc_client_push(&g_key, stack, &invocation);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_grpc_client, &invocation.tp, (u32)stack_off);
 }
 
 SEC("uprobe/ClientConn_Invoke")
@@ -435,10 +543,15 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke, struct pt_regs *, ctx) {
     void *cc_ptr = GO_PARAM1(ctx);
     void *ctx_ptr = GO_PARAM3(ctx);
     void *method_ptr = GO_PARAM4(ctx);
-    void *method_len = GO_PARAM5(ctx);
+    u64 method_len = (u64)GO_PARAM5(ctx);
 
-    clientConnStart(
-        goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len, go_obi_ctx__stack_off(ctx));
+    clientConnStart(goroutine_addr,
+                    cc_ptr,
+                    ctx_ptr,
+                    method_ptr,
+                    method_len,
+                    go_obi_ctx__stack_off(ctx),
+                    k_grpc_client_func_type_invoke);
 
     return 0;
 }
@@ -454,142 +567,338 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream, struct pt_regs *, ctx) {
     void *cc_ptr = GO_PARAM1(ctx);
     void *ctx_ptr = GO_PARAM3(ctx);
     void *method_ptr = GO_PARAM5(ctx);
-    void *method_len = GO_PARAM6(ctx);
+    u64 method_len = (u64)GO_PARAM6(ctx);
 
-    clientConnStart(
-        goroutine_addr, cc_ptr, ctx_ptr, method_ptr, method_len, go_obi_ctx__stack_off(ctx));
+    clientConnStart(goroutine_addr,
+                    cc_ptr,
+                    ctx_ptr,
+                    method_ptr,
+                    method_len,
+                    go_obi_ctx__stack_off(ctx),
+                    k_grpc_client_func_type_new_stream);
 
     return 0;
 }
 
-static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
+// Tracks entry into newClientStreamWithParams for the active NewStream frame.
+// Note: stream_constructor_active indicates execution is within newClientStreamWithParams
+// (including processing CallOption.before), which scopes constructor-time withRetry
+// away from user StreamClientInterceptor calls that execute outside this function.
+// Assumption: one NewStream invocation corresponds to one underlying stream creation.
+SEC("uprobe/newClientStreamWithParams")
+int GUARDED_PROG(obi_uprobe_newClientStreamWithParams, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    grpc_client_func_invocation_t *invocation =
+    grpc_client_invocation_stack_t *stack =
         bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-
-    if (invocation == NULL) {
-        bpf_dbg_printk("can't read grpc client invocation metadata");
-        goto done;
+    grpc_client_func_invocation_t *current = grpc_client_current(stack);
+    if (!current || current->func_type != k_grpc_client_func_type_new_stream) {
+        return 0;
     }
 
-    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
-    if (!trace) {
-        bpf_dbg_printk("can't reserve space in the ringbuffer");
-        goto done;
-    }
-
-    task_pid(&trace->pid);
-    trace->type = k_event_type_grpc_client;
-    trace->start_monotime_ns = invocation->start_monotime_ns;
-    trace->go_start_monotime_ns = invocation->start_monotime_ns;
-    trace->end_monotime_ns = bpf_ktime_get_ns();
-    trace->content_length = 0;
-    trace->method[0] = '\0';
-    trace->host[0] = '\0';
-    trace->scheme[0] = '\0';
-    trace->pattern[0] = '\0';
-    trace->path[0] = '\0';
-    trace->is_jsonrpc = false;
-
-    // Read arguments from the original set of registers
-
-    // Get client request value pointers
-    void *method_ptr = (void *)invocation->method;
-    void *method_len = (void *)invocation->method_len;
-
-    bpf_dbg_printk("method_ptr=%lx, method_len=%d", method_ptr, method_len);
-
-    // Get method from the incoming call arguments
-    if (!read_go_str_n("method", method_ptr, (u64)method_len, trace->path, sizeof(trace->path))) {
-        bpf_dbg_printk("can't read grpc client method");
-        bpf_ringbuf_discard(trace, 0);
-        goto done;
-    }
-
-    connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
-
-    if (info) {
-        __builtin_memcpy(&trace->conn, info, sizeof(connection_info_t));
-    } else {
-        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
-    }
-
-    trace->tp = invocation->tp;
-
-    trace->status =
-        (err)
-            ? 2
-            : 0; // Getting the gRPC client status is complex, if there's an error we set Code.Unknown = 2
-
-    // submit the completed trace via ringbuffer
-    bpf_ringbuf_submit(trace, get_flags());
-
-done:
-    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, invocation ? &invocation->tp : NULL);
-    bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
+    grpc_client_constructor_begin(current);
     return 0;
 }
 
-// Same as ClientConn_Invoke, registers for the method are offset by one
+// Authoritative generation-establishment hook:
+// Runs on the creator goroutine during clientStream allocation in newClientStreamWithParams,
+// strictly before the background cancellation / ClientConn-close watcher can call finish.
+// Establishes a clean generation for (pid, raw *clientStream) by purging any stale tombstones
+// from older defunct objects at this address.
+// Invariant: only runs while stream_constructor_active is true and stream_ptr has not yet
+// been established for this invocation. Unrelated withRetry calls (e.g. from an existing stream
+// exercised in a StreamClientInterceptor or during SendMsg/RecvMsg) are ignored.
+SEC("uprobe/clientStream_withRetry")
+int GUARDED_PROG(obi_uprobe_clientStream_withRetry, struct pt_regs *, ctx) {
+    void *stream_ptr = GO_PARAM1(ctx);
+    if (!stream_ptr) {
+        return 0;
+    }
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    grpc_client_func_invocation_t *current = grpc_client_current(stack);
+    if (!current || current->func_type != k_grpc_client_func_type_new_stream) {
+        return 0;
+    }
+
+    if (!current->stream_constructor_active || current->stream_ptr != 0) {
+        return 0;
+    }
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, stream_ptr);
+
+    // Stats callbacks may reenter an existing stream while this constructor is active.
+    // Completed tombstones are intentionally not live: they must be cleared on pointer reuse.
+    if (grpc_client_stream_is_live(&s_key)) {
+        return 0;
+    }
+
+    grpc_client_begin_stream_generation(&s_key);
+
+    current->stream_ptr = (u64)stream_ptr;
+    return 0;
+}
+
+// Ends the constructor-time scope used to recognize the authoritative withRetry hook.
+// If that hook was unavailable or bypassed, this path deliberately does not associate the
+// returned pointer with prior generation state.
+SEC("uprobe/newClientStreamWithParams")
+int GUARDED_PROG(obi_uprobe_newClientStreamWithParams_return, struct pt_regs *, ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    grpc_client_func_invocation_t *current = grpc_client_current(stack);
+    if (!current || current->func_type != k_grpc_client_func_type_new_stream) {
+        return 0;
+    }
+
+    grpc_client_constructor_end(current);
+
+    return 0;
+}
+
 SEC("uprobe/ClientConn_NewStream")
 int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) {
-    bpf_dbg_printk("=== uprobe/ClientConn_NewStream ===");
+    void *stream_iface = GO_PARAM1(ctx);
+    void *err = GO_PARAM3(ctx);
 
-    void *stream = GO_PARAM1(ctx);
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
 
-    if (!stream) {
-        return grpc_connect_done(ctx, (void *)1);
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    if (!stack) {
+        return 0;
     }
+
+    bool was_overflow = stack->overflow > 0;
+    grpc_client_func_invocation_t inv = {};
+    if (!grpc_client_pop(&g_key, stack, &inv)) {
+        if (was_overflow) {
+            go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
+        }
+        return 0;
+    }
+
+    if (!stream_iface || err) {
+        grpc_client_emit(&inv, (void *)1);
+        if (inv.stream_ptr) {
+            go_addr_key_t s_key = {};
+            go_addr_key_from_id(&s_key, (void *)inv.stream_ptr);
+            u8 dummy = 1;
+            bpf_map_update_elem(&completed_grpc_client_streams, &s_key, &dummy, BPF_ANY);
+            bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+            bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
+        }
+        go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
+        return 0;
+    }
+
+    u64 stream_ptr = inv.stream_ptr;
+    if (!stream_ptr) {
+        // Raw *clientStream identity unavailable (e.g. wrapped or unknown).
+        // Fail safely: end creator context, but do not install incorrectly keyed state.
+        go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
+        return 0;
+    }
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, (void *)stream_ptr);
+
+    grpc_client_stream_state_t state = {
+        .invocation = inv,
+        .conn = {0},
+    };
+
+    if (inv.transport_ptr) {
+        go_addr_key_t cache_key = {};
+        go_addr_key_from_id(&cache_key, (void *)inv.transport_ptr);
+        connection_info_t *cached =
+            bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
+        if (cached) {
+            __builtin_memcpy(&state.conn, cached, sizeof(connection_info_t));
+        }
+    }
+
+    // Publish ongoing stream state before reconciling a finish observed during construction.
+    if (bpf_map_update_elem(&ongoing_grpc_client_streams, &s_key, &state, BPF_ANY) != 0) {
+        // Map update failed (e.g. map full): clean up early finish marker and fail safely
+        bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+        bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
+        go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
+        return 0;
+    }
+
+    // Lookup early marker AFTER publication
+    grpc_client_early_finish_t *early = bpf_map_lookup_elem(&early_grpc_client_finishes, &s_key);
+    if (early) {
+        if (grpc_client_claim_stream(&s_key)) {
+            grpc_client_emit_with_conn(&inv, &state.conn, early->has_err ? (void *)1 : NULL);
+        }
+        bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
+        bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+        bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
+    }
+
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
 
     return 0;
 }
 
 SEC("uprobe/ClientConn_Close")
 int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
-    bpf_dbg_printk("=== uprobe/ClientConn_Close ===");
-
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    void *cc_ptr = GO_PARAM1(ctx);
-    bpf_dbg_printk("goroutine_addr=%lx, cc_ptr=%llx", goroutine_addr, cc_ptr);
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
-
-    const grpc_client_func_invocation_t *invocation =
-        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
-    // an interceptor can close another connection while this goroutine's RPC runs
-    if (!invocation || invocation->cc != (u64)cc_ptr) {
-        return 0;
-    }
-
-    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &invocation->tp);
-    bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-
+    (void)ctx;
     return 0;
 }
 
 SEC("uprobe/ClientConn_Invoke")
 int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
-    bpf_dbg_printk("=== uprobe/ClientConn_Invoke ===");
-
     void *err = GO_PARAM1(ctx);
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
 
-    if (err) {
-        return grpc_connect_done(ctx, err);
+    grpc_client_invocation_stack_t *stack =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    if (!stack) {
+        return 0;
     }
+
+    bool was_overflow = stack->overflow > 0;
+    grpc_client_func_invocation_t inv = {};
+    if (!grpc_client_pop(&g_key, stack, &inv)) {
+        if (was_overflow) {
+            go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
+        }
+        return 0;
+    }
+
+    grpc_client_emit(&inv, err);
+    go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
 
     return 0;
 }
 
-// google.golang.org/grpc.(*clientStream).RecvMsg
-SEC("uprobe/clientStream_RecvMsg")
-int GUARDED_PROG(obi_uprobe_clientStream_RecvMsg_return, struct pt_regs *, ctx) {
-    bpf_dbg_printk("=== uprobe/clientStream_RecvMsg ===");
-    void *err = (void *)GO_PARAM1(ctx);
-    return grpc_connect_done(ctx, err);
+// Checks whether a Go error is io.EOF by comparing interface equality:
+// err == io.EOF (exact itab and data pointer match).
+static __always_inline bool is_err_io_eof(off_table_t *ot, void *err_itab, void *err_data) {
+    if (!err_itab || !err_data || !ot) {
+        return false;
+    }
+
+    u64 io_eof_addr = go_offset_of(ot, (go_offset){.v = _io_eof_addr});
+    if (!io_eof_addr || io_eof_addr == (u64)-1) {
+        return false;
+    }
+
+    pid_info pid = {};
+    task_pid(&pid);
+    u64 *load_bias = bpf_map_lookup_elem(&io_eof_load_biases, &pid);
+    if (!load_bias) {
+        return false;
+    }
+    io_eof_addr += *load_bias;
+
+    void *expected_itab = NULL;
+    if (bpf_probe_read_user(&expected_itab, sizeof(expected_itab), (void *)io_eof_addr) != 0 ||
+        !expected_itab) {
+        return false;
+    }
+
+    void *expected_data = NULL;
+    if (bpf_probe_read_user(&expected_data,
+                            sizeof(expected_data),
+                            (void *)(io_eof_addr + k_go_iface_data_offset)) != 0 ||
+        !expected_data) {
+        return false;
+    }
+
+    return (err_itab == expected_itab && err_data == expected_data);
+}
+
+// csAttempt.finish is called by clientStream.finish while cs.finished is already true and
+// cs.mu is held. This observes the winner selected by grpc-go, while retry cleanup calls are
+// ignored because cs.finished is still false.
+SEC("uprobe/csAttempt_finish")
+int GUARDED_PROG(obi_uprobe_csAttempt_finish, struct pt_regs *, ctx) {
+    void *attempt_ptr = GO_PARAM1(ctx);
+    void *err_itab = GO_PARAM2(ctx);
+    void *err_data = GO_PARAM3(ctx);
+    if (!attempt_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 cs_offset = go_offset_of(ot, (go_offset){.v = _grpc_cs_attempt_cs_pos});
+    const u64 finished_offset =
+        go_offset_of(ot, (go_offset){.v = _grpc_client_stream_finished_pos});
+    if (cs_offset == (u64)-1 || finished_offset == (u64)-1) {
+        return 0;
+    }
+
+    void *stream_ptr = NULL;
+    u8 finished = 0;
+    if (bpf_probe_read_user(&stream_ptr, sizeof(stream_ptr), attempt_ptr + cs_offset) != 0 ||
+        !stream_ptr ||
+        bpf_probe_read_user(&finished, sizeof(finished), stream_ptr + finished_offset) != 0 ||
+        !finished) {
+        return 0;
+    }
+
+    void *err = err_itab;
+    if (err && is_err_io_eof(ot, err_itab, err_data)) {
+        err = NULL;
+    }
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, stream_ptr);
+
+    // The completed map is the generation's claim record. BPF_NOEXIST is serialized by the
+    // kernel map implementation and is supported on the repository's minimum kernels.
+    grpc_client_stream_state_t *state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
+    if (state) {
+        if (grpc_client_claim_stream(&s_key)) {
+            grpc_client_emit_with_conn(&state->invocation, &state->conn, err);
+            bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
+            bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
+            bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
+        }
+        return 0;
+    }
+
+    // 2. If stream already completed, ignore subsequent finish calls
+    u8 *completed = bpf_map_lookup_elem(&completed_grpc_client_streams, &s_key);
+    if (completed) {
+        return 0;
+    }
+
+    // A clientStream created by ClientConn.Invoke is unary and never enters this map. Do not
+    // create an unreconcilable early marker for it.
+    u8 *tracked = bpf_map_lookup_elem(&tracked_grpc_client_streams, &s_key);
+    if (!tracked) {
+        return 0;
+    }
+
+    // 3. Insert early marker with BPF_NOEXIST. The actual winner has already been selected by
+    // grpc-go, so this marker only bridges the finish-before-NewStream-return window.
+    grpc_client_early_finish_t early = {
+        .has_err = err ? 1 : 0,
+    };
+    bpf_map_update_elem(&early_grpc_client_finishes, &s_key, &early, BPF_NOEXIST);
+
+    return 0;
 }
 
 // The gRPC client stream is written on another goroutine in transport loopyWriter (controlbuf.go).
@@ -675,11 +984,15 @@ int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream, struct pt_regs *, c
             }
         }
 
+        grpc_client_invocation_stack_t *stack =
+            bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+        grpc_client_func_invocation_t *invocation = grpc_client_current(stack);
+        if (invocation) {
+            invocation->transport_ptr = (u64)t_ptr;
+        }
+
         if (g_bpf_header_propagation) {
             bpf_dbg_printk("conn_ptr_key=%llx", conn_ptr_key);
-
-            grpc_client_func_invocation_t *invocation =
-                bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
 
             if (invocation && conn_ptr_key) {
                 transport_new_client_invocation_t wrapper = {};
