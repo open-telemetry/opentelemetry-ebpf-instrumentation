@@ -16,7 +16,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 )
 
-func (p *Tracer) ResolveUprobeTarget(executable *link.Executable, offset uint64) (uint64, uint64, error) {
+func (p *Tracer) ResolveUprobeTarget(
+	executable *link.Executable,
+	executablePath string,
+	offset uint64,
+) (uint64, uint64, error) {
 	if p == nil || executable == nil || p.bpfObjects.GoExecutableIdentityRequests == nil ||
 		p.bpfObjects.ObiCaptureGoExecutableIdentity == nil {
 		return 0, 0, errors.New("go executable identity resolver is unavailable")
@@ -38,6 +42,7 @@ func (p *Tracer) ResolveUprobeTarget(executable *link.Executable, offset uint64)
 	// uprobe_register kprobe. The program is inert in the target process.
 	temporaryProbe, err := uprobe.Attach(
 		executable,
+		executablePath,
 		p.bpfObjects.ObiCaptureGoExecutableIdentity,
 		uprobe.Options{Addresses: []uint64{offset}},
 	)

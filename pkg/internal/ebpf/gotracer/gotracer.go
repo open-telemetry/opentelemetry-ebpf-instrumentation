@@ -1000,13 +1000,15 @@ func attachGoAutoSDKActivationProbe(
 		return nil, err
 	}
 
-	executable, err := link.OpenExecutable(fmt.Sprintf("/proc/self/fd/%d", target.Fd()))
+	targetPath := fmt.Sprintf("/proc/self/fd/%d", target.Fd())
+	executable, err := link.OpenExecutable(targetPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening target executable: %w", err)
 	}
 
 	activationLink, err := uprobe.Attach(
 		executable,
+		targetPath,
 		probe.program,
 		goAutoSDKActivationUprobeOptions(probe, pid),
 	)

@@ -310,7 +310,7 @@ func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 		}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 	require.NoError(t, err)
 	assert.Empty(t, closers)
 	assert.False(t, attached["skipped_optional_symbol"])
@@ -469,7 +469,7 @@ func TestOptionalProbeAttachmentFailureDoesNotSatisfyGroupPrerequisite(t *testin
 		}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 
 	require.NoError(t, err)
 	assert.Empty(t, closers)
@@ -485,7 +485,7 @@ func TestZeroLinkProbeDoesNotSatisfyGroupPrerequisite(t *testing.T) {
 		"synthetic-start": {{}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 
 	require.NoError(t, err)
 	assert.Empty(t, closers)
@@ -925,6 +925,35 @@ func TestUprobeModulesRespectsVersionedLibraryAnnotations(t *testing.T) {
 	assert.NotContains(t, selectedSymbols, "task_step")
 }
 
+func TestUprobesRecordsFallbackExecutableOnceForMultipleProbeMaps(t *testing.T) {
+	pid := app.PID(os.Getpid())
+	tracer := recordingStubTracer{
+		stubTracer: stubTracer{uprobes: map[string]map[string][]*ebpfcommon.ProbeDesc{
+			"missing-library-one": {
+				"missing_symbol_one": {{}},
+			},
+			"missing-library-two": {
+				"missing_symbol_two": {{}},
+			},
+		}},
+	}
+	i := instrumenter{modules: map[uint64]struct{}{}}
+
+	require.NoError(t, i.uprobes(pid, &tracer, makeProcMaps("/irrelevant")))
+
+	require.Len(t, tracer.recordedLibs, 1)
+	assert.Contains(t, i.modules, tracer.recordedLibs[0])
+}
+
+type recordingStubTracer struct {
+	stubTracer
+	recordedLibs []uint64
+}
+
+func (s *recordingStubTracer) RecordInstrumentedLib(id uint64, _ []io.Closer) {
+	s.recordedLibs = append(s.recordedLibs, id)
+}
+
 func TestResolveInstrPathFallsBackToExecutableWhenLibraryMissing(t *testing.T) {
 	instrPath, ino, mappedPath, found := resolveInstrPath(123, "libmissing.so", nil, "/proc/123/exe", 42)
 
@@ -1251,11 +1280,12 @@ func TestResolveUprobeTarget(t *testing.T) {
 		goUprobeTargetProbeSymbol: {{Start: 123}},
 	}}
 
-	key, ok := pt.resolveUprobeTarget(nil, offsets)
+	key, ok := pt.resolveUprobeTarget(nil, "/proc/123/exe", offsets)
 
 	require.True(t, ok)
 	assert.Equal(t, ExecutableKey{Dev: 7, Ino: 11}, key)
 	assert.Equal(t, uint64(123), resolver.offset)
+	assert.Equal(t, "/proc/123/exe", resolver.path)
 }
 
 func TestResolveUprobeTargetFallsBackToSeparateAttachment(t *testing.T) {
@@ -1265,7 +1295,7 @@ func TestResolveUprobeTargetFallsBackToSeparateAttachment(t *testing.T) {
 		goUprobeTargetProbeSymbol: {{Start: 123}},
 	}}
 
-	_, ok := pt.resolveUprobeTarget(nil, offsets)
+	_, ok := pt.resolveUprobeTarget(nil, "/proc/123/exe", offsets)
 
 	assert.False(t, ok)
 }
@@ -1357,14 +1387,17 @@ type stubUprobeTargetResolver struct {
 	stubTracer
 	dev    uint64
 	ino    uint64
+	path   string
 	offset uint64
 	err    error
 }
 
 func (s *stubUprobeTargetResolver) ResolveUprobeTarget(
 	_ *link.Executable,
+	path string,
 	offset uint64,
 ) (uint64, uint64, error) {
+	s.path = path
 	s.offset = offset
 	return s.dev, s.ino, s.err
 }
