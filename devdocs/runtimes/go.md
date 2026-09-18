@@ -5,8 +5,9 @@ instrumented Go services and exports the following metric set.
 
 OBI resolves runtime globals from ELF object symbols when they are available.
 Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
-fallback currently recovers `runtime.gomaxprocs` and `runtime.memstats`; stripped
-runtime metrics remain disabled until it also recovers `runtime.gcController`.
+fallback recovers the three mandatory globals: `runtime.gomaxprocs`,
+`runtime.memstats`, and `runtime.gcController`. Recovery of optional globals
+needed for the remaining metrics is still pending.
 
 ## Stripped global recovery
 
@@ -65,9 +66,20 @@ memstats base = heapStats address - heapStats field offset
 
 The field offset is 5960 bytes for Go 1.17/1.18 and zero for Go 1.19 through 1.27.1.
 The resolver rejects missing metadata, conflicting addresses, invalid alignment,
-storage ranges, and arithmetic overflow. After adding the process load bias,
-it supplies the base address to the existing BPF collector, which reads the
-metric values using field offsets.
+storage ranges, and arithmetic overflow. It then adds the process load bias
+to obtain the base address in the target process.
+
+### GC controller
+
+Inside `runtime.gcinit`, the resolver matches the receiver passed to
+`runtime.(*gcControllerState).init`. Go 1.18 inlines this method, so the resolver
+also accepts its remaining call to `runtime.(*gcControllerState).setGCPercent`.
+Both calls identify `&gcController` through the same LEA/CALL pattern used for
+memory statistics, allowing NOP padding between the instructions.
+
+Matches must agree on one address. The resolver checks its eight-byte alignment
+and that its first eight bytes fit readable, writable storage, then adds the
+process load bias.
 
 ## Metrics
 

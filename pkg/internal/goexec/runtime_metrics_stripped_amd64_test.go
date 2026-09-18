@@ -48,6 +48,42 @@ func TestResolveRuntimeMetricReceiverFromCode(t *testing.T) {
 	}
 }
 
+func TestResolveRuntimeMetricReceiverFromMultipleMethods(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		receivers []uint64
+		methods   []uint64
+		wantError string
+	}{
+		{"first method", []uint64{0x3000}, []uint64{0x2000, 0x2100}, ""},
+		{"second method", []uint64{0x3000}, []uint64{0x2100, 0x2000}, ""},
+		{"both agree", []uint64{0x3000, 0x3000}, []uint64{0x2000, 0x2100}, ""},
+		{"both disagree", []uint64{0x3000, 0x4000}, []uint64{0x2000, 0x2100}, "ambiguous runtime global address"},
+		{"no methods", []uint64{0x3000}, nil, "runtime global address not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const functionAddress = uint64(0x1000)
+			var code []byte
+			for i, receiver := range tc.receivers {
+				// Each LEA/CALL pair targets a different method with its own receiver.
+				start := len(code)
+				code = append(code, 0x48, 0x8d, 0x05, 0, 0, 0, 0, 0xe8, 0, 0, 0, 0)
+				binary.LittleEndian.PutUint32(code[start+3:start+7], uint32(receiver-functionAddress-uint64(start+7)))
+				method := uint64(0x2000 + i*0x100)
+				binary.LittleEndian.PutUint32(code[start+8:start+12], uint32(method-functionAddress-uint64(start+12)))
+			}
+			got, err := resolveRuntimeMetricReceiverFromCode(functionAddress, code, tc.methods...)
+			if tc.wantError != "" {
+				require.EqualError(t, err, tc.wantError)
+				require.Zero(t, got)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, uint64(0x3000), got)
+			}
+		})
+	}
+}
+
 func TestRuntimeMetricCallTarget(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

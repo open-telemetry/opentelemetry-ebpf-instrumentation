@@ -42,7 +42,7 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			t.Cleanup(func() { _ = oracle.Close() })
 			symbols, err := oracle.Symbols()
 			require.NoError(t, err)
-			var want, wantMemstats uint64
+			var want, wantMemstats, wantGCController uint64
 			for _, symbol := range symbols {
 				if symbol.Name == "runtime.gomaxprocs" {
 					want = symbol.Value
@@ -50,9 +50,13 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 				if symbol.Name == "runtime.memstats" {
 					wantMemstats = symbol.Value
 				}
+				if symbol.Name == "runtime.gcController" {
+					wantGCController = symbol.Value
+				}
 			}
 			require.NotZero(t, want)
 			require.NotZero(t, wantMemstats)
+			require.NotZero(t, wantGCController)
 
 			// Strip a copy of the same link so the symbol oracle's addresses stay valid.
 			output, err = exec.Command(objcopy, "--strip-all", original, stripped).CombinedOutput()
@@ -80,13 +84,12 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			require.Equal(t, want, address)
 
 			// Exercise the connected fallback and its conversion to a process address.
-			// Other mandatory globals are still missing, so recovery reports an error.
 			const loadBias = uint64(0x70000000)
-			partial, err := resolveRuntimeMetricSymbols(f, loadBias)
-			require.EqualError(t, err, "stripped Go runtime global address recovery is not implemented")
-			require.Equal(t, want+loadBias, partial.GOMAXPROCSAddr)
-			require.Equal(t, wantMemstats+loadBias, partial.MemstatsAddr)
-			require.Zero(t, partial.GCControllerAddr)
+			recovered, err := resolveRuntimeMetricSymbols(f, loadBias)
+			require.NoError(t, err)
+			require.Equal(t, want+loadBias, recovered.GOMAXPROCSAddr)
+			require.Equal(t, wantMemstats+loadBias, recovered.MemstatsAddr)
+			require.Equal(t, wantGCController+loadBias, recovered.GCControllerAddr)
 			_, err = resolveRuntimeMetricSymbols(f, math.MaxUint64)
 			require.EqualError(t, err, "gomaxprocs process address overflows")
 
@@ -113,9 +116,11 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 				// This is a separate link: its layout can differ from the symbol oracle.
 				// Exact-address verification is covered by the objcopy case above.
 				require.NotZero(t, address)
-				partial, err := resolveRuntimeMetricSymbols(linked, loadBias)
-				require.EqualError(t, err, "stripped Go runtime global address recovery is not implemented")
-				require.Greater(t, partial.MemstatsAddr, loadBias)
+				recovered, err := resolveRuntimeMetricSymbols(linked, loadBias)
+				require.NoError(t, err)
+				require.Equal(t, address+loadBias, recovered.GOMAXPROCSAddr)
+				require.Greater(t, recovered.MemstatsAddr, loadBias)
+				require.Greater(t, recovered.GCControllerAddr, loadBias)
 			})
 		})
 	}

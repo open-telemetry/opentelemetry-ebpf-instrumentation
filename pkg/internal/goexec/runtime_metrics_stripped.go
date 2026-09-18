@@ -79,6 +79,37 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 		return RuntimeMetricSymbols{}, err
 	}
 
+	// gcinit passes &gcController as the receiver of gcController.init(...).
+	// https://github.com/golang/go/blob/go1.27.1/src/runtime/mgc.go#L189
+	gcinit := table.LookupFunc("runtime.gcinit")
+	if gcinit == nil {
+		return RuntimeMetricSymbols{}, errors.New("runtime.gcinit function not found")
+	}
+	if gcinit.End <= gcinit.Entry || gcinit.End-gcinit.Entry > maximumRuntimeFunctionSize {
+		return RuntimeMetricSymbols{}, errors.New("invalid runtime.gcinit function bounds")
+	}
+	code, err = readVirtualMemoryWithFlags(f, gcinit.Entry, gcinit.End-gcinit.Entry, elf.PF_X)
+	if err != nil {
+		return RuntimeMetricSymbols{}, err
+	}
+	// Go 1.18 inlines init into gcinit, leaving a call to setGCPercent.
+	// Both methods receive &gcController; any matching calls must agree on it.
+	var controllerMethods []uint64
+	for _, name := range []string{"runtime.(*gcControllerState).init", "runtime.(*gcControllerState).setGCPercent"} {
+		if method := table.LookupFunc(name); method != nil {
+			controllerMethods = append(controllerMethods, method.Entry)
+		}
+	}
+	gcControllerELFAddress, err := resolveRuntimeMetricReceiverFromCode(gcinit.Entry, code, controllerMethods...)
+	if err != nil {
+		return RuntimeMetricSymbols{}, err
+	}
+	// Validate the base of gcController; generated offsets locate its fields.
+	const gcControllerAlignment = 8
+	if gcControllerELFAddress%gcControllerAlignment != 0 || !runtimeMetricWritableRange(f, gcControllerELFAddress, gcControllerAlignment) {
+		return RuntimeMetricSymbols{}, errors.New("invalid gcController storage")
+	}
+
 	// A PIE executable can be loaded at a different address on each run. Apply
 	// that process's adjustment once, after identifying the global in the file.
 	if loadBias > ^uint64(0)-gomaxprocsELFAddress {
@@ -88,10 +119,14 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 	if loadBias > ^uint64(0)-memstatsELFAddress {
 		return RuntimeMetricSymbols{}, errors.New("memstats process address overflows")
 	}
+	if loadBias > ^uint64(0)-gcControllerELFAddress {
+		return RuntimeMetricSymbols{}, errors.New("gcController process address overflows")
+	}
 	return RuntimeMetricSymbols{
-		GOMAXPROCSAddr: gomaxprocsProcessAddress,
-		MemstatsAddr:   loadBias + memstatsELFAddress,
-	}, errors.New("stripped Go runtime global address recovery is not implemented")
+		GOMAXPROCSAddr:   gomaxprocsProcessAddress,
+		MemstatsAddr:     loadBias + memstatsELFAddress,
+		GCControllerAddr: loadBias + gcControllerELFAddress,
+	}, nil
 }
 
 // runtimeMetricMemstatsBase moves from &memstats.heapStats back to memstats.

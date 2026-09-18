@@ -50,21 +50,24 @@ func resolveGOMAXPROCSFromCode(f *elf.File, functionELFAddress uint64, code []by
 // resolveRuntimeMetricReceiverFromCode finds the address passed to a method.
 // For memstats.heapStats.acquire(), the LEA supplies &memstats.heapStats;
 // subtracting the field offset to recover memstats is the caller's responsibility.
-func resolveRuntimeMetricReceiverFromCode(functionELFAddress uint64, code []byte, methodELFAddress uint64) (uint64, error) {
+func resolveRuntimeMetricReceiverFromCode(functionELFAddress uint64, code []byte, methodELFAddresses ...uint64) (uint64, error) {
 	instructions, err := decodeRuntimeMetricX86Instructions(code)
 	if err != nil {
 		return 0, err
 	}
 	var candidates []uint64
 	for index, instruction := range instructions {
-		if !isRuntimeMetricReceiverCall(instructions, index, functionELFAddress, methodELFAddress) {
-			continue
+		for _, methodELFAddress := range methodELFAddresses {
+			if !isRuntimeMetricReceiverCall(instructions, index, functionELFAddress, methodELFAddress) {
+				continue
+			}
+			address, ok := runtimeMetricRIPTarget(functionELFAddress, instruction)
+			if !ok || address == 0 {
+				continue
+			}
+			candidates = append(candidates, address)
+			break
 		}
-		address, ok := runtimeMetricRIPTarget(functionELFAddress, instruction)
-		if !ok || address == 0 {
-			continue
-		}
-		candidates = append(candidates, address)
 	}
 	return uniqueRuntimeMetricAddress(candidates)
 }
