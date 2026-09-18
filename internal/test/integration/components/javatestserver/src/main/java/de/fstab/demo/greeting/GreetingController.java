@@ -2,6 +2,7 @@ package de.fstab.demo.greeting;
 
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,7 +22,9 @@ public class GreetingController {
 	private final LookupService lookupService;
 	private final ApiCallService apiCallService;
 
-	RestClient commonClient = RestClient.create();
+	private final RestClient commonClient = RestClient.builder()
+			.requestFactory(new JdkClientHttpRequestFactory())
+			.build();
 
 	public GreetingController(LookupService lookupService, ApiCallService apiCallService) {
 		this.lookupService = lookupService;
