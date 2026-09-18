@@ -807,6 +807,35 @@ func TestUprobeModulesRespectsVersionedLibraryAnnotations(t *testing.T) {
 	assert.NotContains(t, selectedSymbols, "task_step")
 }
 
+func TestUprobesRecordsFallbackExecutableOnceForMultipleProbeMaps(t *testing.T) {
+	pid := app.PID(os.Getpid())
+	tracer := recordingStubTracer{
+		stubTracer: stubTracer{uprobes: map[string]map[string][]*ebpfcommon.ProbeDesc{
+			"missing-library-one": {
+				"missing_symbol_one": {{}},
+			},
+			"missing-library-two": {
+				"missing_symbol_two": {{}},
+			},
+		}},
+	}
+	i := instrumenter{modules: map[uint64]struct{}{}}
+
+	require.NoError(t, i.uprobes(pid, &tracer, makeProcMaps("/irrelevant")))
+
+	require.Len(t, tracer.recordedLibs, 1)
+	assert.Contains(t, i.modules, tracer.recordedLibs[0])
+}
+
+type recordingStubTracer struct {
+	stubTracer
+	recordedLibs []uint64
+}
+
+func (s *recordingStubTracer) RecordInstrumentedLib(id uint64, _ []io.Closer) {
+	s.recordedLibs = append(s.recordedLibs, id)
+}
+
 func TestResolveInstrPathFallsBackToExecutableWhenLibraryMissing(t *testing.T) {
 	instrPath, ino, mappedPath, found := resolveInstrPath(123, "libmissing.so", nil, "/proc/123/exe", 42)
 

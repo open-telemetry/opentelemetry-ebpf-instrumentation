@@ -686,27 +686,45 @@ func (i *instrumenter) uprobes(pid app.PID, p Tracer, maps []*procfs.ProcMap) er
 			continue
 		}
 
-		for j := range m.probes {
-			if err := gatherOffsets(m.instrPath, m.probes[j], log); err != nil {
-				log.Debug("error gathering offsets", "error", err)
-				continue
-			}
-
-			closers, err := i.instrumentProbes(libExe, m.instrPath, m.probes[j])
-			if err != nil {
-				log.Debug("error instrumenting probes", "error", err)
-				continue
-			}
-
-			log.Debug("adding module for instrumenter and incrementing reference count", "path", m.instrPath, "ino", instrumentedIno)
-
-			// We bump the count of uses of the underlying shared library with a new executable
-			p.RecordInstrumentedLib(instrumentedIno, closers)
-			i.addModule(instrumentedIno)
+		closers, instrumented := i.instrumentUprobeModule(libExe, m, log)
+		if !instrumented {
+			continue
 		}
+
+		log.Debug("adding module for instrumenter and incrementing reference count", "path", m.instrPath, "ino", instrumentedIno)
+
+		// We bump the count of uses of the underlying shared library with a new executable
+		p.RecordInstrumentedLib(instrumentedIno, closers)
+		i.addModule(instrumentedIno)
 	}
 
 	return nil
+}
+
+func (i *instrumenter) instrumentUprobeModule(
+	exe *link.Executable,
+	module *uprobeModule,
+	log *slog.Logger,
+) ([]io.Closer, bool) {
+	var moduleClosers []io.Closer
+	instrumented := false
+	for _, probes := range module.probes {
+		if err := gatherOffsets(module.instrPath, probes, log); err != nil {
+			log.Debug("error gathering offsets", "error", err)
+			continue
+		}
+
+		closers, err := i.instrumentProbes(exe, module.instrPath, probes)
+		if err != nil {
+			log.Debug("error instrumenting probes", "error", err)
+			continue
+		}
+
+		moduleClosers = append(moduleClosers, closers...)
+		instrumented = true
+	}
+
+	return moduleClosers, instrumented
 }
 
 func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*procfs.ProcMap) error {
