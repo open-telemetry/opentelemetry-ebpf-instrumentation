@@ -38,7 +38,7 @@ func testPHPHarvestedRoutes(t *testing.T) {
 		},
 		{
 			name: "Slim", url: "http://localhost:8084", path: "/slim/api/echo/slim",
-			route: "/slim/api/echo/{value:[a-z]+}", service: "obi/php-harvest-slim", version: "3.3.0", argument: "slim",
+			route: "/slim/api/echo/{value}", service: "obi/php-harvest-slim", version: "3.3.0", argument: "slim",
 		},
 	}
 
