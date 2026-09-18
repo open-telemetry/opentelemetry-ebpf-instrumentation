@@ -69,10 +69,16 @@ var fixturesWithoutContainer = map[app.PID]string{
 0::/system.slice/containerd.service`,
 }
 
+// kubelet-managed cgroups whose container ID does not follow any known format
+var fixturesUnknownKubeletCgroup = map[app.PID]string{
+	1020: `0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/weird-runtime-abcdef.scope`,
+	1021: `0::/k8s.io/abcdef`,
+}
+
 func mountFixtures(t *testing.T) string {
 	dir := t.TempDir()
 
-	for _, fixtures := range []map[app.PID]string{fixturesWithContainer, fixturesWithoutContainer} {
+	for _, fixtures := range []map[app.PID]string{fixturesWithContainer, fixturesWithoutContainer, fixturesUnknownKubeletCgroup} {
 		for pid, cgroup := range fixtures {
 			pdir := fmt.Sprintf("%s/%d", dir, pid)
 			require.NoError(t, os.Mkdir(pdir, 0o777))
@@ -97,6 +103,13 @@ func TestContainerID(t *testing.T) {
 		t.Run(fmt.Sprintf("must not find container. PID %d", pid), func(t *testing.T) {
 			_, err := InfoForPID(pid)
 			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrContainerNotFound)
+		})
+	}
+	for pid := range fixturesUnknownKubeletCgroup {
+		t.Run(fmt.Sprintf("must report unknown kubelet cgroup. PID %d", pid), func(t *testing.T) {
+			_, err := InfoForPID(pid)
+			require.ErrorIs(t, err, ErrUnknownKubeletCgroup)
 			assert.ErrorIs(t, err, ErrContainerNotFound)
 		})
 	}
