@@ -1587,6 +1587,7 @@ var goH2OwnershipProbeSymbols = []string{
 	"net/http.(*http2ClientConn).writeHeader",
 	"net/http/internal/http2.(*clientStream).encodeAndWriteHeaders",
 	"net/http/internal/http2.(*ClientConn).writeHeader",
+	"golang.org/x/net/http2.(*ClientConn).encodeHeaders",
 }
 
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
@@ -1609,7 +1610,7 @@ func GoHTTP2FlushProbeSymbols() []string {
 	return append([]string(nil), goHTTP2FlushProbeSymbols...)
 }
 
-// GoH2OwnershipProbeSymbols returns the symbols used by current HTTP/2 ownership probes.
+// GoH2OwnershipProbeSymbols returns the symbols used by HTTP/2 ownership probes.
 func GoH2OwnershipProbeSymbols() []string {
 	return append([]string(nil), goH2OwnershipProbeSymbols...)
 }
@@ -2242,6 +2243,30 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 				},
 				{
 					Symbol: goH2OwnershipProbeSymbols[5],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
+				},
+			},
+		},
+		{
+			Name:        "go_http2_xnet_legacy_ownership",
+			RequiresAll: []string{"golang.org/x/net/http2.(*ClientConn).writeHeaders"},
+			RequiresAny: []string{
+				"golang.org/x/net/http2.(*ClientConn).RoundTrip",
+				"golang.org/x/net/http2.(*ClientConn).roundTrip",
+			},
+			ConflictsAny: []string{"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders"},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[6],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeaders,
+						End:   p.bpfObjects.ObiUprobeHttp2ClientStreamEncodeAndWriteHeadersReturns,
+					},
+				},
+				{
+					Symbol: goH2OwnershipProbeSymbols[1],
 					Probe: &ebpfcommon.ProbeDesc{
 						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
 					},

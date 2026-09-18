@@ -5,17 +5,13 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"sync"
 	"time"
-
-	"golang.org/x/net/http2"
 )
 
 const (
@@ -66,67 +62,17 @@ func serveOwnershipTrigger() {
 	checkErr(http.ListenAndServe("0.0.0.0:7575", mux), "while serving ownership trigger")
 }
 
-func init() {
-	if os.Getenv("TEST_HTTP2_PROTOCOLS") == "1" {
-		newHTTP2Transport = newHTTP2TransportThroughProtocols
-		newOwnershipTLSRoundTripper = newHTTP2TransportThroughProtocols
-		newOwnershipPlaintextRoundTripper = newHTTP2PlaintextTransportThroughProtocols
-	}
-}
-
-func newHTTP2TransportThroughProtocols() http.RoundTripper {
-	protocols := &http.Protocols{}
-	protocols.SetHTTP2(true)
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.Protocols = protocols
-	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	return tr
-}
-
-var newHTTP2Transport = func() http.RoundTripper {
-	return &http2.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-}
-
-var newOwnershipTLSRoundTripper = func() http.RoundTripper {
-	return &http2.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-}
-
-var newOwnershipPlaintextRoundTripper = func() http.RoundTripper {
-	return &http2.Transport{
-		AllowHTTP: true,
-		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, network, addr)
-		},
-	}
-}
-
-func newHTTP2PlaintextTransportThroughProtocols() http.RoundTripper {
-	protocols := &http.Protocols{}
-	protocols.SetUnencryptedHTTP2(true)
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.Protocols = protocols
-	return tr
-}
-
 func runOwnershipSuites() {
-	target := os.Getenv("TARGET_URL")
-	runOwnershipSuite("tls", target, newOwnershipTLSRoundTripper())
-	runOwnershipSuite(
-		"plaintext",
-		"http://testserver:7374",
-		newOwnershipPlaintextRoundTripper(),
-	)
+	for _, transport := range ownershipTransports() {
+		runOwnershipSuite(transport.name, transport.target, transport.roundTripper)
+	}
 }
 
 func runOwnershipSuite(name, target string, transport http.RoundTripper) {
 	result := ownershipResult{Transport: name}
 	client := &http.Client{Transport: transport}
 
-	for range 4 {
+	for i := 0; i < 4; i++ {
 		observation, err := observeHeaders(client, target+"/ownership/repeated", ownedTraceparent)
 		if err != nil {
 			result.Error = err.Error()
@@ -136,7 +82,7 @@ func runOwnershipSuite(name, target string, transport http.RoundTripper) {
 		result.Repeated = append(result.Repeated, observation)
 	}
 
-	for range 2 {
+	for i := 0; i < 2; i++ {
 		observation, err := observeHeaders(client, target+"/ownership/control", "")
 		if err != nil {
 			result.Error = err.Error()

@@ -177,15 +177,57 @@ func testHTTP2GO(t *testing.T, compose *docker.Compose, useHTTPProtocols bool) {
 }
 
 func testHTTP2TraceparentOwnership(t *testing.T, compose *docker.Compose) {
-	resp, err := http.Get("http://localhost:7575/run")
+	tests := []struct {
+		name       string
+		service    string
+		url        string
+		transports []string
+		skip       string
+	}{
+		{
+			name:       "current",
+			service:    "testclient",
+			url:        "http://localhost:7575/run",
+			transports: []string{"tls", "plaintext"},
+		},
+		{
+			name:       "legacy x/net",
+			service:    "testclient-xnet-legacy",
+			url:        "http://localhost:7576/run",
+			transports: []string{"tls", "plaintext"},
+			skip:       "legacy fallback reports a committed write but the receiver does not observe it",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.skip != "" {
+				t.Skip(test.skip)
+			}
+			testHTTP2TraceparentOwnershipClient(
+				t, compose, test.service, test.url, test.transports,
+			)
+		})
+	}
+}
+
+func testHTTP2TraceparentOwnershipClient(
+	t *testing.T,
+	compose *docker.Compose,
+	service string,
+	url string,
+	transports []string,
+) {
+	client := &http.Client{Timeout: time.Minute}
+	resp, err := client.Get(url)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	require.NoError(t, resp.Body.Close())
 
-	for _, transport := range []string{"tls", "plaintext"} {
+	for _, transport := range transports {
 		t.Run(transport, func(t *testing.T) {
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				logs, err := compose.LogsTail(1000, "testclient")
+				logs, err := compose.LogsTail(1000, service)
 				require.NoError(ct, err)
 
 				lastErr := fmt.Errorf("no %s ownership result logged", transport)
