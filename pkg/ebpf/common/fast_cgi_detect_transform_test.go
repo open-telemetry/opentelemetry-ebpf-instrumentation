@@ -204,6 +204,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "",
 			expectedResult: 200,
+			expectedScheme: "http",
 		},
 		{
 			name:           "Older PHP",
@@ -214,6 +215,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "/",
 			expectedResult: 200,
+			expectedScheme: "http",
 		},
 		{
 			name:           "Correct values empty URI",
@@ -224,6 +226,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "/",
 			expectedResult: 200,
+			expectedScheme: "http",
 		},
 		{
 			name:           "Correct values",
@@ -234,6 +237,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "/ping",
 			expectedResult: 200,
+			expectedScheme: "http",
 		},
 		{
 			name:           "Correct values, error",
@@ -244,6 +248,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "/ping",
 			expectedResult: 500,
+			expectedScheme: "http",
 		},
 		{
 			name:           "Correct values, status 404",
@@ -254,6 +259,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "/ping",
 			expectedResult: 404,
+			expectedScheme: "http",
 		},
 		{
 			// FastCGI passes REQUEST_URI and QUERY_STRING as independent CGI parameters.
@@ -268,6 +274,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "/?cmd=BLABLA",
 			expectedResult: 200,
+			expectedScheme: "http",
 		},
 		{
 			// When REQUEST_URI already contains '?', QUERY_STRING must not be appended
@@ -282,6 +289,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "/?existing=1",
 			expectedResult: 200,
+			expectedScheme: "http",
 			// Confirm QUERY_STRING=other=2 was not appended to the path.
 			extraCheck: func(t *testing.T, path string) {
 				assert.NotContains(t, path, "other=2")
@@ -298,6 +306,7 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "",
 			expectedResult: 200,
+			expectedScheme: "http",
 		},
 		{
 			name:           "Empty",
@@ -433,19 +442,23 @@ func TestDetectFastCGIRequestMetadata(t *testing.T) {
 			uri:    "/a",
 		},
 		{
-			name:   "no scheme key leaves it unset rather than guessing",
+			// url.scheme is required, and semconv asks for the scheme of the
+			// immediate peer request when the front end named none.
+			name:   "no scheme key falls back to the peer scheme",
 			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a"},
-			scheme: "",
+			scheme: "http",
 			uri:    "/a",
 		},
 		{
 			name:   "DOCUMENT_URI carries the path when REQUEST_URI is absent",
 			params: map[string]string{"REQUEST_METHOD": "GET", "DOCUMENT_URI": "/index.php"},
+			scheme: "http",
 			uri:    "/index.php",
 		},
 		{
 			name:   "SCRIPT_NAME is the last resort",
 			params: map[string]string{"REQUEST_METHOD": "GET", "SCRIPT_NAME": "/index.php"},
+			scheme: "http",
 			uri:    "/index.php",
 		},
 	}

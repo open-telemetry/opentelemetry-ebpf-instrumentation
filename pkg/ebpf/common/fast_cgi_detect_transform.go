@@ -157,8 +157,8 @@ func parseHeader(b *largebuf.LargeBuffer) ([]byte, error) {
 // proxy REQUEST_SCHEME describes the hop into PHP-FPM and reads `http` for a
 // request the client made over TLS. REQUEST_SCHEME carries the scheme directly
 // otherwise; HTTPS is the older convention and is set to a truthy value only
-// for TLS. None present means the front end did not say, and guessing would be
-// wrong for any TLS-terminated site.
+// for TLS. When the front end says nothing at all, semconv asks for the scheme
+// of the immediate peer request, which is the plain connection into PHP-FPM.
 func cgiScheme(kv map[string]string) string {
 	if scheme := forwardedProto(kv[forwardedProtoKey]); scheme != "" {
 		return scheme
@@ -173,7 +173,7 @@ func cgiScheme(kv map[string]string) string {
 		return "https"
 	}
 
-	return ""
+	return "http"
 }
 
 // forwardedProto reads the left-most entry of an X-Forwarded-Proto list, which
