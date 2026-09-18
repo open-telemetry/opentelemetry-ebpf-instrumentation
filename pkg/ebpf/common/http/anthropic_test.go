@@ -527,7 +527,7 @@ func TestAnthropicSpan_ErrorResponseStillReportsOperation(t *testing.T) {
 
 	require.True(t, ok)
 	require.NotNil(t, span.GenAI.Anthropic)
-	assert.NotEmpty(t, span.GenAI.Anthropic.Output.Type)
+	assert.Equal(t, request.MessageOperationName, span.GenAI.Anthropic.Output.Type)
 }
 
 // A response truncated out of the capture buffer parses to nothing at all.

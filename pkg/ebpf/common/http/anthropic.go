@@ -142,7 +142,7 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		}
 	}
 
-	if parsedResponse.Type == "" {
+	if parsedResponse.Type == "" || parsedResponse.Type == anthropicErrorType {
 		parsedResponse.Type = anthropicOperation(req)
 	}
 
@@ -157,6 +157,9 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 
 	return *baseSpan, true
 }
+
+// An error body reports `type: error` rather than the operation it failed.
+const anthropicErrorType = "error"
 
 // anthropicOperation names the operation from the request path, for responses
 // that carry no `type` of their own: an error body, or one truncated out of the

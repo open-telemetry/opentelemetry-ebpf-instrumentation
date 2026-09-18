@@ -208,8 +208,9 @@ groups:
           `openai.*` attributes.
       # Re-typed as string (upstream: enum): OBI emits provider-specific
       # operation vocabularies, so the value space is open-ended. Emitters must
-      # omit the attribute when no operation name is available (never send an
-      # empty string); pinned by
+      # never send an empty string: an operation OBI could not classify reports
+      # `_OTHER`, following the semconv treatment of an unknown
+      # `http.request.method`. Pinned by
       # pkg/appolly/app/request/span_getters_test.go.
       - id: gen_ai.operation.name
         stability: development
@@ -219,9 +220,11 @@ groups:
           OBI reports the provider's own operation vocabulary (e.g.
           'invoke_model' for Bedrock, 'message' for Anthropic, 'generation'
           for Qwen/DashScope, 'conversation'/'response' for the OpenAI APIs,
-          'rerank'). MCP reports 'execute_tool' for a tool call and omits the
-          attribute for every other method.
-        examples: ['chat', 'embeddings', 'response', 'conversation', 'invoke_model', 'rerank', 'execute_tool']
+          'rerank'). A GenAI call OBI recognised but whose operation it could
+          not classify reports `_OTHER`, so the attribute is always present on
+          a GenAI span. MCP reports 'execute_tool' for a tool call and omits
+          the attribute for every other method.
+        examples: ['chat', 'embeddings', 'response', 'conversation', 'invoke_model', 'rerank', 'execute_tool', '_OTHER']
 
   - id: registry.obi.gen_ai
     type: attribute_group

@@ -110,7 +110,7 @@ OBI-emitted gen_ai.client.operation.duration
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
 | `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
@@ -127,7 +127,7 @@ OBI-emitted gen_ai.client.token.usage
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
 | `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
