@@ -104,7 +104,7 @@ Go keeps a per-goroutine stack of the spans that are still running (`obi_ctx_sta
 
 ### Node.js — `async_hooks` before callback + `uv_fs_access` uprobe
 
-The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.accessSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
+The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.existsSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
 
 1. Parses the 4-digit fd from the path.
 2. Looks up `fd_to_connection[pid_tgid, fd]` to get the connection info.
@@ -112,6 +112,8 @@ The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Befor
 4. Calls `obi_ctx__set(pid_tgid, &tp)` or `obi_ctx__del(pid_tgid)`.
 
 This fires before every JS callback, ensuring the correct trace context is active even when multiple requests are interleaved in the event loop.
+
+Because it runs that often, the call must not throw. The sentinel path never resolves, so the call always fails: `fs.existsSync` reports that as `false`, while `fs.accessSync` builds and throws a `UVException` costing several times the call itself. Both reach the same `uv_fs_access` the uprobe is attached to, so the choice is about cost, not transport. Any sentinel added to the agent must use the non-throwing call. `TestAgentScriptsUseNonThrowingSentinel` checks the forms the agents actually use — a throwing call reached some other way, through a destructured import say, would pass it.
 
 ### Java — `k_ioctl_java_threads` in the ioctl kprobe
 

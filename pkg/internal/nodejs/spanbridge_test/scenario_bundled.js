@@ -29,15 +29,13 @@ for (const key of Object.keys(require.cache)) {
 }
 
 const bridgeCaptured = [];
-const origAccess = fs.accessSync;
-fs.accessSync = (p, ...rest) => {
+const origExists = fs.existsSync;
+fs.existsSync = (p, ...rest) => {
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-span/')) {
     bridgeCaptured.push(JSON.parse(p.slice('/dev/null/obi-span/'.length)).name);
-    const err = new Error('ENOTDIR');
-    err.code = 'ENOTDIR';
-    throw err;
+    return false;
   }
-  return origAccess(p, ...rest);
+  return origExists(p, ...rest);
 };
 
 // Inject the bridge: its require.cache scan finds no api copy, and the held
@@ -73,6 +71,6 @@ new NodeTracerProvider({
 api.trace.getTracer('app').startSpan('bundled-after').end(); // -> app SDK
 
 setTimeout(() => {
-  fs.accessSync = origAccess;
+  fs.existsSync = origExists;
   process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured }));
 }, 30);
