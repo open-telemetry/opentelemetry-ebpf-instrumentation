@@ -35,6 +35,8 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-server
   - go.opentelemetry.io/obi/internal/test/integration/components/go_grpc_server_mux
   - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/client
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/client_stdlib_legacy
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/client_xnet_legacy
   - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/server
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
