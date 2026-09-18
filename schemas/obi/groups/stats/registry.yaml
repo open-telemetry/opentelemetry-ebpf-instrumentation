@@ -7,8 +7,9 @@ groups:
     display_name: OBI Connection Stats
     brief: >
       Attributes carried on OBI's per-connection TCP statistics. Emitted
-      when the `stats_tcp_rtt` or `stats_tcp_failed_connections` features
-      are enabled (both rolled into the umbrella `stats` feature). Like
+      when the `stats_tcp_rtt`, `stats_tcp_failed_connections` or
+      `stats_tcp_successful_connections` features are enabled (all rolled
+      into the umbrella `stats` feature). Like
       network-flow metrics, the per-data-point attribute set is configurable
       via `attributes.select`.
     attributes:
@@ -41,7 +42,7 @@ groups:
         brief: Classification of why a TCP connection failed.
       # Mirrors `NetworkTCPHandshakeRoleType` in
       # `pkg/internal/statsolly/ebpf/stat.go`. Identifies which side of the
-      # TCP handshake OBI observed the failure on.
+      # TCP handshake OBI observed the connection on.
       - id: network.tcp.handshake.role
         type:
           allow_custom_values: true
@@ -57,5 +58,5 @@ groups:
               stability: development
         stability: development
         brief: >
-          Role of the local endpoint in the failed TCP three-way handshake
+          Role of the local endpoint in the TCP three-way handshake
           (`client` initiated the SYN, `server` was awaiting it).

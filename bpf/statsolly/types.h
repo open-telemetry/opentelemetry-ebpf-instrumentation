@@ -13,6 +13,7 @@ enum stat_type : u8 {
     k_stat_type_tcp_failed_connection = 2,
     k_stat_type_tcp_retransmit = 3,
     k_stat_type_tcp_io = 4,
+    k_stat_type_tcp_successful_connection = 5,
 };
 
 // batch size used in tcp io metric
