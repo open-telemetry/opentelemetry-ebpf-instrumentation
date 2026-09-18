@@ -76,6 +76,21 @@ func TestPartialRouteMatcherDotnetWildcards(t *testing.T) {
 	assert.Equal(t, "/files/{**path}", m.Find("/files/a/b/c"))
 }
 
+func TestPartialRouteMatcherSymfonyInlineConstraint(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{`/orders/{id<\d+>}`})
+
+	assert.Equal(t, `/orders/{id<\d+>}`, m.Find("/orders/42"))
+	assert.Empty(t, m.Find("/orders/42/history"))
+}
+
+func TestPartialRouteMatcherSymfonyInlineConstraintWithQuantifier(t *testing.T) {
+	// A regex quantifier, e.g. {4}, must not be mistaken for the outer
+	// "{...}" placeholder delimiters and reject the whole segment.
+	m := NewPartialRouteMatcher([]string{`/years/{year<\d{4}>}`})
+
+	assert.Equal(t, `/years/{year<\d{4}>}`, m.Find("/years/2026"))
+}
+
 func TestPartialRouteMatcherExactMatches(t *testing.T) {
 	m := NewPartialRouteMatcher([]string{
 		"/health",

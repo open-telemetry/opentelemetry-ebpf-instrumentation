@@ -1,0 +1,6 @@
+status:
+  path: /status/{code}
+
+admin:
+  resource: imports/admin.yaml
+  prefix: /admin

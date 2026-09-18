@@ -39,28 +39,16 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		return nil
 	}
 
-	cwd, cwdErr := cwdForPID(fileInfo.Pid())
-	if cwdErr != nil {
-		cwd = string(filepath.Separator)
-	}
-
-	isFPM := isPHPFPM(fileInfo.ExecutableName())
-	var args []string
-	var cmdlineErr error
-	if !isFPM {
-		_, args, cmdlineErr = cmdlineForPID(fileInfo.Pid())
-	}
-
-	project := findProject(rootDirForPID(fileInfo.Pid()), cwd, args, isFPM)
+	project, projectErr := ProjectForPID(fileInfo)
 	if resolveName {
-		if name, ok := composerName(project.name); ok {
+		if name, ok := composerName(project.Name); ok {
 			fileInfo.SetAutoServiceName(name)
 		} else if name, ok := inferredName(service.EnvVars[appNameEnv]); ok {
 			fileInfo.SetAutoServiceName(name)
-		} else if project.root != "" {
-			name, ok := inferredName(readDotEnvAppName(filepath.Join(project.root, ".env")))
+		} else if project.Root != "" {
+			name, ok := inferredName(readDotEnvAppName(filepath.Join(project.Root, ".env")))
 			if !ok {
-				name, ok = inferredName(project.fallbackName)
+				name, ok = inferredName(project.FallbackName)
 			}
 			if ok {
 				fileInfo.SetAutoServiceName(name)
@@ -69,7 +57,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 	}
 
 	if resolveVersion {
-		if version, ok := composerVersion(project.version); ok {
+		if version, ok := composerVersion(project.Version); ok {
 			if service.Metadata == nil {
 				service.Metadata = map[attr.Name]string{}
 			}
@@ -78,7 +66,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		}
 	}
 
-	return errors.Join(cwdErr, cmdlineErr)
+	return projectErr
 }
 
 func inferredName(value string) (string, bool) {

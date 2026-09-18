@@ -4,6 +4,7 @@
 package phptools
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,11 +12,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
 func TestFindProject(t *testing.T) {
 	t.Run("invalid process root", func(t *testing.T) {
-		assert.Equal(t, projectMetadata{}, findProject(filepath.Join(t.TempDir(), "missing"), "/", nil, true))
+		assert.Equal(t, ProjectMetadata{}, findProject(filepath.Join(t.TempDir(), "missing"), "/", nil, true))
 	})
 
 	t.Run("CLI script takes precedence over working directory", func(t *testing.T) {
@@ -26,7 +29,7 @@ func TestFindProject(t *testing.T) {
 
 		project := findProject(root, "/working", []string{"/script/bin/console"}, false)
 
-		assert.Equal(t, projectMetadata{root: filepath.Join(root, "script"), name: "acme/script"}, project)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "script"), Name: "acme/script"}, project)
 	})
 
 	t.Run("relative CLI script is resolved from working directory", func(t *testing.T) {
@@ -36,7 +39,7 @@ func TestFindProject(t *testing.T) {
 
 		project := findProject(root, "/app", []string{"bin/console"}, false)
 
-		assert.Equal(t, projectMetadata{root: filepath.Join(root, "app"), name: "acme/app"}, project)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "app"), Name: "acme/app"}, project)
 	})
 
 	t.Run("non-regular script falls back to working directory", func(t *testing.T) {
@@ -46,7 +49,7 @@ func TestFindProject(t *testing.T) {
 
 		project := findProject(root, "/working", []string{"/not-a-script"}, false)
 
-		assert.Equal(t, projectMetadata{root: filepath.Join(root, "working"), name: "acme/working"}, project)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "working"), Name: "acme/working"}, project)
 	})
 
 	t.Run("working directory is searched through parents", func(t *testing.T) {
@@ -56,7 +59,7 @@ func TestFindProject(t *testing.T) {
 
 		project := findProject(root, "/app/public", nil, true)
 
-		assert.Equal(t, projectMetadata{root: filepath.Join(root, "app"), name: "acme/app"}, project)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "app"), Name: "acme/app"}, project)
 	})
 
 	t.Run("FPM scans a distinct process root", func(t *testing.T) {
@@ -66,7 +69,7 @@ func TestFindProject(t *testing.T) {
 
 		project := findProject(root, "/", nil, true)
 
-		assert.Equal(t, projectMetadata{root: filepath.Join(root, "srv", "app"), name: "acme/app"}, project)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "srv", "app"), Name: "acme/app"}, project)
 	})
 
 	t.Run("FPM does not scan the host root", func(t *testing.T) {
@@ -74,7 +77,7 @@ func TestFindProject(t *testing.T) {
 		setPHPHostRoot(t, root)
 		writePHPFile(t, filepath.Join(root, "srv", "app", "composer.json"), []byte(`{"name":"acme/app"}`))
 
-		assert.Equal(t, projectMetadata{}, findProject(root, "/", nil, true))
+		assert.Equal(t, ProjectMetadata{}, findProject(root, "/", nil, true))
 	})
 
 	t.Run("CLI does not recursively scan", func(t *testing.T) {
@@ -82,7 +85,48 @@ func TestFindProject(t *testing.T) {
 		setPHPHostRoot(t, string(filepath.Separator))
 		writePHPFile(t, filepath.Join(root, "srv", "app", "composer.json"), []byte(`{"name":"acme/app"}`))
 
-		assert.Equal(t, projectMetadata{}, findProject(root, "/", []string{"-r", "sleep(10);"}, false))
+		assert.Equal(t, ProjectMetadata{}, findProject(root, "/", []string{"-r", "sleep(10);"}, false))
+	})
+}
+
+func TestProjectForPID(t *testing.T) {
+	t.Run("requires process information", func(t *testing.T) {
+		project, err := ProjectForPID(nil)
+
+		require.EqualError(t, err, "PHP project discovery requires process file info")
+		assert.Equal(t, ProjectMetadata{}, project)
+	})
+
+	t.Run("returns discovered project", func(t *testing.T) {
+		root := t.TempDir()
+		writePHPFile(t, filepath.Join(root, "app", "composer.json"), []byte(`{"name":"acme/app"}`))
+		fileInfo := mockPHPProcess(t, root, "/usr/sbin/php-fpm", "/app/public", nil, nil)
+
+		project, err := ProjectForPID(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "app"), Name: "acme/app"}, project)
+	})
+
+	t.Run("missing project is not an error", func(t *testing.T) {
+		fileInfo := mockPHPProcess(t, t.TempDir(), "/usr/sbin/php-fpm", "/", nil, nil)
+
+		project, err := ProjectForPID(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, ProjectMetadata{}, project)
+	})
+
+	t.Run("inspection error is returned when discovery fails", func(t *testing.T) {
+		fileInfo := mockPHPProcess(t, t.TempDir(), "/usr/bin/php", "/", nil, nil)
+		cwdForPID = func(app.PID) (string, error) {
+			return "", errors.New("cwd failed")
+		}
+
+		project, err := ProjectForPID(fileInfo)
+
+		require.ErrorContains(t, err, "cwd failed")
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 }
 
@@ -98,7 +142,7 @@ func TestFindParentProject(t *testing.T) {
 		project, found := findParentProject(start, root)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: child, name: "acme/child"}, project)
+		assert.Equal(t, ProjectMetadata{Root: child, Name: "acme/child"}, project)
 	})
 
 	t.Run("malformed project is skipped", func(t *testing.T) {
@@ -110,7 +154,7 @@ func TestFindParentProject(t *testing.T) {
 		project, found := findParentProject(start, root)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: filepath.Join(root, "outer"), name: "acme/outer"}, project)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "outer"), Name: "acme/outer"}, project)
 	})
 
 	t.Run("no project", func(t *testing.T) {
@@ -121,7 +165,7 @@ func TestFindParentProject(t *testing.T) {
 		project, found := findParentProject(start, root)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 
 	t.Run("start outside boundary", func(t *testing.T) {
@@ -132,7 +176,7 @@ func TestFindParentProject(t *testing.T) {
 		project, found := findParentProject(start, boundary)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 }
 
@@ -144,7 +188,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: root, name: "acme/root"}, project)
+		assert.Equal(t, ProjectMetadata{Root: root, Name: "acme/root"}, project)
 	})
 
 	t.Run("project at depth limit", func(t *testing.T) {
@@ -155,7 +199,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: dir, name: "acme/deep"}, project)
+		assert.Equal(t, ProjectMetadata{Root: dir, Name: "acme/deep"}, project)
 	})
 
 	t.Run("project beyond depth limit", func(t *testing.T) {
@@ -165,7 +209,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 
 	t.Run("multiple projects are ambiguous", func(t *testing.T) {
@@ -176,7 +220,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 
 	t.Run("malformed metadata is ignored", func(t *testing.T) {
@@ -187,7 +231,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: filepath.Join(root, "valid"), name: "acme/valid"}, project)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "valid"), Name: "acme/valid"}, project)
 	})
 
 	t.Run("skipped trees are not traversed", func(t *testing.T) {
@@ -199,7 +243,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.True(t, found)
-		assert.Equal(t, projectMetadata{root: filepath.Join(root, "srv", "app"), name: "acme/app"}, project)
+		assert.Equal(t, ProjectMetadata{Root: filepath.Join(root, "srv", "app"), Name: "acme/app"}, project)
 	})
 
 	t.Run("symbolic link directories are not traversed", func(t *testing.T) {
@@ -211,7 +255,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 
 	t.Run("directory limit discards partial result", func(t *testing.T) {
@@ -224,7 +268,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 
 	t.Run("unresolvable boundary", func(t *testing.T) {
@@ -232,7 +276,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, filepath.Join(root, "missing"))
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 
 	t.Run("unresolvable process root", func(t *testing.T) {
@@ -240,7 +284,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 
 	t.Run("unreadable directory", func(t *testing.T) {
@@ -253,7 +297,7 @@ func TestScanProcessRoot(t *testing.T) {
 		project, found := scanProcessRoot(root, root)
 
 		assert.False(t, found)
-		assert.Equal(t, projectMetadata{}, project)
+		assert.Equal(t, ProjectMetadata{}, project)
 	})
 }
 
