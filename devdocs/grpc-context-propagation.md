@@ -70,6 +70,39 @@ Parent lookup priority in `create_tp`:
 2. **`controlBuffer.executeAndPut` → `loopyWriter.clientHeaderHandler`** — carries the request across the caller-to-writer goroutine handoff using `{pid, queued_header_ptr}`. The handler publishes the stream state before serialization, so it does not depend on `NewStream` returning first, and combines the assigned stream ID with the cached socket cookie when one is available. It also scans the handler's HPACK field slice once for an application-provided `traceparent`. Writer-local ownership does not require connection metadata; when a socket cookie is available, the handler also publishes the exact `{socket_cookie, pid, stream_id}` ownership marker used by socket fallback. The value is not copied or validated: field ownership alone prevents OBI from adding a duplicate. The scan examines up to 256 fields. Longer or unreadable slices are conservatively treated as application-owned, preserving application data at the cost of skipping OBI injection for that stream.
 3. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. It stands down when the current writer goroutine observed an application field for that stream; otherwise it writes `outgoing_trace_map[{ports, stream_id}]`, marks the conn via `mark_go_grpc_client_conn`, and injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true. The stand-down path also marks the outgoing entry written, so socket fallback remains suppressed if socket-cookie storage is unavailable.
 
+```mermaid
+flowchart TD
+    A["ClientConn Invoke/NewStream<br/>request goroutine"] --> B["http2Client.NewStream<br/>cache connection and socket cookie"]
+    B --> C["controlBuffer.executeAndPut<br/>{PID, queued header pointer} to request state"]
+    C --> D["clientHeaderHandler<br/>loopyWriter goroutine"]
+
+    D --> E["Publish per-stream state<br/>ongoing_streams; outgoing_trace_map when connection is known"]
+    D --> F["Scan up to 256 grpc-go header fields"]
+    F -->|No application traceparent| G["OBI-owned stream"]
+    F -->|Found or scan uncertain| H["Writer-local ownership<br/>{PID, writer goroutine, stream}"]
+    H -->|Socket cookie available| I["Socket ownership<br/>{cookie, PID, stream}"]
+
+    E --> J["grpcFramerWriteHeaders"]
+    G --> J
+    H --> J
+    J -->|Application-owned| K["Skip direct injection<br/>set written=1"]
+    J -->|OBI-owned| L["Attempt direct buffer injection<br/>on the return probe"]
+    L -->|Committed or uncertain mutation| M["Set written=1"]
+    L -->|Not written| N["Keep written=0"]
+
+    I --> O["sk_msg detect_h2"]
+    K --> O
+    M --> O
+    N --> O
+    O -->|Exact ownership marker| P["Preserve application header"]
+    O -->|written=1| Q["Direct path already handled<br/>skip socket injection"]
+    O -->|written=0| R["Scan wire header<br/>adopt or inject"]
+
+    S["sockops: new sockets"] --> U["socket_cookie SK_STORAGE"]
+    T["TCP iterator: pre-existing sockets"] --> U
+    U --> O
+```
+
 ### sk_msg Per-Stream Fallback for Go gRPC Conns
 
 Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_conn` first: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, sets `tailcall_ctx.go_grpc_conn` and tail-calls `detect_h2`. No TCP option scheduling. Sockops records each established socket's cookie in shared `SK_STORAGE`; the TCP iterator does the same while backfilling pre-existing connections. On a HEADERS frame, `sk_msg` consumes an application-ownership marker only when that stored cookie, the sending PID, and the frame's stream ID all match. This is identity- and lifecycle-based: no timeout decides whether a marker is trustworthy.
