@@ -35,6 +35,8 @@ TestCaseSpan represents a span that is expected to be produced by the instrument
 type TestCaseSpan struct {
 	Name       string
 	Attributes []attribute.KeyValue
+	// AbsentAttributes lists attribute keys that must NOT be present on the matched span.
+	AbsentAttributes []string
 }
 
 func (span TestCaseSpan) FindAttribute(key string) *attribute.KeyValue {

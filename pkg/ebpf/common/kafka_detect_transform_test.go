@@ -5,12 +5,15 @@ package ebpfcommon
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
@@ -197,12 +200,12 @@ func TestProcessKafkaRequest(t *testing.T) {
 			cache, _ := simplelru.NewLRU[kafkaparser.UUID, string](1000, nil)
 			if len(tt.preRequests) > 0 {
 				for _, preInput := range tt.preRequests {
-					_, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(preInput.request), largebuf.NewLargeBufferFrom(preInput.response), cache)
+					_, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(preInput.request), largebuf.NewLargeBufferFrom(preInput.response), cache, nil, KafkaProcess{})
 					require.NoError(t, err)
 					require.True(t, ignore)
 				}
 			}
-			res, _, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(tt.request), nil, cache)
+			res, _, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(tt.request), nil, cache, nil, KafkaProcess{})
 			if tt.err {
 				assert.Error(t, err)
 				return
@@ -224,7 +227,7 @@ func TestProcessKafkaRequestProduceV13WithoutTopicCache(t *testing.T) {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}
 
-	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(request), nil)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(request), nil, nil, nil, KafkaProcess{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 1)
@@ -253,7 +256,7 @@ func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
 	uuid := kafkaparser.UUID{172, 231, 101, 123, 36, 212, 77, 228, 142, 87, 26, 240, 250, 236, 204, 15}
 	cache.Add(uuid, "my-topic")
 
-	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(request), cache)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(request), nil, cache, nil, KafkaProcess{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 1)
@@ -271,16 +274,9 @@ func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
 // request yields one KafkaInfo per topic (not just the first), each with its own
 // resolved name and partition. This is the transform-side counterpart to the
 // parser-level TestParseFetchRequestMultiTopicWithPartitions.
-func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
-	uuid1 := kafkaparser.UUID{
-		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
-	}
-	uuid2 := kafkaparser.UUID{
-		0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
-		0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30,
-	}
-
+// fetchV13TwoTopics builds a Fetch v13 request (client id "c") for two UUID-identified
+// topics: uuid1 partition 0 offset 100, uuid2 partition 3 offset 200.
+func fetchV13TwoTopics(uuid1, uuid2 kafkaparser.UUID) []byte {
 	// Writes one full v12+ fetch partition entry.
 	writePartition := func(pkt []byte, offset int, idx uint32, fetchOffset uint64) int {
 		binary.BigEndian.PutUint32(pkt[offset:], idx) // partition_index
@@ -355,12 +351,28 @@ func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
 
 	pkt = pkt[:offset]
 	binary.BigEndian.PutUint32(pkt[0:], uint32(offset-4)) // message_size
+	return pkt
+}
+
+var (
+	fetchUUID1 = kafkaparser.UUID{
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+	}
+	fetchUUID2 = kafkaparser.UUID{
+		0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+		0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30,
+	}
+)
+
+func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
+	pkt := fetchV13TwoTopics(fetchUUID1, fetchUUID2)
 
 	cache, _ := simplelru.NewLRU[kafkaparser.UUID, string](1000, nil)
-	cache.Add(uuid1, "topic-one")
-	cache.Add(uuid2, "topic-two")
+	cache.Add(fetchUUID1, "topic-one")
+	cache.Add(fetchUUID2, "topic-two")
 
-	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(pkt), cache)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(pkt), nil, cache, nil, KafkaProcess{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 2)
@@ -431,7 +443,7 @@ func TestProcessKafkaRequestProduceMultiTopic(t *testing.T) {
 	pkt = pkt[:offset]
 	binary.BigEndian.PutUint32(pkt[0:], uint32(offset-4))
 
-	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(pkt), nil)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(pkt), nil, nil, nil, KafkaProcess{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 2)
@@ -448,4 +460,456 @@ func TestProcessKafkaRequestProduceMultiTopic(t *testing.T) {
 		Topic:         "topic-two",
 		PartitionInfo: &PartitionInfo{Partition: 3},
 	}, infos[1])
+}
+
+// Fixtures generated from the Kafka wire schemas (client id "consumer-1-1" in every header):
+//   - joinGroupMyGroup:    JoinGroup v7, GroupId "my-group",    subscription [orders, audit]
+//   - joinGroupOtherGroup: JoinGroup v7, GroupId "other-group", subscription [payments]
+//   - joinGroupOtherGroupOrders: JoinGroup v7, GroupId "other-group", subscription [orders]
+//   - joinGroupMyGroupAudit: JoinGroup v7, GroupId "my-group", subscription [audit]
+//   - heartbeatHbGroup:    Heartbeat v4, GroupId "hb-group"
+//   - offsetCommitOtherGroupUUID: OffsetCommit v10, GroupId "other-group", topics fetchUUID1 and fetchUUID2 (by id)
+//   - offsetCommitMyGroupOrders: OffsetCommit v8, GroupId "my-group", topic orders
+//   - offset*AdminGroup:   OffsetFetch v7 / OffsetCommit v8, GroupId "admin-group", topic orders
+//   - leaveGroup*:         LeaveGroup v5, GroupId "my-group" / "other-group"
+//   - cghJoinCghGroup:     ConsumerGroupHeartbeat v0, GroupId "cgh-group", member epoch 0, subscription [orders]
+//   - cghLeaveCghGroup:    ConsumerGroupHeartbeat v0, GroupId "cgh-group", member epoch -1 (leave)
+//   - cghJoinCghGroupAudit / cghUnchangedCghGroup: ConsumerGroupHeartbeat v0, GroupId "cgh-group", subscription [audit] / null (unchanged)
+//   - joinGroupConnectCluster / heartbeatConnectCluster / leaveGroupConnectCluster: JoinGroup v5 protocol_type "connect" / Heartbeat v4 / LeaveGroup v5, GroupId "connect-cluster"
+//   - syncGroupSchemaRegistry: SyncGroup v5, GroupId "schema-registry", protocol_type "sr"
+//   - offsetCommitHbGroupOrders: OffsetCommit v8, GroupId "hb-group", topic orders
+//   - fetch*:              Fetch v4, one topic, partition 0, offset 19
+var (
+	joinGroupMyGroup           = []byte{0, 0, 0, 90, 0, 11, 0, 7, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 9, 109, 121, 45, 103, 114, 111, 117, 112, 0, 0, 39, 16, 0, 0, 117, 48, 1, 0, 9, 99, 111, 110, 115, 117, 109, 101, 114, 2, 6, 114, 97, 110, 103, 101, 30, 0, 1, 0, 0, 0, 2, 0, 6, 111, 114, 100, 101, 114, 115, 0, 5, 97, 117, 100, 105, 116, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0}
+	joinGroupOtherGroup        = []byte{0, 0, 0, 88, 0, 11, 0, 7, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 12, 111, 116, 104, 101, 114, 45, 103, 114, 111, 117, 112, 0, 0, 39, 16, 0, 0, 117, 48, 1, 0, 9, 99, 111, 110, 115, 117, 109, 101, 114, 2, 6, 114, 97, 110, 103, 101, 25, 0, 1, 0, 0, 0, 1, 0, 8, 112, 97, 121, 109, 101, 110, 116, 115, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0}
+	joinGroupOtherGroupOrders  = []byte{0, 0, 0, 86, 0, 11, 0, 7, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 12, 111, 116, 104, 101, 114, 45, 103, 114, 111, 117, 112, 0, 0, 39, 16, 0, 0, 117, 48, 1, 0, 9, 99, 111, 110, 115, 117, 109, 101, 114, 2, 6, 114, 97, 110, 103, 101, 23, 0, 1, 0, 0, 0, 1, 0, 6, 111, 114, 100, 101, 114, 115, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0}
+	joinGroupMyGroupAudit      = []byte{0, 0, 0, 82, 0, 11, 0, 7, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 9, 109, 121, 45, 103, 114, 111, 117, 112, 0, 0, 39, 16, 0, 0, 117, 48, 1, 0, 9, 99, 111, 110, 115, 117, 109, 101, 114, 2, 6, 114, 97, 110, 103, 101, 22, 0, 1, 0, 0, 0, 1, 0, 5, 97, 117, 100, 105, 116, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0}
+	heartbeatHbGroup           = []byte{0, 0, 0, 53, 0, 12, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 9, 104, 98, 45, 103, 114, 111, 117, 112, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0}
+	offsetCommitOtherGroupUUID = []byte{0, 0, 0, 129, 0, 8, 0, 10, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 12, 111, 116, 104, 101, 114, 45, 103, 114, 111, 117, 112, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 3, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 42, 255, 255, 255, 255, 0, 0, 0, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 42, 255, 255, 255, 255, 0, 0, 0, 0}
+	offsetCommitMyGroupOrders  = []byte{0, 0, 0, 81, 0, 8, 0, 8, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 9, 109, 121, 45, 103, 114, 111, 117, 112, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 2, 7, 111, 114, 100, 101, 114, 115, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 42, 255, 255, 255, 255, 0, 0, 0, 0}
+	offsetFetchAdminGroup      = []byte{0, 0, 0, 51, 0, 9, 0, 7, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 12, 97, 100, 109, 105, 110, 45, 103, 114, 111, 117, 112, 2, 7, 111, 114, 100, 101, 114, 115, 2, 0, 0, 0, 0, 0, 0, 0}
+	offsetCommitAdminGroup     = []byte{0, 0, 0, 84, 0, 8, 0, 8, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 12, 97, 100, 109, 105, 110, 45, 103, 114, 111, 117, 112, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 2, 7, 111, 114, 100, 101, 114, 115, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 42, 255, 255, 255, 255, 0, 0, 0, 0}
+	leaveGroupMyGroup          = []byte{0, 0, 0, 52, 0, 13, 0, 5, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 9, 109, 121, 45, 103, 114, 111, 117, 112, 2, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 0}
+	leaveGroupOtherGroup       = []byte{0, 0, 0, 55, 0, 13, 0, 5, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 12, 111, 116, 104, 101, 114, 45, 103, 114, 111, 117, 112, 2, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 0}
+	cghJoinCghGroup            = []byte{0, 0, 0, 69, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 2, 7, 111, 114, 100, 101, 114, 115, 0, 0, 0}
+	cghJoinCghGroupAudit       = []byte{0, 0, 0, 68, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 2, 6, 97, 117, 100, 105, 116, 0, 0, 0}
+	cghUnchangedCghGroup       = []byte{0, 0, 0, 62, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 5, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0}
+	cghLeaveCghGroup           = []byte{0, 0, 0, 62, 0, 68, 0, 0, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 10, 99, 103, 104, 45, 103, 114, 111, 117, 112, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 255, 255, 255, 255, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0}
+	joinGroupConnectCluster    = []byte{0, 0, 0, 89, 0, 11, 0, 5, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 15, 99, 111, 110, 110, 101, 99, 116, 45, 99, 108, 117, 115, 116, 101, 114, 0, 0, 39, 16, 0, 0, 117, 48, 0, 0, 255, 255, 0, 7, 99, 111, 110, 110, 101, 99, 116, 0, 0, 0, 1, 0, 5, 114, 97, 110, 103, 101, 0, 0, 0, 14, 0, 1, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0}
+	heartbeatConnectCluster    = []byte{0, 0, 0, 60, 0, 12, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 16, 99, 111, 110, 110, 101, 99, 116, 45, 99, 108, 117, 115, 116, 101, 114, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0}
+	leaveGroupConnectCluster   = []byte{0, 0, 0, 59, 0, 13, 0, 5, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 16, 99, 111, 110, 110, 101, 99, 116, 45, 99, 108, 117, 115, 116, 101, 114, 2, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 0, 0, 0}
+	syncGroupSchemaRegistry    = []byte{0, 0, 0, 65, 0, 14, 0, 5, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 16, 115, 99, 104, 101, 109, 97, 45, 114, 101, 103, 105, 115, 116, 114, 121, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 3, 115, 114, 0, 1, 0}
+	offsetCommitHbGroupOrders  = []byte{0, 0, 0, 81, 0, 8, 0, 8, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 9, 104, 98, 45, 103, 114, 111, 117, 112, 0, 0, 0, 3, 15, 109, 101, 109, 98, 101, 114, 45, 97, 98, 99, 45, 49, 50, 51, 0, 2, 7, 111, 114, 100, 101, 114, 115, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 42, 255, 255, 255, 255, 0, 0, 0, 0}
+	fetchOrders                = []byte{0, 0, 0, 71, 0, 1, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0, 0, 0, 1, 0, 6, 111, 114, 100, 101, 114, 115, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 16, 0, 0}
+	fetchPayments              = []byte{0, 0, 0, 73, 0, 1, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0, 0, 0, 1, 0, 8, 112, 97, 121, 109, 101, 110, 116, 115, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 16, 0, 0}
+	fetchImportant             = []byte{0, 0, 0, 74, 0, 1, 0, 4, 0, 0, 0, 7, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 16, 0, 0}
+)
+
+// kafkaEventFromPid builds a client-side (send-first) event; the zero Direction would be
+// directionRecv, i.e. a server-side capture, which never learns or reports groups.
+func kafkaEventFromPid(ns, pid uint32) *TCPRequestInfo {
+	event := &TCPRequestInfo{}
+	event.Direction = directionSend
+	event.Pid.Ns = ns
+	event.Pid.UserPid = pid
+	event.Pid.HostPid = pid
+	return event
+}
+
+func newTestConsumerGroups() *KafkaConsumerGroups {
+	return NewKafkaConsumerGroups(64, time.Minute)
+}
+
+// processKafka runs one request through the same entry point the TCP pipeline uses.
+func processKafka(t *testing.T, groups *KafkaConsumerGroups, event *TCPRequestInfo, request []byte) ([]*KafkaInfo, bool) {
+	t.Helper()
+	uuidCache, err := simplelru.NewLRU[kafkaparser.UUID, string](16, nil)
+	require.NoError(t, err)
+	infos, ignore, err := ProcessPossibleKafkaEvent(event, largebuf.NewLargeBufferFrom(request), nil, uuidCache, groups)
+	require.NoError(t, err)
+	return infos, ignore
+}
+
+func fetchGroup(t *testing.T, groups *KafkaConsumerGroups, event *TCPRequestInfo, request []byte) string {
+	t.Helper()
+	infos, ignore := processKafka(t, groups, event, request)
+	require.False(t, ignore)
+	require.Len(t, infos, 1)
+	assert.Equal(t, Fetch, infos[0].Operation)
+	return infos[0].ConsumerGroup
+}
+
+func TestProcessKafkaEventConsumerGroup(t *testing.T) {
+	groups := newTestConsumerGroups()
+
+	consumer := kafkaEventFromPid(7, 42)
+	otherProcess := kafkaEventFromPid(7, 43)
+	sameProcessOtherNs := kafkaEventFromPid(8, 42)
+
+	t.Run("group requests are recognized but produce no span", func(t *testing.T) {
+		infos, ignore := processKafka(t, groups, consumer, joinGroupMyGroup)
+		assert.True(t, ignore)
+		assert.Nil(t, infos)
+	})
+
+	t.Run("fetch of a subscribed topic from the same pid gets the group", func(t *testing.T) {
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
+	})
+
+	t.Run("fetch of an unknown topic falls back to the single consumer group", func(t *testing.T) {
+		// KIP-227 session fetches carry no topic, and a JoinGroup truncated by the
+		// kernel buffer may miss topics: the single group seen for the pid is used.
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant))
+	})
+
+	t.Run("other pid or other namespace stays without group", func(t *testing.T) {
+		assert.Empty(t, fetchGroup(t, groups, otherProcess, fetchOrders))
+		assert.Empty(t, fetchGroup(t, groups, sameProcessOtherNs, fetchOrders))
+	})
+
+	t.Run("second group in the same process: topic decides, unknown topics get nothing", func(t *testing.T) {
+		_, ignore := processKafka(t, groups, consumer, joinGroupOtherGroup)
+		assert.True(t, ignore)
+
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
+		assert.Equal(t, "other-group", fetchGroup(t, groups, consumer, fetchPayments))
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "two groups: must not guess")
+	})
+
+	t.Run("same topic consumed by two groups of one process: no group for that topic", func(t *testing.T) {
+		_, ignore := processKafka(t, groups, consumer, joinGroupOtherGroupOrders)
+		assert.True(t, ignore)
+
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "topic subscribed by two groups must not guess")
+		assert.Equal(t, "my-group", groups.Lookup(KafkaProcess{Ns: 7, Pid: 42}, "audit"), "audit is still my-group's alone")
+		// other-group's new subscription is [orders]: payments is nobody's, and the
+		// process has two groups, so there is nothing to fall back to
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchPayments))
+	})
+
+	t.Run("heartbeat alone (mid-stream attach) is enough for the single consumer group", func(t *testing.T) {
+		midStream := kafkaEventFromPid(7, 99)
+		_, ignore := processKafka(t, groups, midStream, heartbeatHbGroup)
+		assert.True(t, ignore)
+		assert.Equal(t, "hb-group", fetchGroup(t, groups, midStream, fetchImportant))
+	})
+
+	t.Run("produce never gets a group", func(t *testing.T) {
+		produceV9 := []byte{0, 0, 0, 124, 0, 0, 0, 9, 0, 0, 0, 8, 0, 10, 112, 114, 111, 100, 117, 99, 101, 114, 45, 49, 0, 0, 0, 1, 0, 0, 117, 48, 2, 9, 109, 121, 45, 116, 111, 112, 105, 99, 2, 0, 0, 0, 0, 78, 103, 0, 0, 0, 1, 2, 0, 0, 9, 109, 121, 45, 116, 111, 112, 105, 99, 193, 136, 51, 44, 67, 57, 71, 124, 178, 93, 33, 21, 191, 31, 138, 233, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 1, 2, 0, 0, 0, 1, 1, 0, 128, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 16, 0, 0, 0, 4, 0, 0, 17}
+		midStream := kafkaEventFromPid(7, 99)
+		infos, ignore := processKafka(t, groups, midStream, produceV9)
+		require.False(t, ignore)
+		require.Len(t, infos, 1)
+		assert.Equal(t, Produce, infos[0].Operation)
+		assert.Empty(t, infos[0].ConsumerGroup)
+	})
+}
+
+func TestTCPToKafkaToSpanConsumerGroup(t *testing.T) {
+	event := kafkaEventFromPid(7, 42)
+
+	// group known, partition list cut: the group is reported, the partition is not
+	span := TCPToKafkaToSpan(event, &KafkaInfo{Operation: Fetch, Topic: "orders", ConsumerGroup: "my-group"})
+	require.NotNil(t, span.MessagingInfo)
+	assert.Equal(t, "my-group", span.MessagingInfo.ConsumerGroup)
+	assert.False(t, span.MessagingInfo.HasPartition)
+
+	span = TCPToKafkaToSpan(event, &KafkaInfo{
+		Operation: Fetch, Topic: "orders", ConsumerGroup: "my-group",
+		PartitionInfo: &PartitionInfo{Partition: 3, Offset: 42},
+	})
+	require.NotNil(t, span.MessagingInfo)
+	assert.True(t, span.MessagingInfo.HasPartition)
+	assert.Equal(t, 3, span.MessagingInfo.Partition)
+	assert.Equal(t, int64(42), span.MessagingInfo.Offset)
+
+	// nothing known: no MessagingInfo, so no partition "0" is ever fabricated
+	span = TCPToKafkaToSpan(event, &KafkaInfo{Operation: Fetch, Topic: "orders"})
+	assert.Nil(t, span.MessagingInfo)
+}
+
+// A broker receives every client's JoinGroup/OffsetCommit: server-side events must
+// neither learn nor report a consumer group, while the partition is still reported.
+func TestProcessKafkaEventConsumerGroupServerSide(t *testing.T) {
+	groups := newTestConsumerGroups()
+
+	broker := kafkaEventFromPid(7, 500)
+	broker.Direction = directionRecv
+
+	infos, ignore := processKafka(t, groups, broker, joinGroupMyGroup)
+	assert.True(t, ignore)
+	assert.Nil(t, infos)
+
+	infos, ignore = processKafka(t, groups, broker, fetchOrders)
+	require.False(t, ignore)
+	require.Len(t, infos, 1)
+	assert.Empty(t, infos[0].ConsumerGroup, "server spans never carry a group")
+	require.NotNil(t, infos[0].PartitionInfo)
+
+	span := TCPToKafkaToSpan(broker, infos[0])
+	assert.Equal(t, request.EventTypeKafkaServer, span.Type)
+	require.NotNil(t, span.MessagingInfo)
+	assert.True(t, span.MessagingInfo.HasPartition)
+	assert.Empty(t, span.MessagingInfo.ConsumerGroup)
+
+	// nothing was learned under the broker pid either
+	assert.Empty(t, groups.Lookup(KafkaProcess{Ns: 7, Pid: 500}, "orders"))
+	assert.Empty(t, groups.Lookup(KafkaProcess{Ns: 7, Pid: 500}, ""))
+}
+
+// Fetch v13+ identifies topics by UUID: the group lookup must use the name resolved
+// through the Metadata cache, otherwise per-topic entries never match and a process
+// with two groups gets nothing.
+func TestProcessKafkaEventConsumerGroupFetchByUUID(t *testing.T) {
+	groups := newTestConsumerGroups()
+	uuidCache, err := simplelru.NewLRU[kafkaparser.UUID, string](16, nil)
+	require.NoError(t, err)
+	uuidCache.Add(fetchUUID1, "orders")
+	uuidCache.Add(fetchUUID2, "payments")
+
+	consumer := kafkaEventFromPid(7, 42)
+	for _, join := range [][]byte{joinGroupMyGroup, joinGroupOtherGroup} {
+		_, ignore, err := ProcessPossibleKafkaEvent(consumer, largebuf.NewLargeBufferFrom(join), nil, uuidCache, groups)
+		require.NoError(t, err)
+		require.True(t, ignore)
+	}
+
+	infos, ignore, err := ProcessPossibleKafkaEvent(consumer, largebuf.NewLargeBufferFrom(fetchV13TwoTopics(fetchUUID1, fetchUUID2)), nil, uuidCache, groups)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Len(t, infos, 2)
+	assert.Equal(t, "orders", infos[0].Topic)
+	assert.Equal(t, "my-group", infos[0].ConsumerGroup)
+	assert.Equal(t, "payments", infos[1].Topic)
+	assert.Equal(t, "other-group", infos[1].ConsumerGroup)
+}
+
+// OffsetCommit v10 names topics by UUID: Enrich must resolve them through the Metadata
+// cache to fill the per-topic entries, and skip the ones the cache does not know yet.
+func TestProcessKafkaEventConsumerGroupEnrichByUUID(t *testing.T) {
+	groups := newTestConsumerGroups()
+	uuidCache, err := simplelru.NewLRU[kafkaparser.UUID, string](16, nil)
+	require.NoError(t, err)
+	uuidCache.Add(fetchUUID1, "orders") // fetchUUID2 (payments) is not resolved yet
+
+	consumer := kafkaEventFromPid(7, 42)
+	for _, req := range [][]byte{joinGroupOtherGroup, offsetCommitOtherGroupUUID, joinGroupMyGroup} {
+		_, ignore, err := ProcessPossibleKafkaEvent(consumer, largebuf.NewLargeBufferFrom(req), nil, uuidCache, groups)
+		require.NoError(t, err)
+		require.True(t, ignore)
+	}
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+
+	// the commit recorded orders -> other-group before my-group (orders, audit) joined,
+	// so orders is now seen with two groups: that ambiguity proves the UUID was
+	// translated into the name the JoinGroup subscription and the Fetch lookup use
+	assert.Empty(t, groups.Lookup(proc, "orders"), "orders: other-group (by UUID) then my-group")
+	assert.Equal(t, "my-group", groups.Lookup(proc, "audit"))
+	assert.Equal(t, "other-group", groups.Lookup(proc, "payments"))
+
+	// the unresolved UUID was skipped, not learned under an empty or wrong name:
+	// resolving it later does not retroactively make "payments" ambiguous
+	uuidCache.Add(fetchUUID2, "payments")
+	assert.Equal(t, "other-group", groups.Lookup(proc, "payments"))
+}
+
+// OffsetCommit and OffsetFetch name a group without proving membership: the admin
+// client sends them for operator-chosen groups. They must never establish a group and
+// must only add topics to the group the process actually joined.
+func TestProcessKafkaEventConsumerGroupOffsetRequestsDoNotJoin(t *testing.T) {
+	groups := newTestConsumerGroups()
+	consumer := kafkaEventFromPid(7, 42)
+
+	t.Run("offset requests alone establish nothing", func(t *testing.T) {
+		processKafka(t, groups, consumer, offsetFetchAdminGroup)
+		processKafka(t, groups, consumer, offsetCommitAdminGroup)
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders))
+	})
+
+	t.Run("offset requests for another group leave the membership untouched", func(t *testing.T) {
+		processKafka(t, groups, consumer, heartbeatHbGroup)
+		processKafka(t, groups, consumer, offsetCommitAdminGroup)
+		processKafka(t, groups, consumer, offsetFetchAdminGroup)
+		assert.Equal(t, "hb-group", fetchGroup(t, groups, consumer, fetchOrders), "still the single group, not relabeled")
+	})
+
+	t.Run("offset commit adds topics only for a group the process joined", func(t *testing.T) {
+		member := kafkaEventFromPid(7, 43)
+		processKafka(t, groups, member, joinGroupOtherGroup) // other-group: payments
+		processKafka(t, groups, member, heartbeatHbGroup)    // hb-group, no topics: two groups, no fallback
+		processKafka(t, groups, member, offsetCommitMyGroupOrders)
+		assert.Empty(t, fetchGroup(t, groups, member, fetchOrders), "not a member of my-group: ignored")
+		processKafka(t, groups, member, offsetCommitHbGroupOrders)
+		assert.Equal(t, "hb-group", fetchGroup(t, groups, member, fetchOrders), "member of hb-group: orders learned")
+		assert.Equal(t, "other-group", fetchGroup(t, groups, member, fetchPayments))
+	})
+}
+
+// LeaveGroup and a ConsumerGroupHeartbeat with a negative member epoch end the
+// membership: the group must be forgotten, not learned, so that leaving group A and
+// joining group B yields B rather than a two-group process forever.
+func TestProcessKafkaEventConsumerGroupLeave(t *testing.T) {
+	groups := newTestConsumerGroups()
+	consumer := kafkaEventFromPid(7, 42)
+
+	t.Run("leave of another group (admin removing members) keeps the membership", func(t *testing.T) {
+		processKafka(t, groups, consumer, joinGroupMyGroup)
+		processKafka(t, groups, consumer, leaveGroupOtherGroup)
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
+	})
+
+	t.Run("leave of the joined group forgets it", func(t *testing.T) {
+		processKafka(t, groups, consumer, leaveGroupMyGroup)
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders))
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant))
+	})
+
+	t.Run("leave A then join B resolves to B, not a two-group process", func(t *testing.T) {
+		processKafka(t, groups, consumer, joinGroupOtherGroup)
+		assert.Equal(t, "other-group", fetchGroup(t, groups, consumer, fetchPayments))
+		assert.Equal(t, "other-group", fetchGroup(t, groups, consumer, fetchImportant), "single group again: fallback applies")
+		assert.Equal(t, "other-group", fetchGroup(t, groups, consumer, fetchOrders), "my-group's subscription is gone")
+	})
+
+	t.Run("leaving one of two groups leaves the other as the single group", func(t *testing.T) {
+		processKafka(t, groups, consumer, joinGroupMyGroup)
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "two groups: no fallback")
+		processKafka(t, groups, consumer, leaveGroupMyGroup)
+		assert.Equal(t, "other-group", fetchGroup(t, groups, consumer, fetchImportant), "single group again")
+		assert.Equal(t, "other-group", fetchGroup(t, groups, consumer, fetchOrders), "my-group's topic entries are gone")
+		processKafka(t, groups, consumer, heartbeatHbGroup)
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant))
+	})
+
+	t.Run("KIP-848 heartbeat: epoch 0 joins, negative epoch leaves", func(t *testing.T) {
+		kip848 := kafkaEventFromPid(7, 77)
+		processKafka(t, groups, kip848, cghJoinCghGroup)
+		assert.Equal(t, "cgh-group", fetchGroup(t, groups, kip848, fetchOrders))
+		processKafka(t, groups, kip848, cghLeaveCghGroup)
+		assert.Empty(t, fetchGroup(t, groups, kip848, fetchOrders))
+	})
+}
+
+// A membership expires when no membership request renewed it, and Fetch lookups do not
+// renew it. The deadline is per membership: a recycled pid heartbeating for its own
+// group must not keep the previous process' groups alive.
+func TestProcessKafkaEventConsumerGroupExpiry(t *testing.T) {
+	const ttl = time.Minute
+	groups := NewKafkaConsumerGroups(64, ttl)
+	start := time.Now()
+	clock := start
+	groups.now = func() time.Time { return clock }
+	consumer := kafkaEventFromPid(7, 42)
+
+	processKafka(t, groups, consumer, joinGroupMyGroup)
+	clock = start.Add(ttl / 2)
+	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
+	clock = start.Add(ttl + ttl/4)
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "lookups must not extend the ttl")
+	assert.Equal(t, 0, groups.lru.Len(), "a process without memberships is dropped")
+
+	// pid reused within the ttl: the previous process joined my-group, the new one
+	// heartbeats for hb-group only
+	clock = start.Add(2 * ttl)
+	processKafka(t, groups, consumer, joinGroupMyGroup)
+	clock = start.Add(2*ttl + ttl/2)
+	processKafka(t, groups, consumer, heartbeatHbGroup)
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "two groups until the inherited one expires")
+	clock = start.Add(3*ttl + ttl/4)
+	assert.Equal(t, "hb-group", fetchGroup(t, groups, consumer, fetchImportant), "inherited membership expired, own group is the single one")
+	assert.Equal(t, "hb-group", fetchGroup(t, groups, consumer, fetchOrders), "the inherited subscription is gone too")
+}
+
+// Kafka Connect workers (protocol_type "connect") and Schema Registry ("sr") coordinate
+// through JoinGroup/SyncGroup/Heartbeat too, but those groups are no consumer groups:
+// they must not count as a membership, so a Connect worker's sink consumer keeps its
+// single group and a registry reports none.
+func TestProcessKafkaEventConsumerGroupForeignProtocol(t *testing.T) {
+	groups := newTestConsumerGroups()
+
+	worker := kafkaEventFromPid(7, 42)
+	processKafka(t, groups, worker, heartbeatConnectCluster) // seen first: protocol type unknown yet
+	processKafka(t, groups, worker, joinGroupMyGroup)
+	assert.Empty(t, fetchGroup(t, groups, worker, fetchImportant), "two memberships, protocol of the first unknown")
+	processKafka(t, groups, worker, joinGroupConnectCluster) // the next rebalance names protocol_type "connect"
+	assert.Equal(t, "my-group", fetchGroup(t, groups, worker, fetchImportant), "the only consumer group")
+	processKafka(t, groups, worker, heartbeatConnectCluster) // later heartbeats do not undo it
+	assert.Equal(t, "my-group", fetchGroup(t, groups, worker, fetchImportant))
+
+	// the worker leaving its coordination group changes nothing for the sink consumer;
+	// leaving the sink group too drops the process entirely
+	processKafka(t, groups, worker, leaveGroupConnectCluster)
+	assert.Equal(t, "my-group", fetchGroup(t, groups, worker, fetchImportant))
+	processKafka(t, groups, worker, leaveGroupMyGroup)
+	assert.Empty(t, fetchGroup(t, groups, worker, fetchOrders))
+	assert.Empty(t, groups.Lookup(KafkaProcess{Ns: 7, Pid: 42}, ""), "no membership left")
+
+	registry := kafkaEventFromPid(7, 43)
+	processKafka(t, groups, registry, syncGroupSchemaRegistry)
+	assert.Empty(t, fetchGroup(t, groups, registry, fetchOrders), "an election group is not a consumer group")
+
+	// topics learned while the group still passed for a consumer group are released
+	early := KafkaProcess{Ns: 7, Pid: 44}
+	groups.Join(early, &kafkaparser.GroupRequest{GroupID: "connect-cluster", Topics: []*kafkaparser.GroupTopic{{Name: "orders"}}}, nil)
+	groups.Join(early, &kafkaparser.GroupRequest{GroupID: "connect-cluster", ProtocolType: "connect"}, nil)
+	state, found := groups.lru.Get(early)
+	require.True(t, found)
+	assert.True(t, state.groups["connect-cluster"].foreign)
+	assert.Empty(t, state.groups["connect-cluster"].topics)
+}
+
+// Subscriptions are recomputed from what each group currently subscribes to, so a group
+// leaving or re-subscribing on a rebalance releases the topics it no longer consumes.
+func TestProcessKafkaEventConsumerGroupSubscriptionChanges(t *testing.T) {
+	groups := newTestConsumerGroups()
+	consumer := kafkaEventFromPid(7, 42)
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+
+	t.Run("a topic shared by two groups goes back to the remaining one", func(t *testing.T) {
+		processKafka(t, groups, consumer, joinGroupMyGroup)          // my-group: orders, audit
+		processKafka(t, groups, consumer, joinGroupOtherGroupOrders) // other-group: orders
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders))
+		processKafka(t, groups, consumer, leaveGroupOtherGroup)
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
+	})
+
+	t.Run("a complete subscription replaces the previous one", func(t *testing.T) {
+		processKafka(t, groups, consumer, joinGroupMyGroupAudit)     // rebalance: my-group now [audit]
+		processKafka(t, groups, consumer, joinGroupOtherGroupOrders) // other-group: orders
+		assert.Equal(t, "other-group", fetchGroup(t, groups, consumer, fetchOrders), "orders left my-group's subscription")
+		assert.Equal(t, "my-group", groups.Lookup(proc, "audit"))
+	})
+
+	t.Run("a KIP-848 heartbeat naming the subscription replaces it, a null one keeps it", func(t *testing.T) {
+		kip848 := kafkaEventFromPid(7, 77)
+		processKafka(t, groups, kip848, cghJoinCghGroup)  // cgh-group: orders
+		processKafka(t, groups, kip848, joinGroupMyGroup) // my-group: orders, audit
+		assert.Empty(t, fetchGroup(t, groups, kip848, fetchOrders), "orders subscribed by both")
+		processKafka(t, groups, kip848, cghJoinCghGroupAudit) // cgh-group now [audit]
+		assert.Equal(t, "my-group", fetchGroup(t, groups, kip848, fetchOrders), "orders released by cgh-group")
+		assert.Empty(t, groups.Lookup(KafkaProcess{Ns: 7, Pid: 77}, "audit"), "audit now shared")
+		processKafka(t, groups, kip848, cghUnchangedCghGroup) // null subscription: unchanged
+		assert.Empty(t, groups.Lookup(KafkaProcess{Ns: 7, Pid: 77}, "audit"), "still shared")
+	})
+
+	t.Run("a partial subscription (cut by the kernel buffer) only adds", func(t *testing.T) {
+		groups.Join(proc, &kafkaparser.GroupRequest{GroupID: "my-group", Topics: []*kafkaparser.GroupTopic{{Name: "payments"}}}, nil)
+		assert.Equal(t, "my-group", groups.Lookup(proc, "audit"), "kept")
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchPayments), "added")
+	})
+}
+
+// A process holds at most maxGroupsPerProcess memberships: a client cycling through
+// group ids cannot grow the entry until the TTL trims it.
+func TestKafkaConsumerGroupsMembershipCap(t *testing.T) {
+	groups := newTestConsumerGroups()
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+	for i := range maxGroupsPerProcess + 5 {
+		groups.Join(proc, &kafkaparser.GroupRequest{GroupID: fmt.Sprintf("group-%d", i)}, nil)
+	}
+	state, found := groups.lru.Get(proc)
+	require.True(t, found)
+	assert.Len(t, state.groups, maxGroupsPerProcess)
+	assert.Contains(t, state.groups, "group-0", "the first memberships are kept")
+	assert.NotContains(t, state.groups, fmt.Sprintf("group-%d", maxGroupsPerProcess))
 }
