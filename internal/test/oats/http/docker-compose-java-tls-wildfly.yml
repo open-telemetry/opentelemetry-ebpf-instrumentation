@@ -1,0 +1,71 @@
+services:
+  minio:
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/java_tls/wildfly/minio/Dockerfile
+    image: hatest-java-tls-minio
+    user: "0:0"
+    command: ["server", "/data", "--address", ":9000", "--certs-dir", "/certs"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+  minio-init:
+    image: bitnamilegacy/minio-client:2025.7.21-debian-12-r3@sha256:73bd39f7899a0cef12b8dd5df13aa93a3ed1aaa44236542442e9ac76819ac158
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until mc alias set local https://minio:9000 minioadmin minioadmin123 --insecure; do sleep 1; done
+        mc mb local/test-bucket --ignore-existing --insecure
+        printf '%s\n' 'hello-obi-wildfly' | mc pipe local/test-bucket/test-file.txt --insecure
+    depends_on:
+      minio:
+        condition: service_started
+
+  testserver:
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/java_tls/wildfly/Dockerfile
+    image: hatest-java-tls-wildfly
+    ports:
+      - "8080:8080"
+    environment:
+      S3_ENDPOINT: https://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin123
+      AWS_REGION: us-east-1
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+
+  autoinstrumenter:
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile-with-javaagent
+    command:
+      - --config=/configs/instrumenter-config-traces.yml
+    image: hatest-obi-javaagent
+    volumes:
+      - ./configs:/configs
+      - ./testoutput/run:/var/run/obi
+      - ../../../../testoutput:/coverage
+    privileged: true
+    network_mode: service:testserver
+    pid: service:testserver
+    environment:
+      GOCOVERDIR: /coverage
+      OTEL_EBPF_TRACE_PRINTER: text
+      OTEL_EBPF_EXECUTABLE_PATH: java
+      OTEL_EBPF_JAVAAGENT_ENABLED: "true"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_PROCESSES_INTERVAL: 100ms
+      OTEL_EBPF_SERVICE_NAMESPACE: integration-test
+      OTEL_EBPF_METRICS_INTERVAL: 1s
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: 1ms
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: 10ms
+      OTEL_EBPF_LOG_LEVEL: DEBUG
+      OTEL_EBPF_BPF_DEBUG: "true"
+      OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY: 10s
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+    depends_on:
+      testserver:
+        condition: service_started
