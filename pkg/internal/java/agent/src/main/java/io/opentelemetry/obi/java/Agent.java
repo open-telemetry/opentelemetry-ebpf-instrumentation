@@ -149,6 +149,8 @@ public class Agent {
     }
 
     builder(opts, inst)
+        .type(ClassLoaderInst.type())
+        .transform(ClassLoaderInst.transformer())
         .type(SSLSocketInst.type())
         .transform(SSLSocketInst.transformer())
         .type(SSLSocketStreamInst.inputStreamType())
@@ -203,7 +205,8 @@ public class Agent {
       if (clazz.getName().contains("$$Lambda$")) {
         continue;
       }
-      if (SSLSocketInst.matches(clazz)
+      if (ClassLoaderInst.matches(clazz)
+          || SSLSocketInst.matches(clazz)
           || SSLSocketStreamInst.matchesInputStream(clazz)
           || SSLSocketStreamInst.matchesOutputStream(clazz)
           || SSLEngineInst.matches(clazz)
