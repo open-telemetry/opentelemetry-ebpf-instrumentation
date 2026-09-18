@@ -2090,8 +2090,8 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 		groups = append(groups, p.goH2OwnershipProbeGroups()...)
 		groups = append(groups,
 			ebpfcommon.GoProbeGroup{
-				Name:          "go_http2_xnet_preflush",
-				Prerequisites: []string{goHTTP2FlushProbeSymbols[0]},
+				Name:        "go_http2_xnet_preflush",
+				RequiresAll: []string{goHTTP2FlushProbeSymbols[0]},
 				Probes: []ebpfcommon.GoProbe{
 					{
 						Symbol: goHTTP2FlushProbeSymbols[0],
@@ -2110,8 +2110,8 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 				},
 			},
 			ebpfcommon.GoProbeGroup{
-				Name:          "go_http2_stdlib_preflush",
-				Prerequisites: []string{goHTTP2FlushProbeSymbols[2]},
+				Name:        "go_http2_stdlib_preflush",
+				RequiresAll: []string{goHTTP2FlushProbeSymbols[2]},
 				Probes: []ebpfcommon.GoProbe{
 					{
 						Symbol: goHTTP2FlushProbeSymbols[2],
@@ -2130,8 +2130,8 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 				},
 			},
 			ebpfcommon.GoProbeGroup{
-				Name:          "go_http2_internal_preflush",
-				Prerequisites: []string{goHTTP2FlushProbeSymbols[4]},
+				Name:        "go_http2_internal_preflush",
+				RequiresAll: []string{goHTTP2FlushProbeSymbols[4]},
 				Probes: []ebpfcommon.GoProbe{
 					{
 						Symbol: goHTTP2FlushProbeSymbols[4],
@@ -2154,8 +2154,8 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 
 	if p.goAutoSDKActivationProbesEnabled() {
 		groups = append(groups, ebpfcommon.GoProbeGroup{
-			Name:          "go_auto_sdk_activation",
-			Prerequisites: append([]string(nil), goAutoSDKActivationPrerequisiteSymbols...),
+			Name:        "go_auto_sdk_activation",
+			RequiresAll: append([]string(nil), goAutoSDKActivationPrerequisiteSymbols...),
 			Probes: []ebpfcommon.GoProbe{
 				{
 					Symbol: goAutoSDKActivationProbeSymbols[0],
@@ -2192,8 +2192,8 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 	return []ebpfcommon.GoProbeGroup{
 		{
-			Name:          "go_http2_xnet_current_ownership",
-			Prerequisites: []string{"golang.org/x/net/http2.(*ClientConn).writeHeaders"},
+			Name:        "go_http2_xnet_current_ownership",
+			RequiresAll: []string{"golang.org/x/net/http2.(*ClientConn).writeHeaders"},
 			Probes: []ebpfcommon.GoProbe{
 				{
 					Symbol: goH2OwnershipProbeSymbols[0],
@@ -2211,8 +2211,8 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 			},
 		},
 		{
-			Name:          "go_http2_stdlib_current_ownership",
-			Prerequisites: []string{"net/http.(*http2ClientConn).writeHeaders"},
+			Name:        "go_http2_stdlib_current_ownership",
+			RequiresAll: []string{"net/http.(*http2ClientConn).writeHeaders"},
 			Probes: []ebpfcommon.GoProbe{
 				{
 					Symbol: goH2OwnershipProbeSymbols[2],
@@ -2230,8 +2230,8 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 			},
 		},
 		{
-			Name:          "go_http2_stdlib_go127_ownership",
-			Prerequisites: []string{"net/http/internal/http2.(*ClientConn).writeHeaders"},
+			Name:        "go_http2_stdlib_go127_ownership",
+			RequiresAll: []string{"net/http/internal/http2.(*ClientConn).writeHeaders"},
 			Probes: []ebpfcommon.GoProbe{
 				{
 					Symbol: goH2OwnershipProbeSymbols[4],
