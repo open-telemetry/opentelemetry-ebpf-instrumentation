@@ -108,6 +108,31 @@ func TestExtractPythonDjangoListAssignment(t *testing.T) {
 			routes:     []string{"/health/", "/ready/"},
 		},
 		{
+			name:       "literal after reference",
+			assignment: `urlpatterns = base_patterns + [path("ready/", ready_view)]`,
+			routes:     []string{"/health/", "/ready/"},
+		},
+		{
+			name:       "literal before reference",
+			assignment: `urlpatterns = [path("ready/", ready_view)] + base_patterns`,
+			routes:     []string{"/health/", "/ready/"},
+		},
+		{
+			name:       "multiline mixed concatenation",
+			assignment: "urlpatterns = base_patterns + [\n    path(\"ready/\", ready_view),\n]",
+			routes:     []string{"/health/", "/ready/"},
+		},
+		{
+			name:       "mixed alias",
+			assignment: "alias_patterns = base_patterns + [path(\"ready/\", ready_view)]\nurlpatterns = alias_patterns",
+			routes:     []string{"/health/", "/ready/"},
+		},
+		{
+			name:       "delimiters inside route string",
+			assignment: `urlpatterns = base_patterns + [path("ready]+/", ready_view)]`,
+			routes:     []string{"/health/", "/ready]+/"},
+		},
+		{
 			name:       "transitive alias",
 			assignment: "alias_patterns = base_patterns\nurlpatterns = alias_patterns",
 			routes:     []string{"/health/"},
@@ -345,7 +370,7 @@ urlpatterns = [
 	assert.Equal(t, []string{"/health/"}, result.Routes)
 }
 
-func TestDjangoCallEnd(t *testing.T) {
+func TestDjangoDelimitedEnd(t *testing.T) {
 	for _, body := range []string{
 		`path("orders/", orders)`,
 		`path("shop/", include("checkout.urls"))`,
@@ -355,10 +380,10 @@ func TestDjangoCallEnd(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			call := "i18n_patterns(" + body + ")"
 			stmt := call + ` + [path("health/", health)]`
-			assert.Equal(t, len(call)-1, djangoCallEnd(stmt, len("i18n_patterns")))
+			assert.Equal(t, len(call)-1, djangoDelimitedEnd(stmt, len("i18n_patterns")))
 		})
 	}
-	assert.Equal(t, -1, djangoCallEnd(`i18n_patterns(path("orders/", orders)`, len("i18n_patterns")))
+	assert.Equal(t, -1, djangoDelimitedEnd(`i18n_patterns(path("orders/", orders)`, len("i18n_patterns")))
 }
 
 func TestExtractPythonDjangoI18nPatterns(t *testing.T) {

@@ -56,11 +56,44 @@ var djangoImportAliasPattern = regexp.MustCompile(
 
 var djangoPathStart = regexp.MustCompile(`\b(?:re_)?path\s*\(`)
 
-var djangoListAssignmentPattern = regexp.MustCompile(`^([A-Za-z_]\w*)\s*\+?=\s*\[`)
+var djangoListAssignmentPattern = regexp.MustCompile(`^([A-Za-z_]\w*)\s*\+?=\s*(.*)$`)
 
-var djangoListReferencePattern = regexp.MustCompile(
-	`^([A-Za-z_]\w*)\s*\+?=\s*([A-Za-z_]\w*(?:\s*\+\s*[A-Za-z_]\w*)*)\s*(?:#.*)?$`,
-)
+var djangoListNamePattern = regexp.MustCompile(`^[A-Za-z_]\w*`)
+
+// djangoListAssignment collects named operands from a sum of names and literal lists.
+func djangoListAssignment(stmt string) (string, []string, bool) {
+	match := djangoListAssignmentPattern.FindStringSubmatch(stmt)
+	if match == nil {
+		return "", nil, false
+	}
+
+	expr := strings.TrimSpace(match[2])
+	var references []string
+	for {
+		if strings.HasPrefix(expr, "[") {
+			end := djangoDelimitedEnd(expr, 0)
+			if end < 0 {
+				return "", nil, false
+			}
+			expr = strings.TrimSpace(expr[end+1:])
+		} else {
+			name := djangoListNamePattern.FindString(expr)
+			if name == "" {
+				return "", nil, false
+			}
+			references = append(references, name)
+			expr = strings.TrimSpace(expr[len(name):])
+		}
+
+		if expr == "" || strings.HasPrefix(expr, "#") {
+			return match[1], references, true
+		}
+		if expr[0] != '+' {
+			return "", nil, false
+		}
+		expr = strings.TrimSpace(expr[1:])
+	}
+}
 
 var djangoI18nStart = regexp.MustCompile(`\bi18n_patterns\s*\(`)
 
@@ -165,9 +198,13 @@ func djangoRegexExprRoute(expr *syntax.Regexp) (string, bool) {
 	return "", false
 }
 
-// djangoCallEnd finds the closing parenthesis for the call starting at open.
-// Parentheses inside quoted strings are part of the argument value.
-func djangoCallEnd(stmt string, open int) int {
+// djangoDelimitedEnd finds the matching delimiter for a call or list starting at open.
+// Delimiters inside quoted strings are part of the argument value.
+func djangoDelimitedEnd(stmt string, open int) int {
+	opening, closing := stmt[open], byte(')')
+	if opening == '[' {
+		closing = ']'
+	}
 	depth := 0
 	var quote byte
 	for i := open; i < len(stmt); i++ {
@@ -183,9 +220,9 @@ func djangoCallEnd(stmt string, open int) int {
 		switch stmt[i] {
 		case '\'', '"':
 			quote = stmt[i]
-		case '(':
+		case opening:
 			depth++
-		case ')':
+		case closing:
 			depth--
 			if depth == 0 {
 				return i
@@ -203,7 +240,7 @@ func scanDjango(stmt string, aliases map[string]string) []djangoRoute {
 			return append(routes, scanDjangoPaths(stmt, aliases)...)
 		}
 		routes = append(routes, scanDjangoPaths(stmt[:wrapper[0]], aliases)...)
-		end := djangoCallEnd(stmt, wrapper[1]-1)
+		end := djangoDelimitedEnd(stmt, wrapper[1]-1)
 		if end < 0 {
 			return routes
 		}
