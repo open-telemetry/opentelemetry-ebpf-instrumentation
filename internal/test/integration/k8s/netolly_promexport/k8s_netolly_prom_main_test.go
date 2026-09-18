@@ -28,9 +28,7 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
-		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
 		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
-		docker.ImageBuild{Tag: "httppinger:dev", Dockerfile: k8s.DockerfileHTTPPinger},
 	); err != nil {
 		slog.Error("can't build docker images", "error", err)
 		os.Exit(-1)
@@ -38,9 +36,7 @@ func TestMain(m *testing.M) {
 
 	cluster = kube.NewKind("test-kind-cluster-netolly-promexport",
 		kube.KindConfig(testpath.Manifests+"/00-kind.yml"),
-		kube.LocalImage("testserver:dev"),
 		kube.LocalImage("obi:dev"),
-		kube.LocalImage("httppinger:dev"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
 		kube.Deploy(testpath.Manifests+"/01-serviceaccount.yml"),
 		kube.Deploy(testpath.Manifests+"/02-prometheus-promscrape.yml"),
