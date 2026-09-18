@@ -19,6 +19,7 @@ type djangoRoute struct {
 	includeList   string
 	includeModule string
 	admin         bool
+	skipExpansion bool
 }
 
 var djangoAdminRoutes = []string{
@@ -57,6 +58,10 @@ var djangoPathStart = regexp.MustCompile(`\b(?:re_)?path\s*\(`)
 
 var djangoListAssignmentPattern = regexp.MustCompile(`^([A-Za-z_]\w*)\s*\+?=\s*\[`)
 
+var djangoListReferencePattern = regexp.MustCompile(
+	`^([A-Za-z_]\w*)\s*\+?=\s*([A-Za-z_]\w*(?:\s*\+\s*[A-Za-z_]\w*)*)\s*(?:#.*)?$`,
+)
+
 var djangoI18nStart = regexp.MustCompile(`\bi18n_patterns\s*\(`)
 
 var djangoI18nUnprefixedDefault = regexp.MustCompile(
@@ -69,14 +74,33 @@ var djangoPathPattern = regexp.MustCompile(
 		`|(include)\s*\(\s*(?:\(\s*)?(?:([A-Za-z_]\w*)\s*[,)])?)?`,
 )
 
-// djangoRegexRoute parses a supported re_path expression into a route template.
+// djangoRegexRoute parses a supported endpoint or include re_path expression into a route template.
 // For example, ^articles/(?P<year>[0-9]{4})/$ becomes articles/<year>/.
-func djangoRegexRoute(pattern string) (string, bool) {
+func djangoRegexRoute(pattern string, endpoint bool) (string, bool) {
 	expr, err := syntax.Parse(pattern, syntax.Perl)
 	if err != nil {
 		return "", false
 	}
+	begin, end := djangoRegexBoundaries(expr)
+	if endpoint {
+		// Django uses fullmatch for endpoint patterns whose source ends in '$'.
+		if !strings.HasSuffix(pattern, "$") {
+			return "", false
+		}
+	} else if !begin || end {
+		// Includes must match at the current prefix and leave a suffix for child routes.
+		return "", false
+	}
 	return djangoRegexExprRoute(expr)
+}
+
+func djangoRegexBoundaries(expr *syntax.Regexp) (bool, bool) {
+	first, last := expr, expr
+	if expr.Op == syntax.OpConcat && len(expr.Sub) > 0 {
+		first = expr.Sub[0]
+		last = expr.Sub[len(expr.Sub)-1]
+	}
+	return first.Op == syntax.OpBeginText, last.Op == syntax.OpEndText
 }
 
 // djangoRegexExprRoute converts a parsed regex into a route template.
@@ -204,13 +228,6 @@ func scanDjangoPaths(stmt string, aliases map[string]string) []djangoRoute {
 		if route == "" {
 			route = match[2] // Single-quoted route.
 		}
-		if strings.HasPrefix(match[0], "re_path") {
-			var ok bool
-			route, ok = djangoRegexRoute(route)
-			if !ok {
-				continue
-			}
-		}
 
 		includeModule := match[3] // Double-quoted include module.
 		if includeModule == "" {
@@ -228,13 +245,29 @@ func scanDjangoPaths(stmt string, aliases map[string]string) []djangoRoute {
 				}
 			}
 		}
+		admin := match[5] != ""
+		skipExpansion := false
+		if strings.HasPrefix(match[0], "re_path") {
+			endpoint := includeModule == "" && includeList == "" && !admin
+			converted, ok := djangoRegexRoute(route, endpoint)
+			if !ok {
+				if includeModule == "" {
+					continue
+				}
+				// Keep the module reference so its file is not inferred as an unmounted root.
+				skipExpansion = true
+			} else {
+				route = converted
+			}
+		}
 
 		// The resolver expands includes and admin.site.urls; ordinary views are endpoints.
 		routes = append(routes, djangoRoute{
 			path:          route,
 			includeList:   includeList,
 			includeModule: includeModule,
-			admin:         match[5] != "", // admin.site.urls.
+			admin:         admin,
+			skipExpansion: skipExpansion,
 		})
 	}
 	return routes
@@ -319,6 +352,9 @@ func resolveDjangoRoutes(root string, files map[string][]djangoRoute, routes map
 			// from i18n_patterns(), are treated as part of the file's urlpatterns.
 			if declaration.listName != listName &&
 				(declaration.listName != "" || listName != "urlpatterns") {
+				continue
+			}
+			if declaration.skipExpansion {
 				continue
 			}
 			if declaration.includeList != "" {

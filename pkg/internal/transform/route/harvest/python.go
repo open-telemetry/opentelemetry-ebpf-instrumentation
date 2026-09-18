@@ -158,6 +158,20 @@ func (e *pythonExtractor) scanFile(path string) error {
 			hasDjangoPath = true
 		}
 		if hasDjangoPath {
+			if match := djangoListReferencePattern.FindStringSubmatch(text); match != nil {
+				for _, name := range strings.Split(match[2], "+") {
+					name = strings.TrimSpace(name)
+					for _, declaration := range djangoRoutes {
+						if declaration.listName == name {
+							djangoRoutes = append(djangoRoutes, djangoRoute{
+								listName:    match[1],
+								includeList: name,
+							})
+							break
+						}
+					}
+				}
+			}
 			routes := scanDjango(text, djangoAliases)
 			if match := djangoListAssignmentPattern.FindStringSubmatch(text); match != nil {
 				for i := range routes {

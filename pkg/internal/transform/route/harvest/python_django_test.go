@@ -86,6 +86,52 @@ urlpatterns = [path("credit/", include(extra_patterns))]
 	assert.Equal(t, []string{"/credit/reports/"}, result.Routes)
 }
 
+func TestExtractPythonDjangoListAssignment(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		assignment string
+		routes     []string
+	}{
+		{
+			name:       "direct assignment",
+			assignment: "urlpatterns = base_patterns",
+			routes:     []string{"/health/"},
+		},
+		{
+			name:       "augmented assignment",
+			assignment: "urlpatterns = []\nurlpatterns += base_patterns",
+			routes:     []string{"/health/"},
+		},
+		{
+			name:       "concatenation",
+			assignment: "urlpatterns = base_patterns + other_patterns",
+			routes:     []string{"/health/", "/ready/"},
+		},
+		{
+			name:       "transitive alias",
+			assignment: "alias_patterns = base_patterns\nurlpatterns = alias_patterns",
+			routes:     []string{"/health/"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
+from django.urls import path
+base_patterns = [path("health/", health_view)]
+other_patterns = [path("ready/", ready_view)]
+`+tc.assignment), 0o644))
+
+			result, err := extractPythonRoutes(dir)
+
+			require.NoError(t, err)
+			assert.Equal(t, CompleteRoutes, result.Kind)
+			assert.Equal(t, tc.routes, result.Routes)
+			matcher := RouteMatcherFromResult(*result)
+			assert.Equal(t, "/health/", matcher.Find("/health/"))
+		})
+	}
+}
+
 func TestExtractPythonDjangoNestedListMounts(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
@@ -156,6 +202,58 @@ urlpatterns = [re_path(r"^reports/(?P<id>[0-9]+)/$", reports)]
 	assert.Empty(t, matcher.Find("/reports/"))
 }
 
+func TestExtractPythonDjangoRegexEndpointBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		pattern string
+		routes  []string
+	}{
+		{pattern: `^health/$`, routes: []string{"/health/"}},
+		{pattern: `health/$`, routes: []string{"/health/"}},
+		{pattern: `^health/`, routes: []string{}},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
+from django.urls import re_path
+urlpatterns = [re_path(r"`+tc.pattern+`", health)]
+`), 0o644))
+
+			result, err := extractPythonRoutes(dir)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.routes, result.Routes)
+		})
+	}
+}
+
+func TestExtractPythonDjangoRegexIncludeBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		pattern string
+		routes  []string
+	}{
+		{pattern: `^api/`, routes: []string{"/api/details/"}},
+		{pattern: `api/`, routes: []string{}},
+		{pattern: `^api/$`, routes: []string{}},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "child.py"), []byte(`
+from django.urls import path
+urlpatterns = [path("details/", details)]
+`), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
+from django.urls import include, re_path
+urlpatterns = [re_path(r"`+tc.pattern+`", include("child"))]
+`), 0o644))
+
+			result, err := extractPythonRoutes(dir)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.routes, result.Routes)
+		})
+	}
+}
+
 func TestExtractPythonDjangoRegexFixedCount(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
@@ -224,7 +322,7 @@ func TestDjangoRegexRouteUnsupported(t *testing.T) {
 		`^page(?P<num>[0-9]+)/$`,
 	} {
 		t.Run(pattern, func(t *testing.T) {
-			_, ok := djangoRegexRoute(pattern)
+			_, ok := djangoRegexRoute(pattern, true)
 			assert.False(t, ok)
 		})
 	}
