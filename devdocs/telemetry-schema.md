@@ -46,7 +46,9 @@ version and that a schema file for that version is actually published.
 
 **If telemetry changed this release** (an attribute or metric was renamed), add
 the transformation entries by hand under the new `<version>:` block before
-committing, e.g.:
+committing, draining "Pending transformations" below. Drain "Pending release
+notes" into the release notes at the same time: those are telemetry changes the
+schema format cannot express, so nothing else will surface them. E.g.:
 
 ```yaml
 versions:
@@ -67,10 +69,12 @@ only add new ones.
 
 ### Pending transformations
 
-A change that renames or removes emitted telemetry lands before the version that
-ships it exists, so it records the transformation here and the release owner drains
-this list into the new `<version>:` block at release prep. Leave the section empty
-once drained.
+A change that renames emitted telemetry lands before the version that ships it
+exists, so it records the transformation here and the release owner drains this list
+into the new `<version>:` block at release prep. Leave the section empty once drained.
+
+A removal goes under "Pending release notes" below instead: the format has
+`rename_attributes` and `rename_metrics` and no operation for dropping something.
 
 ```yaml
 all:
@@ -93,6 +97,13 @@ section empty once drained.
   that `target_info` already carried. Dashboards selecting
   `traces_host_info{cloud_host_id=...}` must be updated. A component vendoring OBI that
   assigns to `prom.CloudHostIDKey` keeps its own label name.
+- The OTLP span metrics (`traces.span.metrics.*`, and the `traces_spanmetrics_*` names the
+  legacy feature emits over OTLP) no longer carry the `host.id` data point attribute. The
+  value is unchanged on the resource, so OTLP consumers reading resource attributes lose
+  nothing and `target_info` still carries `host_id`. What changes is that a consumer
+  flattening OTLP to Prometheus no longer gets `host_id` as a per-series label on the span
+  metrics themselves. OBI's own Prometheus exporter is unaffected: its span metrics never
+  carried a host id label.
 
 ## Hosting notes
 

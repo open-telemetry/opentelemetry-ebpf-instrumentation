@@ -1740,3 +1740,34 @@ func TestREDMetricsUnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
 			"a response nobody saw was reported as having a size")
 	}, timeout, 100*time.Millisecond)
 }
+
+// The span metric names are selected per naming mode from declarations shared with the OTLP
+// exporter. Selecting the wrong declaration renames a published series and still compiles, so
+// both modes are pinned here.
+func TestSpanMetricsNames(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		features        export.Features
+		expectedLatency string
+		expectedCalls   string
+	}{
+		{
+			name:            "otel naming",
+			features:        export.FeatureSpanOTel,
+			expectedLatency: "traces_span_metrics_duration_seconds",
+			expectedCalls:   "traces_span_metrics_calls_total",
+		},
+		{
+			name:            "legacy naming",
+			features:        export.FeatureSpanLegacy,
+			expectedLatency: "traces_spanmetrics_latency",
+			expectedCalls:   "traces_spanmetrics_calls_total",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mp := &perapp.GlobalMetricsConfig{Features: tc.features}
+			assert.Equal(t, tc.expectedLatency, spanMetricsLatencyName(mp))
+			assert.Equal(t, tc.expectedCalls, spanMetricsCallsName(mp))
+		})
+	}
+}
