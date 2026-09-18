@@ -68,6 +68,17 @@ func TestMarkMultiProgramsMarksUprobePrograms(t *testing.T) {
 	assert.Equal(t, ebpf.AttachNone, spec.Programs["sockops"].AttachType)
 }
 
+func TestPrepareSpecsLeavesUprobesOnLegacyPathWhenMultiIsDisabled(t *testing.T) {
+	ConfigureMulti(true)
+	t.Cleanup(func() { ConfigureMulti(false) })
+	spec := uprobeTestSpec()
+
+	PrepareSpecs(spec)
+
+	assert.Equal(t, ebpf.AttachNone, spec.Programs["entry"].AttachType)
+	assert.Equal(t, ebpf.AttachNone, spec.Programs["ret"].AttachType)
+}
+
 func TestMarkMultiProgramsGivesMultiProgramsTheirOwnTailCallTable(t *testing.T) {
 	spec := uprobeTestSpec()
 

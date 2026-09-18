@@ -243,6 +243,7 @@ func keepTrackedSockCookiesAtLeast(spec *ebpf.CollectionSpec, declared uint32) {
 }
 
 func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p Tracer, cfg *obi.Config, cache *btf.Cache) error {
+	uprobe.ConfigureMulti(cfg.EBPF.DisableUprobeMulti)
 	p.SetEventContext(eventContext)
 
 	bundles, err := p.LoadSpecs()
@@ -651,6 +652,7 @@ func printVerifierErrorInfo(err error) {
 }
 
 func RunUtilityTracer(ctx context.Context, eventContext *common.EBPFEventContext, p UtilityTracer, cfg *obi.Config) error {
+	uprobe.ConfigureMulti(cfg.EBPF.DisableUprobeMulti)
 	i := instrumenter{}
 	plog := ptlog()
 	plog.Debug("loading independent eBPF program")

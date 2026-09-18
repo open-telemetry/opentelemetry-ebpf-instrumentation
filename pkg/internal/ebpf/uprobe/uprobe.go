@@ -25,7 +25,10 @@ import (
 
 const traceFSShutdownTimeoutMultiplier = 3
 
-var traceFSFallbackUsed atomic.Bool
+var (
+	traceFSFallbackUsed atomic.Bool
+	multiDisabled       atomic.Bool
+)
 
 // EffectiveShutdownTimeout allows extra time for tracefs uprobes to be removed.
 // this is trully only needed for kernels 5.15 - 5.19. earlier than 5.15 allow us to
@@ -39,8 +42,18 @@ func EffectiveShutdownTimeout(configured time.Duration) time.Duration {
 	return configured
 }
 
-// one decision shared by load-time attach types and attach-time links
-var multiSupported = sync.OnceValue(func() bool {
+// ConfigureMulti disables uprobe_multi for subsequent loads and attachments. It's meant
+// for testing only.
+func ConfigureMulti(disabled bool) {
+	multiDisabled.Store(disabled)
+}
+
+func multiSupported() bool {
+	return !multiDisabled.Load() && kernelSupportsMulti()
+}
+
+// one kernel decision shared by load-time attach types and attach-time links
+var kernelSupportsMulti = sync.OnceValue(func() bool {
 	if err := features.HaveBPFLinkUprobeMulti(); err != nil {
 		slog.Info("attaching uprobes as perf events, the kernel has no uprobe_multi links", "reason", err)
 		return false
