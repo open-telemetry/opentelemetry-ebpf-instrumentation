@@ -87,10 +87,38 @@ The injected agent reports in-process readings over an eBPF side channel:
 
 ## Requirements and limitations
 
+The Node.js support has three version thresholds, each gating a different
+feature. They are not the same number and are easy to confuse:
+
+| From | What it unlocks | Why |
+|---|---|---|
+| `12.17`, excluding `13.0`-`13.9` | Any injection at all: trace-context propagation, and the delivery path every runtime metric uses | The agent constructs an `AsyncLocalStorage` |
+| `14.10` | `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `v8js.gc.duration`, `v8js.memory.heap.*` | `performance.eventLoopUtilization()` |
+| `16.14` | `nodejs.eventloop.delay.*`, `v8js.resource.active` | `Histogram.count`, `process.getActiveResourcesInfo()` |
+
+- **Injection floor: 12.17+, with `13.0`-`13.9` excluded.** The agent constructs
+  an `AsyncLocalStorage`, which Node.js added in 13.10.0 and backported to
+  12.17.0 — so the 13.x releases below 13.10 predate it and clear the 12.17
+  bound at the same time. Below the floor the agent throws
+  `TypeError: AsyncLocalStorage is not a constructor` on evaluation and nothing
+  is instrumented.
+
+  The injector reads the version from the executable's `.rodata`, which carries
+  the inspector's own `node.js/<version>` literal
+  (`src/inspector_socket_server.cc`) in every build and survives stripping. A
+  runtime whose version cannot be read is declined as well — deliberately, since
+  the version is the only evidence that the agent can run there. A build that
+  hides it therefore loses Node.js instrumentation, and the skipped process is
+  named in a warning so that is visible rather than silent. The check runs
+  before SIGUSR1, so an unsupported process is never signaled, its debugger
+  port is never opened, and there is nothing to close afterwards — which also
+  keeps OBI away from Node.js 9.x and earlier, where closing the inspector
+  segfaults the process (see below).
+
 - Node.js 14.10+ (`eventLoopUtilization` API) for the event-loop time and
   utilization metrics; the delay gauges (`Histogram.count`) and the
   active-resource gauge (`getActiveResourcesInfo`) additionally need
-  Node.js 16.14+. On 14.10–16.13 those metrics are absent while ELU metrics
+  Node.js 16.14+. On 14.10-16.13 those metrics are absent while ELU metrics
   keep working.
 - The GC kind is read from `PerformanceNodeEntry.detail` (Node.js 16+), with a
   fallback to the pre-16 `entry.kind` accessor, so `v8js.gc.duration` works
@@ -117,7 +145,7 @@ The injected agent reports in-process readings over an eBPF side channel:
   name of the binary. The N-API surface does not count towards this, because
   Bun re-exports it, and neither do libuv's symbols, which every runtime
   linking libuv carries. A Bun binary installed as `node` is therefore not
-  typed Node.js and is never signalled or injected.
+  typed Node.js and is never signaled or injected.
 - That type is not private to the injector. It also selects the
   `telemetry.sdk.language` resource attribute, the `package.json` service-name
   resolution, and Node.js route harvesting. A build that names none of the
@@ -139,6 +167,29 @@ The injected agent reports in-process readings over an eBPF side channel:
   - the application's source files mention `SIGUSR1`. This last check runs only
     when the libuv tree is unreadable, and is still fail-open: a scan that
     cannot complete reads as handler-free.
+- The version check is a refusal of the same kind, decided from the executable
+  before any of the signal gates run, with two reasons of its own: the runtime
+  is below the injection floor, or its version could not be read.
+- **Node.js 9.x and earlier segfault when the inspector is closed.**
+  `process._debugEnd()` runs `Agent::Stop()`, which destroys the `ChannelImpl`
+  carrying CDP responses; the reply to that same `Runtime.evaluate` is then
+  sent over the freed channel:
+
+  ```
+  #0 node::inspector::ChannelImpl::sendResponse
+  #1 v8_inspector::V8InspectorSessionImpl::sendProtocolResponse
+  #3 v8_inspector::protocol::DispatcherBase::Callback::sendIfActive
+  #4 v8_inspector::protocol::Runtime::EvaluateCallbackImpl::sendSuccess
+  #5 v8_inspector::V8RuntimeAgentImpl::evaluate
+  ```
+
+  Reproduced on 9.3.0, where it is deterministic; 10.24.1 does not fault. The
+  releases between the two were not tested, so where upstream stopped doing this
+  is unknown. The injection floor is above both, so OBI no longer reaches this
+  path — but the close itself still waits for a reply the call has made
+  undeliverable. On a runtime that survives it the read returns at once, when
+  the runtime drops the session, leaving a discarded error and a session OBI
+  never closes.
 - **Main-thread event loop only**: `perf_hooks` are per-thread and the agent
   runs on the main isolate, so `worker_threads` loops are not measured (the
   same scope as the standard OTel Node.js SDK). See the design notes for
