@@ -808,6 +808,26 @@ func TestMissingUprobeLibraryPrerequisite(t *testing.T) {
 	assert.Empty(t, missing)
 }
 
+// libcudart implements the CUDA Runtime API on top of the driver API in
+// libcuda, so a process mapping both would report every kernel launch twice.
+// The driver library is gated on the runtime library's absence.
+func TestConflictingUprobeLibrary(t *testing.T) {
+	driverOnly := makeProcMaps("/app/libcuda.so.1")
+	driverAndRuntime := makeProcMaps("/app/libcuda.so.1", "/app/libcudart.so.12")
+
+	conflicting, ok := conflictingUprobeLibrary("libcuda.so", driverOnly)
+	assert.False(t, ok, "libcuda is probed when libcudart is absent")
+	assert.Empty(t, conflicting)
+
+	conflicting, ok = conflictingUprobeLibrary("libcuda.so", driverAndRuntime)
+	assert.True(t, ok, "libcuda is skipped when libcudart is mapped")
+	assert.Equal(t, "libcudart", conflicting)
+
+	conflicting, ok = conflictingUprobeLibrary("libcudart", driverAndRuntime)
+	assert.False(t, ok, "libraries without a conflict entry are unaffected")
+	assert.Empty(t, conflicting)
+}
+
 // Ruby 4.0 no longer routes the common Class#new path through
 // rb_obj_call_init_kw, so the Puma correlation cannot succeed there. The
 // generic tracer declares the library as "libruby[< 4.0]"; this covers how
