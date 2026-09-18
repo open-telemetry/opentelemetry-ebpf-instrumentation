@@ -6,8 +6,8 @@ instrumented Go services and exports the following metric set.
 OBI resolves runtime globals from ELF object symbols when they are available.
 Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
 fallback recovers the three mandatory globals: `runtime.gomaxprocs`,
-`runtime.memstats`, and `runtime.gcController`. Recovery of optional globals
-needed for the remaining metrics is still pending.
+`runtime.memstats`, and `runtime.gcController`. It also recovers `runtime.work`
+for CPU statistics. Recovery of the other optional globals is still pending.
 
 ## Stripped global recovery
 
@@ -80,6 +80,18 @@ memory statistics, allowing NOP padding between the instructions.
 Matches must agree on one address. The resolver checks its eight-byte alignment
 and that its first eight bytes fit readable, writable storage, then adds the
 process load bias.
+
+### CPU statistics
+
+Inside `runtime.putfull`, Go calls `work.full.push(&b.node)` to enqueue a full
+GC work buffer. The resolver matches the receiver passed to
+`runtime.(*lfstack).push`, then subtracts the generated `runtime.workType.full`
+field offset to recover the `work` base.
+
+Field metadata is available from Go 1.23, matching CPU metric support. The
+resolver validates alignment, storage, and address arithmetic. If recovery fails,
+the work address remains zero and CPU collection is skipped; the three mandatory
+globals remain available.
 
 ## Metrics
 

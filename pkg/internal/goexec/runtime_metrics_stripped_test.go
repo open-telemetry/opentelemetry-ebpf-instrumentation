@@ -6,6 +6,7 @@
 package goexec
 
 import (
+	"bytes"
 	"debug/elf"
 	"math"
 	"os"
@@ -42,7 +43,7 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			t.Cleanup(func() { _ = oracle.Close() })
 			symbols, err := oracle.Symbols()
 			require.NoError(t, err)
-			var want, wantMemstats, wantGCController uint64
+			var want, wantMemstats, wantGCController, wantWork uint64
 			for _, symbol := range symbols {
 				if symbol.Name == "runtime.gomaxprocs" {
 					want = symbol.Value
@@ -53,10 +54,14 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 				if symbol.Name == "runtime.gcController" {
 					wantGCController = symbol.Value
 				}
+				if symbol.Name == "runtime.work" {
+					wantWork = symbol.Value
+				}
 			}
 			require.NotZero(t, want)
 			require.NotZero(t, wantMemstats)
 			require.NotZero(t, wantGCController)
+			require.NotZero(t, wantWork)
 
 			// Strip a copy of the same link so the symbol oracle's addresses stay valid.
 			output, err = exec.Command(objcopy, "--strip-all", original, stripped).CombinedOutput()
@@ -90,8 +95,27 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			require.Equal(t, want+loadBias, recovered.GOMAXPROCSAddr)
 			require.Equal(t, wantMemstats+loadBias, recovered.MemstatsAddr)
 			require.Equal(t, wantGCController+loadBias, recovered.GCControllerAddr)
+			require.Equal(t, wantWork+loadBias, recovered.WorkAddr)
 			_, err = resolveRuntimeMetricSymbols(f, math.MaxUint64)
 			require.EqualError(t, err, "gomaxprocs process address overflows")
+
+			t.Run("missing-work-anchor", func(t *testing.T) {
+				data, err := os.ReadFile(stripped)
+				require.NoError(t, err)
+				// Rename only the metadata name, preserving its length and all addresses.
+				name := []byte("runtime.putfull\x00")
+				require.True(t, bytes.Contains(data, name))
+				data = bytes.ReplaceAll(data, name, []byte("runtime.no_full\x00"))
+				missing, err := elf.NewFile(bytes.NewReader(data))
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = missing.Close() })
+				got, err := resolveRuntimeMetricSymbols(missing, loadBias)
+				require.NoError(t, err)
+				require.Zero(t, got.WorkAddr)
+				require.Equal(t, recovered.GOMAXPROCSAddr, got.GOMAXPROCSAddr)
+				require.Equal(t, recovered.MemstatsAddr, got.MemstatsAddr)
+				require.Equal(t, recovered.GCControllerAddr, got.GCControllerAddr)
+			})
 
 			t.Run("linker-stripped", func(t *testing.T) {
 				linkedPath := filepath.Join(dir, "linker-stripped")
@@ -121,6 +145,7 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 				require.Equal(t, address+loadBias, recovered.GOMAXPROCSAddr)
 				require.Greater(t, recovered.MemstatsAddr, loadBias)
 				require.Greater(t, recovered.GCControllerAddr, loadBias)
+				require.Greater(t, recovered.WorkAddr, loadBias)
 			})
 		})
 	}

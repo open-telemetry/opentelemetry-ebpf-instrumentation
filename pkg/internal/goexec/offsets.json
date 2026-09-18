@@ -2690,6 +2690,18 @@
             "since": "1.26.0"
           }
         ]
+      },
+      "full": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.27.1"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.23.0"
+          }
+        ]
       }
     }
   }

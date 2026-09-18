@@ -619,6 +619,20 @@ func TestPrefetchedGoRuntimeHeapStatsOffset(t *testing.T) {
 	}
 }
 
+func TestPrefetchedGoRuntimeWorkFullOffset(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+	_, found := track.Find("runtime.workType", "full", "1.22.12")
+	require.False(t, found)
+	for _, version := range []string{"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1"} {
+		t.Run(version, func(t *testing.T) {
+			value, found := track.Find("runtime.workType", "full", version)
+			require.True(t, found)
+			require.Zero(t, value)
+		})
+	}
+}
+
 func TestPrefetchedGoRuntimeMemoryOffsets(t *testing.T) {
 	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	require.NoError(t, err)

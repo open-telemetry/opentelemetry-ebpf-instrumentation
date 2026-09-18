@@ -6,12 +6,15 @@ package goexec
 import (
 	"bytes"
 	"debug/elf"
+	"debug/gosym"
 	"errors"
 
 	trackeroffsets "github.com/grafana/go-offsets-tracker/pkg/offsets"
 
 	"go.opentelemetry.io/obi/internal/goversion"
 )
+
+const maximumRuntimeFunctionSize = 64 << 10
 
 // resolveRuntimeMetricSymbolsFromCode recovers runtime global addresses from Go
 // machine code and applies the executable's load bias to obtain process addresses.
@@ -34,7 +37,6 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 	if procresize == nil {
 		return RuntimeMetricSymbols{}, errors.New("runtime.procresize function not found")
 	}
-	const maximumRuntimeFunctionSize = 64 << 10
 	if procresize.End <= procresize.Entry || procresize.End-procresize.Entry > maximumRuntimeFunctionSize {
 		return RuntimeMetricSymbols{}, errors.New("invalid runtime.procresize function bounds")
 	}
@@ -70,7 +72,7 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 	if err != nil {
 		return RuntimeMetricSymbols{}, err
 	}
-	heapStatsOffset, err := runtimeMetricHeapStatsOffset(f)
+	heapStatsOffset, err := runtimeMetricFieldOffset(f, "runtime.mstats", "heapStats")
 	if err != nil {
 		return RuntimeMetricSymbols{}, err
 	}
@@ -122,11 +124,58 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 	if loadBias > ^uint64(0)-gcControllerELFAddress {
 		return RuntimeMetricSymbols{}, errors.New("gcController process address overflows")
 	}
+	// work is optional: a zero address makes the collector skip CPU statistics.
+	var workProcessAddress uint64
+	if workELFAddress, err := resolveRuntimeMetricWorkFromCode(f, table); err == nil && loadBias <= ^uint64(0)-workELFAddress {
+		workProcessAddress = loadBias + workELFAddress
+	}
 	return RuntimeMetricSymbols{
 		GOMAXPROCSAddr:   gomaxprocsProcessAddress,
 		MemstatsAddr:     loadBias + memstatsELFAddress,
 		GCControllerAddr: loadBias + gcControllerELFAddress,
+		WorkAddr:         workProcessAddress,
 	}, nil
+}
+
+// resolveRuntimeMetricWorkFromCode follows work.full.push(&b.node) in putfull.
+// https://github.com/golang/go/blob/go1.27.1/src/runtime/mgcwork.go#L492
+func resolveRuntimeMetricWorkFromCode(f *elf.File, table *gosym.Table) (uint64, error) {
+	putfull := table.LookupFunc("runtime.putfull")
+	if putfull == nil {
+		return 0, errors.New("runtime.putfull function not found")
+	}
+	if putfull.End <= putfull.Entry || putfull.End-putfull.Entry > maximumRuntimeFunctionSize {
+		return 0, errors.New("invalid runtime.putfull function bounds")
+	}
+	code, err := readVirtualMemoryWithFlags(f, putfull.Entry, putfull.End-putfull.Entry, elf.PF_X)
+	if err != nil {
+		return 0, err
+	}
+	push := table.LookupFunc("runtime.(*lfstack).push")
+	if push == nil {
+		return 0, errors.New("runtime.(*lfstack).push function not found")
+	}
+	fullELFAddress, err := resolveRuntimeMetricReceiverFromCode(putfull.Entry, code, push.Entry)
+	if err != nil {
+		return 0, err
+	}
+	fullOffset, err := runtimeMetricFieldOffset(f, "runtime.workType", "full")
+	if err != nil {
+		return 0, err
+	}
+	// The receiver is &work.full; subtract its field offset to recover &work.
+	const fullSize = 8 // lfstack is a uint64.
+	if fullELFAddress%fullSize != 0 || !runtimeMetricWritableRange(f, fullELFAddress, fullSize) {
+		return 0, errors.New("invalid work.full storage")
+	}
+	if fullOffset >= fullELFAddress {
+		return 0, errors.New("invalid work.full field offset")
+	}
+	workELFAddress := fullELFAddress - fullOffset
+	if workELFAddress%fullSize != 0 || !runtimeMetricWritableRange(f, workELFAddress, fullOffset+fullSize) {
+		return 0, errors.New("invalid work storage")
+	}
+	return workELFAddress, nil
 }
 
 // runtimeMetricMemstatsBase moves from &memstats.heapStats back to memstats.
@@ -146,9 +195,9 @@ func runtimeMetricMemstatsBase(f *elf.File, heapStatsELFAddress, heapStatsOffset
 	return memstatsELFAddress, nil
 }
 
-// runtimeMetricHeapStatsOffset locates heapStats within memstats for the target's
-// Go version. A missing generated offset is an error; a zero offset is valid.
-func runtimeMetricHeapStatsOffset(f *elf.File) (uint64, error) {
+// runtimeMetricFieldOffset locates a field for the target's Go version.
+// A missing generated offset is an error; a zero offset is valid.
+func runtimeMetricFieldOffset(f *elf.File, structName, fieldName string) (uint64, error) {
 	versionString, _, err := getGoDetails(f)
 	if err != nil {
 		return 0, err
@@ -161,7 +210,7 @@ func runtimeMetricHeapStatsOffset(f *elf.File) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return generatedABIFact(track, "runtime.mstats", "heapStats", version)
+	return generatedABIFact(track, structName, fieldName, version)
 }
 
 // runtimeMetricWritableRange checks that the whole global fits in a readable,
