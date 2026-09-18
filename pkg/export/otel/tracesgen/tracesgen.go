@@ -79,7 +79,8 @@ func capturedUserAgent(span *request.Span) string {
 }
 
 // httpMethodAttributes clamps a method outside the semconv enum to _OTHER,
-// keeping the wire value on http.request.method_original.
+// keeping the wire value on http.request.method_original. A method the parser
+// could not read is not known to the instrumentation, so it clamps too.
 func httpMethodAttributes(method string, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	if request.IsKnownHTTPMethod(method) {
 		return []attribute.KeyValue{request.HTTPRequestMethod(method)}
@@ -88,8 +89,9 @@ func httpMethodAttributes(method string, optionalAttrs map[attr.Name]struct{}) [
 	attrs := []attribute.KeyValue{semconv.HTTPRequestMethodOther}
 
 	// Conditionally required only when it differs from http.request.method, so a
-	// wire method of literally _OTHER reports nothing extra.
-	if _, ok := optionalAttrs[attr.HTTPRequestMethodOrig]; ok && method != request.HTTPMethodOther {
+	// wire method of literally _OTHER reports nothing extra. An unparsed method
+	// has no original to report either.
+	if _, ok := optionalAttrs[attr.HTTPRequestMethodOrig]; ok && method != "" && method != request.HTTPMethodOther {
 		attrs = append(attrs, semconv.HTTPRequestMethodOriginal(method))
 	}
 
@@ -656,9 +658,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 		attrs = appendHTTPResponseStatus(attrs, span)
-		if span.Method != "" {
-			attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
-		}
+		attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
 		if span.Path != "" {
 			attrs = append(attrs, request.HTTPUrlPath(span.Path))
 		}
@@ -762,9 +762,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 		if transport != httpTransportNone {
 			attrs = append(attrs, request.HTTPUrlFull(url))
-			if span.Method != "" {
-				attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
-			}
+			attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
 		}
 
 		if transport == httpTransportAll {

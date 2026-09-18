@@ -2505,6 +2505,8 @@ func statsFeatureMask(features []string) export.Features {
 			out |= export.FeatureStatsTCPRtt
 		case statsFeatureTCPFailedConnections:
 			out |= export.FeatureStatsTCPFailedConnections
+		case statsFeatureTCPSuccessfulConnections:
+			out |= export.FeatureStatsTCPSuccessfulConnections
 		case statsFeatureTCPRetransmits:
 			out |= export.FeatureStatsTCPRetransmits
 		case statsFeatureTCPIo:

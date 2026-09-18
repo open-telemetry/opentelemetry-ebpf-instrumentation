@@ -25,6 +25,8 @@ data:
           include: ["*"]
         obi.stat.tcp.failed.connections:
           include: ["*"]
+        obi.stat.tcp.successful.connections:
+          include: ["*"]
 ---
 apiVersion: apps/v1
 kind: DaemonSet

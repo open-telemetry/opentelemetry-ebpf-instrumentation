@@ -72,6 +72,7 @@ func TestPrometheusNames(t *testing.T) {
 		{Resource, "resource"},
 		{StatTCPRtt, "obi_stat_tcp_rtt_seconds"},
 		{StatTCPFailedConnections, "obi_stat_tcp_failed_connections_total"},
+		{StatTCPSuccessfulConnections, "obi_stat_tcp_successful_connections_total"},
 		{StatTCPRetransmits, "obi_stat_tcp_retransmits_total"},
 		{StatTCPIo, "obi_stat_tcp_io_bytes_total"},
 		{V8JSGCDuration, "v8js_gc_duration_seconds"},

@@ -1,6 +1,6 @@
 services:
   edge-nginx:
-    image: nginx:1.31.6-alpine@sha256:d0a6faaed2491faecdb9021f449e8edd7b1bbba246fe2ddf7eba63cccd5b9803
+    image: nginx:1.31.6-alpine@sha256:adad2ae9204d0fd7a34f40299bc838c3782be1293b10005eac4315ff5a1abf4e
     container_name: edge-nginx
     ports:
       - "8080:8080"
@@ -12,14 +12,14 @@ services:
       - recommendations-v2
 
   recommendations-v1:
-    image: nginx:1.31.6-alpine@sha256:d0a6faaed2491faecdb9021f449e8edd7b1bbba246fe2ddf7eba63cccd5b9803
+    image: nginx:1.31.6-alpine@sha256:adad2ae9204d0fd7a34f40299bc838c3782be1293b10005eac4315ff5a1abf4e
     container_name: recommendations-v1
     volumes:
       - ./docker/recommendations-v1/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./k8s/shared:/etc/nginx/shared:ro
 
   recommendations-v2:
-    image: nginx:1.31.6-alpine@sha256:d0a6faaed2491faecdb9021f449e8edd7b1bbba246fe2ddf7eba63cccd5b9803
+    image: nginx:1.31.6-alpine@sha256:adad2ae9204d0fd7a34f40299bc838c3782be1293b10005eac4315ff5a1abf4e
     container_name: recommendations-v2
     volumes:
       - ./docker/recommendations-v2/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -57,7 +57,7 @@ services:
       - lgtm
 
   lgtm:
-    image: grafana/otel-lgtm:0.33.0@sha256:475319e883b66594d1a2f22ef168c2459802bb94548e6f25d9782bd5f5c19a3a
+    image: grafana/otel-lgtm:0.33.1@sha256:d6c52678ab5b7144f27ae569fd778608121c0f4a10eb411983750a0d67c1fbe3
     container_name: lgtm-nginx-example
     ports:
       - "3000:3000"
