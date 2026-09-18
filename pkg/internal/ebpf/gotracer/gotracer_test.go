@@ -125,6 +125,14 @@ func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
 }
 
+func TestMissingGoHTTPClientRequestOffsetsUseSentinel(t *testing.T) {
+	var offTable BpfOffTableT
+
+	initMissingGoOffsets(&offTable, goHTTPClientRequestOffsetFields[:])
+
+	assert.Equal(t, missingGoOffset, offTable.Table[goexec.ReqHeaderPtrPos])
+}
+
 func TestMissingGoGRPCBufWriterOffsetsUseSentinel(t *testing.T) {
 	var offTable BpfOffTableT
 
