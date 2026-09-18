@@ -319,6 +319,8 @@ var traceFSFallbackLog = sync.OnceFunc(func() {
 	slog.Info("attached uprobe through tracefs because PMU access was denied")
 })
 
+var traceFSErrorFallbackLog sync.Once
+
 func attachWithTraceFSFallback(
 	attachPerf func() (io.Closer, error),
 	attachTraceFS func() (io.Closer, error),
@@ -332,7 +334,12 @@ func attachWithTraceFSFallback(
 
 	closer, traceFSErr := attachTraceFS()
 	if traceFSErr != nil {
-		slog.Debug("cannot attach tracefs based uprobe, maybe CAP_DAC_OVERRIDE is missing or tracefs/debugfs not mounted", "error", traceFSErr)
+		traceFSErrorFallbackLog.Do(func() {
+			slog.Error(
+				"cannot attach tracefs based uprobe, maybe CAP_DAC_OVERRIDE is missing or tracefs/debugfs is not mounted",
+				"error", traceFSErr,
+			)
+		})
 		return nil, errors.Join(err, traceFSErr)
 	}
 	traceFSFallbackUsed.Store(true)
