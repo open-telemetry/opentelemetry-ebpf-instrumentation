@@ -42,6 +42,10 @@ func TestSuite_DjangoRoutes(t *testing.T) {
 		route  string
 		status int
 	}{
+		{path: "/articles/2026/", route: "/articles/<year>/", status: http.StatusOK},
+		{path: "/credit/reports/", route: "/credit/reports/", status: http.StatusOK},
+		{path: "/billing/reports/", route: "/billing/reports/", status: http.StatusOK},
+		{path: "/retail/orders/42/", route: "/retail/orders/<int:order_id>/", status: http.StatusOK},
 		{path: "/shop/orders/42/", route: "/shop/orders/<int:order_id>/", status: http.StatusOK},
 		{path: "/wholesale/orders/123/", route: "/wholesale/orders/<int:order_id>/", status: http.StatusOK},
 		{path: "/en/localized/orders/42/", route: "/<language>/localized/orders/<int:order_id>/", status: http.StatusOK},
