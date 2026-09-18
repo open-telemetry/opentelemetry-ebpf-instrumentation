@@ -1,5 +1,5 @@
 {
   "require": {
-    "symfony/routing": "^7.0"
+    "symfony/routing": "^8.0"
   }
 }
