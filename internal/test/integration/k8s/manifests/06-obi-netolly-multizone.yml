@@ -29,13 +29,13 @@ data:
         obi.network.flow.bytes:
           # assured cardinality explosion. Don't try in production!
           include: ["*"]
-          exclude: ["src_port"]
+          exclude: ["src_port", "dst_port", "client_port", "server_port"]
         obi.network.inter.zone.bytes:
           include: ["*"]
-          exclude: ["src_port"]
+          exclude: ["src_port", "dst_port", "client_port", "server_port"]
         obi.network.flow.packets:
           include: ["*"]
-          exclude: ["src_port"]
+          exclude: ["src_port", "dst_port", "client_port", "server_port"]
 ---
 apiVersion: apps/v1
 kind: DaemonSet
