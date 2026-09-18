@@ -84,8 +84,37 @@ func TestPrometheusNames(t *testing.T) {
 		{V8JSResourceActive, "v8js_resource_active"},
 	}
 
+	// Span metrics, service graph metrics and the info metrics carry no Section, so they are
+	// keyed by their OTEL name below. Every expectation is the name OBI's Prometheus exporter
+	// published before these metrics were declared: the consolidation renames nothing.
+	tests = append(tests, []struct {
+		metric Name
+		prom   string
+	}{
+		// Grafana-convention names, matched literally by Tempo: the absent unit is what keeps
+		// the derivation from appending _seconds.
+		{SpanMetricsLatencyLegacy, "traces_spanmetrics_latency"},
+		{SpanMetricsCallsLegacy, "traces_spanmetrics_calls_total"},
+		{SpanMetricsRequestSize, "traces_spanmetrics_size_total"},
+		{SpanMetricsResponseSize, "traces_spanmetrics_response_size_total"},
+		{SpanMetricsDurationOTel, "traces_span_metrics_duration_seconds"},
+		{SpanMetricsCallsOTel, "traces_span_metrics_calls_total"},
+		// The servicegraph connector emits these underscore-shaped names itself.
+		{ServiceGraphClient, "traces_service_graph_request_client_seconds"},
+		{ServiceGraphServer, "traces_service_graph_request_server_seconds"},
+		{ServiceGraphFailed, "traces_service_graph_request_failed_total"},
+		{ServiceGraphTotal, "traces_service_graph_request_total"},
+		{TargetInfo, "target_info"},
+		{TracesTargetInfo, "traces_target_info"},
+		{TracesHostInfo, "traces_host_info"},
+	}...)
+
 	for _, test := range tests {
-		t.Run(string(test.metric.Section), func(t *testing.T) {
+		name := string(test.metric.Section)
+		if name == "" {
+			name = test.metric.OTEL
+		}
+		t.Run(name, func(t *testing.T) {
 			require.NotEmpty(t, test.metric.Prom)
 			assert.Equal(t, test.prom, test.metric.Prom)
 		})
