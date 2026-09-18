@@ -43,6 +43,9 @@ groups:
       - ref: jsonrpc.protocol.version
       - ref: rpc.system.name
       - ref: rpc.method
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: If and only if it's different than `rpc.method`.
       - ref: rpc.response.status_code
       - ref: network.peer.address
       - ref: network.peer.port
@@ -77,6 +80,9 @@ groups:
       - ref: http.response.header
       - ref: rpc.system.name
       - ref: rpc.method
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: If and only if it's different than `rpc.method`.
       - ref: rpc.response.status_code
       - ref: jsonrpc.protocol.version
       - ref: jsonrpc.request.id
