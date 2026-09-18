@@ -3,8 +3,95 @@
 With `application_runtime` enabled, OBI collects Go runtime values from
 instrumented Go services and exports the following metric set.
 
-Go runtime metrics require the binary's symbol table. Stripped builds, including
-builds using `-ldflags=-s`, are not supported.
+OBI resolves runtime globals from ELF object symbols when they are available.
+Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
+fallback recovers the three mandatory globals: `runtime.gomaxprocs`,
+`runtime.memstats`, and `runtime.gcController`. It also recovers `runtime.work`
+for CPU statistics. Recovery of the other optional globals is still pending.
+
+## Stripped global recovery
+
+Go retains function metadata in `.gopclntab` after `-ldflags=-s` removes the ELF
+object symbols. The fallback parses this metadata to locate runtime functions
+and read their bounded instruction ranges.
+
+### Processor limit
+
+The resolver locates
+`runtime.procresize`, whose processor-count validation reads `runtime.gomaxprocs`.
+
+On `amd64`, the resolver decodes `procresize` and matches this sequence:
+
+```text
+MOV  register, [RIP+displacement]
+TEST register, register
+JL   invalidArg
+```
+
+The `MOV` reads the four-byte `gomaxprocs` global. Its target ELF address is the
+instruction address plus its length and signed displacement. The resolver
+requires the complete, aligned four-byte candidate to belong to a readable and
+writable `PT_LOAD` memory range. It uses the segment's in-memory size so globals
+in zero-initialized BSS are valid, and rejects matches that identify different
+addresses.
+
+After validation, the resolver adds the executable's process load bias. The
+resulting process address is the value that the BPF runtime metrics collector
+uses to read `gomaxprocs` from the target process.
+
+### Memory statistics
+
+The resolver locates `runtime.(*mcache).refill` and
+`runtime.(*consistentHeapStats).acquire` through the same Go function metadata.
+Inside `refill`, Go calls:
+
+```go
+stats := memstats.heapStats.acquire()
+```
+
+On `amd64`, the receiver is passed in RAX. The resolver matches the instructions
+that prepare the receiver and call the identified method:
+
+```text
+LEA  RAX, [RIP+displacement]  // Address of memstats.heapStats
+CALL acquire                // Destination must match acquire's entry address
+```
+
+The LEA gives the incoming receiver's address. Subtracting its generated field
+offset recovers the containing global:
+
+```text
+memstats base = heapStats address - heapStats field offset
+```
+
+The field offset is 5960 bytes for Go 1.17/1.18 and zero for Go 1.19 through 1.27.1.
+The resolver rejects missing metadata, conflicting addresses, invalid alignment,
+storage ranges, and arithmetic overflow. It then adds the process load bias
+to obtain the base address in the target process.
+
+### GC controller
+
+Inside `runtime.gcinit`, the resolver matches the receiver passed to
+`runtime.(*gcControllerState).init`. Go 1.18 inlines this method, so the resolver
+also accepts its remaining call to `runtime.(*gcControllerState).setGCPercent`.
+Both calls identify `&gcController` through the same LEA/CALL pattern used for
+memory statistics, allowing NOP padding between the instructions.
+
+Matches must agree on one address. The resolver checks its eight-byte alignment
+and that its first eight bytes fit readable, writable storage, then adds the
+process load bias.
+
+### CPU statistics
+
+Inside `runtime.putfull`, Go calls `work.full.push(&b.node)` to enqueue a full
+GC work buffer. The resolver matches the receiver passed to
+`runtime.(*lfstack).push`, then subtracts the generated `runtime.workType.full`
+field offset to recover the `work` base.
+
+Field metadata is available from Go 1.23, matching CPU metric support. The
+resolver validates alignment, storage, and address arithmetic. If recovery fails,
+the work address remains zero and CPU collection is skipped; the three mandatory
+globals remain available.
 
 ## Metrics
 

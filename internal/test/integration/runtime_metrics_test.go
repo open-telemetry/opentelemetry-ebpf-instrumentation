@@ -82,6 +82,10 @@ func TestRuntimeHistogramPrometheusQueryUsesOneEvaluation(t *testing.T) {
 }
 
 func testRuntimeMetricsGo(t *testing.T) {
+	testRuntimeMetricsGoAtPort(t, runtimeMetricsHostPort, false)
+}
+
+func testRuntimeMetricsGoAtPort(t *testing.T, port string, stripped bool) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	monotonicMetrics := []struct {
@@ -170,12 +174,12 @@ func testRuntimeMetricsGo(t *testing.T) {
 		},
 	}
 
-	forceRuntimeGC(t)
-	expected := readRuntimeMetrics(t)
+	forceRuntimeGCAtPort(t, port)
+	expected := readRuntimeMetricsAtPort(t, port)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		forceRuntimeGC(ct)
-		current := readRuntimeMetrics(ct)
+		forceRuntimeGCAtPort(ct, port)
+		current := readRuntimeMetricsAtPort(ct, port)
 		results, err := pq.Query(`go_memory_limit_bytes`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
@@ -184,6 +188,9 @@ func testRuntimeMetricsGo(t *testing.T) {
 			require.Equal(ct, "integration-test/testserver", result.Metric["job"])
 		}
 		for _, metric := range monotonicMetrics {
+			if stripped && (metric.obiName == "go_memory_allocated_bytes_total" || metric.obiName == "go_memory_allocations_total") {
+				continue
+			}
 			obiValue := runtimeMetricValue(ct, pq, metric.obiName)
 			assertRuntimeMetricObserved(ct, expected, current, metric.runtimeName, obiValue, metric.obiName)
 		}
@@ -200,6 +207,9 @@ func testRuntimeMetricsGo(t *testing.T) {
 			)
 		}
 		for _, metric := range gaugeMetrics {
+			if stripped && metric.obiQuery == "go_goroutine_count" {
+				continue
+			}
 			obiValue := runtimeMetricValue(ct, pq, metric.obiQuery)
 			assertRuntimeMetricGaugeObserved(
 				ct,
@@ -211,6 +221,19 @@ func testRuntimeMetricsGo(t *testing.T) {
 			)
 		}
 	}, testTimeout, 250*time.Millisecond)
+
+	if stripped {
+		// These metrics require globals whose stripped recovery is not implemented.
+		for _, query := range []string{
+			"go_memory_allocated_bytes_total", "go_memory_allocations_total", "go_goroutine_count",
+			"go_memory_gc_pause_duration_seconds_count", "go_schedule_duration_seconds_count",
+		} {
+			results, err := pq.Query(query)
+			require.NoError(t, err)
+			assert.Empty(t, results, "%s requires an unresolved global", query)
+		}
+		return
+	}
 
 	expectedHistograms := readRuntimeHistograms(t)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -583,10 +606,6 @@ func setRuntimeMetricsReadLoop(t require.TestingT, enabled bool) {
 
 	_, err = bufio.NewReader(conn).ReadString('\n')
 	require.NoError(t, err)
-}
-
-func readRuntimeMetrics(t require.TestingT) map[string]float64 {
-	return readRuntimeMetricsAtPort(t, runtimeMetricsHostPort)
 }
 
 func readRuntimeMetricsAtPort(t require.TestingT, port string) map[string]float64 {
