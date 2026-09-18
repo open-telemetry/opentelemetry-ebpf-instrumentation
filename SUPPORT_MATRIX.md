@@ -103,7 +103,7 @@ The following runtime and server baselines are currently documented or enforced 
 | Go applications | Go `1.17+` for library-level instrumentation |
 | Java applications | JDK `8+` |
 | Node.js async-hooks context propagation | Node.js `12.17+`, excluding `13.0`–`13.9` |
-| Node.js manual span capture | Opt-in; Node.js inspector must be reachable; the application must not register an OpenTelemetry SDK. See [devdocs/nodejs-manual-spans.md](devdocs/nodejs-manual-spans.md) |
+| Node.js manual span capture | Opt-in; Node.js `14.0+` because the span bridge uses nullish coalescing; Node.js inspector must be reachable; the application must not register an OpenTelemetry SDK. See [devdocs/nodejs-manual-spans.md](devdocs/nodejs-manual-spans.md) |
 | Python asyncio context propagation | GIL-enabled, 64-bit CPython `3.9` through `3.14`, using the default asyncio loop or `uvloop`; free-threaded builds are unsupported |
 | Ruby applications | Ruby `3.0.2+` when served by Puma `5.0+` |
 | nginx | HTTP server and reverse-proxy tracing validated on nginx `>= 1.27.3` |

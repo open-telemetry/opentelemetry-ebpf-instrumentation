@@ -93,6 +93,7 @@ feature. They are not the same number and are easy to confuse:
 | From | What it unlocks | Why |
 |---|---|---|
 | `12.17`, excluding `13.0`-`13.9` | Any injection at all: trace-context propagation, and the delivery path every runtime metric uses | The agent constructs an `AsyncLocalStorage` |
+| `14.0` | `nodejs.manual_spans`, when enabled | `spanbridge.js` uses nullish coalescing |
 | `14.10` | `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `v8js.gc.duration`, `v8js.memory.heap.*` | `performance.eventLoopUtilization()` |
 | `16.14` | `nodejs.eventloop.delay.*`, `v8js.resource.active` | `Histogram.count`, `process.getActiveResourcesInfo()` |
 
@@ -115,6 +116,13 @@ feature. They are not the same number and are easy to confuse:
   keeps OBI away from Node.js 9.x and earlier, where closing the inspector
   segfaults the process (see below).
 
+- **`nodejs.manual_spans` needs 14.0+.** `spanbridge.js` uses nullish
+  coalescing, which Node.js enabled by default in 14.0.0, and the injector
+  concatenates it with the extractor into a single `Runtime.evaluate`. On an
+  older runtime the whole payload fails to parse, taking propagation and the
+  runtime metrics with it, so the injection is refused outright rather than
+  delivering less than was asked for. Leaving manual spans off keeps the 12.17
+  floor.
 - Node.js 14.10+ (`eventLoopUtilization` API) for the event-loop time and
   utilization metrics; the delay gauges (`Histogram.count`) and the
   active-resource gauge (`getActiveResourcesInfo`) additionally need

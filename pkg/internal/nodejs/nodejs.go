@@ -108,7 +108,7 @@ func (i *NodeInjector) Inject(ctx context.Context, target InjectionTarget) {
 	}
 	defer elfFile.Close()
 
-	if reason := runtimeRefusal(elfFile); reason != "" {
+	if reason := i.runtimeRefusal(target, elfFile); reason != "" {
 		i.log.Warn(skippingInjection, "pid", pid, "reason", reason)
 		return
 	}
@@ -197,6 +197,11 @@ const (
 	refusalVersionUnknown      = "the Node.js version could not be read from the executable"
 	refusalNoAsyncLocalStorage = "Node.js %s does not provide AsyncLocalStorage, " +
 		"which the injected agent requires: it was added in %s and backported to %s"
+	// Refusing the whole injection rather than dropping the bridge alone: the
+	// two scripts are evaluated as one expression, and manual spans are opt-in,
+	// so silently not delivering them would be worse than saying so.
+	refusalManualSpansTooOld = "nodejs.manual_spans needs Node.js %s or newer for the span " +
+		"bridge to parse, and this process runs %s"
 
 	refusalSignalIsFatal           = "SIGUSR1 is neither caught nor ignored, so it would terminate the process"
 	refusalDispositionUnknown      = "SIGUSR1 handling is unknown: the process caught and ignored signal sets could not be read"
@@ -205,14 +210,14 @@ const (
 )
 
 // runtimeRefusal reports why this executable must not be injected, or "" when it
-// may be. It decides from the executable alone, so a runtime the agent cannot run
-// on is never signaled and its debugger port is never opened — which also keeps
+// may be. It decides before touching the process, so a runtime the agent cannot
+// run on is never signaled and its debugger port is never opened — which also keeps
 // OBI off Node.js 9.3.0, where closing the inspector again segfaults the process.
 //
 // A version that cannot be read is a refusal rather than a pass: it is the only
 // evidence the agent can run there.
-func runtimeRefusal(elfFile *elf.File) string {
-	nodeVersion, ok := nodeVersionFromELF(elfFile)
+func (i *NodeInjector) runtimeRefusal(target InjectionTarget, elfFile *elf.File) string {
+	nodeVersion, ok := nodeVersionFromProcess(target, elfFile)
 	if !ok {
 		return refusalVersionUnknown
 	}
@@ -220,6 +225,11 @@ func runtimeRefusal(elfFile *elf.File) string {
 	if !supportsAsyncLocalStorage(nodeVersion) {
 		return fmt.Sprintf(refusalNoAsyncLocalStorage, nodeVersion.Original(),
 			node13Backport.Original(), minInjectableVersion.Original())
+	}
+
+	if i.cfg.NodeJS.ManualSpans && !supportsManualSpans(nodeVersion) {
+		return fmt.Sprintf(refusalManualSpansTooOld,
+			minManualSpansVersion.Original(), nodeVersion.Original())
 	}
 
 	return ""
