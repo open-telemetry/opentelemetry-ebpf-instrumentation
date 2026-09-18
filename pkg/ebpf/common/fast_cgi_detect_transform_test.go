@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
@@ -189,6 +191,8 @@ func TestDetectFastCGI(t *testing.T) {
 		outputLen      int
 		expectedMethod string
 		expectedPath   string
+		expectedScheme string
+		expectedHost   string
 		expectedResult int
 		extraCheck     func(t *testing.T, path string)
 	}{
@@ -312,12 +316,17 @@ func TestDetectFastCGI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ilen := min(len(tt.input), tt.inputLen)
 			olen := min(len(tt.output), tt.outputLen)
-			method, path, status := detectFastCGI(largebuf.NewLargeBufferFrom(tt.input[0:ilen]), largebuf.NewLargeBufferFrom(tt.output[0:olen]))
-			assert.Equal(t, tt.expectedMethod, method)
-			assert.Equal(t, tt.expectedPath, path)
-			assert.Equal(t, tt.expectedResult, status)
+			req, ok := detectFastCGI(largebuf.NewLargeBufferFrom(tt.input[0:ilen]), largebuf.NewLargeBufferFrom(tt.output[0:olen]))
+			assert.Equal(t, tt.expectedResult >= 0, ok)
+			assert.Equal(t, tt.expectedMethod, req.method)
+			assert.Equal(t, tt.expectedPath, req.uri)
+			assert.Equal(t, tt.expectedScheme, req.scheme)
+			assert.Equal(t, tt.expectedHost, req.host)
+			if ok {
+				assert.Equal(t, tt.expectedResult, req.status)
+			}
 			if tt.extraCheck != nil {
-				tt.extraCheck(t, path)
+				tt.extraCheck(t, req.uri)
 			}
 		})
 	}
@@ -363,11 +372,124 @@ func TestTCPToFastCGIToSpanPathSplit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			span := TCPToFastCGIToSpan(&TCPRequestInfo{}, "GET", tt.uri, 200)
+			span := TCPToFastCGIToSpan(&TCPRequestInfo{}, fastCGIRequest{method: "GET", uri: tt.uri, status: 200})
 			assert.Equal(t, tt.expectedPath, span.Path)
 			assert.Equal(t, tt.expectedFull, span.FullPath)
 		})
 	}
+}
+
+func fastCGIRequestFrom(t *testing.T, params map[string]string) fastCGIRequest {
+	t.Helper()
+
+	encoded := make([]byte, 0, 256)
+	for name, value := range params {
+		encoded = appendFastCGINameValue(encoded, name, value)
+	}
+
+	payload := appendFastCGIRecord(nil, 1, []byte{0, 1, 0, 0, 0, 0, 0, 0})
+	payload = appendFastCGIRecord(payload, 4, encoded)
+
+	req, ok := detectFastCGI(largebuf.NewLargeBufferFrom(payload), largebuf.NewLargeBufferFrom(nil))
+	require.True(t, ok)
+	return req
+}
+
+func TestDetectFastCGIRequestMetadata(t *testing.T) {
+	tests := []struct {
+		name   string
+		params map[string]string
+		scheme string
+		host   string
+		uri    string
+	}{
+		{
+			name:   "REQUEST_SCHEME wins",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "REQUEST_SCHEME": "https", "HTTPS": ""},
+			scheme: "https",
+			uri:    "/a",
+		},
+		{
+			// A TLS-terminating proxy leaves REQUEST_SCHEME describing its own
+			// hop into PHP-FPM; the client's scheme is the forwarded one.
+			name:   "X-Forwarded-Proto wins over REQUEST_SCHEME",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "REQUEST_SCHEME": "http", "HTTP_X_FORWARDED_PROTO": "https"},
+			scheme: "https",
+			uri:    "/a",
+		},
+		{
+			name:   "left-most X-Forwarded-Proto entry is the client's",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "REQUEST_SCHEME": "http", "HTTP_X_FORWARDED_PROTO": "https, http"},
+			scheme: "https",
+			uri:    "/a",
+		},
+		{
+			name:   "an unrecognized X-Forwarded-Proto falls back to REQUEST_SCHEME",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "REQUEST_SCHEME": "http", "HTTP_X_FORWARDED_PROTO": "gopher"},
+			scheme: "http",
+			uri:    "/a",
+		},
+		{
+			name:   "HTTPS on implies https",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "HTTPS": "on"},
+			scheme: "https",
+			uri:    "/a",
+		},
+		{
+			name:   "no scheme key leaves it unset rather than guessing",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a"},
+			scheme: "",
+			uri:    "/a",
+		},
+		{
+			name:   "HTTP_HOST preferred over SERVER_NAME",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "HTTP_HOST": "site.example", "SERVER_NAME": "localhost"},
+			host:   "site.example",
+			uri:    "/a",
+		},
+		{
+			name:   "SERVER_NAME when the client sent no Host",
+			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "SERVER_NAME": "localhost"},
+			host:   "localhost",
+			uri:    "/a",
+		},
+		{
+			name:   "DOCUMENT_URI carries the path when REQUEST_URI is absent",
+			params: map[string]string{"REQUEST_METHOD": "GET", "DOCUMENT_URI": "/index.php"},
+			uri:    "/index.php",
+		},
+		{
+			name:   "SCRIPT_NAME is the last resort",
+			params: map[string]string{"REQUEST_METHOD": "GET", "SCRIPT_NAME": "/index.php"},
+			uri:    "/index.php",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := fastCGIRequestFrom(t, tt.params)
+			assert.Equal(t, tt.scheme, req.scheme)
+			assert.Equal(t, tt.host, req.host)
+			assert.Equal(t, tt.uri, req.uri)
+		})
+	}
+}
+
+// The scheme and host reach the span through Statement, which is what
+// url.scheme is read back out of.
+func TestTCPToFastCGIToSpanCarriesScheme(t *testing.T) {
+	span := TCPToFastCGIToSpan(&TCPRequestInfo{}, fastCGIRequest{
+		method: "GET",
+		uri:    "/ping",
+		scheme: "https",
+		host:   "site.example",
+		status: 200,
+	})
+	assert.Equal(t, "https", request.HTTPScheme(&span))
+
+	bare := TCPToFastCGIToSpan(&TCPRequestInfo{}, fastCGIRequest{method: "GET", uri: "/ping", status: 200})
+	assert.Empty(t, bare.Statement)
+	assert.Empty(t, request.HTTPScheme(&bare))
 }
 
 func appendFastCGINameValue(dst []byte, name, value string) []byte {
@@ -377,12 +499,16 @@ func appendFastCGINameValue(dst []byte, name, value string) []byte {
 	return dst
 }
 
-func appendFastCGIRecord(dst []byte, recordType byte, requestID uint16, content []byte) []byte {
+// Every fixture uses request id 1; the FastCGI multiplexing id is not what
+// these tests exercise.
+const fastCGIFixtureRequestID = 1
+
+func appendFastCGIRecord(dst []byte, recordType byte, content []byte) []byte {
 	paddingLength := byte((8 - (len(content) % 8)) % 8)
 	dst = append(dst,
 		1,
 		recordType,
-		byte(requestID>>8), byte(requestID),
+		byte(fastCGIFixtureRequestID>>8), byte(fastCGIFixtureRequestID),
 		byte(len(content)>>8), byte(len(content)),
 		paddingLength,
 		0,
@@ -405,18 +531,18 @@ func BenchmarkDetectFastCGI(b *testing.B) {
 	params = appendFastCGINameValue(params, "DOCUMENT_URI", "/ping")
 	params = appendFastCGINameValue(params, "DOCUMENT_ROOT", "/var/www/html/public")
 
-	request := make([]byte, 0, 192)
-	request = appendFastCGIRecord(request, 1, 1, []byte{0, 1, 0, 0, 0, 0, 0, 0})
-	request = appendFastCGIRecord(request, 4, 1, params)
+	payload := make([]byte, 0, 192)
+	payload = appendFastCGIRecord(payload, 1, []byte{0, 1, 0, 0, 0, 0, 0, 0})
+	payload = appendFastCGIRecord(payload, 4, params)
 
 	responsePayload := []byte("Status: 404 Not Found\r\nContent-type: text/html; charset=UTF-8\r\n\r\nFile not found.\n")
-	response := appendFastCGIRecord(nil, 6, 1, responsePayload)
+	response := appendFastCGIRecord(nil, 6, responsePayload)
 
-	reqBuf := largebuf.NewLargeBufferFrom(request)
+	reqBuf := largebuf.NewLargeBufferFrom(payload)
 	respBuf := largebuf.NewLargeBufferFrom(response)
-	method, path, status := detectFastCGI(reqBuf, respBuf)
-	if method != "GET" || path != "/ping" || status != 404 {
-		b.Fatalf("unexpected benchmark fixture result: method=%q path=%q status=%d", method, path, status)
+	req, ok := detectFastCGI(reqBuf, respBuf)
+	if !ok || req.method != "GET" || req.uri != "/ping" || req.status != 404 {
+		b.Fatalf("unexpected benchmark fixture result: %+v ok=%v", req, ok)
 	}
 
 	b.ReportAllocs()
