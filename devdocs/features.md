@@ -164,9 +164,14 @@ See [nodejs-manual-spans.md](nodejs-manual-spans.md).
 Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel launches and memory copies. This
 instrumentation support differs from traditional GPU metrics, such as GPU utilization and GPU temperature.
 
-| Library                        |  Primitives                                                                      |             Versions | Limitations
-|:-------------------------------|:--------------------------------------------------------------------------------:|---------------------:|------------:
-| libcuda                        |    cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaMemcpy, cudaMemcpyAsync    |               >= 7.0 |         N/A
+OBI instruments the CUDA Runtime API through `libcudart` and the CUDA Driver API through `libcuda`. Since the runtime
+implements the driver API, a process that maps both libraries has its `libcuda` probes skipped, to avoid duplicating
+kernel launch telemetry.
+
+| Library   | Primitives | Versions | Limitations
+|:----------|:-----------|---------:|------------:
+| libcudart | cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaFree, cudaMemset, cudaMemcpy, cudaMemcpyAsync, cudaStreamCreate, cudaStreamCreateWithFlags, cudaStreamCreateWithPriority, cudaStreamDestroy, cudaEventRecord, cudaEventRecordWithFlags, cudaEventSynchronize, cudaStreamSynchronize, cudaDeviceSynchronize, cudaHostRegister | >= 7.0 | N/A
+| libcuda   | cuLaunchKernel, cuLaunchKernelEx, cuGraphLaunch | >= 7.0 | N/A
 
 # Supported Context propagation frameworks
 

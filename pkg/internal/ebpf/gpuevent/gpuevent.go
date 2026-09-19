@@ -23,13 +23,22 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type cuda_kernel_launch_t -type cuda_graph_launch_t -type cuda_malloc_t -type cuda_memcpy_t -target amd64,arm64 Bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type cuda_kernel_launch_t -type cuda_memcpy_t -type cuda_size_event_t -type cuda_call_event_t -target amd64,arm64 Bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
 
 const (
-	EventTypeKernelLaunch = 1 // EVENT_CUDA_KERNEL_LAUNCH
-	EventTypeMalloc       = 2 // EVENT_CUDA_MALLOC
-	EventTypeMemcpy       = 3 // EVENT_CUDA_MEMCPY
-	EventTypeGraphLaunch  = 4 // EVENT_CUDA_GRAPH_LAUNCH
+	EventTypeKernelLaunch      = 1  // EVENT_CUDA_KERNEL_LAUNCH
+	EventTypeMalloc            = 2  // EVENT_CUDA_MALLOC
+	EventTypeMemcpy            = 3  // EVENT_CUDA_MEMCPY
+	EventTypeGraphLaunch       = 4  // EVENT_CUDA_GRAPH_LAUNCH
+	EventTypeFree              = 5  // EVENT_CUDA_FREE
+	EventTypeMemset            = 6  // EVENT_CUDA_MEMSET
+	EventTypeStreamCreate      = 7  // EVENT_CUDA_STREAM_CREATE
+	EventTypeStreamDestroy     = 8  // EVENT_CUDA_STREAM_DESTROY
+	EventTypeEventRecord       = 9  // EVENT_CUDA_EVENT_RECORD
+	EventTypeEventSynchronize  = 10 // EVENT_CUDA_EVENT_SYNCHRONIZE
+	EventTypeStreamSynchronize = 11 // EVENT_CUDA_STREAM_SYNCHRONIZE
+	EventTypeDeviceSynchronize = 12 // EVENT_CUDA_DEVICE_SYNCHRONIZE
+	EventTypeHostRegister      = 13 // EVENT_CUDA_HOST_REGISTER
 )
 
 type pidKey struct {
@@ -39,9 +48,9 @@ type pidKey struct {
 
 type (
 	GPUCudaKernelLaunchInfo BpfCudaKernelLaunchT
-	GPUCudaMallocInfo       BpfCudaMallocT
 	GPUCudaMemcpyInfo       BpfCudaMemcpyT
-	GPUCudaGraphLaunchInfo  BpfCudaGraphLaunchT
+	GPUCudaSizeEventInfo    BpfCudaSizeEventT
+	GPUCudaCallEventInfo    BpfCudaCallEventT
 )
 
 // TODO: We have a way to bring ELF file information to this Tracer struct
@@ -139,12 +148,60 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			}},
 			"cudaMalloc": {{
 				Start: p.bpfObjects.ObiCudaMalloc,
+				End:   p.bpfObjects.ObiCudaMallocRet,
+			}},
+			"cudaFree": {{
+				Start: p.bpfObjects.ObiCudaFree,
 			}},
 			"cudaMemcpy": {{
 				Start: p.bpfObjects.ObiCudaMemcpy,
 			}},
 			"cudaMemcpyAsync": {{
 				Start: p.bpfObjects.ObiCudaMemcpy,
+			}},
+			"cudaMemset": {{
+				Start: p.bpfObjects.ObiCudaMemset,
+			}},
+			"cudaStreamCreate": {{
+				Start: p.bpfObjects.ObiCudaStreamCreate,
+			}},
+			"cudaStreamCreateWithFlags": {{
+				Start: p.bpfObjects.ObiCudaStreamCreateWithFlags,
+			}},
+			"cudaStreamCreateWithPriority": {{
+				Start: p.bpfObjects.ObiCudaStreamCreateWithPriority,
+			}},
+			"cudaStreamDestroy": {{
+				Start: p.bpfObjects.ObiCudaStreamDestroy,
+			}},
+			"cudaEventRecord": {{
+				Start: p.bpfObjects.ObiCudaEventRecord,
+			}},
+			"cudaEventRecordWithFlags": {{
+				Start: p.bpfObjects.ObiCudaEventRecordWithFlags,
+			}},
+			"cudaEventSynchronize": {{
+				Start: p.bpfObjects.ObiCudaEventSynchronize,
+			}},
+			"cudaStreamSynchronize": {{
+				Start: p.bpfObjects.ObiCudaStreamSynchronize,
+			}},
+			"cudaDeviceSynchronize": {{
+				Start: p.bpfObjects.ObiCudaDeviceSynchronize,
+			}},
+			"cudaHostRegister": {{
+				Start: p.bpfObjects.ObiCudaHostRegister,
+			}},
+		},
+		"libcuda.so": {
+			"cuLaunchKernel": {{
+				Start: p.bpfObjects.ObiCuLaunch,
+			}},
+			"cuLaunchKernelEx": {{
+				Start: p.bpfObjects.ObiCuLaunchEx,
+			}},
+			"cuGraphLaunch": {{
+				Start: p.bpfObjects.ObiGraphLaunch,
 			}},
 		},
 	}
@@ -226,12 +283,30 @@ func (p *Tracer) processCudaEvent(record *ringbuf.Record) (request.Span, bool, e
 	switch eventType {
 	case EventTypeKernelLaunch:
 		return p.readGPUKernelLaunchIntoSpan(record)
-	case EventTypeGraphLaunch:
-		return p.readGPUGraphLaunchIntoSpan(record)
-	case EventTypeMalloc:
-		return p.readGPUMallocIntoSpan(record)
 	case EventTypeMemcpy:
 		return p.readGPUMemcpyIntoSpan(record)
+	case EventTypeMalloc:
+		return p.readGPUCudaSizeEventIntoSpan(record, request.EventTypeGPUCudaMalloc)
+	case EventTypeFree:
+		return p.readGPUCudaSizeEventIntoSpan(record, request.EventTypeGPUCudaFree)
+	case EventTypeMemset:
+		return p.readGPUCudaSizeEventIntoSpan(record, request.EventTypeGPUCudaMemset)
+	case EventTypeHostRegister:
+		return p.readGPUCudaSizeEventIntoSpan(record, request.EventTypeGPUCudaHostRegister)
+	case EventTypeGraphLaunch:
+		return p.readGPUCudaCallEventIntoSpan(record, request.EventTypeGPUCudaGraphLaunch)
+	case EventTypeStreamCreate:
+		return p.readGPUCudaCallEventIntoSpan(record, request.EventTypeGPUCudaStreamCreate)
+	case EventTypeStreamDestroy:
+		return p.readGPUCudaCallEventIntoSpan(record, request.EventTypeGPUCudaStreamDestroy)
+	case EventTypeEventRecord:
+		return p.readGPUCudaCallEventIntoSpan(record, request.EventTypeGPUCudaEventRecord)
+	case EventTypeEventSynchronize:
+		return p.readGPUCudaCallEventIntoSpan(record, request.EventTypeGPUCudaEventSynchronize)
+	case EventTypeStreamSynchronize:
+		return p.readGPUCudaCallEventIntoSpan(record, request.EventTypeGPUCudaStreamSynchronize)
+	case EventTypeDeviceSynchronize:
+		return p.readGPUCudaCallEventIntoSpan(record, request.EventTypeGPUCudaDeviceSynchronize)
 	default:
 		p.log.Error("unknown cuda event")
 	}
@@ -239,18 +314,35 @@ func (p *Tracer) processCudaEvent(record *ringbuf.Record) (request.Span, bool, e
 	return request.Span{}, true, nil
 }
 
-func (p *Tracer) readGPUMallocIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
-	event, err := ebpfcommon.ReinterpretCast[GPUCudaMallocInfo](record.RawSample)
+func (p *Tracer) readGPUCudaSizeEventIntoSpan(record *ringbuf.Record, spanType request.EventType) (request.Span, bool, error) {
+	event, err := ebpfcommon.ReinterpretCast[GPUCudaSizeEventInfo](record.RawSample)
 	if err != nil {
 		return request.Span{}, true, err
 	}
 
-	// Log the GPU Kernel Launch event
-	p.log.Debug("GPU Malloc", "event", event)
+	p.log.Debug("GPU size event", "type", spanType, "event", event)
 
 	return request.Span{
-		Type:          request.EventTypeGPUCudaMalloc,
+		Type:          spanType,
 		ContentLength: event.Size,
+		Pid: request.PidInfo{
+			HostPID:   app.PID(event.PidInfo.HostPid),
+			UserPID:   app.PID(event.PidInfo.UserPid),
+			Namespace: event.PidInfo.Ns,
+		},
+	}, false, nil
+}
+
+func (p *Tracer) readGPUCudaCallEventIntoSpan(record *ringbuf.Record, spanType request.EventType) (request.Span, bool, error) {
+	event, err := ebpfcommon.ReinterpretCast[GPUCudaCallEventInfo](record.RawSample)
+	if err != nil {
+		return request.Span{}, true, err
+	}
+
+	p.log.Debug("GPU call event", "type", spanType, "event", event)
+
+	return request.Span{
+		Type: spanType,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.PidInfo.HostPid),
 			UserPID:   app.PID(event.PidInfo.UserPid),
@@ -265,7 +357,6 @@ func (p *Tracer) readGPUMemcpyIntoSpan(record *ringbuf.Record) (request.Span, bo
 		return request.Span{}, true, err
 	}
 
-	// Log the GPU Kernel Launch event
 	p.log.Debug("GPU Memcpy", "event", event)
 
 	return request.Span{
@@ -286,32 +377,12 @@ func (p *Tracer) readGPUKernelLaunchIntoSpan(record *ringbuf.Record) (request.Sp
 		return request.Span{}, true, err
 	}
 
-	// Log the GPU Kernel Launch event
 	p.log.Debug("GPU Kernel Launch", "event", event)
 
 	return request.Span{
 		Type:          request.EventTypeGPUCudaKernelLaunch,
 		ContentLength: int64(event.GridX * event.GridY * event.GridZ),
 		SubType:       int(event.BlockX * event.BlockY * event.BlockZ),
-		Pid: request.PidInfo{
-			HostPID:   app.PID(event.PidInfo.HostPid),
-			UserPID:   app.PID(event.PidInfo.UserPid),
-			Namespace: event.PidInfo.Ns,
-		},
-	}, false, nil
-}
-
-func (p *Tracer) readGPUGraphLaunchIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
-	event, err := ebpfcommon.ReinterpretCast[GPUCudaGraphLaunchInfo](record.RawSample)
-	if err != nil {
-		return request.Span{}, true, err
-	}
-
-	// Log the GPU Graph Launch event
-	p.log.Debug("GPU Graph Launch", "event", event)
-
-	return request.Span{
-		Type: request.EventTypeGPUCudaGraphLaunch,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.PidInfo.HostPid),
 			UserPID:   app.PID(event.PidInfo.UserPid),

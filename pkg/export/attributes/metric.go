@@ -200,6 +200,54 @@ var (
 		Unit:    "By",
 		Type:    InstrumentHistogram,
 	})
+	GPUCudaMemoryFreeBytes = metric(Name{
+		Section: "gpu.cuda.memory.free.bytes",
+		OTEL:    "gpu.cuda.memory.free.bytes",
+		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
+	GPUCudaMemsetBytes = metric(Name{
+		Section: "gpu.cuda.memset.bytes",
+		OTEL:    "gpu.cuda.memset.bytes",
+		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
+	GPUCudaStreamCreateCalls = metric(Name{
+		Section: "gpu.cuda.stream.create.calls",
+		OTEL:    "gpu.cuda.stream.create.calls",
+		Type:    InstrumentCounter,
+	})
+	GPUCudaStreamDestroyCalls = metric(Name{
+		Section: "gpu.cuda.stream.destroy.calls",
+		OTEL:    "gpu.cuda.stream.destroy.calls",
+		Type:    InstrumentCounter,
+	})
+	GPUCudaEventRecordCalls = metric(Name{
+		Section: "gpu.cuda.event.record.calls",
+		OTEL:    "gpu.cuda.event.record.calls",
+		Type:    InstrumentCounter,
+	})
+	GPUCudaEventSynchronizeCalls = metric(Name{
+		Section: "gpu.cuda.event.synchronize.calls",
+		OTEL:    "gpu.cuda.event.synchronize.calls",
+		Type:    InstrumentCounter,
+	})
+	GPUCudaStreamSynchronizeCalls = metric(Name{
+		Section: "gpu.cuda.stream.synchronize.calls",
+		OTEL:    "gpu.cuda.stream.synchronize.calls",
+		Type:    InstrumentCounter,
+	})
+	GPUCudaDeviceSynchronizeCalls = metric(Name{
+		Section: "gpu.cuda.device.synchronize.calls",
+		OTEL:    "gpu.cuda.device.synchronize.calls",
+		Type:    InstrumentCounter,
+	})
+	GPUCudaHostRegisterBytes = metric(Name{
+		Section: "gpu.cuda.host.register.bytes",
+		OTEL:    "gpu.cuda.host.register.bytes",
+		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
 	DNSLookupDuration = metric(Name{
 		Section: "dns.lookup.duration",
 		OTEL:    "dns.lookup.duration",

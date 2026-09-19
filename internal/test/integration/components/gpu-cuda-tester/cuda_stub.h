@@ -11,6 +11,18 @@
 //   cudaMemcpy(dst, src, count, kind)                BPF reads size + kind
 //   cudaMemcpyAsync(dst, src, count, kind, stream)   BPF reads size + kind
 //   cudaGraphLaunch(graphExec, stream)               BPF reads nothing
+//   cudaFree(devPtr)                                 BPF reads tracked size
+//   cudaMemset(devPtr, value, count)                 BPF reads count
+//   cudaStreamCreate(stream)                         BPF reads nothing
+//   cudaStreamCreateWithFlags(stream, flags)         BPF reads nothing
+//   cudaStreamCreateWithPriority(stream, flags, priority) BPF reads nothing
+//   cudaStreamDestroy(stream)                        BPF reads nothing
+//   cudaEventRecord(event, stream)                   BPF reads nothing
+//   cudaEventRecordWithFlags(event, stream, flags)   BPF reads nothing
+//   cudaEventSynchronize(event)                      BPF reads nothing
+//   cudaStreamSynchronize(stream)                    BPF reads nothing
+//   cudaDeviceSynchronize()                          BPF reads nothing
+//   cudaHostRegister(ptr, size, flags)               BPF reads size
 //
 // dim3 is a 12-byte struct passed by value: the {x,y} pair occupies one
 // eightbyte register and {z} the next, which is exactly how OBI decodes
@@ -23,6 +35,7 @@
 typedef int cudaError_t;
 typedef void *cudaStream_t;
 typedef void *cudaGraphExec_t;
+typedef void *cudaEvent_t;
 
 typedef struct dim3 {
   unsigned int x;
@@ -42,10 +55,24 @@ cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim,
                              void **args, size_t sharedMem,
                              cudaStream_t stream);
 cudaError_t cudaMalloc(void **devPtr, size_t size);
+cudaError_t cudaFree(void *devPtr);
 cudaError_t cudaMemcpy(void *dst, const void *src, size_t count,
                        enum cudaMemcpyKind kind);
 cudaError_t cudaMemcpyAsync(void *dst, const void *src, size_t count,
                             enum cudaMemcpyKind kind, cudaStream_t stream);
 cudaError_t cudaGraphLaunch(cudaGraphExec_t graphExec, cudaStream_t stream);
+cudaError_t cudaMemset(void *devPtr, int value, size_t count);
+cudaError_t cudaStreamCreate(cudaStream_t *stream);
+cudaError_t cudaStreamCreateWithFlags(cudaStream_t *stream, unsigned int flags);
+cudaError_t cudaStreamCreateWithPriority(cudaStream_t *stream,
+                                         unsigned int flags, int priority);
+cudaError_t cudaStreamDestroy(cudaStream_t stream);
+cudaError_t cudaEventRecord(cudaEvent_t event, cudaStream_t stream);
+cudaError_t cudaEventRecordWithFlags(cudaEvent_t event, cudaStream_t stream,
+                                     unsigned int flags);
+cudaError_t cudaEventSynchronize(cudaEvent_t event);
+cudaError_t cudaStreamSynchronize(cudaStream_t stream);
+cudaError_t cudaDeviceSynchronize(void);
+cudaError_t cudaHostRegister(void *ptr, size_t size, unsigned int flags);
 
 #endif // CUDA_STUB_H
