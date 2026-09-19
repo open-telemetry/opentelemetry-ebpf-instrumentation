@@ -13,6 +13,8 @@
 // compiler cannot inline the calls away). Compiled with -O0 and a volatile sink
 // for the same reason.
 
+#include <stddef.h>
+
 #include "cuda_driver_stub.h"
 
 static volatile unsigned long g_sink;
