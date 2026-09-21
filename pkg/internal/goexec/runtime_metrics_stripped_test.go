@@ -103,7 +103,7 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			t.Cleanup(func() { _ = oracle.Close() })
 			symbols, err := oracle.Symbols()
 			require.NoError(t, err)
-			var want, wantMemstats, wantGCController, wantWork, wantSizeClasses uint64
+			var want, wantMemstats, wantGCController, wantWork, wantSizeClasses, wantSched uint64
 			for _, symbol := range symbols {
 				if symbol.Name == "runtime.gomaxprocs" {
 					want = symbol.Value
@@ -120,12 +120,16 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 				if symbol.Name == runtimeMetricSizeClassToSizesSymbol || symbol.Name == runtimeMetricInternalSizeClassToSizesSymbol {
 					wantSizeClasses = symbol.Value
 				}
+				if symbol.Name == runtimeMetricSchedSymbol {
+					wantSched = symbol.Value
+				}
 			}
 			require.NotZero(t, want)
 			require.NotZero(t, wantMemstats)
 			require.NotZero(t, wantGCController)
 			require.NotZero(t, wantWork)
 			require.NotZero(t, wantSizeClasses)
+			require.NotZero(t, wantSched)
 
 			// Strip a copy of the same link so the symbol oracle's addresses stay valid.
 			output, err = exec.Command(objcopy, "--strip-all", original, stripped).CombinedOutput()
@@ -154,6 +158,9 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			sizeClassAddress, err := resolveRuntimeMetricSizeClassTableFromCode(f, table)
 			require.NoError(t, err)
 			require.Equal(t, wantSizeClasses, sizeClassAddress)
+			schedAddress, err := resolveRuntimeMetricSchedFromCode(f, table)
+			require.NoError(t, err)
+			require.Equal(t, wantSched, schedAddress)
 
 			// Exercise the connected fallback and its conversion to a process address.
 			const loadBias = uint64(0x70000000)
@@ -164,8 +171,28 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			require.Equal(t, wantGCController+loadBias, recovered.GCControllerAddr)
 			require.Equal(t, wantWork+loadBias, recovered.WorkAddr)
 			require.Equal(t, wantSizeClasses+loadBias, recovered.SizeClassToSizesAddr)
+			require.Equal(t, wantSched+loadBias, recovered.SchedAddr)
 			_, err = resolveRuntimeMetricSymbols(f, math.MaxUint64)
 			require.EqualError(t, err, "gomaxprocs process address overflows")
+
+			t.Run("missing-scheduler-anchor", func(t *testing.T) {
+				data, err := os.ReadFile(stripped)
+				require.NoError(t, err)
+				name := []byte("runtime.oneNewExtraM\x00")
+				require.True(t, bytes.Contains(data, name))
+				data = bytes.ReplaceAll(data, name, []byte("missing.oneNewExtraM\x00"))
+				missing, err := elf.NewFile(bytes.NewReader(data))
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = missing.Close() })
+				got, err := resolveRuntimeMetricSymbols(missing, loadBias)
+				require.NoError(t, err)
+				require.Zero(t, got.SchedAddr)
+				require.Equal(t, recovered.GOMAXPROCSAddr, got.GOMAXPROCSAddr)
+				require.Equal(t, recovered.MemstatsAddr, got.MemstatsAddr)
+				require.Equal(t, recovered.GCControllerAddr, got.GCControllerAddr)
+				require.Equal(t, recovered.WorkAddr, got.WorkAddr)
+				require.Equal(t, recovered.SizeClassToSizesAddr, got.SizeClassToSizesAddr)
+			})
 
 			t.Run("missing-size-class-anchors", func(t *testing.T) {
 				data, err := os.ReadFile(stripped)
@@ -238,7 +265,40 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 				require.Greater(t, recovered.GCControllerAddr, loadBias)
 				require.Greater(t, recovered.WorkAddr, loadBias)
 				require.Greater(t, recovered.SizeClassToSizesAddr, loadBias)
+				require.Greater(t, recovered.SchedAddr, loadBias)
 			})
+		})
+	}
+}
+
+func TestRuntimeMetricSchedBase(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		field, offset, want uint64
+		wantError           string
+	}{
+		{"first field", 0x2000, 0, 0x2000, ""},
+		{"nonzero offset", 0x2010, 16, 0x2000, ""},
+		{"subtraction underflow", 0x2000, 0x2008, 0, "invalid sched.goidgen field offset"},
+		{"zero base", 0x2000, 0x2000, 0, "invalid sched.goidgen field offset"},
+		{"misaligned field", 0x2001, 0, 0, "invalid sched.goidgen storage"},
+		{"misaligned base", 0x2008, 1, 0, "invalid sched storage"},
+		{"base outside storage", 0x2000, 8, 0, "invalid sched storage"},
+		{"field fits exactly", 0x3ff8, 0, 0x3ff8, ""},
+		{"field outside storage", 0x4000, 0, 0, "invalid sched.goidgen storage"},
+		{"address overflow", math.MaxUint64 - 7, 0, 0, "invalid sched.goidgen storage"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+				Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_W, Vaddr: 0x2000, Memsz: 0x2000,
+			}}}}
+			got, err := runtimeMetricSchedBase(f, tc.field, tc.offset)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tc.wantError)
+			}
+			require.Equal(t, tc.want, got)
 		})
 	}
 }

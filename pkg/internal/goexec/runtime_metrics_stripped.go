@@ -137,12 +137,18 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 	if address, err := resolveRuntimeMetricSizeClassTableFromCode(f, table); err == nil && loadBias <= ^uint64(0)-address {
 		sizeClassProcessAddress = loadBias + address
 	}
+	// Histogram collection requires sched; keep it disabled if recovery fails.
+	var schedProcessAddress uint64
+	if address, err := resolveRuntimeMetricSchedFromCode(f, table); err == nil && loadBias <= ^uint64(0)-address {
+		schedProcessAddress = loadBias + address
+	}
 	return RuntimeMetricSymbols{
 		GOMAXPROCSAddr:       gomaxprocsProcessAddress,
 		MemstatsAddr:         loadBias + memstatsELFAddress,
 		GCControllerAddr:     loadBias + gcControllerELFAddress,
 		WorkAddr:             workProcessAddress,
 		SizeClassToSizesAddr: sizeClassProcessAddress,
+		SchedAddr:            schedProcessAddress,
 	}, nil
 }
 
@@ -187,6 +193,32 @@ func resolveRuntimeMetricWorkFromCode(f *elf.File, table *gosym.Table) (uint64, 
 	return workELFAddress, nil
 }
 
+// resolveRuntimeMetricSchedFromCode follows the atomic sched.goidgen update
+// in oneNewExtraM, then subtracts its generated field offset to recover sched.
+// https://github.com/golang/go/blob/go1.27.1/src/runtime/proc.go#L2523
+func resolveRuntimeMetricSchedFromCode(f *elf.File, table *gosym.Table) (uint64, error) {
+	function := table.LookupFunc("runtime.oneNewExtraM")
+	if function == nil {
+		return 0, errors.New("runtime.oneNewExtraM function not found")
+	}
+	if function.End <= function.Entry || function.End-function.Entry > maximumRuntimeFunctionSize {
+		return 0, errors.New("invalid runtime.oneNewExtraM function bounds")
+	}
+	code, err := readVirtualMemoryWithFlags(f, function.Entry, function.End-function.Entry, elf.PF_X)
+	if err != nil {
+		return 0, err
+	}
+	goIDAddress, err := resolveRuntimeMetricSchedGoIDFromCode(f, function.Entry, code)
+	if err != nil {
+		return 0, err
+	}
+	goIDOffset, err := runtimeMetricFieldOffset(f, "runtime.schedt", "goidgen")
+	if err != nil {
+		return 0, err
+	}
+	return runtimeMetricSchedBase(f, goIDAddress, goIDOffset)
+}
+
 // runtimeMetricMemstatsBase moves from &memstats.heapStats back to memstats.
 // The range through the first 64-bit heapStats field must fit writable memory.
 func runtimeMetricMemstatsBase(f *elf.File, heapStatsELFAddress, heapStatsOffset uint64) (uint64, error) {
@@ -202,6 +234,23 @@ func runtimeMetricMemstatsBase(f *elf.File, heapStatsELFAddress, heapStatsOffset
 		return 0, errors.New("invalid memstats storage")
 	}
 	return memstatsELFAddress, nil
+}
+
+// runtimeMetricSchedBase moves from &sched.goidgen back to the sched global.
+// The range from the base through the eight-byte field must fit writable memory.
+func runtimeMetricSchedBase(f *elf.File, goIDAddress, goIDOffset uint64) (uint64, error) {
+	const goIDSize = 8
+	if goIDAddress%goIDSize != 0 || !runtimeMetricWritableRange(f, goIDAddress, goIDSize) {
+		return 0, errors.New("invalid sched.goidgen storage")
+	}
+	if goIDOffset >= goIDAddress {
+		return 0, errors.New("invalid sched.goidgen field offset")
+	}
+	schedAddress := goIDAddress - goIDOffset
+	if schedAddress%goIDSize != 0 || !runtimeMetricWritableRange(f, schedAddress, goIDOffset+goIDSize) {
+		return 0, errors.New("invalid sched storage")
+	}
+	return schedAddress, nil
 }
 
 // runtimeMetricFieldOffset locates a field for the target's Go version.

@@ -51,6 +51,90 @@ func TestIsRuntimeMetricSizeClassTableLoad(t *testing.T) {
 	require.False(t, isRuntimeMetricSizeClassTableLoad(nil, 0))
 }
 
+func TestIsRuntimeMetricSchedGoIDUpdate(t *testing.T) {
+	// LEA RDX,[RIP+0xe34b5]; LOCK XADD QWORD PTR [RDX],RCX.
+	address := []byte{0x48, 0x8d, 0x15, 0xb5, 0x34, 0x0e, 0x00}
+	for _, tc := range []struct {
+		name    string
+		address []byte
+		update  []byte
+		want    bool
+	}{
+		{"observed update", address, []byte{0xf0, 0x48, 0x0f, 0xc1, 0x0a}, true},
+		{"different base register", []byte{0x48, 0x8d, 0x35, 0, 0, 0, 0}, []byte{0xf0, 0x48, 0x0f, 0xc1, 0x0e}, true},
+		{"four-byte ngsys update", address, []byte{0xf0, 0x0f, 0xc1, 0x0a}, false},
+		{"missing lock", address, []byte{0x48, 0x0f, 0xc1, 0x0a}, false},
+		{"wrong base register", address, []byte{0xf0, 0x48, 0x0f, 0xc1, 0x0b}, false},
+		{"indexed update", address, []byte{0xf0, 0x48, 0x0f, 0xc1, 0x0c, 0x42}, false},
+		{"displaced update", address, []byte{0xf0, 0x48, 0x0f, 0xc1, 0x4a, 0x08}, false},
+		{"segment-relative update", address, []byte{0x64, 0xf0, 0x48, 0x0f, 0xc1, 0x0a}, false},
+		{"exchange instead of add", address, []byte{0x48, 0x87, 0x0a}, false},
+		{"intervening instruction", address, []byte{0x90, 0xf0, 0x48, 0x0f, 0xc1, 0x0a}, false},
+		{"missing update", address, nil, false},
+		{"32-bit address", []byte{0x8d, 0x15, 0, 0, 0, 0}, []byte{0xf0, 0x48, 0x0f, 0xc1, 0x0a}, false},
+		{"indirect address", []byte{0x48, 0x8d, 0x13}, []byte{0xf0, 0x48, 0x0f, 0xc1, 0x0a}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := append(append([]byte(nil), tc.address...), tc.update...)
+			instructions, err := decodeRuntimeMetricX86Instructions(code)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, isRuntimeMetricSchedGoIDUpdate(instructions, 0))
+			require.False(t, isRuntimeMetricSchedGoIDUpdate(instructions, -1))
+			require.False(t, isRuntimeMetricSchedGoIDUpdate(instructions, len(instructions)))
+		})
+	}
+	require.False(t, isRuntimeMetricSchedGoIDUpdate(nil, 0))
+}
+
+func TestResolveRuntimeMetricSchedGoIDFromCode(t *testing.T) {
+	const writable = elf.PF_R | elf.PF_W
+	for _, tc := range []struct {
+		name         string
+		functionAddr uint64
+		addresses    []uint64
+		flags        elf.ProgFlag
+		want         uint64
+		wantError    string
+	}{
+		{"forward reference", 0x1000, []uint64{0x2000}, writable, 0x2000, ""},
+		{"backward reference", 0x4000, []uint64{0x2000}, writable, 0x2000, ""},
+		{"repeated reference", 0x1000, []uint64{0x2000, 0x2000}, writable, 0x2000, ""},
+		{"conflicting references", 0x1000, []uint64{0x2000, 0x2800}, writable, 0, "ambiguous runtime global address"},
+		{"misaligned field", 0x1000, []uint64{0x2001}, writable, 0, "runtime global address not found"},
+		{"outside storage", 0x1000, []uint64{0x3000}, writable, 0, "runtime global address not found"},
+		{"field fits exactly", 0x1000, []uint64{0x2ff8}, writable, 0x2ff8, ""},
+		{"read-only storage", 0x1000, []uint64{0x2000}, elf.PF_R, 0, "runtime global address not found"},
+		{"unreadable storage", 0x1000, []uint64{0x2000}, elf.PF_W, 0, "runtime global address not found"},
+		{"zero address", 0x1000, []uint64{0}, writable, 0, "runtime global address not found"},
+		{"missing update", 0x1000, nil, writable, 0, "runtime global address not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// The scheduler lives in zero-initialized storage: Memsz, not Filesz,
+			// determines whether the eight-byte field fits.
+			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+				Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x2000, Memsz: 0x1000,
+			}}}}
+			var code []byte
+			for _, address := range tc.addresses {
+				start := len(code)
+				// LEA RDX,[RIP+disp]; LOCK XADD QWORD PTR [RDX],RCX.
+				code = append(code, 0x48, 0x8d, 0x15, 0, 0, 0, 0, 0xf0, 0x48, 0x0f, 0xc1, 0x0a)
+				binary.LittleEndian.PutUint32(code[start+3:start+7], uint32(int64(address)-int64(tc.functionAddr)-int64(start+7)))
+			}
+			got, err := resolveRuntimeMetricSchedGoIDFromCode(f, tc.functionAddr, code)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tc.wantError)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	_, err := resolveRuntimeMetricSchedGoIDFromCode(&elf.File{}, 0x1000, []byte{0x48, 0x8d})
+	require.Error(t, err)
+}
+
 func TestRuntimeMetricSizeClassTableCandidates(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

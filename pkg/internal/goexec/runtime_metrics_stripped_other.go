@@ -26,3 +26,8 @@ func resolveRuntimeMetricReceiverFromCode(_ uint64, _ []byte, _ ...uint64) (uint
 func resolveRuntimeMetricSizeClassTableFromCode(_ *elf.File, _ *gosym.Table) (uint64, error) {
 	return 0, ErrUnsupportedArchitecture
 }
+
+// resolveRuntimeMetricSchedGoIDFromCode requires the amd64 atomic-update matcher.
+func resolveRuntimeMetricSchedGoIDFromCode(_ *elf.File, _ uint64, _ []byte) (uint64, error) {
+	return 0, ErrUnsupportedArchitecture
+}

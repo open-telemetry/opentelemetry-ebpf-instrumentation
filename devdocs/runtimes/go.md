@@ -7,8 +7,9 @@ OBI resolves runtime globals from ELF object symbols when they are available.
 Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
 fallback recovers the three mandatory globals: `runtime.gomaxprocs`,
 `runtime.memstats`, and `runtime.gcController`. It also recovers `runtime.work`
-for CPU statistics and the size-class table for allocation metrics. Recovery of
-the scheduler and goroutine-count globals is still pending.
+for CPU statistics, the size-class table for allocation metrics, and
+`runtime.sched` for histograms. Recovery of `runtime.allglen` and `runtime.allp`
+for goroutine counting is still pending.
 
 ## Stripped global recovery
 
@@ -121,6 +122,31 @@ Address recovery has been checked against stripped compiler fixtures from
 Go 1.17 through 1.27, including empty-main builds, and current-Go executable and
 PIE builds. Allocation metrics require Go 1.23 or newer. Functional export
 validation for stripped allocation metrics is still pending.
+
+### Scheduler histograms
+
+The global `runtime.sched` contains `timeToRun` for `go.schedule.duration` and
+`stwTotalTimeGC` for `go.memory.gc.pause.duration`. The resolver locates this
+structure through the goroutine-ID update in `runtime.oneNewExtraM`:
+
+```go
+gp.goid = sched.goidgen.Add(1)
+```
+
+It matches an address calculation immediately followed by an eight-byte atomic
+update through the same register:
+
+```text
+LEA  RDX, [RIP+displacement]  // Address of sched.goidgen.
+LOCK XADD QWORD PTR [RDX], RCX // Atomically update the eight-byte field.
+```
+
+The width check distinguishes this access from the four-byte `sched.ngsys`
+update in the same function. Valid matches must agree on one aligned, readable
+and writable field address. Subtracting the generated `runtime.schedt.goidgen`
+offset recovers the structure's base; the resolver then adds process load bias.
+Recovery failure leaves histograms disabled while preserving other metrics.
+Functional export validation for stripped histograms is still pending.
 
 ## Metrics
 

@@ -49,6 +49,32 @@ func resolveGOMAXPROCSFromCode(f *elf.File, functionELFAddress uint64, code []by
 	return uniqueRuntimeMetricAddress(candidates)
 }
 
+// resolveRuntimeMetricSchedGoIDFromCode recovers the address of sched.goidgen
+// from its eight-byte atomic update in oneNewExtraM. All valid matches must agree.
+func resolveRuntimeMetricSchedGoIDFromCode(f *elf.File, functionELFAddress uint64, code []byte) (uint64, error) {
+	instructions, err := decodeRuntimeMetricX86Instructions(code)
+	if err != nil {
+		return 0, err
+	}
+
+	const goIDSize = 8
+	var candidates []uint64
+	for index, instruction := range instructions {
+		if !isRuntimeMetricSchedGoIDUpdate(instructions, index) {
+			continue
+		}
+		address, ok := runtimeMetricRIPTarget(functionELFAddress, instruction)
+		if !ok || address == 0 || address%goIDSize != 0 {
+			continue
+		}
+		if !runtimeMetricWritableRange(f, address, goIDSize) {
+			continue
+		}
+		candidates = append(candidates, address)
+	}
+	return uniqueRuntimeMetricAddress(candidates)
+}
+
 // resolveRuntimeMetricSizeClassTableFromCode follows allocation-size lookups in
 // mallocgc on older runtimes and in lockVerifyMSize on newer runtimes.
 func resolveRuntimeMetricSizeClassTableFromCode(f *elf.File, table *gosym.Table) (uint64, error) {
@@ -249,6 +275,42 @@ func isRuntimeMetricSizeClassTableLoad(instructions []runtimeMetricX86Instructio
 		memory.Base == base &&
 		memory.Index >= x86asm.RAX && memory.Index <= x86asm.R15 &&
 		memory.Scale == 2 && memory.Disp == 0
+}
+
+// isRuntimeMetricSchedGoIDUpdate recognizes the eight-byte atomic update in
+// runtime.oneNewExtraM:
+//
+//	gp.goid = sched.goidgen.Add(1)
+//
+//	LEA  RDX, [RIP + displacement] // Address of sched.goidgen.
+//	LOCK XADD QWORD PTR [RDX], RCX // Atomically update the eight-byte field.
+//
+// The same function updates the four-byte sched.ngsys field; width distinguishes it.
+func isRuntimeMetricSchedGoIDUpdate(instructions []runtimeMetricX86Instruction, index int) bool {
+	if index < 0 || index > len(instructions)-2 {
+		return false
+	}
+
+	address := instructions[index].inst
+	base, baseOK := address.Args[0].(x86asm.Reg)
+	source, sourceOK := address.Args[1].(x86asm.Mem)
+	if address.Op != x86asm.LEA || !baseOK || base < x86asm.RAX || base > x86asm.R15 ||
+		!sourceOK || source.Base != x86asm.RIP || source.Index != 0 {
+		return false
+	}
+
+	update := instructions[index+1].inst
+	memory, memoryOK := update.Args[0].(x86asm.Mem)
+	if update.Op != x86asm.XADD || update.MemBytes != 8 || !memoryOK ||
+		memory.Base != base || memory.Index != 0 || memory.Disp != 0 || memory.Segment != 0 {
+		return false
+	}
+	for _, prefix := range update.Prefix {
+		if prefix == x86asm.PrefixLOCK {
+			return true
+		}
+	}
+	return false
 }
 
 // isRuntimeMetricReceiverCall recognizes method calls such as this in mcache.refill:
