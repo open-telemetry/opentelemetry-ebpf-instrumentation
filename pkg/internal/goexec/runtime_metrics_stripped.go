@@ -16,11 +16,13 @@ import (
 
 const maximumRuntimeFunctionSize = 64 << 10
 
+var ErrUnsupportedArchitecture = errors.New("stripped Go runtime global address recovery requires amd64")
+
 // resolveRuntimeMetricSymbolsFromCode recovers runtime global addresses from Go
 // machine code and applies the executable's load bias to obtain process addresses.
 func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeMetricSymbols, error) {
 	if f.Machine != elf.EM_X86_64 {
-		return RuntimeMetricSymbols{}, errors.New("stripped Go runtime global address recovery requires amd64")
+		return RuntimeMetricSymbols{}, ErrUnsupportedArchitecture
 	}
 
 	// Stripped binaries retain Go's function metadata after their ELF object
@@ -52,7 +54,7 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 
 	// We want the address of memstats.heapStats. mcache.refill passes it as the
 	// receiver of acquire(), so we recover it from the instructions before the call.
-	// https://github.com/golang/go/blob/go1.27.1/src/runtime/mcache.go#L149
+	// https://github.com/golang/go/blob/go1.27.1/src/runtime/mcache.go#L160
 	refill := table.LookupFunc("runtime.(*mcache).refill")
 	if refill == nil {
 		return RuntimeMetricSymbols{}, errors.New("runtime.(*mcache).refill function not found")
