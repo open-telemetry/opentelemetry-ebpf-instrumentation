@@ -82,7 +82,7 @@ func TestIsolateTemporaryDirectory(t *testing.T) {
 func TestConfigureGoBuild(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=readonly")
 	restore := configureGoBuild()
-	assert.Equal(t, "-mod=readonly -buildvcs=false -tags=http2legacy", os.Getenv("GOFLAGS"))
+	assert.Equal(t, "-mod=readonly -tags=http2legacy", os.Getenv("GOFLAGS"))
 
 	restore()
 	assert.Equal(t, "-mod=readonly", os.Getenv("GOFLAGS"))
