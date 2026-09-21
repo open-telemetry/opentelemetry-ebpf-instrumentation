@@ -7,6 +7,8 @@ package io.opentelemetry.obi.java.ebpf;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -14,6 +16,16 @@ import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class ProxyInputStreamTest {
+  @Test
+  void jdkAppInputStreamDoesNotNeedProxying() {
+    assertFalse(ProxyInputStream.requiresProxy("sun.security.ssl.SSLSocketImpl$AppInputStream"));
+  }
+
+  @Test
+  void otherInputStreamsNeedProxying() {
+    assertTrue(ProxyInputStream.requiresProxy(ByteArrayInputStream.class.getName()));
+  }
+
   @Test
   void readPacketUsesBytesReadForPartialBuffer() {
     byte[] buffer = {10, 20, 30, 40, 50};
