@@ -144,6 +144,7 @@ func (e *pythonExtractor) scanFile(path string) error {
 	defer file.Close()
 
 	var djangoRoutes []djangoRoute
+	djangoLists := map[string]*djangoList{}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
 	scanStmt := func(text string) {
@@ -158,24 +159,12 @@ func (e *pythonExtractor) scanFile(path string) error {
 			hasDjangoPath = true
 		}
 		if hasDjangoPath {
-			routes := scanDjango(text, djangoAliases)
-			if listName, references, ok := djangoListAssignment(text); ok {
-				for i := range routes {
-					routes[i].listName = listName
-				}
-				for _, name := range references {
-					for _, declaration := range djangoRoutes {
-						if declaration.listName == name {
-							djangoRoutes = append(djangoRoutes, djangoRoute{
-								listName:    listName,
-								includeList: name,
-							})
-							break
-						}
-					}
+			if assignment, ok := djangoListAssignment(text); ok {
+				if applyDjangoAssignment(djangoLists, assignment, djangoAliases) {
+					return
 				}
 			}
-			djangoRoutes = append(djangoRoutes, routes...)
+			djangoRoutes = append(djangoRoutes, scanDjango(text, djangoAliases)...)
 		}
 	}
 
@@ -213,6 +202,12 @@ func (e *pythonExtractor) scanFile(path string) error {
 	}
 	if err := scan.Err(); err != nil {
 		return err
+	}
+	for name, list := range djangoLists {
+		for _, declaration := range list.routes {
+			declaration.listName = name
+			djangoRoutes = append(djangoRoutes, declaration)
+		}
 	}
 	e.djangoRoutes[path] = djangoRoutes
 	return nil

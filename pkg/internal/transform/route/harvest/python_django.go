@@ -56,43 +56,88 @@ var djangoImportAliasPattern = regexp.MustCompile(
 
 var djangoPathStart = regexp.MustCompile(`\b(?:re_)?path\s*\(`)
 
-var djangoListAssignmentPattern = regexp.MustCompile(`^([A-Za-z_]\w*)\s*\+?=\s*(.*)$`)
+var djangoListAssignmentPattern = regexp.MustCompile(`^([A-Za-z_]\w*)\s*(\+?=)\s*(.*)$`)
 
 var djangoListNamePattern = regexp.MustCompile(`^[A-Za-z_]\w*`)
 
-// djangoListAssignment collects named operands from a sum of names and literal lists.
-func djangoListAssignment(stmt string) (string, []string, bool) {
+type djangoList struct {
+	routes []djangoRoute
+}
+
+type djangoAssignment struct {
+	name     string
+	append   bool
+	operands []string
+}
+
+// djangoListAssignment preserves operand order and the assignment operator.
+func djangoListAssignment(stmt string) (djangoAssignment, bool) {
 	match := djangoListAssignmentPattern.FindStringSubmatch(stmt)
 	if match == nil {
-		return "", nil, false
+		return djangoAssignment{}, false
 	}
 
-	expr := strings.TrimSpace(match[2])
-	var references []string
+	expr := strings.TrimSpace(match[3])
+	assignment := djangoAssignment{name: match[1], append: match[2] == "+="}
 	for {
+		operand := expr
+		var end int
 		if strings.HasPrefix(expr, "[") {
-			end := djangoDelimitedEnd(expr, 0)
-			if end < 0 {
-				return "", nil, false
-			}
-			expr = strings.TrimSpace(expr[end+1:])
+			end = djangoDelimitedEnd(expr, 0)
+		} else if wrapper := djangoI18nStart.FindStringIndex(expr); wrapper != nil && wrapper[0] == 0 {
+			end = djangoDelimitedEnd(expr, wrapper[1]-1)
 		} else {
 			name := djangoListNamePattern.FindString(expr)
-			if name == "" {
-				return "", nil, false
-			}
-			references = append(references, name)
-			expr = strings.TrimSpace(expr[len(name):])
+			end = len(name) - 1
 		}
+		if end < 0 {
+			return djangoAssignment{}, false
+		}
+		assignment.operands = append(assignment.operands, operand[:end+1])
+		expr = strings.TrimSpace(expr[end+1:])
 
 		if expr == "" || strings.HasPrefix(expr, "#") {
-			return match[1], references, true
+			return assignment, true
 		}
 		if expr[0] != '+' {
-			return "", nil, false
+			return djangoAssignment{}, false
 		}
 		expr = strings.TrimSpace(expr[1:])
 	}
+}
+
+func applyDjangoAssignment(lists map[string]*djangoList, assignment djangoAssignment, aliases map[string]string) bool {
+	// A direct alias shares the list object, including subsequent appends.
+	if !assignment.append && len(assignment.operands) == 1 {
+		if source, ok := lists[assignment.operands[0]]; ok {
+			lists[assignment.name] = source
+			return true
+		}
+	}
+
+	// Evaluate the complete RHS before mutating the destination, including self-appends.
+	var routes []djangoRoute
+	for _, operand := range assignment.operands {
+		if strings.HasPrefix(operand, "[") || djangoI18nStart.MatchString(operand) {
+			routes = append(routes, scanDjango(operand, aliases)...)
+		} else {
+			source, ok := lists[operand]
+			if !ok {
+				return false
+			}
+			routes = append(routes, source.routes...)
+		}
+	}
+	if assignment.append {
+		target, ok := lists[assignment.name]
+		if !ok {
+			return false
+		}
+		target.routes = append(target.routes, routes...)
+	} else {
+		lists[assignment.name] = &djangoList{routes: routes}
+	}
+	return true
 }
 
 var djangoI18nStart = regexp.MustCompile(`\bi18n_patterns\s*\(`)

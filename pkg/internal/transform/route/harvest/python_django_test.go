@@ -93,6 +93,31 @@ func TestExtractPythonDjangoListAssignment(t *testing.T) {
 		routes     []string
 	}{
 		{
+			name:       "empty alias observes mutation",
+			assignment: "empty_patterns = []\nurlpatterns = empty_patterns\nempty_patterns += [path(\"health/\", health_view)]",
+			routes:     []string{"/health/"},
+		},
+		{
+			name:       "extension copies current elements",
+			assignment: "urlpatterns = []\nurlpatterns += base_patterns\nbase_patterns += [path(\"later/\", ready_view)]",
+			routes:     []string{"/health/"},
+		},
+		{
+			name:       "concatenation copies current elements",
+			assignment: "urlpatterns = base_patterns + []\nbase_patterns += [path(\"later/\", ready_view)]",
+			routes:     []string{"/health/"},
+		},
+		{
+			name:       "alias retains original list after rebinding",
+			assignment: "urlpatterns = base_patterns\nbase_patterns = [path(\"later/\", ready_view)]",
+			routes:     []string{"/health/"},
+		},
+		{
+			name:       "alias observes i18n extension",
+			assignment: "urlpatterns = base_patterns\nbase_patterns += i18n_patterns(path(\"localized/\", ready_view))",
+			routes:     []string{"/<language>/localized/", "/health/"},
+		},
+		{
 			name:       "direct assignment",
 			assignment: "urlpatterns = base_patterns",
 			routes:     []string{"/health/"},
