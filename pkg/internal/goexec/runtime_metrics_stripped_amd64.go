@@ -5,6 +5,7 @@ package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 
 import (
 	"debug/elf"
+	"debug/gosym"
 	"errors"
 	"fmt"
 
@@ -46,6 +47,91 @@ func resolveGOMAXPROCSFromCode(f *elf.File, functionELFAddress uint64, code []by
 		candidates = append(candidates, globalELFAddress)
 	}
 	return uniqueRuntimeMetricAddress(candidates)
+}
+
+// resolveRuntimeMetricSizeClassTableFromCode follows allocation-size lookups in
+// mallocgc on older runtimes and in lockVerifyMSize on newer runtimes.
+func resolveRuntimeMetricSizeClassTableFromCode(f *elf.File, table *gosym.Table) (uint64, error) {
+	var candidates []uint64
+	for _, name := range []string{"runtime.mallocgc", "runtime.lockVerifyMSize"} {
+		function := table.LookupFunc(name)
+		if function == nil {
+			continue
+		}
+		if function.End <= function.Entry || function.End-function.Entry > maximumRuntimeFunctionSize {
+			return 0, fmt.Errorf("invalid %s function bounds", name)
+		}
+		code, err := readVirtualMemoryWithFlags(f, function.Entry, function.End-function.Entry, elf.PF_X)
+		if err != nil {
+			return 0, err
+		}
+		addresses, err := runtimeMetricSizeClassTableCandidates(function.Entry, code)
+		if err != nil {
+			return 0, err
+		}
+		for _, address := range addresses {
+			if runtimeMetricValidSizeClassTable(f, address) {
+				candidates = append(candidates, address)
+			}
+		}
+	}
+	return uniqueRuntimeMetricAddress(candidates)
+}
+
+// runtimeMetricValidSizeClassTable checks the initialized allocation-size table.
+// Go 1.17-1.27 tables contain 68 uint16 entries, matching the collector's limit.
+func runtimeMetricValidSizeClassTable(f *elf.File, address uint64) bool {
+	const (
+		sizeClassCount = 68
+		entrySize      = 2
+		minimumSize    = 8
+		maximumSize    = 32768
+	)
+	if f.ByteOrder == nil || address == 0 || address%entrySize != 0 {
+		return false
+	}
+	data, err := readVirtualMemoryWithFlags(f, address, sizeClassCount*entrySize, elf.PF_R)
+	if err != nil {
+		return false
+	}
+
+	previous := uint16(0)
+	for index := range sizeClassCount {
+		size := f.ByteOrder.Uint16(data[index*entrySize:])
+		if index == 0 {
+			if size != 0 {
+				return false
+			}
+			continue
+		}
+		if size <= previous || size%minimumSize != 0 || index == 1 && size != minimumSize {
+			return false
+		}
+		previous = size
+	}
+	return previous == maximumSize
+}
+
+// runtimeMetricSizeClassTableCandidates finds table addresses referenced by one
+// allocator anchor. The caller validates the table and resolves ambiguity across anchors.
+func runtimeMetricSizeClassTableCandidates(functionELFAddress uint64, code []byte) ([]uint64, error) {
+	instructions, err := decodeRuntimeMetricX86Instructions(code)
+	if err != nil {
+		return nil, err
+	}
+
+	var candidates []uint64
+	for index, instruction := range instructions {
+		if !isRuntimeMetricSizeClassTableLoad(instructions, index) {
+			continue
+		}
+		address, ok := runtimeMetricRIPTarget(functionELFAddress, instruction)
+		if !ok || address == 0 {
+			continue
+		}
+		candidates = append(candidates, address)
+	}
+	return candidates, nil
 }
 
 // resolveRuntimeMetricReceiverFromCode finds the address passed to a method.
@@ -132,6 +218,37 @@ func isGOMAXPROCSLoadSequence(instructions []runtimeMetricX86Instruction, index 
 	return test.Op == x86asm.TEST &&
 		test.Args[0] == register && test.Args[1] == register &&
 		branch.Op == x86asm.JL
+}
+
+// isRuntimeMetricSizeClassTableLoad recognizes a size-class table address
+// followed by a uint16 lookup indexed by the size class.
+// In runtime.lockVerifyMSize, the inlined roundupsize lookup has this form:
+//
+//	gc.SizeClassToSize[classIndex]
+//
+//	LEA   RCX, [RIP + displacement] // Calculate the table's base address.
+//	MOVZX EAX, WORD PTR [RCX+RAX*2] // Read the uint16 entry indexed by RAX.
+//
+// Register choices may vary; the lookup must use the LEA destination as its base.
+func isRuntimeMetricSizeClassTableLoad(instructions []runtimeMetricX86Instruction, index int) bool {
+	if index < 0 || index > len(instructions)-2 {
+		return false
+	}
+
+	address := instructions[index].inst
+	base, baseOK := address.Args[0].(x86asm.Reg)
+	source, sourceOK := address.Args[1].(x86asm.Mem)
+	if address.Op != x86asm.LEA || !baseOK || base < x86asm.RAX || base > x86asm.R15 ||
+		!sourceOK || source.Base != x86asm.RIP || source.Index != 0 {
+		return false
+	}
+
+	load := instructions[index+1].inst
+	memory, memoryOK := load.Args[1].(x86asm.Mem)
+	return load.Op == x86asm.MOVZX && load.MemBytes == 2 && memoryOK &&
+		memory.Base == base &&
+		memory.Index >= x86asm.RAX && memory.Index <= x86asm.R15 &&
+		memory.Scale == 2 && memory.Disp == 0
 }
 
 // isRuntimeMetricReceiverCall recognizes method calls such as this in mcache.refill:

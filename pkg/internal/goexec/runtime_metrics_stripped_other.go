@@ -5,7 +5,10 @@
 
 package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 
-import "debug/elf"
+import (
+	"debug/elf"
+	"debug/gosym"
+)
 
 // resolveGOMAXPROCSFromCode reports that instruction-based global recovery is
 // unsupported on this architecture. Symbol-based resolution uses a separate path.
@@ -16,5 +19,10 @@ func resolveGOMAXPROCSFromCode(_ *elf.File, _ uint64, _ []byte) (uint64, error) 
 // resolveRuntimeMetricReceiverFromCode reports that receiver recovery requires
 // the amd64 instruction matcher.
 func resolveRuntimeMetricReceiverFromCode(_ uint64, _ []byte, _ ...uint64) (uint64, error) {
+	return 0, ErrUnsupportedArchitecture
+}
+
+// resolveRuntimeMetricSizeClassTableFromCode requires the amd64 instruction matcher.
+func resolveRuntimeMetricSizeClassTableFromCode(_ *elf.File, _ *gosym.Table) (uint64, error) {
 	return 0, ErrUnsupportedArchitecture
 }

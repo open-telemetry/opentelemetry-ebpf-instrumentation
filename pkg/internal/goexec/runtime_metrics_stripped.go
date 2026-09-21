@@ -131,11 +131,18 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 	if workELFAddress, err := resolveRuntimeMetricWorkFromCode(f, table); err == nil && loadBias <= ^uint64(0)-workELFAddress {
 		workProcessAddress = loadBias + workELFAddress
 	}
+	// The allocation collector requires the size-class table; failed recovery
+	// leaves it disabled while preserving the mandatory runtime globals.
+	var sizeClassProcessAddress uint64
+	if address, err := resolveRuntimeMetricSizeClassTableFromCode(f, table); err == nil && loadBias <= ^uint64(0)-address {
+		sizeClassProcessAddress = loadBias + address
+	}
 	return RuntimeMetricSymbols{
-		GOMAXPROCSAddr:   gomaxprocsProcessAddress,
-		MemstatsAddr:     loadBias + memstatsELFAddress,
-		GCControllerAddr: loadBias + gcControllerELFAddress,
-		WorkAddr:         workProcessAddress,
+		GOMAXPROCSAddr:       gomaxprocsProcessAddress,
+		MemstatsAddr:         loadBias + memstatsELFAddress,
+		GCControllerAddr:     loadBias + gcControllerELFAddress,
+		WorkAddr:             workProcessAddress,
+		SizeClassToSizesAddr: sizeClassProcessAddress,
 	}, nil
 }
 

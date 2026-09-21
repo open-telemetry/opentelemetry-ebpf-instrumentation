@@ -4,7 +4,9 @@
 package goexec
 
 import (
+	"bytes"
 	"debug/elf"
+	"debug/gosym"
 	"encoding/binary"
 	"math"
 	"testing"
@@ -12,6 +14,159 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/arch/x86/x86asm"
 )
+
+func TestIsRuntimeMetricSizeClassTableLoad(t *testing.T) {
+	// LEA RCX,[RIP+0x10c82f]; MOVZX EAX,WORD PTR [RCX+RAX*2].
+	address := []byte{0x48, 0x8d, 0x0d, 0x2f, 0xc8, 0x10, 0x00}
+	for _, tc := range []struct {
+		name    string
+		address []byte
+		lookup  []byte
+		want    bool
+	}{
+		{"observed lookup", address, []byte{0x0f, 0xb7, 0x04, 0x41}, true},
+		{"different registers", []byte{0x48, 0x8d, 0x15, 0, 0, 0, 0}, []byte{0x0f, 0xb7, 0x0c, 0x5a}, true},
+		{"wrong base", address, []byte{0x0f, 0xb7, 0x04, 0x42}, false},
+		{"byte entry", address, []byte{0x0f, 0xb6, 0x04, 0x41}, false},
+		{"signed entry", address, []byte{0x0f, 0xbf, 0x04, 0x41}, false},
+		{"scale one", address, []byte{0x0f, 0xb7, 0x04, 0x01}, false},
+		{"scale four", address, []byte{0x0f, 0xb7, 0x04, 0x81}, false},
+		{"missing index", address, []byte{0x0f, 0xb7, 0x01}, false},
+		{"nonzero displacement", address, []byte{0x0f, 0xb7, 0x44, 0x41, 0x02}, false},
+		{"intervening instruction", address, []byte{0x90, 0x0f, 0xb7, 0x04, 0x41}, false},
+		{"missing lookup", address, nil, false},
+		{"32-bit address", []byte{0x8d, 0x0d, 0, 0, 0, 0}, []byte{0x0f, 0xb7, 0x04, 0x41}, false},
+		{"indirect address", []byte{0x48, 0x8d, 0x0b}, []byte{0x0f, 0xb7, 0x04, 0x41}, false},
+		{"load instead of address", []byte{0x48, 0x8b, 0x0d, 0, 0, 0, 0}, []byte{0x0f, 0xb7, 0x04, 0x41}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := append(append([]byte(nil), tc.address...), tc.lookup...)
+			instructions, err := decodeRuntimeMetricX86Instructions(code)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, isRuntimeMetricSizeClassTableLoad(instructions, 0))
+			require.False(t, isRuntimeMetricSizeClassTableLoad(instructions, -1))
+			require.False(t, isRuntimeMetricSizeClassTableLoad(instructions, len(instructions)))
+		})
+	}
+	require.False(t, isRuntimeMetricSizeClassTableLoad(nil, 0))
+}
+
+func TestRuntimeMetricSizeClassTableCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		functionAddr uint64
+		displacement int32
+		references   int
+		want         []uint64
+	}{
+		{"observed address", 0x417faa, 0x10c82f, 1, []uint64{0x5247e0}},
+		{"backward reference", 0x1000, -0x807, 1, []uint64{0x800}},
+		{"repeated reference", 0x1000, 0x1ff9, 2, []uint64{0x3000, 0x3000}},
+		{"zero address", 0x1000, -0x1007, 1, nil},
+		{"negative address", 0x1000, -0x1008, 1, nil},
+		{"instruction overflow", math.MaxUint64 - 3, 0, 1, nil},
+		{"target overflow", math.MaxUint64 - 8, 2, 1, nil},
+		{"no instructions", 0x1000, 0, 0, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var code []byte
+			for range tc.references {
+				start := len(code)
+				code = append(code, 0x48, 0x8d, 0x0d, 0, 0, 0, 0, 0x0f, 0xb7, 0x04, 0x41)
+				// Adjust each displacement so repeated references reach the same address.
+				binary.LittleEndian.PutUint32(code[start+3:start+7], uint32(tc.displacement-int32(start)))
+			}
+			got, err := runtimeMetricSizeClassTableCandidates(tc.functionAddr, code)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	_, err := runtimeMetricSizeClassTableCandidates(0x1000, []byte{0x48, 0x8d})
+	require.Error(t, err)
+}
+
+func TestResolveRuntimeMetricSizeClassTableFromCode(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		addresses [][]uint64
+		want      uint64
+		wantError string
+	}{
+		{"mallocgc only", [][]uint64{{0x3000}}, 0x3000, ""},
+		{"lockVerifyMSize only", [][]uint64{nil, {0x3000}}, 0x3000, ""},
+		{"anchors agree", [][]uint64{{0x3000}, {0x3000}}, 0x3000, ""},
+		{"anchors conflict", [][]uint64{{0x3000}, {0x3100}}, 0, "ambiguous runtime global address"},
+		{"repeated references", [][]uint64{{0x3000, 0x3000}}, 0x3000, ""},
+		{"conflicting references", [][]uint64{{0x3000, 0x3100}}, 0, "ambiguous runtime global address"},
+		{"invalid table decoy", [][]uint64{{0x3002, 0x3000}}, 0x3000, ""},
+		{"no valid table", [][]uint64{{0x3002}}, 0, "runtime global address not found"},
+		{"missing anchors", nil, 0, "runtime global address not found"},
+		{"zero bounds", [][]uint64{{0x3000}}, 0, "invalid runtime.mallocgc function bounds"},
+		{"oversized function", [][]uint64{{0x3000}}, 0, "invalid runtime.mallocgc function bounds"},
+		{"nonexecutable code", [][]uint64{{0x3000}}, 0, "virtual memory range is not file-backed"},
+		{"truncated code", [][]uint64{{0x3000}}, 0, "virtual memory range is not file-backed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Two distinct tables with valid shapes let us exercise ambiguity.
+			data := make([]byte, 0x200)
+			for _, start := range []int{0, 0x100} {
+				for index := range 68 {
+					size := uint16(index * 8)
+					if index == 67 {
+						size = 32768
+					}
+					binary.LittleEndian.PutUint16(data[start+index*2:], size)
+				}
+			}
+			f := &elf.File{
+				FileHeader: elf.FileHeader{ByteOrder: binary.LittleEndian},
+				Progs: []*elf.Prog{{
+					ProgHeader: elf.ProgHeader{Type: elf.PT_LOAD, Flags: elf.PF_R, Vaddr: 0x3000, Filesz: uint64(len(data))},
+					ReaderAt:   bytes.NewReader(data),
+				}},
+			}
+			table := &gosym.Table{}
+			for anchor, addresses := range tc.addresses {
+				if addresses == nil {
+					continue
+				}
+				entry := uint64(0x1000 + anchor*0x100)
+				var code []byte
+				for _, address := range addresses {
+					start := len(code)
+					code = append(code, 0x48, 0x8d, 0x0d, 0, 0, 0, 0, 0x0f, 0xb7, 0x04, 0x41)
+					binary.LittleEndian.PutUint32(code[start+3:start+7], uint32(address-entry-uint64(start+7)))
+				}
+				name := []string{"runtime.mallocgc", "runtime.lockVerifyMSize"}[anchor]
+				function := gosym.Func{Entry: entry, End: entry + uint64(len(code)), Sym: &gosym.Sym{Name: name}}
+				segment := &elf.Prog{
+					ProgHeader: elf.ProgHeader{Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_X, Vaddr: entry, Filesz: uint64(len(code))},
+					ReaderAt:   bytes.NewReader(code),
+				}
+				switch tc.name {
+				case "zero bounds":
+					function.End = entry
+				case "oversized function":
+					function.End = entry + maximumRuntimeFunctionSize + 1
+				case "nonexecutable code":
+					segment.Flags = elf.PF_R
+				case "truncated code":
+					segment.Filesz--
+				}
+				table.Funcs = append(table.Funcs, function)
+				f.Progs = append(f.Progs, segment)
+			}
+			got, err := resolveRuntimeMetricSizeClassTableFromCode(f, table)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tc.wantError)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
 
 func TestResolveRuntimeMetricReceiverFromCode(t *testing.T) {
 	for _, tc := range []struct {

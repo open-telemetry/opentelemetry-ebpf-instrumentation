@@ -7,7 +7,8 @@ OBI resolves runtime globals from ELF object symbols when they are available.
 Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
 fallback recovers the three mandatory globals: `runtime.gomaxprocs`,
 `runtime.memstats`, and `runtime.gcController`. It also recovers `runtime.work`
-for CPU statistics. Recovery of the other optional globals is still pending.
+for CPU statistics and the size-class table for allocation metrics. Recovery of
+the scheduler and goroutine-count globals is still pending.
 
 ## Stripped global recovery
 
@@ -92,6 +93,34 @@ Field metadata is available from Go 1.23, matching CPU metric support. The
 resolver validates alignment, storage, and address arithmetic. If recovery fails,
 the work address remains zero and CPU collection is skipped; the three mandatory
 globals remain available.
+
+### Allocation sizes
+
+The size-class table is a global array of allocation sizes, named
+`runtime.class_to_size` on older Go versions and
+`internal/runtime/gc.SizeClassToSize` on newer versions. The collector combines
+these sizes with `memstats.heapStats` allocation counts to calculate
+`go.memory.allocated`. OBI enables it together with `go.memory.allocations`.
+
+The resolver inspects `runtime.mallocgc` and `runtime.lockVerifyMSize`. In the
+latter, an inlined `roundupsize` lookup reads `gc.SizeClassToSize[classIndex]`:
+
+```text
+LEA   RCX, [RIP+displacement]  // Calculate the global array's address.
+MOVZX EAX, WORD PTR [RCX+RAX*2] // Read the uint16 entry indexed by RAX.
+```
+
+The matcher requires adjacent instructions, a shared base register, and a
+two-byte indexed read with scale two. It validates readable, file-backed storage
+for 68 entries: a reserved zero followed by strictly increasing multiples of
+eight, starting at 8 and ending at 32768. Valid matches must agree on one address.
+The resolver adds process load bias once; failure leaves allocation metrics
+disabled while preserving the mandatory globals.
+
+Address recovery has been checked against stripped compiler fixtures from
+Go 1.17 through 1.27, including empty-main builds, and current-Go executable and
+PIE builds. Allocation metrics require Go 1.23 or newer. Functional export
+validation for stripped allocation metrics is still pending.
 
 ## Metrics
 
