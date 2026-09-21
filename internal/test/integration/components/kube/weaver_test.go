@@ -31,3 +31,9 @@ func TestParseExporterFailedCountRejectsMalformedMetrics(t *testing.T) {
 	_, err := parseExporterFailedCount(strings.NewReader("not prometheus text\n"))
 	require.ErrorContains(t, err, "parsing exporter counters")
 }
+
+func TestDeployAfterWeaverReadyRequiresValidation(t *testing.T) {
+	require.PanicsWithValue(t, "DeployAfterWeaverReady requires WeaverValidation", func() {
+		NewKind("test", DeployAfterWeaverReady("workload.yml"))
+	})
+}
