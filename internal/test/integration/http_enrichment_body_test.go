@@ -31,7 +31,7 @@ func bodyExtractionObfuscate(t *testing.T, postOperation string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -88,7 +88,7 @@ func bodyExtractionInclude(t *testing.T, postOperation string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -131,7 +131,7 @@ func bodyExtractionExcludedByDefault(t *testing.T, getOperation string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(getOperation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(getOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -166,7 +166,7 @@ func bodyExtractionContentTypeHeader(t *testing.T, postOperation string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return

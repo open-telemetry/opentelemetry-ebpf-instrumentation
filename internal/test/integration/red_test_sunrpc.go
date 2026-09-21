@@ -48,7 +48,7 @@ func runSunRPCTestCase(t *testing.T, testCase TestCase) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		for _, span := range testCase.Spans {
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&limit=1000")
 			require.NoError(ct, err)
 			if resp == nil {
 				return

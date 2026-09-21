@@ -52,7 +52,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2F" + slug)
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2F" + slug)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -170,7 +170,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	assert.Empty(t, sd, sd.String())
 
 	// Check that /metrics is missing from Jaeger at the same time
-	resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmetrics")
+	resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmetrics")
 	require.NoError(t, err)
 	if resp == nil {
 		return
@@ -192,7 +192,7 @@ func testHTTPTracesURLQuery(t *testing.T) {
 	ti.DoHTTPGet(t, instrumentedServiceStdURL+"/query-trace?obi_urlquery_test=1&sig=secret123", 200)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fquery-trace")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fquery-trace")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -222,7 +222,7 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FDebug")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FDebug")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
@@ -271,7 +271,7 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 	require.NoError(t, grpcclient.List()) // this call adds traceparent manually to the headers, simulates existing traceparent
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FListFeatures")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FListFeatures")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
@@ -316,7 +316,7 @@ func testGRPCKProbeTraces(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FDebug")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FDebug")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
@@ -360,7 +360,7 @@ func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID 
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName + "&operation=GET%20%2Fbye")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + serviceName + "&operation=GET%20%2Fbye")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -436,7 +436,7 @@ func testHTTPTracesNestedCalls(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fecho")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fecho")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -567,7 +567,7 @@ func testHTTP2GRPCTracesNestedCalls(t *testing.T, contextPropagation bool) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2FechoCall")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2FechoCall")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -722,7 +722,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 	// Get the first 5 traces
 	// we might need to repeat until the traces include all the inner spans
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=rust-service&operation=GET%20%2Fdist")
+		resp, err := getJaeger(jaegerQueryURL + "?service=rust-service&operation=GET%20%2Fdist")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -894,7 +894,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 func ensureTracesMatch(t *testing.T, urlPath string) {
 	var multipleTraces []jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=java-service&operation=GET%20%2F" + urlPath)
+		resp, err := getJaeger(jaegerQueryURL + "?service=java-service&operation=GET%20%2F" + urlPath)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -963,7 +963,7 @@ func testNestedHTTPSTracesKProbes(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=python-service-ssl&operation=GET%20%2Ftracemetoo")
+		resp, err := getJaeger(jaegerQueryURL + "?service=python-service-ssl&operation=GET%20%2Ftracemetoo")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -1044,7 +1044,7 @@ func testHTTPTracesNestedCallsTooLong(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fsmoke1")
+		resp, err := getJaeger(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fsmoke1")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -1056,7 +1056,7 @@ func testHTTPTracesNestedCallsTooLong(t *testing.T) {
 		require.Len(ct, traces, 1)
 		trace = traces[0]
 
-		resp, err = http.Get(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fslow")
+		resp, err = getJaeger(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fslow")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -1129,7 +1129,7 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fapi1")
+		resp, err := getJaeger(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fapi1")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -1266,7 +1266,7 @@ func testHTTPTracesNestedNodeJSDistCalls(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=service-b&operation=GET%20%2Fb")
+		resp, err := getJaeger(jaegerQueryURL + "?service=service-b&operation=GET%20%2Fb")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -1382,7 +1382,7 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -1519,7 +1519,7 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2Ftest-apm")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2Ftest-apm")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -1591,7 +1591,7 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 		opName := endpoint + "{req_id}"
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-uvloop&operation=GET%20" + endpoint + slugJg)
+			resp, err := getJaeger(jaegerQueryURL + "?service=pythonasync-uvloop&operation=GET%20" + endpoint + slugJg)
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -1736,7 +1736,7 @@ func pythonAsyncSpanHasAncestor(trace *jaeger.Trace, s *jaeger.Span, ancestorID 
 
 func verifyPythonAsyncGenericTrace(ct *assert.CollectT, endpoint, slug, downstreamPrefix string, expectedCalls int) {
 	urlPath := endpoint + slug
-	resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-generic&operation=GET%20" + urlPath)
+	resp, err := getJaeger(jaegerQueryURL + "?service=pythonasync-generic&operation=GET%20" + urlPath)
 	require.NoError(ct, err)
 	if resp == nil {
 		return
@@ -1847,7 +1847,7 @@ func verifyPythonCancelledToThreadIsolation(
 ) {
 	tags, err := json.Marshal(map[string]string{"url.path": reusePath, "span.kind": "server"})
 	require.NoError(ct, err)
-	resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&tags=" + url.QueryEscape(string(tags)))
+	resp, err := getJaeger(jaegerQueryURL + "?service=" + service + "&tags=" + url.QueryEscape(string(tags)))
 	require.NoError(ct, err)
 	if resp == nil {
 		return
@@ -1866,7 +1866,7 @@ func verifyPythonCancelledToThreadIsolation(
 	reuseTrace := &reuseTraces[0]
 	require.Empty(ct, reuseTrace.FindByOperationName("GET "+workerPath, "client"))
 
-	resp, err = http.Get(jaegerQueryURL + "?service=" + service + "&operation=GET%20" + workerPath)
+	resp, err = getJaeger(jaegerQueryURL + "?service=" + service + "&operation=GET%20" + workerPath)
 	require.NoError(ct, err)
 	if resp == nil {
 		return
@@ -1955,7 +1955,7 @@ func testGoGenericHTTPTraces(t *testing.T) {
 	t.Run("Traces Go Generic Server, Go Generic client", func(t *testing.T) {
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce")
+			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -1989,7 +1989,7 @@ func testGoGenericHTTPTraces(t *testing.T) {
 	t.Run("Traces Go Generic HTTP Server, Go standard HTTP client", func(t *testing.T) {
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fping")
+			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fping")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -2024,7 +2024,7 @@ func testGoGenericHTTPTraces(t *testing.T) {
 	t.Run("Traces Go standard Server, non-standard HTTP client", func(t *testing.T) {
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fping1")
+			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fping1")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -2073,7 +2073,7 @@ func testGoGenericHTTPSTraces(t *testing.T) {
 	t.Run("Traces Go Generic HTTPS Server, Go Generic TCP TLS client", func(t *testing.T) {
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce%2Ftls")
+			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce%2Ftls")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -2107,7 +2107,7 @@ func testGoGenericHTTPSTraces(t *testing.T) {
 	t.Run("Traces Go Generic HTTPS Server, Go standard HTTPS client", func(t *testing.T) {
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2Fpingssl")
+			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2Fpingssl")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -2158,7 +2158,7 @@ func testHTTPTracesNoNestedCalls(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fdelay")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fdelay")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -2273,7 +2273,7 @@ func testHTTPTracesUnknownMethod(t *testing.T) {
 
 	var span jaeger.Span
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		r, err := http.Get(jaegerQueryURL + "?service=testserver&limit=1000")
+		r, err := getJaeger(jaegerQueryURL + "?service=testserver&limit=1000")
 		require.NoError(ct, err)
 		if r == nil {
 			return

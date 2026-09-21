@@ -81,7 +81,7 @@ func assertDjangoRouteTrace(t *testing.T, requestPath, route string, status int)
 	operation := "GET " + route
 	query := url.Values{"service": {"django-testserver"}, "operation": {operation}}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?" + query.Encode())
+		resp, err := getJaeger(jaegerQueryURL + "?" + query.Encode())
 		require.NoError(ct, err)
 		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)

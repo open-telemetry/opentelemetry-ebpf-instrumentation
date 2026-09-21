@@ -33,7 +33,7 @@ func testNestedTraces(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:5000/a", 200)
 
-		resp, err := http.Get(jaegerQueryURL + "?service=service-a&limit=1")
+		resp, err := getJaeger(jaegerQueryURL + "?service=service-a&limit=1")
 		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
 			return
 		}
@@ -56,7 +56,7 @@ func testNestedTraces(t *testing.T) {
 	// Get the first 5 traces
 	var multipleTraces []jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
+		resp, err := getJaeger(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
