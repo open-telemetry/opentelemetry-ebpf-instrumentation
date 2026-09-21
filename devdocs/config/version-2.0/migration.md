@@ -51,7 +51,7 @@ migration directory private and inspect its handling as secret material.
 The exact command shape is:
 
 ```text
-obi config migrate [--mode=standalone|receiver] <path>
+obi config migrate [--allow-partial] [--mode=standalone|receiver] <path>
 ```
 
 It accepts one file path. Standalone is the default; use `--mode=receiver` for
@@ -99,6 +99,34 @@ values are reported with relevant v1 paths, for example:
 ```text
 migration failed: fields are outside the supported v1-to-v2 migration contract: prometheus_export.path
 ```
+
+### Generate a partial migration for manual completion
+
+Use `--allow-partial` to generate a reviewable Config v2 starting point when
+strict migration reports fields outside the supported contract:
+
+```shell
+obi config migrate --allow-partial ./obi-v1.yaml \
+  > "${migration_dir}/obi-v2-partial.yaml" \
+  2> "${migration_dir}/partial-migration-report.txt"
+test "$?" -eq 3
+```
+
+The command writes a Config v2 document that passes `obi config validate`,
+lists every detected v1 field that was not preserved exactly, and exits `3`.
+This mode also reports unknown v1 fields that the normal v1 loader would
+ignore. It does not copy unknown fields into Config v2.
+
+The partial output is a conversion aid, not a behavior-preserving result. A
+reported known field might have contributed to the best-effort v2 structure,
+so do not assume that every reported value is simply absent. Review and edit
+the corresponding v2 sections, validate the completed document, and canary it
+before deployment. Malformed YAML, invalid v1 values or runtime combinations,
+unsafe selector refinement inheritance, conversion failures, and invalid v2
+output remain errors and do not produce partial output.
+
+If `--allow-partial` finds no unsupported fields, it produces the same output
+and exit `0` report as strict migration.
 
 Given the same file and substitution environment, repeated runs produce the
 same YAML and report. Confirm that before editing the result:
@@ -602,6 +630,7 @@ The commands use these exit codes:
 | `0` | Migration or validation succeeded, or help was requested. |
 | `1` | Reading, parsing, validation, or supported-contract migration failed. |
 | `2` | The command, flag, mode, or argument count was invalid. |
+| `3` | `--allow-partial` wrote valid v2 output that requires manual migration. |
 
 Help and usage text are written to standard error. Automation should check the
 exit code instead of parsing success text.

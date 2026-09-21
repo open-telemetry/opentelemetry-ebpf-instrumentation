@@ -192,7 +192,6 @@ func TestDetectFastCGI(t *testing.T) {
 		expectedMethod string
 		expectedPath   string
 		expectedScheme string
-		expectedHost   string
 		expectedResult int
 		extraCheck     func(t *testing.T, path string)
 	}{
@@ -321,7 +320,6 @@ func TestDetectFastCGI(t *testing.T) {
 			assert.Equal(t, tt.expectedMethod, req.method)
 			assert.Equal(t, tt.expectedPath, req.uri)
 			assert.Equal(t, tt.expectedScheme, req.scheme)
-			assert.Equal(t, tt.expectedHost, req.host)
 			if ok {
 				assert.Equal(t, tt.expectedResult, req.status)
 			}
@@ -400,7 +398,6 @@ func TestDetectFastCGIRequestMetadata(t *testing.T) {
 		name   string
 		params map[string]string
 		scheme string
-		host   string
 		uri    string
 	}{
 		{
@@ -442,18 +439,6 @@ func TestDetectFastCGIRequestMetadata(t *testing.T) {
 			uri:    "/a",
 		},
 		{
-			name:   "HTTP_HOST preferred over SERVER_NAME",
-			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "HTTP_HOST": "site.example", "SERVER_NAME": "localhost"},
-			host:   "site.example",
-			uri:    "/a",
-		},
-		{
-			name:   "SERVER_NAME when the client sent no Host",
-			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a", "SERVER_NAME": "localhost"},
-			host:   "localhost",
-			uri:    "/a",
-		},
-		{
 			name:   "DOCUMENT_URI carries the path when REQUEST_URI is absent",
 			params: map[string]string{"REQUEST_METHOD": "GET", "DOCUMENT_URI": "/index.php"},
 			uri:    "/index.php",
@@ -469,23 +454,29 @@ func TestDetectFastCGIRequestMetadata(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := fastCGIRequestFrom(t, tt.params)
 			assert.Equal(t, tt.scheme, req.scheme)
-			assert.Equal(t, tt.host, req.host)
 			assert.Equal(t, tt.uri, req.uri)
 		})
 	}
 }
 
-// The scheme and host reach the span through Statement, which is what
-// url.scheme is read back out of.
-func TestTCPToFastCGIToSpanCarriesScheme(t *testing.T) {
-	span := TCPToFastCGIToSpan(&TCPRequestInfo{}, fastCGIRequest{
+func TestTCPToFastCGIToSpanCarriesSchemeAndBackend(t *testing.T) {
+	trace := TCPRequestInfo{
+		Direction: directionSend,
+		ConnInfo: BpfConnectionInfoT{
+			D_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 1},
+			D_port: 9000,
+		},
+	}
+	span := TCPToFastCGIToSpan(&trace, fastCGIRequest{
 		method: "GET",
 		uri:    "/ping",
 		scheme: "https",
-		host:   "site.example",
 		status: 200,
 	})
+	assert.Equal(t, request.EventTypeHTTPClient, span.Type)
 	assert.Equal(t, "https", request.HTTPScheme(&span))
+	assert.Equal(t, "10.0.0.1", request.HTTPClientHost(&span))
+	assert.Equal(t, 9000, span.HostPort)
 
 	bare := TCPToFastCGIToSpan(&TCPRequestInfo{}, fastCGIRequest{method: "GET", uri: "/ping", status: 200})
 	assert.Empty(t, bare.Statement)

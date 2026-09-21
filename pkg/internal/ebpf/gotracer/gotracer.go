@@ -1005,13 +1005,15 @@ func attachGoAutoSDKActivationProbe(
 		return nil, err
 	}
 
-	executable, err := link.OpenExecutable(fmt.Sprintf("/proc/self/fd/%d", target.Fd()))
+	targetPath := fmt.Sprintf("/proc/self/fd/%d", target.Fd())
+	executable, err := link.OpenExecutable(targetPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening target executable: %w", err)
 	}
 
 	activationLink, err := uprobe.Attach(
 		executable,
+		targetPath,
 		probe.program,
 		goAutoSDKActivationUprobeOptions(probe, pid),
 	)
@@ -1594,6 +1596,7 @@ var goH2OwnershipProbeSymbols = []string{
 	"net/http/internal/http2.(*ClientConn).writeHeader",
 	"golang.org/x/net/http2.(*ClientConn).encodeHeaders",
 	"net/http.(*http2ClientConn).encodeHeaders",
+	"google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler",
 }
 
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
@@ -2297,6 +2300,23 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 					Symbol: goH2OwnershipProbeSymbols[3],
 					Probe: &ebpfcommon.ProbeDesc{
 						Start: p.bpfObjects.ObiUprobeHttp2ClientConnWriteHeader,
+					},
+				},
+			},
+		},
+		{
+			Name: "go_grpc_current_ownership",
+			RequiresAll: []string{
+				"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
+				"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut",
+				"golang.org/x/net/http2.(*Framer).WriteHeaders",
+			},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[8],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandler,
+						End:   p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandlerReturns,
 					},
 				},
 			},

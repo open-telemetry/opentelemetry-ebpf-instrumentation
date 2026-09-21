@@ -43,6 +43,11 @@ const (
 	// reconnect backoff, so at least one aggregated batch arrives.
 	weaverK8sDrainWindow = 25 * time.Second
 
+	// weaverK8sStartupSettleWindow lets exports queued before Weaver became
+	// reachable finish their retry cycle before the test-time drop baseline.
+	// It covers the 15s retry window, 5s maximum backoff and a 10s interval tick.
+	weaverK8sStartupSettleWindow = 30 * time.Second
+
 	// weaverK8sEmptyReportAttempts is how many /stop + read cycles to try
 	// when the report comes back with zero samples (each cycle restarts the
 	// weaver pod and drains again).
@@ -117,7 +122,12 @@ func (k *Kind) waitForWeaverReady() env.Func {
 		if err := waitForHTTP(wctx, otelcolURL); err != nil {
 			return ctx, fmt.Errorf("suite otelcol telemetry not ready before tests: %w", err)
 		}
-		// Baseline for validateWeaver's teardown drop check (before any traffic).
+		select {
+		case <-time.After(weaverK8sStartupSettleWindow):
+		case <-wctx.Done():
+			return ctx, fmt.Errorf("weaver tap did not settle before tests: %w", wctx.Err())
+		}
+		// Baseline for validateWeaver's teardown drop check (before test traffic).
 		k.tapDropsBaseline, k.tapDropsBaselineErr = k.tapDropCount(wctx)
 		log().Info("weaver(k8s): tap ready, starting tests")
 		return ctx, nil

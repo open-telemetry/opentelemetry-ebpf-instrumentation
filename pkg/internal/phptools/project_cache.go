@@ -23,7 +23,7 @@ var scanTTL = 30 * time.Second
 
 var processRootScanCache = newProjectScanCache(maxProjectScanCacheEntries)
 
-type projectScanner func(root, boundary string) (projectMetadata, bool)
+type projectScanner func(root, boundary string) (ProjectMetadata, bool)
 
 type projectScanCache struct {
 	mu      sync.Mutex
@@ -52,7 +52,7 @@ func newProjectScanCache(capacity int) *projectScanCache {
 	return &projectScanCache{entries: entries}
 }
 
-func (c *projectScanCache) scan(root, boundary string, scanner projectScanner) (projectMetadata, bool) {
+func (c *projectScanCache) scan(root, boundary string, scanner projectScanner) (ProjectMetadata, bool) {
 	rootID, ok := processRootIdentity(root)
 	if !ok {
 		return scanner(root, boundary)
@@ -98,12 +98,12 @@ func processRootIdentity(root string) (string, bool) {
 	return filepath.Clean(root), true
 }
 
-func newCachedProjectScan(root string, project projectMetadata, found bool) (cachedProjectScan, bool) {
+func newCachedProjectScan(root string, project ProjectMetadata, found bool) (cachedProjectScan, bool) {
 	if !found {
 		return cachedProjectScan{cachedAt: time.Now()}, true
 	}
 
-	relativeRoot, err := filepath.Rel(root, project.root)
+	relativeRoot, err := filepath.Rel(root, project.Root)
 	if err != nil || relativeRoot == ".." || strings.HasPrefix(relativeRoot, ".."+string(filepath.Separator)) {
 		return cachedProjectScan{}, false
 	}
@@ -111,21 +111,21 @@ func newCachedProjectScan(root string, project projectMetadata, found bool) (cac
 	return cachedProjectScan{
 		found:        true,
 		relativeRoot: relativeRoot,
-		name:         project.name,
-		version:      project.version,
-		fallbackName: project.fallbackName,
+		name:         project.Name,
+		version:      project.Version,
+		fallbackName: project.FallbackName,
 		cachedAt:     time.Now(),
 	}, true
 }
 
-func (c cachedProjectScan) resolve(root string) (projectMetadata, bool) {
+func (c cachedProjectScan) resolve(root string) (ProjectMetadata, bool) {
 	if !c.found {
-		return projectMetadata{}, false
+		return ProjectMetadata{}, false
 	}
-	return projectMetadata{
-		root:         filepath.Join(root, c.relativeRoot),
-		name:         c.name,
-		version:      c.version,
-		fallbackName: c.fallbackName,
+	return ProjectMetadata{
+		Root:         filepath.Join(root, c.relativeRoot),
+		Name:         c.name,
+		Version:      c.version,
+		FallbackName: c.fallbackName,
 	}, true
 }

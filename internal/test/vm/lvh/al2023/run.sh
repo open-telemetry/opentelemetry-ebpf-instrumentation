@@ -105,7 +105,10 @@ rm -f "${RESULT_FILE}"
 echo "run.sh: launching qemu" >&2
 # ttyS0: console + kernel printk + test stdout.
 # ttyS1: dedicated result channel — only init writes to it, never the kernel.
-timeout 3300 qemu-system-x86_64 ${ACCEL} -m 4G -smp 2 \
+# Match the runner's core count (as the lvh-kernel matrix job does via
+# QEMU_SMP="$(nproc)") instead of a fixed count smaller than the parallelism
+# verifier.test runs with, which starves the test and risks the 50m timeout.
+timeout 3300 qemu-system-x86_64 ${ACCEL} -m 4G -smp "$(nproc)" \
     -kernel "${VMLINUZ}" \
     -initrd "${IRD_IMG}" \
     -append "earlyprintk=ttyS0 console=ttyS0 loglevel=0 quiet panic=3 rdinit=/init" \

@@ -125,7 +125,7 @@ jobs:
             file: internal/test/integration/components/nodejsserver/Dockerfile
           - tag_id: python
             file: internal/test/integration/components/pythonserver/Dockerfile
-    uses: ./.github/workflows/integration_test_image_build.yml
+    uses: $/.github/workflows/integration_test_image_build.yml
     with:
       tag_id: ${{ matrix.image.tag_id }}
       file: ${{ matrix.image.file }}

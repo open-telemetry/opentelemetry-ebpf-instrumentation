@@ -1293,7 +1293,6 @@ Total number of spans observed, grouped by span name / kind / status.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -1313,7 +1312,6 @@ Duration distribution for observed spans, grouped by span name / kind / status.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -1462,7 +1460,6 @@ Total number of spans observed, grouped by span name / kind / status (legacy nam
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -1484,7 +1481,6 @@ Duration distribution for observed spans, grouped by span name / kind / status (
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -1506,7 +1502,6 @@ Total response size observed for spans, grouped by span name / kind / status (le
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
@@ -1528,7 +1523,6 @@ Total request size observed for spans, grouped by span name / kind / status (leg
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
 | `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
 | `service.name` | string | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | stable | A namespace for `service.name`. | Shop |

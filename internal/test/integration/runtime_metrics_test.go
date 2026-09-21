@@ -81,6 +81,24 @@ func TestRuntimeHistogramPrometheusQueryUsesOneEvaluation(t *testing.T) {
 	)
 }
 
+func TestRuntimeMetricCounterAllowsNanosecondRounding(t *testing.T) {
+	const runtimeName = "/cpu/classes/scavenge/assist:cpu-seconds"
+	nanoseconds := int64(63)
+	runtimeValue := float64(nanoseconds) / float64(time.Second)
+	obiValue := float64(nanoseconds) * (1 / float64(time.Second))
+
+	require.Greater(t, obiValue, runtimeValue)
+	assertRuntimeMetricCounterObserved(
+		t,
+		map[string]float64{runtimeName: runtimeValue},
+		map[string]float64{runtimeName: runtimeValue},
+		runtimeName,
+		obiValue,
+		"go_cpu_time_seconds_total",
+		false,
+	)
+}
+
 func testRuntimeMetricsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
@@ -361,9 +379,11 @@ func assertRuntimeMetricCounterObserved(
 	}
 	assert.LessOrEqualf(t, expectedValue, currentValue,
 		"service runtime/metrics %s should not go backwards", runtimeName)
-	assert.LessOrEqualf(t, expectedValue, obiValue,
+	// Go divides nanoseconds by 1e9 while OBI multiplies by a 1e-9 scale,
+	// which can place equivalent values on adjacent float64 representations.
+	assert.LessOrEqualf(t, math.Nextafter(expectedValue, math.Inf(-1)), obiValue,
 		"OBI %s should not be older than the captured service runtime/metrics value for %s", obiName, runtimeName)
-	assert.LessOrEqualf(t, obiValue, currentValue,
+	assert.LessOrEqualf(t, obiValue, math.Nextafter(currentValue, math.Inf(1)),
 		"OBI %s should not be newer than the current service runtime/metrics value for %s", obiName, runtimeName)
 }
 

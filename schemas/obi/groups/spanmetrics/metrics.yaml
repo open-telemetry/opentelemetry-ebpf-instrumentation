@@ -18,7 +18,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   - id: metric.obi.traces.span.metrics.duration
     type: metric
@@ -38,7 +37,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   # Legacy Grafana-style names for the same two metrics, matching the older
   # spanmetrics processor output. Emitted by the deprecated `application_span`
@@ -65,7 +63,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   - id: metric.obi.traces_spanmetrics_latency
     type: metric
@@ -88,7 +85,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   - id: metric.obi.traces_spanmetrics_size_total
     type: metric
@@ -114,7 +110,6 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id
 
   - id: metric.obi.traces_spanmetrics_response_size_total
     type: metric
@@ -140,4 +135,3 @@ groups:
       - ref: service.instance.id
       - ref: service.namespace
       - ref: telemetry.sdk.language
-      - ref: host.id

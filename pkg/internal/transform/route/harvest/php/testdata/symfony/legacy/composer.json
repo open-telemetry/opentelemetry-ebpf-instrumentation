@@ -1,0 +1,6 @@
+{
+  "require": {
+    "symfony/symfony": "8.1.*",
+    "friendsofsymfony/rest-bundle": "^3.0"
+  }
+}
