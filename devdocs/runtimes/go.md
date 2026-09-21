@@ -11,6 +11,11 @@ for CPU statistics, the size-class table for allocation metrics, and
 `runtime.sched` for histograms. It recovers `runtime.allglen` and `runtime.allp`
 for goroutine counting.
 
+This fallback supports Linux `amd64`; other architectures require ELF symbols.
+The tested compiler fixtures cover standard builds, including empty programs,
+and executable and PIE address recovery. Other compiler modes and experiments
+require separate validation.
+
 ## Stripped global recovery
 
 Go retains function metadata in `.gopclntab` after `-ldflags=-s` removes the ELF
@@ -120,8 +125,9 @@ disabled while preserving the mandatory globals.
 
 Address recovery has been checked against stripped compiler fixtures from
 Go 1.17 through 1.27, including empty-main builds, and current-Go executable and
-PIE builds. Allocation metrics require Go 1.23 or newer. Functional export
-validation for stripped allocation metrics is still pending.
+PIE builds. Allocation metrics require Go 1.23 or newer. The stripped integration
+suites compare allocation counters with the application's `runtime/metrics`
+values, including during concurrent metric reads.
 
 ### Scheduler histograms
 
@@ -146,7 +152,8 @@ update in the same function. Valid matches must agree on one aligned, readable
 and writable field address. Subtracting the generated `runtime.schedt.goidgen`
 offset recovers the structure's base; the resolver then adds process load bias.
 Recovery failure leaves histograms disabled while preserving other metrics.
-Functional export validation for stripped histograms is still pending.
+The stripped integration suites compare histogram counts and buckets with the
+application's `runtime/metrics` histograms.
 
 ### Goroutine list length
 
@@ -173,8 +180,8 @@ and writable bytes. The resolver adds process load bias to that address.
 Recovery failure leaves goroutine counting disabled while preserving other metrics.
 
 Address recovery passed exact-symbol comparisons for Go 1.17 through 1.27 fixtures,
-including empty programs, and current-Go executable and PIE builds. Functional
-export validation for stripped goroutine counting is pending.
+including empty programs, and current-Go executable and PIE builds. The stripped
+integration suites compare goroutine counts with `/sched/goroutines:goroutines`.
 
 ### Scheduler processor list
 
@@ -206,8 +213,9 @@ A missing address disables goroutine counting while preserving other metrics.
 The existing field-offset and counting-mode checks also apply to stripped binaries.
 
 Address recovery passed exact-symbol comparisons for Go 1.17 through 1.27 fixtures,
-including empty programs, and current-Go executable and PIE builds. These checks
-validate address recovery; functional export validation is still pending.
+including empty programs, and current-Go executable and PIE builds. The stripped
+Go 1.25 and current-Go integration cases exercise the corresponding counting modes
+through comparisons with `/sched/goroutines:goroutines`.
 
 ## Metrics
 
