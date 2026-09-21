@@ -31,3 +31,8 @@ func resolveRuntimeMetricSizeClassTableFromCode(_ *elf.File, _ *gosym.Table) (ui
 func resolveRuntimeMetricSchedGoIDFromCode(_ *elf.File, _ uint64, _ []byte) (uint64, error) {
 	return 0, ErrUnsupportedArchitecture
 }
+
+// resolveRuntimeMetricAllgLenFromCode requires the amd64 atomic-store matcher.
+func resolveRuntimeMetricAllgLenFromCode(_ *elf.File, _ uint64, _ []byte) (uint64, error) {
+	return 0, ErrUnsupportedArchitecture
+}

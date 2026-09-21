@@ -86,6 +86,50 @@ func TestIsRuntimeMetricSchedGoIDUpdate(t *testing.T) {
 	require.False(t, isRuntimeMetricSchedGoIDUpdate(nil, 0))
 }
 
+func TestIsRuntimeMetricAllgLenStore(t *testing.T) {
+	// MOV RCX,[RIP+0xe4ead]; LEA RDX,[RIP+0x1050ee]; XCHG [RDX],RCX.
+	load := []byte{0x48, 0x8b, 0x0d, 0xad, 0x4e, 0x0e, 0x00}
+	address := []byte{0x48, 0x8d, 0x15, 0xee, 0x50, 0x10, 0x00}
+	store := []byte{0x48, 0x87, 0x0a}
+	for _, tc := range []struct {
+		name    string
+		load    []byte
+		address []byte
+		store   []byte
+		want    bool
+	}{
+		{"observed store", load, address, store, true},
+		{"different registers", []byte{0x48, 0x8b, 0x1d, 0, 0, 0, 0}, []byte{0x48, 0x8d, 0x35, 0, 0, 0, 0}, []byte{0x48, 0x87, 0x1e}, true},
+		{"allgptr stack reload", []byte{0x48, 0x8b, 0x5c, 0x24, 0x40}, []byte{0x48, 0x8d, 0x0d, 0x6f, 0x4d, 0x0e, 0}, []byte{0x48, 0x87, 0x19}, false},
+		{"four-byte load", []byte{0x8b, 0x0d, 0, 0, 0, 0}, address, store, false},
+		{"indirect load", []byte{0x48, 0x8b, 0x0b}, address, store, false},
+		{"segment-relative load", append([]byte{0x64}, load...), address, store, false},
+		{"address instead of value", []byte{0x48, 0x8d, 0x0d, 0, 0, 0, 0}, address, store, false},
+		{"overwritten value register", load, []byte{0x48, 0x8d, 0x0d, 0, 0, 0, 0}, []byte{0x48, 0x87, 0x09}, false},
+		{"32-bit address", load, []byte{0x8d, 0x15, 0, 0, 0, 0}, store, false},
+		{"indirect address", load, []byte{0x48, 0x8d, 0x13}, store, false},
+		{"wrong value register", load, address, []byte{0x48, 0x87, 0x1a}, false},
+		{"wrong base register", load, address, []byte{0x48, 0x87, 0x0b}, false},
+		{"four-byte store", load, address, []byte{0x87, 0x0a}, false},
+		{"indexed store", load, address, []byte{0x48, 0x87, 0x0c, 0x42}, false},
+		{"displaced store", load, address, []byte{0x48, 0x87, 0x4a, 0x08}, false},
+		{"segment-relative store", load, address, []byte{0x64, 0x48, 0x87, 0x0a}, false},
+		{"plain store", load, address, []byte{0x48, 0x89, 0x0a}, false},
+		{"intervening instruction", load, address, append([]byte{0x90}, store...), false},
+		{"missing store", load, address, nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := append(append(append([]byte(nil), tc.load...), tc.address...), tc.store...)
+			instructions, err := decodeRuntimeMetricX86Instructions(code)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, isRuntimeMetricAllgLenStore(instructions, 0))
+			require.False(t, isRuntimeMetricAllgLenStore(instructions, -1))
+			require.False(t, isRuntimeMetricAllgLenStore(instructions, len(instructions)))
+		})
+	}
+	require.False(t, isRuntimeMetricAllgLenStore(nil, 0))
+}
+
 func TestResolveRuntimeMetricSchedGoIDFromCode(t *testing.T) {
 	const writable = elf.PF_R | elf.PF_W
 	for _, tc := range []struct {
@@ -132,6 +176,57 @@ func TestResolveRuntimeMetricSchedGoIDFromCode(t *testing.T) {
 	}
 
 	_, err := resolveRuntimeMetricSchedGoIDFromCode(&elf.File{}, 0x1000, []byte{0x48, 0x8d})
+	require.Error(t, err)
+}
+
+func TestResolveRuntimeMetricAllgLenFromCode(t *testing.T) {
+	const writable = elf.PF_R | elf.PF_W
+	for _, tc := range []struct {
+		name         string
+		functionAddr uint64
+		addresses    []uint64
+		flags        elf.ProgFlag
+		want         uint64
+		wantError    string
+	}{
+		{"forward reference", 0x1000, []uint64{0x2000}, writable, 0x2000, ""},
+		{"backward reference", 0x4000, []uint64{0x2000}, writable, 0x2000, ""},
+		{"repeated reference", 0x1000, []uint64{0x2000, 0x2000}, writable, 0x2000, ""},
+		{"conflicting references", 0x1000, []uint64{0x2000, 0x2800}, writable, 0, "ambiguous runtime global address"},
+		{"misaligned counter", 0x1000, []uint64{0x2001}, writable, 0, "runtime global address not found"},
+		{"outside storage", 0x1000, []uint64{0x3000}, writable, 0, "runtime global address not found"},
+		{"counter fits exactly", 0x1000, []uint64{0x2ff8}, writable, 0x2ff8, ""},
+		{"read-only storage", 0x1000, []uint64{0x2000}, elf.PF_R, 0, "runtime global address not found"},
+		{"unreadable storage", 0x1000, []uint64{0x2000}, elf.PF_W, 0, "runtime global address not found"},
+		{"zero address", 0x1000, []uint64{0}, writable, 0, "runtime global address not found"},
+		{"missing store", 0x1000, nil, writable, 0, "runtime global address not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// allglen may live in BSS, with no file-backed bytes.
+			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+				Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x2000, Memsz: 0x1000,
+			}}}}
+			var code []byte
+			for _, address := range tc.addresses {
+				start := len(code)
+				// MOV RCX,[RIP+disp]; LEA RDX,[RIP+disp]; XCHG [RDX],RCX.
+				code = append(code, 0x48, 0x8b, 0x0d, 0, 0, 0, 0,
+					0x48, 0x8d, 0x15, 0, 0, 0, 0, 0x48, 0x87, 0x0a)
+				// Keep the loaded length distinct from the store destination.
+				binary.LittleEndian.PutUint32(code[start+3:start+7], uint32(int64(0x2400)-int64(tc.functionAddr)-int64(start+7)))
+				binary.LittleEndian.PutUint32(code[start+10:start+14], uint32(int64(address)-int64(tc.functionAddr)-int64(start+14)))
+			}
+			got, err := resolveRuntimeMetricAllgLenFromCode(f, tc.functionAddr, code)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tc.wantError)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	_, err := resolveRuntimeMetricAllgLenFromCode(&elf.File{}, 0x1000, []byte{0x48, 0x8d})
 	require.Error(t, err)
 }
 

@@ -75,6 +75,33 @@ func resolveRuntimeMetricSchedGoIDFromCode(f *elf.File, functionELFAddress uint6
 	return uniqueRuntimeMetricAddress(candidates)
 }
 
+// resolveRuntimeMetricAllgLenFromCode recovers allglen from the atomic length
+// store in allgadd. All valid matches must identify the same writable uintptr.
+func resolveRuntimeMetricAllgLenFromCode(f *elf.File, functionELFAddress uint64, code []byte) (uint64, error) {
+	instructions, err := decodeRuntimeMetricX86Instructions(code)
+	if err != nil {
+		return 0, err
+	}
+
+	const allgLenSize = 8 // uintptr is eight bytes on amd64.
+	var candidates []uint64
+	for index := range instructions {
+		if !isRuntimeMetricAllgLenStore(instructions, index) {
+			continue
+		}
+		// The LEA identifies the destination; the preceding MOV reads the length.
+		address, ok := runtimeMetricRIPTarget(functionELFAddress, instructions[index+1])
+		if !ok || address == 0 || address%allgLenSize != 0 {
+			continue
+		}
+		if !runtimeMetricWritableRange(f, address, allgLenSize) {
+			continue
+		}
+		candidates = append(candidates, address)
+	}
+	return uniqueRuntimeMetricAddress(candidates)
+}
+
 // resolveRuntimeMetricSizeClassTableFromCode follows allocation-size lookups in
 // mallocgc on older runtimes and in lockVerifyMSize on newer runtimes.
 func resolveRuntimeMetricSizeClassTableFromCode(f *elf.File, table *gosym.Table) (uint64, error) {
@@ -311,6 +338,43 @@ func isRuntimeMetricSchedGoIDUpdate(instructions []runtimeMetricX86Instruction, 
 		}
 	}
 	return false
+}
+
+// isRuntimeMetricAllgLenStore recognizes this atomic store in runtime.allgadd:
+//
+//	atomic.Storeuintptr(&allglen, uintptr(len(allgs)))
+//
+//	MOV  RCX, QWORD PTR [RIP + displacement] // Load len(allgs).
+//	LEA  RDX, [RIP + displacement]           // Address of allglen.
+//	XCHG QWORD PTR [RDX], RCX                // Atomically store the length.
+//
+// The nearby allgptr exchange lacks this adjacent global load of its source value.
+func isRuntimeMetricAllgLenStore(instructions []runtimeMetricX86Instruction, index int) bool {
+	if index < 0 || index > len(instructions)-3 {
+		return false
+	}
+
+	load := instructions[index].inst
+	value, valueOK := load.Args[0].(x86asm.Reg)
+	source, sourceOK := load.Args[1].(x86asm.Mem)
+	if load.Op != x86asm.MOV || load.MemBytes != 8 ||
+		!valueOK || value < x86asm.RAX || value > x86asm.R15 ||
+		!sourceOK || source.Base != x86asm.RIP || source.Index != 0 || source.Segment != 0 {
+		return false
+	}
+
+	address := instructions[index+1].inst
+	base, baseOK := address.Args[0].(x86asm.Reg)
+	target, targetOK := address.Args[1].(x86asm.Mem)
+	if address.Op != x86asm.LEA || !baseOK || base < x86asm.RAX || base > x86asm.R15 || base == value ||
+		!targetOK || target.Base != x86asm.RIP || target.Index != 0 || target.Segment != 0 {
+		return false
+	}
+
+	store := instructions[index+2].inst
+	memory, memoryOK := store.Args[0].(x86asm.Mem)
+	return store.Op == x86asm.XCHG && store.MemBytes == 8 && store.Args[1] == value &&
+		memoryOK && memory.Base == base && memory.Index == 0 && memory.Disp == 0 && memory.Segment == 0
 }
 
 // isRuntimeMetricReceiverCall recognizes method calls such as this in mcache.refill:

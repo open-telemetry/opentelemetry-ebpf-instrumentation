@@ -8,8 +8,8 @@ Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
 fallback recovers the three mandatory globals: `runtime.gomaxprocs`,
 `runtime.memstats`, and `runtime.gcController`. It also recovers `runtime.work`
 for CPU statistics, the size-class table for allocation metrics, and
-`runtime.sched` for histograms. Recovery of `runtime.allglen` and `runtime.allp`
-for goroutine counting is still pending.
+`runtime.sched` for histograms. It recovers `runtime.allglen` for goroutine
+counting; recovery of `runtime.allp` is still pending.
 
 ## Stripped global recovery
 
@@ -147,6 +147,35 @@ and writable field address. Subtracting the generated `runtime.schedt.goidgen`
 offset recovers the structure's base; the resolver then adds process load bias.
 Recovery failure leaves histograms disabled while preserving other metrics.
 Functional export validation for stripped histograms is still pending.
+
+### Goroutine list length
+
+The global `runtime.allglen` records the length of the runtime's goroutine list,
+including finished goroutines kept for reuse. The collector uses this total
+with scheduler free-list counts to calculate `go.goroutine.count`.
+The resolver locates the atomic length store in `runtime.allgadd`:
+
+```go
+atomic.Storeuintptr(&allglen, uintptr(len(allgs)))
+```
+
+It matches three adjacent instructions with consistent value and address registers:
+
+```text
+MOV  RCX, QWORD PTR [RIP+displacement] // Load len(allgs).
+LEA  RDX, [RIP+displacement]           // Address of allglen.
+XCHG QWORD PTR [RDX], RCX             // Atomically store the length.
+```
+
+The preceding global load distinguishes this sequence from the nearby `allgptr`
+exchange. Valid matches must agree on one aligned address with eight readable
+and writable bytes. The resolver adds process load bias to that address.
+Recovery failure leaves goroutine counting disabled while preserving other metrics.
+
+Address recovery passed exact-symbol comparisons for Go 1.17 through 1.27 fixtures,
+including empty programs, and current-Go executable and PIE builds. Goroutine
+counting in stripped binaries still requires `allp` recovery. Functional export
+validation is pending.
 
 ## Metrics
 
