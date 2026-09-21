@@ -120,10 +120,10 @@ func processGroupRequest(hdr kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToNam
 	case kafkaparser.APIKeyOffsetCommit, kafkaparser.APIKeyOffsetFetch:
 		groups.Enrich(proc, groupReq, kafkaTopicUUIDToName)
 	case kafkaparser.APIKeyLeaveGroup:
-		groups.Leave(proc, groupReq.GroupID)
+		groups.Leave(proc, groupReq.GroupID, groupReq.Members)
 	case kafkaparser.APIKeyConsumerGroupHeartbeat:
 		if groupReq.MemberEpoch < 0 {
-			groups.Leave(proc, groupReq.GroupID)
+			groups.Leave(proc, groupReq.GroupID, []string{groupReq.MemberID})
 		} else {
 			groups.Join(proc, groupReq, kafkaTopicUUIDToName)
 		}
