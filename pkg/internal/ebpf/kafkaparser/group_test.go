@@ -107,12 +107,14 @@ func joinGroupV5(groupID, protocolType string, topics ...string) []byte {
 	return buildRequest(APIKeyJoinGroup, 5, false, b.buf)
 }
 
-func joinGroupV7(groupID string, topics ...string) []byte {
+// joinGroupV7 encodes the rejoin that follows MEMBER_ID_REQUIRED: memberID is the id
+// the coordinator assigned.
+func joinGroupV7(groupID, memberID string, topics ...string) []byte {
 	b := &reqBuilder{}
 	b.compactStr(groupID)
 	b.i32(10000)
 	b.i32(30000)
-	b.compactStr("")   // member_id
+	b.compactStr(memberID)
 	b.compactNullStr() // group_instance_id
 	b.compactStr("consumer")
 	b.compactArrayLen(1)
@@ -165,6 +167,15 @@ func heartbeatV4(groupID string) []byte {
 	return buildRequest(APIKeyHeartbeat, 4, true, b.buf)
 }
 
+func syncGroupV1(groupID string) []byte {
+	b := &reqBuilder{}
+	b.str(groupID)
+	b.i32(3) // generation_id
+	b.str("member-abc-123")
+	b.arrayLen(0) // assignments
+	return buildRequest(APIKeySyncGroup, 1, false, b.buf)
+}
+
 func syncGroupV5(groupID, protocolType string) []byte {
 	b := &reqBuilder{}
 	b.compactStr(groupID)
@@ -182,14 +193,23 @@ func syncGroupV5(groupID, protocolType string) []byte {
 	return buildRequest(APIKeySyncGroup, 5, true, b.buf)
 }
 
-func leaveGroupV5(groupID string) []byte {
+func leaveGroupV1(groupID string) []byte {
+	b := &reqBuilder{}
+	b.str(groupID)
+	b.str("member-abc-123")
+	return buildRequest(APIKeyLeaveGroup, 1, false, b.buf)
+}
+
+func leaveGroupV5(groupID string, members ...string) []byte {
 	b := &reqBuilder{}
 	b.compactStr(groupID)
-	b.compactArrayLen(1) // members
-	b.compactStr("member-abc-123")
-	b.compactNullStr() // group_instance_id
-	b.compactNullStr() // reason (v5+)
-	b.tagged()
+	b.compactArrayLen(len(members))
+	for _, m := range members {
+		b.compactStr(m)
+		b.compactNullStr() // group_instance_id
+		b.compactNullStr() // reason (v5+)
+		b.tagged()
+	}
 	b.tagged()
 	return buildRequest(APIKeyLeaveGroup, 5, true, b.buf)
 }
@@ -224,6 +244,25 @@ func offsetFetchV8(groupID string, topics ...string) []byte {
 	b.i8(0)    // require_stable
 	b.tagged()
 	return buildRequest(APIKeyOffsetFetch, 8, true, b.buf)
+}
+
+func offsetFetchV9(groupID string, topics ...string) []byte {
+	b := &reqBuilder{}
+	b.compactArrayLen(1) // groups
+	b.compactStr(groupID)
+	b.compactStr("member-abc-123")
+	b.i32(5) // member_epoch
+	b.compactArrayLen(len(topics))
+	for _, t := range topics {
+		b.compactStr(t)
+		b.compactArrayLen(1)
+		b.i32(0)
+		b.tagged()
+	}
+	b.tagged() // per-group tagged fields
+	b.i8(0)    // require_stable
+	b.tagged()
+	return buildRequest(APIKeyOffsetFetch, 9, true, b.buf)
 }
 
 func offsetCommitV8(groupID string, topics ...string) []byte {
@@ -318,8 +357,11 @@ func TestParseGroupRequest(t *testing.T) {
 		expectMemberEpoch  int
 		expectProtocolType string
 		expectSubscription bool
+		expectMemberID     string
+		expectMembers      []string
 	}{
 		{
+			// first join: the member id is empty until the coordinator assigns one
 			name:               "join group v5 (non-flexible), consumer subscription",
 			packet:             joinGroupV5("my-group", "consumer", "orders", "audit"),
 			expectGroupID:      "my-group",
@@ -329,10 +371,21 @@ func TestParseGroupRequest(t *testing.T) {
 		},
 		{
 			name:               "join group v7 (flexible), consumer subscription",
-			packet:             joinGroupV7("my-group", "orders", "audit"),
+			packet:             joinGroupV7("my-group", "member-abc-123", "orders", "audit"),
 			expectGroupID:      "my-group",
+			expectMemberID:     "member-abc-123",
 			expectProtocolType: "consumer",
 			expectTopics:       []string{"orders", "audit"},
+			expectSubscription: true,
+		},
+		{
+			// member ids are client_id + "-" + uuid, and client ids are free-form
+			name:               "join group v7, member id outside the topic charset",
+			packet:             joinGroupV7("my-group", "my client-6f3c1e2a", "orders"),
+			expectGroupID:      "my-group",
+			expectMemberID:     "my client-6f3c1e2a",
+			expectProtocolType: "consumer",
+			expectTopics:       []string{"orders"},
 			expectSubscription: true,
 		},
 		{
@@ -351,30 +404,54 @@ func TestParseGroupRequest(t *testing.T) {
 			expectProtocolType: "my protocol",
 		},
 		{
-			name:          "heartbeat v3 (non-flexible)",
-			packet:        heartbeatV3("my-group"),
-			expectGroupID: "my-group",
+			name:           "heartbeat v3 (non-flexible)",
+			packet:         heartbeatV3("my-group"),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
 		},
 		{
-			name:          "heartbeat v4 (flexible)",
-			packet:        heartbeatV4("my-group"),
-			expectGroupID: "my-group",
+			name:           "heartbeat v4 (flexible)",
+			packet:         heartbeatV4("my-group"),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
 		},
 		{
-			name:          "sync group v5, null protocol type",
-			packet:        syncGroupV5("my-group", ""),
-			expectGroupID: "my-group",
+			name:           "sync group v1 (non-flexible, no protocol type)",
+			packet:         syncGroupV1("my-group"),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
+		},
+		{
+			name:           "sync group v5, null protocol type",
+			packet:         syncGroupV5("my-group", ""),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
 		},
 		{
 			name:               "sync group v5 with protocol type",
 			packet:             syncGroupV5("schema-registry", "sr"),
 			expectGroupID:      "schema-registry",
+			expectMemberID:     "member-abc-123",
 			expectProtocolType: "sr",
 		},
 		{
-			name:          "leave group v5",
-			packet:        leaveGroupV5("my-group"),
+			name:          "leave group v1 (single member)",
+			packet:        leaveGroupV1("my-group"),
 			expectGroupID: "my-group",
+			expectMembers: []string{"member-abc-123"},
+		},
+		{
+			name:          "leave group v5",
+			packet:        leaveGroupV5("my-group", "member-abc-123"),
+			expectGroupID: "my-group",
+			expectMembers: []string{"member-abc-123"},
+		},
+		{
+			// the admin client removes several members in one request
+			name:          "leave group v5, two members",
+			packet:        leaveGroupV5("my-group", "member-abc-123", "member-def-456"),
+			expectGroupID: "my-group",
+			expectMembers: []string{"member-abc-123", "member-def-456"},
 		},
 		{
 			name:          "offset fetch v7 (top-level group id)",
@@ -389,29 +466,40 @@ func TestParseGroupRequest(t *testing.T) {
 			expectTopics:  []string{"orders", "audit"},
 		},
 		{
-			name:          "offset commit v8 (topic names)",
-			packet:        offsetCommitV8("my-group", "orders", "audit"),
-			expectGroupID: "my-group",
-			expectTopics:  []string{"orders", "audit"},
+			name:           "offset fetch v9 (member id and epoch)",
+			packet:         offsetFetchV9("my-group", "orders"),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
+			expectTopics:   []string{"orders"},
 		},
 		{
-			name:          "offset commit v10 (topic ids)",
-			packet:        offsetCommitV10("my-group", ordersUUID, auditUUID),
-			expectGroupID: "my-group",
-			expectUUIDs:   []UUID{ordersUUID, auditUUID},
+			name:           "offset commit v8 (topic names)",
+			packet:         offsetCommitV8("my-group", "orders", "audit"),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
+			expectTopics:   []string{"orders", "audit"},
+		},
+		{
+			name:           "offset commit v10 (topic ids)",
+			packet:         offsetCommitV10("my-group", ordersUUID, auditUUID),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
+			expectUUIDs:    []UUID{ordersUUID, auditUUID},
 		},
 		{
 			name:               "consumer group heartbeat v0, subscribed topic names",
 			packet:             consumerGroupHeartbeatV0("my-group", 0, []string{"orders", "audit"}, nil),
 			expectGroupID:      "my-group",
+			expectMemberID:     "member-abc-123",
 			expectTopics:       []string{"orders", "audit"},
 			expectSubscription: true,
 		},
 		{
-			name:          "consumer group heartbeat v0, unchanged subscription, owned partitions",
-			packet:        consumerGroupHeartbeatV0("my-group", 0, nil, []UUID{ordersUUID}),
-			expectGroupID: "my-group",
-			expectUUIDs:   []UUID{ordersUUID},
+			name:           "consumer group heartbeat v0, unchanged subscription, owned partitions",
+			packet:         consumerGroupHeartbeatV0("my-group", 0, nil, []UUID{ordersUUID}),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
+			expectUUIDs:    []UUID{ordersUUID},
 		},
 		{
 			// a member subscribed by regex joins with an empty, non-null name list
@@ -419,26 +507,30 @@ func TestParseGroupRequest(t *testing.T) {
 			name:               "consumer group heartbeat v0, empty subscription",
 			packet:             consumerGroupHeartbeatV0("my-group", 0, []string{}, nil),
 			expectGroupID:      "my-group",
+			expectMemberID:     "member-abc-123",
 			expectSubscription: true,
 		},
 		{
-			name:          "consumer group heartbeat v0, nothing but the group id",
-			packet:        consumerGroupHeartbeatV0("my-group", 0, nil, nil),
-			expectGroupID: "my-group",
+			name:           "consumer group heartbeat v0, nothing but the group id",
+			packet:         consumerGroupHeartbeatV0("my-group", 0, nil, nil),
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
 		},
 		{
 			name:              "consumer group heartbeat v0, leaving (member epoch -1)",
 			packet:            consumerGroupHeartbeatV0("leaving-group", LeaveGroupMemberEpoch, nil, nil),
 			expectGroupID:     "leaving-group",
+			expectMemberID:    "member-abc-123",
 			expectMemberEpoch: LeaveGroupMemberEpoch,
 		},
 		{
 			// The kernel forwards at most k_tcp_max_len bytes of a request, so a
 			// cut topic list is the normal case: the group id must still come out.
-			name:          "offset commit truncated inside the topic list",
-			packet:        offsetCommitV8("my-group", "orders", "audit")[:88],
-			expectGroupID: "my-group",
-			expectTopics:  []string{"orders"},
+			name:           "offset commit truncated inside the topic list",
+			packet:         offsetCommitV8("my-group", "orders", "audit")[:88],
+			expectGroupID:  "my-group",
+			expectMemberID: "member-abc-123",
+			expectTopics:   []string{"orders"},
 		},
 		{
 			// cut list: a partial subscription must not replace a complete one learned earlier
@@ -473,6 +565,8 @@ func TestParseGroupRequest(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, req)
 			assert.Equal(t, tt.expectGroupID, req.GroupID)
+			assert.Equal(t, tt.expectMemberID, req.MemberID)
+			assert.Equal(t, tt.expectMembers, req.Members)
 			assert.Equal(t, tt.expectMemberEpoch, req.MemberEpoch)
 			assert.Equal(t, tt.expectProtocolType, req.ProtocolType)
 			assert.Equal(t, tt.expectSubscription, req.Subscription)

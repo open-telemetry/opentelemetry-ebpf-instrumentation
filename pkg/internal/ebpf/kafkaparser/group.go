@@ -21,6 +21,12 @@ type GroupTopic struct {
 // request: the group id, plus the topics the request mentions when it carries any.
 type GroupRequest struct {
 	GroupID string
+	// MemberID identifies the sending member within the group, "" until the coordinator
+	// assigned one (a first JoinGroup) and in the requests that do not carry it.
+	MemberID string
+	// Members is set by LeaveGroup only: the members removed from the group, the
+	// sender itself or, from the admin client, any member of any group.
+	Members []string
 	Topics  []*GroupTopic
 	// MemberEpoch is set by ConsumerGroupHeartbeat only (0 otherwise): a negative epoch
 	// is a leave, see LeaveGroupMemberEpoch and LeaveGroupStaticMemberEpoch.
@@ -38,6 +44,7 @@ type GroupRequest struct {
 const (
 	maxGroupTopics     = 100
 	maxGroupPartitions = 1024
+	maxGroupMembers    = 100
 
 	// ConsumerGroupHeartbeat member epochs that end the membership (KIP-848,
 	// ConsumerGroupHeartbeatRequest.LEAVE_GROUP_MEMBER_EPOCH / LEAVE_GROUP_STATIC_MEMBER_EPOCH).
@@ -68,12 +75,10 @@ func ParseGroupRequest(r *largebuf.LargeBufferReader, header KafkaRequestHeader)
 		return parseConsumerGroupHeartbeat(r, header)
 	case APIKeySyncGroup:
 		return parseSyncGroup(r, header)
-	case APIKeyHeartbeat, APIKeyLeaveGroup:
-		groupID, err := readGroupID(r, header)
-		if err != nil {
-			return nil, err
-		}
-		return &GroupRequest{GroupID: groupID}, nil
+	case APIKeyHeartbeat:
+		return parseHeartbeat(r, header)
+	case APIKeyLeaveGroup:
+		return parseLeaveGroup(r, header)
 	default:
 		return nil, errKafkaReqUnsupportedAPIKey
 	}
@@ -106,7 +111,7 @@ func parseJoinGroup(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (*
 	if err = r.Skip(skipLen); err != nil {
 		return req, nil
 	}
-	if err = skipString(r, header); err != nil { // member_id
+	if req.MemberID, err = readPrintableString(r, header); err != nil {
 		return req, nil
 	}
 	if header.APIVersion() >= 5 {
@@ -114,7 +119,7 @@ func parseJoinGroup(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (*
 			return req, nil
 		}
 	}
-	if req.ProtocolType, err = readPrintableString(r, header, false); err != nil || req.ProtocolType != ConsumerProtocolType {
+	if req.ProtocolType, err = readPrintableString(r, header); err != nil || req.ProtocolType != ConsumerProtocolType {
 		return req, nil
 	}
 	protocolsLen, err := readArrayLength(r, header)
@@ -188,21 +193,94 @@ func parseSyncGroup(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (*
 		return nil, err
 	}
 	req := &GroupRequest{GroupID: groupID}
-	if header.APIVersion() < 5 {
-		return req, nil
-	}
 
 	if err = r.Skip(Int32Len); err != nil { // generation_id
 		return req, nil
 	}
-	if err = skipString(r, header); err != nil { // member_id
+	if req.MemberID, err = readPrintableString(r, header); err != nil {
+		return req, nil
+	}
+	if header.APIVersion() < 5 {
 		return req, nil
 	}
 	if err = skipString(r, header); err != nil { // group_instance_id
 		return req, nil
 	}
-	if req.ProtocolType, err = readPrintableString(r, header, true); err != nil {
+	if req.ProtocolType, err = readPrintableString(r, header); err != nil {
 		req.ProtocolType = ""
+	}
+	return req, nil
+}
+
+/*
+Heartbeat Request (Version: 0-4) => group_id generation_id member_id group_instance_id _tagged_fields
+
+	group_id => STRING / COMPACT_STRING
+	generation_id => INT32
+	member_id => STRING / COMPACT_STRING
+*/
+func parseHeartbeat(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (*GroupRequest, error) {
+	groupID, err := readGroupID(r, header)
+	if err != nil {
+		return nil, err
+	}
+	req := &GroupRequest{GroupID: groupID}
+
+	if err = r.Skip(Int32Len); err != nil { // generation_id
+		return req, nil
+	}
+	if req.MemberID, err = readPrintableString(r, header); err != nil {
+		return req, nil
+	}
+	return req, nil
+}
+
+/*
+LeaveGroup Request (Version: 0-5) => group_id member_id [members] _tagged_fields
+
+	group_id => STRING / COMPACT_STRING
+	member_id => STRING (0-2)
+	members => member_id group_instance_id reason _tagged_fields (3+)
+	  member_id => STRING / COMPACT_STRING
+	  group_instance_id => NULLABLE_STRING / COMPACT_NULLABLE_STRING
+	  reason => NULLABLE_STRING / COMPACT_NULLABLE_STRING (5+)
+*/
+func parseLeaveGroup(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (*GroupRequest, error) {
+	groupID, err := readGroupID(r, header)
+	if err != nil {
+		return nil, err
+	}
+	req := &GroupRequest{GroupID: groupID}
+
+	if header.APIVersion() < 3 {
+		memberID, err := readPrintableString(r, header)
+		if err != nil {
+			return req, nil
+		}
+		req.Members = []string{memberID}
+		return req, nil
+	}
+	membersLen, err := readArrayLength(r, header)
+	if err != nil {
+		return req, nil
+	}
+	for range min(membersLen, maxGroupMembers) {
+		memberID, err := readPrintableString(r, header)
+		if err != nil {
+			return req, nil
+		}
+		req.Members = append(req.Members, memberID)
+		if err = skipString(r, header); err != nil { // group_instance_id
+			return req, nil
+		}
+		if header.APIVersion() >= 5 {
+			if err = skipString(r, header); err != nil { // reason
+				return req, nil
+			}
+		}
+		if err = skipTaggedFields(r, header); err != nil {
+			return req, nil
+		}
 	}
 	return req, nil
 }
@@ -234,7 +312,7 @@ func parseOffsetCommit(r *largebuf.LargeBufferReader, header KafkaRequestHeader)
 	if err = r.Skip(Int32Len); err != nil { // generation_id_or_member_epoch
 		return req, nil
 	}
-	if err = skipString(r, header); err != nil { // member_id
+	if req.MemberID, err = readPrintableString(r, header); err != nil {
 		return req, nil
 	}
 	if header.APIVersion() >= 7 {
@@ -299,7 +377,7 @@ func parseOffsetFetch(r *largebuf.LargeBufferReader, header KafkaRequestHeader) 
 	req := &GroupRequest{GroupID: groupID}
 
 	if header.APIVersion() >= 9 {
-		if err = skipString(r, header); err != nil { // member_id
+		if req.MemberID, err = readPrintableString(r, header); err != nil {
 			return req, nil
 		}
 		if err = r.Skip(Int32Len); err != nil { // member_epoch
@@ -333,7 +411,7 @@ func parseConsumerGroupHeartbeat(r *largebuf.LargeBufferReader, header KafkaRequ
 	}
 	req := &GroupRequest{GroupID: groupID}
 
-	if err = skipString(r, header); err != nil { // member_id
+	if req.MemberID, err = readPrintableString(r, header); err != nil {
 		return req, nil
 	}
 	if req.MemberEpoch, err = readInt32(r); err != nil { // member_epoch: 0 join, >0 member, <0 leave
@@ -421,7 +499,7 @@ func skipInt32(r *largebuf.LargeBufferReader, _ KafkaRequestHeader) error {
 
 // readGroupID reads a non-empty group id.
 func readGroupID(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (string, error) {
-	groupID, err := readPrintableString(r, header, false)
+	groupID, err := readPrintableString(r, header)
 	if err != nil {
 		return "", err
 	}
@@ -432,10 +510,11 @@ func readGroupID(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (stri
 }
 
 // readPrintableString reads a string field Kafka does not restrict to the topic-name
-// charset (group ids, protocol types): printable UTF-8 is all that is required. A null
-// or empty value yields "".
-func readPrintableString(r *largebuf.LargeBufferReader, header KafkaRequestHeader, nullable bool) (string, error) {
-	size, err := readStringLength(r, header, nullable)
+// charset (group ids, member ids, protocol types): printable UTF-8 is all that is
+// required. A null or empty value yields "" whatever the field's nullability: a first
+// JoinGroup carries an empty member_id, and the callers decide what "" means.
+func readPrintableString(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (string, error) {
+	size, err := readStringSize(r, header)
 	if err != nil {
 		return "", err
 	}
@@ -475,9 +554,18 @@ func readValidatedString(r *largebuf.LargeBufferReader, size int) (string, error
 	return string(b), nil
 }
 
-// skipString advances past a string field of any nullability, accepting empty
-// values (readString rejects them: a first JoinGroup carries an empty member_id).
+// skipString advances past a string field of any nullability, empty or null.
 func skipString(r *largebuf.LargeBufferReader, header KafkaRequestHeader) error {
+	size, err := readStringSize(r, header)
+	if err != nil {
+		return err
+	}
+	return r.Skip(size)
+}
+
+// readStringSize reads the length prefix of a string field of any nullability; null and
+// empty both yield 0 (readStringLength rejects an empty non-nullable string).
+func readStringSize(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (int, error) {
 	var size int
 	var err error
 	if isFlexible(header) {
@@ -486,9 +574,9 @@ func skipString(r *largebuf.LargeBufferReader, header KafkaRequestHeader) error 
 		size, err = readInt16(r)
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return r.Skip(max(size, 0))
+	return max(size, 0), nil
 }
 
 // readBytesLength reads the length prefix of a BYTES / COMPACT_BYTES field;
