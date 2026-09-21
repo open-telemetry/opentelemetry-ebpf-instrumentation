@@ -243,6 +243,58 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 	}
 }
 
+func testHTTPTracesRailsPostgres(t *testing.T) {
+	const (
+		serviceName = "my-ruby-app"
+		urlPath     = "/restaurants"
+	)
+
+	waitForTestComponentsSub(t, "http://localhost:3041", "/healthz")
+	for range 4 {
+		ti.DoHTTPGet(t, "http://localhost:3041"+urlPath, http.StatusOK)
+	}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName + "&tags=%7B%22url.path%22%3A%22%2Frestaurants%22%7D")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var query jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&query))
+		traces := query.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
+		require.NotEmpty(ct, traces)
+
+		serverSpans := traces[0].FindByOperationName("GET /restaurants", "server")
+		require.NotEmpty(ct, serverSpans)
+		require.NotEmpty(ct, serverSpans[0].TraceID)
+
+		var postgresClients []jaeger.Span
+		for _, span := range traces[0].Spans {
+			dbSystem, isDBSpan := jaeger.FindIn(span.Tags, "db.system.name")
+			spanKind, isClientSpan := jaeger.FindIn(span.Tags, "span.kind")
+			if isDBSpan && isClientSpan && dbSystem.Value == "postgresql" && spanKind.Value == "client" {
+				postgresClients = append(postgresClients, span)
+			}
+		}
+		require.Greater(ct, len(postgresClients), 1)
+
+		var postgresParentID string
+		for _, client := range postgresClients {
+			parent, found := traces[0].ParentOf(&client)
+			require.True(ct, found, "PostgreSQL client span %s has no parent", client.SpanID)
+			if postgresParentID == "" {
+				postgresParentID = parent.SpanID
+			}
+			assert.Equal(ct, postgresParentID, parent.SpanID,
+				"PostgreSQL client span %s does not share the common parent", client.SpanID)
+		}
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	for _, tc := range []struct {

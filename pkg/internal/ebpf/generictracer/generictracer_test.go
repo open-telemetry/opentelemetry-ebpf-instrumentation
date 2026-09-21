@@ -465,9 +465,8 @@ func readJVMTestBatch(t *testing.T, events <-chan []runtimemetrics.RuntimeMetric
 	}
 }
 
-// The libruby probes sit on symbols the Ruby runtime exercises as a whole, and
-// they can only ever correlate on Puma below Ruby 4.0, so the library they are
-// declared under must carry the version constraint that gates them.
+// The libruby probes sit on symbols the Ruby runtime exercises as a whole, so
+// each symbol set must carry the Ruby version constraint that gates it.
 func TestRubyUProbesAreVersionGated(t *testing.T) {
 	tracer := &Tracer{}
 
@@ -478,8 +477,7 @@ func TestRubyUProbesAreVersionGated(t *testing.T) {
 		}
 	}
 
-	require.Len(t, rubyKeys, 1, "exactly one libruby probe group")
-	assert.Equal(t, "libruby[< 4.0]", rubyKeys[0])
+	assert.ElementsMatch(t, []string{"libruby[< 4.0]", "libruby[>= 4.0]"}, rubyKeys)
 }
 
 type fakeServiceFilter struct {
