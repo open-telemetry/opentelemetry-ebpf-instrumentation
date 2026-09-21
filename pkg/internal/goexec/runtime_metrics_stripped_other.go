@@ -36,3 +36,8 @@ func resolveRuntimeMetricSchedGoIDFromCode(_ *elf.File, _ uint64, _ []byte) (uin
 func resolveRuntimeMetricAllgLenFromCode(_ *elf.File, _ uint64, _ []byte) (uint64, error) {
 	return 0, ErrUnsupportedArchitecture
 }
+
+// resolveRuntimeMetricAllpFromCode requires the amd64 slice-loop matcher.
+func resolveRuntimeMetricAllpFromCode(_ *elf.File, _ uint64, _ []byte) (uint64, error) {
+	return 0, ErrUnsupportedArchitecture
+}

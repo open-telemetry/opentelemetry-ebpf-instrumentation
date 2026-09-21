@@ -8,8 +8,8 @@ Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
 fallback recovers the three mandatory globals: `runtime.gomaxprocs`,
 `runtime.memstats`, and `runtime.gcController`. It also recovers `runtime.work`
 for CPU statistics, the size-class table for allocation metrics, and
-`runtime.sched` for histograms. It recovers `runtime.allglen` for goroutine
-counting; recovery of `runtime.allp` is still pending.
+`runtime.sched` for histograms. It recovers `runtime.allglen` and `runtime.allp`
+for goroutine counting.
 
 ## Stripped global recovery
 
@@ -173,9 +173,41 @@ and writable bytes. The resolver adds process load bias to that address.
 Recovery failure leaves goroutine counting disabled while preserving other metrics.
 
 Address recovery passed exact-symbol comparisons for Go 1.17 through 1.27 fixtures,
-including empty programs, and current-Go executable and PIE builds. Goroutine
-counting in stripped binaries still requires `allp` recovery. Functional export
-validation is pending.
+including empty programs, and current-Go executable and PIE builds. Functional
+export validation for stripped goroutine counting is pending.
+
+### Scheduler processor list
+
+The global `runtime.allp` is a slice of pointers to scheduler processors (Ps).
+Each P holds a free list of finished goroutines. The collector reads these list
+sizes and subtracts them, along with the scheduler's free-list counts, from
+`allglen` to calculate `go.goroutine.count`.
+
+The resolver uses the loop in `runtime.preemptall`:
+
+```go
+for _, pp := range allp {
+```
+
+Recovery follows three checks:
+
+1. Identify eight-byte global loads of the backing-array pointer and slice length.
+   The compiled sequence saves the pointer on the stack between these loads.
+2. Follow the loaded registers to the loop's length comparison and indexed read.
+   The matcher allows bounded setup instructions that preserve both registers.
+   The comparison and read must use the same index, with an eight-byte stride.
+3. Calculate the global field addresses. The length must sit eight bytes after
+   the pointer, and the full 24-byte slice header must fit aligned, readable and
+   writable storage. All valid candidates must agree on one header address.
+
+The recovered address identifies the global slice header. Its pointer field leads
+to the separate backing array. Process load bias is added once after recovery.
+A missing address disables goroutine counting while preserving other metrics.
+The existing field-offset and counting-mode checks also apply to stripped binaries.
+
+Address recovery passed exact-symbol comparisons for Go 1.17 through 1.27 fixtures,
+including empty programs, and current-Go executable and PIE builds. These checks
+validate address recovery; functional export validation is still pending.
 
 ## Metrics
 

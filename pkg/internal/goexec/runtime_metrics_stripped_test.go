@@ -104,6 +104,7 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			symbols, err := oracle.Symbols()
 			require.NoError(t, err)
 			var want, wantMemstats, wantGCController, wantWork, wantSizeClasses, wantSched, wantAllgLen uint64
+			var wantAllp uint64
 			for _, symbol := range symbols {
 				if symbol.Name == "runtime.gomaxprocs" {
 					want = symbol.Value
@@ -126,6 +127,9 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 				if symbol.Name == runtimeMetricAllgLenSymbol {
 					wantAllgLen = symbol.Value
 				}
+				if symbol.Name == runtimeMetricAllpSymbol {
+					wantAllp = symbol.Value
+				}
 			}
 			require.NotZero(t, want)
 			require.NotZero(t, wantMemstats)
@@ -134,6 +138,7 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			require.NotZero(t, wantSizeClasses)
 			require.NotZero(t, wantSched)
 			require.NotZero(t, wantAllgLen)
+			require.NotZero(t, wantAllp)
 
 			// Strip a copy of the same link so the symbol oracle's addresses stay valid.
 			output, err = exec.Command(objcopy, "--strip-all", original, stripped).CombinedOutput()
@@ -168,6 +173,9 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			allgLenAddress, err := resolveRuntimeMetricAllgLen(f, table)
 			require.NoError(t, err)
 			require.Equal(t, wantAllgLen, allgLenAddress)
+			allpAddress, err := resolveRuntimeMetricAllp(f, table)
+			require.NoError(t, err)
+			require.Equal(t, wantAllp, allpAddress)
 
 			// Exercise the connected fallback and its conversion to a process address.
 			const loadBias = uint64(0x70000000)
@@ -180,8 +188,25 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 			require.Equal(t, wantSizeClasses+loadBias, recovered.SizeClassToSizesAddr)
 			require.Equal(t, wantSched+loadBias, recovered.SchedAddr)
 			require.Equal(t, wantAllgLen+loadBias, recovered.AllgLenAddr)
+			require.Equal(t, wantAllp+loadBias, recovered.AllpAddr)
 			_, err = resolveRuntimeMetricSymbols(f, math.MaxUint64)
 			require.EqualError(t, err, "gomaxprocs process address overflows")
+
+			t.Run("missing-allp-anchor", func(t *testing.T) {
+				data, err := os.ReadFile(stripped)
+				require.NoError(t, err)
+				name := []byte("runtime.preemptall\x00")
+				require.True(t, bytes.Contains(data, name))
+				data = bytes.ReplaceAll(data, name, []byte("missing.preemptall\x00"))
+				missing, err := elf.NewFile(bytes.NewReader(data))
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = missing.Close() })
+				got, err := resolveRuntimeMetricSymbols(missing, loadBias)
+				require.NoError(t, err)
+				want := recovered
+				want.AllpAddr = 0
+				require.Equal(t, want, got)
+			})
 
 			t.Run("missing-allglen-anchor", func(t *testing.T) {
 				data, err := os.ReadFile(stripped)
@@ -291,6 +316,7 @@ func TestResolveRuntimeMetricGlobalsStripped(t *testing.T) {
 				require.Greater(t, recovered.SizeClassToSizesAddr, loadBias)
 				require.Greater(t, recovered.SchedAddr, loadBias)
 				require.Greater(t, recovered.AllgLenAddr, loadBias)
+				require.Greater(t, recovered.AllpAddr, loadBias)
 			})
 		})
 	}

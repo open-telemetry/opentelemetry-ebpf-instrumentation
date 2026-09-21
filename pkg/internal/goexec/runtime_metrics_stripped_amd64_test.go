@@ -15,6 +15,174 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 )
 
+func TestRuntimeMetricAllpLoadRegisters(t *testing.T) {
+	// MOV RCX,[RIP+disp]; MOV [RSP+0x20],RCX; MOV RDX,[RIP+disp].
+	observed := []byte{
+		0x48, 0x8b, 0x0d, 0xfb, 0x91, 0x0d, 0,
+		0x48, 0x89, 0x4c, 0x24, 0x20, 0x48, 0x8b, 0x15, 0xf7, 0x91, 0x0d, 0,
+	}
+	for _, tc := range []struct {
+		name   string
+		offset int
+		value  byte
+		want   bool
+	}{
+		{"observed loads", 0, 0x48, true},
+		{"different stack slot", 11, 0x18, true},
+		{"four-byte pointer", 0, 0x40, false},
+		{"indirect pointer", 2, 0x0b, false},
+		{"wrong saved register", 9, 0x54, false},
+		{"indexed stack save", 10, 0x04, false},
+		{"four-byte length", 12, 0x40, false},
+		{"length overwrites pointer", 14, 0x0d, false},
+		{"length overwrites stack pointer", 14, 0x25, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := bytes.Clone(observed)
+			code[tc.offset] = tc.value
+			instructions, err := decodeRuntimeMetricX86Instructions(code)
+			require.NoError(t, err)
+			pointer, length, ok := runtimeMetricAllpLoadRegisters(instructions, 0)
+			require.Equal(t, tc.want, ok)
+			if ok {
+				require.Equal(t, x86asm.RCX, pointer)
+				require.Equal(t, x86asm.RDX, length)
+			}
+			_, _, ok = runtimeMetricAllpLoadRegisters(instructions[:2], 0)
+			require.False(t, ok)
+			_, _, ok = runtimeMetricAllpLoadRegisters(instructions, -1)
+			require.False(t, ok)
+		})
+	}
+	_, _, ok := runtimeMetricAllpLoadRegisters(nil, 0)
+	require.False(t, ok)
+}
+
+func TestIsRuntimeMetricAllpLoop(t *testing.T) {
+	loads := []byte{
+		0x48, 0x8b, 0x0d, 0, 0, 0, 0,
+		0x48, 0x89, 0x4c, 0x24, 0x20, 0x48, 0x8b, 0x15, 0, 0, 0, 0,
+	}
+	currentAccess := []byte{0x48, 0x39, 0xd6, 0x7d, 0x30, 0x48, 0x8b, 0x04, 0xf1}
+	olderAccess := []byte{0x48, 0x39, 0xd0, 0x7d, 0x33, 0x48, 0x8b, 0x34, 0xc1}
+	for _, tc := range []struct {
+		name   string
+		setup  []byte
+		access []byte
+		want   bool
+	}{
+		{"current compiler", []byte{0x48, 0x89, 0x54, 0x24, 0x18, 0x31, 0xdb, 0x31, 0xf6, 0xeb, 0x03, 0x48, 0xff, 0xc6}, currentAccess, true},
+		{"older compiler", []byte{0x48, 0x89, 0x54, 0x24, 0x18, 0x31, 0xc0, 0x31, 0xdb, 0xeb, 0x03, 0x48, 0xff, 0xc0}, olderAccess, true},
+		{"no intervening setup", nil, currentAccess, true},
+		{"padding", []byte{0x90}, currentAccess, true},
+		{"different index initialization", []byte{0x31, 0xf6}, currentAccess, true},
+		{"pointer overwritten through ECX", []byte{0x31, 0xc9}, currentAccess, false},
+		{"length overwritten through EDX", []byte{0x31, 0xd2}, currentAccess, false},
+		{"pointer incremented", []byte{0x48, 0xff, 0xc1}, currentAccess, false},
+		{"stack pointer overwritten", []byte{0x31, 0xe4}, currentAccess, false},
+		{"pointer replaced by register copy", []byte{0x48, 0x89, 0xc1}, currentAccess, false},
+		{"intervening call", []byte{0xe8, 0, 0, 0, 0}, currentAccess, false},
+		{"jump bypasses comparison", []byte{0xeb, 0x03}, currentAccess, false},
+		{"backward jump", []byte{0xeb, 0xfe}, currentAccess, false},
+		{"conditional setup jump", []byte{0x74, 0x01, 0x90}, currentAccess, false},
+		{"bounded search", bytes.Repeat([]byte{0x90}, 12), currentAccess, false},
+		{"missing loop use", nil, nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := append(append(bytes.Clone(loads), tc.setup...), tc.access...)
+			instructions, err := decodeRuntimeMetricX86Instructions(code)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, isRuntimeMetricAllpLoop(instructions, 0))
+			require.False(t, isRuntimeMetricAllpLoop(instructions, -1))
+			require.False(t, isRuntimeMetricAllpLoop(instructions, len(instructions)))
+		})
+	}
+	require.False(t, isRuntimeMetricAllpLoop(nil, 0))
+}
+
+func TestIsRuntimeMetricAllpLoopAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code []byte
+		want bool
+	}{
+		{"current index RSI", []byte{0x48, 0x39, 0xd6, 0x7d, 0x30, 0x48, 0x8b, 0x04, 0xf1}, true},
+		{"older index RAX", []byte{0x48, 0x39, 0xd0, 0x7d, 0x33, 0x48, 0x8b, 0x34, 0xc1}, true},
+		{"wrong length register", []byte{0x48, 0x39, 0xde, 0x7d, 0x30, 0x48, 0x8b, 0x04, 0xf1}, false},
+		{"four-byte comparison", []byte{0x39, 0xd6, 0x7d, 0x30, 0x48, 0x8b, 0x04, 0xf1}, false},
+		{"wrong branch condition", []byte{0x48, 0x39, 0xd6, 0x7c, 0x30, 0x48, 0x8b, 0x04, 0xf1}, false},
+		{"branch into element read", []byte{0x48, 0x39, 0xd6, 0x7d, 0x02, 0x48, 0x8b, 0x04, 0xf1}, false},
+		{"wrong array register", []byte{0x48, 0x39, 0xd6, 0x7d, 0x30, 0x48, 0x8b, 0x04, 0xf2}, false},
+		{"wrong index register", []byte{0x48, 0x39, 0xd6, 0x7d, 0x30, 0x48, 0x8b, 0x04, 0xd9}, false},
+		{"four-byte stride", []byte{0x48, 0x39, 0xd6, 0x7d, 0x30, 0x48, 0x8b, 0x04, 0xb1}, false},
+		{"four-byte element", []byte{0x48, 0x39, 0xd6, 0x7d, 0x30, 0x8b, 0x04, 0xf1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			instructions, err := decodeRuntimeMetricX86Instructions(tc.code)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, isRuntimeMetricAllpLoopAccess(instructions, 0, x86asm.RCX, x86asm.RDX))
+			require.False(t, isRuntimeMetricAllpLoopAccess(instructions[:2], 0, x86asm.RCX, x86asm.RDX))
+			require.False(t, isRuntimeMetricAllpLoopAccess(instructions, -1, x86asm.RCX, x86asm.RDX))
+		})
+	}
+	require.False(t, isRuntimeMetricAllpLoopAccess(nil, 0, x86asm.RCX, x86asm.RDX))
+}
+
+func TestResolveRuntimeMetricAllpFromCode(t *testing.T) {
+	const writable = elf.PF_R | elf.PF_W
+	for _, tc := range []struct {
+		name         string
+		functionAddr uint64
+		addresses    []uint64
+		lengthOffset uint64
+		flags        elf.ProgFlag
+		want         uint64
+		wantError    string
+	}{
+		{"forward reference", 0x1000, []uint64{0x2000}, 8, writable, 0x2000, ""},
+		{"backward reference", 0x4000, []uint64{0x2000}, 8, writable, 0x2000, ""},
+		{"repeated reference", 0x1000, []uint64{0x2000, 0x2000}, 8, writable, 0x2000, ""},
+		{"conflicting references", 0x1000, []uint64{0x2000, 0x2800}, 8, writable, 0, "ambiguous runtime global address"},
+		{"same field loaded twice", 0x1000, []uint64{0x2000}, 0, writable, 0, "runtime global address not found"},
+		{"capacity instead of length", 0x1000, []uint64{0x2000}, 16, writable, 0, "runtime global address not found"},
+		{"unrelated global pair", 0x1000, []uint64{0x2000}, 0x100, writable, 0, "runtime global address not found"},
+		{"misaligned header", 0x1000, []uint64{0x2001}, 8, writable, 0, "runtime global address not found"},
+		{"header fits exactly", 0x1000, []uint64{0x2fe8}, 8, writable, 0x2fe8, ""},
+		{"capacity outside storage", 0x1000, []uint64{0x2ff0}, 8, writable, 0, "runtime global address not found"},
+		{"read-only storage", 0x1000, []uint64{0x2000}, 8, elf.PF_R, 0, "runtime global address not found"},
+		{"unreadable storage", 0x1000, []uint64{0x2000}, 8, elf.PF_W, 0, "runtime global address not found"},
+		{"zero address", 0x1000, []uint64{0}, 8, writable, 0, "runtime global address not found"},
+		{"missing loop", 0x1000, nil, 8, writable, 0, "runtime global address not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Validate a BSS header without requiring file-backed contents.
+			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+				Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x2000, Memsz: 0x1000,
+			}}}}
+			var code []byte
+			for _, address := range tc.addresses {
+				start := len(code)
+				// Pointer load, stack save, length load, comparison, exit, element read.
+				code = append(code, 0x48, 0x8b, 0x0d, 0, 0, 0, 0,
+					0x48, 0x89, 0x4c, 0x24, 0x20, 0x48, 0x8b, 0x15, 0, 0, 0, 0,
+					0x48, 0x39, 0xd6, 0x7d, 0x04, 0x48, 0x8b, 0x04, 0xf1, 0xc3)
+				binary.LittleEndian.PutUint32(code[start+3:start+7], uint32(int64(address)-int64(tc.functionAddr)-int64(start+7)))
+				binary.LittleEndian.PutUint32(code[start+15:start+19], uint32(int64(address+tc.lengthOffset)-int64(tc.functionAddr)-int64(start+19)))
+			}
+			got, err := resolveRuntimeMetricAllpFromCode(f, tc.functionAddr, code)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tc.wantError)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	_, err := resolveRuntimeMetricAllpFromCode(&elf.File{}, 0x1000, []byte{0x48, 0x8b})
+	require.Error(t, err)
+}
+
 func TestIsRuntimeMetricSizeClassTableLoad(t *testing.T) {
 	// LEA RCX,[RIP+0x10c82f]; MOVZX EAX,WORD PTR [RCX+RAX*2].
 	address := []byte{0x48, 0x8d, 0x0d, 0x2f, 0xc8, 0x10, 0x00}

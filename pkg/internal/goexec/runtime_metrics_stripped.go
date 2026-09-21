@@ -147,6 +147,11 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 	if address, err := resolveRuntimeMetricAllgLen(f, table); err == nil && loadBias <= ^uint64(0)-address {
 		allgLenProcessAddress = loadBias + address
 	}
+	// Goroutine counting also requires the per-P free lists reached through allp.
+	var allpProcessAddress uint64
+	if address, err := resolveRuntimeMetricAllp(f, table); err == nil && loadBias <= ^uint64(0)-address {
+		allpProcessAddress = loadBias + address
+	}
 	return RuntimeMetricSymbols{
 		GOMAXPROCSAddr:       gomaxprocsProcessAddress,
 		MemstatsAddr:         loadBias + memstatsELFAddress,
@@ -155,6 +160,7 @@ func resolveRuntimeMetricSymbolsFromCode(f *elf.File, loadBias uint64) (RuntimeM
 		SizeClassToSizesAddr: sizeClassProcessAddress,
 		SchedAddr:            schedProcessAddress,
 		AllgLenAddr:          allgLenProcessAddress,
+		AllpAddr:             allpProcessAddress,
 	}, nil
 }
 
@@ -240,6 +246,28 @@ func resolveRuntimeMetricAllgLen(f *elf.File, table *gosym.Table) (uint64, error
 		return 0, err
 	}
 	address, err := resolveRuntimeMetricAllgLenFromCode(f, function.Entry, code)
+	if err != nil {
+		return 0, err
+	}
+	return address, nil
+}
+
+// resolveRuntimeMetricAllp reads preemptall's code to locate the global slice
+// header through its pointer and length loads and their use in the loop.
+// https://github.com/golang/go/blob/go1.27.1/src/runtime/proc.go#L6894
+func resolveRuntimeMetricAllp(f *elf.File, table *gosym.Table) (uint64, error) {
+	function := table.LookupFunc("runtime.preemptall")
+	if function == nil {
+		return 0, errors.New("runtime.preemptall function not found")
+	}
+	if function.End <= function.Entry || function.End-function.Entry > maximumRuntimeFunctionSize {
+		return 0, errors.New("invalid runtime.preemptall function bounds")
+	}
+	code, err := readVirtualMemoryWithFlags(f, function.Entry, function.End-function.Entry, elf.PF_X)
+	if err != nil {
+		return 0, err
+	}
+	address, err := resolveRuntimeMetricAllpFromCode(f, function.Entry, code)
 	if err != nil {
 		return 0, err
 	}

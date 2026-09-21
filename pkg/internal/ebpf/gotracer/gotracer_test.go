@@ -568,6 +568,14 @@ func TestGoRuntimeMetricMaskRequiresGoroutineSymbolsAndModeOnlyForCount(t *testi
 
 	assert.Equal(t, mask, tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, symbols))
 
+	symbols.AllpAddr = 0
+	assert.Equal(t, mask&^goRuntimeMetricGoroutineCountMask, tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, symbols))
+	symbols.AllpAddr = 0x3000
+
+	symbols.SchedAddr = 0
+	assert.Equal(t, mask&^goRuntimeMetricGoroutineCountMask, tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, symbols))
+	symbols.SchedAddr = 0x1000
+
 	symbols.AllgLenAddr = 0
 	got := tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, symbols)
 	assert.Zero(t, got&goRuntimeMetricGoroutineCountMask)
