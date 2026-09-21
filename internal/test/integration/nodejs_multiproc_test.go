@@ -120,3 +120,19 @@ func TestNodeJSMultiProc(t *testing.T) {
 
 	require.NoError(t, compose.Close())
 }
+
+func TestNodeJSMultiProcNode12(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-nodemultiproc.yml", path.Join(pathOutput, "test-suite-node-multiproc-node12.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`,
+		`NODEMULTIPROC_DOCKERFILE=internal/test/integration/components/nodemultiproc/Dockerfile_node12`,
+		`NODEMULTIPROC_IMAGE=nodemultiproc-node12`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Nested traces", testNestedTraces)
+
+	runWeaverValidation(t)
+
+	require.NoError(t, compose.Close())
+}
