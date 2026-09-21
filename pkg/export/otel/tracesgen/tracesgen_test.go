@@ -687,6 +687,55 @@ func TestGenAIResponseErrorSelectionToStatusMessage(t *testing.T) {
 	}
 }
 
+func TestGroupSpansParentBasedSampling(t *testing.T) {
+	traceID := trace2.TraceID{1}
+	parentSpanID := trace2.SpanID{2}
+	selection := instrumentations.NewInstrumentationSelection(
+		[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+	)
+
+	tests := []struct {
+		name       string
+		parentID   trace2.SpanID
+		traceFlags uint8
+		sampler    sdktrace.Sampler
+		wantSpan   bool
+	}{
+		{
+			name:       "sampled remote parent overrides always-off root",
+			parentID:   parentSpanID,
+			traceFlags: uint8(trace2.FlagsSampled),
+			sampler:    sdktrace.ParentBased(sdktrace.NeverSample()),
+			wantSpan:   true,
+		},
+		{
+			name:     "unsampled remote parent overrides always-on root",
+			parentID: parentSpanID,
+			sampler:  sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			wantSpan: false,
+		},
+		{
+			name:     "missing parent uses root sampler",
+			sampler:  sdktrace.ParentBased(sdktrace.NeverSample()),
+			wantSpan: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := request.Span{
+				Type:         request.EventTypeHTTP,
+				TraceID:      traceID,
+				ParentSpanID: tt.parentID,
+				TraceFlags:   tt.traceFlags,
+			}
+
+			groups := GroupSpans(t.Context(), []request.Span{span}, nil, tt.sampler, selection)
+			assert.Equal(t, tt.wantSpan, len(groups[span.Service.UID]) == 1)
+		})
+	}
+}
+
 func TestGenAIResponseErrorStatusMessageEdgeCases(t *testing.T) {
 	t.Run("empty provider message", func(t *testing.T) {
 		span := &request.Span{
@@ -863,15 +912,45 @@ func TestGenAIResponseErrorAttributeCollision(t *testing.T) {
 
 type recordingSampler struct {
 	attributes []attribute.KeyValue
+	parent     trace2.SpanContext
 }
 
 func (s *recordingSampler) ShouldSample(parameters sdktrace.SamplingParameters) sdktrace.SamplingResult {
 	s.attributes = append([]attribute.KeyValue(nil), parameters.Attributes...)
+	s.parent = trace2.SpanContextFromContext(parameters.ParentContext)
 	return sdktrace.SamplingResult{Decision: sdktrace.RecordAndSample}
 }
 
 func (*recordingSampler) Description() string {
 	return "recording sampler"
+}
+
+func TestGroupSpansProvidesRemoteParentToSampler(t *testing.T) {
+	traceID := trace2.TraceID{1}
+	parentSpanID := trace2.SpanID{2}
+	span := request.Span{
+		Type:         request.EventTypeHTTP,
+		TraceID:      traceID,
+		ParentSpanID: parentSpanID,
+		TraceFlags:   uint8(trace2.FlagsSampled),
+	}
+	sampler := &recordingSampler{}
+
+	groups := GroupSpans(
+		t.Context(),
+		[]request.Span{span},
+		nil,
+		sampler,
+		instrumentations.NewInstrumentationSelection(
+			[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		),
+	)
+
+	require.Len(t, groups[span.Service.UID], 1)
+	assert.Equal(t, traceID, sampler.parent.TraceID())
+	assert.Equal(t, parentSpanID, sampler.parent.SpanID())
+	assert.Equal(t, trace2.FlagsSampled, sampler.parent.TraceFlags())
+	assert.True(t, sampler.parent.IsRemote())
 }
 
 func TestMCPGenAIOperationNameOnlyForToolCalls(t *testing.T) {
