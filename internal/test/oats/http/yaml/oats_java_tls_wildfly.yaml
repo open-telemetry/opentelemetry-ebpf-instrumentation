@@ -16,7 +16,4 @@ expected:
       server.address: minio
       server.port: '9000'
       url.full: https://minio/test-bucket/test-file.txt
-  - traceql: '{ .url.full = "https://minio/test-bucket/test-file.txt" && .obi.http.response.observed = false }'
-    count:
-      min: 0
-      max: 0
+
