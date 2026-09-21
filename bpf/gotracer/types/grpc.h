@@ -46,6 +46,8 @@ typedef struct grpc_framer_func_invocation {
     u16 s_port;
     u16 d_port;
     u32 stream_id;
+    u8 frame_type;
+    u8 _pad[7];
 } grpc_framer_func_invocation_t;
 
 typedef struct grpc_connection {
