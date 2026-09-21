@@ -59,6 +59,24 @@ typedef struct grpc_client_headers {
     go_slice_t fields;
 } grpc_client_headers_t;
 
+static __always_inline bool grpc_header_name_is_traceparent(const unsigned char *name) {
+    unsigned char mismatch = 0;
+
+    mismatch |= (name[0] | 0x20) ^ 't';
+    mismatch |= (name[1] | 0x20) ^ 'r';
+    mismatch |= (name[2] | 0x20) ^ 'a';
+    mismatch |= (name[3] | 0x20) ^ 'c';
+    mismatch |= (name[4] | 0x20) ^ 'e';
+    mismatch |= (name[5] | 0x20) ^ 'p';
+    mismatch |= (name[6] | 0x20) ^ 'a';
+    mismatch |= (name[7] | 0x20) ^ 'r';
+    mismatch |= (name[8] | 0x20) ^ 'e';
+    mismatch |= (name[9] | 0x20) ^ 'n';
+    mismatch |= (name[10] | 0x20) ^ 't';
+
+    return mismatch == 0;
+}
+
 static __always_inline bool grpc_client_headers_are_app_owned(const go_slice_t *fields) {
     if (fields->len <= 0) {
         return false;
@@ -88,7 +106,7 @@ static __always_inline bool grpc_client_headers_are_app_owned(const go_slice_t *
         if (bpf_probe_read_user(name, sizeof(name), field.key_ptr) != 0) {
             return true;
         }
-        if (stricmp((const char *)name, "traceparent", W3C_KEY_LENGTH)) {
+        if (grpc_header_name_is_traceparent(name)) {
             return true;
         }
     }
