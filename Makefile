@@ -188,6 +188,15 @@ generate-schema-docs: fetch-upstream-semconv
 	@echo "### Generating the OBI telemetry reference docs"
 	@./scripts/generate-schema-docs.sh $(OCI_BIN) $(WEAVERIMAGE)
 
+.PHONY: check-schema-docs
+check-schema-docs: generate-schema-docs
+	@echo "### Checking the OBI telemetry reference docs are up to date"
+	@if [ -n "$$(git status --porcelain -- site/docs)" ]; then \
+		echo "site/docs is stale: run 'make generate-schema-docs' and commit the result" >&2; \
+		git --no-pager diff -- site/docs; \
+		exit 1; \
+	fi
+
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
 	@echo "### Linting dependency integrity policy"
