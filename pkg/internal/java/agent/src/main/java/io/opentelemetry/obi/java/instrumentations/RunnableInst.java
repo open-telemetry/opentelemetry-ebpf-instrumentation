@@ -55,8 +55,8 @@ public class RunnableInst {
         if (parentId != threadId) {
           ThreadInfo.sendTaskParentThreadContext(parentId);
         }
-        SSLStorage.finishTaskHandoff(task, parentId, threadId);
       }
+      SSLStorage.untrackTask(task);
     }
   }
 }

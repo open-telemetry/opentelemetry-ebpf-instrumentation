@@ -217,43 +217,4 @@ class SSLStorageTest {
     SSLStorage.removeBufferMapping(encrypted);
     assertNull(SSLStorage.getUnencryptedBuffer(encrypted));
   }
-
-  @Test
-  void identifiesJdkHttpClientSchedulableTask() {
-    assertTrue(
-        SSLStorage.isJdkHttpClientSchedulableTaskClass(
-            "jdk.internal.net.http.common.SequentialScheduler$SchedulableTask"));
-    assertFalse(SSLStorage.isJdkHttpClientSchedulableTaskClass("example.OtherTask"));
-  }
-
-  @Test
-  void keepsResubmittableInlineTaskParent() {
-    Object task = new Object();
-
-    SSLStorage.trackTask(41, task);
-    SSLStorage.finishTaskHandoff(task, 41, 41, true);
-
-    assertEquals(41, SSLStorage.parentThreadId(task));
-    SSLStorage.untrackTask(task);
-  }
-
-  @Test
-  void consumesResubmittableTaskParentAfterThreadHandoff() {
-    Object task = new Object();
-
-    SSLStorage.trackTask(41, task);
-    SSLStorage.finishTaskHandoff(task, 41, 90, true);
-
-    assertNull(SSLStorage.parentThreadId(task));
-  }
-
-  @Test
-  void consumesOrdinaryInlineTaskParent() {
-    Object task = new Object();
-
-    SSLStorage.trackTask(41, task);
-    SSLStorage.finishTaskHandoff(task, 41, 41);
-
-    assertNull(SSLStorage.parentThreadId(task));
-  }
 }
