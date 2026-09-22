@@ -419,13 +419,14 @@ func TestDetectFastCGISchemeOmittedWhenParamsAreTruncated(t *testing.T) {
 func TestDetectFastCGIMultiRecordParams(t *testing.T) {
 	params := appendFastCGINameValue(nil, "REQUEST_METHOD", "GET")
 	params = appendFastCGINameValue(params, "REQUEST_URI", "/a")
-	schemeStart := len(params)
+	schemeParamStart := len(params)
 	params = appendFastCGINameValue(params, "REQUEST_SCHEME", "https")
+	schemeParamSplit := schemeParamStart + (len(params)-schemeParamStart)/2
 
 	payload := appendFastCGIRecord(nil, fcgiFrameTypeBeginReq, []byte{0, 1, 0, 0, 0, 0, 0, 0})
-	payload = appendFastCGIRecord(payload, fcgiFrameTypeParams, params[:schemeStart+5])
+	payload = appendFastCGIRecord(payload, fcgiFrameTypeParams, params[:schemeParamSplit])
 	secondRecordStart := len(payload)
-	payload = appendFastCGIRecord(payload, fcgiFrameTypeParams, params[schemeStart+5:])
+	payload = appendFastCGIRecord(payload, fcgiFrameTypeParams, params[schemeParamSplit:])
 	payload = appendFastCGIRecord(payload, fcgiFrameTypeParams, nil)
 
 	t.Run("truncated later record keeps scheme unset", func(t *testing.T) {
