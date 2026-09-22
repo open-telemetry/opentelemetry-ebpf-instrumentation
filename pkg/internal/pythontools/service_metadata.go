@@ -94,6 +94,9 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		if name == "" {
 			name = frameworks.TargetName(launch.Target)
 		}
+		if name == "" && targetFound {
+			name = serviceNameFromTargetDirectory(root, targetPath)
+		}
 		if name == "" {
 			name = frameworks.CleanValue(launch.FallbackName)
 		}
@@ -409,6 +412,19 @@ func processPath(root, hostPath string) string {
 		return "/"
 	}
 	return string(filepath.Separator) + rel
+}
+
+func serviceNameFromTargetDirectory(root, targetPath string) string {
+	boundary, ok := langtools.ResolveProcessPath(root, "/", "/")
+	if !ok {
+		return ""
+	}
+
+	dir := filepath.Dir(targetPath)
+	if dir == boundary || !langtools.PathWithinBoundary(boundary, dir) {
+		return ""
+	}
+	return frameworks.TargetName(filepath.Base(dir))
 }
 
 func readPyproject(path string) (pyprojectData, bool, error) {

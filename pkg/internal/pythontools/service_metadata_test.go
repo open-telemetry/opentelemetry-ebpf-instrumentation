@@ -376,6 +376,46 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("generic target uses application directory", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		appDir := "/workspace/python-travel-agent"
+		writePythonFile(t, filepath.Join(root, appDir, "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"server:app"}, nil, appDir)
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "python-travel-agent", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("low quality target directory remains unnamed", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "unknown", "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "python", []string{"server.py"}, nil, "/unknown")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("process root is not a service name", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "python", []string{"server.py"}, nil, "/")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("missing exact script does not borrow project metadata", func(t *testing.T) {
 		root, err := filepath.EvalSymlinks(t.TempDir())
 		require.NoError(t, err)
