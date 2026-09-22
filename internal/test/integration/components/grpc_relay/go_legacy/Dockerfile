@@ -4,6 +4,7 @@ WORKDIR /build
 
 COPY internal/test/integration/components/grpc_relay/go_legacy/go.mod ./go.mod
 COPY internal/test/integration/components/grpc_relay/go_legacy/go.sum ./go.sum
+COPY internal/test/integration/components/grpc_relay/go_legacy/*.go ./
 COPY internal/test/integration/components/grpc_relay/go/*.go ./
 
 RUN go build -tags legacy_grpc -o relay .
