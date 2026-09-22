@@ -16,4 +16,4 @@ COPY internal/test/integration/components/rubytestserver/tapasapi .
 
 EXPOSE 3040
 
-CMD ["bundle", "exec", "rails", "server", "-p", "3040", "-b", "0.0.0.0", "-e", "development"]
+CMD ["bundle", "exec", "puma", "-b", "tcp://0.0.0.0:3040", "config.ru"]
