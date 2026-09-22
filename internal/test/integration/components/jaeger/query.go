@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	defaultLookback = time.Hour
-	serviceNameKey  = "service.name"
+	defaultLookback              = time.Hour
+	serviceNameKey               = "service.name"
+	legacyRequiredTimeRangeError = "query.start_time_min and query.start_time_max are required"
 )
 
 type v3Response struct {
@@ -37,11 +38,7 @@ func Get(legacyURL string) (*http.Response, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, v3URL, http.NoBody)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doGet(v3URL)
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +52,11 @@ func Get(legacyURL string) (*http.Response, error) {
 		return nil, closeErr
 	}
 
+	// Some fixtures still use Jaeger 1.60, whose v3 gateway only accepts
+	// snake_case query parameters. Retry those through its legacy API.
+	if resp.StatusCode == http.StatusBadRequest && bytes.Contains(body, []byte(legacyRequiredTimeRangeError)) {
+		return doGet(legacyURL)
+	}
 	if resp.StatusCode == http.StatusNotFound {
 		return legacyResponse(resp, []byte(`{"data":[]}`)), nil
 	}
@@ -68,6 +70,14 @@ func Get(legacyURL string) (*http.Response, error) {
 		return nil, fmt.Errorf("converting Jaeger v3 response: %w", err)
 	}
 	return legacyResponse(resp, legacyBody), nil
+}
+
+func doGet(rawURL string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	return http.DefaultClient.Do(req)
 }
 
 func legacyResponse(resp *http.Response, body []byte) *http.Response {

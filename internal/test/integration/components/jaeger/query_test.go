@@ -131,6 +131,50 @@ func TestGetMapsMissingTracesToEmptyLegacyResponse(t *testing.T) {
 	assert.Empty(t, query.Data)
 }
 
+func TestGetFallsBackToLegacyJaeger(t *testing.T) {
+	originalTransport := http.DefaultClient.Transport
+	requestCount := 0
+	http.DefaultClient.Transport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		requestCount++
+		switch requestCount {
+		case 1:
+			assert.Equal(t, "/api/v3/traces", r.URL.Path)
+			return &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Status:     "400 Bad Request",
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(
+					`{"error":{"httpCode":400,"message":"query.start_time_min and query.start_time_max are required"}}`,
+				)),
+				Request: r,
+			}, nil
+		case 2:
+			assert.Equal(t, "/api/traces", r.URL.Path)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"data":[]}`)),
+				Request:    r,
+			}, nil
+		default:
+			t.Fatalf("unexpected request %d: %s", requestCount, r.URL)
+			return nil, nil
+		}
+	})
+	t.Cleanup(func() { http.DefaultClient.Transport = originalTransport })
+
+	resp, err := Get("http://localhost:16686/api/traces?service=checkout")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, resp.Body.Close()) })
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, 2, requestCount)
+
+	var query TracesQuery
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&query))
+	assert.Empty(t, query.Data)
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
