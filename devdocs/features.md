@@ -167,8 +167,9 @@ Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel
 instrumentation support differs from traditional GPU metrics, such as GPU utilization and GPU temperature.
 
 OBI instruments the CUDA Runtime API through `libcudart` and the CUDA Driver API through `libcuda`. Since the runtime
-implements the driver API, a process that maps both libraries has its `libcuda` probes skipped, to avoid duplicating
-kernel launch telemetry.
+implements the driver API, launches in a process that maps both libraries would be observed twice; OBI deduplicates
+them in the eBPF programs by suppressing the driver API call that a runtime API call on the same thread is still
+executing.
 
 | Library   | Primitives | Versions | Limitations
 |:----------|:-----------|---------:|------------:

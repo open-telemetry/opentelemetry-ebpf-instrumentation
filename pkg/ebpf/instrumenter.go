@@ -486,12 +486,6 @@ func (i *instrumenter) uprobeModules(p Tracer, pid app.PID, maps []*procfs.ProcM
 			continue
 		}
 
-		if conflicting, ok := conflictingUprobeLibrary(lib, maps); ok {
-			log.Debug("skipping uprobe library conflicting with another mapped library",
-				"lib", lib, "conflicting", conflicting)
-			continue
-		}
-
 		log.Debug("finding library", "lib", lib)
 		instrPath, instrumentedIno, mappedPath, found := resolveInstrPath(pid, lib, maps, exePath, exeIno)
 		if found && mappedPath != "" {
@@ -585,29 +579,6 @@ func missingUprobeLibraryPrerequisite(lib string, maps []*procfs.ProcMap) (strin
 	}
 
 	return "", true
-}
-
-// uprobeLibraryConflicts names, per instrumented library, another library whose
-// presence means the first one's probes would observe the same workload twice.
-// libcudart implements the runtime API on top of the driver API in libcuda, so
-// processes mapping both would report each kernel launch twice.
-var uprobeLibraryConflicts = map[string]string{
-	"libcuda.so": "libcudart",
-}
-
-// conflictingUprobeLibrary reports whether instrumenting a library would
-// duplicate the telemetry of another library mapped by the process.
-func conflictingUprobeLibrary(lib string, maps []*procfs.ProcMap) (string, bool) {
-	conflicting, ok := uprobeLibraryConflicts[lib]
-	if !ok {
-		return "", false
-	}
-
-	if procs.LibPath(conflicting, maps) == nil {
-		return "", false
-	}
-
-	return conflicting, true
 }
 
 func matchVersionedUprobeLibrary(name string, maps []*procfs.ProcMap) (string, bool, error) {

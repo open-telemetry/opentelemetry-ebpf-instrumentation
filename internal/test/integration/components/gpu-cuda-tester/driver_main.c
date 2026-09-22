@@ -10,10 +10,10 @@
 //   - cuLaunchKernelEx   -> gpu.cuda.kernel.launch.calls + grid/block size
 //   - cuGraphLaunch      -> gpu.cuda.graph.launch.calls
 //
-// The binary deliberately links only libcuda: a process that maps both libcuda
-// and libcudart would be skipped by OBI's conflicting-library gate to avoid
-// double counting the same kernel launch, so this target maps libcuda alone to
-// prove the driver path is instrumented on its own.
+// The binary deliberately links only libcuda: when a process maps both
+// libraries, OBI deduplicates the launch at the event level (the runtime API
+// call suppresses the driver API call it wraps), so this target maps libcuda
+// alone to prove the driver path is instrumented on its own.
 
 #include <stdio.h>
 #include <unistd.h>

@@ -56,6 +56,22 @@ typedef struct cuda_malloc_ctx {
     s64 size;
 } cuda_malloc_ctx_t;
 
+// Per-thread context captured at cudaFree entry and consumed at return so the
+// free is only reported once the return code confirms the memory was released.
+typedef struct cuda_free_ctx {
+    u64 dev_ptr;
+    s64 size;
+} cuda_free_ctx_t;
+
+// Identifies a tracked allocation by process and device pointer. Device
+// pointers are only unique within a process, so the pointer alone cannot key
+// the allocation map. The tgid (not the full pid_tgid) is used because any
+// thread of the process may free memory another thread allocated.
+typedef struct cuda_alloc_key {
+    u64 tgid;
+    u64 ptr;
+} cuda_alloc_key_t;
+
 // User-memory view of the driver API CUlaunchConfig passed to cuLaunchKernelEx:
 // seven u32 grid/block dimensions plus sharedMemBytes, four bytes of padding,
 // then the stream handle.
