@@ -106,16 +106,16 @@ func djangoListAssignment(stmt string) (djangoAssignment, bool) {
 	}
 }
 
-func applyDjangoAssignment(lists map[string]*djangoList, assignment djangoAssignment, aliases map[string]string) bool {
+func applyDjangoAssignment(lists map[string]*djangoList, assignment djangoAssignment, aliases map[string]string) {
 	// A direct alias shares the list object, including subsequent appends.
 	if !assignment.append && len(assignment.operands) == 1 {
 		if source, ok := lists[assignment.operands[0]]; ok {
 			lists[assignment.name] = source
-			return true
+			return
 		}
 	}
 
-	// Evaluate the complete RHS before mutating the destination, including self-appends.
+	// Collect known RHS routes before mutating the destination, including self-appends.
 	var routes []djangoRoute
 	for _, operand := range assignment.operands {
 		if strings.HasPrefix(operand, "[") || djangoI18nStart.MatchString(operand) {
@@ -123,7 +123,7 @@ func applyDjangoAssignment(lists map[string]*djangoList, assignment djangoAssign
 		} else {
 			source, ok := lists[operand]
 			if !ok {
-				return false
+				continue
 			}
 			routes = append(routes, source.routes...)
 		}
@@ -131,13 +131,13 @@ func applyDjangoAssignment(lists map[string]*djangoList, assignment djangoAssign
 	if assignment.append {
 		target, ok := lists[assignment.name]
 		if !ok {
-			return false
+			target = &djangoList{}
+			lists[assignment.name] = target
 		}
 		target.routes = append(target.routes, routes...)
 	} else {
 		lists[assignment.name] = &djangoList{routes: routes}
 	}
-	return true
 }
 
 var djangoI18nStart = regexp.MustCompile(`\bi18n_patterns\s*\(`)

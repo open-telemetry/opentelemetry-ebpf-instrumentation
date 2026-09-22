@@ -182,6 +182,44 @@ other_patterns = [path("ready/", ready_view)]
 	}
 }
 
+func TestExtractPythonDjangoPartialListAssignment(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		assignment string
+	}{
+		{
+			name:       "unknown before literal",
+			assignment: `extra_patterns = imported_patterns + [path("health/", health)]`,
+		},
+		{
+			name:       "unknown after literal",
+			assignment: `extra_patterns = [path("health/", health)] + imported_patterns`,
+		},
+		{
+			name: "append to imported list",
+			assignment: `from app.urls import urlpatterns as extra_patterns
+extra_patterns += [path("health/", health)]`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`
+from django.urls import include, path
+from app.urls import urlpatterns as imported_patterns
+`+tc.assignment+`
+urlpatterns = [path("credit/", include(extra_patterns))]
+`), 0o644))
+
+			result, err := extractPythonRoutes(dir)
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, []string{"/credit/health/"}, result.Routes)
+			assert.NotContains(t, result.Routes, "/health/")
+		})
+	}
+}
+
 func TestExtractPythonDjangoNestedListMounts(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "urls.py"), []byte(`

@@ -160,9 +160,10 @@ func (e *pythonExtractor) scanFile(path string) error {
 		}
 		if hasDjangoPath {
 			if assignment, ok := djangoListAssignment(text); ok {
-				if applyDjangoAssignment(djangoLists, assignment, djangoAliases) {
-					return
-				}
+				applyDjangoAssignment(djangoLists, assignment, djangoAliases)
+				// Subsequent includes resolve this name through its tracked list.
+				delete(djangoAliases, assignment.name)
+				return
 			}
 			djangoRoutes = append(djangoRoutes, scanDjango(text, djangoAliases)...)
 		}
