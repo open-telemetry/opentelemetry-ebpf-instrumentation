@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -147,6 +146,14 @@ func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 		assert.Equal(t, missingGoOffset, offTable.Table[field])
 	}
 	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
+}
+
+func TestMissingGoHTTPClientRequestOffsetsUseSentinel(t *testing.T) {
+	var offTable BpfOffTableT
+
+	initMissingGoOffsets(&offTable, goHTTPClientRequestOffsetFields[:])
+
+	assert.Equal(t, missingGoOffset, offTable.Table[goexec.ReqHeaderPtrPos])
 }
 
 func TestMissingGoGRPCBufWriterOffsetsUseSentinel(t *testing.T) {
@@ -758,14 +765,18 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 
 			groups := tracer.GoProbeGroups()
 			if tt.writeProbesEnabled {
-				require.Len(t, groups, 7)
+				require.Len(t, groups, 9)
 				assert.Equal(t, "go_http2_xnet_current_ownership", groups[0].Name)
 				assert.Equal(t, "go_http2_stdlib_current_ownership", groups[1].Name)
 				assert.Equal(t, "go_http2_stdlib_go127_ownership", groups[2].Name)
-				assert.Equal(t, "go_grpc_current_ownership", groups[3].Name)
-				assert.Equal(t, "go_http2_xnet_preflush", groups[4].Name)
-				assert.Equal(t, "go_http2_stdlib_preflush", groups[5].Name)
-				assert.Equal(t, "go_http2_internal_preflush", groups[6].Name)
+				assert.Equal(t, "go_http2_xnet_legacy_ownership", groups[3].Name)
+				assert.Nil(t, groups[3].Probes[0].Probe.End)
+				assert.Equal(t, "go_http2_stdlib_legacy_ownership", groups[4].Name)
+				assert.Nil(t, groups[4].Probes[0].Probe.End)
+				assert.Equal(t, "go_grpc_current_ownership", groups[5].Name)
+				assert.Equal(t, "go_http2_xnet_preflush", groups[6].Name)
+				assert.Equal(t, "go_http2_stdlib_preflush", groups[7].Name)
+				assert.Equal(t, "go_http2_internal_preflush", groups[8].Name)
 			} else {
 				assert.Empty(t, groups)
 			}
@@ -781,11 +792,11 @@ func TestHTTP2PreflushProbeGroupsRespectPropagation(t *testing.T) {
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	groups := tracer.GoProbeGroups()
-	require.Len(t, groups, 7)
-	assert.Equal(t, "go_http2_xnet_preflush", groups[4].Name)
-	assert.Equal(t, "go_http2_stdlib_preflush", groups[5].Name)
-	assert.Equal(t, "go_http2_internal_preflush", groups[6].Name)
-	for _, group := range groups[4:] {
+	require.Len(t, groups, 9)
+	assert.Equal(t, "go_http2_xnet_preflush", groups[6].Name)
+	assert.Equal(t, "go_http2_stdlib_preflush", groups[7].Name)
+	assert.Equal(t, "go_http2_internal_preflush", groups[8].Name)
+	for _, group := range groups[6:] {
 		require.Len(t, group.Probes, 2)
 		assert.True(t, group.Probes[0].Probe.UsePadStart)
 		assert.False(t, group.Probes[1].Probe.UsePadStart)
@@ -796,7 +807,7 @@ func TestHTTP2PreflushProbeGroupsRespectPropagation(t *testing.T) {
 	assert.Empty(t, tracer.GoProbeGroups())
 }
 
-func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
+func TestGoH2OwnershipProbeGroupsAreVersionedAndAtomic(t *testing.T) {
 	setContextPropagationSupportForTest(t, true)
 
 	tracer := &Tracer{
@@ -804,9 +815,9 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	groups := tracer.GoProbeGroups()
-	require.Len(t, groups, 7)
+	require.Len(t, groups, 9)
 
-	expectedSymbols := [][]string{
+	expectedGroupSymbols := [][]string{
 		{
 			"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders",
 			"golang.org/x/net/http2.(*ClientConn).writeHeader",
@@ -820,31 +831,68 @@ func TestGoH2OwnershipProbeGroupsAreCurrentAndAtomic(t *testing.T) {
 			"net/http/internal/http2.(*ClientConn).writeHeader",
 		},
 		{
+			"golang.org/x/net/http2.(*ClientConn).encodeHeaders",
+			"golang.org/x/net/http2.(*ClientConn).writeHeader",
+		},
+		{
+			"net/http.(*http2ClientConn).encodeHeaders",
+			"net/http.(*http2ClientConn).writeHeader",
+		},
+		{
 			"google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler",
 		},
 	}
-	assert.Equal(t, slices.Concat(expectedSymbols...), GoH2OwnershipProbeSymbols())
+	assert.Equal(t, []string{
+		"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders",
+		"golang.org/x/net/http2.(*ClientConn).writeHeader",
+		"net/http.(*http2clientStream).encodeAndWriteHeaders",
+		"net/http.(*http2ClientConn).writeHeader",
+		"net/http/internal/http2.(*clientStream).encodeAndWriteHeaders",
+		"net/http/internal/http2.(*ClientConn).writeHeader",
+		"golang.org/x/net/http2.(*ClientConn).encodeHeaders",
+		"net/http.(*http2ClientConn).encodeHeaders",
+		"google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler",
+	}, GoH2OwnershipProbeSymbols())
 
-	for i, group := range groups[:4] {
-		require.Len(t, group.Probes, len(expectedSymbols[i]))
-		assert.Equal(t, expectedSymbols[i][0], group.Probes[0].Symbol)
+	for i, group := range groups[:6] {
+		require.Len(t, group.Probes, len(expectedGroupSymbols[i]))
+		assert.Equal(t, expectedGroupSymbols[i][0], group.Probes[0].Symbol)
 		assert.NotNil(t, group.Probes[0].Probe)
-		if len(expectedSymbols[i]) > 1 {
-			assert.Equal(t, expectedSymbols[i][1], group.Probes[1].Symbol)
+		if len(expectedGroupSymbols[i]) > 1 {
+			assert.Equal(t, expectedGroupSymbols[i][1], group.Probes[1].Symbol)
 			assert.NotNil(t, group.Probes[1].Probe)
 		}
 	}
-	require.Len(t, groups[0].RequiresAll, 1)
-	require.Len(t, groups[1].RequiresAll, 1)
-	require.Len(t, groups[2].RequiresAll, 1)
+
 	for _, group := range groups[:3] {
+		assert.Empty(t, group.RequiresAny)
+		assert.Empty(t, group.ConflictsAny)
+	}
+	for _, group := range groups[:5] {
+		require.Len(t, group.RequiresAll, 1)
 		assert.Contains(t, group.RequiresAll[0], "writeHeaders")
 	}
+	assert.Equal(t, []string{
+		"golang.org/x/net/http2.(*ClientConn).RoundTrip",
+		"golang.org/x/net/http2.(*ClientConn).roundTrip",
+	}, groups[3].RequiresAny)
+	assert.Equal(t,
+		[]string{"golang.org/x/net/http2.(*clientStream).encodeAndWriteHeaders"},
+		groups[3].ConflictsAny,
+	)
+	assert.Equal(t, []string{
+		"net/http.(*http2ClientConn).RoundTrip",
+		"net/http.(*http2ClientConn).roundTrip",
+	}, groups[4].RequiresAny)
+	assert.Equal(t,
+		[]string{"net/http.(*http2clientStream).encodeAndWriteHeaders"},
+		groups[4].ConflictsAny,
+	)
 	assert.Equal(t, []string{
 		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
 		"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut",
 		"golang.org/x/net/http2.(*Framer).WriteHeaders",
-	}, groups[3].RequiresAll)
+	}, groups[5].RequiresAll)
 }
 
 func TestGo127HTTP2Probes(t *testing.T) {
