@@ -270,7 +270,9 @@ func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p 
 func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tracer, log *slog.Logger, cfg *obi.Config, cache *btf.Cache) (retErr error) {
 	plog := log.With("program", reflect.TypeOf(p))
 	plog.Debug("loading eBPF program", "type", pt.Type)
-	i := instrumenter{}
+
+	i := instrumenter{} // dummy instrumenter to setup the kprobes, socket filters and tracepoint probes
+
 	defer func() {
 		if retErr == nil {
 			return
