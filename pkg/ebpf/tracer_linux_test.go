@@ -24,6 +24,16 @@ type libUnlinkingTracer struct {
 	unlinked []uint64
 }
 
+type closeTrackingTracer struct {
+	stubTracer
+	closes int
+}
+
+func (t *closeTrackingTracer) Close() error {
+	t.closes++
+	return nil
+}
+
 func (t *libUnlinkingTracer) UnlinkInstrumentedLib(id uint64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -72,6 +82,18 @@ func TestCloseInstrumentersWithoutExecutables(t *testing.T) {
 	pt.closeInstrumenters()
 
 	assert.Empty(t, pt.Instrumentables)
+}
+
+func TestCloseReleasesProgramsBeforeRun(t *testing.T) {
+	program := &closeTrackingTracer{}
+	pt := &ProcessTracer{log: slog.Default(), Programs: []Tracer{program}}
+
+	require.NoError(t, pt.Close())
+	assert.Equal(t, 1, program.closes)
+	require.ErrorIs(t, pt.NewExecutable(nil, nil), errTracerStopped)
+
+	require.NoError(t, pt.Close())
+	assert.Equal(t, 1, program.closes)
 }
 
 // an executable that fails to attach is never committed, so its probes and its

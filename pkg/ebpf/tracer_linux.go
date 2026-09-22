@@ -367,6 +367,17 @@ func (pt *ProcessTracer) Init(eventContext *common.EBPFEventContext, cfg *obi.Co
 	return pt.loadTracers(eventContext, cfg)
 }
 
+// Close releases a loaded process tracer that will not be started.
+func (pt *ProcessTracer) Close() error {
+	pt.closeOnce.Do(func() {
+		pt.closeInstrumenters()
+		for _, program := range pt.Programs {
+			pt.closeErr = errors.Join(pt.closeErr, program.Close())
+		}
+	})
+	return pt.closeErr
+}
+
 func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
 	key := ExecutableKey{Dev: ie.FileInfo.Dev(), Ino: ie.FileInfo.Ino()}
 	pt.instrumentablesMu.Lock()
