@@ -412,8 +412,6 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 		return false
 	}
 
-	ta.dropUnloadedTracers(tracer.Programs)
-
 	if err := tracer.NewExecutable(exe, ie); err != nil {
 		if closeErr := tracer.Close(); closeErr != nil {
 			ta.log.Debug("closing process tracer after failed executable attachment", "error", closeErr)
@@ -422,6 +420,7 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 		return false
 	}
 
+	ta.dropUnloadedTracers(tracer.Programs)
 	ie.Tracer = tracer
 
 	ta.log.Debug("new executable for discovered process",
