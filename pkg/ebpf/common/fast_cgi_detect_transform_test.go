@@ -267,6 +267,7 @@ func TestDetectFastCGI(t *testing.T) {
 			outputLen:      20,
 			expectedMethod: "GET",
 			expectedPath:   "/?cmd=BLABLA",
+			expectedScheme: "http",
 			expectedResult: 200,
 		},
 		{
@@ -281,6 +282,7 @@ func TestDetectFastCGI(t *testing.T) {
 			outputLen:      20,
 			expectedMethod: "GET",
 			expectedPath:   "/?existing=1",
+			expectedScheme: "http",
 			expectedResult: 200,
 			// Confirm QUERY_STRING=other=2 was not appended to the path.
 			extraCheck: func(t *testing.T, path string) {
@@ -393,6 +395,28 @@ func fastCGIRequestFrom(t *testing.T, params map[string]string) fastCGIRequest {
 	return req
 }
 
+// A params record longer than the capture buffer arrives cut off, so a scheme
+// key may sit past the cut. Reporting the peer scheme would then claim `http`
+// for a request the client may have made over TLS.
+func TestDetectFastCGISchemeOmittedWhenParamsAreTruncated(t *testing.T) {
+	encoded := appendFastCGINameValue(nil, "REQUEST_METHOD", "GET")
+	encoded = appendFastCGINameValue(encoded, "REQUEST_URI", "/a")
+	encoded = appendFastCGINameValue(encoded, "REQUEST_SCHEME", "https")
+
+	payload := appendFastCGIRecord(nil, 1, []byte{0, 1, 0, 0, 0, 0, 0, 0})
+	payload = appendFastCGIRecord(payload, 4, encoded)
+
+	full, ok := detectFastCGI(largebuf.NewLargeBufferFrom(payload), largebuf.NewLargeBufferFrom(nil))
+	require.True(t, ok)
+	require.Equal(t, "https", full.scheme)
+
+	// cut the capture before REQUEST_SCHEME, as the 256-byte buffer does
+	cut := len(payload) - len("REQUEST_SCHEME") - len("https") - 2
+	truncated, ok := detectFastCGI(largebuf.NewLargeBufferFrom(payload[:cut]), largebuf.NewLargeBufferFrom(nil))
+	require.True(t, ok)
+	assert.Empty(t, truncated.scheme, "a truncated table must not report the peer scheme")
+}
+
 func TestDetectFastCGIRequestMetadata(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -433,19 +457,26 @@ func TestDetectFastCGIRequestMetadata(t *testing.T) {
 			uri:    "/a",
 		},
 		{
-			name:   "no scheme key leaves it unset rather than guessing",
+			// url.scheme is required, and semconv asks for the scheme of the
+			// immediate peer request when the front end named none.
+			// Semconv asks for the scheme of the immediate peer request when
+			// the front end named none, and the whole table was captured, so
+			// no scheme key can be sitting past a cut.
+			name:   "no scheme key in a complete table falls back to the peer scheme",
 			params: map[string]string{"REQUEST_METHOD": "GET", "REQUEST_URI": "/a"},
-			scheme: "",
+			scheme: "http",
 			uri:    "/a",
 		},
 		{
 			name:   "DOCUMENT_URI carries the path when REQUEST_URI is absent",
 			params: map[string]string{"REQUEST_METHOD": "GET", "DOCUMENT_URI": "/index.php"},
+			scheme: "http",
 			uri:    "/index.php",
 		},
 		{
 			name:   "SCRIPT_NAME is the last resort",
 			params: map[string]string{"REQUEST_METHOD": "GET", "SCRIPT_NAME": "/index.php"},
+			scheme: "http",
 			uri:    "/index.php",
 		},
 	}
