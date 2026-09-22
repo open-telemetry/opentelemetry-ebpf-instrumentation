@@ -267,7 +267,6 @@ func TestDetectFastCGI(t *testing.T) {
 			outputLen:      20,
 			expectedMethod: "GET",
 			expectedPath:   "/?cmd=BLABLA",
-			expectedScheme: "http",
 			expectedResult: 200,
 		},
 		{
@@ -282,7 +281,6 @@ func TestDetectFastCGI(t *testing.T) {
 			outputLen:      20,
 			expectedMethod: "GET",
 			expectedPath:   "/?existing=1",
-			expectedScheme: "http",
 			expectedResult: 200,
 			// Confirm QUERY_STRING=other=2 was not appended to the path.
 			extraCheck: func(t *testing.T, path string) {
@@ -389,6 +387,7 @@ func fastCGIRequestFrom(t *testing.T, params map[string]string) fastCGIRequest {
 
 	payload := appendFastCGIRecord(nil, 1, []byte{0, 1, 0, 0, 0, 0, 0, 0})
 	payload = appendFastCGIRecord(payload, 4, encoded)
+	payload = appendFastCGIRecord(payload, 4, nil)
 
 	req, ok := detectFastCGI(largebuf.NewLargeBufferFrom(payload), largebuf.NewLargeBufferFrom(nil))
 	require.True(t, ok)
@@ -415,6 +414,33 @@ func TestDetectFastCGISchemeOmittedWhenParamsAreTruncated(t *testing.T) {
 	truncated, ok := detectFastCGI(largebuf.NewLargeBufferFrom(payload[:cut]), largebuf.NewLargeBufferFrom(nil))
 	require.True(t, ok)
 	assert.Empty(t, truncated.scheme, "a truncated table must not report the peer scheme")
+}
+
+func TestDetectFastCGIMultiRecordParams(t *testing.T) {
+	params := appendFastCGINameValue(nil, "REQUEST_METHOD", "GET")
+	params = appendFastCGINameValue(params, "REQUEST_URI", "/a")
+	schemeStart := len(params)
+	params = appendFastCGINameValue(params, "REQUEST_SCHEME", "https")
+
+	payload := appendFastCGIRecord(nil, fcgiFrameTypeBeginReq, []byte{0, 1, 0, 0, 0, 0, 0, 0})
+	payload = appendFastCGIRecord(payload, fcgiFrameTypeParams, params[:schemeStart+5])
+	secondRecordStart := len(payload)
+	payload = appendFastCGIRecord(payload, fcgiFrameTypeParams, params[schemeStart+5:])
+	payload = appendFastCGIRecord(payload, fcgiFrameTypeParams, nil)
+
+	t.Run("truncated later record keeps scheme unset", func(t *testing.T) {
+		cut := secondRecordStart + fastCGIRequestHeaderLen + 3
+		req, ok := detectFastCGI(largebuf.NewLargeBufferFrom(payload[:cut]), largebuf.NewLargeBufferFrom(nil))
+		require.True(t, ok)
+		assert.Empty(t, req.scheme)
+	})
+
+	t.Run("complete records reconstruct the params stream", func(t *testing.T) {
+		req, ok := detectFastCGI(largebuf.NewLargeBufferFrom(payload), largebuf.NewLargeBufferFrom(nil))
+		require.True(t, ok)
+		assert.Equal(t, "https", req.scheme)
+		assert.Equal(t, "/a", req.uri)
+	})
 }
 
 func TestDetectFastCGIRequestMetadata(t *testing.T) {
@@ -556,6 +582,7 @@ func BenchmarkDetectFastCGI(b *testing.B) {
 	payload := make([]byte, 0, 192)
 	payload = appendFastCGIRecord(payload, 1, []byte{0, 1, 0, 0, 0, 0, 0, 0})
 	payload = appendFastCGIRecord(payload, 4, params)
+	payload = appendFastCGIRecord(payload, 4, nil)
 
 	responsePayload := []byte("Status: 404 Not Found\r\nContent-type: text/html; charset=UTF-8\r\n\r\nFile not found.\n")
 	response := appendFastCGIRecord(nil, 6, responsePayload)
