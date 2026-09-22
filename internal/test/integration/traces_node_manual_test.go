@@ -31,7 +31,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -139,7 +139,7 @@ func testHTTPTracesNodeManualBackgroundSpan(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual-slow")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual-slow")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -171,7 +171,7 @@ func testHTTPTracesNodeManualBackgroundSpan(t *testing.T) {
 
 	// The background spans are still captured, on their own traces.
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=bg-tick")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=bg-tick")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

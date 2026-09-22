@@ -91,7 +91,7 @@ func testAzureMetrics(t *testing.T, pq promtest.Client, serviceName, exporter st
 func testAzureTraces(t *testing.T) {
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2Frolldice")
+		resp, err := getJaeger(jaegerQueryURL + "?service=rolldice&operation=GET%20%2Frolldice")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

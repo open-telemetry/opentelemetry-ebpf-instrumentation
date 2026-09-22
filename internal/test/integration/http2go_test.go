@@ -95,7 +95,7 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=client&operation=GET%20%2F" + url)
+		resp, err := getJaeger(jaegerQueryURL + "?service=client&operation=GET%20%2F" + url)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -118,7 +118,7 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 
 	// Find the same traceID on a server span
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=server&operation=GET%20%2F" + url + "&traceID=" + traceID)
+		resp, err := getJaeger(jaegerQueryURL + "?service=server&operation=GET%20%2F" + url + "&traceID=" + traceID)
 		require.NoError(ct, err)
 		if resp == nil {
 			return

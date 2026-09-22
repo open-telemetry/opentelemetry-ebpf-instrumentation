@@ -229,7 +229,7 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 
 	// check the rust service, it will not have any nested spans
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=greetings&operation=GET%20%2Fdist")
+		resp, err := getJaeger(jaegerQueryURL + "?service=greetings&operation=GET%20%2Fdist")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -282,7 +282,7 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testapi&operation=GET%20%2Fusers")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testapi&operation=GET%20%2Fusers")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -300,7 +300,7 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fgotracemetoo")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fgotracemetoo")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

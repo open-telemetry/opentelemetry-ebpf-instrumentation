@@ -136,7 +136,7 @@ func driveLatchServer(t *testing.T, port, wantStatus int) {
 func latchTraces(t *testing.T, service string) []jaeger.Trace {
 	var traces []jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&limit=200")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + service + "&limit=200")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 

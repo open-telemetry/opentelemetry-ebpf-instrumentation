@@ -122,7 +122,7 @@ func testPythonMCPServer(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -170,7 +170,7 @@ func testPythonMCPServer(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -221,7 +221,7 @@ func testPythonMCPInitialize(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -279,7 +279,7 @@ func testPythonMCPClient(t *testing.T) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		resp.Body.Close()
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -336,7 +336,7 @@ func testPythonMCPClientResource(t *testing.T) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		resp.Body.Close()
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return

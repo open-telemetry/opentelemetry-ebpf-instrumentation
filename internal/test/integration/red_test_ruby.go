@@ -165,7 +165,7 @@ func testHTTPTracesNestedNginx(t *testing.T) {
 		slug := strconv.Itoa(i)
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
+			resp, err := getJaeger(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -205,7 +205,7 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 		slug := strconv.Itoa(i)
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
+			resp, err := getJaeger(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -263,7 +263,7 @@ func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
 				enoughPromResults(ct, results)
 			}, testTimeout, 100*time.Millisecond)
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName)
+				resp, err := getJaeger(jaegerQueryURL + "?service=" + serviceName)
 				require.NoError(ct, err)
 				defer resp.Body.Close()
 				require.Equal(ct, http.StatusOK, resp.StatusCode)

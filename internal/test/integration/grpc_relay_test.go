@@ -124,7 +124,7 @@ func assertHuffmanTraceparentAdopted(t *testing.T, driverURL, receiver string) {
 		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		r, err := http.Get(jaegerQueryURL + "/" + appTraceID)
+		r, err := getJaeger(jaegerQueryURL + "/" + appTraceID)
 		require.NoError(ct, err)
 		defer r.Body.Close()
 
@@ -212,7 +212,7 @@ func relayTraceparentLogs(ct *assert.CollectT, compose *docker.Compose, traceID 
 // hasSpansInJaeger reports whether Jaeger holds any recent trace for the given
 // service, which is the observable proof that OBI has instrumented its pid.
 func hasSpansInJaeger(service string) bool {
-	r, err := http.Get(jaegerQueryURL + "?service=" + service + "&limit=1&lookback=5m")
+	r, err := getJaeger(jaegerQueryURL + "?service=" + service + "&limit=1&lookback=5m")
 	if err != nil {
 		return false
 	}
@@ -294,7 +294,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		// without burning the outer Eventually budget on fresh trace IDs.
 		var tq jaeger.TracesQuery
 		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "/" + relayAttemptTraceID)
+			resp, err := getJaeger(jaegerQueryURL + "/" + relayAttemptTraceID)
 			require.NoError(ctt, err)
 			defer resp.Body.Close()
 			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
@@ -499,7 +499,7 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 
 		var tq jaeger.TracesQuery
 		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "/" + warmupTraceID)
+			resp, err := getJaeger(jaegerQueryURL + "/" + warmupTraceID)
 			require.NoError(ctt, err)
 			defer resp.Body.Close()
 			require.Equal(ctt, http.StatusOK, resp.StatusCode)
@@ -525,7 +525,7 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 			wr.Body.Close()
 		}
 
-		resp, err := http.Get(jaegerQueryURL + "/" + traceID)
+		resp, err := getJaeger(jaegerQueryURL + "/" + traceID)
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		defer resp.Body.Close()
@@ -584,7 +584,7 @@ func testGRPCPersistentDynTable(t *testing.T) {
 		}
 		var tq jaeger.TracesQuery
 		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "/" + warmupTraceID)
+			resp, err := getJaeger(jaegerQueryURL + "/" + warmupTraceID)
 			require.NoError(ctt, err)
 			defer resp.Body.Close()
 			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
@@ -656,7 +656,7 @@ func testGRPCPersistentDynTable(t *testing.T) {
 func fetchTrace(id string) (jaeger.TracesQuery, error) {
 	var tq jaeger.TracesQuery
 
-	resp, err := http.Get(jaegerQueryURL + "/" + id)
+	resp, err := getJaeger(jaegerQueryURL + "/" + id)
 	if err != nil {
 		return tq, err
 	}
