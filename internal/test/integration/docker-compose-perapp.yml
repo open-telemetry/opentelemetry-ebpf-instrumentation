@@ -45,7 +45,7 @@ services:
       - 3041:3040
 
   jtestserver:
-    image: ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.0@sha256:fb45a0ee046b65effcc32f7da483de2229abca128ff78665577f63c41039990e
+    image: ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.5@sha256:7918fd747a6a1bd34f1fc1402a30fd6066e5e405296ad2b62070cf1488262cc4
     ports:
       - "8086:8085"
 
