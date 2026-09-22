@@ -79,6 +79,14 @@ type kafkaMembership struct {
 	members map[string]*kafkaMember
 }
 
+// member returns the state of the member with id, creating it unless the group already
+// holds maxMembersPerGroup members (nil then). The empty id is a member the coordinator
+// has not named yet: a first JoinGroup, which a broker since 2.2 answers with
+// MEMBER_ID_REQUIRED so the member repeats it with its id (KIP-394), and which an older
+// broker accepts as is, the id then showing up in the following SyncGroup or Heartbeat.
+// The first request of a member unknown so far claims that anonymous state, so it does
+// not outlive the member's leave. Several members may join anonymously before any of
+// them is named (older brokers only): their subscriptions are kept together, see Join.
 func (g *kafkaMembership) member(id string) *kafkaMember {
 	m, found := g.members[id]
 	if found {
@@ -226,8 +234,10 @@ func (g *KafkaConsumerGroups) memberships(proc KafkaProcess) *kafkaProcessGroups
 // Join records that req's member, living in proc, is a member of req's group. A complete
 // subscription (req.Subscription) replaces the topics known for that member, so a
 // rebalance with a changed subscription drops the old topics; anything else adds to
-// them. Topics referenced by UUID are resolved through kafkaTopicUUIDToName and skipped
-// when unknown.
+// them. An anonymous join (empty member id) only adds: another member of the group may
+// have joined anonymously just before, and until the coordinator names them the group's
+// subscription is the union of both. Topics referenced by UUID are resolved through
+// kafkaTopicUUIDToName and skipped when unknown.
 func (g *KafkaConsumerGroups) Join(proc KafkaProcess, req *kafkaparser.GroupRequest, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) {
 	if g == nil {
 		return
@@ -251,7 +261,7 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, req *kafkaparser.GroupRequ
 		for _, m := range group.members {
 			m.topics = nil // whatever was added while the group passed for a consumer group is dead weight
 		}
-	case req.Subscription:
+	case req.Subscription && req.MemberID != "":
 		m.topics = map[string]struct{}{}
 		m.addTopics(req.Topics, kafkaTopicUUIDToName)
 	default:
