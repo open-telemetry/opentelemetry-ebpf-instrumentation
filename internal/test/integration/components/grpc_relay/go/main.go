@@ -189,7 +189,7 @@ func nextHopConnWithMode(addr string, wrap bool) (*grpc.ClientConn, error) {
 			return &wrappedConn{Conn: conn}, nil
 		}))
 	}
-	c, err := grpc.NewClient(addr, dialOptions...)
+	c, err := newGRPCClient(addr, dialOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +308,7 @@ func main() {
 			// subconnection (one TCP + HTTP/2 connection). The warmup call
 			// forces connection establishment, then concurrent Invokes
 			// multiplex as separate HTTP/2 streams on that connection.
-			conn, err := grpc.NewClient(nextHopMux, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			conn, err := newGRPCClient(nextHopMux, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -367,7 +367,7 @@ func main() {
 				n = 3
 			}
 
-			conn, err := grpc.NewClient(nextHop, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			conn, err := newGRPCClient(nextHop, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

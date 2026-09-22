@@ -53,6 +53,8 @@ func TestSuite_GRPCGoTraceparentOwnership(t *testing.T) {
 		"http://127.0.0.1:8098/health",
 		"http://127.0.0.1:18082/health",
 		"http://127.0.0.1:18083/health",
+		"http://127.0.0.1:18084/health",
+		"http://127.0.0.1:18085/health",
 	} {
 		waitForTestComponentsNoMetrics(t, endpoint)
 	}
@@ -65,6 +67,14 @@ func TestSuite_GRPCGoTraceparentOwnership(t *testing.T) {
 	t.Run("TLS", func(t *testing.T) {
 		testGRPCGoTraceparentOwnership(
 			t, compose, 18083, "go-ownership-receiver-tls", strings.Repeat("b", 32), false)
+	})
+	t.Run("legacy plaintext", func(t *testing.T) {
+		testGRPCGoTraceparentOwnership(
+			t, compose, 18084, "go-ownership-receiver", strings.Repeat("d", 32), false)
+	})
+	t.Run("legacy TLS", func(t *testing.T) {
+		testGRPCGoTraceparentOwnership(
+			t, compose, 18085, "go-ownership-receiver-tls", strings.Repeat("e", 32), false)
 	})
 	t.Run("wrapped connection", func(t *testing.T) {
 		testGRPCGoTraceparentOwnership(
@@ -81,6 +91,8 @@ func waitForGRPCOwnershipInstrumentation(t *testing.T) {
 	}{
 		{name: "go-ownership-client", url: "http://127.0.0.1:18082/health"},
 		{name: "go-ownership-client-tls", url: "http://127.0.0.1:18083/health"},
+		{name: "go-ownership-client-legacy", url: "http://127.0.0.1:18084/health"},
+		{name: "go-ownership-client-legacy-tls", url: "http://127.0.0.1:18085/health"},
 	}
 	for _, service := range services {
 		require.Eventually(t, func() bool {

@@ -12,3 +12,7 @@ discovery:
       open_ports: 8082
     - name: go-ownership-client-tls
       open_ports: 8083
+    - name: go-ownership-client-legacy
+      open_ports: 8084
+    - name: go-ownership-client-legacy-tls
+      open_ports: 8085
