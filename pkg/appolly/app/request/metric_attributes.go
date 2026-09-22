@@ -351,6 +351,18 @@ func CudaMemcpy(val int) attribute.KeyValue {
 	return attribute.Key(attr.CudaMemcpyKind).String(CudaMemcpyName(val))
 }
 
+func CudaDeviceIndex(val uint32) attribute.KeyValue {
+	return attribute.Key(attr.CudaDeviceIndex).Int(int(val))
+}
+
+func CudaDeviceUUID(val string) attribute.KeyValue {
+	return attribute.Key(attr.CudaDeviceUUID).String(val)
+}
+
+func CudaDeviceModel(val string) attribute.KeyValue {
+	return attribute.Key(attr.CudaDeviceModel).String(val)
+}
+
 func Job(val string) attribute.KeyValue {
 	return attribute.Key(attr.Job).String(val)
 }

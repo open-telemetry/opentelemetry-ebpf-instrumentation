@@ -25,6 +25,7 @@ const cuda_kernel_launch_t *unused_gpu __attribute__((unused));
 const cuda_memcpy_t *unused_gpu1 __attribute__((unused));
 const cuda_size_event_t *unused_gpu2 __attribute__((unused));
 const cuda_call_event_t *unused_gpu3 __attribute__((unused));
+const cuda_device_event_t *unused_gpu4 __attribute__((unused));
 
 enum {
     k_event_kernel_launch = 1,
@@ -40,6 +41,13 @@ enum {
     k_event_stream_synchronize = 11,
     k_event_device_synchronize = 12,
     k_event_host_register = 13,
+    k_event_device_info = 14,
+};
+
+// Which parts of a device identity an introspection return scan managed to read.
+enum {
+    k_device_has_uuid = 1,
+    k_device_has_name = 2,
 };
 
 // Tracks cudaMalloc arguments from entry to return so the allocated pointer can
@@ -87,6 +95,71 @@ struct {
     __type(value, u8);
 } cuda_runtime_launch_ctx SEC(".maps");
 
+// Device the calling thread is bound to, learned from cudaSetDevice and
+// cudaGetDevice. Keyed by thread because CUDA's current device is per host
+// thread. A thread that never selected one is absent here, which means CUDA's
+// default device.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 8192);
+    __uint(pinning, OBI_PIN_INTERNAL);
+    __type(key, u64);
+    __type(value, u32);
+} cuda_thread_device SEC(".maps");
+
+// Identity of a device index as revealed by the introspection APIs. Keyed by
+// process because device indices are only unique within one.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 4096);
+    __uint(pinning, OBI_PIN_INTERNAL);
+    __type(key, cuda_device_key_t);
+    __type(value, cuda_device_info_t);
+} cuda_device_info SEC(".maps");
+
+// Per-thread context captured at the entry of a device introspection call and
+// consumed at its return, once the callee has written into the receiving buffer.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 1024);
+    __uint(pinning, OBI_PIN_INTERNAL);
+    __type(key, u64);
+    __type(value, cuda_introspect_ctx_t);
+} cuda_introspect_ctx SEC(".maps");
+
+// Tracks cudaSetDevice arguments from entry to return so a failed call does not
+// bind the thread to a device it never selected.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 1024);
+    __uint(pinning, OBI_PIN_INTERNAL);
+    __type(key, u64);
+    __type(value, cuda_set_device_ctx_t);
+} cuda_set_device_ctx SEC(".maps");
+
+// Fills in the device an observed CUDA call ran on: the process-local index the
+// calling thread is bound to, and the UUID that index maps to. An all-zero UUID
+// means the index identity has not been observed for the process yet, which
+// userspace reports as an unknown device.
+static __always_inline void resolve_device(const u64 id, cuda_device_t *dev) {
+    dev->index = 0;
+    __builtin_memset(dev->uuid, 0, sizeof(dev->uuid));
+
+    const u32 *thread_dev = bpf_map_lookup_elem(&cuda_thread_device, &id);
+    if (thread_dev) {
+        dev->index = *thread_dev;
+    }
+
+    cuda_device_key_t key = {
+        .tgid = id >> 32,
+        .index = dev->index,
+    };
+    const cuda_device_info_t *info = bpf_map_lookup_elem(&cuda_device_info, &key);
+    if (info) {
+        __builtin_memcpy(dev->uuid, info->uuid, sizeof(dev->uuid));
+    }
+}
+
 static __always_inline void submit_size_event(const u8 flags, const s64 size) {
     cuda_size_event_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
     if (!e) {
@@ -97,6 +170,7 @@ static __always_inline void submit_size_event(const u8 flags, const s64 size) {
     e->flags = flags;
     task_pid(&e->pid_info);
     e->size = size;
+    resolve_device(bpf_get_current_pid_tgid(), &e->device);
 
     bpf_ringbuf_submit(e, 0);
 }
@@ -110,6 +184,7 @@ static __always_inline void submit_call_event(const u8 flags) {
 
     e->flags = flags;
     task_pid(&e->pid_info);
+    resolve_device(bpf_get_current_pid_tgid(), &e->device);
 
     bpf_ringbuf_submit(e, 0);
 }
@@ -137,6 +212,7 @@ static __always_inline void submit_kernel_launch(const u64 func_off,
     e->block_x = block_x;
     e->block_y = block_y;
     e->block_z = block_z;
+    resolve_device(bpf_get_current_pid_tgid(), &e->device);
 
     bpf_ringbuf_submit(e, 0);
 }
@@ -155,6 +231,115 @@ static __always_inline bool suppress_driver_dup(const u64 id) {
     }
     bpf_map_delete_elem(&cuda_runtime_launch_ctx, &id);
     return true;
+}
+
+// Reports a device identity to userspace, which caches it by UUID so the
+// per-call metrics, whose events only carry the UUID, can be named. Only the
+// rare introspection calls travel this way.
+static __always_inline void submit_device_event(const u32 index, const cuda_device_info_t *info) {
+    cuda_device_event_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
+    if (!e) {
+        bpf_dbg_printk("Failed to allocate ringbuf entry");
+        return;
+    }
+
+    e->flags = k_event_device_info;
+    task_pid(&e->pid_info);
+    e->index = index;
+    __builtin_memcpy(e->uuid, info->uuid, sizeof(e->uuid));
+    __builtin_memcpy(e->name, info->name, sizeof(e->name));
+
+    bpf_ringbuf_submit(e, 0);
+}
+
+// Merges the parts of a device identity an introspection call revealed into the
+// device table and reports the result. The parts the call did not provide are
+// kept from earlier calls, so a UUID-only or name-only call cannot clear the
+// other. uuid and name are only dereferenced when their flag is provided.
+static __always_inline void merge_device_info(
+    const u64 id, const u32 index, const u8 provided, const u8 *uuid, const char *name) {
+    if (provided == 0) {
+        return;
+    }
+
+    cuda_device_key_t key = {
+        .tgid = id >> 32,
+        .index = index,
+    };
+
+    cuda_device_info_t info = {};
+    const cuda_device_info_t *stored = bpf_map_lookup_elem(&cuda_device_info, &key);
+    if (stored) {
+        __builtin_memcpy(info.uuid, stored->uuid, sizeof(info.uuid));
+        __builtin_memcpy(info.name, stored->name, sizeof(info.name));
+    }
+
+    if (provided & k_device_has_uuid) {
+        __builtin_memcpy(info.uuid, uuid, sizeof(info.uuid));
+    }
+    if (provided & k_device_has_name) {
+        __builtin_memcpy(info.name, name, sizeof(info.name));
+    }
+
+    if (bpf_map_update_elem(&cuda_device_info, &key, &info, BPF_ANY) != 0) {
+        bpf_dbg_printk("Failed to record cuda device info");
+        return;
+    }
+
+    submit_device_event(index, &info);
+}
+
+// Reads the model name and UUID out of the cudaDeviceProp the callee filled in.
+static __always_inline void merge_props(const u64 id, const cuda_introspect_ctx_t *intro) {
+    u8 provided = 0;
+
+    u8 uuid[k_cuda_uuid_len] = {};
+    if (bpf_probe_read_user(
+            uuid, sizeof(uuid), (const void *)(intro->buf_addr + k_cuda_prop_uuid_off)) == 0) {
+        provided |= k_device_has_uuid;
+    }
+
+    char name[k_cuda_name_len] = {};
+    if (bpf_probe_read_user(
+            name, sizeof(name), (const void *)(intro->buf_addr + k_cuda_prop_name_off)) == 0) {
+        provided |= k_device_has_name;
+    }
+
+    merge_device_info(id, intro->index, provided, uuid, name);
+}
+
+// Remembers where the result of a device introspection call will land, so its
+// return probe knows what to read and which device it belongs to.
+static __always_inline void capture_introspect(
+    const u64 id, const u64 buf_addr, const u32 index, const u32 len, const u32 kind) {
+    cuda_introspect_ctx_t intro = {
+        .buf_addr = buf_addr,
+        .index = index,
+        .len = len,
+        .kind = kind,
+    };
+    bpf_map_update_elem(&cuda_introspect_ctx, &id, &intro, BPF_ANY);
+}
+
+// Consumes the entry context unconditionally, before any filtering, so a target
+// deselected (or exiting) while the call was in flight cannot leak the entry.
+// Returns false when the entry captured nothing, or when the stored context
+// belongs to a different introspection call: the runtime device property query
+// is implemented in terms of the driver API, whose inner calls overwrite this
+// context but report the same identity on their own return.
+static __always_inline bool
+consume_introspect(const u64 id, const u32 kind, cuda_introspect_ctx_t *intro) {
+    const cuda_introspect_ctx_t *stored = bpf_map_lookup_elem(&cuda_introspect_ctx, &id);
+    const bool captured = stored != NULL && stored->kind == kind;
+    if (captured) {
+        intro->buf_addr = stored->buf_addr;
+        intro->index = stored->index;
+        intro->len = stored->len;
+        intro->kind = stored->kind;
+    }
+    bpf_map_delete_elem(&cuda_introspect_ctx, &id);
+
+    return captured;
 }
 
 SEC("uprobe/cudaLaunchKernel")
@@ -421,6 +606,7 @@ int BPF_KPROBE_GUARDED(obi_cuda_memcpy, void *dst, void *src, size_t size, u8 ki
     task_pid(&e->pid_info);
     e->size = (s64)size;
     e->kind = kind;
+    resolve_device(id, &e->device);
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -671,6 +857,342 @@ int BPF_KPROBE_GUARDED(obi_cuda_host_register, void *ptr, size_t size, unsigned 
 
     bpf_dbg_printk("=== uprobe/cudaHostRegister id=%llx ===", id);
     submit_size_event(k_event_host_register, (s64)size);
+
+    return 0;
+}
+
+// Device identity. The per-call APIs carry no reference to the device they run on,
+// so the identity a metric is labeled with is recovered from the introspection
+// calls a target makes: cudaSetDevice and cudaGetDevice bind the calling thread to
+// a process-local index, while the properties and UUID/name queries reveal which
+// physical device that index is.
+
+SEC("uprobe/cudaSetDevice")
+int BPF_KPROBE_GUARDED(obi_cuda_set_device, int device) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cudaSetDevice id=%llx device=%d ===", id, device);
+
+    const cuda_set_device_ctx_t set_ctx = {
+        .index = (u32)device,
+    };
+    bpf_map_update_elem(&cuda_set_device_ctx, &id, &set_ctx, BPF_ANY);
+
+    return 0;
+}
+
+SEC("uretprobe/cudaSetDevice")
+int BPF_KRETPROBE_GUARDED(obi_cuda_set_device_ret, int ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    // Consume the entry context unconditionally, before any filtering, so a
+    // target deselected (or exiting) while the call was in flight cannot leak
+    // the entry.
+    cuda_set_device_ctx_t set_ctx = {};
+    bool tracked = false;
+    const cuda_set_device_ctx_t *stored = bpf_map_lookup_elem(&cuda_set_device_ctx, &id);
+    if (stored) {
+        set_ctx.index = stored->index;
+        tracked = true;
+    }
+    bpf_map_delete_elem(&cuda_set_device_ctx, &id);
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uretprobe/cudaSetDevice id=%llx ret=%d ===", id, ret);
+
+    if (ret != 0 || !tracked) {
+        return 0;
+    }
+
+    // A negative index is the "no device" sentinel; the thread is then bound to
+    // nothing, which is what an absent entry means.
+    if ((s32)set_ctx.index < 0) {
+        bpf_map_delete_elem(&cuda_thread_device, &id);
+        return 0;
+    }
+
+    bpf_map_update_elem(&cuda_thread_device, &id, &set_ctx.index, BPF_ANY);
+
+    return 0;
+}
+
+// cudaGetDevice(int *device) for targets that only query the current device. It
+// runs no introspection of its own, but restores a binding for a thread whose
+// cudaSetDevice happened before instrumentation started.
+SEC("uprobe/cudaGetDevice")
+int BPF_KPROBE_GUARDED(obi_cuda_get_device, void *device) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cudaGetDevice id=%llx ===", id);
+
+    capture_introspect(id, (u64)device, 0, 0, k_cuda_introspect_get);
+
+    return 0;
+}
+
+SEC("uretprobe/cudaGetDevice")
+int BPF_KRETPROBE_GUARDED(obi_cuda_get_device_ret, int ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    cuda_introspect_ctx_t intro = {};
+    const bool captured = consume_introspect(id, k_cuda_introspect_get, &intro);
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uretprobe/cudaGetDevice id=%llx ret=%d ===", id, ret);
+
+    if (ret != 0 || !captured) {
+        return 0;
+    }
+
+    int device = 0;
+    if (bpf_probe_read_user(&device, sizeof(device), (const void *)intro.buf_addr) != 0) {
+        return 0;
+    }
+
+    if (device < 0) {
+        bpf_map_delete_elem(&cuda_thread_device, &id);
+        return 0;
+    }
+
+    const u32 index = (u32)device;
+    bpf_map_update_elem(&cuda_thread_device, &id, &index, BPF_ANY);
+
+    return 0;
+}
+
+// cudaGetDeviceProperties(cudaDeviceProp *prop, int device) fills a struct whose
+// model name and UUID members have had stable offsets since CUDA 10.
+SEC("uprobe/cudaGetDeviceProperties")
+int BPF_KPROBE_GUARDED(obi_cuda_get_device_properties, void *prop, int device) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id) || device < 0) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cudaGetDeviceProperties id=%llx device=%d ===", id, device);
+
+    capture_introspect(id, (u64)prop, (u32)device, 0, k_cuda_introspect_props);
+
+    return 0;
+}
+
+SEC("uretprobe/cudaGetDeviceProperties")
+int BPF_KRETPROBE_GUARDED(obi_cuda_get_device_properties_ret, int ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    cuda_introspect_ctx_t intro = {};
+    const bool captured = consume_introspect(id, k_cuda_introspect_props, &intro);
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uretprobe/cudaGetDeviceProperties id=%llx ret=%d ===", id, ret);
+
+    if (ret != 0 || !captured) {
+        return 0;
+    }
+
+    merge_props(id, &intro);
+
+    return 0;
+}
+
+SEC("uprobe/cudaGetDeviceProperties_v2")
+int BPF_KPROBE_GUARDED(obi_cuda_get_device_properties_v2, void *prop, int device) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id) || device < 0) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cudaGetDeviceProperties_v2 id=%llx device=%d ===", id, device);
+
+    capture_introspect(id, (u64)prop, (u32)device, 0, k_cuda_introspect_props);
+
+    return 0;
+}
+
+SEC("uretprobe/cudaGetDeviceProperties_v2")
+int BPF_KRETPROBE_GUARDED(obi_cuda_get_device_properties_v2_ret, int ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    cuda_introspect_ctx_t intro = {};
+    const bool captured = consume_introspect(id, k_cuda_introspect_props, &intro);
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uretprobe/cudaGetDeviceProperties_v2 id=%llx ret=%d ===", id, ret);
+
+    if (ret != 0 || !captured) {
+        return 0;
+    }
+
+    merge_props(id, &intro);
+
+    return 0;
+}
+
+// cuDeviceGetUuid(CUuuid *uuid, CUdevice dev) writes the 16 raw bytes that
+// nvidia-smi renders after its "GPU-" prefix.
+SEC("uprobe/cuDeviceGetUuid")
+int BPF_KPROBE_GUARDED(obi_cu_device_get_uuid, void *uuid, int dev) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id) || dev < 0) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cuDeviceGetUuid id=%llx dev=%d ===", id, dev);
+
+    capture_introspect(id, (u64)uuid, (u32)dev, 0, k_cuda_introspect_uuid);
+
+    return 0;
+}
+
+SEC("uretprobe/cuDeviceGetUuid")
+int BPF_KRETPROBE_GUARDED(obi_cu_device_get_uuid_ret, int ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    cuda_introspect_ctx_t intro = {};
+    const bool captured = consume_introspect(id, k_cuda_introspect_uuid, &intro);
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uretprobe/cuDeviceGetUuid id=%llx ret=%d ===", id, ret);
+
+    if (ret != 0 || !captured) {
+        return 0;
+    }
+
+    u8 uuid[k_cuda_uuid_len] = {};
+    if (bpf_probe_read_user(uuid, sizeof(uuid), (const void *)intro.buf_addr) != 0) {
+        return 0;
+    }
+
+    merge_device_info(id, intro.index, k_device_has_uuid, uuid, NULL);
+
+    return 0;
+}
+
+SEC("uprobe/cuDeviceGetUuid_v2")
+int BPF_KPROBE_GUARDED(obi_cu_device_get_uuid_v2, void *uuid, int dev) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id) || dev < 0) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cuDeviceGetUuid_v2 id=%llx dev=%d ===", id, dev);
+
+    capture_introspect(id, (u64)uuid, (u32)dev, 0, k_cuda_introspect_uuid);
+
+    return 0;
+}
+
+SEC("uretprobe/cuDeviceGetUuid_v2")
+int BPF_KRETPROBE_GUARDED(obi_cu_device_get_uuid_v2_ret, int ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    cuda_introspect_ctx_t intro = {};
+    const bool captured = consume_introspect(id, k_cuda_introspect_uuid, &intro);
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uretprobe/cuDeviceGetUuid_v2 id=%llx ret=%d ===", id, ret);
+
+    if (ret != 0 || !captured) {
+        return 0;
+    }
+
+    u8 uuid[k_cuda_uuid_len] = {};
+    if (bpf_probe_read_user(uuid, sizeof(uuid), (const void *)intro.buf_addr) != 0) {
+        return 0;
+    }
+
+    merge_device_info(id, intro.index, k_device_has_uuid, uuid, NULL);
+
+    return 0;
+}
+
+// cuDeviceGetName(char *name, int len, CUdevice dev) writes at most len bytes.
+SEC("uprobe/cuDeviceGetName")
+int BPF_KPROBE_GUARDED(obi_cu_device_get_name, void *name, int len, int dev) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id) || dev < 0 || len <= 0) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cuDeviceGetName id=%llx dev=%d len=%d ===", id, dev, len);
+
+    capture_introspect(id, (u64)name, (u32)dev, (u32)len, k_cuda_introspect_name);
+
+    return 0;
+}
+
+SEC("uretprobe/cuDeviceGetName")
+int BPF_KRETPROBE_GUARDED(obi_cu_device_get_name_ret, int ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    cuda_introspect_ctx_t intro = {};
+    const bool captured = consume_introspect(id, k_cuda_introspect_name, &intro);
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uretprobe/cuDeviceGetName id=%llx ret=%d ===", id, ret);
+
+    if (ret != 0 || !captured) {
+        return 0;
+    }
+
+    // The callee writes at most len bytes; the clamp both bounds the read for the
+    // verifier and drops any name longer than we carry.
+    const u32 read_len = intro.len < k_cuda_name_len ? intro.len : k_cuda_name_len;
+
+    char name[k_cuda_name_len] = {};
+    if (bpf_probe_read_user(name, read_len, (const void *)intro.buf_addr) != 0) {
+        return 0;
+    }
+
+    merge_device_info(id, intro.index, k_device_has_name, NULL, name);
 
     return 0;
 }

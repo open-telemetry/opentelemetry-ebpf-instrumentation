@@ -1584,6 +1584,14 @@ type Span struct {
 
 	// ManualOTelJSON stores OTLP JSON emitted by the Go Auto SDK bridge.
 	ManualOTelJSON []byte `json:"-"`
+
+	// CudaDevice* name the GPU a CUDA call ran on, as reported by the CUDA
+	// introspection APIs the process itself calls. An empty UUID or model means
+	// we never saw the process ask CUDA about that device, in which case the
+	// index is CUDA's default device 0.
+	CudaDeviceIndex uint32 `json:"-"`
+	CudaDeviceUUID  string `json:"-"`
+	CudaDeviceModel string `json:"-"`
 }
 
 func (s *Span) Inside(parent *Span) bool {
