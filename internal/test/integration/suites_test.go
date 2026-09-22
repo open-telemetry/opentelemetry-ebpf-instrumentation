@@ -526,6 +526,20 @@ func TestSuite_RailsNginxSQL(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_RailsRuby4Postgres(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-ruby-postgres.yml", path.Join(pathOutput, "test-suite-ruby-postgres.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
+	require.NoError(t, compose.Up())
+	t.Run("Ruby/Puma versions", func(t *testing.T) {
+		assertRubyPumaSupportVersion(t, compose, "4.0.6", "6.6.1")
+	})
+	t.Run("Rails PostgreSQL traces", testHTTPTracesRailsPostgres)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_RailsTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby-tls.log"))
 	require.NoError(t, err)
