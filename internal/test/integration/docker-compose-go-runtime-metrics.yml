@@ -5,6 +5,7 @@ services:
       dockerfile: ${RUNTIME_METRICS_TESTSERVER_DOCKERFILE:-./internal/test/integration/components/go-runtime-metrics-server/Dockerfile}
       args:
         - RUNTIME_METRICS_TESTSERVER_GO_IMAGE
+        - RUNTIME_METRICS_TESTSERVER_LDFLAGS
     image: ${RUNTIME_METRICS_TESTSERVER_IMAGE:-hatest-testserver-go-runtime-metrics}
     ports:
       - "${TEST_SERVICE_PORTS}"
@@ -67,7 +68,9 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    command:
+      - --config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml
+      - --config=/etc/otelcol-config/otelcol-runtime-metrics-telemetry.yml
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
