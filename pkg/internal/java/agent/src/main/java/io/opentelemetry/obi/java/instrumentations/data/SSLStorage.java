@@ -33,6 +33,9 @@ public class SSLStorage {
   private static final CappedConcurrentHashMap<Integer, Long> tasks =
       new CappedConcurrentHashMap<>(MAX_CONCURRENT);
 
+  private static final String JDK_HTTP_CLIENT_SCHEDULABLE_TASK =
+      "jdk.internal.net.http.common.SequentialScheduler$SchedulableTask";
+
   public static final ThreadLocal<BytesWithLen> unencrypted = new ThreadLocal<>();
 
   public static final ThreadLocal<Object> nettyConnection = new ThreadLocal<>();
@@ -156,6 +159,28 @@ public class SSLStorage {
       return;
     }
     tasks.remove(System.identityHashCode(task));
+  }
+
+  public static void finishTaskHandoff(Object task, long parentThreadId, long threadId) {
+    finishTaskHandoff(task, parentThreadId, threadId, isJdkHttpClientSchedulableTask(task));
+  }
+
+  static void finishTaskHandoff(
+      Object task, long parentThreadId, long threadId, boolean resubmittable) {
+    // JDK HttpClient runs SequentialScheduler tasks inline before resubmitting the same task from
+    // its selector thread. Keep the original parent until the task actually crosses a thread
+    // boundary so the selector can relay that parent to its worker.
+    if (parentThreadId != threadId || !resubmittable) {
+      untrackTask(task);
+    }
+  }
+
+  static boolean isJdkHttpClientSchedulableTask(Object task) {
+    return task != null && isJdkHttpClientSchedulableTaskClass(task.getClass().getName());
+  }
+
+  static boolean isJdkHttpClientSchedulableTaskClass(String className) {
+    return JDK_HTTP_CLIENT_SCHEDULABLE_TASK.equals(className);
   }
 
   public static Long parentThreadId(Object task) {
