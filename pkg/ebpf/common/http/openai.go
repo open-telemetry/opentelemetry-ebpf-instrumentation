@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -163,45 +162,38 @@ var openAIAPITypes = map[string]struct{}{
 	openAIAPITypeResponses:       {},
 }
 
+// Endpoints that name a GenAI operation, matched in order so that
+// /chat/completions is not read as the legacy /completions.
+var openAIEndpoints = []struct {
+	suffix    string
+	operation string
+	apiType   string
+}{
+	{"/chat/completions", request.ChatOperationName, openAIAPITypeChatCompletions},
+	{"/completions", request.CompletionOperationName, openAIAPITypeTextCompletions},
+	{"/embeddings", request.EmbeddingOperationName, openAIAPITypeEmbeddings},
+	{"/responses", request.ResponseOperationName, openAIAPITypeResponses},
+	{"/conversations", request.ConversationOperationName, ""},
+	{"/chatkit/sessions", request.ChatKitSessionOperationName, ""},
+	{"/chatkit/threads", request.ChatKitThreadOperationName, ""},
+}
+
 // openAIOperation names the operation and the API type an OpenAI request path
 // addresses. The path is read instead of the response body because it names the
 // endpoint on an error and on a truncated capture too.
 //
-// An endpoint is recognized by the API collection its path walks through rather
-// than by the whole path, so a deployment mounted under a prefix
-// (/openai/deployments/{id}/chat/completions on Azure, a gateway) and a call on
-// a single resource (/v1/responses/{id}, /v1/chatkit/threads/{id}/items) both
-// resolve to the endpoint that owns them. Segments are walked from the end so
-// the deepest collection wins. Detection is header- or host-driven, so an
-// endpoint OBI has no operation for reports `_OTHER` rather than nothing.
+// The endpoint is matched as a path suffix, so a deployment mounted under a
+// prefix (/openai/deployments/{id}/chat/completions on Azure, a gateway) still
+// resolves while a path addressing a single resource (GET /v1/responses/{id})
+// does not: it returns a stored object rather than generating one, and naming
+// it after the endpoint would record an inference duration for a call that ran
+// no model. Detection is header- or host-driven, so an endpoint OBI has no
+// operation for reports `_OTHER` rather than nothing.
 func openAIOperation(path string) (string, string) {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
-	for i, segment := range slices.Backward(segments) {
-		parent := ""
-		if i > 0 {
-			parent = segments[i-1]
-		}
-
-		switch segment {
-		case "completions":
-			if parent == "chat" {
-				return request.ChatOperationName, openAIAPITypeChatCompletions
-			}
-			return request.CompletionOperationName, openAIAPITypeTextCompletions
-		case "embeddings":
-			return request.EmbeddingOperationName, openAIAPITypeEmbeddings
-		case "responses":
-			return request.ResponseOperationName, openAIAPITypeResponses
-		case "conversations":
-			return request.ConversationOperationName, ""
-		case "sessions":
-			if parent == "chatkit" {
-				return request.ChatKitSessionOperationName, ""
-			}
-		case "threads":
-			if parent == "chatkit" {
-				return request.ChatKitThreadOperationName, ""
-			}
+	path = strings.TrimSuffix(path, "/")
+	for _, endpoint := range openAIEndpoints {
+		if strings.HasSuffix(path, endpoint.suffix) {
+			return endpoint.operation, endpoint.apiType
 		}
 	}
 

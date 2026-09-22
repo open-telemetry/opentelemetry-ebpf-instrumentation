@@ -93,7 +93,6 @@ func gzipBody(t *testing.T, body string) io.ReadCloser {
 	return io.NopCloser(&buf)
 }
 
-//nolint:unparam
 func makeRequest(t *testing.T, method, url, body string) *http.Request {
 	t.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
@@ -478,8 +477,8 @@ func TestOpenAISpan_UnknownEndpointReportsOther(t *testing.T) {
 	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAI.OperationName)
 }
 
-// The path names the endpoint through the API collection it walks through, so a
-// prefix in front of it and a resource id behind it both keep the operation.
+// The endpoint is matched as a path suffix: a prefix in front of it keeps the
+// operation, a resource id behind it does not.
 func TestOpenAIOperation(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -524,10 +523,16 @@ func TestOpenAIOperation(t *testing.T) {
 			wantAPIType:   openAIAPITypeResponses,
 		},
 		{
-			name:          "single response",
+			// Retrieving a stored response runs no model, so naming it after
+			// the endpoint would record an inference duration for it.
+			name:          "stored response retrieval",
+			path:          "/v1/responses/resp_68079a4c",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "stored response cancellation",
 			path:          "/v1/responses/resp_68079a4c/cancel",
-			wantOperation: request.ResponseOperationName,
-			wantAPIType:   openAIAPITypeResponses,
+			wantOperation: request.OtherOperationName,
 		},
 		{
 			name:          "conversations",
@@ -537,7 +542,7 @@ func TestOpenAIOperation(t *testing.T) {
 		{
 			name:          "conversation items",
 			path:          "/v1/conversations/conv_680/items",
-			wantOperation: request.ConversationOperationName,
+			wantOperation: request.OtherOperationName,
 		},
 		{
 			name:          "chatkit session",
@@ -547,12 +552,17 @@ func TestOpenAIOperation(t *testing.T) {
 		{
 			name:          "chatkit session cancellation",
 			path:          "/v1/chatkit/sessions/cksess_68/cancel",
-			wantOperation: request.ChatKitSessionOperationName,
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "chatkit threads",
+			path:          "/v1/chatkit/threads",
+			wantOperation: request.ChatKitThreadOperationName,
 		},
 		{
 			name:          "chatkit thread items",
 			path:          "/v1/chatkit/threads/cthr_68/items",
-			wantOperation: request.ChatKitThreadOperationName,
+			wantOperation: request.OtherOperationName,
 		},
 		{
 			// Only ChatKit sessions are a GenAI operation: the realtime
