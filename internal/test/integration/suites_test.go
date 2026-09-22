@@ -22,8 +22,8 @@ import (
 // left the integration suite vulnerable to a compromise of the OBI ghcr
 // publish workflow swapping in a malicious image.
 const (
-	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.3@sha256:127a9c11f5584a61f45bc10e9bd8204f020c697369fee62404f822c0ffab3f4b"
-	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.3@sha256:b7bb4d0037775c18386f697f917d652ba85466404758a7eb08f236285391a0d7"
+	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.4@sha256:45d7e245640dcc1c477f97acedf1273f86110f38e38d36ec0077ebcbfce8910f"
+	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.4@sha256:0962e96f69662d911d26459aa694e78e6b533d77538ce7f10d074172a0efda93"
 	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.4@sha256:db398de6830a4cbdbbb673a90fb699f2f9b1882bc9cf809e00b99b13ad791a07"
 	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.4@sha256:3de9cb810440d837099cfd739018f2e2ce26552b3ecd859240cbf854b98fe863"
 	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.4@sha256:66b7187ee28ea60527deeda07d7cd314a5942e3d6270e8a1a97f16d0ec532189"
