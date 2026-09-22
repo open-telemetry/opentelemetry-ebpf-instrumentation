@@ -13,9 +13,11 @@ OBI publishes the following release artifacts for supported runtime platforms:
 | Artifact | Supported platforms |
 |:---------|:--------------------|
 | `obi` binary archive | Linux `amd64`, Linux `arm64` |
-| `k8s-cache` binary archive | Linux `amd64`, Linux `arm64` |
 | `otel/ebpf-instrument` container image | Linux `amd64`, Linux `arm64` |
 | `otel/ebpf-instrument-k8s-cache` container image | Linux `amd64`, Linux `arm64` |
+
+`k8s-cache` is an optional Kubernetes service distributed as a container image.
+It is not included in the OBI binary archives or host system packages.
 
 Other operating systems and architectures may compile selected packages or stub implementations, but are not part
 of the supported runtime matrix for OBI.
