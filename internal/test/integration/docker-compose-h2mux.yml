@@ -1,0 +1,55 @@
+services:
+  h2mux-server:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/h2mux/Dockerfile
+    image: hatest-h2mux
+    environment:
+      OTEL_SERVICE_NAME: h2mux-server
+      STREAMS: "${H2MUX_STREAMS:-5}"
+
+  h2mux-client:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/h2mux/Dockerfile
+    image: hatest-h2mux
+    command: [ "python", "-u", "/app/client.py" ]
+    environment:
+      OTEL_SERVICE_NAME: h2mux-client
+      STREAMS: "${H2MUX_STREAMS:-5}"
+    depends_on:
+      h2mux-server:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-h2mux.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-h2mux:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: "1s"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_HOSTNAME: "obi"
+    depends_on:
+      h2mux-client:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0@sha256:3d0ac795ff98aa04d1be04311d2dac6c25b4bfc8322dc02e53bc5b170c5018c3
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317" # OTEL GRPC traces collector (internal)
+      - "4318" # OTEL HTTP traces collector (internal)

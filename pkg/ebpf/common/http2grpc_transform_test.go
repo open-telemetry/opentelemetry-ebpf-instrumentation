@@ -1221,6 +1221,23 @@ func TestOversizedHeadersBlockStillResolves(t *testing.T) {
 	require.Equal(t, "*", completeH2(t, parseContext, next).Path)
 }
 
+// When a stream ends on a DATA frame, its response capture starts at that frame,
+// so a HEADERS frame after it belongs to another stream and its status must not be used.
+func TestCompletionIgnoresAnotherStreamsHeaders(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+	respEnc := &h2ConnEncoder{}
+	respEnc.enc = hpack.NewEncoder(&respEnc.buf)
+
+	data := []byte{0, 0, 2, byte(http2.FrameData), byte(http2.FlagDataEndStream), 0, 0, 0, 3, 'o', 'k'}
+	otherStream := respEnc.frame(t, []hpack.HeaderField{{Name: "grpc-status", Value: "7"}})
+	request := enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01"))
+	event := h2Event(request, append(data, otherStream...), 1085, 3)
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	require.Zero(t, completeH2(t, parseContext, event).Status)
+}
+
 func TestRequestTrailersAdvanceDecoder(t *testing.T) {
 	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}

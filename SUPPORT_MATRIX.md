@@ -63,7 +63,7 @@ through language-specific library instrumentation documented later in this file.
 | Protocol | Versions | Methods or operations | Secure | Context propagation | Limitations |
 |:---------|:---------|:----------------------|:------:|:-------------------:|:------------|
 | HTTP | `1.0/1.1` | All | Yes | Yes | Generic TLS inject uses TCP option kind 25 only (OBI-to-OBI; L7 proxies may drop it). Header inject works for plaintext. |
-| HTTP | `2.0` | All | Yes | Yes | Network-level HPACK inject/extract on plaintext HTTP/2. Generic TLS cannot inject; extract still works if a peer injected. Huffman-encoded `traceparent` extract requires kernel `5.17+`. Go library instrumentation covers TLS inject via uprobes. See [devdocs/grpc-context-propagation.md](devdocs/grpc-context-propagation.md). |
+| HTTP | `2.0` | All | Yes | Yes | Network-level HPACK inject/extract on plaintext HTTP/2. Generic TLS cannot inject; extract still works if a peer injected. Huffman-encoded `traceparent` extract requires kernel `5.17+`. Go library instrumentation covers TLS inject via uprobes. On the generic path, about six streams that share one read or write are captured; extra streams are dropped instead of being reported with wrong values. See [devdocs/grpc-context-propagation.md](devdocs/grpc-context-propagation.md). |
 | gRPC | `1.0+` | All | Yes | Yes | Same HPACK path as HTTP/2. Long-lived connections started before OBI may use `*` for method names. Generic TLS cannot inject. Huffman extract requires kernel `5.17+`. Message body capture is not supported. |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
