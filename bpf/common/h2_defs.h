@@ -32,6 +32,7 @@ enum {
     k_h2_priority_prefix_len = 5,
     k_h2_preface_len = 24,
     k_h2_preface_check_len = 4,
+    k_h2_protocol_max_frame_size = (1U << 24) - 1,
     k_h2_max_frame_len = 65535,
     k_h2_max_frame_scan = 4,
     k_h2_reserved_bit_mask = 0x80,

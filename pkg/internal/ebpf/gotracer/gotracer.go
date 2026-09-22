@@ -2087,8 +2087,8 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			},
 		}
 		m["golang.org/x/net/http2.(*Framer).WriteContinuation"] = []*ebpfcommon.ProbeDesc{{
-			Start: p.bpfObjects.ObiUprobeGrpcFramerWriteContinuation,
-			End:   p.bpfObjects.ObiUprobeGrpcFramerWriteHeadersReturns,
+			Start: p.bpfObjects.ObiUprobeH2FramerWriteContinuation,
+			End:   p.bpfObjects.ObiUprobeH2FramerWriteContinuationReturns,
 		}}
 		m["net/http.(*http2Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{{ // http2 context propagation
 			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
@@ -2117,13 +2117,6 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 						Probe: &ebpfcommon.ProbeDesc{
 							Start:       p.bpfObjects.ObiUprobeHttp2FramerReservePadding,
 							UsePadStart: true,
-						},
-					},
-					{
-						Symbol: goHTTP2FlushProbeSymbols[1],
-						Probe: &ebpfcommon.ProbeDesc{
-							Start: p.bpfObjects.ObiUprobeHttp2FramerWriteContinuation,
-							End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
 						},
 					},
 					{

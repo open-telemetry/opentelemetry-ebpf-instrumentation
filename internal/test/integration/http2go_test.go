@@ -40,6 +40,7 @@ type http2OwnershipResult struct {
 	Controls   []http2HeaderObservation `json:"controls"`
 	LargeOwned http2HeaderObservation   `json:"large_owned"`
 	LargePlain http2HeaderObservation   `json:"large_plain"`
+	MultiPlain http2HeaderObservation   `json:"multi_plain"`
 	MuxOwned   http2HeaderObservation   `json:"mux_owned"`
 	MuxPlain   http2HeaderObservation   `json:"mux_plain"`
 	Error      string                   `json:"error"`
@@ -301,9 +302,18 @@ func validateHTTP2OwnershipResult(result http2OwnershipResult) error {
 	if err := validateHTTP2InjectedObservation(result.LargePlain); err != nil {
 		return fmt.Errorf("plain CONTINUATION request: %w", err)
 	}
-	if result.LargeOwned.RemoteAddr != remoteAddr || result.LargePlain.RemoteAddr != remoteAddr {
-		return fmt.Errorf("CONTINUATION requests did not use persistent connection %q: owned=%q plain=%q",
-			remoteAddr, result.LargeOwned.RemoteAddr, result.LargePlain.RemoteAddr)
+	if err := validateHTTP2InjectedObservation(result.MultiPlain); err != nil {
+		return fmt.Errorf("multi-CONTINUATION request: %w", err)
+	}
+	if result.LargeOwned.RemoteAddr != remoteAddr || result.LargePlain.RemoteAddr != remoteAddr ||
+		result.MultiPlain.RemoteAddr != remoteAddr {
+		return fmt.Errorf(
+			"CONTINUATION requests did not use persistent connection %q: owned=%q plain=%q multi=%q",
+			remoteAddr,
+			result.LargeOwned.RemoteAddr,
+			result.LargePlain.RemoteAddr,
+			result.MultiPlain.RemoteAddr,
+		)
 	}
 
 	if err := validateHTTP2Observation(result.MuxOwned, http2MuxTraceparent); err != nil {

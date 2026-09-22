@@ -15,7 +15,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
-const testMaxReadFrameSize = 16 << 10
+const testMaxReadFrameSize = 64 << 10
 
 type headerObservation struct {
 	Traceparents []string `json:"traceparents"`

@@ -30,6 +30,10 @@ enum go_h2_user_write_step : u8 {
     k_go_h2_finish_writer_len = 7,
 };
 
+enum : u32 {
+    k_go_h2_max_write_buffer_len = k_h2_protocol_max_frame_size + k_h2_frame_header_len,
+};
+
 SCRATCH_MEM_SIZED(go_h2_field, k_h2_tp_hpack_huffman_size)
 SCRATCH_MEM_SIZED(go_h2_readback, k_h2_tp_hpack_huffman_size)
 
@@ -123,19 +127,19 @@ static __always_inline u8 append_go_h2_traceparent(void *writer,
                                                    s64 cap,
                                                    u32 stream_id,
                                                    u8 frame_type,
+                                                   u32 *max_frame_size,
                                                    const tp_info_t *tp) {
-    if (!writer || !buf || !tp || frame_offset < 0 || n < 0 || cap < 0 || n > cap ||
-        frame_offset > n) {
+    if (!writer || !buf || !tp || !max_frame_size || frame_offset < 0 || n < 0 || cap < 0 ||
+        n > cap || frame_offset > n) {
         return k_go_h2_user_write_bypass;
     }
-    if ((u64)frame_offset > k_h2_max_frame_len + k_h2_frame_header_len ||
-        (u64)n > k_h2_max_frame_len + k_h2_frame_header_len ||
+    if ((u64)frame_offset > k_go_h2_max_write_buffer_len || (u64)n > k_go_h2_max_write_buffer_len ||
         (u64)n - (u64)frame_offset < k_h2_frame_header_len) {
         return k_go_h2_user_write_bypass;
     }
 
-    bpf_clamp_umax(frame_offset, k_h2_max_frame_len + k_h2_frame_header_len);
-    bpf_clamp_umax(n, k_h2_max_frame_len + k_h2_frame_header_len);
+    bpf_clamp_umax(frame_offset, k_go_h2_max_write_buffer_len);
+    bpf_clamp_umax(n, k_go_h2_max_write_buffer_len);
 
     unsigned char frame_header[k_h2_frame_header_len] = {};
     unsigned char *frame_ptr = (unsigned char *)buf + (u64)frame_offset;
@@ -157,9 +161,17 @@ static __always_inline u8 append_go_h2_traceparent(void *writer,
         return k_go_h2_user_write_bypass;
     }
     if (!(frame_header[4] & k_h2_flag_end_headers)) {
+        if (payload_len > *max_frame_size) {
+            *max_frame_size = payload_len;
+        }
         return k_go_h2_user_write_deferred;
     }
-    if (payload_len + k_h2_tp_hpack_huffman_size > k_h2_default_max_frame_size ||
+    u32 frame_size_limit = *max_frame_size;
+    if (frame_size_limit < k_h2_default_max_frame_size) {
+        frame_size_limit = k_h2_default_max_frame_size;
+    }
+    if (frame_size_limit > k_h2_protocol_max_frame_size ||
+        payload_len + k_h2_tp_hpack_huffman_size > frame_size_limit ||
         (u64)cap - (u64)n < k_h2_tp_hpack_huffman_size) {
         return k_go_h2_user_write_bypass;
     }
