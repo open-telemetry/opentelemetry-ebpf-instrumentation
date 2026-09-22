@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -205,11 +206,11 @@ func TestGoRuntimeHistogramCollectorKeepsStateWhenRetirementOverflows(t *testing
 			assert.Contains(t, collector.histogramSnapshots, goRuntimeHistogramKey{
 				kind:       runtimemetrics.GoHistogramKindGCPause,
 				pid:        202,
-				labelTuple: runtimeMetricLabelTuple(labels),
+				labelTuple: expire.LabelsKey(labels),
 			})
 			retired, ok := collector.retiredSnapshots[goRuntimeHistogramSeriesKey{
 				kind:       runtimemetrics.GoHistogramKindGCPause,
-				labelTuple: runtimeMetricLabelTuple(labels),
+				labelTuple: expire.LabelsKey(labels),
 			}]
 			require.True(t, ok)
 			assert.Zero(t, retired.histogram.Underflow)
