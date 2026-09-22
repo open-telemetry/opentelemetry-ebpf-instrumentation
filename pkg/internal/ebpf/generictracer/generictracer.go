@@ -533,6 +533,16 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Start:    p.bpfObjects.ObiRbObjCallInitKw,
 			}},
 		},
+		"libruby[>= 4.0]": {
+			"rb_ary_shift": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiRbAryShift,
+			}},
+			"rb_obj_alloc": {{
+				Required: false,
+				End:      p.bpfObjects.ObiRbObjAllocRet,
+			}},
+		},
 		"libpython3.": {
 			"context_new_empty": {{
 				Required: false,
