@@ -98,7 +98,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 			name = frameworks.CleanValue(launch.FallbackName)
 		}
 		if name == "" && targetFound {
-			name = serviceNameFromTargetDirectory(root, targetPath)
+			name = serviceNameFromAppDirectory(root, cwd, launch)
 		}
 		if name != "" {
 			fileInfo.SetAutoServiceName(name)
@@ -414,13 +414,17 @@ func processPath(root, hostPath string) string {
 	return string(filepath.Separator) + rel
 }
 
-func serviceNameFromTargetDirectory(root, targetPath string) string {
+func serviceNameFromAppDirectory(root, cwd string, launch frameworks.PythonLaunch) string {
+	dir, err := appDir(root, cwd, launch)
+	if err != nil {
+		return ""
+	}
+
 	boundary, ok := langtools.ResolveProcessPath(root, "/", "/")
 	if !ok {
 		return ""
 	}
 
-	dir := filepath.Dir(targetPath)
 	if dir == boundary || !langtools.PathWithinBoundary(boundary, dir) {
 		return ""
 	}

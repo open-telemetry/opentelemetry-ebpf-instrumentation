@@ -406,6 +406,20 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "python-travel-agent", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("generic target in src uses application directory", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		appDir := "/workspace/python-travel-agent"
+		writePythonFile(t, filepath.Join(root, appDir, "src", "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"src.server:app"}, nil, appDir)
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "python-travel-agent", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("low quality target directory remains unnamed", func(t *testing.T) {
 		root, err := filepath.EvalSymlinks(t.TempDir())
 		require.NoError(t, err)
