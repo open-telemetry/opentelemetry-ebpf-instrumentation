@@ -554,6 +554,38 @@ func TestAnthropicSpan_OperationComesFromTheRequestPath(t *testing.T) {
 			want: request.CompletionOperationName,
 		},
 		{
+			name: "messages through a gateway prefix",
+			path: "http://gw.internal/anthropic/v1/messages",
+			body: anthropicResponseBody,
+			want: request.MessageOperationName,
+		},
+		{
+			name: "messages with a trailing slash",
+			path: "http://api.anthropic.com/v1/messages/",
+			body: anthropicResponseBody,
+			want: request.MessageOperationName,
+		},
+		{
+			// Sub-resources of the Messages API are endpoints of their own,
+			// so they are not folded into `message`.
+			name: "token counting",
+			path: "http://api.anthropic.com/v1/messages/count_tokens",
+			body: `{"input_tokens":2095}`,
+			want: request.OtherOperationName,
+		},
+		{
+			name: "message batch creation",
+			path: "http://api.anthropic.com/v1/messages/batches",
+			body: `{"type":"message_batch","id":"msgbatch_01"}`,
+			want: request.OtherOperationName,
+		},
+		{
+			name: "message batch sub-resource",
+			path: "http://api.anthropic.com/v1/messages/batches/msgbatch_01/cancel",
+			body: `{"type":"message_batch","id":"msgbatch_01"}`,
+			want: request.OtherOperationName,
+		},
+		{
 			name: "unknown endpoint",
 			path: "http://api.anthropic.com/v1/models",
 			body: `{"type":"model","id":"claude-sonnet-4-6"}`,

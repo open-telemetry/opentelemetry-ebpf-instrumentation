@@ -847,7 +847,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = append(attrs, semconv.GenAIProviderNameOpenAI)
 			attrs = append(attrs, semconv.GenAIOperationNameKey.String(genAIOperationName(ai.OperationName)))
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
-			if ai.OperationName == "conversation" || ai.OperationName == "chatkit.session" || ai.OperationName == "chatkit.thread" {
+			if ai.OperationName == request.ConversationOperationName ||
+				ai.OperationName == request.ChatKitSessionOperationName ||
+				ai.OperationName == request.ChatKitThreadOperationName {
 				attrs = append(attrs, semconv.GenAIConversationID(ai.ID))
 			}
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))

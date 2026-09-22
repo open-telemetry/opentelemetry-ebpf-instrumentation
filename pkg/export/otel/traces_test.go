@@ -722,6 +722,28 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, semconv.GenAIOperationNameKey, request.OtherOperationName)
 	})
 
+	t.Run("test OpenAI ChatKit trace generation", func(t *testing.T) {
+		// a ChatKit call addresses a conversation, so the response id is also
+		// reported as gen_ai.conversation.id
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAI,
+			Method:  "POST",
+			Path:    "/v1/chatkit/sessions",
+			GenAI: &request.GenAI{OpenAI: &request.VendorOpenAI{
+				ID:            "cksess_68",
+				OperationName: request.ChatKitSessionOperationName,
+			}},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.GenAIOperationNameKey, request.ChatKitSessionOperationName)
+		ensureTraceStrAttr(t, attrs, semconv.GenAIConversationIDKey, "cksess_68")
+	})
+
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})

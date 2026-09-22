@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -135,31 +136,7 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	// responses don't): the operation name feeds required metric attributes
 	// (gen_ai.client.operation.duration / token.usage), so failed calls must
 	// carry it too.
-	parsedResponse.OperationName = request.OtherOperationName
-	if req.URL != nil {
-		// Matched as a suffix rather than exactly: Azure and gateway deployments
-		// mount the same endpoints under a prefix. Chat completions is tested
-		// first because it also ends in /completions.
-		path := strings.TrimSuffix(req.URL.Path, "/")
-		switch {
-		case strings.HasSuffix(path, "/chat/completions"):
-			parsedResponse.OperationName = request.ChatOperationName
-			parsedResponse.APIType = "chat_completions"
-		case strings.HasSuffix(path, "/completions"):
-			parsedResponse.OperationName = request.CompletionOperationName
-			parsedResponse.APIType = "text_completions"
-		case strings.HasSuffix(path, "/embeddings"):
-			parsedResponse.OperationName = request.EmbeddingOperationName
-			parsedResponse.APIType = "embeddings"
-		case strings.HasSuffix(path, "/responses"):
-			parsedResponse.OperationName = request.ResponseOperationName
-			parsedResponse.APIType = "responses"
-		case strings.HasSuffix(path, "/conversations"):
-			parsedResponse.OperationName = request.ConversationOperationName
-		default:
-			parsedResponse.OperationName = request.OtherOperationName
-		}
-	}
+	parsedResponse.OperationName, parsedResponse.APIType = openAIOperation(requestPath(req))
 
 	baseSpan.SubType = request.HTTPSubtypeOpenAI
 	baseSpan.GenAI = &request.GenAI{
@@ -167,4 +144,66 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	}
 
 	return *baseSpan, true
+}
+
+// API types OBI derives from an OpenAI request path, mirroring the
+// `openai.api.type` enum declared in schemas/obi/groups/openai/registry.yaml.
+// Adding one here requires a member there too; a test asserts the two agree.
+const (
+	openAIAPITypeChatCompletions = "chat_completions"
+	openAIAPITypeTextCompletions = "text_completions"
+	openAIAPITypeEmbeddings      = "embeddings"
+	openAIAPITypeResponses       = "responses"
+)
+
+var openAIAPITypes = map[string]struct{}{
+	openAIAPITypeChatCompletions: {},
+	openAIAPITypeTextCompletions: {},
+	openAIAPITypeEmbeddings:      {},
+	openAIAPITypeResponses:       {},
+}
+
+// openAIOperation names the operation and the API type an OpenAI request path
+// addresses. The path is read instead of the response body because it names the
+// endpoint on an error and on a truncated capture too.
+//
+// An endpoint is recognized by the API collection its path walks through rather
+// than by the whole path, so a deployment mounted under a prefix
+// (/openai/deployments/{id}/chat/completions on Azure, a gateway) and a call on
+// a single resource (/v1/responses/{id}, /v1/chatkit/threads/{id}/items) both
+// resolve to the endpoint that owns them. Segments are walked from the end so
+// the deepest collection wins. Detection is header- or host-driven, so an
+// endpoint OBI has no operation for reports `_OTHER` rather than nothing.
+func openAIOperation(path string) (string, string) {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	for i, segment := range slices.Backward(segments) {
+		parent := ""
+		if i > 0 {
+			parent = segments[i-1]
+		}
+
+		switch segment {
+		case "completions":
+			if parent == "chat" {
+				return request.ChatOperationName, openAIAPITypeChatCompletions
+			}
+			return request.CompletionOperationName, openAIAPITypeTextCompletions
+		case "embeddings":
+			return request.EmbeddingOperationName, openAIAPITypeEmbeddings
+		case "responses":
+			return request.ResponseOperationName, openAIAPITypeResponses
+		case "conversations":
+			return request.ConversationOperationName, ""
+		case "sessions":
+			if parent == "chatkit" {
+				return request.ChatKitSessionOperationName, ""
+			}
+		case "threads":
+			if parent == "chatkit" {
+				return request.ChatKitThreadOperationName, ""
+			}
+		}
+	}
+
+	return request.OtherOperationName, ""
 }

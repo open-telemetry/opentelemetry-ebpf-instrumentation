@@ -166,11 +166,17 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 // `message`/`completion` when the call succeeded, `error` when it failed, and
 // nothing at all when it was truncated out of the capture buffer, so reading it
 // would split one endpoint across several operation names.
+//
+// The endpoint is matched as a path suffix so a deployment mounted under a
+// prefix still resolves, while the sub-resources of the Messages API
+// (/v1/messages/count_tokens, /v1/messages/batches) stay out of `message`:
+// they are endpoints of their own, not a Messages API call, and semconv has no
+// operation for them.
 func anthropicOperation(req *http.Request) string {
-	switch path := requestPath(req); {
-	case strings.Contains(path, anthropicMessagesPath):
+	switch path := strings.TrimSuffix(requestPath(req), "/"); {
+	case strings.HasSuffix(path, anthropicMessagesPath):
 		return request.MessageOperationName
-	case strings.Contains(path, anthropicCompletePath):
+	case strings.HasSuffix(path, anthropicCompletePath):
 		return request.CompletionOperationName
 	}
 

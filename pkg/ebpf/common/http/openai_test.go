@@ -9,6 +9,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -473,4 +476,130 @@ func TestOpenAISpan_UnknownEndpointReportsOther(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, span.GenAI.OpenAI)
 	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAI.OperationName)
+}
+
+// The path names the endpoint through the API collection it walks through, so a
+// prefix in front of it and a resource id behind it both keep the operation.
+func TestOpenAIOperation(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		path          string
+		wantOperation string
+		wantAPIType   string
+	}{
+		{
+			name:          "chat completions",
+			path:          "/v1/chat/completions",
+			wantOperation: request.ChatOperationName,
+			wantAPIType:   openAIAPITypeChatCompletions,
+		},
+		{
+			name:          "azure deployment chat completions",
+			path:          "/openai/deployments/gpt-5-mini/chat/completions",
+			wantOperation: request.ChatOperationName,
+			wantAPIType:   openAIAPITypeChatCompletions,
+		},
+		{
+			name:          "legacy completions",
+			path:          "/v1/completions",
+			wantOperation: request.CompletionOperationName,
+			wantAPIType:   openAIAPITypeTextCompletions,
+		},
+		{
+			name:          "azure deployment legacy completions",
+			path:          "/openai/deployments/gpt-35-turbo-instruct/completions",
+			wantOperation: request.CompletionOperationName,
+			wantAPIType:   openAIAPITypeTextCompletions,
+		},
+		{
+			name:          "embeddings",
+			path:          "/v1/embeddings",
+			wantOperation: request.EmbeddingOperationName,
+			wantAPIType:   openAIAPITypeEmbeddings,
+		},
+		{
+			name:          "responses",
+			path:          "/v1/responses",
+			wantOperation: request.ResponseOperationName,
+			wantAPIType:   openAIAPITypeResponses,
+		},
+		{
+			name:          "single response",
+			path:          "/v1/responses/resp_68079a4c/cancel",
+			wantOperation: request.ResponseOperationName,
+			wantAPIType:   openAIAPITypeResponses,
+		},
+		{
+			name:          "conversations",
+			path:          "/v1/conversations",
+			wantOperation: request.ConversationOperationName,
+		},
+		{
+			name:          "conversation items",
+			path:          "/v1/conversations/conv_680/items",
+			wantOperation: request.ConversationOperationName,
+		},
+		{
+			name:          "chatkit session",
+			path:          "/v1/chatkit/sessions",
+			wantOperation: request.ChatKitSessionOperationName,
+		},
+		{
+			name:          "chatkit session cancellation",
+			path:          "/v1/chatkit/sessions/cksess_68/cancel",
+			wantOperation: request.ChatKitSessionOperationName,
+		},
+		{
+			name:          "chatkit thread items",
+			path:          "/v1/chatkit/threads/cthr_68/items",
+			wantOperation: request.ChatKitThreadOperationName,
+		},
+		{
+			// Only ChatKit sessions are a GenAI operation: the realtime
+			// sessions endpoint mints a client secret.
+			name:          "realtime session",
+			path:          "/v1/realtime/sessions",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "trailing slash",
+			path:          "/v1/embeddings/",
+			wantOperation: request.EmbeddingOperationName,
+			wantAPIType:   openAIAPITypeEmbeddings,
+		},
+		{
+			name:          "unknown endpoint",
+			path:          "/v1/moderations",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "empty path",
+			path:          "",
+			wantOperation: request.OtherOperationName,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation, apiType := openAIOperation(tc.path)
+
+			assert.Equal(t, tc.wantOperation, operation)
+			assert.Equal(t, tc.wantAPIType, apiType)
+		})
+	}
+}
+
+// The Go value space and the declared enum are two copies of the same list, so
+// an API type added to one and not the other would emit a value live-check
+// rejects. This fails the moment they disagree.
+func TestOpenAIAPITypesMatchRegistry(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "schemas", "obi", "groups", "openai", "registry.yaml")
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	declared := map[string]struct{}{}
+	for _, m := range regexp.MustCompile(`(?m)^\s+value: "([^"]+)"$`).FindAllStringSubmatch(string(body), -1) {
+		declared[m[1]] = struct{}{}
+	}
+	require.NotEmpty(t, declared, "no enum members parsed from %s", path)
+
+	assert.Equal(t, declared, openAIAPITypes)
 }
