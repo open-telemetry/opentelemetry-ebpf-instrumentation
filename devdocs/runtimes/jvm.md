@@ -73,6 +73,59 @@ metrics export queue:
 6. OTEL and Prometheus exporters consume queued snapshots, apply per-service
    `application_runtime` feature gating, and emit the metrics.
 
+## Attach refusals
+
+The Java agent is attached over HotSpot's dynamic attach handshake, which
+starts by sending `SIGQUIT` to the JVM. HotSpot reserves that signal and
+rejects an application-level handler for it outright (`Signal already used by
+VM or OS: SIGQUIT`), so a JVM normally answers with a thread dump rather than
+dying. OBI still withholds the signal unless the kernel confirms it cannot
+terminate the process, and logs one reason when it does:
+
+- `SigCgt`/`SigIgn` in the process status file show `SIGQUIT` neither caught
+  nor ignored, so sending it would terminate the process. This is what `-Xrs`
+  produces, and what native code restoring the default disposition produces. A
+  JVM is also briefly in this state between `exec` and `Threads::create_vm`
+  installing the handler, so OBI waits for it to settle before giving up;
+- the process status file could not be read;
+- the process runs with `-XX:+DisableAttachMechanism`. The option sources are
+  read in the order HotSpot applies them, so a command line turning the
+  mechanism back on is honored. Such a JVM catches `SIGQUIT` and survives it,
+  but never starts the attach listener, so the signal only buys a thread dump in
+  the application's own output.
+
+A JVM started with `-Xrs` is therefore left uninstrumented rather than killed.
+There is no option to force the signal, because the alternative is terminating
+the application. Two configurations make such a JVM instrumentable again:
+removing `-Xrs`, or adding `-XX:+StartAttachListener`, which makes HotSpot
+create the attach socket during startup — OBI then finds it already listening
+and attaches without signalling at all.
+
+The wait for a runtime to install its handler is bounded, and a JVM still
+without one when it elapses is refused for the rest of its lifetime: injection
+is attempted once per process and is not retried. A JVM whose startup is slow
+enough to exceed the wait — a large heap under `-XX:+AlwaysPreTouch`, or a
+CPU-throttled container — can be refused this way even though nothing is wrong
+with it.
+
+`-XX:+DisableAttachMechanism` is detected from the command line and from
+`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` and `_JAVA_OPTIONS`, each read from the
+environment because the launcher expands them after `exec` and they never reach
+the command line. Only the arguments HotSpot parses as VM options are read: the
+scan stops at the main class, or at the argument after `-jar`, so a launcher
+passing the flag on to a child JVM does not read as the flag of the process
+holding it.
+
+A JVM that sets the option through a flags file, or through a quoted value in
+one of those variables, is not detected, and still receives one `SIGQUIT` and
+writes one thread dump.
+
+`JDK_JAVA_OPTIONS` is only read by the JDK 9+ launcher, but OBI honours it on
+any JDK: a JDK 8 process in an environment that sets it is left alone even
+though its own launcher ignored the option. That follows the operator's stated
+intent to disable attach, at the cost of not instrumenting a JVM that would in
+fact have answered.
+
 ## Snapshot cadence
 
 Memory snapshots update when HotSpot emits memory-pool GC probe events, subject
