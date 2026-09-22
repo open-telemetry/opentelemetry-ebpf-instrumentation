@@ -1037,3 +1037,39 @@ func TestKafkaConsumerGroupsMembershipCap(t *testing.T) {
 	assert.Contains(t, state.groups["group-0"].members, "member", "the first members are kept")
 	assert.NotContains(t, state.groups["group-0"].members, fmt.Sprintf("member-%d", maxMembersPerGroup-1))
 }
+
+// The topics kept for a process are bounded as a whole, not only per member: members
+// fanning out, or offset commits naming ever new topics, cannot grow the entry past
+// maxTopicsPerProcess.
+func TestKafkaConsumerGroupsTopicBudget(t *testing.T) {
+	groups := newTestConsumerGroups()
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+	topics := func(prefix string, n int) []*kafkaparser.GroupTopic {
+		out := make([]*kafkaparser.GroupTopic, 0, n)
+		for i := range n {
+			out = append(out, &kafkaparser.GroupTopic{Name: fmt.Sprintf("%s-%d", prefix, i)})
+		}
+		return out
+	}
+	kept := func() int {
+		state, found := groups.lru.Get(proc)
+		require.True(t, found)
+		return maxTopicsPerProcess - state.topicBudget()
+	}
+
+	members := maxTopicsPerProcess/maxTopicsPerMember + 1
+	for i := range members {
+		groups.Join(proc, &kafkaparser.GroupRequest{GroupID: "group", MemberID: fmt.Sprintf("member-%d", i), Subscription: true, Topics: topics("t", maxTopicsPerMember)}, nil)
+	}
+	assert.Equal(t, maxTopicsPerProcess, kept(), "the last member's subscription did not fit")
+
+	groups.Enrich(proc, &kafkaparser.GroupRequest{GroupID: "group", MemberID: "member-0", Topics: topics("commit", 10)}, nil)
+	assert.Equal(t, maxTopicsPerProcess, kept(), "offset commits cannot exceed the budget")
+	assert.Equal(t, "group", groups.Lookup(proc, "t-0"), "what was kept is still looked up")
+
+	// a smaller subscription of one member frees room for the others
+	groups.Join(proc, &kafkaparser.GroupRequest{GroupID: "group", MemberID: "member-0", Subscription: true, Topics: topics("t", 24)}, nil)
+	groups.Enrich(proc, &kafkaparser.GroupRequest{GroupID: "group", MemberID: fmt.Sprintf("member-%d", members-1), Topics: topics("commit", 10)}, nil)
+	assert.Equal(t, maxTopicsPerProcess-maxTopicsPerMember+24+10, kept())
+	assert.Equal(t, "group", groups.Lookup(proc, "commit-9"))
+}

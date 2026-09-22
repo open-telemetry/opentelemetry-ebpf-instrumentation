@@ -19,6 +19,11 @@ const (
 	maxMembersPerGroup = 64
 	// maxTopicsPerMember bounds the subscription kept for one member.
 	maxTopicsPerMember = 1024
+	// maxTopicsPerProcess bounds the topics kept across all members of a process, since
+	// every OffsetCommit may name new ones and the LRU limits processes, not their weight.
+	// A topic that did not fit reads as not subscribed: when two groups of the process
+	// consume it, the Fetch is attributed to the other group instead of to neither.
+	maxTopicsPerProcess = 4096
 
 	// kafkaConsumerGroupTTL bounds how long a membership outlives the requests that
 	// assert it. Members heartbeat every few seconds (heartbeat.interval.ms 3s, KIP-848
@@ -55,16 +60,22 @@ type kafkaMember struct {
 	expires time.Time
 }
 
-func (m *kafkaMember) addTopics(topics []*kafkaparser.GroupTopic, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) {
+// addTopics adds topics to the subscription, at most budget new ones (the process' share
+// left, see maxTopicsPerProcess) and maxTopicsPerMember in total.
+func (m *kafkaMember) addTopics(topics []*kafkaparser.GroupTopic, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string], budget int) {
 	for _, topic := range topics {
 		name := resolveTopicName(topic.Name, topic.UUID, kafkaTopicUUIDToName)
 		if name == "" {
 			continue
 		}
-		if _, found := m.topics[name]; !found && len(m.topics) >= maxTopicsPerMember {
+		if _, found := m.topics[name]; found {
+			continue
+		}
+		if budget <= 0 || len(m.topics) >= maxTopicsPerMember {
 			continue
 		}
 		m.topics[name] = struct{}{}
+		budget--
 	}
 }
 
@@ -155,6 +166,16 @@ func (p *kafkaProcessGroups) dropExpired(now time.Time) {
 			delete(p.groups, group)
 		}
 	}
+}
+
+func (p *kafkaProcessGroups) topicBudget() int {
+	kept := 0
+	for _, g := range p.groups {
+		for _, m := range g.members {
+			kept += len(m.topics)
+		}
+	}
+	return maxTopicsPerProcess - kept
 }
 
 // consumerGroup returns the only consumer group the process is a member of, "" when
@@ -263,9 +284,9 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, req *kafkaparser.GroupRequ
 		}
 	case req.Subscription && req.MemberID != "":
 		m.topics = map[string]struct{}{}
-		m.addTopics(req.Topics, kafkaTopicUUIDToName)
+		m.addTopics(req.Topics, kafkaTopicUUIDToName, state.topicBudget())
 	default:
-		m.addTopics(req.Topics, kafkaTopicUUIDToName)
+		m.addTopics(req.Topics, kafkaTopicUUIDToName, state.topicBudget())
 	}
 	g.lru.Add(proc, state)
 }
@@ -318,13 +339,14 @@ func (g *KafkaConsumerGroups) Enrich(proc KafkaProcess, req *kafkaparser.GroupRe
 	if !found {
 		return
 	}
-	m.addTopics(req.Topics, kafkaTopicUUIDToName)
+	m.addTopics(req.Topics, kafkaTopicUUIDToName, state.topicBudget())
 }
 
 // Lookup returns the group consuming topic in proc: the one group subscribed to it,
 // or, when no subscription names it (unknown topic, Heartbeat only after a mid-stream
-// attach, JoinGroup cut by the kernel buffer), the single consumer group the process is
-// a member of. Empty when several groups qualify or none does.
+// attach, JoinGroup cut by the kernel buffer, list cut by maxGroupTopics or the topic
+// caps), the single consumer group the process is a member of. Empty when several
+// groups qualify or none does.
 func (g *KafkaConsumerGroups) Lookup(proc KafkaProcess, topic string) string {
 	if g == nil {
 		return ""
