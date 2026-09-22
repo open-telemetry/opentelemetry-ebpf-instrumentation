@@ -882,6 +882,8 @@ int GUARDED_PROG(obi_uprobe_transport_http2Client_NewStream_Returns, struct pt_r
     return 0;
 }
 
+#define MAX_W_PTR_OFFSET 65535
+
 SEC("uprobe/grpcFramerWriteHeaders")
 int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
@@ -1007,7 +1009,7 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
         // The offset will be 0 on first connection through the stream and 9 on subsequent.
         // If we read some very large offset, we don't do anything since it might be a situation
         // we can't handle
-        if (offset >= 0 && (u64)offset <= k_go_h2_max_buffer_offset) {
+        if (offset >= 0 && offset < MAX_W_PTR_OFFSET) {
             grpc_framer_func_invocation_t f_info = {
                 .tp = invocation->tp,
                 .framer_ptr = (u64)framer,
@@ -1041,9 +1043,8 @@ static __always_inline int on_grpcFramerWriteContinuation(struct pt_regs *ctx) {
     void *framer = GO_PARAM1(ctx);
     const u32 stream_id = (u32)(u64)GO_PARAM2(ctx);
     const bool end_headers = (bool)(u64)GO_PARAM3(ctx);
-    const u64 fragment_len = (u64)GO_PARAM5(ctx);
     if (!f_info || !f_info->awaiting_continuation || !framer || f_info->framer_ptr != (u64)framer ||
-        f_info->stream_id != stream_id || fragment_len > k_h2_protocol_max_frame_size) {
+        f_info->stream_id != stream_id) {
         return 0;
     }
 
@@ -1063,7 +1064,7 @@ static __always_inline int on_grpcFramerWriteContinuation(struct pt_regs *ctx) {
     if (!err && writer) {
         err = bpf_probe_read_user(&n, sizeof(n), (unsigned char *)writer + writer_n_pos);
     }
-    if (err || !writer || n < 0 || (u64)n > k_go_h2_max_buffer_offset) {
+    if (err || !writer || n < 0 || n >= MAX_W_PTR_OFFSET) {
         bpf_map_delete_elem(&grpc_framer_invocation_map, &g_key);
         return 0;
     }
@@ -1071,9 +1072,6 @@ static __always_inline int on_grpcFramerWriteContinuation(struct pt_regs *ctx) {
     f_info->offset = n;
     f_info->frame_type = k_h2_frame_continuation;
     f_info->awaiting_continuation = !end_headers;
-    if (!end_headers && fragment_len > f_info->max_frame_size) {
-        f_info->max_frame_size = (u32)fragment_len;
-    }
     return 0;
 }
 
@@ -1137,7 +1135,6 @@ static __always_inline int on_grpcFramerWriteHeadersReturns(struct pt_regs *ctx)
                                                        cap,
                                                        f_info->stream_id,
                                                        f_info->frame_type,
-                                                       &f_info->max_frame_size,
                                                        &f_info->tp);
 
             if (result == k_go_h2_user_write_deferred) {

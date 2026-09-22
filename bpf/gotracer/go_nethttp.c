@@ -1531,7 +1531,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
                 // The offset is 0 on all connections we've tested with.
                 // If we read some very large offset, we don't do anything since it might be a situation
                 // we can't handle.
-                if (n >= 0 && (u64)n <= k_go_h2_max_buffer_offset) {
+                if (n >= 0 && n < MAX_W_PTR_N) {
                     framer_func_invocation_t f_info = {
                         .tp = info->tp,
                         .framer_ptr = (u64)framer,
@@ -1619,9 +1619,8 @@ static __always_inline int on_http2FramerWriteContinuation(struct pt_regs *ctx) 
     void *framer = GO_PARAM1(ctx);
     const u32 stream_id = (u32)(u64)GO_PARAM2(ctx);
     const bool end_headers = (bool)(u64)GO_PARAM3(ctx);
-    const u64 fragment_len = (u64)GO_PARAM5(ctx);
     if (!f_info || !f_info->awaiting_continuation || !framer || f_info->framer_ptr != (u64)framer ||
-        f_info->stream_id != stream_id || fragment_len > k_h2_protocol_max_frame_size) {
+        f_info->stream_id != stream_id) {
         return 0;
     }
 
@@ -1640,7 +1639,7 @@ static __always_inline int on_http2FramerWriteContinuation(struct pt_regs *ctx) 
     if (!err && writer) {
         err = bpf_probe_read_user(&n, sizeof(n), (unsigned char *)writer + writer_n_pos);
     }
-    if (err || !writer || n < 0 || (u64)n > k_go_h2_max_buffer_offset) {
+    if (err || !writer || n < 0 || n >= MAX_W_PTR_N) {
         bpf_map_delete_elem(&framer_invocation_map, &g_key);
         return 0;
     }
@@ -1649,9 +1648,6 @@ static __always_inline int on_http2FramerWriteContinuation(struct pt_regs *ctx) 
     f_info->frame_type = k_h2_frame_continuation;
     f_info->reserved_padding = false;
     f_info->awaiting_continuation = !end_headers;
-    if (!end_headers && fragment_len > f_info->max_frame_size) {
-        f_info->max_frame_size = (u32)fragment_len;
-    }
     return 0;
 }
 
@@ -1714,15 +1710,11 @@ static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
         &end_headers, sizeof(end_headers), pad_ptr - k_h2_pad_length_to_end_headers_offset);
     err |= bpf_probe_read_user(
         &fragment_len, sizeof(fragment_len), pad_ptr - k_h2_pad_length_to_fragment_len_offset);
-    if (err || !stream_id || stream_id != f_info->stream_id || original_pad ||
-        fragment_len > k_h2_protocol_max_frame_size) {
+    if (err || !stream_id || stream_id != f_info->stream_id || original_pad) {
         return 0;
     }
     if (!end_headers) {
         f_info->awaiting_continuation = true;
-        if (fragment_len > f_info->max_frame_size) {
-            f_info->max_frame_size = (u32)fragment_len;
-        }
         return 0;
     }
 
@@ -1823,10 +1815,10 @@ commit_http2_reserved_padding(void *buf, s64 n, const framer_func_invocation_t *
 static __always_inline u8 append_http2_traceparent_to_framer(
     void *framer, u64 wbuf_pos, void *buf, s64 n, s64 cap, framer_func_invocation_t *f_info) {
     if (n < k_h2_frame_header_len || cap < n ||
-        (u64)n > k_h2_protocol_max_frame_size + k_h2_frame_header_len) {
+        (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len) {
         return k_go_h2_user_write_bypass;
     }
-    bpf_clamp_umax(n, k_h2_protocol_max_frame_size + k_h2_frame_header_len);
+    bpf_clamp_umax(n, k_h2_default_max_frame_size + k_h2_frame_header_len);
 
     unsigned char header[k_h2_frame_header_len] = {};
     if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != f_info->frame_type ||
@@ -1841,22 +1833,14 @@ static __always_inline u8 append_http2_traceparent_to_framer(
         return k_go_h2_user_write_bypass;
     }
     if (!(header[4] & k_h2_flag_end_headers)) {
-        if (payload_len > f_info->max_frame_size) {
-            f_info->max_frame_size = payload_len;
-        }
         return k_go_h2_user_write_deferred;
     }
-    u32 frame_size_limit = f_info->max_frame_size;
-    if (frame_size_limit < k_h2_default_max_frame_size) {
-        frame_size_limit = k_h2_default_max_frame_size;
-    }
-    if (frame_size_limit > k_h2_protocol_max_frame_size ||
-        payload_len + k_h2_tp_hpack_huffman_size > frame_size_limit ||
+    if (payload_len + k_h2_tp_hpack_huffman_size > k_h2_default_max_frame_size ||
         (u64)cap - (u64)n < k_h2_tp_hpack_huffman_size) {
         return k_go_h2_user_write_bypass;
     }
     bpf_clamp_umax(
-        n, k_h2_protocol_max_frame_size + k_h2_frame_header_len - k_h2_tp_hpack_huffman_size);
+        n, k_h2_default_max_frame_size + k_h2_frame_header_len - k_h2_tp_hpack_huffman_size);
 
     unsigned char field[k_h2_tp_hpack_huffman_size] = {};
     make_http2_traceparent_field(field, &f_info->tp);
@@ -1991,7 +1975,6 @@ static __always_inline int on_http2FramerWriteHeadersReturns(struct pt_regs *ctx
                                                        cap,
                                                        f_info->stream_id,
                                                        f_info->frame_type,
-                                                       &f_info->max_frame_size,
                                                        &f_info->tp);
             if (result == k_go_h2_user_write_deferred) {
                 f_info->awaiting_continuation = true;

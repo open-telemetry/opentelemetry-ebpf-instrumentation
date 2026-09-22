@@ -44,12 +44,11 @@ typedef struct grpc_framer_func_invocation {
     tp_info_t tp;
     s64 offset;
     u32 stream_id;
-    u32 max_frame_size;
     u16 s_port;
     u16 d_port;
     u8 frame_type;
     bool awaiting_continuation;
-    u8 _pad[2];
+    u8 _pad[6];
 } grpc_framer_func_invocation_t;
 
 typedef struct grpc_connection {

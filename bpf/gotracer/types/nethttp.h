@@ -9,6 +9,8 @@
 #include <common/go_h2_owned_stream.h>
 #include <common/tp_info.h>
 
+#define MAX_W_PTR_N 1024
+
 static const char traceparent[] = "traceparent: ";
 
 typedef struct http_client_data {
@@ -43,13 +45,12 @@ typedef struct framer_func_invocation {
     tp_info_t tp;
     s64 initial_n;
     u32 stream_id;
-    u32 max_frame_size;
     u16 s_port;
     u16 d_port;
     u8 frame_type;
     bool reserved_padding;
     bool awaiting_continuation;
-    u8 _pad[1];
+    u8 _pad[5];
 } framer_func_invocation_t;
 
 typedef struct http2_owned_stream_ref {

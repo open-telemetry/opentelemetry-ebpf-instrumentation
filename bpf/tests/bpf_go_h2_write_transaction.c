@@ -12,7 +12,6 @@
 static unsigned int write_calls;
 static unsigned int failed_writes;
 static unsigned int partial_writes;
-static u32 max_frame_size;
 
 static u32 bpf_get_prandom_u32(void) {
     return 0;
@@ -65,12 +64,7 @@ struct writer {
 enum {
     k_original_n = k_h2_frame_header_len + 1,
     k_buffer_size = 256,
-    k_boundary_frame_size = k_h2_default_max_frame_size + 128,
-    k_boundary_buffer_size =
-        k_boundary_frame_size + k_h2_frame_header_len + k_h2_tp_hpack_huffman_size,
 };
-
-static unsigned char boundary_frame[k_boundary_buffer_size];
 
 static void expect(bool condition, const char *message) {
     if (!condition) {
@@ -90,39 +84,22 @@ static void reset_sized_frame(unsigned char *frame, u32 size, struct writer *wri
     write_calls = 0;
     failed_writes = 0;
     partial_writes = 0;
-    max_frame_size = 0;
 }
 
 static void reset_frame(unsigned char frame[k_buffer_size], struct writer *writer) {
     reset_sized_frame(frame, k_buffer_size, writer);
 }
 
-static void
-set_payload_len(unsigned char frame[k_buffer_size], struct writer *writer, u32 payload_len) {
-    frame[0] = (u8)(payload_len >> 16);
-    frame[1] = (u8)(payload_len >> 8);
-    frame[2] = (u8)payload_len;
-    writer->n = k_h2_frame_header_len + payload_len;
-}
-
 static u8 append(unsigned char frame[k_buffer_size], struct writer *writer, const tp_info_t *tp) {
     return append_go_h2_traceparent(
-        writer, 0, frame, 0, writer->n, k_buffer_size, 1, k_h2_frame_headers, &max_frame_size, tp);
+        writer, 0, frame, 0, writer->n, k_buffer_size, 1, k_h2_frame_headers, tp);
 }
 
 static u8 append_continuation(unsigned char frame[k_buffer_size],
                               struct writer *writer,
                               const tp_info_t *tp) {
-    return append_go_h2_traceparent(writer,
-                                    0,
-                                    frame,
-                                    0,
-                                    writer->n,
-                                    k_buffer_size,
-                                    1,
-                                    k_h2_frame_continuation,
-                                    &max_frame_size,
-                                    tp);
+    return append_go_h2_traceparent(
+        writer, 0, frame, 0, writer->n, k_buffer_size, 1, k_h2_frame_continuation, tp);
 }
 
 static void expect_pristine(const unsigned char frame[k_buffer_size],
@@ -231,30 +208,16 @@ static void test_preflight(const tp_info_t *tp) {
     struct writer writer;
 
     reset_frame(frame, &writer);
-    expect(append_go_h2_traceparent(&writer,
-                                    0,
-                                    frame,
-                                    -1,
-                                    writer.n,
-                                    k_buffer_size,
-                                    1,
-                                    k_h2_frame_headers,
-                                    &max_frame_size,
-                                    tp) == k_go_h2_user_write_bypass,
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, -1, writer.n, k_buffer_size, 1, k_h2_frame_headers, tp) ==
+               k_go_h2_user_write_bypass,
            "invalid frame offset bypasses before mutation");
     expect(write_calls == 0, "offset preflight performs no writes");
 
     reset_frame(frame, &writer);
-    expect(append_go_h2_traceparent(&writer,
-                                    0,
-                                    frame,
-                                    0,
-                                    writer.n + 1,
-                                    k_buffer_size,
-                                    1,
-                                    k_h2_frame_headers,
-                                    &max_frame_size,
-                                    tp) == k_go_h2_user_write_bypass,
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, 0, writer.n + 1, k_buffer_size, 1, k_h2_frame_headers, tp) ==
+               k_go_h2_user_write_bypass,
            "writer and frame length mismatch bypasses before mutation");
     expect(write_calls == 0, "length-state preflight performs no writes");
 
@@ -265,11 +228,10 @@ static void test_preflight(const tp_info_t *tp) {
     expect(write_calls == 0, "frame-type preflight performs no writes");
 
     reset_frame(frame, &writer);
-    expect(
-        append_go_h2_traceparent(
-            &writer, 0, frame, 0, writer.n, writer.n, 1, k_h2_frame_headers, &max_frame_size, tp) ==
-            k_go_h2_user_write_bypass,
-        "insufficient capacity bypasses before mutation");
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, 0, writer.n, writer.n, 1, k_h2_frame_headers, tp) ==
+               k_go_h2_user_write_bypass,
+           "insufficient capacity bypasses before mutation");
     expect(write_calls == 0, "capacity preflight performs no writes");
 
     reset_frame(frame, &writer);
@@ -279,117 +241,18 @@ static void test_preflight(const tp_info_t *tp) {
     expect(write_calls == 0, "END_HEADERS preflight performs no writes");
 
     reset_frame(frame, &writer);
-    expect(append_go_h2_traceparent(&writer,
-                                    0,
-                                    frame,
-                                    0,
-                                    writer.n,
-                                    k_buffer_size,
-                                    3,
-                                    k_h2_frame_headers,
-                                    &max_frame_size,
-                                    tp) == k_go_h2_user_write_bypass,
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, 0, writer.n, k_buffer_size, 3, k_h2_frame_headers, tp) ==
+               k_go_h2_user_write_bypass,
            "stream mismatch bypasses direct injection");
     expect(write_calls == 0, "stream preflight performs no writes");
 
     reset_frame(frame, &writer);
-    expect(append_go_h2_traceparent(&writer,
-                                    0,
-                                    frame,
-                                    0,
-                                    writer.n,
-                                    k_buffer_size,
-                                    1,
-                                    k_h2_frame_data,
-                                    &max_frame_size,
-                                    tp) == k_go_h2_user_write_bypass,
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, 0, writer.n, k_buffer_size, 1, k_h2_frame_data, tp) ==
+               k_go_h2_user_write_bypass,
            "unsupported expected frame type bypasses direct injection");
     expect(write_calls == 0, "expected frame-type preflight performs no writes");
-}
-
-static void test_fragment_frame_size(const tp_info_t *tp) {
-    unsigned char frame[k_buffer_size];
-    struct writer writer;
-
-    reset_frame(frame, &writer);
-    const u32 large_frame_size = 1U << 20;
-    set_payload_len(frame, &writer, large_frame_size);
-    frame[4] = 0;
-    expect(
-        append_go_h2_traceparent(
-            &writer, 0, frame, 0, writer.n, writer.n, 1, k_h2_frame_headers, &max_frame_size, tp) ==
-            k_go_h2_user_write_deferred,
-        "large nonterminal HEADERS records a safe frame-size limit");
-    expect(max_frame_size == large_frame_size, "large nonterminal frame size is retained");
-    expect(write_calls == 0, "large nonterminal frame performs no writes");
-
-    reset_sized_frame(boundary_frame, sizeof(boundary_frame), &writer);
-    max_frame_size = k_boundary_frame_size;
-    boundary_frame[3] = k_h2_frame_continuation;
-    set_payload_len(boundary_frame, &writer, max_frame_size - k_h2_tp_hpack_huffman_size);
-    expect(append_go_h2_traceparent(&writer,
-                                    0,
-                                    boundary_frame,
-                                    0,
-                                    writer.n,
-                                    sizeof(boundary_frame),
-                                    1,
-                                    k_h2_frame_continuation,
-                                    &max_frame_size,
-                                    tp) == k_go_h2_user_write_committed,
-           "terminal CONTINUATION may fill the observed frame-size limit");
-    expect(writer.n == k_h2_frame_header_len + max_frame_size,
-           "boundary commit publishes the observed frame-size limit");
-
-    reset_sized_frame(boundary_frame, sizeof(boundary_frame), &writer);
-    max_frame_size = k_boundary_frame_size;
-    boundary_frame[3] = k_h2_frame_continuation;
-    set_payload_len(boundary_frame, &writer, max_frame_size - k_h2_tp_hpack_huffman_size + 1);
-    const s64 original_n = writer.n;
-    expect(append_go_h2_traceparent(&writer,
-                                    0,
-                                    boundary_frame,
-                                    0,
-                                    writer.n,
-                                    sizeof(boundary_frame),
-                                    1,
-                                    k_h2_frame_continuation,
-                                    &max_frame_size,
-                                    tp) == k_go_h2_user_write_bypass,
-           "terminal CONTINUATION cannot exceed the observed frame-size limit");
-    expect(writer.n == original_n && write_calls == 0,
-           "oversized terminal CONTINUATION remains pristine");
-}
-
-static void test_nonzero_frame_offset(const tp_info_t *tp) {
-    unsigned char buffer[k_buffer_size] = {};
-    struct writer writer = {};
-    const s64 frame_offset = k_h2_frame_header_len;
-    unsigned char *frame = buffer + frame_offset;
-
-    frame[0] = 0xff;
-    frame[1] = 0xff;
-    frame[2] = 0xff;
-    frame[3] = k_h2_frame_headers;
-    frame[8] = 1;
-    writer.n = frame_offset + k_go_h2_max_frame_span;
-    write_calls = 0;
-    max_frame_size = 0;
-
-    expect(append_go_h2_traceparent(&writer,
-                                    0,
-                                    buffer,
-                                    frame_offset,
-                                    writer.n,
-                                    writer.n,
-                                    1,
-                                    k_h2_frame_headers,
-                                    &max_frame_size,
-                                    tp) == k_go_h2_user_write_deferred,
-           "frame span excludes a nonzero writer offset");
-    expect(max_frame_size == k_h2_protocol_max_frame_size,
-           "nonzero offset retains the protocol-sized fragment");
-    expect(write_calls == 0, "nonterminal frame at a nonzero offset performs no writes");
 }
 
 int main(void) {
@@ -401,8 +264,6 @@ int main(void) {
     test_forward_write_failures(&tp);
     test_recovery_write_failures(&tp);
     test_preflight(&tp);
-    test_fragment_frame_size(&tp);
-    test_nonzero_frame_offset(&tp);
 
     printf("OK: %s\n", __FILE__);
     return 0;

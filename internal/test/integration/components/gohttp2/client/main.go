@@ -18,8 +18,8 @@ import (
 const (
 	ownedTraceparent          = "00-11111111111111111111111111111111-2222222222222222-01"
 	muxTraceparent            = "00-33333333333333333333333333333333-4444444444444444-01"
-	oneContinuationHeaderSize = 69_000
-	multiContinuationSize     = 134_000
+	oneContinuationHeaderSize = 20_000
+	multiContinuationSize     = 40_000
 )
 
 type headerObservation struct {
