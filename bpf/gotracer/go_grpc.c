@@ -1007,7 +1007,7 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
         // The offset will be 0 on first connection through the stream and 9 on subsequent.
         // If we read some very large offset, we don't do anything since it might be a situation
         // we can't handle
-        if (offset >= 0 && (u64)offset <= k_go_h2_max_write_buffer_len) {
+        if (offset >= 0 && (u64)offset <= k_go_h2_max_buffer_offset) {
             grpc_framer_func_invocation_t f_info = {
                 .tp = invocation->tp,
                 .framer_ptr = (u64)framer,
@@ -1063,7 +1063,7 @@ static __always_inline int on_grpcFramerWriteContinuation(struct pt_regs *ctx) {
     if (!err && writer) {
         err = bpf_probe_read_user(&n, sizeof(n), (unsigned char *)writer + writer_n_pos);
     }
-    if (err || !writer || n < 0 || (u64)n > k_go_h2_max_write_buffer_len) {
+    if (err || !writer || n < 0 || (u64)n > k_go_h2_max_buffer_offset) {
         bpf_map_delete_elem(&grpc_framer_invocation_map, &g_key);
         return 0;
     }

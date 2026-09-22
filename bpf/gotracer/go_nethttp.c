@@ -1531,7 +1531,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
                 // The offset is 0 on all connections we've tested with.
                 // If we read some very large offset, we don't do anything since it might be a situation
                 // we can't handle.
-                if (n >= 0 && (u64)n <= k_go_h2_max_write_buffer_len) {
+                if (n >= 0 && (u64)n <= k_go_h2_max_buffer_offset) {
                     framer_func_invocation_t f_info = {
                         .tp = info->tp,
                         .framer_ptr = (u64)framer,
@@ -1640,7 +1640,7 @@ static __always_inline int on_http2FramerWriteContinuation(struct pt_regs *ctx) 
     if (!err && writer) {
         err = bpf_probe_read_user(&n, sizeof(n), (unsigned char *)writer + writer_n_pos);
     }
-    if (err || !writer || n < 0 || (u64)n > k_go_h2_max_write_buffer_len) {
+    if (err || !writer || n < 0 || (u64)n > k_go_h2_max_buffer_offset) {
         bpf_map_delete_elem(&framer_invocation_map, &g_key);
         return 0;
     }

@@ -361,6 +361,37 @@ static void test_fragment_frame_size(const tp_info_t *tp) {
            "oversized terminal CONTINUATION remains pristine");
 }
 
+static void test_nonzero_frame_offset(const tp_info_t *tp) {
+    unsigned char buffer[k_buffer_size] = {};
+    struct writer writer = {};
+    const s64 frame_offset = k_h2_frame_header_len;
+    unsigned char *frame = buffer + frame_offset;
+
+    frame[0] = 0xff;
+    frame[1] = 0xff;
+    frame[2] = 0xff;
+    frame[3] = k_h2_frame_headers;
+    frame[8] = 1;
+    writer.n = frame_offset + k_go_h2_max_frame_span;
+    write_calls = 0;
+    max_frame_size = 0;
+
+    expect(append_go_h2_traceparent(&writer,
+                                    0,
+                                    buffer,
+                                    frame_offset,
+                                    writer.n,
+                                    writer.n,
+                                    1,
+                                    k_h2_frame_headers,
+                                    &max_frame_size,
+                                    tp) == k_go_h2_user_write_deferred,
+           "frame span excludes a nonzero writer offset");
+    expect(max_frame_size == k_h2_protocol_max_frame_size,
+           "nonzero offset retains the protocol-sized fragment");
+    expect(write_calls == 0, "nonterminal frame at a nonzero offset performs no writes");
+}
+
 int main(void) {
     tp_info_t tp = {.flags = 1};
     memset(tp.trace_id, 0x11, sizeof(tp.trace_id));
@@ -371,6 +402,7 @@ int main(void) {
     test_recovery_write_failures(&tp);
     test_preflight(&tp);
     test_fragment_frame_size(&tp);
+    test_nonzero_frame_offset(&tp);
 
     printf("OK: %s\n", __FILE__);
     return 0;

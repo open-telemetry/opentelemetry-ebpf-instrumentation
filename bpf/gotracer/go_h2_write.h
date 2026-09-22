@@ -31,7 +31,9 @@ enum go_h2_user_write_step : u8 {
 };
 
 enum : u32 {
-    k_go_h2_max_write_buffer_len = k_h2_protocol_max_frame_size + k_h2_frame_header_len,
+    k_go_h2_max_buffer_offset = k_h2_max_frame_len,
+    k_go_h2_max_frame_span = k_h2_protocol_max_frame_size + k_h2_frame_header_len,
+    k_go_h2_max_write_buffer_len = k_go_h2_max_buffer_offset + k_go_h2_max_frame_span,
 };
 
 SCRATCH_MEM_SIZED(go_h2_field, k_h2_tp_hpack_huffman_size)
@@ -133,12 +135,13 @@ static __always_inline u8 append_go_h2_traceparent(void *writer,
         n > cap || frame_offset > n) {
         return k_go_h2_user_write_bypass;
     }
-    if ((u64)frame_offset > k_go_h2_max_write_buffer_len || (u64)n > k_go_h2_max_write_buffer_len ||
-        (u64)n - (u64)frame_offset < k_h2_frame_header_len) {
+    const u64 frame_span = (u64)n - (u64)frame_offset;
+    if ((u64)frame_offset > k_go_h2_max_buffer_offset || (u64)n > k_go_h2_max_write_buffer_len ||
+        frame_span < k_h2_frame_header_len || frame_span > k_go_h2_max_frame_span) {
         return k_go_h2_user_write_bypass;
     }
 
-    bpf_clamp_umax(frame_offset, k_go_h2_max_write_buffer_len);
+    bpf_clamp_umax(frame_offset, k_go_h2_max_buffer_offset);
     bpf_clamp_umax(n, k_go_h2_max_write_buffer_len);
 
     unsigned char frame_header[k_h2_frame_header_len] = {};
