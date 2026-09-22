@@ -146,9 +146,11 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 		"libcudart.so": {
 			"cudaLaunchKernel": {{
 				Start: p.bpfObjects.ObiCudaLaunch,
+				End:   p.bpfObjects.ObiCudaLaunchRet,
 			}},
 			"cudaGraphLaunch": {{
 				Start: p.bpfObjects.ObiGraphLaunch,
+				End:   p.bpfObjects.ObiGraphLaunchRet,
 			}},
 			"cudaMalloc": {{
 				Start: p.bpfObjects.ObiCudaMalloc,
@@ -156,6 +158,7 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			}},
 			"cudaFree": {{
 				Start: p.bpfObjects.ObiCudaFree,
+				End:   p.bpfObjects.ObiCudaFreeRet,
 			}},
 			"cudaMemcpy": {{
 				Start: p.bpfObjects.ObiCudaMemcpy,
@@ -205,7 +208,7 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Start: p.bpfObjects.ObiCuLaunchEx,
 			}},
 			"cuGraphLaunch": {{
-				Start: p.bpfObjects.ObiGraphLaunch,
+				Start: p.bpfObjects.ObiCuGraphLaunch,
 			}},
 		},
 	}

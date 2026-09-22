@@ -19,6 +19,7 @@
 
 #include <pid/pid.h>
 #include <common/preempt_guard.h>
+#include <common/pin_internal.h>
 
 const cuda_kernel_launch_t *unused_gpu __attribute__((unused));
 const cuda_memcpy_t *unused_gpu1 __attribute__((unused));
@@ -42,22 +43,49 @@ enum {
 };
 
 // Tracks cudaMalloc arguments from entry to return so the allocated pointer can
-// be correlated with its size for byte-accurate cudaFree metrics.
+// be correlated with its size for byte-accurate cudaFree metrics. LRU eviction
+// bounds the map if a target exits or is deselected while a call is in flight.
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 1024);
+    __uint(pinning, OBI_PIN_INTERNAL);
     __type(key, u64);
     __type(value, cuda_malloc_ctx_t);
 } cuda_malloc_ctx SEC(".maps");
 
-// Maps an allocated device pointer to its size. Populated by the cudaMalloc
-// uretprobe and consumed by the cudaFree uprobe.
+// Tracks cudaFree arguments from entry to return so the free is only reported
+// once the return code confirms the memory was released.
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 65536);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 1024);
+    __uint(pinning, OBI_PIN_INTERNAL);
     __type(key, u64);
+    __type(value, cuda_free_ctx_t);
+} cuda_free_ctx SEC(".maps");
+
+// Maps a tracked allocation, identified by process and device pointer, to its
+// size. Populated by the cudaMalloc uretprobe and consumed by the cudaFree
+// probes. LRU eviction bounds the map when targets leak or outlive entries.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 65536);
+    __uint(pinning, OBI_PIN_INTERNAL);
+    __type(key, cuda_alloc_key_t);
     __type(value, s64);
 } cuda_alloc_sizes SEC(".maps");
+
+// Per-thread in-flight marker for runtime API calls that libcudart implements
+// by calling into libcuda. Set at the runtime uprobe entry and consumed by the
+// driver API probes, so a launch observed through both libraries (the runtime
+// API is a thin wrapper over the driver API) is reported once. The matching
+// runtime uretprobes clear markers for calls that never reach the driver.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 1024);
+    __uint(pinning, OBI_PIN_INTERNAL);
+    __type(key, u64);
+    __type(value, u8);
+} cuda_runtime_launch_ctx SEC(".maps");
 
 static __always_inline void submit_size_event(const u8 flags, const s64 size) {
     cuda_size_event_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
@@ -113,6 +141,22 @@ static __always_inline void submit_kernel_launch(const u64 func_off,
     bpf_ringbuf_submit(e, 0);
 }
 
+static __always_inline void mark_runtime_launch(const u64 id) {
+    const u8 in_flight = 1;
+    bpf_map_update_elem(&cuda_runtime_launch_ctx, &id, &in_flight, BPF_ANY);
+}
+
+// Returns true (and consumes the marker) when a driver API call duplicates a
+// runtime API call still in flight on the same thread, meaning the launch was
+// already reported by the runtime uprobe.
+static __always_inline bool suppress_driver_dup(const u64 id) {
+    if (bpf_map_lookup_elem(&cuda_runtime_launch_ctx, &id) == NULL) {
+        return false;
+    }
+    bpf_map_delete_elem(&cuda_runtime_launch_ctx, &id);
+    return true;
+}
+
 SEC("uprobe/cudaLaunchKernel")
 int BPF_KPROBE_GUARDED(
     obi_cuda_launch, u64 func_off, u64 grid_xy, u64 grid_z, u64 block_xy, u64 block_z) {
@@ -125,6 +169,8 @@ int BPF_KPROBE_GUARDED(
 
     bpf_dbg_printk("=== uprobe/cudaLaunchKernel id=%llx ===", id);
 
+    mark_runtime_launch(id);
+
     submit_kernel_launch(func_off,
                          (u32)grid_xy,
                          (u32)(grid_xy >> 32),
@@ -132,6 +178,20 @@ int BPF_KPROBE_GUARDED(
                          (u32)block_xy,
                          (u32)(block_xy >> 32),
                          (u32)block_z);
+
+    return 0;
+}
+
+// Clears the in-flight marker once the runtime call returns. Calls that reached
+// the driver already consumed it; this only cleans up markers left behind by
+// calls that failed before entering libcuda, which would otherwise wrongly
+// suppress the thread's next direct driver API launch.
+SEC("uretprobe/cudaLaunchKernel")
+int BPF_KRETPROBE_GUARDED(obi_cuda_launch_ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    bpf_map_delete_elem(&cuda_runtime_launch_ctx, &id);
 
     return 0;
 }
@@ -146,6 +206,10 @@ int BPF_KPROBE_GUARDED(
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
+        return 0;
+    }
+
+    if (suppress_driver_dup(id)) {
         return 0;
     }
 
@@ -172,6 +236,10 @@ int BPF_KPROBE_GUARDED(obi_cu_launch_ex, void *config, void *func, void **params
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
+        return 0;
+    }
+
+    if (suppress_driver_dup(id)) {
         return 0;
     }
 
@@ -213,33 +281,44 @@ int BPF_KRETPROBE_GUARDED(obi_cuda_malloc_ret, int ret) {
     (void)ctx;
     const u64 id = bpf_get_current_pid_tgid();
 
+    // Consume the entry context unconditionally, before any filtering, so a
+    // target deselected (or exiting) while the call was in flight cannot leak
+    // the entry.
+    cuda_malloc_ctx_t malloc_ctx = {};
+    bool tracked = false;
+    const cuda_malloc_ctx_t *stored = bpf_map_lookup_elem(&cuda_malloc_ctx, &id);
+    if (stored) {
+        malloc_ctx.dev_ptr_addr = stored->dev_ptr_addr;
+        malloc_ctx.size = stored->size;
+        tracked = true;
+    }
+    bpf_map_delete_elem(&cuda_malloc_ctx, &id);
+
     if (!valid_pid(id)) {
         return 0;
     }
 
     bpf_dbg_printk("=== uretprobe/cudaMalloc id=%llx ret=%d ===", id, ret);
 
-    if (ret != 0) {
-        bpf_map_delete_elem(&cuda_malloc_ctx, &id);
-        return 0;
-    }
-
-    cuda_malloc_ctx_t *malloc_ctx = bpf_map_lookup_elem(&cuda_malloc_ctx, &id);
-    if (!malloc_ctx) {
+    if (ret != 0 || !tracked) {
         return 0;
     }
 
     void *dev_ptr = NULL;
-    if (bpf_probe_read_user(&dev_ptr, sizeof(dev_ptr), (void *)malloc_ctx->dev_ptr_addr) != 0) {
-        bpf_map_delete_elem(&cuda_malloc_ctx, &id);
+    if (bpf_probe_read_user(&dev_ptr, sizeof(dev_ptr), (void *)malloc_ctx.dev_ptr_addr) != 0) {
         return 0;
     }
 
     const u64 ptr_val = (u64)dev_ptr;
     if (ptr_val != 0) {
-        bpf_map_update_elem(&cuda_alloc_sizes, &ptr_val, &malloc_ctx->size, BPF_ANY);
+        cuda_alloc_key_t alloc_key = {
+            .tgid = id >> 32,
+            .ptr = ptr_val,
+        };
+        if (bpf_map_update_elem(&cuda_alloc_sizes, &alloc_key, &malloc_ctx.size, BPF_ANY) != 0) {
+            bpf_dbg_printk("Failed to track cudaMalloc allocation");
+        }
     }
-    bpf_map_delete_elem(&cuda_malloc_ctx, &id);
 
     return 0;
 }
@@ -255,16 +334,65 @@ int BPF_KPROBE_GUARDED(obi_cuda_free, void *devPtr) {
 
     bpf_dbg_printk("=== uprobe/cudaFree id=%llx ===", id);
 
-    const u64 ptr_val = (u64)devPtr;
-    s64 *size = bpf_map_lookup_elem(&cuda_alloc_sizes, &ptr_val);
+    cuda_alloc_key_t alloc_key = {
+        .tgid = id >> 32,
+        .ptr = (u64)devPtr,
+    };
+    const s64 *size = bpf_map_lookup_elem(&cuda_alloc_sizes, &alloc_key);
     if (!size) {
         // Pointer was not allocated through cudaMalloc (or tracking was lost);
         // do not emit a byte metric for it.
         return 0;
     }
 
-    submit_size_event(k_event_free, *size);
-    bpf_map_delete_elem(&cuda_alloc_sizes, &ptr_val);
+    // Report the free only once the return confirms the memory was released.
+    cuda_free_ctx_t free_ctx = {
+        .dev_ptr = (u64)devPtr,
+        .size = *size,
+    };
+    bpf_map_update_elem(&cuda_free_ctx, &id, &free_ctx, BPF_ANY);
+
+    return 0;
+}
+
+SEC("uretprobe/cudaFree")
+int BPF_KRETPROBE_GUARDED(obi_cuda_free_ret, int ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    // Consume the entry context unconditionally, before any filtering, so a
+    // target deselected (or exiting) while the call was in flight cannot leak
+    // the entry.
+    cuda_free_ctx_t free_ctx = {};
+    bool tracked = false;
+    const cuda_free_ctx_t *stored = bpf_map_lookup_elem(&cuda_free_ctx, &id);
+    if (stored) {
+        free_ctx.dev_ptr = stored->dev_ptr;
+        free_ctx.size = stored->size;
+        tracked = true;
+    }
+    bpf_map_delete_elem(&cuda_free_ctx, &id);
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uretprobe/cudaFree id=%llx ret=%d ===", id, ret);
+
+    if (ret != 0 || !tracked) {
+        // The free failed and the allocation is still live, or the pointer was
+        // not tracked; keep the size entry so a later successful free can
+        // report it.
+        return 0;
+    }
+
+    submit_size_event(k_event_free, free_ctx.size);
+
+    cuda_alloc_key_t alloc_key = {
+        .tgid = id >> 32,
+        .ptr = free_ctx.dev_ptr,
+    };
+    bpf_map_delete_elem(&cuda_alloc_sizes, &alloc_key);
 
     return 0;
 }
@@ -308,6 +436,40 @@ int BPF_KPROBE_GUARDED(obi_graph_launch) {
     }
 
     bpf_dbg_printk("=== uprobe/cudaGraphLaunch id=%llx ===", id);
+
+    mark_runtime_launch(id);
+
+    submit_call_event(k_event_graph_launch);
+
+    return 0;
+}
+
+// Clears the in-flight marker once the runtime call returns; see
+// obi_cuda_launch_ret for why this must not be skipped.
+SEC("uretprobe/cudaGraphLaunch")
+int BPF_KRETPROBE_GUARDED(obi_graph_launch_ret) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    bpf_map_delete_elem(&cuda_runtime_launch_ctx, &id);
+
+    return 0;
+}
+
+SEC("uprobe/cuGraphLaunch")
+int BPF_KPROBE_GUARDED(obi_cu_graph_launch) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    if (suppress_driver_dup(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/cuGraphLaunch id=%llx ===", id);
     submit_call_event(k_event_graph_launch);
 
     return 0;
