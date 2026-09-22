@@ -94,11 +94,11 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		if name == "" {
 			name = frameworks.TargetName(launch.Target)
 		}
-		if name == "" && targetFound {
-			name = serviceNameFromTargetDirectory(root, targetPath)
-		}
 		if name == "" {
 			name = frameworks.CleanValue(launch.FallbackName)
+		}
+		if name == "" && targetFound {
+			name = serviceNameFromTargetDirectory(root, targetPath)
 		}
 		if name != "" {
 			fileInfo.SetAutoServiceName(name)

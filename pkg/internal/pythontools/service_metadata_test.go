@@ -363,6 +363,22 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "orders-worker", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("gunicorn name wins over target directory", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		appDir := "/workspace/python-travel-agent"
+		writePythonFile(t, filepath.Join(root, appDir, "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "gunicorn", []string{
+			"--name", "orders-worker", "server:app",
+		}, nil, appDir)
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders-worker", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("generic script remains unnamed", func(t *testing.T) {
 		root, err := filepath.EvalSymlinks(t.TempDir())
 		require.NoError(t, err)
