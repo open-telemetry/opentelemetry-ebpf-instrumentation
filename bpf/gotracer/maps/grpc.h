@@ -11,8 +11,6 @@
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
 
-#include <pid/types/pid_info.h>
-
 #include <gotracer/types/grpc.h>
 
 struct {
@@ -61,15 +59,6 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } tracked_grpc_client_streams SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, pid_info);
-    // ASLR slide added to the ELF address of io.EOF for this process.
-    __type(value, u64);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} io_eof_load_biases SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);

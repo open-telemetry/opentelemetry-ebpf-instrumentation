@@ -51,6 +51,7 @@ typedef struct grpc_client_invocation_stack {
 
 typedef struct grpc_client_stream_state {
     grpc_client_func_invocation_t invocation;
+    go_addr_key_t request_key;
     connection_info_t conn;
     u32 _pad;
 } grpc_client_stream_state_t;

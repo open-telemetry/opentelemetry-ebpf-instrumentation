@@ -81,15 +81,6 @@ func buildGRPCNestedClientTarget(t *testing.T) string {
 	return bin
 }
 
-func buildGRPCNestedClientTargetStripped(t *testing.T) string {
-	t.Helper()
-	bin := filepath.Join(t.TempDir(), "grpcclient_nested_stripped")
-	cmd := osexec.Command("go", "build", "-buildvcs=false", "-ldflags", "-s -w", "-o", bin, "testdata/grpcclient_nested/main.go")
-	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "go build grpcclient_nested stripped:\n%s", string(out))
-	return bin
-}
-
 func startGRPCNestedClientTarget(t *testing.T, bin string) (func(string) string, *spanCollector, *Tracer) {
 	t.Helper()
 
@@ -415,7 +406,6 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 			assert.Len(c, streamSpans, 1, "stream span should be emitted upon finish")
 			if len(streamSpans) == 1 {
 				assert.Equal(c, "/TestService/Stream", streamSpans[0].Path)
-				assert.Equal(c, 0, streamSpans[0].Status, "normally completed stream must have OK status")
 				assert.True(c, streamSpans[0].TraceID.IsValid())
 				assert.True(c, streamSpans[0].SpanID.IsValid())
 			}
@@ -691,63 +681,4 @@ func TestGRPCClientStreamLifecycleRaces(t *testing.T) {
 			assertNoStaleStreams(t, tracer)
 		})
 	}
-}
-
-func TestGRPCClientStreamStrippedLifecycle(t *testing.T) {
-	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
-	require.NoError(t, rlimit.RemoveMemlock())
-	bin := buildGRPCNestedClientTargetStripped(t)
-	send, collector, tracer := startGRPCNestedClientTarget(t, bin)
-
-	// 1. Normal streaming RPC (finishes with io.EOF): must produce status == 0
-	t.Run("stream_normal", func(t *testing.T) {
-		collector.clear()
-		res := send("STREAM_NORMAL")
-		require.Contains(t, res, "STATUS=OK")
-
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			grpcSpans := collector.getGRPCClientSpans()
-			var streamSpans []request.Span
-			for _, s := range grpcSpans {
-				if s.Path == "/TestService/Stream" {
-					streamSpans = append(streamSpans, s)
-				}
-			}
-			assert.Len(c, streamSpans, 1, "exactly one stream span should be emitted upon finish")
-			if len(streamSpans) == 1 {
-				assert.Equal(c, "/TestService/Stream", streamSpans[0].Path)
-				assert.Equal(c, 0, streamSpans[0].Status, "normal stream finish with io.EOF must have status 0")
-				assert.True(c, streamSpans[0].TraceID.IsValid())
-				assert.True(c, streamSpans[0].SpanID.IsValid())
-			}
-		}, 10*time.Second, 100*time.Millisecond)
-
-		assertNoStaleStreams(t, tracer)
-	})
-
-	// 2. errors.New("EOF"): must remain non-zero error status
-	t.Run("stream_err_new_eof", func(t *testing.T) {
-		collector.clear()
-		res := send("STREAM_ERR_NEW_EOF")
-		require.Contains(t, res, "STATUS=OK")
-
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			grpcSpans := collector.getGRPCClientSpans()
-			var streamSpans []request.Span
-			for _, s := range grpcSpans {
-				if s.Path == "/TestService/Stream" {
-					streamSpans = append(streamSpans, s)
-				}
-			}
-			assert.Len(c, streamSpans, 1, "exactly one stream span should be emitted upon finish")
-			if len(streamSpans) == 1 {
-				assert.Equal(c, "/TestService/Stream", streamSpans[0].Path)
-				assert.NotEqual(c, 0, streamSpans[0].Status, "errors.New(\"EOF\") must produce error status != 0")
-				assert.True(c, streamSpans[0].TraceID.IsValid())
-				assert.True(c, streamSpans[0].SpanID.IsValid())
-			}
-		}, 10*time.Second, 100*time.Millisecond)
-
-		assertNoStaleStreams(t, tracer)
-	})
 }

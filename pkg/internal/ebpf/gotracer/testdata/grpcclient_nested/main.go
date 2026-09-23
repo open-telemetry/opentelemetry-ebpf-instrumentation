@@ -80,15 +80,9 @@ func (h *streamStatsHandler) trigger() {
 	})
 }
 
-var (
-	eofAlias error = io.EOF
-	fakeEOF  error = errors.New("EOF")
-)
+var fakeEOF error = errors.New("EOF")
 
 func init() {
-	if eofAlias == nil {
-		panic("io.EOF alias was not initialized")
-	}
 	if fakeEOF == nil {
 		panic("fake EOF was not initialized")
 	}
