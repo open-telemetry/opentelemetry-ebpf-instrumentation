@@ -1825,10 +1825,8 @@ static __always_inline u8 append_http2_traceparent_to_framer(
         http2_frame_stream_id(header) != f_info->stream_id || (header[4] & k_h2_flag_padded)) {
         return k_go_h2_user_write_bypass;
     }
-    const u32 payload_len = ((u32)header[0] << 16) | ((u32)header[1] << 8) | header[2];
-    if ((u64)n != k_h2_frame_header_len + payload_len) {
-        return k_go_h2_user_write_bypass;
-    }
+    // endWrite fills the frame length after this probe runs.
+    const u32 payload_len = (u32)n - k_h2_frame_header_len;
     if (f_info->frame_type != k_h2_frame_headers && f_info->frame_type != k_h2_frame_continuation) {
         return k_go_h2_user_write_bypass;
     }
