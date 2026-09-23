@@ -1076,16 +1076,18 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
     unsigned char buf[k_traceparent_len];
     make_tp_string(buf, &inv->tp);
 
-    if (len <
-        (size - TP_MAX_VAL_LENGTH - TP_MAX_KEY_LENGTH - 4)) { // 4 = strlen(":_")+strlen("\r\n")
-        char key[TP_MAX_KEY_LENGTH + 2] = "Traceparent: ";
-        char end[2] = "\r\n";
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), key, sizeof(key));
-        len += TP_MAX_KEY_LENGTH + 2;
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), buf, sizeof(buf));
-        len += TP_MAX_VAL_LENGTH;
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), end, sizeof(end));
-        len += 2;
+    char key[TP_MAX_KEY_LENGTH + 2] = "Traceparent: ";
+    char end[2] = "\r\n";
+    const s64 header_len = sizeof(key) + sizeof(buf) + sizeof(end);
+
+    if (len < size - header_len) {
+        unsigned char *dst = (unsigned char *)buf_ptr + len;
+        bpf_probe_write_user(dst, key, sizeof(key));
+        dst += sizeof(key);
+        bpf_probe_write_user(dst, buf, sizeof(buf));
+        dst += sizeof(buf);
+        bpf_probe_write_user(dst, end, sizeof(end));
+        len += header_len;
         bpf_probe_write_user((void *)(io_writer_addr + io_writer_n_pos), &len, sizeof(len));
 
         // For Go we support two types of HTTP context propagation for now.
