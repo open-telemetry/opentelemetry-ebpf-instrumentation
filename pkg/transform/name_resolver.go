@@ -84,6 +84,7 @@ type ECSNameResolverConfig struct {
 
 type ecsServiceResolver interface {
 	ServiceNameForIP(string) (string, bool)
+	ServiceNameForContainerID(string) (string, bool)
 }
 
 type NameResolver struct {
@@ -253,11 +254,7 @@ func (nr *NameResolver) resolveLocalECSService(span *request.Span) {
 	if nr.ecs == nil || !span.Service.AutoName() {
 		return
 	}
-	localIP := span.Host
-	if span.IsClientSpan() {
-		localIP = span.Peer
-	}
-	if name, ok := nr.ecs.ServiceNameForIP(localIP); ok {
+	if name, ok := nr.ecs.ServiceNameForContainerID(span.Service.RuntimeContainerID); ok {
 		span.Service.UID.Name = name
 	}
 }
