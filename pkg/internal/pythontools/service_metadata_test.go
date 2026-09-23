@@ -223,6 +223,24 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "5.0", fileInfo.ServiceAttrs().Metadata[serviceVersion])
 	})
 
+	t.Run("fastapi parent config supplies application directory", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "workspace", "orders", "server.py"), "")
+		writePythonFile(t, filepath.Join(root, "workspace", "orders", "pyproject.toml"), strings.Join([]string{
+			"[tool.fastapi]",
+			"entrypoint = 'server:app'",
+		}, "\n"))
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "workspace", "orders", "subdir"), 0o755))
+		fileInfo := mockPythonProcess(t, root, "fastapi", []string{"run"}, nil, "/workspace/orders/subdir")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("flask automatic app associates project", func(t *testing.T) {
 		root, err := filepath.EvalSymlinks(t.TempDir())
 		require.NoError(t, err)

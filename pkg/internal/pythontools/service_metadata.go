@@ -69,6 +69,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		launch.Target, configDir, resolutionErr = findFastAPIEntryPoint(root, cwd)
 		if launch.Target != "" {
 			launch.TargetKind = frameworks.ClassifyTarget(launch.Target)
+			launch.AppDir = configDir
 			launch.SearchPaths = append([]string{configDir}, launch.SearchPaths...)
 		}
 	}
