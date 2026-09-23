@@ -1461,9 +1461,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = []attribute.KeyValue{
 			request.ServerPort(span.HostPort),
 			semconv.MessagingSystemKafka,
+			semconv.MessagingClientID(span.Statement),
 		}
 		attrs = appendIfSet(attrs, semconv.MessagingDestinationName, span.Path)
-		attrs = appendIfSet(attrs, semconv.MessagingClientID, span.Statement)
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 

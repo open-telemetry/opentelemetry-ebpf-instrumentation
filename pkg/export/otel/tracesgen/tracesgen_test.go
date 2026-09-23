@@ -1541,6 +1541,33 @@ func TestAerospikeServerSpanOmitsPeerService(t *testing.T) {
 	}
 }
 
+// Kafka carries the client id in every request header, so an empty one was
+// sent by the client. MQTT and NATS only see it on CONNECT, so an empty one
+// was not observed.
+func TestEmptyMessagingClientID(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		event request.EventType
+		want  bool
+	}{
+		{name: "kafka", event: request.EventTypeKafkaClient, want: true},
+		{name: "mqtt", event: request.EventTypeMQTTClient, want: false},
+		{name: "nats", event: request.EventTypeNATSClient, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			span := &request.Span{Type: tc.event, Method: request.MessagingPublish, Path: "topic"}
+
+			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+			v, ok := attrs.Get(string(semconv.MessagingClientIDKey))
+			require.Equal(t, tc.want, ok)
+			if ok {
+				assert.Empty(t, v.AsString())
+			}
+		})
+	}
+}
+
 // The response model falls back to the request model, which is itself reported
 // only when the parser recovered one, so neither is emitted when both are empty.
 func TestGenAIResponseModelFallbackIsGuarded(t *testing.T) {
