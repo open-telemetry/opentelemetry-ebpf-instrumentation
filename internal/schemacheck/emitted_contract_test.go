@@ -679,3 +679,37 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		})
 	}
 }
+
+// An OpenAI exchange is recognized from its response headers regardless of the
+// URL path, so it can reach the exporters with no operation classified. The
+// groups still declare the operation name required, so both exporters must
+// report it for that span.
+func TestUnclassifiedGenAIOperationIsStillEmitted(t *testing.T) {
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeOpenAI,
+		Path:    "/v1/unrecognized",
+		GenAI:   &request.GenAI{OpenAI: &request.VendorOpenAI{}},
+	}
+
+	for _, groupID := range []string{
+		"span.obi.gen_ai.inference.client",
+		"metric.obi.gen_ai.client.operation.duration",
+		"metric.obi.gen_ai.client.token.usage",
+	} {
+		require.Equalf(t, "required", declaredLevel(t, groupID, "gen_ai.operation.name"),
+			"%s no longer declares gen_ai.operation.name required", groupID)
+	}
+
+	var spanValue string
+	for _, kv := range tracesgen.TraceAttributesSelector(span, map[attr.Name]struct{}{}) {
+		if kv.Key == "gen_ai.operation.name" {
+			spanValue = kv.Value.AsString()
+		}
+	}
+	assert.NotEmpty(t, spanValue, "the trace exporter omitted gen_ai.operation.name or sent it empty")
+
+	getter, ok := request.SpanOTELGetters(request.UnresolvedNames{})(attr.GenAIOperationName)
+	require.True(t, ok)
+	assert.NotEmpty(t, getter(span).Value.AsString(), "the metric getter omitted gen_ai.operation.name or sent it empty")
+}
