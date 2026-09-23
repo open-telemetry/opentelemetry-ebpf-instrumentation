@@ -57,7 +57,15 @@ def obi_overrides:
    | .attributes[]?]
   | map({key: .name, value: .})
   | from_entries;
-def attr_groups: obi_groups("attribute_group") | sort_by(.id);
+# Restricted to the groups that DEFINE attributes. OBI names those
+# registry.obi.* / x.obi.*; a group that only references attributes — the
+# messaging base the span groups extend — belongs on no page whose preamble
+# promises "attributes that OBI defines". A future definition group named
+# outside those two prefixes would be dropped here silently.
+def attr_groups:
+  obi_groups("attribute_group")
+  | map(select(.id | test("^(registry|x)\\.obi($|\\.)")))
+  | sort_by(.id);
 def metrics: obi_groups("metric") | sort_by(.metric_name);
 def spans: obi_groups("span") | sort_by(.id);
 
@@ -73,6 +81,31 @@ def attr_rows($ov):
 def attr_table($ov):
   if (attr_rows($ov) | length) == 0 then ["No attributes."]
   else ["| Attribute | Type | Stability | Description | Examples |", "| --- | --- | --- | --- | --- |"] + attr_rows($ov)
+  end;
+
+# A requirement level belongs to a carrier, not to a definition, so it is
+# rendered on the metric and span pages and not on the attributes page. An
+# absent level is weaver's default.
+def req_level:
+  (.requirement_level // "recommended")
+  | if type == "object"
+    then (to_entries[0] | "`\(.key)`: \(.value | cell)")
+    else "`\(. | cell)`"
+    end;
+
+def carrier_rows($ov):
+  [.attributes[]?
+   | . as $carrier
+   | (($ov[$carrier.name] // $carrier) as $d
+      | (($d | deprecation) | cell) as $dep
+      | (if $dep == "" then ($d.brief | cell) else "\($dep). \($d.brief | cell)" end) as $desc
+      | "| `\($carrier.name)` | \($d | attr_type) | \($carrier | req_level) | \($d.stability | cell) | \($desc) | \($d | values | cell) |")]
+  | sort;
+
+def carrier_table($ov):
+  if (carrier_rows($ov) | length) == 0 then ["No attributes."]
+  else ["| Attribute | Type | Requirement level | Stability | Description | Examples |",
+        "| --- | --- | --- | --- | --- | --- |"] + carrier_rows($ov)
   end;
 
 def page($title; $intro; $items):
@@ -109,7 +142,7 @@ def metrics_page:
                  + [(.brief | cell), "",
                   "| Instrument | Unit | Stability |", "| --- | --- | --- |",
                   "| \(.instrument | cell) | \(if (.unit // "") == "" then "1" else .unit end | cell) | \(.stability | cell) |",
-                  ""] + attr_table($ov)]);
+                  ""] + carrier_table($ov)]);
 
 def spans_page:
   obi_overrides as $ov
@@ -122,7 +155,7 @@ def spans_page:
                + [(.brief | cell), "",
                 "| Span kind | Stability |", "| --- | --- |",
                 "| \(.span_kind | cell) | \(.stability | cell) |",
-                ""] + attr_table($ov)]);
+                ""] + carrier_table($ov)]);
 
 def readme_page:
   page("OBI telemetry reference";

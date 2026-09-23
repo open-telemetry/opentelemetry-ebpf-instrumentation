@@ -16,20 +16,46 @@ groups:
     brief: OBI AWS S3 client span.
     attributes:
       - ref: rpc.system.name
+        requirement_level: required
       - ref: rpc.method
+        requirement_level: recommended
       - ref: cloud.region
+        requirement_level: recommended
       - ref: aws.request_id
+        requirement_level: recommended
       - ref: aws.extended_request_id
+        requirement_level:
+          conditionally_required: if the response carried an x-amz-id-2 header
       - ref: aws.s3.bucket
+        requirement_level:
+          recommended: if the request addressed a bucket
       - ref: aws.s3.key
+        requirement_level:
+          recommended: if the request addressed an object
       - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
       - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
 
   - id: span.obi.aws.sqs.client
     type: span
@@ -38,22 +64,52 @@ groups:
     brief: OBI AWS SQS client span.
     attributes:
       - ref: messaging.system
+        requirement_level: required
       - ref: messaging.operation.name
+        requirement_level: required
       - ref: messaging.destination.name
+        requirement_level:
+          conditionally_required: if the queue URL was found
       - ref: messaging.message.id
+        requirement_level:
+          recommended: if the exchange carried a message id
       - ref: aws.sqs.queue.url
+        requirement_level:
+          recommended: if the request or response named the queue
       - ref: cloud.region
+        requirement_level: recommended
       - ref: aws.request_id
+        requirement_level: recommended
       - ref: aws.extended_request_id
+        requirement_level:
+          conditionally_required: if the response carried an x-amz-id-2 header
       - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
       - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: messaging.operation.type
+        requirement_level:
+          conditionally_required: if the operation maps to a semantic-convention operation type
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
 
   - id: span.obi.aws.sns.client
     type: span
@@ -62,21 +118,53 @@ groups:
     brief: OBI AWS SNS client span.
     attributes:
       - ref: rpc.system.name
+        requirement_level: required
       - ref: rpc.method
+        requirement_level: recommended
       - ref: messaging.system
+        requirement_level: required
       - ref: messaging.operation.name
+        requirement_level: required
       - ref: messaging.operation.type
+        requirement_level:
+          conditionally_required: if the operation maps to a semantic-convention operation type
       - ref: messaging.destination.name
+        requirement_level:
+          conditionally_required: if the response named the topic
       - ref: messaging.message.id
+        requirement_level:
+          recommended: if the response carried a message id
       - ref: messaging.batch.message_count
+        requirement_level:
+          conditionally_required: if the operation is `PublishBatch` and the batch size was read
       - ref: aws.sns.topic.arn
+        requirement_level:
+          recommended: if the response named the topic
       - ref: cloud.region
+        requirement_level: recommended
       - ref: aws.request_id
+        requirement_level: recommended
       - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
       - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled

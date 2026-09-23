@@ -187,7 +187,7 @@ func TestSchemaDocsRendersScalarExamples(t *testing.T) {
 	// upstream ones; iterating it blindly aborts the whole render.
 	page := renderSchemaDocs(t, "spans")
 
-	if !strings.Contains(page, "| `obi.scalar.examples` | string | development | Declares examples as a bare scalar. | gpt-4 |") {
+	if !strings.Contains(page, "| `obi.scalar.examples` | string | `recommended` | development | Declares examples as a bare scalar. | gpt-4 |") {
 		t.Errorf("a scalar examples declaration did not render\n%s", page)
 	}
 }
