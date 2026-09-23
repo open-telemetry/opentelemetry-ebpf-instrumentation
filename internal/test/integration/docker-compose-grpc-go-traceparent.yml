@@ -57,6 +57,37 @@ services:
       go-ownership-receiver-tls:
         condition: service_started
 
+  go-ownership-client-legacy:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go_legacy/Dockerfile
+    image: hatest-grpc-go-ownership-client-legacy
+    init: true
+    environment:
+      HTTP_PORT: "8084"
+      OWNERSHIP_NEXT_HOP: "go-ownership-receiver:50070"
+    ports:
+      - "127.0.0.1:18084:8084"
+    depends_on:
+      go-ownership-receiver:
+        condition: service_started
+
+  go-ownership-client-legacy-tls:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go_legacy/Dockerfile
+    image: hatest-grpc-go-ownership-client-legacy-tls
+    init: true
+    environment:
+      HTTP_PORT: "8085"
+      OWNERSHIP_NEXT_HOP: "go-ownership-receiver-tls:50071"
+      GRPC_NEXT_HOP_TLS: "1"
+    ports:
+      - "127.0.0.1:18085:8085"
+    depends_on:
+      go-ownership-receiver-tls:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -90,6 +121,10 @@ services:
       go-ownership-client:
         condition: service_started
       go-ownership-client-tls:
+        condition: service_started
+      go-ownership-client-legacy:
+        condition: service_started
+      go-ownership-client-legacy-tls:
         condition: service_started
       jaeger:
         condition: service_started

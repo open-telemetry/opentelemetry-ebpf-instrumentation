@@ -1601,6 +1601,7 @@ var goH2OwnershipProbeSymbols = []string{
 	"golang.org/x/net/http2.(*ClientConn).encodeHeaders",
 	"net/http.(*http2ClientConn).encodeHeaders",
 	"google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler",
+	"google.golang.org/grpc/internal/transport.(*loopyWriter).originateStream",
 }
 
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
@@ -1808,13 +1809,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream,
 			End:   p.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns,
 		}},
-		// Closes the loopyWriter race for stream registration — see
-		// the two-hop bridge in go_grpc.c (executeAndPut → originateStream)
+		// Bridges request state to the version-specific loopyWriter ownership
+		// probe selected atomically below.
 		"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut": {{
 			Start: p.bpfObjects.ObiUprobeGrpcControlBufferExecuteAndPut,
-		}},
-		"google.golang.org/grpc/internal/transport.(*loopyWriter).originateStream": {{
-			Start: p.bpfObjects.ObiUprobeGrpcLoopyWriterOriginateStream,
 		}},
 		"google.golang.org/grpc/internal/transport.(*http2Server).operateHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerOperateHeaders,
@@ -2320,6 +2318,26 @@ func (p *Tracer) goH2OwnershipProbeGroups() []ebpfcommon.GoProbeGroup {
 					Symbol: goH2OwnershipProbeSymbols[8],
 					Probe: &ebpfcommon.ProbeDesc{
 						Start: p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandler,
+						End:   p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandlerReturns,
+					},
+				},
+			},
+		},
+		{
+			Name: "go_grpc_legacy_ownership",
+			RequiresAll: []string{
+				"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
+				"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut",
+				"golang.org/x/net/http2.(*Framer).WriteHeaders",
+			},
+			ConflictsAny: []string{
+				"google.golang.org/grpc/internal/transport.(*loopyWriter).clientHeaderHandler",
+			},
+			Probes: []ebpfcommon.GoProbe{
+				{
+					Symbol: goH2OwnershipProbeSymbols[9],
+					Probe: &ebpfcommon.ProbeDesc{
+						Start: p.bpfObjects.ObiUprobeGrpcLoopyWriterOriginateStream,
 						End:   p.bpfObjects.ObiUprobeGrpcLoopyWriterClientHeaderHandlerReturns,
 					},
 				},
