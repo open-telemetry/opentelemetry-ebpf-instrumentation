@@ -32,10 +32,10 @@ const (
 var h2ProbeExpectedHPACK = []byte("\x00\x0btraceparent\x37" +
 	"00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
 
-func verifyH2MutationPeer() error {
+func loadH2MutationProbe() (*BpfH2MutationProbeObjects, error) {
 	spec, err := LoadBpfH2MutationProbe()
 	if err != nil {
-		return fmt.Errorf("reading mutation probe: %w", err)
+		return nil, fmt.Errorf("reading mutation probe: %w", err)
 	}
 	for _, probeMap := range spec.Maps {
 		if probeMap.Pinning == ebpfconvenience.PinInternal {
@@ -45,34 +45,51 @@ func verifyH2MutationPeer() error {
 
 	var objects BpfH2MutationProbeObjects
 	if err := spec.LoadAndAssign(&objects, nil); err != nil {
-		return fmt.Errorf("loading rollback probe: %w", err)
+		return nil, fmt.Errorf("loading mutation probe: %w", err)
 	}
-	defer objects.Close()
+	return &objects, nil
+}
 
+func attachH2MutationProbe(objects *BpfH2MutationProbeObjects, program *ebpf.Program) (func(), error) {
 	attach := link.RawAttachProgramOptions{
 		Target:  objects.Sockets.FD(),
-		Program: objects.H2MutationPeer,
+		Program: program,
 		Attach:  ebpf.AttachSkMsgVerdict,
 	}
 	if err := link.RawAttachProgram(attach); err != nil {
-		return fmt.Errorf("attaching rollback probe: %w", err)
+		return nil, fmt.Errorf("attaching mutation probe: %w", err)
 	}
-	defer link.RawDetachProgram(link.RawDetachProgramOptions(attach)) //nolint:errcheck
+	return func() { link.RawDetachProgram(link.RawDetachProgramOptions(attach)) }, nil //nolint:errcheck
+}
+
+func verifyH2MutationPeer() error {
+	objects, err := loadH2MutationProbe()
+	if err != nil {
+		return err
+	}
+	defer objects.Close()
+
+	detach, err := attachH2MutationProbe(objects, objects.H2MutationPeer)
+	if err != nil {
+		return err
+	}
+	defer detach()
 
 	faults := []struct {
 		name string
 		mask uint64
 	}{
-		{name: "preflight pull", mask: h2ProbePullFault(1)},
+		{name: "linearize pull", mask: h2ProbePullFault(1)},
+		{name: "preflight pull", mask: h2ProbePullFault(2)},
 		{name: "push", mask: h2ProbePushFault()},
-		{name: "post-push pull", mask: h2ProbePullFault(2)},
-		{name: "frame pull", mask: h2ProbePullFault(3)},
-		{name: "rollback pop", mask: h2ProbePullFault(2) | h2ProbePopFault(1)},
-		{name: "rollback pull", mask: h2ProbePullFault(2) | h2ProbePullFault(3)},
+		{name: "post-push pull", mask: h2ProbePullFault(3)},
+		{name: "frame pull", mask: h2ProbePullFault(4)},
+		{name: "rollback pop", mask: h2ProbePullFault(3) | h2ProbePopFault(1)},
+		{name: "rollback pull", mask: h2ProbePullFault(3) | h2ProbePullFault(4)},
 	}
 
 	for _, fault := range faults {
-		if err := verifyH2MutationPeerWrites(&objects, fault.mask); err != nil {
+		if err := verifyH2MutationPeerWrites(objects, fault.mask); err != nil {
 			return fmt.Errorf("%s failure: %w", fault.name, err)
 		}
 	}
@@ -135,6 +152,54 @@ func verifyH2MutationPeerWrites(objects *BpfH2MutationProbeObjects, faultMask ui
 	}
 	if invocations != 2 {
 		return fmt.Errorf("SK_MSG ran %d times for two writes", invocations)
+	}
+	return nil
+}
+
+// Injecting into two frames of one write, with more data after the second: the second
+// insert used to send that trailing data from the wrong place in memory.
+func verifyH2MutationTwoFrames() error {
+	objects, err := loadH2MutationProbe()
+	if err != nil {
+		return err
+	}
+	defer objects.Close()
+
+	detach, err := attachH2MutationProbe(objects, objects.H2MutationPeerTwoFrames)
+	if err != nil {
+		return err
+	}
+	defer detach()
+
+	client, peer, err := h2ProbeTCPPair()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	defer peer.Close()
+
+	clientFD, err := h2ProbeSocketFD(client)
+	if err != nil {
+		return err
+	}
+	if err := objects.Sockets.Update(uint64(0), uint32(clientFD), ebpf.UpdateAny); err != nil {
+		return fmt.Errorf("inserting probe socket: %w", err)
+	}
+
+	first, second := h2ProbeFrame(1), h2ProbeFrame(3)
+	data := []byte{0, 0, 5, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0}
+	if err := h2ProbeWrite(clientFD, bytes.Join([][]byte{first, second, data}, nil)); err != nil {
+		return fmt.Errorf("writing two frames: %w", err)
+	}
+
+	for _, want := range [][]byte{h2ProbeMutatedFrame(first), h2ProbeMutatedFrame(second), data} {
+		got, err := h2ProbeReadFrame(peer)
+		if err != nil {
+			return fmt.Errorf("reading frame: %w", err)
+		}
+		if !bytes.Equal(got, want) {
+			return fmt.Errorf("frame arrived as %x, want %x", got, want)
+		}
 	}
 	return nil
 }
