@@ -590,6 +590,22 @@ func getDefinitions(
 				attr.MCPResourceURI:        false,
 			},
 		},
+		MCPClientSessionDuration.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.ErrorType:          true,
+				attr.MCPProtocolVersion: true,
+				attr.ServerAddr:         true,
+				attr.ServerPort:         true,
+			},
+		},
+		MCPServerSessionDuration.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.ErrorType:          true,
+				attr.MCPProtocolVersion: true,
+			},
+		},
 		GoRuntimeMemoryGCGoal.Section: {
 			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},

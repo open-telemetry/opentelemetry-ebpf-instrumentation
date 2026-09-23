@@ -24,6 +24,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/mcpsession"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -75,30 +76,32 @@ type MetricsReporter struct {
 	spanExtraAttrs   []attr.Name
 
 	// user-selected fields for each of the reported metrics
-	attrHTTPDuration           []attributes.Field[*request.Span, attribute.KeyValue]
-	attrHTTPClientDuration     []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGRPCServer             []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGRPCClient             []attributes.Field[*request.Span, attribute.KeyValue]
-	attrDBClient               []attributes.Field[*request.Span, attribute.KeyValue]
-	attrDBServer               []attributes.Field[*request.Span, attribute.KeyValue]
-	attrMessagingPublish       []attributes.Field[*request.Span, attribute.KeyValue]
-	attrMessagingProcess       []attributes.Field[*request.Span, attribute.KeyValue]
-	attrHTTPRequestSize        []attributes.Field[*request.Span, attribute.KeyValue]
-	attrHTTPResponseSize       []attributes.Field[*request.Span, attribute.KeyValue]
-	attrHTTPClientRequestSize  []attributes.Field[*request.Span, attribute.KeyValue]
-	attrHTTPClientResponseSize []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGPUKernelCalls         []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGPUGraphCalls          []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGPUKernelGridSize      []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGPUKernelBlockSize     []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGPUMemoryAllocations   []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGPUMemoryCopies        []attributes.Field[*request.Span, attribute.KeyValue]
-	attrDNSLookupDuration      []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGenAIInputTokenUsage   []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGenAIOutputTokenUsage  []attributes.Field[*request.Span, attribute.KeyValue]
-	attrGenAIClientDuration    []attributes.Field[*request.Span, attribute.KeyValue]
-	attrMCPClientDuration      []attributes.Field[*request.Span, attribute.KeyValue]
-	attrMCPServerDuration      []attributes.Field[*request.Span, attribute.KeyValue]
+	attrHTTPDuration             []attributes.Field[*request.Span, attribute.KeyValue]
+	attrHTTPClientDuration       []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGRPCServer               []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGRPCClient               []attributes.Field[*request.Span, attribute.KeyValue]
+	attrDBClient                 []attributes.Field[*request.Span, attribute.KeyValue]
+	attrDBServer                 []attributes.Field[*request.Span, attribute.KeyValue]
+	attrMessagingPublish         []attributes.Field[*request.Span, attribute.KeyValue]
+	attrMessagingProcess         []attributes.Field[*request.Span, attribute.KeyValue]
+	attrHTTPRequestSize          []attributes.Field[*request.Span, attribute.KeyValue]
+	attrHTTPResponseSize         []attributes.Field[*request.Span, attribute.KeyValue]
+	attrHTTPClientRequestSize    []attributes.Field[*request.Span, attribute.KeyValue]
+	attrHTTPClientResponseSize   []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGPUKernelCalls           []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGPUGraphCalls            []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGPUKernelGridSize        []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGPUKernelBlockSize       []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGPUMemoryAllocations     []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGPUMemoryCopies          []attributes.Field[*request.Span, attribute.KeyValue]
+	attrDNSLookupDuration        []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGenAIInputTokenUsage     []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGenAIOutputTokenUsage    []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGenAIClientDuration      []attributes.Field[*request.Span, attribute.KeyValue]
+	attrMCPClientDuration        []attributes.Field[*request.Span, attribute.KeyValue]
+	attrMCPServerDuration        []attributes.Field[*request.Span, attribute.KeyValue]
+	attrMCPClientSessionDuration []attributes.Field[*request.Span, attribute.KeyValue]
+	attrMCPServerSessionDuration []attributes.Field[*request.Span, attribute.KeyValue]
 
 	userAttribSelection attributes.Selection
 	input               <-chan []request.Span
@@ -153,6 +156,11 @@ type Metrics struct {
 	// mcp
 	mcpClientOperationDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	mcpServerOperationDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
+
+	mcpClientSessionDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	mcpServerSessionDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
+
+	mcpSessions *mcpsession.Store
 }
 
 type TargetMetrics struct {
@@ -307,6 +315,10 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.MCPClientOperationDuration))
 		mr.attrMCPServerDuration = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.MCPServerOperationDuration))
+		mr.attrMCPClientSessionDuration = attributes.OpenTelemetryGetters(
+			mr.attrGetters, mr.attributes.For(attributes.MCPClientSessionDuration))
+		mr.attrMCPServerSessionDuration = attributes.OpenTelemetryGetters(
+			mr.attrGetters, mr.attributes.For(attributes.MCPServerSessionDuration))
 	}
 
 	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -400,6 +412,8 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 			metric.WithView(mr.otelHistogramConfig(attributes.GenAIClientInputTokenUsage.OTEL, mr.cfg.Buckets.GenAITokenUsageHistogram)),
 			metric.WithView(mr.otelHistogramConfig(attributes.MCPClientOperationDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 			metric.WithView(mr.otelHistogramConfig(attributes.MCPServerOperationDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.MCPClientSessionDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.MCPServerSessionDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 		)
 	}
 
@@ -649,6 +663,20 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 		}
 		m.mcpServerOperationDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 			m.ctx, mcpServerOperationDuration, mr.attrMCPServerDuration, timeNow, mr.cfg.TTL)
+
+		mcpClientSessionDuration, err := meter.Float64Histogram(attributes.MCPClientSessionDuration.OTEL, instrument.WithUnit(attributes.MCPClientSessionDuration.Unit))
+		if err != nil {
+			return fmt.Errorf("creating mcp client session duration histogram: %w", err)
+		}
+		m.mcpClientSessionDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+			m.ctx, mcpClientSessionDuration, mr.attrMCPClientSessionDuration, timeNow, mr.cfg.TTL)
+
+		mcpServerSessionDuration, err := meter.Float64Histogram(attributes.MCPServerSessionDuration.OTEL, instrument.WithUnit(attributes.MCPServerSessionDuration.Unit))
+		if err != nil {
+			return fmt.Errorf("creating mcp server session duration histogram: %w", err)
+		}
+		m.mcpServerSessionDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+			m.ctx, mcpServerSessionDuration, mr.attrMCPServerSessionDuration, timeNow, mr.cfg.TTL)
 	}
 
 	return nil
@@ -748,8 +776,9 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	opts = append(opts, mr.spanMetricOptions()...)
 
 	return Metrics{
-		ctx:     mr.ctx,
-		service: service,
+		ctx:         mr.ctx,
+		service:     service,
+		mcpSessions: mcpsession.NewStore(),
 		provider: metric.NewMeterProvider(
 			opts...,
 		),
@@ -962,6 +991,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 					mcpServerOperationDuration, attrs := r.mcpServerOperationDuration.ForRecord(span)
 					mcpServerOperationDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				}
+				r.recordMCPSession(span, mr, t, ctx)
 			} else if mr.is.HTTPEnabled() {
 				if measured {
 					httpDuration, attrs := r.httpDuration.ForRecord(span)
@@ -1029,6 +1059,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 					mcpClientOperationDuration, attrs := r.mcpClientOperationDuration.ForRecord(span)
 					mcpClientOperationDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				}
+				r.recordMCPSession(span, mr, t, ctx)
 			} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {
 				if measured {
 					genAIClientDuration, attrs := r.genAIClientDuration.ForRecord(span)
@@ -1444,7 +1475,50 @@ func cleanupFloatCounterMetrics(ctx context.Context, m *Expirer[*request.Span, i
 	}
 }
 
+func (r *Metrics) recordMCPSession(span *request.Span, mr *MetricsReporter, t request.Timings, ctx context.Context) {
+	if r.mcpSessions == nil {
+		return
+	}
+	mcp := span.MCP()
+	if mcp == nil || mcp.SessionID == "" {
+		return
+	}
+
+	isClient := span.Type == request.EventTypeHTTPClient
+	closeFn := func(sess *mcpsession.Session, client bool) {
+		synth := sess.SyntheticSpan()
+		if client {
+			hist, attrs := r.mcpClientSessionDuration.ForRecord(synth)
+			hist.Record(ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
+			return
+		}
+		hist, attrs := r.mcpServerSessionDuration.ForRecord(synth)
+		hist.Record(ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
+	}
+
+	r.mcpSessions.Expire(mr.cfg.TTL, closeFn)
+	r.mcpSessions.Record(mcp.SessionID, isClient, span, t)
+}
+
+func (r *Metrics) closeAllMCPSessions(ctx context.Context) {
+	if r.mcpSessions == nil {
+		return
+	}
+	closeFn := func(sess *mcpsession.Session, client bool) {
+		synth := sess.SyntheticSpan()
+		if client {
+			hist, attrs := r.mcpClientSessionDuration.ForRecord(synth)
+			hist.Record(ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
+			return
+		}
+		hist, attrs := r.mcpServerSessionDuration.ForRecord(synth)
+		hist.Record(ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
+	}
+	r.mcpSessions.CloseAll(closeFn)
+}
+
 func (r *Metrics) cleanupAllMetricsInstances() {
+	r.closeAllMCPSessions(r.ctx)
 	cleanupMetrics(r.ctx, r.httpDuration)
 	cleanupMetrics(r.ctx, r.httpClientDuration)
 	cleanupMetrics(r.ctx, r.grpcDuration)
@@ -1473,4 +1547,6 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.genAIOutputTokenUsage)
 	cleanupMetrics(r.ctx, r.mcpClientOperationDuration)
 	cleanupMetrics(r.ctx, r.mcpServerOperationDuration)
+	cleanupMetrics(r.ctx, r.mcpClientSessionDuration)
+	cleanupMetrics(r.ctx, r.mcpServerSessionDuration)
 }
