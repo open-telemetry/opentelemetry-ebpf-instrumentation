@@ -25,7 +25,7 @@ type ProcessResourceDetector struct {
 
 func NewProcessResourceDetector() *ProcessResourceDetector {
 	return &ProcessResourceDetector{
-		log: slog.With("component", "kube.Store"),
+		log: slog.With("component", "process.resource.detector"),
 	}
 }
 
