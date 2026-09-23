@@ -46,6 +46,11 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			publish := func(snapshot runtimemetrics.RuntimeMetricSnapshot) {
 				recordRuntimeMetrics(t.Context(), &metrics, snapshot)
 			}
+			firstExpiration := now
+			expectedExpiration := time.Time{}
+			if ttl != 0 {
+				expectedExpiration = firstExpiration
+			}
 			assertValue := func(name string, want int64) {
 				t.Helper()
 				points := collectGoRuntimeInt64Points(t, reader, name)
@@ -54,16 +59,20 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			}
 			publish(first)
 			publish(second)
+			require.Equal(t, expectedExpiration, metrics.dotnetMetrics.lastExpiration)
 			now = now.Add(30 * time.Second)
 			publish(second)
+			require.Equal(t, expectedExpiration, metrics.dotnetMetrics.lastExpiration)
 			now = now.Add(30 * time.Second)
 			publish(second)
+			require.Equal(t, expectedExpiration, metrics.dotnetMetrics.lastExpiration)
 			assertValue(attributes.DotnetProcessMemoryWorkingSet.OTEL, 30)
 			now = now.Add(time.Nanosecond)
 			publish(second)
 			if ttl == 0 {
 				assertValue(attributes.DotnetProcessMemoryWorkingSet.OTEL, 30)
 			} else {
+				require.Equal(t, now, metrics.dotnetMetrics.lastExpiration)
 				assertValue(attributes.DotnetProcessMemoryWorkingSet.OTEL, 20)
 			}
 			first.Dotnet = sample(7, 5)
@@ -85,6 +94,83 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			assertValue(attributes.DotnetGCCollections.OTEL, 14)
 		})
 	}
+}
+
+func TestDotnetRuntimeCurrentValueAvailability(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
+	var metrics dotnetRuntimeMetrics
+	require.NoError(t, setupDotnetRuntimeMeters(&metrics, provider.Meter(reporterName), 0))
+	assertValue := func(name string, want *int64) {
+		t.Helper()
+		points := collectGoRuntimeInt64Points(t, reader, name)
+		if want == nil {
+			require.Empty(t, points, name)
+			return
+		}
+		require.Len(t, points, 1, name)
+		require.Equal(t, *want, points[0].Value, name)
+	}
+	memory := int64(10)
+	assembly := int64(20)
+	first := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 123, Generation: 1,
+		Dotnet: &runtimemetrics.DotnetRuntimeMetricSnapshot{ProcessMemoryWorkingSet: &memory},
+	}
+	second := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 456, Generation: 1,
+		Dotnet: &runtimemetrics.DotnetRuntimeMetricSnapshot{AssemblyCount: &assembly},
+	}
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+	assertValue(attributes.DotnetProcessMemoryWorkingSet.OTEL, &memory)
+	assertValue(attributes.DotnetAssemblyCount.OTEL, &assembly)
+
+	first.Removed = true
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+	assertValue(attributes.DotnetProcessMemoryWorkingSet.OTEL, nil)
+	assertValue(attributes.DotnetAssemblyCount.OTEL, &assembly)
+
+	zero := int64(0)
+	second.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{AssemblyCount: &zero}
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+	assertValue(attributes.DotnetAssemblyCount.OTEL, &zero)
+	second.Removed = true
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+	assertValue(attributes.DotnetAssemblyCount.OTEL, nil)
+	require.Equal(t, dotnetRuntimeMetricCounts{}, metrics.activeCurrent)
+}
+
+func TestDotnetRuntimeExpiryWaitsForNextSweep(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
+	var metrics RuntimeMetrics
+	require.NoError(t, setupDotnetRuntimeMeters(&metrics.dotnetMetrics, provider.Meter(reporterName), time.Minute))
+	now := time.Unix(1000, 0)
+	metrics.dotnetMetrics.clock = func() time.Time { return now }
+	recordRuntimeMetrics(t.Context(), &metrics, runtimemetrics.RuntimeMetricSnapshot{})
+	now = now.Add(time.Second)
+	value := int64(10)
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 123, Generation: 1,
+		Service: svc.Attrs{SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
+		Dotnet:  &runtimemetrics.DotnetRuntimeMetricSnapshot{ProcessMemoryWorkingSet: &value},
+	}
+	recordRuntimeMetrics(t.Context(), &metrics, snapshot)
+	now = now.Add(59*time.Second + time.Nanosecond)
+	recordRuntimeMetrics(t.Context(), &metrics, runtimemetrics.RuntimeMetricSnapshot{})
+	lastSweep := metrics.dotnetMetrics.lastExpiration
+	now = now.Add(2 * time.Second)
+	recordRuntimeMetrics(t.Context(), &metrics, runtimemetrics.RuntimeMetricSnapshot{})
+	require.Equal(t, lastSweep, metrics.dotnetMetrics.lastExpiration)
+	points := collectGoRuntimeInt64Points(t, reader, attributes.DotnetProcessMemoryWorkingSet.OTEL)
+	require.Len(t, points, 1)
+	require.Equal(t, value, points[0].Value)
+	now = lastSweep.Add(time.Minute + time.Nanosecond)
+	recordRuntimeMetrics(t.Context(), &metrics, runtimemetrics.RuntimeMetricSnapshot{})
+	require.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.DotnetProcessMemoryWorkingSet.OTEL))
 }
 
 func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {

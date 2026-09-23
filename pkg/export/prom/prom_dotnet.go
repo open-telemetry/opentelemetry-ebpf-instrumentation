@@ -29,6 +29,7 @@ type dotnetRuntimeMetricsCollector struct {
 	valuesMu                sync.Mutex
 	values                  map[dotnetRuntimeCounterKey]uint64
 	currentValues           map[app.PID]dotnetRuntimeCurrentValues
+	currentAggregates       map[string]*dotnetRuntimeCurrentAggregate
 	clock                   expire.Clock
 	ttl                     time.Duration
 }
@@ -37,7 +38,22 @@ type dotnetRuntimeCurrentValues struct {
 	generation uint64
 	lastSeen   time.Time
 	labels     []string
+	labelTuple string
 	values     runtimemetrics.DotnetRuntimeMetricSnapshot
+}
+
+type dotnetRuntimeGaugeAggregate struct {
+	sum          float64
+	contributors int
+}
+
+type dotnetRuntimeCurrentAggregate struct {
+	processMemoryWorkingSet dotnetRuntimeGaugeAggregate
+	gcCommittedMemory       dotnetRuntimeGaugeAggregate
+	threadPoolThreadCount   dotnetRuntimeGaugeAggregate
+	threadPoolQueueLength   dotnetRuntimeGaugeAggregate
+	timerCount              dotnetRuntimeGaugeAggregate
+	assemblyCount           dotnetRuntimeGaugeAggregate
 }
 
 type dotnetRuntimeCounterKey struct {
@@ -69,11 +85,11 @@ func (c *dotnetRuntimeMetricsCollector) delete(values []string) {
 		}
 	}
 	for pid, current := range c.currentValues {
-		if runtimeMetricLabelTuple(current.labels) == baseLabels {
+		if current.labelTuple == baseLabels {
+			c.updateCurrentMetrics(current, nil)
 			delete(c.currentValues, pid)
 		}
 	}
-	c.setCurrentMetrics(labels[:len(labels)-1])
 }
 
 func (r *metricsReporter) collectDotnetRuntimeMetrics(snapshot runtimemetrics.RuntimeMetricSnapshot) {
@@ -85,8 +101,8 @@ func (r *metricsReporter) collectDotnetRuntimeMetrics(snapshot runtimemetrics.Ru
 	defer c.valuesMu.Unlock()
 	if snapshot.Removed {
 		if previous, exists := c.currentValues[snapshot.PID]; exists && previous.generation == snapshot.Generation {
+			c.updateCurrentMetrics(previous, nil)
 			delete(c.currentValues, snapshot.PID)
-			c.setCurrentMetrics(previous.labels)
 		}
 		for key := range c.values {
 			if key.pid == snapshot.PID && key.generation == snapshot.Generation {
@@ -112,16 +128,25 @@ func (r *metricsReporter) collectDotnetRuntimeMetrics(snapshot runtimemetrics.Ru
 		c.currentValues = make(map[app.PID]dotnetRuntimeCurrentValues)
 	}
 	previous, existed := c.currentValues[snapshot.PID]
-	c.currentValues[snapshot.PID] = dotnetRuntimeCurrentValues{
+	current := dotnetRuntimeCurrentValues{
 		generation: snapshot.Generation,
 		lastSeen:   c.clock(),
 		labels:     append([]string(nil), labels...),
+		labelTuple: runtimeMetricLabelTuple(labels),
 		values:     *snapshot.Dotnet,
 	}
-	if existed && runtimeMetricLabelTuple(previous.labels) != runtimeMetricLabelTuple(labels) {
-		c.setCurrentMetrics(previous.labels)
+	var oldValues runtimemetrics.DotnetRuntimeMetricSnapshot
+	if existed {
+		if previous.labelTuple == current.labelTuple {
+			oldValues = previous.values
+		} else {
+			c.updateCurrentMetrics(previous, nil)
+		}
 	}
-	c.setCurrentMetrics(labels)
+	c.currentValues[snapshot.PID] = current
+	replacement := current
+	replacement.values = oldValues
+	c.updateCurrentMetrics(replacement, &current.values)
 	labels = append(labels, "")
 	for generation, value := range snapshot.Dotnet.GCCollections {
 		if value == nil {
@@ -150,47 +175,63 @@ func (c *dotnetRuntimeMetricsCollector) expireCurrentMetrics() {
 	c.valuesMu.Lock()
 	defer c.valuesMu.Unlock()
 	now := c.clock()
-	expiredLabels := make(map[string][]string)
 	for pid, current := range c.currentValues {
 		if now.Sub(current.lastSeen) > c.ttl {
+			c.updateCurrentMetrics(current, nil)
 			delete(c.currentValues, pid)
-			expiredLabels[runtimeMetricLabelTuple(current.labels)] = current.labels
 		}
-	}
-	for _, labels := range expiredLabels {
-		c.setCurrentMetrics(labels)
 	}
 }
 
-func (c *dotnetRuntimeMetricsCollector) setCurrentMetrics(labels []string) {
-	key := runtimeMetricLabelTuple(labels)
+// updateCurrentMetrics runs with valuesMu held. Contributor counts keep reported
+// zero values distinct from metrics with no available process samples.
+func (c *dotnetRuntimeMetricsCollector) updateCurrentMetrics(entry dotnetRuntimeCurrentValues, next *runtimemetrics.DotnetRuntimeMetricSnapshot) {
+	if next == nil {
+		next = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+	}
+	if c.currentAggregates == nil {
+		c.currentAggregates = make(map[string]*dotnetRuntimeCurrentAggregate)
+	}
+	aggregate := c.currentAggregates[entry.labelTuple]
+	if aggregate == nil {
+		aggregate = &dotnetRuntimeCurrentAggregate{}
+		c.currentAggregates[entry.labelTuple] = aggregate
+	}
+	available := false
 	for _, current := range []struct {
-		metric *Expirer[prometheus.Gauge]
-		value  func(*runtimemetrics.DotnetRuntimeMetricSnapshot) *int64
+		metric    *Expirer[prometheus.Gauge]
+		aggregate *dotnetRuntimeGaugeAggregate
+		value     *int64
+		next      *int64
 	}{
-		{c.processMemoryWorkingSet, func(v *runtimemetrics.DotnetRuntimeMetricSnapshot) *int64 { return v.ProcessMemoryWorkingSet }},
-		{c.gcCommittedMemory, func(v *runtimemetrics.DotnetRuntimeMetricSnapshot) *int64 { return v.GCCommittedMemory }},
-		{c.threadPoolThreadCount, func(v *runtimemetrics.DotnetRuntimeMetricSnapshot) *int64 { return v.ThreadPoolThreadCount }},
-		{c.threadPoolQueueLength, func(v *runtimemetrics.DotnetRuntimeMetricSnapshot) *int64 { return v.ThreadPoolQueueLength }},
-		{c.timerCount, func(v *runtimemetrics.DotnetRuntimeMetricSnapshot) *int64 { return v.TimerCount }},
-		{c.assemblyCount, func(v *runtimemetrics.DotnetRuntimeMetricSnapshot) *int64 { return v.AssemblyCount }},
+		{c.processMemoryWorkingSet, &aggregate.processMemoryWorkingSet, entry.values.ProcessMemoryWorkingSet, next.ProcessMemoryWorkingSet},
+		{c.gcCommittedMemory, &aggregate.gcCommittedMemory, entry.values.GCCommittedMemory, next.GCCommittedMemory},
+		{c.threadPoolThreadCount, &aggregate.threadPoolThreadCount, entry.values.ThreadPoolThreadCount, next.ThreadPoolThreadCount},
+		{c.threadPoolQueueLength, &aggregate.threadPoolQueueLength, entry.values.ThreadPoolQueueLength, next.ThreadPoolQueueLength},
+		{c.timerCount, &aggregate.timerCount, entry.values.TimerCount, next.TimerCount},
+		{c.assemblyCount, &aggregate.assemblyCount, entry.values.AssemblyCount, next.AssemblyCount},
 	} {
-		var total float64
-		available := false
-		for _, entry := range c.currentValues {
-			if runtimeMetricLabelTuple(entry.labels) != key {
-				continue
-			}
-			if value := current.value(&entry.values); value != nil {
-				total += float64(*value)
-				available = true
-			}
+		if current.value != nil {
+			current.aggregate.sum -= float64(*current.value)
+			current.aggregate.contributors--
 		}
-		if available {
-			current.metric.WithLabelValues(labels...).Metric.Set(total)
+		if current.aggregate.contributors == 0 {
+			current.aggregate.sum = 0
+		}
+		if current.next != nil {
+			current.aggregate.sum += float64(*current.next)
+			current.aggregate.contributors++
+		}
+		if current.aggregate.contributors > 0 {
+			available = true
+			current.metric.WithLabelValues(entry.labels...).Metric.Set(current.aggregate.sum)
 		} else {
-			current.metric.DeleteLabelValues(labels...)
+			current.aggregate.sum = 0
+			current.metric.DeleteLabelValues(entry.labels...)
 		}
+	}
+	if !available {
+		delete(c.currentAggregates, entry.labelTuple)
 	}
 }
 

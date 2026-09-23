@@ -73,8 +73,19 @@ type dotnetRuntimeMetrics struct {
 	timerCount              instrument.Int64UpDownCounter
 	assemblyCount           instrument.Int64UpDownCounter
 	values                  map[app.PID]*dotnetRuntimeMetricValues
+	activeCurrent           dotnetRuntimeMetricCounts
 	clock                   expire.Clock
+	lastExpiration          time.Time
 	ttl                     time.Duration
+}
+
+type dotnetRuntimeMetricCounts struct {
+	processMemoryWorkingSet int
+	gcCommittedMemory       int
+	threadPoolThreadCount   int
+	threadPoolQueueLength   int
+	timerCount              int
+	assemblyCount           int
 }
 
 type dotnetRuntimeMetricValues struct {
@@ -557,7 +568,6 @@ func recordDotnetRuntimeMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 		if previous != nil && previous.generation == snapshot.Generation {
 			recordDotnetCurrentMetrics(ctx, metrics, previous, &runtimemetrics.DotnetRuntimeMetricSnapshot{})
 			delete(metrics.values, snapshot.PID)
-			removeEmptyDotnetCurrentMetrics(ctx, metrics)
 		}
 		return
 	}
@@ -573,7 +583,6 @@ func recordDotnetRuntimeMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 	}
 	previous.lastSeen = metrics.clock()
 	recordDotnetCurrentMetrics(ctx, metrics, previous, snapshot.Dotnet)
-	removeEmptyDotnetCurrentMetrics(ctx, metrics)
 	for generation, count := range snapshot.Dotnet.GCCollections {
 		if count == nil {
 			continue
@@ -590,17 +599,18 @@ func expireDotnetCurrentMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 		return
 	}
 	now := metrics.clock()
-	expired := false
+	// Sweep on incoming samples at TTL intervals; stale contributions can remain
+	// for another interval until the next sweep.
+	if !metrics.lastExpiration.IsZero() && now.Sub(metrics.lastExpiration) <= metrics.ttl {
+		return
+	}
+	metrics.lastExpiration = now
 	for _, previous := range metrics.values {
 		if previous.lastSeen.IsZero() || now.Sub(previous.lastSeen) <= metrics.ttl {
 			continue
 		}
 		recordDotnetCurrentMetrics(ctx, metrics, previous, &runtimemetrics.DotnetRuntimeMetricSnapshot{})
 		previous.lastSeen = time.Time{}
-		expired = true
-	}
-	if expired {
-		removeEmptyDotnetCurrentMetrics(ctx, metrics)
 	}
 }
 
@@ -609,45 +619,28 @@ func recordDotnetCurrentMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 		metric   instrument.Int64UpDownCounter
 		previous **int64
 		value    *int64
+		active   *int
 	}{
-		{metrics.processMemoryWorkingSet, &previous.processMemoryWorkingSet, values.ProcessMemoryWorkingSet},
-		{metrics.gcCommittedMemory, &previous.gcCommittedMemory, values.GCCommittedMemory},
-		{metrics.threadPoolThreadCount, &previous.threadPoolThreadCount, values.ThreadPoolThreadCount},
-		{metrics.threadPoolQueueLength, &previous.threadPoolQueueLength, values.ThreadPoolQueueLength},
-		{metrics.timerCount, &previous.timerCount, values.TimerCount},
-		{metrics.assemblyCount, &previous.assemblyCount, values.AssemblyCount},
+		{metrics.processMemoryWorkingSet, &previous.processMemoryWorkingSet, values.ProcessMemoryWorkingSet, &metrics.activeCurrent.processMemoryWorkingSet},
+		{metrics.gcCommittedMemory, &previous.gcCommittedMemory, values.GCCommittedMemory, &metrics.activeCurrent.gcCommittedMemory},
+		{metrics.threadPoolThreadCount, &previous.threadPoolThreadCount, values.ThreadPoolThreadCount, &metrics.activeCurrent.threadPoolThreadCount},
+		{metrics.threadPoolQueueLength, &previous.threadPoolQueueLength, values.ThreadPoolQueueLength, &metrics.activeCurrent.threadPoolQueueLength},
+		{metrics.timerCount, &previous.timerCount, values.TimerCount, &metrics.activeCurrent.timerCount},
+		{metrics.assemblyCount, &previous.assemblyCount, values.AssemblyCount, &metrics.activeCurrent.assemblyCount},
 	} {
 		if current.value != nil {
+			if *current.previous == nil {
+				(*current.active)++
+			}
 			recordCurrentRuntimeMetric(ctx, current.metric, current.previous, current.value)
 		} else if *current.previous != nil {
 			zero := int64(0)
 			recordCurrentRuntimeMetric(ctx, current.metric, current.previous, &zero)
 			*current.previous = nil
-		}
-	}
-}
-
-func removeEmptyDotnetCurrentMetrics(ctx context.Context, metrics *dotnetRuntimeMetrics) {
-	for _, current := range []struct {
-		metric instrument.Int64UpDownCounter
-		value  func(*dotnetRuntimeMetricValues) *int64
-	}{
-		{metrics.processMemoryWorkingSet, func(v *dotnetRuntimeMetricValues) *int64 { return v.processMemoryWorkingSet }},
-		{metrics.gcCommittedMemory, func(v *dotnetRuntimeMetricValues) *int64 { return v.gcCommittedMemory }},
-		{metrics.threadPoolThreadCount, func(v *dotnetRuntimeMetricValues) *int64 { return v.threadPoolThreadCount }},
-		{metrics.threadPoolQueueLength, func(v *dotnetRuntimeMetricValues) *int64 { return v.threadPoolQueueLength }},
-		{metrics.timerCount, func(v *dotnetRuntimeMetricValues) *int64 { return v.timerCount }},
-		{metrics.assemblyCount, func(v *dotnetRuntimeMetricValues) *int64 { return v.assemblyCount }},
-	} {
-		available := false
-		for _, values := range metrics.values {
-			if current.value(values) != nil {
-				available = true
-				break
+			(*current.active)--
+			if *current.active == 0 {
+				current.metric.Remove(ctx)
 			}
-		}
-		if !available {
-			current.metric.Remove(ctx)
 		}
 	}
 }

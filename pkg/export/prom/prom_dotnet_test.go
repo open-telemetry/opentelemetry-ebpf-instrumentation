@@ -226,6 +226,33 @@ func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
 	publish(other)
 	assertValues("orders-worker", nil)
 	assertValues("renamed-worker", &expected)
+
+	// Each metric retains its own contributors, including reported zero.
+	snapshot.Service = other.Service
+	snapshot.Dotnet = values(3)
+	publish(snapshot)
+	other.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{AssemblyCount: new(int64)}
+	publish(other)
+	for _, name := range []string{
+		attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetAssemblyCount.Prom,
+	} {
+		point := gatheredMetric(t, registry, name, map[string]string{"service_name": "renamed-worker"})
+		require.NotNil(t, point)
+		require.InDelta(t, 3, point.GetGauge().GetValue(), 0)
+	}
+	snapshot.Removed = true
+	publish(snapshot)
+	require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom,
+		map[string]string{"service_name": "renamed-worker"}))
+	point := gatheredMetric(t, registry, attributes.DotnetAssemblyCount.Prom,
+		map[string]string{"service_name": "renamed-worker"})
+	require.NotNil(t, point)
+	require.Zero(t, point.GetGauge().GetValue())
+	other.Removed = true
+	publish(other)
+	require.Nil(t, gatheredMetric(t, registry, attributes.DotnetAssemblyCount.Prom,
+		map[string]string{"service_name": "renamed-worker"}))
+	require.Empty(t, reporter.dotnetRuntimeMetrics.currentAggregates)
 }
 
 func TestDotnetRuntimeDeleteMatchesExactLabels(t *testing.T) {
