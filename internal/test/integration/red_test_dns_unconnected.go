@@ -218,7 +218,7 @@ func testDNSSpanReportsEveryAnswer(t *testing.T, service string) {
 	var span jaeger.Span
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&operation=" + url.QueryEscape(operation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + service + "&operation=" + url.QueryEscape(operation))
 		require.NoError(ct, err)
 		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)

@@ -17,11 +17,13 @@ expected:
       gen_ai.operation.name: message
       gen_ai.system_instructions: '[{"type":"text","content":"You are a helpful assistant that always responds in haiku format."}]'
       gen_ai.response.model: claude-sonnet-4-6
-  # Error returned by Anthropic
+  # Error returned by Anthropic. The operation comes from the request path, so a
+  # failed call reports the same operation as a successful one on that endpoint.
   - traceql: '{ .error.type = "authentication_error" && .gen_ai.request.model = "claude-sonnet-4-6"}'
-    equals: error claude-sonnet-4-6
+    equals: message claude-sonnet-4-6
     attributes:
       gen_ai.provider.name: anthropic
+      gen_ai.operation.name: message
   # Stream
   - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_017VX1VDFNbm2uGebyvLmHwv"}'
     equals: message claude-sonnet-4-6

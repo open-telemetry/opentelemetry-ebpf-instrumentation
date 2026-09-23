@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<routes xmlns="http://symfony.com/schema/routing">
+  <route id="status" path="/status"/>
+  <import resource="imports/admin.xml" prefix="/api"/>
+  <import resource="../src/Controller/" type="attribute" prefix="/v1"/>
+</routes>

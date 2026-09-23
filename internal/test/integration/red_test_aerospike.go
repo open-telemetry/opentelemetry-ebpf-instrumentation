@@ -57,7 +57,7 @@ func testREDMetricsForAerospikeLibrary(t *testing.T, testCase TestCase) {
 	// span name (jaeger "operation") is "{db.operation.name} {db.namespace}.{db.collection.name}".
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(span.Name))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(span.Name))
 			require.NoError(ct, err, "failed to query jaeger for %s", span.Name)
 			if resp == nil {
 				return

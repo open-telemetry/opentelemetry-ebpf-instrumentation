@@ -223,6 +223,24 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "5.0", fileInfo.ServiceAttrs().Metadata[serviceVersion])
 	})
 
+	t.Run("fastapi parent config supplies application directory", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "workspace", "orders", "server.py"), "")
+		writePythonFile(t, filepath.Join(root, "workspace", "orders", "pyproject.toml"), strings.Join([]string{
+			"[tool.fastapi]",
+			"entrypoint = 'server:app'",
+		}, "\n"))
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "workspace", "orders", "subdir"), 0o755))
+		fileInfo := mockPythonProcess(t, root, "fastapi", []string{"run"}, nil, "/workspace/orders/subdir")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("flask automatic app associates project", func(t *testing.T) {
 		root, err := filepath.EvalSymlinks(t.TempDir())
 		require.NoError(t, err)
@@ -363,6 +381,22 @@ func TestResolveServiceMetadata(t *testing.T) {
 		assert.Equal(t, "orders-worker", fileInfo.ServiceAttrs().UID.Name)
 	})
 
+	t.Run("gunicorn name wins over target directory", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		appDir := "/workspace/python-travel-agent"
+		writePythonFile(t, filepath.Join(root, appDir, "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "gunicorn", []string{
+			"--name", "orders-worker", "server:app",
+		}, nil, appDir)
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "orders-worker", fileInfo.ServiceAttrs().UID.Name)
+	})
+
 	t.Run("generic script remains unnamed", func(t *testing.T) {
 		root, err := filepath.EvalSymlinks(t.TempDir())
 		require.NoError(t, err)
@@ -374,6 +408,60 @@ func TestResolveServiceMetadata(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "main", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("generic target uses application directory", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		appDir := "/workspace/python-travel-agent"
+		writePythonFile(t, filepath.Join(root, appDir, "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"server:app"}, nil, appDir)
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "python-travel-agent", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("generic target in src uses application directory", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		appDir := "/workspace/python-travel-agent"
+		writePythonFile(t, filepath.Join(root, appDir, "src", "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "uvicorn", []string{"src.server:app"}, nil, appDir)
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, "python-travel-agent", fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("low quality target directory remains unnamed", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "unknown", "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "python", []string{"server.py"}, nil, "/unknown")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
+	})
+
+	t.Run("process root is not a service name", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+
+		writePythonFile(t, filepath.Join(root, "server.py"), "")
+		fileInfo := mockPythonProcess(t, root, "python", []string{"server.py"}, nil, "/")
+
+		err = ResolveServiceMetadata(fileInfo)
+
+		require.NoError(t, err)
+		assert.Empty(t, fileInfo.ServiceAttrs().UID.Name)
 	})
 
 	t.Run("missing exact script does not borrow project metadata", func(t *testing.T) {
@@ -840,16 +928,6 @@ func TestResolveTargetPathMatchesPython(t *testing.T) {
 		assert.Empty(t, path)
 		assert.Empty(t, target)
 	})
-}
-
-func TestProjectFileLimit(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "pyproject.toml")
-	require.NoError(t, os.WriteFile(path, make([]byte, maxProjectFileBytes+1), 0o644))
-
-	file, found, _ := readProjectFile(path)
-
-	assert.True(t, found)
-	require.Nil(t, file)
 }
 
 func mockPythonProcess(

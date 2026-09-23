@@ -19,7 +19,7 @@ services:
     volumes:
       - ./components/php/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf
       - ./components/php/php.ini:/usr/local/etc/php/php.ini
-      - ./components/php/:/var/www/html
+      - ./components/php/index.php:/var/www/html/index.php
     environment:
       PM_STRATEGY: static
       PM_MAX_CHILDREN: 100
@@ -32,6 +32,71 @@ services:
       PM_MIN_SPARE_SERVERS: 5
       PM_MAX_SPARE_SERVERS: 20
       PM_PROCESS_IDLE_TIMEOUT: 10s
+
+  php-harvest-nginx:
+    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    mem_limit: 128m
+    container_name: hatest-php-harvest-nginx
+    ports:
+      - "8082:80"
+      - "8083:81"
+      - "8084:82"
+    volumes:
+      - ./components/php/harvest/nginx.conf:/etc/nginx/nginx.conf
+      - ./components/php/harvest/laravel/public:/var/www/laravel/public:ro
+      - ./components/php/harvest/symfony/public:/var/www/symfony-harvest/public:ro
+      - ./components/php/harvest/slim/public:/var/www/slim/public:ro
+    depends_on:
+      - php-harvest-laravel
+      - php-harvest-symfony
+      - php-harvest-slim
+
+  php-harvest-laravel:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/laravel/Dockerfile
+    image: hatest-php-harvest-laravel
+    mem_limit: 256m
+    container_name: hatest-php-harvest-laravel
+    environment:
+      APP_DEBUG: "true"
+      LOG_CHANNEL: stderr
+
+  php-harvest-symfony:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/symfony/Dockerfile
+    image: hatest-php-harvest-symfony
+    mem_limit: 256m
+    container_name: hatest-php-harvest-symfony
+
+  php-harvest-slim:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/harvest/slim/Dockerfile
+    image: hatest-php-harvest-slim
+    mem_limit: 256m
+    container_name: hatest-php-harvest-slim
+
+  symfony-nginx:
+    image: nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942
+    mem_limit: 128m
+    container_name: hatest-symfony-nginx
+    ports:
+      - "8081:80"
+    volumes:
+      - ./components/php/symfony/nginx.conf:/etc/nginx/nginx.conf
+      - ./components/php/symfony/public:/var/www/symfony/public:ro
+    depends_on:
+      - symfony-php-fpm
+
+  symfony-php-fpm:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/php/symfony/Dockerfile
+    image: hatest-php-symfony
+    mem_limit: 256m
+    container_name: hatest-symfony-php-fpm
 
   obi:
     build:
@@ -56,16 +121,21 @@ services:
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES: "service.version"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
     depends_on:
       nginx:
         condition: service_started
+      php-harvest-nginx:
+        condition: service_started
+      symfony-nginx:
+        condition: service_started
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
     container_name: otel-col
     deploy:
       resources:
@@ -99,7 +169,7 @@ services:
     image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus
     command:
-      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --config.file=/etc/prometheus/prometheus-config-no-scrape.yml
       - --web.enable-lifecycle
       - --web.route-prefix=/
       - --log.level=debug
@@ -109,7 +179,7 @@ services:
       - "9090:9090"
 
   jaeger:
-    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    image: jaegertracing/jaeger:2.21.0@sha256:3d0ac795ff98aa04d1be04311d2dac6c25b4bfc8322dc02e53bc5b170c5018c3
     ports:
       - "16686:16686" # Query frontend
       - "4317:4317" # OTEL GRPC traces collector

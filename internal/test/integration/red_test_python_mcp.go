@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 // mcpCall sends a JSON-RPC 2.0 MCP request over HTTP and returns the response.
@@ -77,7 +78,7 @@ func mcpNotify(url, method string, params any, headers ...string) error {
 
 // mcpInitSession performs the MCP initialization handshake and returns the
 // session ID assigned by the server. It retries until the server is ready.
-func mcpInitSession(t *testing.T, address string) string {
+func mcpInitSession(t *testing.T, address string) string { //nolint:unparam // every suite drives the same endpoint; the address stays explicit at the call site
 	t.Helper()
 	var sessionID string
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -121,7 +122,7 @@ func testPythonMCPServer(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -169,7 +170,7 @@ func testPythonMCPServer(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -220,7 +221,7 @@ func testPythonMCPInitialize(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -278,7 +279,7 @@ func testPythonMCPClient(t *testing.T) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		resp.Body.Close()
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -335,7 +336,7 @@ func testPythonMCPClientResource(t *testing.T) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		resp.Body.Close()
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -361,4 +362,46 @@ func testPythonMCPClientResource(t *testing.T) {
 		)
 		assert.Empty(ct, sd, sd.String())
 	}, testTimeout, 500*time.Millisecond)
+}
+
+// testPythonMCPMetrics covers what the span tests above cannot: that an MCP
+// exchange reaches the semconv MCP duration histograms rather than the generic
+// HTTP ones it would otherwise fall through to.
+func testPythonMCPMetrics(t *testing.T) {
+	const address = "http://localhost:8381/mcp"
+
+	sessionID := mcpInitSession(t, address)
+
+	// The remote-weather tool calls get-weather on a second MCP server, so one
+	// request produces both a server-side and a client-side MCP operation.
+	for range 4 {
+		resp, err := mcpCall(address, "tools/call", 30,
+			map[string]any{"name": "remote-weather", "arguments": map[string]any{}},
+			"Mcp-Session-Id", sessionID)
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{"server side", `mcp_server_operation_duration_seconds_count{` +
+			`mcp_method_name="tools/call",` +
+			`service_namespace="integration-test"}`},
+		{"client side", `mcp_client_operation_duration_seconds_count{` +
+			`mcp_method_name="tools/call",` +
+			`gen_ai_tool_name="get-weather",` +
+			`service_namespace="integration-test"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				results, err := pq.Query(tc.query)
+				require.NoError(ct, err)
+				enoughPromResults(ct, results)
+				assert.LessOrEqual(ct, 1, totalPromCount(ct, results))
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
 }

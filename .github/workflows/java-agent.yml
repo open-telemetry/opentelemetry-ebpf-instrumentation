@@ -68,13 +68,13 @@ jobs:
 
       - name: Set up JDK for running Gradle
         id: gradle-jdk
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version-file: pkg/internal/java/.java-version
 
       - name: Set up JDK ${{ matrix.test-java }} for testing
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: ${{ matrix.test-java }}
@@ -99,6 +99,23 @@ jobs:
         env:
           GRADLE_OPTS: -Dorg.gradle.java.home=${{ steps.gradle-jdk.outputs.path }}
         run: gradle build -x test --no-daemon --stacktrace
+
+      - name: Verify native libraries
+        run: |
+          set -Eeuo pipefail
+
+          agent_jar="build/obi-java-agent.jar"
+          entries_file="${RUNNER_TEMP}/obi-java-agent-entries.txt"
+          unzip -Z1 "${agent_jar}" > "${entries_file}"
+
+          for native_library in \
+            native/linux-amd64/libobijni.so \
+            native/linux-aarch64/libobijni.so; do
+            if ! grep -Fqx "${native_library}" "${entries_file}"; then
+              printf 'Missing %s from %s\n' "${native_library}" "${agent_jar}" >&2
+              exit 1
+            fi
+          done
 
       - name: Run tests on JDK ${{ matrix.test-java }}
         env:

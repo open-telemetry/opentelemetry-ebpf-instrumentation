@@ -25,7 +25,7 @@ func testSelectiveExports(t *testing.T) {
 
 	getTraces := func(service string, path string) []jaeger.Trace {
 		query := "http://localhost:16686/api/traces?service=" + service
-		resp, err := http.Get(query)
+		resp, err := getJaeger(query)
 		require.NoError(t, err)
 
 		if resp == nil {

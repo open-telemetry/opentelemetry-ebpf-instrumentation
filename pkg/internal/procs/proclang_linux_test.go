@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -174,4 +175,53 @@ func main() {
 	require.NoError(t, err)
 
 	return f
+}
+
+// The symbols are matched through the same fastelf scan that runs in
+// production, which admits only defined, sized STT_FUNC entries in .symtab or
+// .dynsym. A table of hand-written mangled names cannot catch a Node build
+// whose node:: symbols are undefined imports or STT_OBJECT, so the real
+// executable is typed here rather than the strings it is expected to contain.
+func TestFindLanguageFromElf_NodeBinary(t *testing.T) {
+	path, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not found in PATH")
+	}
+
+	resolved, err := filepath.EvalSymlinks(path)
+	require.NoError(t, err)
+
+	if isLauncherForSharedRuntime(t, resolved) {
+		t.Skip("this node links the runtime as libnode.so, which the shared-library pass types")
+	}
+
+	assert.Equal(t, svc.InstrumentableNodejs, findLanguageFromElf(resolved))
+}
+
+func TestFindLanguageFromElf_NonNodeExecutable(t *testing.T) {
+	self, err := os.Executable()
+	require.NoError(t, err)
+
+	assert.NotEqual(t, svc.InstrumentableNodejs, findLanguageFromElf(self))
+}
+
+func isLauncherForSharedRuntime(t *testing.T, path string) bool {
+	t.Helper()
+
+	f, err := elf.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	libs, err := f.ImportedLibraries()
+	if err != nil {
+		return false
+	}
+
+	for _, lib := range libs {
+		if strings.Contains(lib, "libnode.so") {
+			return true
+		}
+	}
+
+	return false
 }

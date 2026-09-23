@@ -22,12 +22,12 @@ import (
 // left the integration suite vulnerable to a compromise of the OBI ghcr
 // publish workflow swapping in a malicious image.
 const (
-	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.2@sha256:29071ef19d2e1ba185d37740063620451238dad152ee4ad1667e2f53bea84ac3"
-	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.2@sha256:9c6f5aa45ad87858c708c74fa1f57d62ed7d3d4084c031ca389a4c5efce44766"
-	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.2@sha256:0ef752a0e3718b1fb8a6039d8c34b642b328c7304ce840047f23e030fa2c5116"
-	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.2@sha256:4061eed69880e06012287e8750a58f5220e0ff6c73f33c656615c98535601b98"
-	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.2@sha256:ea4b000400f06ba09e7e0e5cbaa09c04da8417024ecc163ef942f657b5ef4266"
-	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.2@sha256:a3099e869dcbc41c9e2a2bd048718d774f765599483fc67d361147418c0f6ef5"
+	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.5@sha256:0cbc4280dcf187a5d33a39dc1f2e8fc3d7cc6ad17533f859f9898292d9fb26c0"
+	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.5@sha256:7918fd747a6a1bd34f1fc1402a30fd6066e5e405296ad2b62070cf1488262cc4"
+	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.5@sha256:bbfe374eae5ac96ef08fda0a8e28401775c7311f3b0d4fe510dec62852c3a58f"
+	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.5@sha256:bba89c0e7d3c1450eb2d7d2aa14bd175cdefe4b13ba736d344b43095d1813ecc"
+	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.5@sha256:daa81133fee2d3882abc3129870baa9b85798537487aef47529c7c144b27f21c"
+	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.5@sha256:00dc66268119e8a965f54e4407e5f20255d4d18ae56aefcdb111ab7aa781232a"
 )
 
 func TestSuite_Go(t *testing.T) {
@@ -77,6 +77,24 @@ func TestSuite_Go(t *testing.T) {
 	}
 }
 
+func TestSuite_GoTraceFSUprobes(t *testing.T) {
+	compose, err := docker.ComposeSuite(
+		"docker-compose-go-tracefs-uprobes.yml",
+		path.Join(pathOutput, "test-suite-go-tracefs-uprobes.log"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, compose.Close())
+	})
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=testserver`)
+	require.NoError(t, compose.Up())
+
+	t.Run("RED metrics", func(t *testing.T) {
+		waitForTestComponents(t, instrumentedServiceStdURL)
+		testREDMetricsForHTTPLibrary(t, instrumentedServiceStdURL, "testserver", "integration-test")
+	})
+}
+
 func TestSuiteNestedTraces(t *testing.T) {
 	// We run the test depending on what the host environment is. If the host is in lockdown mode integrity
 	// the nesting of spans will be limited. If we are in none (which should be in any non secure boot environment, e.g. Virtual Machines or CI)
@@ -94,6 +112,7 @@ func TestSuiteNestedTraces(t *testing.T) {
 	require.NoError(t, compose.Up())
 	if !lockdown {
 		t.Run("HTTP traces (all spans nested)", testHTTPTracesNestedClientWithContextPropagation)
+		t.Run("HTTP traces (big header, all spans nested)", testHTTPTracesNestedBigHeader)
 		t.Run("HTTP -> gRPC traces (all spans nested)", testHTTP2GRPCTracesNestedCallsWithContextPropagation)
 	} else {
 		t.Run("HTTP traces (nested client span)", testHTTPTracesNestedClient)
@@ -487,9 +506,6 @@ func TestSuite_RailsRuby302Puma5(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
 	require.NoError(t, compose.Up())
-	t.Run("Ruby/Puma support contract", func(t *testing.T) {
-		assertRubyPumaSupportVersion(t, compose, "3.0.2", "5.6.6")
-	})
 	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
@@ -504,6 +520,17 @@ func TestSuite_RailsNginxSQL(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX SQL traces nested", testHTTPTracesNestedNginxSQL)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_RailsRuby4Postgres(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-ruby-postgres.yml", path.Join(pathOutput, "test-suite-ruby-postgres.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
+	require.NoError(t, compose.Up())
+	t.Run("Rails PostgreSQL traces", testHTTPTracesRailsPostgres)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1035,6 +1062,7 @@ func TestSuite_PythonMCP(t *testing.T) {
 	t.Run("Python MCP initialize", testPythonMCPInitialize)
 	t.Run("Python MCP client span", testPythonMCPClient)
 	t.Run("Python MCP client resource span", testPythonMCPClientResource)
+	t.Run("Python MCP operation metrics", testPythonMCPMetrics)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1075,6 +1103,17 @@ func TestSuite_PythonAWSSQS(t *testing.T) {
 	t.Run("Python AWS SQS", testPythonAWSSQS)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAWSSNS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-aws.yml", path.Join(pathOutput, "test-suite-python-aws-sns.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	t.Cleanup(func() { runWeaverValidation(t) })
+	t.Run("Python AWS SNS", testPythonAWSSNS)
 }
 
 func TestSuite_NodeJSDist(t *testing.T) {

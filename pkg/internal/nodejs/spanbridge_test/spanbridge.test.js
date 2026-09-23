@@ -42,6 +42,34 @@ test('SDK already registered before injection: bridge stays inert', () => {
   assert.deepStrictEqual(r.app, ['s1'], 'the app SDK captures its own span');
 });
 
+// Every other test in this suite stubs the transport, so this is the only
+// place the real fs.existsSync runs. The whole mechanism rests on it answering
+// a path that cannot resolve by returning rather than throwing, and this file
+// runs on the CI Node matrix, so that assumption is checked per version here
+// instead of only in the author's harness.
+test('the real fs.existsSync answers a sentinel path without throwing', () => {
+  const realFs = require('fs');
+  let threw = null;
+  let result;
+  try {
+    result = realFs.existsSync('/dev/null/obi-span/{"name":"probe"}');
+  } catch (e) {
+    threw = String((e && e.message) || e);
+  }
+  assert.strictEqual(threw, null, 'fs.existsSync must not throw on a sentinel path');
+  assert.strictEqual(result, false, 'a sentinel path must not resolve');
+});
+
+test('throwing transport: span.end() never throws into the app', () => {
+  // fs.existsSync does not throw for a path that simply does not exist, but it
+  // can under Node's permission model. The guard around the emit is the only
+  // thing keeping that out of application code, so it is exercised here rather
+  // than left to the transport never failing.
+  const r = runScenario('throwing-transport');
+  assert.strictEqual(r.threw, null, 'span.end() must not throw when the transport does');
+  assert.deepStrictEqual(r.bridge, ['s1'], 'the span is still emitted before the transport fails');
+});
+
 test('hostile attribute/name: span.end() never throws into the app', () => {
   // A value whose toString() throws must not escape span.end() — the baseline
   // (no SDK) is a silent NoopSpan, so a throw here would be a regression that

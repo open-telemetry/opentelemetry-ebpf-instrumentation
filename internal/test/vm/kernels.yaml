@@ -20,81 +20,81 @@
 
 kernels:
   - id: "5.10-lts"
-    lvh_tag: "5.10-20260831.012453"
-    digest: "sha256:930f47e5b9323b7b5c5c72c6e912ca342cf10835b1bb4e7371da13dc640481ea"
+    lvh_tag: "5.10-20260921.012558"
+    digest: "sha256:ed58b64a61987a96cf2255f33e941aafa24960840e32ebcadbc66a87f1fb7726"
     pr_integration: false
     pr_verifier: true
 
   # Same 5.10 kernel; boots cgroupv1-only to exercise self-mount.
   - id: "5.10-lts-cgv1"
-    lvh_tag: "5.10-20260831.012453"
-    digest: "sha256:930f47e5b9323b7b5c5c72c6e912ca342cf10835b1bb4e7371da13dc640481ea"
+    lvh_tag: "5.10-20260921.012558"
+    digest: "sha256:ed58b64a61987a96cf2255f33e941aafa24960840e32ebcadbc66a87f1fb7726"
     pr_integration: false
     pr_verifier: false
     cgroup_mode: "legacy"
 
   - id: "5.15-lts"
-    lvh_tag: "5.15-20260831.012453"
-    digest: "sha256:4dd16ce7d56d4692624698dbce3a999f0e7d77ea9859ebf865abcb10bd55613f"
+    lvh_tag: "5.15-20260921.012558"
+    digest: "sha256:c07feccd0c833efd899e43c494a2b12f6fc7925574476e5c348394accc651a02"
     pr_integration: true
     pr_verifier: true
 
   - id: "6.1-lts"
-    lvh_tag: "6.1-20260831.012453"
-    digest: "sha256:06243118bf998055a1ea3e12a9ac8a12b7e8c2acc86eb8a67a6a238b3cea3998"
+    lvh_tag: "6.1-20260921.012558"
+    digest: "sha256:8775ad49b3bc9e5f30b134f081ddf305bbd761084116768866918fe421e548e0"
     pr_integration: false
     pr_verifier: true
 
   - id: "6.6-lts"
-    lvh_tag: "6.6-20260831.012453"
-    digest: "sha256:f6ce01c616380cc5149fb8d1a4d43d98d0d26f867cce7c96b3f3076164148b21"
+    lvh_tag: "6.6-20260921.012558"
+    digest: "sha256:b30a5bffdcdfd69e8cc1d147d13dc9d31ac993316e5e2f34db6c20e8b5a75db6"
     pr_integration: false
     pr_verifier: true
 
   - id: "6.12-lts"
-    lvh_tag: "6.12-20260831.012453"
-    digest: "sha256:e074df2f0335193a7f6a37100084f19f65df1256338645275a063f787cb13f44"
+    lvh_tag: "6.12-20260921.012558"
+    digest: "sha256:0011d62b6675c5b1b36da3805f989c8443cd80259a9bdd814c34f25320fc67a0"
     pr_integration: false
     pr_verifier: true
 
   - id: "6.18-lts"
-    lvh_tag: "6.18-20260831.012453"
-    digest: "sha256:2412a3f0027752492d1ef82c588eb7957b4ce4eb3a5393ec51fb12beda2ebdf0"
+    lvh_tag: "6.18-20260921.012558"
+    digest: "sha256:756c37658d791ed78ecc4ee8a327cf18291bfea14360ef11030082a34453afb7"
     pr_integration: true
     pr_verifier: true
 
   - id: "7.2"
-    lvh_tag: "7.2-20260831.012453"
-    digest: "sha256:7534768ff79913cacaacaca9fc18372e52de3a41e9d9a37403d493db47f80e36"
+    lvh_tag: "7.2-20260921.012558"
+    digest: "sha256:e058243d375528e8ace4b371ae1abcd1496fcef893ea54c81e8c5e8557ea369b"
     pr_integration: true
     pr_verifier: true
 
   - id: "bpf"
-    lvh_tag: "bpf-20260831.012453"
-    digest: "sha256:764d1a97c6cc08e9213d4dd4a016ece95eb0e01fa9fd068b17b15c0902bae9c6"
+    lvh_tag: "bpf-20260921.012558"
+    digest: "sha256:a4622949e7a132e9e0974045f44934cce950c306945a0161f7c6052f71929209"
     pr_integration: false
     pr_verifier: true
 
   - id: "bpf-next"
-    lvh_tag: "bpf-next-20260831.012453"
-    digest: "sha256:4dc1f692e0d07f0485433925103fda45a750e02ee12f481755933c8c15daaace"
+    lvh_tag: "bpf-next-20260921.012558"
+    digest: "sha256:03cfc939f36a2e5eed8b047606bbd10b74e41c871bd71c8104c6c053b032b0c2"
     pr_integration: false
     pr_verifier: true
 
   - id: "rhel8.9"
-    lvh_tag: "rhel8.9-20260831.012453"
-    digest: "sha256:dec2123fda7486d5b4977a76b29eca3d5042a780d8c7f24563600ed066e61525"
+    lvh_tag: "rhel8.9-20260921.012558"
+    digest: "sha256:596ccd70be3403a2b9e26b4c0c60ae2e516389c210a96118ae42c18e43b13488"
     pr_integration: false
     pr_verifier: true
 
   - id: "rhel8.10"
-    lvh_tag: "rhel8.10-20260831.012453"
-    digest: "sha256:e1f435badf897b6922603404338f26c9ee75ac9a74a49579eb998d4355e7b641"
+    lvh_tag: "rhel8.10-20260921.012558"
+    digest: "sha256:14d24b7c86b05cf57497cbf8fce4acdb660b5427339f13c1e2ad3ac296222f34"
     pr_integration: false
     pr_verifier: true
 
   - id: "rhel9.6"
-    lvh_tag: "rhel9.6-20260831.012453"
-    digest: "sha256:f9c47b5995c8fb755a9d46ae05a5242eead03dee0cd4ec290368229e8bb945c6"
+    lvh_tag: "rhel9.6-20260921.012558"
+    digest: "sha256:ffc55151d94e71831800945c3dfac6450b6f2dfb27328752acc99d4c4de02dca"
     pr_integration: false
     pr_verifier: true

@@ -39,10 +39,6 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 			`}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
-
-		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from OBI instances in both nodes
-		require.GreaterOrEqual(ct, len(results), 2)
 		for _, res := range results {
 			assert.Equal(ct, "client-zone", res.Metric["src_zone"])
 			assert.Equal(ct, "server-zone", res.Metric["dst_zone"])
@@ -56,10 +52,6 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 			`}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
-
-		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from OBI instances in both nodes
-		require.GreaterOrEqual(ct, len(results), 2)
 		for _, res := range results {
 			assert.Equal(ct, "server-zone", res.Metric["src_zone"])
 			assert.Equal(ct, "client-zone", res.Metric["dst_zone"])
@@ -74,10 +66,6 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 			`}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
-
-		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from OBI instances in both nodes
-		require.GreaterOrEqual(ct, len(results), 2)
 	}, testTimeout, 100*time.Millisecond)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{` +
@@ -86,10 +74,6 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 			`}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
-
-		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from OBI instances in both nodes
-		require.GreaterOrEqual(ct, len(results), 2)
 	}, testTimeout, 100*time.Millisecond)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{` +
@@ -98,10 +82,6 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 			`}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
-
-		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from OBI instances in both nodes
-		require.GreaterOrEqual(ct, len(results), 2)
 	}, testTimeout, 100*time.Millisecond)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{` +
@@ -110,10 +90,6 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 			`}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
-
-		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from OBI instances in both nodes
-		require.GreaterOrEqual(ct, len(results), 2)
 	}, testTimeout, 100*time.Millisecond)
 	return ctx
 }

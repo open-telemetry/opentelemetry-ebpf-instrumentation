@@ -1,0 +1,156 @@
+# These spans are HTTP client calls OBI recognises by their payload. They do
+# not carry the HTTP request/response attributes: `httpClientTransportScope`
+# returns `httpTransportNone` for every GenAI subtype, which gates off
+# `url.*` and `http.request`/`http.response.*` in the exporter.
+#
+# The exporter has three disjoint GenAI paths and a span only ever takes one of
+# them, so each gets its own group rather than one union no span can satisfy:
+# an embeddings span cannot report `gen_ai.request.temperature`, and a provider
+# inference span cannot report `gen_ai.request.embedding.input_count`.
+#
+# MCP is not a GenAI operation here: `IsGenAISubtype` excludes it, and the
+# attributes only `mcpAttributes` emits (the `mcp.*` set, `gen_ai.tool.*`,
+# `gen_ai.prompt.name`) belong to `span.obi.mcp.client` instead.
+groups:
+  # Union across the provider inference flows: OpenAI, Anthropic, Gemini, Qwen,
+  # Ollama, OpenAI-compatible and AWS Bedrock. An attribute is `required` here
+  # only when every one of those providers emits it unconditionally.
+  #
+  # The OpenAI-shaped providers route their `/embeddings` endpoint through this
+  # path rather than through the dedicated embeddings subtype, which is why the
+  # two embedding attributes appear here too, conditioned on the operation.
+  - id: span.obi.gen_ai.inference.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI GenAI inference client span.
+    attributes:
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: gen_ai.response.id
+      - ref: gen_ai.conversation.id
+      - ref: gen_ai.request.temperature
+      - ref: gen_ai.request.top_p
+      - ref: gen_ai.request.top_k
+      - ref: gen_ai.request.max_tokens
+      - ref: gen_ai.request.frequency_penalty
+      - ref: gen_ai.request.presence_penalty
+      - ref: gen_ai.request.choice.count
+      - ref: gen_ai.request.seed
+      - ref: gen_ai.request.stop_sequences
+      # Anthropic, Gemini and Bedrock always report the flag; the OpenAI-shaped
+      # providers and Ollama report it only when the request asked to stream.
+      - ref: gen_ai.request.stream
+      - ref: gen_ai.usage.input_tokens
+      - ref: gen_ai.usage.output_tokens
+      - ref: gen_ai.usage.cache_read.input_tokens
+      - ref: gen_ai.usage.cache_creation.input_tokens
+      - ref: gen_ai.usage.reasoning.output_tokens
+      - ref: gen_ai.response.finish_reasons
+      - ref: gen_ai.output.type
+      - ref: gen_ai.embeddings.dimension.count
+      - ref: gen_ai.request.encoding_formats
+      - ref: gen_ai.input.messages
+      - ref: gen_ai.output.messages
+      - ref: gen_ai.system_instructions
+      - ref: gen_ai.tool.definitions
+      - ref: gen_ai.metadata
+      - ref: openai.request.service_tier
+      - ref: openai.response.service_tier
+      - ref: openai.response.system_fingerprint
+      - ref: openai.api.type
+      - ref: aws.bedrock.guardrail.id
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
+      - ref: span.metrics.skip
+
+  # The dedicated embeddings subtype, recognised from a provider-agnostic
+  # embeddings payload. Sampling and generation parameters have no meaning
+  # here, so none of the inference tuning attributes can appear.
+  - id: span.obi.gen_ai.embeddings.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI GenAI embeddings client span.
+    attributes:
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: gen_ai.usage.input_tokens
+      - ref: gen_ai.usage.output_tokens
+      - ref: gen_ai.embeddings.dimension.count
+      - ref: gen_ai.request.encoding_formats
+      - ref: gen_ai.request.embedding.input_count
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
+      - ref: span.metrics.skip
+
+  # Vector retrieval and rerank share this group: both describe a search over a
+  # document set rather than a model invocation, and neither reports the
+  # inference request parameters. The retrieval emitter reports the requested
+  # result count as the semconv `gen_ai.request.top_k`.
+  - id: span.obi.gen_ai.retrieval.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI GenAI vector-retrieval client span.
+    attributes:
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: gen_ai.response.id
+      - ref: gen_ai.usage.input_tokens
+      - ref: gen_ai.usage.output_tokens
+      - ref: gen_ai.data_source.id
+      - ref: gen_ai.input.messages
+      - ref: gen_ai.output.messages
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
+      - ref: span.metrics.skip
+
+  # Rerank is its own subtype with its own payload and emitter branch, and it
+  # reports gen_ai.operation.name as a fixed `rerank`. It carries no data source
+  # and no request top-k; retrieval carries neither of its top-n.
+  - id: span.obi.gen_ai.rerank.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI GenAI rerank client span.
+    attributes:
+      - ref: gen_ai.provider.name
+      - ref: gen_ai.operation.name
+      - ref: gen_ai.request.model
+      - ref: gen_ai.response.model
+      - ref: gen_ai.response.id
+      - ref: gen_ai.usage.input_tokens
+      - ref: gen_ai.usage.output_tokens
+      - ref: gen_ai.rerank.top_n
+      - ref: gen_ai.input.messages
+      - ref: gen_ai.output.messages
+      - ref: error.type
+      - ref: server.address
+      - ref: server.port
+      - ref: service.peer.name
+      - ref: network.peer.address
+      - ref: network.peer.port
+      - ref: network.protocol.version
+      - ref: span.metrics.skip

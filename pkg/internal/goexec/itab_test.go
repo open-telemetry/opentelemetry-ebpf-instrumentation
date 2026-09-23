@@ -106,14 +106,23 @@ func TestFindInterfaceImplsWithUngeneratedVersionAndCompatibleDWARF(t *testing.T
 }
 
 func TestLoadGeneratedGoRuntimeABI(t *testing.T) {
-	for _, goVersion := range []string{"1.27.1", "go1.27.1"} {
+	for _, goVersion := range []string{
+		"1.27.1",
+		"go1.27.1",
+		"go1.26.2-X:nodwarf5",
+	} {
 		t.Run(goVersion, func(t *testing.T) {
 			_, err := loadGeneratedGoRuntimeABI(goversion.MustParse(goVersion))
 			require.NoError(t, err)
 		})
 	}
 
-	for _, goVersion := range []string{"go1.27.999", "go999.0.0"} {
+	for _, goVersion := range []string{
+		"go1.26.2-custom",
+		"go1.26.2-X:arenas",
+		"go1.27.999",
+		"go999.0.0",
+	} {
 		t.Run(goVersion, func(t *testing.T) {
 			_, err := loadGeneratedGoRuntimeABI(goversion.MustParse(goVersion))
 			require.ErrorContains(t, err, "runtime ABI is not generated")

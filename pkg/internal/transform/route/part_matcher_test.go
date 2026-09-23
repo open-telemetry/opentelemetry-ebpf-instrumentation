@@ -76,6 +76,21 @@ func TestPartialRouteMatcherDotnetWildcards(t *testing.T) {
 	assert.Equal(t, "/files/{**path}", m.Find("/files/a/b/c"))
 }
 
+func TestPartialRouteMatcherSymfonyInlineConstraint(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{`/orders/{id<\d+>}`})
+
+	assert.Equal(t, `/orders/{id<\d+>}`, m.Find("/orders/42"))
+	assert.Empty(t, m.Find("/orders/42/history"))
+}
+
+func TestPartialRouteMatcherSymfonyInlineConstraintWithQuantifier(t *testing.T) {
+	// A regex quantifier, e.g. {4}, must not be mistaken for the outer
+	// "{...}" placeholder delimiters and reject the whole segment.
+	m := NewPartialRouteMatcher([]string{`/years/{year<\d{4}>}`})
+
+	assert.Equal(t, `/years/{year<\d{4}>}`, m.Find("/years/2026"))
+}
+
 func TestPartialRouteMatcherExactMatches(t *testing.T) {
 	m := NewPartialRouteMatcher([]string{
 		"/health",
@@ -448,8 +463,11 @@ func TestPartialMatcherPythonPathParams(t *testing.T) {
 	assert.Equal(t, "/api/files/<path:name>", m.Find("/api/files/a/b/c.txt"))
 }
 
-func TestMatcherSkipsNonTerminalPathParam(t *testing.T) {
-	m := NewMatcher([]string{"/files/{name:path}/metadata"})
+func TestMatcherNonTerminalPathParam(t *testing.T) {
+	routes := []string{"/files/{name:path}/metadata"}
+	complete := NewMatcher(routes)
+	partial := NewPartialRouteMatcher(routes)
 
-	assert.Empty(t, m.Find("/files/a/b/metadata"))
+	assert.Equal(t, routes[0], complete.Find("/files/a/b/metadata"))
+	assert.Empty(t, partial.Find("/files/a/b/metadata"))
 }

@@ -6,11 +6,27 @@ package promtest
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestQueryEscapesPromQLAsQueryValue(t *testing.T) {
+	const promQL = `http_server_request_duration_seconds_count{http_route="/items/{id:[a-z]+}"}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		assert.Equal(t, promQL, request.URL.Query().Get("query"))
+		_, err := writer.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		assert.NoError(t, err)
+	}))
+	defer server.Close()
+
+	client := Client{HostPort: strings.TrimPrefix(server.URL, "http://")}
+	_, err := client.Query(promQL)
+	require.NoError(t, err)
+}
 
 func TestScrape(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

@@ -49,13 +49,16 @@ func TestFilter(t *testing.T) {
 				Path:     "/metrics",
 				TTL:      time.Hour,
 			},
-			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo},
+			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo | export.FeatureStatsTCPSuccessfulConnections},
 			Attributes: obi.Attributes{Select: attributes.Selection{
 				attributes.StatTCPRtt.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
 				},
 				attributes.StatTCPFailedConnections.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port", "reason"},
+				},
+				attributes.StatTCPSuccessfulConnections.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port", "network_tcp_handshake_role"},
 				},
 				attributes.StatTCPRetransmits.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
@@ -98,6 +101,10 @@ func TestFilter(t *testing.T) {
 	}
 
 	ringBuf <- []*ebpf.Stat{
+		fakeSuccessfulConnRecord(444, 999, uint8(ebpf.CodeRoleClient)),
+	}
+
+	ringBuf <- []*ebpf.Stat{
 		fakeRetransmitRecord(777, 888),
 	}
 
@@ -116,6 +123,7 @@ func TestFilter(t *testing.T) {
 			switch m.Name {
 			case "obi_stat_tcp_rtt_seconds_count",
 				"obi_stat_tcp_failed_connections_total",
+				"obi_stat_tcp_successful_connections_total",
 				"obi_stat_tcp_retransmits_total",
 				"obi_stat_tcp_io_bytes_total",
 				"promhttp_metric_handler_errors_total":
@@ -133,6 +141,7 @@ func TestFilter(t *testing.T) {
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "8080", "src_port": "3333"}},
 			{Name: "obi_stat_tcp_failed_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "666", "src_port": "555", "reason": "refused"}},
 			{Name: "obi_stat_tcp_failed_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777", "reason": "timed-out"}},
+			{Name: "obi_stat_tcp_successful_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "999", "src_port": "444", "network_tcp_handshake_role": "client"}},
 			{Name: "obi_stat_tcp_retransmits_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777"}},
 			{Name: "obi_stat_tcp_io_bytes_total", Value: 1500, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "transmit"}},
 			{Name: "obi_stat_tcp_io_bytes_total", Value: 2000, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "receive"}},
@@ -158,6 +167,19 @@ func fakeFailedConnRecord(srcPort, dstPort uint16, reason uint8) *ebpf.Stat {
 	return &ebpf.Stat{
 		TCPFailedConnection: &ebpf.TCPFailedConnection{
 			Reason: reason,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func fakeSuccessfulConnRecord(srcPort, dstPort uint16, role uint8) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type: ebpf.StatTypeTCPSuccessfulConnection,
+		TCPSuccessfulConnection: &ebpf.TCPSuccessfulConnection{
+			Role: role,
 		},
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: srcPort,

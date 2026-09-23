@@ -16,7 +16,8 @@
       "bufio.Writer": ["buf", "n", "wr"],
       "net.TCPConn": ["conn"],
       "net.conn": ["fd"],
-      "net.netFD": ["laddr", "raddr"],
+      "net.netFD": ["laddr", "raddr", "pfd"],
+      "internal/poll.FD": ["Sysfd"],
       "net/http.persistConn": ["conn", "tlsState"],
       "net/http.conn": ["rwc", "tlsState"],
       "net/http.http2ClientConn": [
@@ -43,7 +44,7 @@
       "bufio.Reader": ["buf", "w"],
       "runtime.mstats": [
         "numgc",
-        "[1.23.0]heapStats",
+        "[1.17.0]heapStats",
         "[1.23.0]stacks_sys",
         "[1.23.0]mspan_sys",
         "[1.23.0]mcache_sys",
@@ -67,6 +68,7 @@
         "[1.23.0]smallFreeCount"
       ],
       "runtime.schedt": [
+        "goidgen",
         "ngsys",
         "gFree",
         "[1.20.0]timeToRun",
@@ -79,7 +81,7 @@
         "[1.20.0]underflow",
         "[1.20.0]overflow"
       ],
-      "runtime.workType": ["[1.23.0]cpuStats"],
+      "runtime.workType": ["[1.23.0]full", "[1.23.0]cpuStats"],
       "runtime.cpuStats": [
         "[1.23.0]GCAssistTime",
         "[1.23.0]GCDedicatedTime",

@@ -13,9 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -163,7 +165,7 @@ func TestOtlpOptions_AsTraceGRPC(t *testing.T) {
 	}
 }
 
-func TestParseOTELEnvVar(t *testing.T) {
+func TestParseProcessOTELEnvVar(t *testing.T) {
 	type testCase struct {
 		envVar   string
 		expected map[string]string
@@ -197,14 +199,14 @@ func TestParseOTELEnvVar(t *testing.T) {
 
 			t.Setenv(dummyVar, tc.envVar)
 
-			parseOTELEnvVar(nil, dummyVar, apply)
+			parseProcessOTELEnvVar(dummyVar, apply)
 
 			assert.True(t, reflect.DeepEqual(actual, tc.expected))
 		})
 	}
 }
 
-func TestParseOTELEnvVarPerService(t *testing.T) {
+func TestParseServiceOTELEnvVar(t *testing.T) {
 	type testCase struct {
 		envVar   string
 		expected map[string]string
@@ -236,23 +238,41 @@ func TestParseOTELEnvVarPerService(t *testing.T) {
 				actual[k] = v
 			}
 
-			parseOTELEnvVar(&svc.Attrs{EnvVars: map[string]string{dummyVar: tc.envVar}}, dummyVar, apply)
+			parseServiceOTELEnvVar(&svc.Attrs{EnvVars: map[string]string{dummyVar: tc.envVar}}, dummyVar, apply)
 
 			assert.True(t, reflect.DeepEqual(actual, tc.expected))
 		})
 	}
 }
 
-func TestParseOTELEnvVar_nil(t *testing.T) {
+func TestParseProcessOTELEnvVar_notSet(t *testing.T) {
 	actual := map[string]string{}
 
 	apply := func(k string, v string) {
 		actual[k] = v
 	}
 
-	parseOTELEnvVar(nil, "NOT_SET_VAR", apply)
+	parseProcessOTELEnvVar("NOT_SET_VAR", apply)
 
 	assert.True(t, reflect.DeepEqual(actual, map[string]string{}))
+}
+
+func TestParseServiceOTELEnvVar_doesNotFallBackToProcessEnv(t *testing.T) {
+	const dummyVar = "foo"
+
+	t.Setenv(dummyVar, "from=process")
+
+	for _, service := range []*svc.Attrs{nil, {}, {EnvVars: map[string]string{}}} {
+		actual := map[string]string{}
+
+		apply := func(k string, v string) {
+			actual[k] = v
+		}
+
+		parseServiceOTELEnvVar(service, dummyVar, apply)
+
+		assert.Empty(t, actual)
+	}
 }
 
 func TestResolveOTLPEndpoint(t *testing.T) {
@@ -584,7 +604,7 @@ func TestResourceAttrsFromEnv_ResourceSelection(t *testing.T) {
 	assert.Equal(t, map[string]string{"deployment.environment": "prod"}, attrs)
 }
 
-func TestResourceAttrsFromEnv(t *testing.T) {
+func TestProcessResourceAttrsFromEnv(t *testing.T) {
 	tests := []struct {
 		name          string
 		resourceAttrs string
@@ -656,9 +676,9 @@ func TestResourceAttrsFromEnv(t *testing.T) {
 				t.Setenv(k, v)
 			}
 
-			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", tt.resourceAttrs)
+			t.Setenv(envResourceAttrs, tt.resourceAttrs)
 
-			attrs := ResourceAttrsFromEnv(nil)
+			attrs := processResourceAttrsFromEnv()
 
 			attrMap := make(map[string]string)
 			for _, attr := range attrs {
@@ -671,4 +691,101 @@ func TestResourceAttrsFromEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A component that vendors OBI sets buildinfo.Version at runtime (see the package comment on
+// pkg/buildinfo), which happens after OBI's own package initialization. The distro version must
+// therefore be read when the resource is built, not snapshotted into a package-level variable.
+func TestResourceAttrsHonourRuntimeBuildinfoVersion(t *testing.T) {
+	original := buildinfo.Version
+	t.Cleanup(func() { buildinfo.Version = original })
+	buildinfo.Version = "v9.9.9-vendored"
+
+	attrs := resourceAttrs(&meta.NodeMeta{}, &svc.Attrs{UID: svc.UID{Name: "svc"}})
+
+	for _, kv := range attrs {
+		if kv.Key == semconv.TelemetryDistroVersionKey {
+			assert.Equal(t, "v9.9.9-vendored", kv.Value.AsString())
+			return
+		}
+	}
+	t.Fatalf("%s not found in resource attributes", semconv.TelemetryDistroVersionKey)
+}
+
+// OBI's own OTEL_RESOURCE_ATTRIBUTES provides deployment-wide defaults, so it must not
+// override the per-target metadata OBI resolved.
+func TestGetAppResourceAttrs_ProcessEnvRanksBelowResolvedMetadata(t *testing.T) {
+	t.Setenv(envResourceAttrs, "k8s.pod.name=obi-collector-marker,deployment.environment=prod")
+
+	nodeMeta := meta.NodeMeta{HostID: "host-id"}
+	service := svc.Attrs{
+		UID: svc.UID{Name: "frontend", Namespace: "otel-demo", Instance: "frontend-5d76d69658-fhp4h"},
+		Metadata: map[attr.Name]string{
+			attr.K8sPodName: "frontend-5d76d69658-fhp4h",
+		},
+	}
+
+	attrs := attribute.NewSet(GetAppResourceAttrs(&nodeMeta, &service)...)
+
+	podName, ok := attrs.Value("k8s.pod.name")
+	require.True(t, ok)
+	assert.Equal(t, "frontend-5d76d69658-fhp4h", podName.Emit())
+
+	// a key that no other source declares still reaches the target
+	environment, ok := attrs.Value("deployment.environment")
+	require.True(t, ok)
+	assert.Equal(t, "prod", environment.Emit())
+}
+
+// Lying at the bottom of the precedence order does not exempt OBI's own
+// OTEL_RESOURCE_ATTRIBUTES from the resource selection: an operator who excludes a key
+// must not get it back through the agent environment.
+func TestGetAppResourceAttrs_ProcessEnvObeysResourceSelection(t *testing.T) {
+	t.Setenv(envResourceAttrs, "deployment.environment=prod,cloud.account.id=account-id")
+
+	nodeMeta := meta.NodeMeta{HostID: "host-id"}
+	service := svc.Attrs{UID: svc.UID{Name: "frontend"}}
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{
+			Exclude: []string{"cloud.account.id"},
+		},
+	}
+	selection.Normalize()
+
+	attrs := resourceAttrsMap(GetAppResourceAttrs(&nodeMeta, &service, selection))
+
+	assert.Equal(t, "prod", attrs["deployment.environment"])
+	assert.NotContains(t, attrs, "cloud.account.id")
+}
+
+// The full precedence order, as the exporters assemble it: the target's own
+// OTEL_RESOURCE_ATTRIBUTES, then the metadata OBI resolved, then OBI's own environment.
+func TestResourceAttrs_PrecedenceOrder(t *testing.T) {
+	t.Setenv(envResourceAttrs, "deployment.environment=prod,k8s.pod.name=obi-collector-marker,test.marker=obi-env-probe")
+
+	nodeMeta := meta.NodeMeta{HostID: "host-id"}
+	service := svc.Attrs{
+		UID: svc.UID{Name: "frontend", Namespace: "otel-demo", Instance: "frontend-5d76d69658-fhp4h"},
+		Metadata: map[attr.Name]string{
+			attr.K8sPodName: "frontend-5d76d69658-fhp4h",
+		},
+		EnvVars: map[string]string{envResourceAttrs: "deployment.environment=canary"},
+	}
+
+	merged := append(GetAppResourceAttrs(&nodeMeta, &service), ResourceAttrsFromEnv(&service)...)
+	attrs := attribute.NewSet(merged...)
+
+	environment, ok := attrs.Value("deployment.environment")
+	require.True(t, ok)
+	assert.Equal(t, "canary", environment.Emit())
+
+	podName, ok := attrs.Value("k8s.pod.name")
+	require.True(t, ok)
+	assert.Equal(t, "frontend-5d76d69658-fhp4h", podName.Emit())
+
+	// the target declaring attributes of its own no longer discards the whole
+	// deployment-wide default layer: it only overrides the keys it declares
+	marker, ok := attrs.Value("test.marker")
+	require.True(t, ok)
+	assert.Equal(t, "obi-env-probe", marker.Emit())
 }

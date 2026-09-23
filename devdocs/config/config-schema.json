@@ -500,6 +500,7 @@
               "go",
               "java",
               "nodejs",
+              "php",
               "python",
               "ruby"
             ]
@@ -609,6 +610,35 @@
       },
       "type": "object",
       "description": "DiscoveryConfig for the discover.ProcessFinder pipeline"
+    },
+    "DotnetRuntimeMetricsConfig": {
+      "properties": {
+        "sampling_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Sets the collection interval requested from System.Runtime EventCounters. It also sets the delay before reconnecting after a collection session ends.",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL"
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Bounds diagnostic IPC setup and EventPipe session shutdown.",
+          "default": "10s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_DOTNET_RUNTIME_METRICS_TIMEOUT"
+        }
+      },
+      "type": "object"
     },
     "EBPFBufferSizes": {
       "properties": {
@@ -972,8 +1002,10 @@
               "all",
               "application",
               "application_host",
+              "application_red",
               "application_runtime",
               "application_service_graph",
+              "application_sizes",
               "application_span_otel",
               "ebpf",
               "network",
@@ -983,7 +1015,8 @@
               "stats_tcp_failed_connections",
               "stats_tcp_io",
               "stats_tcp_retransmits",
-              "stats_tcp_rtt"
+              "stats_tcp_rtt",
+              "stats_tcp_successful_connections"
             ]
           },
           {
@@ -1217,7 +1250,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes",
-          "default": 256,
+          "default": 1536,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         }
       },
@@ -2365,7 +2398,7 @@
         },
         "provider": {
           "type": "string",
-          "description": "Name reported in the gen_ai.system span attribute"
+          "description": "Name reported in the gen_ai.provider.name span attribute. A name the attribute's enum has no member for is reported as `custom`."
         }
       },
       "type": "object"
@@ -3163,6 +3196,9 @@
     "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",
       "description": "Configuration"
+    },
+    "dotnet_runtime_metrics": {
+      "$ref": "#/$defs/DotnetRuntimeMetricsConfig"
     },
     "ebpf": {
       "$ref": "#/$defs/EBPFTracer"

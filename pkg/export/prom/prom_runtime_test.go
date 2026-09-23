@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	appexec "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
@@ -22,6 +23,67 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
+
+func TestRuntimeMetricsJobLabel(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		namespace string
+		job       string
+	}{
+		{name: "with namespace", namespace: "prod", job: "prod/orders"},
+		{name: "without namespace", job: "orders"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reporter, registry := newJVMRuntimeMetricsTestReporter(t)
+			service := jvmRuntimeMetricsTestService()
+			service.UID.Namespace = tc.namespace
+			goroutines := int64(12)
+			reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+				Service: service,
+				JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+					Kind:       appruntime.JVMMetricMemoryUsed,
+					MemoryType: appruntime.JVMMemoryTypeHeap,
+					PoolName:   "G1 Old Gen",
+					ValueBytes: 42,
+				},
+				Nodejs: &runtimemetrics.NodejsRuntimeMetricSnapshot{
+					NodejsEventLoopValues: appruntime.NodejsEventLoopValues{ELUActiveNs: 1_000_000},
+				},
+			}})
+
+			service.SDKLanguage = svc.InstrumentableGolang
+			reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+				Service: service,
+				Go:      &runtimemetrics.GoRuntimeMetricSnapshot{GoroutineCount: &goroutines},
+			}})
+			service.SDKLanguage = svc.InstrumentablePython
+			reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+				Service: service,
+				Python:  &runtimemetrics.PythonRuntimeMetricSnapshot{Generations: [3]runtimemetrics.PythonGCGenerationMetrics{{Collections: 1}}},
+			}})
+
+			families, err := registry.Gather()
+			require.NoError(t, err)
+			names := make([]string, 0, len(families))
+			for _, family := range families {
+				names = append(names, family.GetName())
+				for _, metric := range family.GetMetric() {
+					labels := map[string]string{}
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					assert.Equal(t, tc.job, labels["job"], "%s must export the canonical job label", family.GetName())
+				}
+			}
+			for _, name := range []string{
+				"jvm_memory_used_bytes", "nodejs_eventloop_utilization_ratio",
+				"go_goroutine_count", "cpython_gc_collections_total",
+			} {
+				assert.Contains(t, names, name)
+			}
+		})
+	}
+}
 
 func TestGoRuntimeCPUTimeCounterDeltaResetAndRemoval(t *testing.T) {
 	registry := prometheus.NewRegistry()

@@ -1,0 +1,98 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/testserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
+    image: hatest-testserver
+    ports:
+      - "8080:8080"
+    environment:
+      LOG_LEVEL: DEBUG
+      OTEL_RESOURCE_ATTRIBUTES: "service.version=1.0.0"
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config${INSTRUMENTER_CONFIG_SUFFIX}.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-go-tracefs-uprobes:/var/run/obi
+    image: hatest-obi
+    privileged: false
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_PTRACE
+      - DAC_READ_SEARCH
+      - DAC_OVERRIDE
+      - NET_RAW
+      - PERFMON
+      - BPF
+      - CHECKPOINT_RESTORE
+    security_opt:
+      - apparmor:unconfined
+    pid: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_DEBUG_DISABLE_UPROBE_MULTI: "TRUE"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_LOG_FORMAT: "json"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_RENAME_UNRESOLVED_HOSTS: ""
+      OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES: "service.version"
+      OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES: "service.version"
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    depends_on:
+      obi:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config${PROM_CONFIG_SUFFIX}.yml
+      - --web.enable-lifecycle
+      - --enable-feature=exemplar-storage
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0@sha256:3d0ac795ff98aa04d1be04311d2dac6c25b4bfc8322dc02e53bc5b170c5018c3
+    command:
+      - "--set=service.telemetry.logs.level=debug"

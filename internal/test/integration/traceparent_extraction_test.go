@@ -41,7 +41,7 @@ func TestTraceparentExtraction(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:6000/smoke", 200)
 
-		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&limit=1")
+		resp, err := getJaeger(jaegerQueryURL + "?service=tpclient-a&limit=1")
 		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
 			return
 		}
@@ -72,7 +72,7 @@ func testWithoutTraceparent(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&operation=GET%20%2Fno-tp")
+		resp, err := getJaeger(jaegerQueryURL + "?service=tpclient-a&operation=GET%20%2Fno-tp")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
@@ -114,7 +114,7 @@ func testWithTraceparent(t *testing.T) {
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// Query by static trace ID
-		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&traceID=" + staticTraceID)
+		resp, err := getJaeger(jaegerQueryURL + "?service=tpclient-a&traceID=" + staticTraceID)
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
@@ -159,7 +159,7 @@ func testWithForwardedTraceparent(t *testing.T) {
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// Query by static trace ID
-		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&traceID=" + staticTraceID)
+		resp, err := getJaeger(jaegerQueryURL + "?service=tpclient-a&traceID=" + staticTraceID)
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 

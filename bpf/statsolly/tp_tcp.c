@@ -65,9 +65,17 @@ typedef struct tcp_retransmit {
     connection_info_t conn;
 } tcp_retransmit_t;
 
+typedef struct tcp_successful_connection {
+    u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
+    enum tcp_handshake_role role;
+    u8 _pad[2];
+    connection_info_t conn;
+} tcp_successful_connection_t;
+
 // Force structs into the ELF for automatic creation of Golang struct
 const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unused));
 const tcp_retransmit_t *unused_tcp_retransmit_t __attribute__((unused));
+const tcp_successful_connection_t *unused_tcp_successful_connection __attribute__((unused));
 
 // obi_stats_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
 // It writes the role (client/server) when a connection is established and
@@ -143,7 +151,7 @@ int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
         return 0;
     }
 
-    se->flags = k_event_stat_tcp_failed_connection;
+    se->flags = k_stat_type_tcp_failed_connection;
     se->reason = reason;
     se->conn = conn;
 
@@ -160,6 +168,43 @@ int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
 
     bpf_ringbuf_submit(se, stats_events_flags());
 
+    return 0;
+}
+
+SEC("tracepoint/sock/inet_sock_set_state")
+int obi_stats_tp_inet_sock_set_state_tcp_successful_connection(
+    struct trace_event_raw_inet_sock_set_state *args) {
+    if (args->protocol != IPPROTO_TCP) {
+        return 0;
+    }
+
+    const int newstate = args->newstate;
+    const int oldstate = args->oldstate;
+
+    if (newstate == TCP_ESTABLISHED && (oldstate == TCP_SYN_SENT || oldstate == TCP_SYN_RECV)) {
+        struct sock *const sk = (struct sock *)args->skaddr;
+        connection_info_t conn;
+        if (!parse_sock_info(sk, &conn)) {
+            return 0;
+        }
+
+        bpf_d_printk("tcp successful: s_port=%d, d_port=%d", conn.s_port, conn.d_port);
+
+        tcp_successful_connection_t *const se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
+        if (!se) {
+            return 0;
+        }
+
+        se->flags = k_stat_type_tcp_successful_connection;
+        se->conn = conn;
+        if (oldstate == TCP_SYN_SENT) {
+            se->role = role_client;
+        } else {
+            se->role = role_server;
+        }
+
+        bpf_ringbuf_submit(se, stats_events_flags());
+    }
     return 0;
 }
 
@@ -180,7 +225,7 @@ int obi_stats_raw_tp_tcp_retransmit_skb(struct bpf_raw_tracepoint_args *ctx) {
         return 0;
     }
 
-    se->flags = k_event_stat_tcp_retransmit;
+    se->flags = k_stat_type_tcp_retransmit;
     se->conn = conn;
 
     bpf_ringbuf_submit(se, stats_events_flags());

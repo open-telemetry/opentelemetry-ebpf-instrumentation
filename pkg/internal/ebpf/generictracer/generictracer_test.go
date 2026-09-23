@@ -8,6 +8,7 @@ package generictracer
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -462,6 +463,21 @@ func readJVMTestBatch(t *testing.T, events <-chan []runtimemetrics.RuntimeMetric
 		t.Fatal("timed out waiting for JVM runtime events")
 		return nil
 	}
+}
+
+// The libruby probes sit on symbols the Ruby runtime exercises as a whole, so
+// each symbol set must carry the Ruby version constraint that gates it.
+func TestRubyUProbesAreVersionGated(t *testing.T) {
+	tracer := &Tracer{}
+
+	var rubyKeys []string
+	for lib := range tracer.UProbes() {
+		if strings.HasPrefix(lib, "libruby") {
+			rubyKeys = append(rubyKeys, lib)
+		}
+	}
+
+	assert.ElementsMatch(t, []string{"libruby[< 4.0]", "libruby[>= 4.0]"}, rubyKeys)
 }
 
 type fakeServiceFilter struct {

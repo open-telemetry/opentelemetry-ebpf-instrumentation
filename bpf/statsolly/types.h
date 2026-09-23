@@ -6,11 +6,14 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
-enum {
-    k_event_stat_tcp_rtt = 1,               // StatTypeTCPRtt
-    k_event_stat_tcp_failed_connection = 2, // StatTypeTCPFailedConnection
-    k_event_stat_tcp_retransmit = 3,        // StatTypeTCPRetransmit
-    k_event_stat_tcp_io = 4,                // StatTypeTCPIo
+
+// The Go StatType* constants in pkg/internal/statsolly/ebpf/stat.go are derived from this enum
+enum stat_type : u8 {
+    k_stat_type_tcp_rtt = 1,
+    k_stat_type_tcp_failed_connection = 2,
+    k_stat_type_tcp_retransmit = 3,
+    k_stat_type_tcp_io = 4,
+    k_stat_type_tcp_successful_connection = 5,
 };
 
 // batch size used in tcp io metric

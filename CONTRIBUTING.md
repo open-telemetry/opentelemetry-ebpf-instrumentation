@@ -267,9 +267,10 @@ For more information about the maintainer role, see the [community repository](h
 
 ### Approvers
 
+* [Giuseppe Ognibene](https://github.com/pinoOgni), Coralogix
+* [Haibin Zhang](https://github.com/NameHaibinZhang), Alibaba Cloud
 * [Marc Tudurí](https://github.com/marctc), Grafana
 * [Stephen Lang](https://github.com/skl), Grafana
-* [Giuseppe Ognibene](https://github.com/pinoOgni), Coralogix
 
 For more information about the approver role, see the [community repository](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#approver).
 

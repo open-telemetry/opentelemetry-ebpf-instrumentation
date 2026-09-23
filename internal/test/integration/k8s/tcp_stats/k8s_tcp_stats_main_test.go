@@ -47,9 +47,9 @@ func TestMain(m *testing.M) {
 		// teardown (enforcing)
 		kube.WeaverValidation(),
 		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver.yml"),
-		kube.Deploy(testpath.Manifests+"/05-uninstrumented-service.yml"),
-		kube.Deploy(testpath.Manifests+"/06-obi-tcp-stats.yml"),
 		kube.Deploy(testpath.Manifests+"/08-weaver.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-uninstrumented-service.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/06-obi-tcp-stats.yml"),
 	)
 
 	cluster.Run(m)

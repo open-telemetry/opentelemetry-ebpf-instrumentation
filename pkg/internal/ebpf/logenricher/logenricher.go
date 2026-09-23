@@ -151,14 +151,18 @@ func (p *Tracer) constants() map[string]any {
 	return map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug}
 }
 
-func (p *Tracer) SetupTailCalls() {}
-
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
+}
+
+func (p *Tracer) Close() error {
+	p.asyncWriter.Close()
+	p.fdCache.Purge()
+	return ebpfcommon.CloseResources(append(p.closers, &p.bpfObjects)...)
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {

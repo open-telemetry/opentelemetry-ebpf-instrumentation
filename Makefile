@@ -164,6 +164,15 @@ lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
+# The schemacheck provenance tests resolve the registry through the pinned
+# weaver image, so they cannot run under the `-short` unit-test targets. They
+# run here instead, alongside lint-schema, which already provides both the
+# container runtime and the pre-fetched upstream semconv registry.
+.PHONY: test-schema
+test-schema: fetch-upstream-semconv
+	@echo "### Testing OBI semantic-convention registry provenance"
+	go test -race -count=1 ./internal/schemacheck/...
+
 .PHONY: check-schema-files
 check-schema-files:
 	@echo "### Checking published OBI telemetry schema files"
@@ -178,6 +187,15 @@ generate-schema-next:
 generate-schema-docs: fetch-upstream-semconv
 	@echo "### Generating the OBI telemetry reference docs"
 	@./scripts/generate-schema-docs.sh $(OCI_BIN) $(WEAVERIMAGE)
+
+.PHONY: check-schema-docs
+check-schema-docs: generate-schema-docs
+	@echo "### Checking the OBI telemetry reference docs are up to date"
+	@if [ -n "$$(git status --porcelain -- site/docs)" ]; then \
+		echo "site/docs is stale: run 'make generate-schema-docs' and commit the result" >&2; \
+		git --no-pager diff -- site/docs; \
+		exit 1; \
+	fi
 
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
@@ -399,7 +417,7 @@ JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAV
 .PHONY: java-build
 java-build:
 	@echo "### Building Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build -PnativeOnly=true
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) $(JAVA_AGENT_EMBED_PATH)
 

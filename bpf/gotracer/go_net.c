@@ -15,6 +15,8 @@
 
 //go:build obi_bpf_ignore
 
+#include <gotracer/jump_table_extra.h>
+
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
@@ -90,8 +92,11 @@ int GUARDED_PROG(obi_uprobe_netFdRead, struct pt_regs *, ctx) {
     return 0;
 }
 
-// k_tail_continue_netfd_read
-SEC("uprobe/netFdRead_cont")
+// k_tail_continue_netfd_read: reached only through the jump table, so it must
+// keep the attach type of the programs that share it. A "uprobe/" section here
+// would be attached as a uprobe_multi link and the kernel would then reject the
+// tail call into it
+SEC("kprobe")
 int GUARDED_PROG(obi_continue_netfd_read, struct pt_regs *, ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/netFdRead_cont goroutine_addr=%lx ===", goroutine_addr);

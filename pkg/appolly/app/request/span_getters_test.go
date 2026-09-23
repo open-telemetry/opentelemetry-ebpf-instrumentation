@@ -520,9 +520,12 @@ func TestSpanOTELGetters_HTTPRequestMethod(t *testing.T) {
 		assert.Equal(t, "GET", kv.Value.AsString())
 	})
 
-	t.Run("omitted when method is empty", func(t *testing.T) {
+	// Semconv: a method the instrumentation does not know MUST be reported as
+	// _OTHER, and one the parser could not read is not known.
+	t.Run("clamped when method is empty", func(t *testing.T) {
 		kv := getter(&Span{Method: ""})
-		assert.False(t, kv.Valid(), "empty method must yield an invalid KeyValue so it is dropped")
+		require.True(t, kv.Valid())
+		assert.Equal(t, HTTPMethodOther, kv.Value.AsString())
 	})
 
 	// http.request.method is a closed enum, so an unclamped metric label is a
@@ -604,6 +607,24 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 		// the attribute is dropped instead of being emitted empty.
 		omitted bool
 	}{
+		{
+			name:     "rpc.method - qualified from the Go net/rpc service name",
+			attrName: attr.RPCMethod,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1, ServiceQualified: true},
+			},
+			expected: "Arith/Traceme",
+		},
+		{
+			name:     "rpc.method - a payload-extracted dotted method is left whole",
+			attrName: attr.RPCMethod,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "inventory.lookup.v2", Version: "2.0"},
+			},
+			expected: "inventory.lookup.v2",
+		},
 		{
 			name:     "protocol version - JSON-RPC span",
 			attrName: attr.JSONRPCProtocolVersion,
@@ -702,6 +723,167 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 				Status: 4,
 			},
 			expected: "3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getter, ok := spanOTELGetters(tt.attrName)
+			require.True(t, ok, "getter should be found for %s", tt.attrName)
+
+			kv := getter(tt.span)
+			if tt.omitted {
+				assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+				return
+			}
+			assert.Equal(t, string(tt.attrName), string(kv.Key))
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
+}
+
+func TestSpanOTELGetters_MCPAttributes(t *testing.T) {
+	mcpSpan := func(call *MCPCall) *Span {
+		return &Span{
+			Type:    EventTypeHTTP,
+			SubType: HTTPSubtypeMCP,
+			GenAI:   &GenAI{MCP: call},
+		}
+	}
+
+	// The parser fills ProtocolVer only for initialize, so every other method
+	// carries the zero value. That is the dominant shape, not an edge case.
+	toolsCall := mcpSpan(&MCPCall{Method: "tools/call", ToolName: "get-weather"})
+	initialize := mcpSpan(&MCPCall{Method: "initialize", ProtocolVer: "2025-06-18"})
+	resourceRead := mcpSpan(&MCPCall{
+		Method:      "resources/read",
+		ResourceURI: "file:///report.pdf",
+	})
+	promptGet := mcpSpan(&MCPCall{Method: "prompts/get", PromptName: "summarize"})
+	failedCall := mcpSpan(&MCPCall{Method: "tools/call", ErrorCode: -32602})
+
+	// MCP() returns nil unless the span is an MCP subtype carrying a parsed
+	// call, so each of these must omit every MCP attribute.
+	nonMCPSpan := &Span{Type: EventTypeHTTP}
+	noGenAISpan := &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeMCP}
+	noCallSpan := &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeMCP, GenAI: &GenAI{}}
+
+	tests := []struct {
+		name     string
+		attrName attr.Name
+		span     *Span
+		expected string
+		// omitted asserts the getter returns an invalid (zero) KeyValue so
+		// the attribute is dropped instead of being emitted empty.
+		omitted bool
+	}{
+		{
+			name:     "method name - MCP span",
+			attrName: attr.MCPMethodName,
+			span:     toolsCall,
+			expected: "tools/call",
+		},
+		{
+			name:     "method name - non-MCP span",
+			attrName: attr.MCPMethodName,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "method name - MCP subtype without GenAI",
+			attrName: attr.MCPMethodName,
+			span:     noGenAISpan,
+			omitted:  true,
+		},
+		{
+			name:     "method name - MCP subtype without a parsed call",
+			attrName: attr.MCPMethodName,
+			span:     noCallSpan,
+			omitted:  true,
+		},
+		{
+			name:     "protocol version - initialize",
+			attrName: attr.MCPProtocolVersion,
+			span:     initialize,
+			expected: "2025-06-18",
+		},
+		{
+			name:     "protocol version - method that does not negotiate one",
+			attrName: attr.MCPProtocolVersion,
+			span:     toolsCall,
+			omitted:  true,
+		},
+		{
+			name:     "protocol version - non-MCP span",
+			attrName: attr.MCPProtocolVersion,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "resource URI - resources/read",
+			attrName: attr.MCPResourceURI,
+			span:     resourceRead,
+			expected: "file:///report.pdf",
+		},
+		{
+			name:     "resource URI - method that names no resource",
+			attrName: attr.MCPResourceURI,
+			span:     toolsCall,
+			omitted:  true,
+		},
+		{
+			name:     "resource URI - non-MCP span",
+			attrName: attr.MCPResourceURI,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "tool name - tools/call",
+			attrName: attr.GenAIToolName,
+			span:     toolsCall,
+			expected: "get-weather",
+		},
+		{
+			name:     "tool name - method that names no tool",
+			attrName: attr.GenAIToolName,
+			span:     resourceRead,
+			omitted:  true,
+		},
+		{
+			name:     "tool name - non-MCP span",
+			attrName: attr.GenAIToolName,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "prompt name - prompts/get",
+			attrName: attr.GenAIPromptName,
+			span:     promptGet,
+			expected: "summarize",
+		},
+		{
+			name:     "prompt name - method that names no prompt",
+			attrName: attr.GenAIPromptName,
+			span:     toolsCall,
+			omitted:  true,
+		},
+		{
+			name:     "prompt name - non-MCP span",
+			attrName: attr.GenAIPromptName,
+			span:     nonMCPSpan,
+			omitted:  true,
+		},
+		{
+			name:     "response status code - MCP span with error",
+			attrName: attr.RPCResponseStatusCode,
+			span:     failedCall,
+			expected: "-32602",
+		},
+		{
+			name:     "response status code - MCP span without error",
+			attrName: attr.RPCResponseStatusCode,
+			span:     toolsCall,
+			omitted:  true,
 		},
 	}
 
@@ -865,10 +1047,11 @@ func TestSpanOTELGetters_ErrorTypeOmitted(t *testing.T) {
 	assert.Equal(t, "SERVER_ERROR", kv.Value.AsString())
 }
 
-// TestSpanOTELGetters_GenAIOperationNameOmitted ensures gen_ai.operation.name
-// is omitted — not emitted as an empty string — when the operation could not
-// be derived, while classified operations keep it.
-func TestSpanOTELGetters_GenAIOperationNameOmitted(t *testing.T) {
+// TestSpanOTELGetters_GenAIOperationNameClamped ensures gen_ai.operation.name
+// clamps to _OTHER — not an empty string — on a GenAI span whose operation
+// could not be derived, stays absent on spans that carry no GenAI data, and
+// keeps classified operations.
+func TestSpanOTELGetters_GenAIOperationNameClamped(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.GenAIOperationName)
 	require.True(t, ok, "getter should be found for GenAIOperationName")
 
@@ -882,7 +1065,8 @@ func TestSpanOTELGetters_GenAIOperationNameOmitted(t *testing.T) {
 		SubType: HTTPSubtypeOpenAI,
 		GenAI:   &GenAI{OpenAI: &VendorOpenAI{}},
 	})
-	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+	require.True(t, kv.Valid())
+	assert.Equal(t, OtherOperationName, kv.Value.AsString())
 
 	// classified GenAI span keeps its operation name
 	kv = getter(&Span{

@@ -51,6 +51,9 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 
 	// Start OBI to instrument the test server
 	o := obi{
+		// avoided-service detection reads the OTLP export spans, so its log is
+		// the only way to tell a detection failure from a missing metric
+		Logs: createLogOutput(t, "avoided-services"),
 		Env: []string{
 			"OTEL_EBPF_OPEN_PORT=8080",
 			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",

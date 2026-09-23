@@ -97,7 +97,10 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 
 	http := protocols[protocolHTTP]
 	httpInstrumentation := schema.HTTPInstrumentation{
-		Enabled:                   http.Enabled,
+		Enabled: schema.HTTPProtocolEnablement{
+			ProtocolEnablement: http.Enabled,
+			BodySizeMetrics:    cfg.Metrics.Features.AppSizes(),
+		},
 		Filters:                   http.Filters,
 		TrackRequestHeaders:       cfg.EBPF.TrackRequestHeaders,
 		RequestTimeout:            schema.Duration(cfg.EBPF.HTTPRequestTimeout),
@@ -372,10 +375,11 @@ func statsCIDRDefinitions(cfg *obi.Config) schema.CIDRDefinitions {
 }
 
 const (
-	statsFeatureTCPRtt               = "tcp_rtt"
-	statsFeatureTCPFailedConnections = "tcp_failed_connections"
-	statsFeatureTCPRetransmits       = "tcp_retransmits"
-	statsFeatureTCPIo                = "tcp_io"
+	statsFeatureTCPRtt                   = "tcp_rtt"
+	statsFeatureTCPFailedConnections     = "tcp_failed_connections"
+	statsFeatureTCPSuccessfulConnections = "tcp_successful_connections"
+	statsFeatureTCPRetransmits           = "tcp_retransmits"
+	statsFeatureTCPIo                    = "tcp_io"
 )
 
 func statsFeatures(features featureexport.Features) []string {
@@ -385,6 +389,9 @@ func statsFeatures(features featureexport.Features) []string {
 	}
 	if features.StatsTCPFailedConnections() {
 		out = append(out, statsFeatureTCPFailedConnections)
+	}
+	if features.StatsTCPSuccessfulConnections() {
+		out = append(out, statsFeatureTCPSuccessfulConnections)
 	}
 	if features.StatsTCPRetransmits() {
 		out = append(out, statsFeatureTCPRetransmits)

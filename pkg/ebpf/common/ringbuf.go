@@ -106,8 +106,9 @@ func SharedRingbuf[T any](
 	if eventContext.SharedRingBuffer != nil {
 		logger.Debug("reusing ringbuf forwarder")
 		sf := eventContext.SharedRingBuffer
-		return func(ctx context.Context, _ []io.Closer, _ *msg.Queue[[]T]) {
+		return func(ctx context.Context, closers []io.Closer, _ *msg.Queue[[]T]) {
 			sf.AlreadyForwarded(ctx)
+			closeAll(logger, closers)
 		}
 	}
 
@@ -432,33 +433,39 @@ func (rbf *ringBufForwarder[T]) bgListenSharedContextCancelation(ctx context.Con
 	rbf.readerLock.Lock()
 	_ = eventsReader.Close()
 	rbf.readerLock.Unlock()
-	wg := sync.WaitGroup{}
-	wg.Add(len(closers))
-	for i := range closers {
-		c := closers[i]
-		go func() {
-			defer wg.Done()
-			_ = c.Close()
-		}()
-	}
-	wg.Wait()
-	rbf.logger.Debug("the eBPF resources are closed")
+	closeAll(rbf.logger, closers)
 }
 
 func (rbf *ringBufForwarder[T]) closeAllResources() {
-	rbf.logger.Debug("closing eBPF resources", "len", len(rbf.closers))
-	// Often there are hundreds of closers, and don't have time to sequentially close within the
-	// shutdown grace period. Closing them in parallel
-	wg := sync.WaitGroup{}
-	wg.Add(len(rbf.closers))
-	for i := range rbf.closers {
-		c := rbf.closers[i]
-		go func() {
-			defer wg.Done()
-			_ = c.Close()
-			rbf.logger.Debug("eBPF resource closed", "num", i)
-		}()
+	closeAll(rbf.logger, rbf.closers)
+}
+
+// closeAll closes in parallel: the kernel waits for RCU grace periods per probe
+// and there is no time to serialize hundreds of them within the shutdown grace period
+func closeAll(logger *slog.Logger, closers []io.Closer) {
+	logger.Debug("closing eBPF resources", "len", len(closers))
+	_ = CloseResources(closers...)
+	logger.Debug("the eBPF resources are closed")
+}
+
+// CloseResources closes eBPF resources in parallel so each resource does not
+// wait for a separate RCU grace period.
+func CloseResources(closers ...io.Closer) error {
+	errs := make(chan error, len(closers))
+	var wg sync.WaitGroup
+	for _, c := range closers {
+		wg.Go(func() {
+			if err := c.Close(); err != nil {
+				errs <- err
+			}
+		})
 	}
 	wg.Wait()
-	rbf.logger.Debug("the eBPF resources are closed")
+	close(errs)
+
+	var result error
+	for err := range errs {
+		result = errors.Join(result, err)
+	}
+	return result
 }

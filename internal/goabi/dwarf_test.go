@@ -4,6 +4,7 @@
 package goabi
 
 import (
+	"debug/buildinfo"
 	"debug/elf"
 	"os"
 	"os/exec"
@@ -24,17 +25,26 @@ func TestExtractCompleteRuntimeABI(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(output))
 
+	info, err := buildinfo.ReadFile(executable)
+	require.NoError(t, err)
+	targetVersion, err := goversion.Parse(info.GoVersion)
+	require.NoError(t, err)
+
 	file, err := elf.Open(executable)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, file.Close()) })
 	data, err := file.DWARF()
 	require.NoError(t, err)
 
-	abi, err := Extract(data, goversion.MustParse("go1.27.0"))
+	abi, err := Extract(data, targetVersion)
 	require.NoError(t, err)
-	requirements, err := Requirements(goversion.MustParse("go1.27.0"))
+	requirements, err := Requirements(targetVersion)
 	require.NoError(t, err)
 	assert.Len(t, abi.Facts(), len(requirements))
+	if targetVersion.Compare(go127) < 0 {
+		assert.Nil(t, abi.TypeMetadata)
+		return
+	}
 	require.NotNil(t, abi.TypeMetadata)
 	assert.Equal(t, uint64(0), abi.TypeMetadata.ITabInterOffset)
 

@@ -31,7 +31,7 @@ spanbridge.js ──────────── injected over the inspector p
    │                       copy's ProxyTracerProvider. It does NOT write to the
    │                       API global registry (that would block the app's SDK).
    ▼
-fs.accessSync('/dev/null/obi-span/<json>')      ── sentinel uv_fs_access path
+fs.existsSync('/dev/null/obi-span/<json>')      ── sentinel uv_fs_access path
    ▼
 obi_uv_fs_access uprobe (bpf/generictracer/nodejs.c)
    │  '-span/' branch: copies the JSON payload into a node_span_event_t,
@@ -60,7 +60,7 @@ request.Span{Type: EventTypeManualSpan}  → existing exporter path, unchanged
   fragmented websocket frames, so the dialer write buffer must stay larger
   than the combined script).
 - **`bpf/generictracer/nodejs.c`** — the existing `uv_fs_access` uprobe with
-  a third sentinel format. `fs.accessSync()` is safe to call from anywhere in
+  a third sentinel format. `fs.existsSync()` is safe to call from anywhere in
   JS (synchronous fs ops do not create AsyncWrap objects, so it cannot
   re-enter async_hooks), the kernel fails the call immediately with
   `ENOTDIR`, and the uprobe reads the raw path string before path resolution.
@@ -297,9 +297,12 @@ would otherwise leave two providers active in one process.
 - **One bridge per process.** A `globalThis` marker makes re-injection a
   no-op.
 - **Never breaks the app.** All bridge failure paths are swallowed; the
-  sentinel syscall cost is ~1–2 µs per finished span, zero when the feature
-  is off. The one thing the bridge wraps is the CommonJS module loader
-  (`Module._load`), used only to wire `@opentelemetry/api` copies loaded after
+  sentinel costs ~0.6 µs per finished span, zero when the feature is off.
+  The `fs.accessSync` it replaced rejected every call, and building that
+  rejection cost several times the call itself. Both figures were measured
+  outside this repository and nothing in CI re-establishes them. The one
+  thing the bridge wraps is the CommonJS module loader (`Module._load`),
+  used only to wire `@opentelemetry/api` copies loaded after
   injection; the wrapper always calls the original loader first and guards its
   own work, so it composes with other loader patches and can never break a
   `require`. It does *not* use require-in-the-middle/import-in-the-middle, and

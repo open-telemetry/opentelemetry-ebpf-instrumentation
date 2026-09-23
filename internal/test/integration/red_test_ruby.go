@@ -7,14 +7,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
@@ -128,33 +126,6 @@ func testREDMetricsRailsHTTPS(t *testing.T, serviceName string) {
 	}
 }
 
-func assertRubyPumaSupportVersion(t *testing.T, compose *docker.Compose, expectedRuby, expectedPuma string) {
-	t.Helper()
-
-	output, err := compose.ExecOutput(
-		"testserver",
-		"bundle",
-		"exec",
-		"ruby",
-		"-e",
-		`require "bundler/setup"; require "puma"; puts RUBY_VERSION; puts Puma::Const::PUMA_VERSION`,
-	)
-	require.NoError(t, err, "bundle exec ruby output:\n%s", output)
-
-	var versionLines []string
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "time=") {
-			continue
-		}
-		versionLines = append(versionLines, trimmed)
-	}
-
-	require.Lenf(t, versionLines, 2, "unexpected ruby/puma version output: raw output=%q, collected lines=%v", output, versionLines)
-	assert.Equal(t, expectedRuby, versionLines[0])
-	assert.Equal(t, expectedPuma, versionLines[1])
-}
-
 // Assumes we've run the metrics tests
 func testHTTPTracesNestedNginx(t *testing.T) {
 	for i := 1; i <= 4; i++ {
@@ -165,7 +136,7 @@ func testHTTPTracesNestedNginx(t *testing.T) {
 		slug := strconv.Itoa(i)
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
+			resp, err := getJaeger(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -205,7 +176,7 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 		slug := strconv.Itoa(i)
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
+			resp, err := getJaeger(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -243,6 +214,58 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 	}
 }
 
+func testHTTPTracesRailsPostgres(t *testing.T) {
+	const (
+		serviceName = "my-ruby-app"
+		urlPath     = "/restaurants"
+	)
+
+	waitForTestComponentsSub(t, "http://localhost:3041", "/healthz")
+	for range 4 {
+		ti.DoHTTPGet(t, "http://localhost:3041"+urlPath, http.StatusOK)
+	}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName + "&tags=%7B%22url.path%22%3A%22%2Frestaurants%22%7D")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var query jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&query))
+		traces := query.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
+		require.NotEmpty(ct, traces)
+
+		serverSpans := traces[0].FindByOperationName("GET /restaurants", "server")
+		require.NotEmpty(ct, serverSpans)
+		require.NotEmpty(ct, serverSpans[0].TraceID)
+
+		var postgresClients []jaeger.Span
+		for _, span := range traces[0].Spans {
+			dbSystem, isDBSpan := jaeger.FindIn(span.Tags, "db.system.name")
+			spanKind, isClientSpan := jaeger.FindIn(span.Tags, "span.kind")
+			if isDBSpan && isClientSpan && dbSystem.Value == "postgresql" && spanKind.Value == "client" {
+				postgresClients = append(postgresClients, span)
+			}
+		}
+		require.Greater(ct, len(postgresClients), 1)
+
+		var postgresParentID string
+		for _, client := range postgresClients {
+			parent, found := traces[0].ParentOf(&client)
+			require.True(ct, found, "PostgreSQL client span %s has no parent", client.SpanID)
+			if postgresParentID == "" {
+				postgresParentID = parent.SpanID
+			}
+			assert.Equal(ct, postgresParentID, parent.SpanID,
+				"PostgreSQL client span %s does not share the common parent", client.SpanID)
+		}
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	for _, tc := range []struct {
@@ -263,7 +286,7 @@ func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
 				enoughPromResults(ct, results)
 			}, testTimeout, 100*time.Millisecond)
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName)
+				resp, err := getJaeger(jaegerQueryURL + "?service=" + serviceName)
 				require.NoError(ct, err)
 				defer resp.Body.Close()
 				require.Equal(ct, http.StatusOK, resp.StatusCode)

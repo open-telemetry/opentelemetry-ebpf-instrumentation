@@ -3,8 +3,219 @@
 With `application_runtime` enabled, OBI collects Go runtime values from
 instrumented Go services and exports the following metric set.
 
-Go runtime metrics require the binary's symbol table. Stripped builds, including
-builds using `-ldflags=-s`, are not supported.
+OBI resolves runtime globals from ELF object symbols when they are available.
+Linux `amd64` also has a machine-code fallback for stripped Go binaries. The
+fallback recovers the three mandatory globals: `runtime.gomaxprocs`,
+`runtime.memstats`, and `runtime.gcController`. It also recovers `runtime.work`
+for CPU statistics, the size-class table for allocation metrics, and
+`runtime.sched` for histograms. It recovers `runtime.allglen` and `runtime.allp`
+for goroutine counting.
+
+This fallback supports Linux `amd64`; other architectures require ELF symbols.
+The tested compiler fixtures cover standard builds, including empty programs,
+and executable and PIE address recovery. Other compiler modes and experiments
+require separate validation.
+
+## Stripped global recovery
+
+Go retains function metadata in `.gopclntab` after `-ldflags=-s` removes the ELF
+object symbols. The fallback parses this metadata to locate runtime functions
+and read their bounded instruction ranges.
+
+### Processor limit
+
+The resolver locates
+`runtime.procresize`, whose processor-count validation reads `runtime.gomaxprocs`.
+
+On `amd64`, the resolver decodes `procresize` and matches this sequence:
+
+```text
+MOV  register, [RIP+displacement]
+TEST register, register
+JL   invalidArg
+```
+
+The `MOV` reads the four-byte `gomaxprocs` global. Its target ELF address is the
+instruction address plus its length and signed displacement. The resolver
+requires the complete, aligned four-byte candidate to belong to a readable and
+writable `PT_LOAD` memory range. It uses the segment's in-memory size so globals
+in zero-initialized BSS are valid, and rejects matches that identify different
+addresses.
+
+After validation, the resolver adds the executable's process load bias. The
+resulting process address is the value that the BPF runtime metrics collector
+uses to read `gomaxprocs` from the target process.
+
+### Memory statistics
+
+The resolver locates `runtime.(*mcache).refill` and
+`runtime.(*consistentHeapStats).acquire` through the same Go function metadata.
+Inside `refill`, Go calls:
+
+```go
+stats := memstats.heapStats.acquire()
+```
+
+On `amd64`, the receiver is passed in RAX. The resolver matches the instructions
+that prepare the receiver and call the identified method:
+
+```text
+LEA  RAX, [RIP+displacement]  // Address of memstats.heapStats
+CALL acquire                // Destination must match acquire's entry address
+```
+
+The LEA gives the incoming receiver's address. Subtracting its generated field
+offset recovers the containing global:
+
+```text
+memstats base = heapStats address - heapStats field offset
+```
+
+The field offset is 5960 bytes for Go 1.17/1.18 and zero for Go 1.19 through 1.27.1.
+The resolver rejects missing metadata, conflicting addresses, invalid alignment,
+storage ranges, and arithmetic overflow. It then adds the process load bias
+to obtain the base address in the target process.
+
+### GC controller
+
+Inside `runtime.gcinit`, the resolver matches the receiver passed to
+`runtime.(*gcControllerState).init`. Go 1.18 inlines this method, so the resolver
+also accepts its remaining call to `runtime.(*gcControllerState).setGCPercent`.
+Both calls identify `&gcController` through the same LEA/CALL pattern used for
+memory statistics, allowing NOP padding between the instructions.
+
+Matches must agree on one address. The resolver checks its eight-byte alignment
+and that its first eight bytes fit readable, writable storage, then adds the
+process load bias.
+
+### CPU statistics
+
+Inside `runtime.putfull`, Go calls `work.full.push(&b.node)` to enqueue a full
+GC work buffer. The resolver matches the receiver passed to
+`runtime.(*lfstack).push`, then subtracts the generated `runtime.workType.full`
+field offset to recover the `work` base.
+
+Field metadata is available from Go 1.23, matching CPU metric support. The
+resolver validates alignment, storage, and address arithmetic. If recovery fails,
+the work address remains zero and CPU collection is skipped; the three mandatory
+globals remain available.
+
+### Allocation sizes
+
+The size-class table is a global array of allocation sizes, named
+`runtime.class_to_size` on older Go versions and
+`internal/runtime/gc.SizeClassToSize` on newer versions. The collector combines
+these sizes with `memstats.heapStats` allocation counts to calculate
+`go.memory.allocated`. OBI enables it together with `go.memory.allocations`.
+
+The resolver inspects `runtime.mallocgc` and `runtime.lockVerifyMSize`. In the
+latter, an inlined `roundupsize` lookup reads `gc.SizeClassToSize[classIndex]`:
+
+```text
+LEA   RCX, [RIP+displacement]  // Calculate the global array's address.
+MOVZX EAX, WORD PTR [RCX+RAX*2] // Read the uint16 entry indexed by RAX.
+```
+
+The matcher requires adjacent instructions, a shared base register, and a
+two-byte indexed read with scale two. It validates readable, file-backed storage
+for 68 entries: a reserved zero followed by strictly increasing multiples of
+eight, starting at 8 and ending at 32768. Valid matches must agree on one address.
+The resolver adds process load bias once; failure leaves allocation metrics
+disabled while preserving the mandatory globals.
+
+Address recovery has been checked against stripped compiler fixtures from
+Go 1.17 through 1.27, including empty-main builds, and current-Go executable and
+PIE builds. Allocation metrics require Go 1.23 or newer. The stripped integration
+suites compare allocation counters with the application's `runtime/metrics`
+values, including during concurrent metric reads.
+
+### Scheduler histograms
+
+The global `runtime.sched` contains `timeToRun` for `go.schedule.duration` and
+`stwTotalTimeGC` for `go.memory.gc.pause.duration`. The resolver locates this
+structure through the goroutine-ID update in `runtime.oneNewExtraM`:
+
+```go
+gp.goid = sched.goidgen.Add(1)
+```
+
+It matches an address calculation immediately followed by an eight-byte atomic
+update through the same register:
+
+```text
+LEA  RDX, [RIP+displacement]  // Address of sched.goidgen.
+LOCK XADD QWORD PTR [RDX], RCX // Atomically update the eight-byte field.
+```
+
+The width check distinguishes this access from the four-byte `sched.ngsys`
+update in the same function. Valid matches must agree on one aligned, readable
+and writable field address. Subtracting the generated `runtime.schedt.goidgen`
+offset recovers the structure's base; the resolver then adds process load bias.
+Recovery failure leaves histograms disabled while preserving other metrics.
+The stripped integration suites compare histogram counts and buckets with the
+application's `runtime/metrics` histograms.
+
+### Goroutine list length
+
+The global `runtime.allglen` records the length of the runtime's goroutine list,
+including finished goroutines kept for reuse. The collector uses this total
+with scheduler free-list counts to calculate `go.goroutine.count`.
+The resolver locates the atomic length store in `runtime.allgadd`:
+
+```go
+atomic.Storeuintptr(&allglen, uintptr(len(allgs)))
+```
+
+It matches three adjacent instructions with consistent value and address registers:
+
+```text
+MOV  RCX, QWORD PTR [RIP+displacement] // Load len(allgs).
+LEA  RDX, [RIP+displacement]           // Address of allglen.
+XCHG QWORD PTR [RDX], RCX             // Atomically store the length.
+```
+
+The preceding global load distinguishes this sequence from the nearby `allgptr`
+exchange. Valid matches must agree on one aligned address with eight readable
+and writable bytes. The resolver adds process load bias to that address.
+Recovery failure leaves goroutine counting disabled while preserving other metrics.
+
+Address recovery passed exact-symbol comparisons for Go 1.17 through 1.27 fixtures,
+including empty programs, and current-Go executable and PIE builds. The stripped
+integration suites compare goroutine counts with `/sched/goroutines:goroutines`.
+
+### Scheduler processor list
+
+The global `runtime.allp` is a slice of pointers to scheduler processors (Ps).
+Each P holds a free list of finished goroutines. The collector reads these list
+sizes and subtracts them, along with the scheduler's free-list counts, from
+`allglen` to calculate `go.goroutine.count`.
+
+The resolver uses the loop in `runtime.preemptall`:
+
+```go
+for _, pp := range allp {
+```
+
+Recovery follows three checks:
+
+1. Identify eight-byte global loads of the backing-array pointer and slice length.
+   The compiled sequence saves the pointer on the stack between these loads.
+2. Follow the loaded registers to the loop's length comparison and indexed read.
+   The matcher allows bounded setup instructions that preserve both registers.
+   The comparison and read must use the same index, with an eight-byte stride.
+3. Calculate the global field addresses. The length must sit eight bytes after
+   the pointer, and the full 24-byte slice header must fit aligned, readable and
+   writable storage. All valid candidates must agree on one header address.
+
+The recovered address identifies the global slice header. Its pointer field leads
+to the separate backing array. Process load bias is added once after recovery.
+A missing address disables goroutine counting while preserving other metrics.
+The existing field-offset and counting-mode checks also apply to stripped binaries.
+
+Address recovery passed exact-symbol comparisons for Go 1.17 through 1.27 fixtures,
+including empty programs, and current-Go executable and PIE builds. The stripped
+Go 1.25 and current-Go integration cases exercise the corresponding counting modes
+through comparisons with `/sched/goroutines:goroutines`.
 
 ## Metrics
 

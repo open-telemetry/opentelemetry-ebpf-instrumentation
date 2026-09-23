@@ -5,6 +5,7 @@ services:
       dockerfile: ${RUNTIME_METRICS_TESTSERVER_DOCKERFILE:-./internal/test/integration/components/go-runtime-metrics-server/Dockerfile}
       args:
         - RUNTIME_METRICS_TESTSERVER_GO_IMAGE
+        - RUNTIME_METRICS_TESTSERVER_LDFLAGS
     image: ${RUNTIME_METRICS_TESTSERVER_IMAGE:-hatest-testserver-go-runtime-metrics}
     ports:
       - "${TEST_SERVICE_PORTS}"
@@ -60,14 +61,16 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
     container_name: otel-col
     deploy:
       resources:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    command:
+      - --config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml
+      - --config=/etc/otelcol-config/otelcol-runtime-metrics-telemetry.yml
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:

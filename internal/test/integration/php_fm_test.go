@@ -121,6 +121,8 @@ func TestPHPFM(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("PHP-FM RED metrics", testREDMetricsPHPFPM)
+	t.Run("PHP Symfony", testPHPSymfony)
+	t.Run("PHP harvested routes", testPHPHarvestedRoutes)
 
 	runWeaverValidation(t)
 
@@ -134,7 +136,7 @@ func testHTTPTracesPHP(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		resp, err := getJaeger(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -179,7 +181,7 @@ func testHTTPTracesPHP(t *testing.T) {
 	ti.DoHTTPGet(t, "http://localhost:8080/?obi_urlquery_test=1", 200)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		resp, err := getJaeger(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -205,7 +207,7 @@ func testHTTPTracesPHP(t *testing.T) {
 	ti.DoHTTPGet(t, "http://localhost:8080/?obi_urlquery_test=2&sig=secret123", 200)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		resp, err := getJaeger(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -223,6 +225,30 @@ func testHTTPTracesPHP(t *testing.T) {
 		tag, ok := jaeger.FindIn(phpSpans[0].Tags, "url.query")
 		require.True(ct, ok, "url.query tag missing from php-fpm server span")
 		assert.Equal(ct, "obi_urlquery_test=2&sig=REDACTED", tag.Value)
+	}, testTimeout, 100*time.Millisecond)
+
+	// url.scheme is semconv-required on an HTTP server span, and the FastCGI hop
+	// carries it only in REQUEST_SCHEME, which nginx sends through the stock
+	// fastcgi_params include.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := getJaeger(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/"})
+		require.GreaterOrEqual(ct, len(traces), 1)
+
+		phpSpans := traces[len(traces)-1].FindByOperationNameAndService("GET /", "php-fpm")
+		require.GreaterOrEqual(ct, len(phpSpans), 1)
+		tag, ok := jaeger.FindIn(phpSpans[0].Tags, "url.scheme")
+		require.True(ct, ok, "url.scheme tag missing from php-fpm server span")
+		assert.Equal(ct, "http", tag.Value)
 	}, testTimeout, 100*time.Millisecond)
 }
 

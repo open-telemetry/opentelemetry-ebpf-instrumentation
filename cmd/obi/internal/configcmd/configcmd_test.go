@@ -595,6 +595,162 @@ func TestRunMigrateReceiver(t *testing.T) {
 	)
 }
 
+func TestRunMigrateAllowPartial(t *testing.T) {
+	path := writeConfig(t, "partial-v1.yaml", `
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+metrics:
+  features: [application]
+otel_metrics_export:
+  endpoint: http://collector:4318
+otel_traces_export:
+  endpoint: http://collector:4318
+  insecure_skip_verify: true
+  instrumentations: [http]
+ebpf:
+  unknown_debug: true
+bpf_debug: true
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(
+		t,
+		stderr.String(),
+		"partially migrated v1 config to OBI config v2; manual changes are required",
+	)
+	for _, path := range []string{
+		"bpf_debug",
+		"ebpf.unknown_debug",
+		"otel_metrics_export.endpoint",
+		"otel_traces_export.endpoint",
+		"otel_traces_export.insecure_skip_verify",
+		"otel_traces_export.instrumentations",
+	} {
+		require.Contains(t, stderr.String(), "  - "+path+"\n")
+	}
+}
+
+func TestRunMigrateAllowPartialReportsCustomUnmarshalUnknownFields(t *testing.T) {
+	path := writeConfig(t, "custom-unmarshal-unknown-v1.yaml", `
+open_port: "8080"
+trace_printer: text
+ebpf:
+  payload_extraction:
+    http:
+      enrichment:
+        enabled: true
+        policy:
+          default_action:
+            headers: exclude
+            body: exclude
+        rules:
+          - action: include
+            type: headers
+            scope: request
+            match:
+              patterns: [x-*]
+              unknown_match: true
+              response_status_code:
+                greater_equals: 200
+                unknown_range: 300
+`)
+	var strictStdout, strictStderr bytes.Buffer
+
+	strictExitCode := run([]string{"migrate", path}, &strictStdout, &strictStderr)
+
+	require.Equal(t, ExitError, strictExitCode)
+	require.Empty(t, strictStdout.String())
+	for _, path := range []string{
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.unknown_match",
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.response_status_code.unknown_range",
+	} {
+		require.Contains(t, strictStderr.String(), path)
+	}
+
+	var partialStdout, partialStderr bytes.Buffer
+	partialExitCode := run(
+		[]string{"migrate", "--allow-partial", path},
+		&partialStdout,
+		&partialStderr,
+	)
+
+	require.Equal(t, ExitPartial, partialExitCode, partialStderr.String())
+	require.NoError(t, validateConfig(partialStdout.Bytes(), validationModeStandalone))
+	for _, path := range []string{
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.unknown_match",
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.response_status_code.unknown_range",
+	} {
+		require.Contains(t, partialStderr.String(), "  - "+path+"\n")
+	}
+}
+
+func TestRunMigrateAllowPartialReportsFlowMappingUnknownFields(t *testing.T) {
+	path := writeConfig(t, "flow-unknown-v1.yaml", `
+open_port: "8080"
+trace_printer: text
+ebpf: {unknown_one: true, unknown_two: false}
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(t, stderr.String(), "  - ebpf.unknown_one\n")
+	require.Contains(t, stderr.String(), "  - ebpf.unknown_two\n")
+}
+
+func TestRunMigrateAllowPartialReturnsSuccessForCompleteMigration(t *testing.T) {
+	path := writeConfig(t, "v1.yaml", representativeV1)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitSuccess, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(t, stderr.String(), "migrated v1 config to OBI config v2\n")
+	require.NotContains(t, stderr.String(), "partially migrated")
+}
+
+func TestRunMigrateAllowPartialReceiver(t *testing.T) {
+	path := writeConfig(t, "receiver-v1.yaml", `
+open_port: "8080"
+otel_traces_export:
+  endpoint: http://collector:4317
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run(
+		[]string{"migrate", "--allow-partial", "--mode=receiver", path},
+		&stdout,
+		&stderr,
+	)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeReceiver))
+	require.Contains(t, stderr.String(), "  - otel_traces_export.endpoint\n")
+}
+
+func TestRunMigrateAllowPartialRejectsInvalidKnownField(t *testing.T) {
+	path := writeConfig(t, "invalid-v1.yaml", `
+ebpf:
+  wakeup_len: invalid
+unknown_field: true
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitError, exitCode)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "decode v1 YAML fields")
+}
+
 func TestMigrateConfigReceiverRejectsWrongInputShape(t *testing.T) {
 	_, _, err := migrateConfigForMode(
 		[]byte("version: \"2.0\"\npolicy: {}\n"),
@@ -903,6 +1059,49 @@ metrics:
 	require.NoError(t, err)
 	require.False(t, runtimeConfig.Enabled(obi.FeatureAppO11y))
 	require.True(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
+}
+
+// the body size histograms have to survive the v1-to-v2 round trip: without a v2 key for
+// them the migration contract would report metrics.features as changed and refuse the
+// configuration.
+func TestMigrateConfigCarriesApplicationSizes(t *testing.T) {
+	v1 := func(features string) []byte {
+		return []byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+metrics:
+  features: ` + features + `
+prometheus_export:
+  port: 9090
+`)
+	}
+
+	// "application" bundles both, so the size histograms cross to v2 and back
+	output, _, err := migrateConfig(v1("[application]"))
+	require.NoError(t, err)
+
+	doc, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.True(t, ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics)
+
+	roundTripped, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.True(t, roundTripped.Metrics.Features.AppRED())
+	require.True(t, roundTripped.Metrics.Features.AppSizes())
+
+	// application_red drops them, and that has to cross too
+	withoutSizes, _, err := migrateConfig(v1("[application_red]"))
+	require.NoError(t, err)
+
+	plainDoc, plainExt, err := schema.ParseStandaloneYAML(withoutSizes)
+	require.NoError(t, err)
+	require.False(t, plainExt.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics)
+
+	plainRoundTripped, err := convert.DocumentToRuntime(plainDoc)
+	require.NoError(t, err)
+	require.True(t, plainRoundTripped.Metrics.Features.AppRED())
+	require.False(t, plainRoundTripped.Metrics.Features.AppSizes())
 }
 
 func TestMigrateConfigExpandsGlobalRoutes(t *testing.T) {

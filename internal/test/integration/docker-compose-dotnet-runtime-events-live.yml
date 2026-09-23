@@ -1,0 +1,12 @@
+name: obi-dotnet-runtime-events-live
+
+services:
+  collector:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/dotnet-runtime-collector/Dockerfile
+      network: ${DOTNET_BUILD_NETWORK:-default}
+    image: hatest-dotnet-runtime-events-live
+    network_mode: none
+    volumes:
+      - ${DOTNET_RUNTIME_OUTPUT}:/output

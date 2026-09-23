@@ -335,7 +335,7 @@ func TestHTTPServerSpanURLQuery(t *testing.T) {
 	})
 }
 
-func TestHTTPRequestMethodOmittedWhenEmpty(t *testing.T) {
+func TestHTTPRequestMethodClampedWhenEmpty(t *testing.T) {
 	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
 	require.NoError(t, err)
 
@@ -347,15 +347,15 @@ func TestHTTPRequestMethodOmittedWhenEmpty(t *testing.T) {
 		wantOK    bool
 	}{
 		{name: "server span with known method", spanType: request.EventTypeHTTP, method: "GET", wantValue: "GET", wantOK: true},
-		{name: "server span with empty method", spanType: request.EventTypeHTTP, method: "", wantOK: false},
+		{name: "server span with empty method", spanType: request.EventTypeHTTP, method: "", wantValue: request.HTTPMethodOther, wantOK: true},
 		{name: "client span with known method", spanType: request.EventTypeHTTPClient, method: "GET", wantValue: "GET", wantOK: true},
-		{name: "client span with empty method", spanType: request.EventTypeHTTPClient, method: "", wantOK: false},
+		{name: "client span with empty method", spanType: request.EventTypeHTTPClient, method: "", wantValue: request.HTTPMethodOther, wantOK: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			span := &request.Span{Type: tt.spanType, Method: tt.method, Path: "/", Host: "example.com", HostPort: 80, Status: 200}
 			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
 			val, ok := selected.Get("http.request.method")
-			assert.Equal(t, tt.wantOK, ok, "http.request.method presence should match method availability")
+			assert.Equal(t, tt.wantOK, ok, "http.request.method is required, so it is always present")
 			if tt.wantOK {
 				assert.Equal(t, tt.wantValue, val.Str())
 			}

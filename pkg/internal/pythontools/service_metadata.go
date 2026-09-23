@@ -6,7 +6,6 @@ package pythontools // import "go.opentelemetry.io/obi/pkg/internal/pythontools"
 import (
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -70,6 +69,7 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		launch.Target, configDir, resolutionErr = findFastAPIEntryPoint(root, cwd)
 		if launch.Target != "" {
 			launch.TargetKind = frameworks.ClassifyTarget(launch.Target)
+			launch.AppDir = configDir
 			launch.SearchPaths = append([]string{configDir}, launch.SearchPaths...)
 		}
 	}
@@ -97,6 +97,9 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		}
 		if name == "" {
 			name = frameworks.CleanValue(launch.FallbackName)
+		}
+		if name == "" && targetFound {
+			name = serviceNameFromAppDirectory(root, cwd, launch)
 		}
 		if name != "" {
 			fileInfo.SetAutoServiceName(name)
@@ -412,8 +415,25 @@ func processPath(root, hostPath string) string {
 	return string(filepath.Separator) + rel
 }
 
+func serviceNameFromAppDirectory(root, cwd string, launch frameworks.PythonLaunch) string {
+	dir, err := appDir(root, cwd, launch)
+	if err != nil {
+		return ""
+	}
+
+	boundary, ok := langtools.ResolveProcessPath(root, "/", "/")
+	if !ok {
+		return ""
+	}
+
+	if dir == boundary || !langtools.PathWithinBoundary(boundary, dir) {
+		return ""
+	}
+	return frameworks.TargetName(filepath.Base(dir))
+}
+
 func readPyproject(path string) (pyprojectData, bool, error) {
-	data, found, err := readProjectFile(path)
+	data, found, err := langtools.ReadMetadataFile(path, maxProjectFileBytes)
 	if err != nil || !found {
 		return pyprojectData{}, found, err
 	}
@@ -457,7 +477,7 @@ func readPyproject(path string) (pyprojectData, bool, error) {
 }
 
 func readSetupConfig(path string) (pyprojectData, bool, error) {
-	data, found, err := readProjectFile(path)
+	data, found, err := langtools.ReadMetadataFile(path, maxProjectFileBytes)
 	if err != nil || !found {
 		return pyprojectData{}, found, err
 	}
@@ -499,23 +519,6 @@ func readSetupConfig(path string) (pyprojectData, bool, error) {
 		}
 	}
 	return result, true, nil
-}
-
-func readProjectFile(path string) ([]byte, bool, error) {
-	file, found := langtools.OpenMetadataFile(path, maxProjectFileBytes)
-	if file == nil {
-		return nil, found, nil
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(io.LimitReader(file, maxProjectFileBytes+1))
-	if err != nil {
-		return nil, true, err
-	}
-	if int64(len(data)) > maxProjectFileBytes {
-		return nil, true, fmt.Errorf("project metadata file %s exceeds %d bytes", path, maxProjectFileBytes)
-	}
-	return data, true, nil
 }
 
 func cleanProjectName(value string) string {

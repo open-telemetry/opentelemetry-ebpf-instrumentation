@@ -1,0 +1,6 @@
+{
+  "require": {
+    "symfony/framework-bundle": "^8.0",
+    "api-platform/core": "^5.0"
+  }
+}

@@ -308,6 +308,7 @@ func assertNodejsRuntimeMetricService(t require.TestingT, results []promtest.Res
 	for _, result := range results {
 		require.Equal(t, "nodejs-runtime", result.Metric["service_name"])
 		require.Equal(t, "integration-test", result.Metric["service_namespace"])
+		require.Equal(t, "integration-test/nodejs-runtime", result.Metric["job"])
 	}
 }
 

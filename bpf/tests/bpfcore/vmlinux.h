@@ -55,6 +55,17 @@ struct nsproxy {
     struct net *net_ns;
 };
 
+struct file;
+
+struct fdtable {
+    unsigned int max_fds;
+    struct file **fd;
+};
+
+struct files_struct {
+    struct fdtable *fdt;
+};
+
 struct task_struct {
     int pid;
     int tgid;
@@ -63,6 +74,7 @@ struct task_struct {
     struct nsproxy *nsproxy;
     struct pid *thread_pid;
     struct mm_struct *mm;
+    struct files_struct *files;
 };
 
 enum {
@@ -105,6 +117,9 @@ struct sock_common {
     struct in6_addr skc_v6_daddr;
     struct in6_addr skc_v6_rcv_saddr;
     possible_net_t skc_net;
+    struct {
+        s64 counter;
+    } skc_cookie;
 };
 struct sock {
     struct sock_common __sk_common;
@@ -119,6 +134,11 @@ struct tcp_sock {
 };
 struct socket {
     struct sock *sk;
+};
+
+struct file {
+    struct inode *f_inode;
+    void *private_data;
 };
 
 struct iov_iter {};

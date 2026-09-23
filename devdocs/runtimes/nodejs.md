@@ -63,7 +63,7 @@ The injected agent reports in-process readings over an eBPF side channel:
    (cumulative idle/active nanoseconds) and the `monitorEventLoopDelay()`
    histogram (reset after each read, so delay values are per-interval), and
    encodes the ten values as fixed-width hex into a synthetic path:
-   `fs.accessSync("/dev/null/obi-rt/<10 × 16 hex chars>")`. On the same tick
+   `fs.existsSync("/dev/null/obi-rt/<10 × 16 hex chars>")`. On the same tick
    it walks `v8.getHeapSpaceStatistics()` and emits one
    `/dev/null/obi-v8/h...` record per heap space (four fixed-width values,
    the engine-defined space name last), and folds
@@ -87,10 +87,46 @@ The injected agent reports in-process readings over an eBPF side channel:
 
 ## Requirements and limitations
 
+The Node.js support has three version thresholds, each gating a different
+feature. They are not the same number and are easy to confuse:
+
+| From | What it unlocks | Why |
+|---|---|---|
+| `12.17`, excluding `13.0`-`13.9` | Any injection at all: trace-context propagation, and the delivery path every runtime metric uses | The agent constructs an `AsyncLocalStorage` |
+| `14.0` | `nodejs.manual_spans`, when enabled | `spanbridge.js` uses nullish coalescing |
+| `14.10` | `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `v8js.gc.duration`, `v8js.memory.heap.*` | `performance.eventLoopUtilization()` |
+| `16.14` | `nodejs.eventloop.delay.*`, `v8js.resource.active` | `Histogram.count`, `process.getActiveResourcesInfo()` |
+
+- **Injection floor: 12.17+, with `13.0`-`13.9` excluded.** The agent constructs
+  an `AsyncLocalStorage`, which Node.js added in 13.10.0 and backported to
+  12.17.0 — so the 13.x releases below 13.10 predate it and clear the 12.17
+  bound at the same time. Below the floor the agent throws
+  `TypeError: AsyncLocalStorage is not a constructor` on evaluation and nothing
+  is instrumented.
+
+  The injector reads the version from the executable's `.rodata`, which carries
+  the inspector's own `node.js/<version>` literal
+  (`src/inspector_socket_server.cc`) in every build and survives stripping. A
+  runtime whose version cannot be read is declined as well — deliberately, since
+  the version is the only evidence that the agent can run there. A build that
+  hides it therefore loses Node.js instrumentation, and the skipped process is
+  named in a warning so that is visible rather than silent. The check runs
+  before SIGUSR1, so an unsupported process is never signaled, its debugger
+  port is never opened, and there is nothing to close afterwards — which also
+  keeps OBI away from Node.js 9.x and earlier, where closing the inspector
+  segfaults the process (see below).
+
+- **`nodejs.manual_spans` needs 14.0+.** `spanbridge.js` uses nullish
+  coalescing, which Node.js enabled by default in 14.0.0, and the injector
+  concatenates it with the extractor into a single `Runtime.evaluate`. On an
+  older runtime the whole payload fails to parse, taking propagation and the
+  runtime metrics with it, so the injection is refused outright rather than
+  delivering less than was asked for. Leaving manual spans off keeps the 12.17
+  floor.
 - Node.js 14.10+ (`eventLoopUtilization` API) for the event-loop time and
   utilization metrics; the delay gauges (`Histogram.count`) and the
   active-resource gauge (`getActiveResourcesInfo`) additionally need
-  Node.js 16.14+. On 14.10–16.13 those metrics are absent while ELU metrics
+  Node.js 16.14+. On 14.10-16.13 those metrics are absent while ELU metrics
   keep working.
 - The GC kind is read from `PerformanceNodeEntry.detail` (Node.js 16+), with a
   fallback to the pre-16 `entry.kind` accessor, so `v8js.gc.duration` works
@@ -107,16 +143,86 @@ The injected agent reports in-process readings over an eBPF side channel:
   `MessagePort`, ...) are dropped before export (debug-logged). Node
   reports TCP connections as `TCPSocketWrap`; they are exported under the
   semconv member that documents them, `TCPWrap`.
-- The inspector must be reachable: injection is skipped when the application
-  registers its own `SIGUSR1` handler, and fails when the environment blocks
-  the inspector (e.g. seccomp) — in both cases the metrics are silently
-  absent (an error is logged).
+- The inspector must be reachable: injection is skipped when OBI will not send
+  `SIGUSR1` (see below), and fails when the environment blocks the inspector
+  (e.g. seccomp) — in both cases the metrics are silently absent (an error is
+  logged).
+- A process reaches the injector only if discovery typed it Node.js, which it
+  does from the executable's own symbols (`node::NodeMainInstance`,
+  `node::Environment`, `node::Start`) or a mapped `libnode.so`, never from the
+  name of the binary. The N-API surface does not count towards this, because
+  Bun re-exports it, and neither do libuv's symbols, which every runtime
+  linking libuv carries. A Bun binary installed as `node` is therefore not
+  typed Node.js and is never signaled or injected.
+- That type is not private to the injector. It also selects the
+  `telemetry.sdk.language` resource attribute, the `package.json` service-name
+  resolution, and Node.js route harvesting. A build that names none of the
+  symbols and maps no `libnode.so` loses all four, and because Node links
+  `libstdc++`, it is typed C++ rather than generic, so the emitted
+  `telemetry.sdk.language` is wrong rather than merely absent. Official builds
+  for 18 through 24 on glibc and musl, `strip -s` builds, distribution packages,
+  single-executable applications, `pkg` bundles and Electron all carry the
+  symbols; a build linked without `-rdynamic` is the shape that would not.
+- `SIGUSR1` is withheld unless the signal cannot terminate the process and the
+  application has no handler of its own. Each refusal is logged once, with a
+  `reason`:
+  - `SigCgt`/`SigIgn` in `/proc/<pid>/status` show `SIGUSR1` neither caught nor
+    ignored, so sending it would terminate the process. A runtime is briefly in
+    this state after `exec`, so OBI waits for it to install its handler before
+    giving up;
+  - `/proc/<pid>/status` could not be read;
+  - libuv's signal tree shows a handler the application registered;
+  - the application's source files mention `SIGUSR1`. This last check runs only
+    when the libuv tree is unreadable, and is still fail-open: a scan that
+    cannot complete reads as handler-free.
+- The version check is a refusal of the same kind, decided from the executable
+  before any of the signal gates run, with two reasons of its own: the runtime
+  is below the injection floor, or its version could not be read.
+- **Node.js 9.x and earlier segfault when the inspector is closed.**
+  `process._debugEnd()` runs `Agent::Stop()`, which destroys the `ChannelImpl`
+  carrying CDP responses; the reply to that same `Runtime.evaluate` is then
+  sent over the freed channel:
+
+  ```
+  #0 node::inspector::ChannelImpl::sendResponse
+  #1 v8_inspector::V8InspectorSessionImpl::sendProtocolResponse
+  #3 v8_inspector::protocol::DispatcherBase::Callback::sendIfActive
+  #4 v8_inspector::protocol::Runtime::EvaluateCallbackImpl::sendSuccess
+  #5 v8_inspector::V8RuntimeAgentImpl::evaluate
+  ```
+
+  Reproduced on 9.3.0, where it is deterministic; 10.24.1 does not fault. The
+  releases between the two were not tested, so where upstream stopped doing this
+  is unknown. The injection floor is above both, so OBI no longer reaches this
+  path — but the close itself still waits for a reply the call has made
+  undeliverable. On a runtime that survives it the read returns at once, when
+  the runtime drops the session, leaving a discarded error and a session OBI
+  never closes.
 - **Main-thread event loop only**: `perf_hooks` are per-thread and the agent
   runs on the main isolate, so `worker_threads` loops are not measured (the
   same scope as the standard OTel Node.js SDK). See the design notes for
   options to extend coverage.
 - Injection is single-shot per discovered process; a transient failure at
   process startup is not retried.
+- Injection runs on one worker goroutine off the discovery loop, because it
+  waits on the target: for the runtime's own signal handler, and for the
+  inspector to answer. The queue holds 100 pending processes; beyond that a
+  process is dropped with a warning and is not injected. A queued process is
+  pinned to the incarnation discovery saw, by start time and a process handle,
+  so the executable read and the signal cannot land on an unrelated program
+  that inherited the same PID in the meantime. The rest still works from the
+  number: the gates read `/proc/<pid>`, and the inspector conversation enters a
+  network namespace by PID, so a recycled PID can be the process examined and,
+  where an inspector is already listening and no signal is needed, the one
+  injected. Shutdown cancels the wait for the signal handler, but not the
+  inspector conversation past it, which runs on its own deadlines.
+- Injections never overlap, across runtimes as well as within one. Attaching to
+  a JVM switches OBI's own euid and egid process-wide, which would otherwise
+  cost a concurrent Node.js injection its access to `/proc/<pid>/mem` and its
+  network namespace, so the Java and Node.js workers take turns through one
+  shared slot. Pinning the process, which discovery does before queuing it, is
+  outside that slot and still runs under whatever credentials an attach happens
+  to hold, so it can fail for a process OBI would otherwise have injected.
 - The inspector port (9229) is per network namespace, so among processes that
   share one — `cluster` workers, for instance — only the first to bind it is
   injected; the others log an attach error and report no metrics.

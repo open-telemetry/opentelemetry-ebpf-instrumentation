@@ -15,6 +15,8 @@ typedef enum {
     _conn_fd_pos = 1, // start at 1, must match what's in structmembers.go
     _fd_laddr_pos,
     _fd_raddr_pos,
+    _net_fd_pfd_pos,
+    _poll_fd_sysfd_pos,
     _tcp_addr_port_ptr_pos,
     _tcp_addr_ip_ptr_pos,
     // http
