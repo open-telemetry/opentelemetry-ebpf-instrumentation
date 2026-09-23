@@ -228,6 +228,9 @@ var DefaultConfig = Config{
 		Sources:  []transform.Source{transform.SourceK8s},
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
+		ECS: transform.ECSNameResolverConfig{
+			RefreshInterval: 30 * time.Second,
+		},
 	},
 	Metrics: perapp.GlobalMetricsConfig{
 		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes,

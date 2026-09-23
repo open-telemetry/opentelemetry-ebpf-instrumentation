@@ -372,6 +372,9 @@ discovery:
 			Sources:  []transform.Source{transform.SourceK8s, transform.SourceDNS},
 			CacheLen: 1024,
 			CacheTTL: 5 * time.Minute,
+			ECS: transform.ECSNameResolverConfig{
+				RefreshInterval: 30 * time.Second,
+			},
 		},
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
@@ -484,6 +487,21 @@ func TestConfig_NameResolverSources(t *testing.T) {
 	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns]\n"))
 	require.NoError(t, err)
 	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
+
+func TestConfig_NameResolverECS(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`name_resolver:
+  sources: [ecs]
+  ecs:
+    cluster: beyla-nonk8s-poc
+    region: us-east-2
+    refresh_interval: 45s
+`))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceECS}, cfg.NameResolver.Sources)
+	assert.Equal(t, "beyla-nonk8s-poc", cfg.NameResolver.ECS.Cluster)
+	assert.Equal(t, "us-east-2", cfg.NameResolver.ECS.Region)
+	assert.Equal(t, 45*time.Second, cfg.NameResolver.ECS.RefreshInterval)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {

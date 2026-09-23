@@ -871,6 +871,33 @@
       "type": "object",
       "description": "EBPFTracer configuration for eBPF programs"
     },
+    "ECSNameResolverConfig": {
+      "properties": {
+        "cluster": {
+          "type": "string",
+          "description": "Specifies the ECS cluster whose task private IPs are resolved.",
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_CLUSTER"
+        },
+        "refresh_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Controls how often the ECS task inventory is refreshed.",
+          "default": "30s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL"
+        },
+        "region": {
+          "type": "string",
+          "description": "Specifies the AWS region containing the ECS cluster.",
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_REGION"
+        }
+      },
+      "type": "object"
+    },
     "ElasticsearchConfig": {
       "properties": {
         "enabled": {
@@ -2050,11 +2077,15 @@
           "default": 1024,
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"
         },
+        "ecs": {
+          "$ref": "#/$defs/ECSNameResolverConfig"
+        },
         "sources": {
           "items": {
             "type": "string",
             "enum": [
               "dns",
+              "ecs",
               "k8s",
               "kube",
               "kubernetes",
@@ -2062,7 +2093,7 @@
             ]
           },
           "type": "array",
-          "description": "Specifies the backends used for name resolving. Accepted values: dns, k8s, rdns",
+          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns",
           "default": [
             "k8s"
           ],
