@@ -641,6 +641,23 @@ func TestPrefetchedGoRuntimeWorkFullOffset(t *testing.T) {
 	}
 }
 
+func TestPrefetchedGoRuntimeSchedGoIDOffset(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+	_, found := track.Find("runtime.schedt", "goidgen", "1.16.15")
+	require.False(t, found)
+	for _, version := range []string{
+		"1.17.0", "1.18.0", "1.19.0", "1.20.0", "1.21.0", "1.22.0",
+		"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1",
+	} {
+		t.Run(version, func(t *testing.T) {
+			value, found := track.Find("runtime.schedt", "goidgen", version)
+			require.True(t, found)
+			require.Zero(t, value)
+		})
+	}
+}
+
 func TestPrefetchedGoRuntimeMemoryOffsets(t *testing.T) {
 	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	require.NoError(t, err)

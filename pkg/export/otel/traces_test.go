@@ -701,10 +701,10 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.ErrorType))
 	})
 
-	t.Run("test OpenAI trace generation omits empty operation name", func(t *testing.T) {
-		// gen_ai.operation.name must not be emitted as an empty string:
-		// when the operation could not be classified (e.g. an error response
-		// parsed before the request body), the attribute must be omitted
+	t.Run("test OpenAI trace generation marks an unclassified operation", func(t *testing.T) {
+		// gen_ai.operation.name is required, so an operation that could not be
+		// classified reports the unknown marker rather than being omitted or
+		// emitted as an empty string
 		span := request.Span{
 			Type:    request.EventTypeHTTPClient,
 			SubType: request.HTTPSubtypeOpenAI,
@@ -719,7 +719,29 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.GenAIProviderNameKey, "openai")
-		ensureTraceAttrNotExists(t, attrs, semconv.GenAIOperationNameKey)
+		ensureTraceStrAttr(t, attrs, semconv.GenAIOperationNameKey, request.OtherOperationName)
+	})
+
+	t.Run("test OpenAI ChatKit trace generation", func(t *testing.T) {
+		// a ChatKit call addresses a conversation, so the response id is also
+		// reported as gen_ai.conversation.id
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAI,
+			Method:  "POST",
+			Path:    "/v1/chatkit/sessions",
+			GenAI: &request.GenAI{OpenAI: &request.VendorOpenAI{
+				ID:            "cksess_68",
+				OperationName: request.ChatKitSessionOperationName,
+			}},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.GenAIOperationNameKey, request.ChatKitSessionOperationName)
+		ensureTraceStrAttr(t, attrs, semconv.GenAIConversationIDKey, "cksess_68")
 	})
 
 	t.Run("test Mongo trace generation", func(t *testing.T) {

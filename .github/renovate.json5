@@ -8,7 +8,10 @@
     // the following components are used to test the behavior of OBI with legacy versions of libraries
     // so we don't want to get them updated
     "internal/test/integration/components/testserver_1.17",
+    "internal/test/integration/components/gohttp2/client_stdlib_legacy",
+    "internal/test/integration/components/gohttp2/client_xnet_legacy",
     "internal/test/integration/components/old_grpc",
+    "internal/test/integration/components/grpc_relay/go_legacy",
     "internal/test/integration/components/goautosdk/v1.33",
     // github.com/Shopify/sarama has been moved to github.com/IBM/sarama
     // but we keep supporting the go-offsets for the outdated library, which must not

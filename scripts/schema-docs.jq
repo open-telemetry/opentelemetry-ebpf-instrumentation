@@ -13,6 +13,7 @@
 def is_obi: (.lineage.provenance.schema_url // "") | test("opentelemetry-ebpf-instrumentation");
 def cell: (. // "") | tostring | gsub("\n"; " ") | gsub("\\|"; "\\|") | sub("^ +"; "") | sub(" +$"; "");
 def attr_type: if (.type | type) == "string" then .type else "enum" end;
+def canonical_scalar: if type == "number" and . == floor then (floor | tostring) else tostring end;
 
 # An enum's value space is the documentation, so surface its members. Upstream
 # enums run long (db.system.name has 42), which would make the table unreadable,
@@ -22,9 +23,9 @@ def enum_members_shown: 8;
 # ones, so it is coerced before use rather than iterated blindly.
 def examples_list: (.examples // []) | if type == "array" then . else [.] end;
 def values:
-  if (examples_list | length) > 0 then (examples_list | map(tostring) | join("; "))
+  if (examples_list | length) > 0 then (examples_list | map(canonical_scalar) | join("; "))
   elif (.type | type) == "object" then
-    ((.type.members // []) | map(.value // .id | tostring)) as $m
+    ((.type.members // []) | map(.value // .id | canonical_scalar)) as $m
     | if ($m | length) == 0 then ""
       elif ($m | length) > enum_members_shown then (($m[0:enum_members_shown] | join("; ")) + "; …")
       else ($m | join("; "))

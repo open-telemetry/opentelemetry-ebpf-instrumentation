@@ -856,6 +856,7 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
 
 done:
     cleanup_http2_owned_stream(&g_key);
+    bpf_map_delete_elem(&http2_header_observations, &g_key);
     bpf_map_delete_elem(&go_ongoing_http_client_requests, &g_key);
     bpf_map_delete_elem(&ongoing_http_client_requests_data, &g_key);
     bpf_map_delete_elem(&ongoing_client_connections, &g_key);
@@ -1228,6 +1229,27 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
     return 0;
 }
 
+static __always_inline bool find_http_client_request_key(const go_addr_key_t *writer_key,
+                                                         go_addr_key_t *request_key) {
+    enum { k_max_parent_depth = 6 };
+    go_addr_key_t candidate = *writer_key;
+
+    for (u8 attempts = 0; attempts < k_max_parent_depth; attempts++) {
+        if (bpf_map_lookup_elem(&go_ongoing_http_client_requests, &candidate)) {
+            *request_key = candidate;
+            return true;
+        }
+
+        goroutine_metadata *metadata = bpf_map_lookup_elem(&ongoing_goroutines, &candidate);
+        if (!metadata) {
+            return false;
+        }
+        candidate = metadata->parent;
+    }
+
+    return false;
+}
+
 static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                                                     void *cc_ptr,
                                                     u32 stream_id,
@@ -1236,22 +1258,24 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                                                     go_offset_const off_cc_framer_pos) {
     go_addr_key_t writer_key = {};
     go_addr_key_from_id(&writer_key, goroutine_addr);
-    const u8 *observation = bpf_map_lookup_elem(&http2_header_observations, &writer_key);
-    const bool app_owned = observation && *observation;
+    const http2_header_observation_t *observation =
+        bpf_map_lookup_elem(&http2_header_observations, &writer_key);
+    const bool app_owned = observation && observation->app_owned;
+    const u64 observed_request_go = observation ? observation->request_go : 0;
+    bpf_map_delete_elem(&http2_header_observations, &writer_key);
 
     go_addr_key_t g_key = writer_key;
     http2_owned_stream_ref_t owned_ref = {};
     bool owned_ref_published = false;
 
-    void *parent_go = (void *)find_parent_goroutine_in_chain(&g_key);
-
-    bpf_dbg_printk("goroutine_addr=%lx, parent_go=%lx", goroutine_addr, parent_go);
-
-    // We should find a parent always
-    if (parent_go) {
-        goroutine_addr = parent_go;
-        go_addr_key_from_id(&g_key, goroutine_addr);
+    if (observed_request_go) {
+        go_addr_key_from_id(&g_key, (void *)observed_request_go);
+        goroutine_addr = (void *)observed_request_go;
+    } else if (find_http_client_request_key(&writer_key, &g_key)) {
+        goroutine_addr = (void *)g_key.addr;
     }
+
+    bpf_dbg_printk("writer_goroutine=%lx, request_goroutine=%lx", writer_key.addr, goroutine_addr);
 
     off_table_t *ot = get_offsets_table();
 
@@ -1338,8 +1362,22 @@ int GUARDED_PROG(obi_uprobe_http2ClientStreamEncodeAndWriteHeaders, struct pt_re
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
-    const u8 not_owned = 0;
-    bpf_map_update_elem(&http2_header_observations, &g_key, &not_owned, BPF_ANY);
+    http2_header_observation_t observation = {};
+
+    void *req = (void *)GO_PARAM2(ctx);
+    off_table_t *ot = get_offsets_table();
+    const u64 header_pos = go_offset_of(ot, (go_offset){.v = _req_header_ptr_pos});
+    void *headers = 0;
+    if (req && header_pos != (u64)-1 &&
+        bpf_probe_read_user(&headers, sizeof(headers), (unsigned char *)req + header_pos) == 0 &&
+        headers) {
+        const u64 *request_go = bpf_map_lookup_elem(&header_req_map, &headers);
+        if (request_go) {
+            observation.request_go = *request_go;
+        }
+    }
+
+    bpf_map_update_elem(&http2_header_observations, &g_key, &observation, BPF_ANY);
     return 0;
 }
 
@@ -1363,7 +1401,8 @@ int GUARDED_PROG(obi_uprobe_http2ClientConnWriteHeader, struct pt_regs *, ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
-    u8 *observation = bpf_map_lookup_elem(&http2_header_observations, &g_key);
+    http2_header_observation_t *observation =
+        bpf_map_lookup_elem(&http2_header_observations, &g_key);
     if (!observation) {
         return 0;
     }
@@ -1371,7 +1410,7 @@ int GUARDED_PROG(obi_uprobe_http2ClientConnWriteHeader, struct pt_regs *, ctx) {
     unsigned char name[W3C_KEY_LENGTH];
     if (bpf_probe_read_user(name, sizeof(name), (void *)GO_PARAM2(ctx)) == 0 &&
         stricmp((const char *)name, "traceparent", W3C_KEY_LENGTH)) {
-        *observation = 1;
+        observation->app_owned = 1;
     }
     return 0;
 }

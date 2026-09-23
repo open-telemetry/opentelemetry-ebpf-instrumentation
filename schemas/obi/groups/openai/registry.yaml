@@ -1,8 +1,8 @@
 groups:
   # Overrides `openai.api.type`: extends the upstream enum with `embeddings`.
   # pkg/ebpf/common/http/openai.go classifies OpenAI calls as
-  # chat_completions / responses / embeddings from the URL path; upstream
-  # v1.41 declares only the first two.
+  # chat_completions / responses / embeddings / text_completions from the URL
+  # path; upstream v1.41 declares only the first two.
   #
   # See ../../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
@@ -11,7 +11,8 @@ groups:
     display_name: OBI OpenAI Attribute Overrides
     brief: >
       OBI override of `openai.api.type` extending the upstream enum with the
-      embeddings API, which OBI detects but upstream semconv has no member for.
+      embeddings and legacy text-completions APIs, which OBI detects but
+      upstream semconv has no members for.
     attributes:
       - id: openai.api.type
         stability: development
@@ -29,5 +30,9 @@ groups:
             - id: embeddings
               value: "embeddings"
               brief: The OpenAI [Embeddings API](https://developers.openai.com/api/reference/embeddings/overview).
+              stability: development
+            - id: text_completions
+              value: "text_completions"
+              brief: The legacy OpenAI [Completions API](https://developers.openai.com/api/reference/completions/overview).
               stability: development
         brief: The type of OpenAI API being used.

@@ -83,21 +83,12 @@ In a sense, this design is very similar to what happens with nginx request track
 the array:item pair for the work, rather than the file descriptors.
  */
 
-SEC("uprobe/ruby:rb_obj_call_init_kw")
-int GUARDED_PROG(obi_rb_obj_call_init_kw, struct pt_regs *, ctx) {
-    const u64 id = bpf_get_current_pid_tgid();
-
-    if (!valid_pid(id)) {
-        return 0;
-    }
-
+static __always_inline int rb_obj_alloc(const u64 item, const u64 id) {
     char buf[k_comm_len];
     if (bpf_get_current_comm(buf, k_comm_len)) {
         bpf_dbg_printk("can't get current command");
         return 0;
     }
-
-    const u64 item = (u64)PT_REGS_PARM1(ctx);
 
     if (!obi_bpf_memcmp(buf, PUMA_WORKER, sizeof(PUMA_WORKER) - 1) ||
         !obi_bpf_memcmp(buf, PUMA_SRV_THREAD, sizeof(PUMA_SRV_THREAD) - 1)) {
@@ -126,6 +117,41 @@ int GUARDED_PROG(obi_rb_obj_call_init_kw, struct pt_regs *, ctx) {
     }
 
     return 0;
+}
+
+// libruby < 4.0
+// Client.new
+//   -> allocate Client
+//   -> rb_obj_call_init_kw(client)
+SEC("uprobe/ruby:rb_obj_call_init_kw")
+int GUARDED_PROG(obi_rb_obj_call_init_kw, struct pt_regs *, ctx) {
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    const u64 item = (u64)PT_REGS_PARM1(ctx);
+
+    return rb_obj_alloc(item, id);
+}
+
+// libruby >= 4.0
+// Client.new
+//   -> opt_new
+//   -> rb_obj_alloc(Puma::Client) = 0x7d799eee7bc8
+//   -> call initialize directly
+SEC("uprobe/ruby:rb_obj_alloc")
+int GUARDED_PROG(obi_rb_obj_alloc_ret, struct pt_regs *, ctx) {
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    const u64 item = (u64)PT_REGS_RC(ctx);
+
+    return rb_obj_alloc(item, id);
 }
 
 SEC("uprobe/ruby:rb_ary_shift")

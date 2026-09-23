@@ -8,3 +8,6 @@ attributes:
   select:
     "*":
       include: ["*"]
+ebpf:
+  buffer_sizes:
+    postgres: 4096      

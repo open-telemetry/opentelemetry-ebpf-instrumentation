@@ -68,6 +68,7 @@
         "[1.23.0]smallFreeCount"
       ],
       "runtime.schedt": [
+        "goidgen",
         "ngsys",
         "gFree",
         "[1.20.0]timeToRun",
