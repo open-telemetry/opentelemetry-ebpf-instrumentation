@@ -40,6 +40,9 @@ enum {
     k_max_fd_digits = 4,
     // strlen("/dev/null/obi-span/") — the JSON span payload starts here
     k_span_payload_offset = 19,
+    k_span_fd_variant_offset = 18,
+    k_span_fd_marker_len = 3,
+    k_span_fd_payload_offset = k_span_fd_variant_offset + k_span_fd_marker_len + k_max_fd_digits,
 };
 
 enum {
@@ -134,24 +137,53 @@ static __always_inline int nodejs_v8_parse_numbers_name(
     return 0;
 }
 
-static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
-    u32 fd = 0;
-    for (u8 i = 0; i < k_max_fd_digits; ++i) {
-        fd *= 10;
-        fd += buf[k_ctx_fd_offset + i] - '0';
-    }
-
-    bpf_dbg_printk("nodejs_async_switch: %s, pid_tgid = %llx, fd = %u", buf, pid_tgid, fd);
-
+static __always_inline const tp_info_pid_t *nodejs_server_trace_for_fd(const u64 pid_tgid,
+                                                                       const u32 fd) {
     const fd_key fkey = {.pid_tgid = pid_tgid, .fd = (s32)fd};
     const connection_info_t *conn = bpf_map_lookup_elem(&fd_to_connection, &fkey);
     if (!conn) {
-        obi_ctx__del(pid_tgid);
         return 0;
     }
 
     const tp_info_pid_t *tp = trace_info_for_connection(conn, TRACE_TYPE_SERVER);
-    if (tp && tp->valid) {
+    if (!tp || !tp->valid) {
+        return 0;
+    }
+
+    return tp;
+}
+
+static __always_inline int nodejs_parse_fd(const unsigned char *digits, u32 *fd) {
+    u32 v = 0;
+    for (u8 i = 0; i < k_max_fd_digits; ++i) {
+        const unsigned char c = digits[i];
+        if (c < '0' || c > '9') {
+            return -1;
+        }
+        v = v * 10 + (u32)(c - '0');
+    }
+    *fd = v;
+    return 0;
+}
+
+static __always_inline int nodejs_span_fd_variant(const unsigned char *variant, u32 *fd) {
+    if (variant[0] != 'f' || variant[1] != 'd' || variant[2] != '/') {
+        return 0;
+    }
+    return nodejs_parse_fd(variant + k_span_fd_marker_len, fd) == 0 ? 1 : -1;
+}
+
+static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
+    u32 fd = 0;
+    if (nodejs_parse_fd((const unsigned char *)buf + k_ctx_fd_offset, &fd) != 0) {
+        obi_ctx__del(pid_tgid);
+        return 0;
+    }
+
+    bpf_dbg_printk("nodejs_async_switch: %s, pid_tgid = %llx, fd = %u", buf, pid_tgid, fd);
+
+    const tp_info_pid_t *tp = nodejs_server_trace_for_fd(pid_tgid, fd);
+    if (tp) {
         obi_ctx__set(pid_tgid, &tp->tp);
     } else {
         obi_ctx__del(pid_tgid);
@@ -161,14 +193,15 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
 }
 
 // Manual span emitted by the injected span bridge (spanbridge.js):
+//     /dev/null/obi-spanfd/<fd><json>
 //     /dev/null/obi-span/<json>
 // The JSON document (name, ids, duration, attributes...) is copied verbatim
 // into a node_span_event_t; user space parses it (ReadNodeSpanEventIntoSpan).
 // We stamp the event with bpf_ktime_get_ns() (the sentinel fires inside
 // span.end(), so this is the span end time in the same monotonic domain the
-// rest of the pipeline uses) and with the current request trace context from
-// traces_ctx_v1 — maintained by the async-context sentinels above — so the
-// span can be parented under OBI's automatic server span.
+// rest of the pipeline uses) and with the request trace context — the server
+// trace of the incoming fd when the bridge sent one, traces_ctx_v1 otherwise —
+// so the span can be parented under OBI's automatic server span.
 static __always_inline int handle_node_span(const char *path, const u64 pid_tgid) {
     node_span_event_t *ev = bpf_ringbuf_reserve(&events, sizeof(node_span_event_t), 0);
     if (!ev) {
@@ -185,17 +218,36 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
     ev->end_ktime = bpf_ktime_get_ns();
     task_pid(&ev->pid);
 
-    const obi_ctx_info_t *octx = obi_ctx__get(pid_tgid);
-    if (octx) {
-        ev->has_parent_ctx = 1;
-        bpf_memcpy(ev->parent_trace_id, (void *)octx->trace_id, TRACE_ID_SIZE_BYTES);
-        bpf_memcpy(ev->parent_span_id, (void *)octx->span_id, SPAN_ID_SIZE_BYTES);
-    } else {
-        ev->has_parent_ctx = 0;
+    ev->has_parent_ctx = 0;
+    u32 payload_offset = k_span_payload_offset;
+
+    unsigned char fd_part[k_span_fd_marker_len + k_max_fd_digits] = {};
+    u32 fd = 0;
+    int variant = 0;
+    if (bpf_probe_read_user(fd_part, sizeof(fd_part), path + k_span_fd_variant_offset) == 0) {
+        variant = nodejs_span_fd_variant(fd_part, &fd);
+    }
+    if (variant != 0) {
+        payload_offset = k_span_fd_payload_offset;
+    }
+    if (variant > 0) {
+        const tp_info_pid_t *tp = nodejs_server_trace_for_fd(pid_tgid, fd);
+        if (tp) {
+            ev->has_parent_ctx = 1;
+            bpf_memcpy(ev->parent_trace_id, (void *)tp->tp.trace_id, TRACE_ID_SIZE_BYTES);
+            bpf_memcpy(ev->parent_span_id, (void *)tp->tp.span_id, SPAN_ID_SIZE_BYTES);
+        }
+    } else if (variant == 0) {
+        const obi_ctx_info_t *octx = obi_ctx__get(pid_tgid);
+        if (octx) {
+            ev->has_parent_ctx = 1;
+            bpf_memcpy(ev->parent_trace_id, (void *)octx->trace_id, TRACE_ID_SIZE_BYTES);
+            bpf_memcpy(ev->parent_span_id, (void *)octx->span_id, SPAN_ID_SIZE_BYTES);
+        }
     }
 
-    const long len = bpf_probe_read_user_str(
-        ev->payload, NODE_SPAN_PAYLOAD_MAX_LEN, path + k_span_payload_offset);
+    const long len =
+        bpf_probe_read_user_str(ev->payload, NODE_SPAN_PAYLOAD_MAX_LEN, path + payload_offset);
     if (len <= 1) { // empty or unreadable payload
         bpf_ringbuf_discard(ev, 0);
         return 0;
@@ -475,7 +527,9 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     //    /dev/null/obi-ctx/<fd>    — 4-digit incoming fd for the current async context
     //
     // 3. manual span end (spanbridge.js):
-    //    /dev/null/obi-span/<json> — serialized manual span, variable length
+    //    /dev/null/obi-spanfd/<fd><json> — serialized manual span, parented
+    //    under the server trace of the 4-digit incoming fd
+    //    /dev/null/obi-span/<json> — outside request scope, parent from traces_ctx_v1
     //
     // 4. no request context (before-hook, callback outside any request):
     //    /dev/null/obi-noreqctx    — clears the stale traces_ctx_v1 entry
@@ -490,7 +544,7 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     // positions 13-14 distinguish the formats:
     //   '/'       -> format 1 (fd pair)
     //   '-', 'c'  -> format 2 (context switch, "-ctx/" follows)
-    //   '-', 's'  -> format 3 (manual span, "-span/" follows)
+    //   '-', 's'  -> format 3 (manual span, "-span/" or "-spanfd/" follows)
     //   '-', 'n'  -> format 4 (no request context, "-noreqctx")
     //   '-', 'r'  -> format 5 (runtime metrics, "-rt/" follows)
     //   '-', 'v'  -> format 6 (v8js metrics, "-v8/" follows)
@@ -522,7 +576,7 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     }
 
     if (buf[k_delim_offset] == '-') {
-        // Manual span: /dev/null/obi-span/<json>
+        // Manual span: /dev/null/obi-spanfd/<fd><json> or /dev/null/obi-span/<json>
         if (buf[k_variant_offset] == 's') {
             return handle_node_span(path, pid_tgid);
         }

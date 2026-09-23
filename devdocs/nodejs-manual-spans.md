@@ -31,13 +31,13 @@ spanbridge.js ──────────── injected over the inspector p
    │                       copy's ProxyTracerProvider. It does NOT write to the
    │                       API global registry (that would block the app's SDK).
    ▼
-fs.existsSync('/dev/null/obi-span/<json>')      ── sentinel uv_fs_access path
+fs.existsSync('/dev/null/obi-spanfd/<fd><json>') ── sentinel uv_fs_access path
    ▼
 obi_uv_fs_access uprobe (bpf/generictracer/nodejs.c)
-   │  '-span/' branch: copies the JSON payload into a node_span_event_t,
-   │  stamps bpf_ktime_get_ns() + pid, and attaches the current request
-   │  trace context from traces_ctx_v1 (kept fresh per async context by the
-   │  fdextractor.js '-ctx/' sentinels)
+   │  '-span' branch: copies the JSON payload into a node_span_event_t,
+   │  stamps bpf_ktime_get_ns() + pid, and attaches the server trace
+   │  context of the request's incoming fd (the fd fdextractor.js tracks
+   │  per async context)
    ▼
 events ringbuf → EVENT_NODE_SPAN (24)
    ▼
@@ -81,7 +81,8 @@ request.Span{Type: EventTypeManualSpan}  → existing exporter path, unchanged
 | `/dev/null/obi/<fd1><fd2>` | fdextractor.js | outgoing→incoming fd correlation |
 | `/dev/null/obi-ctx/<fd>` | fdextractor.js | async-context switch, refreshes `traces_ctx_v1` |
 | `/dev/null/obi-noreqctx` | fdextractor.js | callback outside any request, clears `traces_ctx_v1` |
-| `/dev/null/obi-span/<json>` | spanbridge.js | finished manual span |
+| `/dev/null/obi-spanfd/<fd><json>` | spanbridge.js | finished manual span, parented under the server trace of the 4-digit incoming fd (a malformed fd keeps the span, unparented) |
+| `/dev/null/obi-span/<json>` | spanbridge.js | finished manual span outside request scope (or fd above 9999), parent from `traces_ctx_v1` |
 
 ### Span payload (JSON, version field `v: 1`)
 
@@ -130,13 +131,15 @@ unusable input) the sentinel anchor is used, as before.
 
 ### Trace-context correlation
 
-At sentinel time, BPF looks up `traces_ctx_v1` for the current thread — the
-same map the `-ctx/` sentinels maintain, pointing at the trace context of
-the in-flight request being processed by the current async context. Manual
-spans are one of the readers that turn that map's population on, so enabling
-`nodejs.manual_spans` also installs the `async_hooks` before hook that emits
-the `-ctx/` sentinels (see
-[When the map is populated](trace-log-correlation.md#when-the-map-is-populated)):
+The bridge reads the incoming fd of the current async context from
+`fdextractor.js` and sends it in the sentinel. At sentinel time, BPF resolves
+that fd to the server trace context of its connection — the same lookup the
+`-ctx/` sentinels perform. Manual spans therefore do not read `traces_ctx_v1`
+and do not turn its population on, so enabling `nodejs.manual_spans` does not
+install the per-callback `async_hooks` before hook (see
+[When the map is populated](trace-log-correlation.md#when-the-map-is-populated)).
+A span that ends outside any request has no fd and falls back to
+`traces_ctx_v1`, which is empty unless another reader populates it:
 
 - If found, the span is **re-anchored**: it inherits the request's trace ID,
   and bridge-root spans (no in-bridge parent) are parented under OBI's
@@ -288,12 +291,12 @@ would otherwise leave two providers active in one process.
 - **End-time context sampling.** The request context is read when the span
   *ends*. A manual span that outlives its request falls back to the bridge
   trace ID; if a nested chain ends across the request boundary, the chain
-  can split across trace IDs. To avoid *mis*-parenting, `fdextractor.js` emits
-  a `-noreqctx` clear when an async callback runs outside any request, so a
-  span ending in a background timer is left un-parented rather than attached to
-  whichever request last populated `traces_ctx_v1`. The clear is emitted only on
-  the request→no-request transition (not on every background callback) to keep
-  the syscall off the hot path.
+  can split across trace IDs. A span ending outside any request's async
+  context carries no fd, so it is left un-parented rather than attached to
+  whichever request the thread served last. A timer or interval created inside
+  a request handler inherits that request's context, so its spans carry the
+  fd of the connection that created it, and parent under whatever request that
+  fd is serving when they end.
 - **Payload budgets** (above). Span events, instrumentation scope, links,
   non-primitive attribute values and `traceState` are not forwarded in v1.
 - **Span kind** is exported from the payload (`spanKind()` in tracesgen

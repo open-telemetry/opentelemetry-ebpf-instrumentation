@@ -165,7 +165,7 @@ func TestCasgstatusProbeFollowsTraceContextPopulation(t *testing.T) {
 		{
 			name:     "node.js manual spans",
 			cfg:      &obi.Config{NodeJS: obi.NodeJSConfig{Enabled: true, ManualSpans: true}},
-			expected: true,
+			expected: false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

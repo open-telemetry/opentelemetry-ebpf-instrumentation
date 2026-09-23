@@ -87,7 +87,6 @@ What the constant removes is the CPU cost, not the memory. `traces_ctx_v1` and t
 | Reader | Turns population on |
 |---|---|
 | Log enricher | `ebpf.log_enricher.services` is non-empty |
-| Node.js manual span bridge | `nodejs.manual_spans: true` |
 | Anything outside OBI (a profiler, another eBPF program reading the pin) | `ebpf.populate_trace_context: true` |
 
 A reader outside OBI cannot announce itself, so it opts in explicitly. With no reader, `obi_ctx__set` / `obi_ctx__del` compile away in the generic tracer and Node.js skips the before hook that drives them.
@@ -129,11 +128,11 @@ The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Befor
 3. Calls `trace_info_for_connection(conn, TRACE_TYPE_SERVER)` to find the server trace.
 4. Calls `obi_ctx__set(pid_tgid, &tp)` or `obi_ctx__del(pid_tgid)`.
 
-This fires before every JS callback, ensuring the correct trace context is active even when multiple requests are interleaved in the event loop.
+The kernel side also rewrites the entry underneath JS: an outgoing client request points it at the client span, and a response or a new request on another connection replaces or deletes it. Kernel-side changes only happen inside a syscall, so the hook re-signals before every macrotask callback (I/O, timers, immediates), and whenever the current request's fd differs from the last one signalled. It skips only promise and `process.nextTick` continuations of the request it last signalled, because those run in the same macrotask with no I/O in between. A write on any socket other than the request's own, which is how an outgoing client request starts, forces the next continuation to re-signal too, and so does the connect callback that flushes a write queued before the socket connected. A client whose writes bypass `net.Socket` (the HTTP/2 client) can leave the entry on the client span until the next macrotask callback, not the next continuation.
 
 Because it runs that often, the call must not throw. The sentinel path never resolves, so the call always fails: `fs.existsSync` reports that as `false`, while `fs.accessSync` builds and throws a `UVException` costing several times the call itself. Both reach the same `uv_fs_access` the uprobe is attached to, so the choice is about cost, not transport. Any sentinel added to the agent must use the non-throwing call. `TestAgentScriptsUseNonThrowingSentinel` checks the forms the agents actually use — a throwing call reached some other way, through a destructured import say, would pass it.
 
-The hook is the most expensive of the per-runtime refreshes — a synchronous `fs.existsSync` on every callback, measured at a double-digit share of event-loop CPU on request-heavy services — so the injector installs it only when the map has a reader (`OBI_CTX_HOOK_ENABLED` in `fdextractor.js`, substituted from the same predicate as `g_traces_ctx_v1_enabled`). Client-span parenting does not go through it: that comes from the fd-pair map the `net` prototype wraps maintain, which stays installed whenever traces are on.
+The hook is the most expensive of the per-runtime refreshes — a synchronous `fs.existsSync` on every macrotask callback, measured at a double-digit share of event-loop CPU on request-heavy services — so the injector installs it only when the map has a reader (`OBI_CTX_HOOK_ENABLED` in `fdextractor.js`, substituted from the same predicate as `g_traces_ctx_v1_enabled`). Client-span parenting does not go through it: that comes from the fd-pair map the `net` prototype wraps maintain, which stays installed whenever traces are on.
 
 ### Java — `k_ioctl_java_threads` in the ioctl kprobe
 
@@ -145,7 +144,7 @@ The BPF kprobe handler:
 2. Walks the `java_tasks` chain (up to 3 levels) looking up `server_traces` for each ancestor.
 3. If a valid server trace is found, calls `obi_ctx__set(child_pid_tgid, &tp)`. Otherwise calls `obi_ctx__del`.
 
-Unlike Node.js (which refreshes before every callback), Java only needs to refresh once when the task starts — Java threads don't multiplex like the Node.js event loop, so once a worker picks up a task it runs to completion on that OS thread.
+Unlike Node.js (which refreshes before every macrotask callback), Java only needs to refresh once when the task starts — Java threads don't multiplex like the Node.js event loop, so once a worker picks up a task it runs to completion on that OS thread.
 
 ### Ruby (Puma) — `rb_ary_shift` uprobe
 
