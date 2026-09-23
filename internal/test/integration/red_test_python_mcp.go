@@ -405,3 +405,55 @@ func testPythonMCPMetrics(t *testing.T) {
 		})
 	}
 }
+
+// testPythonMCPSessionMetrics verifies that the MCP session-duration histograms
+// are emitted once a session has been idle for the configured TTL. The same
+// remote-weather calls exercise both the inbound server session and the outbound
+// client session.
+func testPythonMCPSessionMetrics(t *testing.T) {
+	const address = "http://localhost:8381/mcp"
+
+	sessionID := mcpInitSession(t, address)
+
+	for range 2 {
+		resp, err := mcpCall(address, "tools/call", 40,
+			map[string]any{"name": "remote-weather", "arguments": map[string]any{}},
+			"Mcp-Session-Id", sessionID)
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	// Wait for the configured TTL so the sessions above become idle. A final
+	// MCP call is then needed to drive recordMCPSession, which is the only
+	// place the Prometheus reporter expires idle sessions.
+	time.Sleep(6 * time.Second)
+	resp, err := mcpCall(address, "tools/call", 41,
+		map[string]any{"name": "remote-weather", "arguments": map[string]any{}},
+		"Mcp-Session-Id", sessionID)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{"server side", `mcp_server_session_duration_seconds_count{` +
+			`mcp_protocol_version="2025-03-26",` +
+			`service_namespace="integration-test"}`},
+		// The outbound client session negotiates the remote server's default
+		// protocol version (currently 2025-11-25), which differs from the
+		// version the test explicitly requests on the inbound side.
+		{"client side", `mcp_client_session_duration_seconds_count{` +
+			`service_namespace="integration-test"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				results, err := pq.Query(tc.query)
+				require.NoError(ct, err)
+				enoughPromResults(ct, results)
+				assert.LessOrEqual(ct, 1, totalPromCount(ct, results))
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+}

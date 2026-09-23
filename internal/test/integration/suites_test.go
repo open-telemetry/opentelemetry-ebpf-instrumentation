@@ -1063,6 +1063,7 @@ func TestSuite_PythonMCP(t *testing.T) {
 	t.Run("Python MCP client span", testPythonMCPClient)
 	t.Run("Python MCP client resource span", testPythonMCPClientResource)
 	t.Run("Python MCP operation metrics", testPythonMCPMetrics)
+	t.Run("Python MCP session metrics", testPythonMCPSessionMetrics)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
