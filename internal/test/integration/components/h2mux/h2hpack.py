@@ -1,12 +1,13 @@
 # Copyright The OpenTelemetry Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Small HPACK (RFC 7541) encoder and decoder, without Huffman coding.
+"""Small HPACK (RFC 7541) encoder and decoder.
 
 Written by hand instead of using a library, so the test decides which fields go
 into the dynamic table and which are sent as an index. That is the point of the
 test: a value sent only as an index decodes right only if the reader saw every
-earlier block on the connection, in order.
+earlier block on the connection, in order. Huffman coding covers only the
+characters of a traceparent, the one value the test sends compressed.
 """
 
 STATIC_TABLE = [
@@ -77,6 +78,33 @@ STATIC_ENTRIES = len(STATIC_TABLE)
 DYNAMIC_TABLE_LIMIT = 4096
 ENTRY_OVERHEAD = 32  # RFC 7541 section 4.1
 
+# RFC 7541 Appendix B codes, as (code, bit length), for the characters of a traceparent
+HUFFMAN_CODES = {
+    "0": (0x00, 5), "1": (0x01, 5), "2": (0x02, 5), "a": (0x03, 5), "c": (0x04, 5),
+    "e": (0x05, 5), "-": (0x16, 6), "3": (0x19, 6), "4": (0x1A, 6), "5": (0x1B, 6),
+    "6": (0x1C, 6), "7": (0x1D, 6), "8": (0x1E, 6), "9": (0x1F, 6), "b": (0x23, 6),
+    "d": (0x24, 6), "f": (0x25, 6),
+}
+HUFFMAN_SYMBOLS = {code: char for char, code in HUFFMAN_CODES.items()}
+
+
+def huffman_encode(text):
+    bits = "".join(format(code, "0{}b".format(length)) for code, length in map(HUFFMAN_CODES.get, text))
+    bits += "1" * (-len(bits) % 8)  # padded with the start of the EOS code
+    return int(bits, 2).to_bytes(len(bits) // 8, "big")
+
+
+def huffman_decode(data):
+    text, code, length = [], 0, 0
+    for bit in "".join(format(byte, "08b") for byte in data):
+        code, length = (code << 1) | int(bit), length + 1
+        if (code, length) in HUFFMAN_SYMBOLS:
+            text.append(HUFFMAN_SYMBOLS[(code, length)])
+            code, length = 0, 0
+    if length > 7 or code != (1 << length) - 1:
+        raise ValueError("not a traceparent the test encoded")
+    return "".join(text)
+
 
 def _encode_int(value, prefix_bits, flags):
     limit = (1 << prefix_bits) - 1
@@ -132,11 +160,13 @@ class Encoder:
     """Encodes header blocks, sending every field it sent before as an index.
 
     One encoder covers one direction of one connection, so keep it for the whole
-    life of that connection, like a real HTTP/2 implementation does.
+    life of that connection, like a real HTTP/2 implementation does. Values of
+    the fields named in huffman are sent Huffman-coded.
     """
 
-    def __init__(self):
+    def __init__(self, huffman=()):
         self.table = _Table()
+        self.huffman = frozenset(huffman)
 
     def encode(self, headers):
         out = bytearray()
@@ -155,9 +185,10 @@ class Encoder:
         name_index = self._name_index(name)
         self.table.add(name, value)
 
+        encoded_value = _encode_string(value, name in self.huffman)
         if name_index:
-            return _encode_int(name_index, 6, 0x40) + _encode_string(value)
-        return _encode_int(0, 6, 0x40) + _encode_string(name) + _encode_string(value)
+            return _encode_int(name_index, 6, 0x40) + encoded_value
+        return _encode_int(0, 6, 0x40) + _encode_string(name) + encoded_value
 
     def _name_index(self, name):
         for index, entry in enumerate(STATIC_TABLE, start=1):
@@ -212,13 +243,16 @@ class Decoder:
         return self.table.get(index)
 
 
-def _encode_string(value):
+def _encode_string(value, huffman=False):
+    if huffman:
+        raw = huffman_encode(value)
+        return _encode_int(len(raw), 7, 0x80) + raw
     raw = value.encode()
     return _encode_int(len(raw), 7, 0x00) + raw
 
 
 def _decode_string(buf, pos):
-    if buf[pos] & 0x80:
-        raise ValueError("huffman-coded strings are not produced by this codec")
+    huffman = bool(buf[pos] & 0x80)
     length, pos = _decode_int(buf, pos, 7)
-    return buf[pos:pos + length].decode(), pos + length
+    raw = buf[pos:pos + length]
+    return (huffman_decode(raw) if huffman else raw.decode()), pos + length

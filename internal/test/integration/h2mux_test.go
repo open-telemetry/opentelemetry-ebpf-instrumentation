@@ -58,9 +58,10 @@ type h2muxBurstRecord struct {
 }
 
 type h2muxExchange struct {
-	Method string `json:"method"`
-	Path   string `json:"path"`
-	Status int    `json:"status"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Status      int    `json:"status"`
+	Traceparent string `json:"traceparent"`
 }
 
 // h2muxBurst is one burst as both sides saw it.
@@ -110,13 +111,17 @@ const (
 // of them the other side got from a single read, so the test only checks bursts
 // that really shared one buffer. It covers plain HTTP/2 and gRPC, where the
 // status comes in trailers after the body. The checked values are only right
-// if OBI's HPACK tables stay in sync with the peers'.
+// if OBI's HPACK tables stay in sync with the peers'. Every request also carries
+// its own Huffman-coded traceparent, which its server span must take.
 func TestSuite_HTTP2Multiplexing(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-h2mux.yml", path.Join(pathOutput, "test-suite-h2mux.log"))
 	require.NoError(t, err)
 
 	// the client and server must send as many streams per write as the test expects
-	compose.Env = append(compose.Env, "H2MUX_STREAMS="+strconv.Itoa(h2muxStreams))
+	compose.Env = append(compose.Env,
+		"H2MUX_STREAMS="+strconv.Itoa(h2muxStreams),
+		"H2MUX_TRACEPARENTS=1",
+	)
 
 	if !KernelLockdownMode() {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
@@ -145,6 +150,7 @@ func TestSuite_HTTP2Multiplexing(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			for _, burst := range bursts[mode] {
 				h2muxAssertBurstCaptured(t, burst)
+				h2muxAssertTraceparentsTaken(t, burst)
 			}
 		})
 	}
@@ -295,6 +301,27 @@ func h2muxAssertParents(t *testing.T, burst h2muxBurst) {
 			parent := jaeger.Reference{RefType: "CHILD_OF", TraceID: client.TraceID, SpanID: client.SpanID}
 			require.Containsf(ct, server.References, parent,
 				"%s: the server span does not name the client span as its parent", want.Path)
+		}
+	}, time.Minute, 2*time.Second)
+}
+
+// h2muxAssertTraceparentsTaken checks that every server span of one burst took
+// its trace and parent from the traceparent its own request carried.
+func h2muxAssertTraceparentsTaken(t *testing.T, burst h2muxBurst) {
+	t.Helper()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		servers := h2muxSpansByPath(ct, "h2mux-server", burst.client.Burst)
+
+		for _, want := range burst.client.Exchanges {
+			server, found := servers[want.Path]
+			require.Truef(ct, found, "h2mux-server: %s was not captured", want.Path)
+
+			fields := strings.Split(want.Traceparent, "-")
+			require.Lenf(ct, fields, 4, "%s: the request carried no traceparent", want.Path)
+			parent := jaeger.Reference{RefType: "CHILD_OF", TraceID: fields[1], SpanID: fields[2]}
+			require.Containsf(ct, server.References, parent,
+				"%s: the server span did not take the traceparent its request carried", want.Path)
 		}
 	}, time.Minute, 2*time.Second)
 }

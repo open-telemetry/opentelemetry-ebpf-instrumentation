@@ -1238,6 +1238,32 @@ func TestCompletionIgnoresAnotherStreamsHeaders(t *testing.T) {
 	require.Zero(t, completeH2(t, parseContext, event).Status)
 }
 
+// Another stream's header block can go on in a CONTINUATION frame; that frame is read past
+// like its HEADERS frame, so this stream's own trailers after it are still found.
+func TestCompletionSkipsAnotherStreamsContinuation(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+
+	var otherBlock, ownBlock bytes.Buffer
+	require.NoError(t, hpack.NewEncoder(&otherBlock).WriteField(hpack.HeaderField{Name: "grpc-status", Value: "3"}))
+	require.NoError(t, hpack.NewEncoder(&ownBlock).WriteField(hpack.HeaderField{Name: "grpc-status", Value: "7"}))
+
+	var response bytes.Buffer
+	framer := http2.NewFramer(&response, nil)
+	half := otherBlock.Len() / 2
+	require.NoError(t, framer.WriteHeaders(http2.HeadersFrameParam{StreamID: 5, BlockFragment: otherBlock.Bytes()[:half]}))
+	require.NoError(t, framer.WriteContinuation(5, true, otherBlock.Bytes()[half:]))
+	require.NoError(t, framer.WriteHeaders(http2.HeadersFrameParam{
+		StreamID: 3, BlockFragment: ownBlock.Bytes(), EndHeaders: true, EndStream: true,
+	}))
+
+	request := enc.frame(t, requestFields(pathA, "00-001f6ca4dd49f899e999ea3a7c0f1dab-9e5179d7828a4f85-01"))
+	event := h2Event(request, response.Bytes(), 1086, 3)
+	observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+	require.Equal(t, 7, completeH2(t, parseContext, event).Status)
+}
+
 func TestRequestTrailersAdvanceDecoder(t *testing.T) {
 	parseContext := NewEBPFParseContext(nil, nil, nil)
 	enc := &h2ConnEncoder{}

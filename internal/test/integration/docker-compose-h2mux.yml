@@ -18,6 +18,7 @@ services:
     environment:
       OTEL_SERVICE_NAME: h2mux-client
       STREAMS: "${H2MUX_STREAMS:-5}"
+      TRACEPARENTS: "${H2MUX_TRACEPARENTS:-0}"
     depends_on:
       h2mux-server:
         condition: service_started

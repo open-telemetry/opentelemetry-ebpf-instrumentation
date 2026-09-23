@@ -12,10 +12,15 @@ Connections are replaced every few bursts: OBI detects HTTP/2 from the
 connection preface, so the test needs connections opened after OBI started,
 but each connection must live long enough for the HPACK dynamic tables to be
 used.
+
+With TRACEPARENTS=1 every request carries its own traceparent, Huffman-coded
+like gRPC libraries send it, and after the first one on a connection its name
+is sent as an index.
 """
 
 import os
 import random
+import secrets
 import socket
 import threading
 import time
@@ -43,6 +48,7 @@ READ_SIZE = 65536
 BURSTS_PER_CONNECTION = 8
 RESPONSE_TIMEOUT = 20
 BURST_INTERVAL = float(os.getenv("BURST_INTERVAL_MS", "500")) / 1000
+TRACEPARENTS = os.getenv("TRACEPARENTS") == "1"
 
 
 class Session:
@@ -52,7 +58,7 @@ class Session:
         self.streams = streams
         self.authority = authority
         self.id = str(random.randrange(1_000_000))
-        self.encoder = Encoder()
+        self.encoder = Encoder(huffman=("traceparent",))
         self.decoder = Decoder()
         self.leftover = b""
         self.next_stream_id = 1
@@ -67,19 +73,23 @@ class Session:
         content_type = GRPC_CONTENT_TYPE if self.mode == MODE_GRPC else "text/plain"
 
         out = b""
+        traceparents = {}
         for stream in range(self.streams):
             stream_id = self.next_stream_id
             self.next_stream_id += 2
             self.open[stream_id] = stream
+            fields = [
+                (":method", method_for(stream)),
+                (":scheme", "http"),
+                (":authority", self.authority),
+                (":path", burst_path(burst_id, stream)),
+            ]
+            if TRACEPARENTS:
+                traceparents[stream_id] = "00-{}-{}-01".format(secrets.token_hex(16), secrets.token_hex(8))
+                fields.append(("traceparent", traceparents[stream_id]))
+            fields.append(("content-type", content_type))
             out += build_frame(
-                FRAME_HEADERS, FLAG_END_HEADERS | FLAG_END_STREAM, stream_id,
-                self.encoder.encode([
-                    (":method", method_for(stream)),
-                    (":scheme", "http"),
-                    (":authority", self.authority),
-                    (":path", burst_path(burst_id, stream)),
-                    ("content-type", content_type),
-                ]),
+                FRAME_HEADERS, FLAG_END_HEADERS | FLAG_END_STREAM, stream_id, self.encoder.encode(fields),
             )
 
         record = {
@@ -100,6 +110,7 @@ class Session:
                 "method": method_for(stream),
                 "path": burst_path(burst_id, stream),
                 "status": self.statuses.get(stream_id, 0),
+                "traceparent": traceparents.get(stream_id, ""),
             }
             for stream_id, stream in sorted(self.open.items())
         ]
