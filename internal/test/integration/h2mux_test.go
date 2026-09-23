@@ -31,6 +31,11 @@ const h2muxMinBursts = 3
 // read from one buffer.
 var h2muxStreams = envInt("H2MUX_STREAMS", 5)
 
+// h2muxSplitReadSize is how many bytes the server reads at a time in the split
+// reads test: less than any request HEADERS frame carrying a traceparent, so
+// every one of them is cut, sometimes inside its 9-byte frame header.
+const h2muxSplitReadSize = 29
+
 func envInt(name string, fallback int) int {
 	value, err := strconv.Atoi(os.Getenv(name))
 	if err != nil {
@@ -47,6 +52,7 @@ type h2muxBurstRecord struct {
 	Index                int             `json:"index"`
 	ReqHeadersInOneRead  int             `json:"req_headers_in_one_read"`
 	RespHeadersInOneRead int             `json:"resp_headers_in_one_read"`
+	CutReqHeaders        int             `json:"cut_req_headers"`
 	Exchanges            []h2muxExchange `json:"exchanges"`
 	Error                string          `json:"error"`
 }
@@ -63,15 +69,16 @@ type h2muxBurst struct {
 	server h2muxBurstRecord
 }
 
+func (b *h2muxBurst) recorded() bool {
+	return b.client.Burst != "" && b.server.Burst != "" && b.client.Error == "" && b.server.Error == ""
+}
+
 // sharedOneBuffer reports whether all streams of this burst really went
 // through one buffer in both directions. Without this check the test could
 // pass on traffic that never put two streams in one buffer, which is how this
 // bug went unnoticed in the older gRPC tests.
 func (b *h2muxBurst) sharedOneBuffer() bool {
-	if b.client.Burst == "" || b.server.Burst == "" {
-		return false
-	}
-	if b.client.Error != "" || b.server.Error != "" {
+	if !b.recorded() {
 		return false
 	}
 
@@ -83,6 +90,12 @@ func (b *h2muxBurst) sharedOneBuffer() bool {
 
 	return b.server.ReqHeadersInOneRead == h2muxStreams &&
 		b.client.RespHeadersInOneRead == responseHeaders
+}
+
+// cutAcrossReads reports whether every request HEADERS frame of this burst
+// reached the server over more than one read.
+func (b *h2muxBurst) cutAcrossReads() bool {
+	return b.recorded() && b.server.CutReqHeaders == h2muxStreams
 }
 
 const (
@@ -125,12 +138,58 @@ func TestSuite_HTTP2Multiplexing(t *testing.T) {
 	// it saw open.
 	established := h2muxConnections(t, compose)
 
-	bursts := h2muxCollectBursts(t, compose, established)
+	bursts := h2muxCollectBursts(t, compose, established, (*h2muxBurst).sharedOneBuffer,
+		"sent all streams in one buffer")
 
 	for _, mode := range []string{modeHTTP, modeGRPC} {
 		t.Run(mode, func(t *testing.T) {
 			for _, burst := range bursts[mode] {
 				h2muxAssertBurstCaptured(t, burst)
+			}
+		})
+	}
+}
+
+// TestSuite_HTTP2SplitReads checks HTTP/2 requests whose frames reach the
+// server over several reads. The server reads a few bytes at a time, so every
+// request HEADERS frame is cut by the end of a read, and OBI must still read it
+// and the frames after it whole. OBI also puts a traceparent in each request,
+// so every server span must name the client span of its stream as its parent.
+func TestSuite_HTTP2SplitReads(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-h2mux.yml", path.Join(pathOutput, "test-suite-h2mux-split.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env,
+		"H2MUX_STREAMS="+strconv.Itoa(h2muxStreams),
+		"H2MUX_READ_SIZE="+strconv.Itoa(h2muxSplitReadSize),
+		"OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers",
+	)
+
+	if !KernelLockdownMode() {
+		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
+	}
+
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() {
+		if err := compose.Close(); err != nil {
+			t.Logf("compose.Close(): %v", err)
+		}
+	})
+
+	require.Eventually(t, func() bool {
+		return hasSpansInJaeger("h2mux-server") && hasSpansInJaeger("h2mux-client")
+	}, 3*time.Minute, time.Second, "OBI did not instrument the h2mux workloads")
+
+	established := h2muxConnections(t, compose)
+
+	bursts := h2muxCollectBursts(t, compose, established, (*h2muxBurst).cutAcrossReads,
+		"cut every request HEADERS frame across reads")
+
+	for _, mode := range []string{modeHTTP, modeGRPC} {
+		t.Run(mode, func(t *testing.T) {
+			for _, burst := range bursts[mode] {
+				h2muxAssertBurstCaptured(t, burst)
+				h2muxAssertParents(t, burst)
 			}
 		})
 	}
@@ -150,10 +209,12 @@ func h2muxConnections(t *testing.T, compose *docker.Compose) map[string]struct{}
 	return seen
 }
 
-// h2muxCollectBursts waits for enough bursts per mode that went through one
-// buffer, on connections opened after OBI started. The first burst of each
+// h2muxCollectBursts waits for enough bursts per mode that meet the test's
+// condition, on connections opened after OBI started. The first burst of each
 // connection is skipped, so the HPACK tables are already in use.
-func h2muxCollectBursts(t *testing.T, compose *docker.Compose, established map[string]struct{}) map[string][]h2muxBurst {
+func h2muxCollectBursts(t *testing.T, compose *docker.Compose, established map[string]struct{},
+	condition func(*h2muxBurst) bool, conditionName string,
+) map[string][]h2muxBurst {
 	t.Helper()
 
 	collected := map[string][]h2muxBurst{}
@@ -169,25 +230,24 @@ func h2muxCollectBursts(t *testing.T, compose *docker.Compose, established map[s
 			servers[record.Burst] = record
 		}
 
-		usable, shared := 0, map[string][]h2muxBurst{}
+		usable, met := 0, map[string][]h2muxBurst{}
 		for _, record := range h2muxParseRecords(clientLogs, "H2MUX_CLIENT ") {
 			if _, old := established[record.Conn]; old || record.Index == 0 {
 				continue
 			}
 			usable++
 			burst := h2muxBurst{client: record, server: servers[record.Burst]}
-			if burst.sharedOneBuffer() {
-				shared[record.Mode] = append(shared[record.Mode], burst)
+			if condition(&burst) {
+				met[record.Mode] = append(met[record.Mode], burst)
 			}
 		}
 
 		for _, mode := range []string{modeHTTP, modeGRPC} {
-			require.GreaterOrEqualf(ct, len(shared[mode]), h2muxMinBursts,
-				"%s: only %d of %d usable bursts sent all %d streams in one buffer; "+
-					"the test condition was not met",
-				mode, len(shared[mode]), usable, h2muxStreams)
+			require.GreaterOrEqualf(ct, len(met[mode]), h2muxMinBursts,
+				"%s: only %d of %d usable bursts %s; the test condition was not met",
+				mode, len(met[mode]), usable, conditionName)
 		}
-		collected = shared
+		collected = met
 	}, 3*time.Minute, 2*time.Second)
 
 	return collected
@@ -214,6 +274,29 @@ func h2muxAssertBurstCaptured(t *testing.T, burst h2muxBurst) {
 			}
 		}, time.Minute, 2*time.Second)
 	}
+}
+
+// h2muxAssertParents checks that every server span of one burst names the
+// client span of the same stream as its parent: OBI read back the traceparent
+// it put in that request.
+func h2muxAssertParents(t *testing.T, burst h2muxBurst) {
+	t.Helper()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		clients := h2muxSpansByPath(ct, "h2mux-client", burst.client.Burst)
+		servers := h2muxSpansByPath(ct, "h2mux-server", burst.client.Burst)
+
+		for _, want := range burst.client.Exchanges {
+			client, found := clients[want.Path]
+			require.Truef(ct, found, "h2mux-client: %s was not captured", want.Path)
+			server, found := servers[want.Path]
+			require.Truef(ct, found, "h2mux-server: %s was not captured", want.Path)
+
+			parent := jaeger.Reference{RefType: "CHILD_OF", TraceID: client.TraceID, SpanID: client.SpanID}
+			require.Containsf(ct, server.References, parent,
+				"%s: the server span does not name the client span as its parent", want.Path)
+		}
+	}, time.Minute, 2*time.Second)
 }
 
 // h2muxAssertSpanMatches checks values that are only right when OBI's HPACK

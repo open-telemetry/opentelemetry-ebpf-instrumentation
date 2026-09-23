@@ -7,6 +7,7 @@ services:
     environment:
       OTEL_SERVICE_NAME: h2mux-server
       STREAMS: "${H2MUX_STREAMS:-5}"
+      READ_SIZE: "${H2MUX_READ_SIZE:-65536}"
 
   h2mux-client:
     build:
@@ -31,11 +32,14 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
       - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /sys/fs/cgroup:/sys/fs/cgroup
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-h2mux:/var/run/obi
     image: hatest-obi
     privileged: true
     pid: "host"
+    cgroup: "host"
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
@@ -43,6 +47,7 @@ services:
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: "1s"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "${OTEL_EBPF_BPF_CONTEXT_PROPAGATION:-disabled}"
     depends_on:
       h2mux-client:
         condition: service_started

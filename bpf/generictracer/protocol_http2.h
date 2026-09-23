@@ -25,6 +25,7 @@
 #include <generictracer/types/http2_conn_info_data.h>
 
 #include <generictracer/maps/grpc_frames_ctx_mem.h>
+#include <generictracer/maps/h2_cut_frames.h>
 #include <generictracer/maps/http2_info_mem.h>
 
 #include <generictracer/maps/ongoing_http2_grpc.h>
@@ -44,6 +45,10 @@ enum {
 // decoder scratch buffers, kept off the BPF stack
 SCRATCH_MEM_SIZED(h2_tp_huff_win, k_h2_tp_huff_window)
 SCRATCH_MEM_SIZED(h2_tp_huff_out, k_hpack_value_len_tp)
+
+// a cut frame being saved, and the read it continues into
+SCRATCH_MEM_TYPED(h2_cut_frame, h2_cut_frame_t)
+SCRATCH_MEM_SIZED(h2_joined, k_kprobes_http2_buf_size + k_iovec_max_len)
 
 static __always_inline grpc_frames_ctx_t *grpc_ctx() {
     return bpf_map_lookup_elem(&grpc_frames_ctx_mem, &(int){0});
@@ -227,6 +232,7 @@ static __always_inline void http2_grpc_start(void *ctx,
                                              http2_conn_stream_t *s_key,
                                              void *u_buf,
                                              int len,
+                                             u32 frame_read_len,
                                              u8 direction,
                                              u8 ssl,
                                              u16 orig_dport) {
@@ -279,7 +285,11 @@ static __always_inline void http2_grpc_start(void *ctx,
 
     const u8 is_client = (meta->type == k_event_type_http_client);
     fixup_connection_info(&h2g_info->conn_info, is_client, orig_dport);
-    bpf_probe_read(h2g_info->data, k_kprobes_http2_buf_size, u_buf);
+
+    // past the end of the read the buffer holds stale bytes, e.g. an older request's traceparent
+    bpf_memset(h2g_info->data, 0, sizeof(h2g_info->data));
+    bpf_clamp_umax(frame_read_len, k_kprobes_http2_buf_size);
+    bpf_probe_read(h2g_info->data, frame_read_len, u_buf);
 
     tp_info_pid_t *tp_p = tp_info_mem();
     if (!tp_p) {
@@ -410,6 +420,127 @@ static __always_inline frame_header_t next_frame(const grpc_frames_ctx_t *g_ctx)
     return header;
 }
 
+// whole receives only: a cut capture would misplace the next buffer's frames
+static __always_inline u8 h2_tracks_cut_frames(const grpc_frames_ctx_t *g_ctx) {
+    return g_ctx->args.direction == TCP_RECV && g_ctx->args.bytes_len < k_iovec_max_len;
+}
+
+// a cut frame header, or a cut HEADERS frame that fits, is handled whole with the next read
+static __always_inline u8 h2_keeps_cut_frame(const grpc_frames_ctx_t *g_ctx,
+                                             const frame_header_t *frame) {
+    if (!h2_tracks_cut_frames(g_ctx)) {
+        return 0;
+    }
+
+    const u32 remaining = g_ctx->args.bytes_len - g_ctx->pos;
+    const u32 frame_size = frame->length + k_frame_header_len;
+    return remaining < k_frame_header_len || (is_headers_frame(frame) && frame_size > remaining &&
+                                              frame_size <= k_kprobes_http2_buf_size);
+}
+
+static __always_inline u8 h2_frame_header_plausible(const void *at) {
+    frame_header_t header;
+    if (bpf_probe_read(&header, sizeof(header), at) != 0) {
+        return 0;
+    }
+    return header.type <= FrameContinuation &&
+           bpf_ntohl(header.length << 8) <= k_h2_default_max_frame_size;
+}
+
+// the next read on this connection starts inside the frame this one ended in
+static __always_inline void h2_save_cut_frame(const grpc_frames_ctx_t *g_ctx) {
+    if (!h2_tracks_cut_frames(g_ctx)) {
+        return;
+    }
+
+    h2_cut_frame_t *cut = h2_cut_frame_mem();
+    if (!cut) {
+        return;
+    }
+    cut->skip = 0;
+    cut->len = 0;
+
+    const u32 bytes_len = g_ctx->args.bytes_len;
+    const u32 pos = g_ctx->pos;
+    if (pos > bytes_len) {
+        cut->skip = pos - bytes_len;
+    } else if (pos < bytes_len) {
+        const frame_header_t frame = next_frame(g_ctx);
+        const u32 remaining = bytes_len - pos;
+        if (h2_keeps_cut_frame(g_ctx, &frame)) {
+            u32 len = remaining;
+            bpf_clamp_umax(len, k_kprobes_http2_buf_size);
+            u32 at = pos;
+            bpf_clamp_umax(at, k_iovec_max_len);
+            bpf_probe_read(cut->data, len, (const unsigned char *)g_ctx->args.u_buf + at);
+            cut->len = len;
+        } else {
+            const u32 frame_size = frame.length + k_frame_header_len;
+            if (frame_size <= remaining || !frame.stream_id ||
+                frame.length > k_h2_default_max_frame_size ||
+                (frame.type != FrameData && frame.type != FrameHeaders)) {
+                return;
+            }
+            cut->skip = frame_size - remaining;
+        }
+    }
+
+    if (cut->skip || cut->len) {
+        bpf_map_update_elem(&h2_cut_frames, &g_ctx->args.pid_conn, cut, BPF_ANY);
+    }
+}
+
+// continues the frame the previous read on this connection ended inside of
+static __always_inline void h2_resume_cut_frame(grpc_frames_ctx_t *g_ctx) {
+    if (g_ctx->args.direction != TCP_RECV) {
+        return;
+    }
+
+    h2_cut_frame_t *cut = bpf_map_lookup_elem(&h2_cut_frames, &g_ctx->args.pid_conn);
+    if (!cut) {
+        return;
+    }
+
+    const u32 read_len = g_ctx->args.bytes_len;
+    const unsigned char *buf = (const unsigned char *)g_ctx->args.u_buf;
+    if (cut->skip >= read_len && h2_tracks_cut_frames(g_ctx)) {
+        // the whole read is inside the frame
+        cut->skip -= read_len;
+        g_ctx->pos = read_len;
+        return;
+    }
+
+    if (cut->skip && cut->skip < read_len &&
+        (read_len - cut->skip < k_frame_header_len || h2_frame_header_plausible(buf + cut->skip))) {
+        g_ctx->pos = cut->skip;
+    } else if (!cut->skip && cut->len) {
+        unsigned char *joined = h2_joined_mem();
+        u32 kept = cut->len;
+        bpf_clamp_umax(kept, k_kprobes_http2_buf_size);
+        u32 len = read_len;
+        bpf_clamp_umax(len, k_iovec_max_len);
+
+        // where this read's first whole frame begins, once the kept frame header is complete
+        u32 next = 0;
+        if (kept >= k_frame_header_len) {
+            const u32 frame_size =
+                (((u32)cut->data[0] << 16) | ((u32)cut->data[1] << 8) | (u32)cut->data[2]) +
+                k_frame_header_len;
+            next = frame_size > kept ? frame_size - kept : 0;
+        }
+
+        if (joined &&
+            (!next || next + k_frame_header_len > len || h2_frame_header_plausible(buf + next))) {
+            bpf_probe_read_kernel(joined, kept, cut->data);
+            bpf_probe_read(joined + kept, len, buf);
+            g_ctx->args.u_buf = (u64)joined;
+            g_ctx->args.bytes_len = kept + len;
+        }
+    }
+
+    bpf_map_delete_elem(&h2_cut_frames, &g_ctx->args.pid_conn);
+}
+
 static __always_inline void update_prev_info(grpc_frames_ctx_t *g_ctx) {
     const http2_grpc_request_t *prev_info =
         bpf_map_lookup_elem(&ongoing_http2_grpc, &g_ctx->stream);
@@ -446,11 +577,16 @@ static __always_inline void h2_tail_call(void *ctx, grpc_frames_ctx_t *g_ctx, u3
 // without this, only the first stream of a buffer is read
 static __always_inline void resume_frame_scan(void *ctx, grpc_frames_ctx_t *g_ctx) {
     const frame_header_t frame = next_frame(g_ctx);
-    g_ctx->pos += frame.length + k_frame_header_len;
+    if (!h2_keeps_cut_frame(g_ctx, &frame)) {
+        g_ctx->pos += frame.length + k_frame_header_len;
+    }
 
     if (!g_ctx->terminate_search && g_ctx->pos < g_ctx->args.bytes_len) {
         h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_frames);
+        return;
     }
+
+    h2_save_cut_frame(g_ctx);
 }
 
 static __always_inline int
@@ -549,8 +685,14 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame, void *, ctx) {
 
     void *offset = (unsigned char *)args->u_buf + g_ctx->pos;
 
-    http2_grpc_start(
-        ctx, &g_ctx->stream, offset, args->bytes_len, args->direction, args->ssl, args->orig_dport);
+    http2_grpc_start(ctx,
+                     &g_ctx->stream,
+                     offset,
+                     args->bytes_len,
+                     args->bytes_len - g_ctx->pos,
+                     args->direction,
+                     args->ssl,
+                     args->orig_dport);
 
     resume_frame_scan(ctx, g_ctx);
 
@@ -606,10 +748,14 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx)
     // without bpf_loop the decode program is a dummy, so skip the detour entirely
     if (g_bpf_loop_enabled) {
         // name matched, value compressed: decoding needs its own program
-        if (g_ctx->huff.len || h2_server_huffscan(g_ctx, h2g_info)) {
+        if (g_ctx->huff.len) {
             h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
             return 0;
         }
+
+        // the scan's bpf_loop callback must stay out of this program: before 5.13 it fails the load
+        h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
+        return 0;
     }
 
     h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
@@ -840,6 +986,11 @@ int GUARDED_PROG(obi_protocol_http2_grpc_frames, void *, ctx) {
 
         const frame_header_t frame = next_frame(g_ctx);
 
+        if (h2_keeps_cut_frame(g_ctx, &frame)) {
+            g_ctx->terminate_search = 1;
+            break;
+        }
+
         if (frame.type == FramePushPromise) {
             g_ctx->stream.stream_id = frame.stream_id;
             update_prev_info(g_ctx);
@@ -891,6 +1042,8 @@ int GUARDED_PROG(obi_protocol_http2_grpc_frames, void *, ctx) {
         h2_poison_unscanned(g_ctx);
     }
 
+    h2_save_cut_frame(g_ctx);
+
     // We only loop N times looking for the stream termination. If the data
     // packed is large we'll miss the frame saying the stream closed. In that
     // case we try this backup path, which will tail call on success.
@@ -921,6 +1074,7 @@ int GUARDED_PROG(obi_protocol_http2, void *, ctx) {
                sizeof(*g_ctx) - __builtin_offsetof(grpc_frames_ctx_t, has_prev_info));
     g_ctx->args = *args;
     g_ctx->stream.pid_conn = args->pid_conn;
+    h2_resume_cut_frame(g_ctx);
 
     preempt_guarded_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_frames);
 

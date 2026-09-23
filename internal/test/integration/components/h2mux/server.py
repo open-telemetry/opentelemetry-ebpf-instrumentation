@@ -7,7 +7,8 @@
 It waits until STREAMS requests have arrived before answering, so the reply is
 one buffer with many streams, which is what the test needs. It also reports
 how many request HEADERS frames came in a single recv(), so the test can tell
-the streams really shared one buffer.
+the streams really shared one buffer, and how many were cut across recv()
+calls, for the test that reads READ_SIZE bytes at a time.
 """
 
 import os
@@ -36,18 +37,19 @@ from wire import (
     split_frames,
 )
 
-READ_SIZE = 65536
+READ_SIZE = int(os.getenv("READ_SIZE", "65536"))
 RESPONSE_BODY = b"ok"
 
 
 class Stream:
-    __slots__ = ("id", "index", "burst", "content_type")
+    __slots__ = ("id", "index", "burst", "content_type", "cut")
 
     def __init__(self, stream_id, burst, index, content_type):
         self.id = stream_id
         self.burst = burst
         self.index = index
         self.content_type = content_type
+        self.cut = False
 
 
 def serve_connection(conn, batch):
@@ -77,9 +79,11 @@ def serve_connection(conn, batch):
             frames, leftover = split_frames(leftover + chunk)
             headers_in_read = count_headers(frames)
 
-            for frame in frames:
+            for position, frame in enumerate(frames):
                 stream = handle_frame(conn, decoder, frame)
                 if stream is not None:
+                    # only the first frame can hold bytes an earlier recv() returned
+                    stream.cut = not aligned and position == 0
                     ready.append(stream)
                     arrived = headers_in_read if aligned else 0
 
@@ -143,6 +147,7 @@ def respond(conn, encoder, group, req_headers_in_one_read):
         "burst": group[0].burst,
         "mode": mode,
         "req_headers_in_one_read": req_headers_in_one_read,
+        "cut_req_headers": sum(1 for stream in group if stream.cut),
     }
     if any(stream.burst != group[0].burst for stream in group):
         record["error"] = "batch had streams from more than one burst"

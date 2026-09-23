@@ -157,7 +157,8 @@ func verifyH2MutationPeerWrites(objects *BpfH2MutationProbeObjects, faultMask ui
 }
 
 // Injecting into two frames of one write, with more data after the second: the second
-// insert used to send that trailing data from the wrong place in memory.
+// insert used to send that trailing data from the wrong place in memory, and each insert
+// used to split the write into separate TCP segments.
 func verifyH2MutationTwoFrames() error {
 	objects, err := loadH2MutationProbe()
 	if err != nil {
@@ -186,6 +187,11 @@ func verifyH2MutationTwoFrames() error {
 		return fmt.Errorf("inserting probe socket: %w", err)
 	}
 
+	segmentsBefore, err := h2ProbeSegmentsSent(clientFD)
+	if err != nil {
+		return err
+	}
+
 	first, second := h2ProbeFrame(1), h2ProbeFrame(3)
 	data := []byte{0, 0, 5, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0}
 	if err := h2ProbeWrite(clientFD, bytes.Join([][]byte{first, second, data}, nil)); err != nil {
@@ -201,7 +207,23 @@ func verifyH2MutationTwoFrames() error {
 			return fmt.Errorf("frame arrived as %x, want %x", got, want)
 		}
 	}
+
+	segmentsAfter, err := h2ProbeSegmentsSent(clientFD)
+	if err != nil {
+		return err
+	}
+	if sent := segmentsAfter - segmentsBefore; sent != 1 {
+		return fmt.Errorf("the write left in %d TCP segments, want 1", sent)
+	}
 	return nil
+}
+
+func h2ProbeSegmentsSent(fd int) (uint32, error) {
+	info, err := unix.GetsockoptTCPInfo(fd, unix.IPPROTO_TCP, unix.TCP_INFO)
+	if err != nil {
+		return 0, fmt.Errorf("reading TCP info: %w", err)
+	}
+	return info.Data_segs_out, nil
 }
 
 func h2ProbePullFault(call uint) uint64 {

@@ -43,6 +43,7 @@ enum {
     k_preflight_pull_call,
     k_write_pull_call,
     k_frame_pull_call,
+    k_join_pull_call,
     k_rollback_pull_after_write_failure_call = k_frame_pull_call,
 };
 
@@ -143,6 +144,17 @@ static void test_commit(void) {
            "commit publishes the new frame length");
     expect(memcmp(message + k_h2_frame_header_len + 8, expected, sizeof(expected)) == 0,
            "commit writes the expected HPACK field");
+    expect(msg.data == message && msg.data_end == message + message_len,
+           "commit joins the whole message into one piece");
+}
+
+static void test_join_pull_failure(void) {
+    struct sk_msg_md msg = reset_message();
+    failed_pull_calls = 1ULL << k_join_pull_call;
+    expect(run_transaction(&msg) == k_h2_socket_transaction_committed,
+           "join pull failure keeps the commit");
+    expect(memcmp(message + k_h2_frame_header_len + 8, expected, sizeof(expected)) == 0,
+           "join pull failure keeps the HPACK field");
 }
 
 static void test_linearize_pull_failure(void) {
@@ -196,6 +208,7 @@ static void test_retried_rollback_pull(void) {
 
 int main(void) {
     test_commit();
+    test_join_pull_failure();
 
     test_linearize_pull_failure();
     test_preflight_pull_failure();

@@ -134,5 +134,8 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
     }
 
     h2_store_frame_len(data, payload_len + k_h2_tp_hpack_size);
+
+    // push_data's pieces may leave as separate TCP segments, splitting the frame across reads
+    bpf_msg_pull_data(msg, 0, original_size + k_h2_tp_hpack_size, 0);
     return k_h2_socket_transaction_committed;
 }
