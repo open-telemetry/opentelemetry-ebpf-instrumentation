@@ -1586,9 +1586,10 @@ type Span struct {
 	ManualOTelJSON []byte `json:"-"`
 
 	// CudaDevice* name the GPU a CUDA call ran on, as reported by the CUDA
-	// introspection APIs the process itself calls. An empty UUID or model means
-	// we never saw the process ask CUDA about that device, in which case the
-	// index is CUDA's default device 0.
+	// introspection APIs the process itself calls. CudaDeviceKnown is set only
+	// when the calling thread's current device was actually observed; when it is
+	// false the index, UUID and model are not meaningful and must be omitted.
+	CudaDeviceKnown bool   `json:"-"`
 	CudaDeviceIndex uint32 `json:"-"`
 	CudaDeviceUUID  string `json:"-"`
 	CudaDeviceModel string `json:"-"`

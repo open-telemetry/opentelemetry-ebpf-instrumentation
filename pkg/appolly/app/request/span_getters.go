@@ -312,9 +312,14 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.CudaMemcpyKind:
 		getter = func(span *Span) attribute.KeyValue { return CudaMemcpy(span.SubType) }
 	case attr.CudaDeviceIndex:
-		// The device index defaults to 0, CUDA's default device, so it is always
-		// known even when the process never selected a device explicitly.
-		getter = func(span *Span) attribute.KeyValue { return CudaDeviceIndex(span.CudaDeviceIndex) }
+		getter = func(span *Span) attribute.KeyValue {
+			if !span.CudaDeviceKnown {
+				// The calling thread's current device was never observed; omit the
+				// attribute rather than defaulting to 0.
+				return attribute.KeyValue{}
+			}
+			return CudaDeviceIndex(span.CudaDeviceIndex)
+		}
 	case attr.CudaDeviceUUID:
 		getter = func(span *Span) attribute.KeyValue {
 			if span.CudaDeviceUUID == "" {

@@ -143,11 +143,17 @@ struct {
 // userspace reports as an unknown device.
 static __always_inline void resolve_device(const u64 id, cuda_device_t *dev) {
     dev->index = 0;
+    dev->known = 0;
     __builtin_memset(dev->uuid, 0, sizeof(dev->uuid));
 
     const u32 *thread_dev = bpf_map_lookup_elem(&cuda_thread_device, &id);
     if (thread_dev) {
         dev->index = *thread_dev;
+        dev->known = 1;
+    }
+
+    if (!dev->known) {
+        return;
     }
 
     cuda_device_key_t key = {

@@ -23,6 +23,8 @@
 //   cudaStreamSynchronize(stream)                    BPF reads nothing
 //   cudaDeviceSynchronize()                          BPF reads nothing
 //   cudaHostRegister(ptr, size, flags)               BPF reads size
+//   cudaSetDevice(device)                            BPF reads device
+//   cudaGetDeviceProperties(prop, device)            BPF reads prop + device
 //
 // dim3 is a 12-byte struct passed by value: the {x,y} pair occupies one
 // eightbyte register and {z} the next, which is exactly how OBI decodes
@@ -42,6 +44,12 @@ typedef struct dim3 {
   unsigned int y;
   unsigned int z;
 } dim3;
+
+// Minimal cudaDeviceProp: OBI reads name (offset 0) and uuid (offset 256).
+typedef struct cudaDeviceProp {
+  char name[256];
+  unsigned char uuid[16];
+} cudaDeviceProp;
 
 enum cudaMemcpyKind {
   cudaMemcpyHostToHost = 0,
@@ -74,5 +82,7 @@ cudaError_t cudaEventSynchronize(cudaEvent_t event);
 cudaError_t cudaStreamSynchronize(cudaStream_t stream);
 cudaError_t cudaDeviceSynchronize(void);
 cudaError_t cudaHostRegister(void *ptr, size_t size, unsigned int flags);
+cudaError_t cudaSetDevice(int device);
+cudaError_t cudaGetDeviceProperties(cudaDeviceProp *prop, int device);
 
 #endif // CUDA_STUB_H
