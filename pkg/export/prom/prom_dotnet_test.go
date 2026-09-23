@@ -90,16 +90,25 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			}
 			publish(first)
 			publish(second)
+			firstExpiration := now
+			expectedExpiration := time.Time{}
+			if ttl != 0 {
+				expectedExpiration = firstExpiration
+			}
+			require.Equal(t, expectedExpiration, reporter.dotnetRuntimeMetrics.lastExpiration)
 			now = now.Add(30 * time.Second)
 			publish(second)
+			require.Equal(t, expectedExpiration, reporter.dotnetRuntimeMetrics.lastExpiration)
 			now = now.Add(30 * time.Second)
 			publish(second)
+			require.Equal(t, expectedExpiration, reporter.dotnetRuntimeMetrics.lastExpiration)
 			assertCurrent(30)
 			now = now.Add(time.Nanosecond)
 			publish(second)
 			if ttl == 0 {
 				assertCurrent(30)
 			} else {
+				require.Equal(t, now, reporter.dotnetRuntimeMetrics.lastExpiration)
 				assertCurrent(20)
 			}
 			first.Dotnet = sample(7, 5)

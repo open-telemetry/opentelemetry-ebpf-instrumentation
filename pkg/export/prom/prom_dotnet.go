@@ -31,6 +31,7 @@ type dotnetRuntimeMetricsCollector struct {
 	currentValues           map[app.PID]dotnetRuntimeCurrentValues
 	currentAggregates       map[string]*dotnetRuntimeCurrentAggregate
 	clock                   expire.Clock
+	lastExpiration          time.Time
 	ttl                     time.Duration
 }
 
@@ -175,6 +176,10 @@ func (c *dotnetRuntimeMetricsCollector) expireCurrentMetrics() {
 	c.valuesMu.Lock()
 	defer c.valuesMu.Unlock()
 	now := c.clock()
+	if !c.lastExpiration.IsZero() && now.Sub(c.lastExpiration) <= c.ttl {
+		return
+	}
+	c.lastExpiration = now
 	for pid, current := range c.currentValues {
 		if now.Sub(current.lastSeen) > c.ttl {
 			c.updateCurrentMetrics(current, nil)
