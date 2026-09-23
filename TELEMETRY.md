@@ -52,8 +52,9 @@ Prometheus exporter.
 
 - OTLP uses the metric and attribute identifiers shown in the generated
   reference.
-- Prometheus metric and label names are the corresponding names produced by
-  OBI's OpenTelemetry-to-Prometheus translation. The translated representation
+- Prometheus metric names are derived with the upstream Prometheus OTLP
+  translator used by the OpenTelemetry Collector. Attribute keys are converted
+  to their corresponding Prometheus label names. The translated representation
   of a stable registry entry is protected along with the OTLP representation.
 - Spans have no Prometheus representation, so their contract applies only to
   OTLP.
