@@ -200,12 +200,12 @@ func TestProcessKafkaRequest(t *testing.T) {
 			cache, _ := simplelru.NewLRU[kafkaparser.UUID, string](1000, nil)
 			if len(tt.preRequests) > 0 {
 				for _, preInput := range tt.preRequests {
-					_, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(preInput.request), largebuf.NewLargeBufferFrom(preInput.response), cache, nil, KafkaProcess{})
+					_, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(preInput.request), largebuf.NewLargeBufferFrom(preInput.response), cache, nil, KafkaProcess{}, BpfConnectionInfoT{})
 					require.NoError(t, err)
 					require.True(t, ignore)
 				}
 			}
-			res, _, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(tt.request), nil, cache, nil, KafkaProcess{})
+			res, _, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(tt.request), nil, cache, nil, KafkaProcess{}, BpfConnectionInfoT{})
 			if tt.err {
 				assert.Error(t, err)
 				return
@@ -227,7 +227,7 @@ func TestProcessKafkaRequestProduceV13WithoutTopicCache(t *testing.T) {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}
 
-	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(request), nil, nil, nil, KafkaProcess{})
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(request), nil, nil, nil, KafkaProcess{}, BpfConnectionInfoT{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 1)
@@ -256,7 +256,7 @@ func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
 	uuid := kafkaparser.UUID{172, 231, 101, 123, 36, 212, 77, 228, 142, 87, 26, 240, 250, 236, 204, 15}
 	cache.Add(uuid, "my-topic")
 
-	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(request), nil, cache, nil, KafkaProcess{})
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(request), nil, cache, nil, KafkaProcess{}, BpfConnectionInfoT{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 1)
@@ -372,7 +372,7 @@ func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
 	cache.Add(fetchUUID1, "topic-one")
 	cache.Add(fetchUUID2, "topic-two")
 
-	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(pkt), nil, cache, nil, KafkaProcess{})
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(pkt), nil, cache, nil, KafkaProcess{}, BpfConnectionInfoT{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 2)
@@ -443,7 +443,7 @@ func TestProcessKafkaRequestProduceMultiTopic(t *testing.T) {
 	pkt = pkt[:offset]
 	binary.BigEndian.PutUint32(pkt[0:], uint32(offset-4))
 
-	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(pkt), nil, nil, nil, KafkaProcess{})
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(pkt), nil, nil, nil, KafkaProcess{}, BpfConnectionInfoT{})
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Len(t, infos, 2)
@@ -863,12 +863,12 @@ func TestProcessKafkaEventConsumerGroupForeignProtocol(t *testing.T) {
 
 	// topics learned while the group still passed for a consumer group are released
 	early := KafkaProcess{Ns: 7, Pid: 44}
-	groups.Join(early, &kafkaparser.GroupRequest{GroupID: "connect-cluster", Topics: []*kafkaparser.GroupTopic{{Name: "orders"}}}, nil)
-	groups.Join(early, &kafkaparser.GroupRequest{GroupID: "connect-cluster", ProtocolType: "connect"}, nil)
+	groups.Join(early, BpfConnectionInfoT{}, &kafkaparser.GroupRequest{GroupID: "connect-cluster", Topics: []*kafkaparser.GroupTopic{{Name: "orders"}}}, nil)
+	groups.Join(early, BpfConnectionInfoT{}, &kafkaparser.GroupRequest{GroupID: "connect-cluster", ProtocolType: "connect"}, nil)
 	state, found := groups.lru.Get(early)
 	require.True(t, found)
 	assert.True(t, state.groups["connect-cluster"].foreign)
-	assert.Empty(t, state.groups["connect-cluster"].members[""].topics)
+	assert.Empty(t, state.groups["connect-cluster"].pending[BpfConnectionInfoT{}].topics)
 }
 
 // Subscriptions are recomputed from what each group currently subscribes to, so a group
@@ -908,7 +908,7 @@ func TestProcessKafkaEventConsumerGroupSubscriptionChanges(t *testing.T) {
 	})
 
 	t.Run("a partial subscription (cut by the kernel buffer) only adds", func(t *testing.T) {
-		groups.Join(proc, &kafkaparser.GroupRequest{GroupID: "my-group", Topics: []*kafkaparser.GroupTopic{{Name: "payments"}}}, nil)
+		groups.Join(proc, BpfConnectionInfoT{}, &kafkaparser.GroupRequest{GroupID: "my-group", Topics: []*kafkaparser.GroupTopic{{Name: "payments"}}}, nil)
 		assert.Equal(t, "my-group", groups.Lookup(proc, "audit"), "kept")
 		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchPayments), "added")
 	})
@@ -969,51 +969,196 @@ func TestProcessKafkaEventConsumerGroupMultipleMembers(t *testing.T) {
 	})
 }
 
-// A first JoinGroup carries no member id: the coordinator assigns one and the member
-// rejoins with it. Both requests are the same member, so the second must take over the
-// first's state rather than leave a member behind that only the ttl would remove.
-func TestProcessKafkaEventConsumerGroupMemberIDAssigned(t *testing.T) {
-	groups := newTestConsumerGroups()
-	consumer := kafkaEventFromPid(7, 42)
-	proc := KafkaProcess{Ns: 7, Pid: 42}
-
-	processKafka(t, groups, consumer, joinGroupMyGroupNoMemberID)
-	processKafka(t, groups, consumer, joinGroupMyGroup)
-	state, found := groups.lru.Get(proc)
-	require.True(t, found)
-	assert.Len(t, state.groups["my-group"].members, 1)
-	assert.Contains(t, state.groups["my-group"].members, "member-abc-123")
-
-	// an older broker accepts the first join as is: the id first shows up in a Heartbeat
-	processKafka(t, groups, consumer, leaveGroupMyGroup)
-	processKafka(t, groups, consumer, joinGroupMyGroupNoMemberID)
-	processKafka(t, groups, consumer, heartbeatMyGroupDef)
-	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders), "the subscription followed the id")
-	processKafka(t, groups, consumer, leaveGroupMyGroupDef)
-	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "no member without an id left behind")
+// newClockedConsumerGroups returns a cache with a one-minute ttl driven by the returned
+// clock setter, so tests can age members and the anonymous pool without sleeping.
+func newClockedConsumerGroups() (*KafkaConsumerGroups, func(time.Duration), time.Duration) {
+	const ttl = time.Minute
+	groups := NewKafkaConsumerGroups(64, ttl)
+	start := time.Now()
+	clock := start
+	groups.now = func() time.Time { return clock }
+	return groups, func(d time.Duration) { clock = start.Add(d) }, ttl
 }
 
-// With a broker older than 2.2 two consumers of one group may both join anonymously before
-// either sends a request carrying its assigned id. The second subscription must not
-// replace the first: until the members are named, the group's subscription is the union.
-func TestProcessKafkaEventConsumerGroupOverlappingAnonymousJoins(t *testing.T) {
-	groups := newTestConsumerGroups()
-	consumer := kafkaEventFromPid(7, 42)
-	proc := KafkaProcess{Ns: 7, Pid: 42}
+// consumerOn is the process of kafkaEventFromPid(7, 42) sending on its own coordinator
+// connection, identified by the client port.
+func consumerOn(port uint16) *TCPRequestInfo {
+	event := kafkaEventFromPid(7, 42)
+	event.ConnInfo.S_port = port
+	event.ConnInfo.D_port = 9092
+	return event
+}
 
-	processKafka(t, groups, consumer, joinGroupMyGroupNoMemberID)         // consumer A: orders, audit
-	processKafka(t, groups, consumer, joinGroupMyGroupNoMemberIDPayments) // consumer B: payments
-	processKafka(t, groups, consumer, joinGroupOtherGroupOrders)          // other-group: orders
-	processKafka(t, groups, consumer, heartbeatMyGroupAbc)                // A named
-	processKafka(t, groups, consumer, heartbeatMyGroupDef)                // B named
-
-	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "orders is my-group's (A) and other-group's")
-	assert.Equal(t, "my-group", groups.Lookup(proc, "audit"))
-	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchPayments), "B's subscription survived A's")
+func groupMembers(t *testing.T, groups *KafkaConsumerGroups, proc KafkaProcess, group string) *kafkaMembership {
+	t.Helper()
 	state, found := groups.lru.Get(proc)
 	require.True(t, found)
-	assert.Len(t, state.groups["my-group"].members, 2)
-	assert.NotContains(t, state.groups["my-group"].members, "", "anonymous state claimed by the first named member")
+	membership, found := state.groups[group]
+	require.True(t, found)
+	return membership
+}
+
+// A first JoinGroup carries no member id. The member's next named request on the same
+// connection is that member, whether it is the KIP-394 repeat of the JoinGroup or, with
+// an older broker, the SyncGroup or Heartbeat that first carries the id.
+func TestProcessKafkaEventConsumerGroupMemberIDAssigned(t *testing.T) {
+	groups := newTestConsumerGroups()
+	consumer := consumerOn(40001)
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+
+	processKafka(t, groups, consumer, joinGroupMyGroupNoMemberID)
+	processKafka(t, groups, consumer, joinGroupMyGroup) // MEMBER_ID_REQUIRED answered
+	membership := groupMembers(t, groups, proc, "my-group")
+	assert.Len(t, membership.members, 1)
+	assert.Empty(t, membership.pending, "the repeat under the id took the pending member over")
+
+	processKafka(t, groups, consumer, leaveGroupMyGroup)
+	processKafka(t, groups, consumer, joinGroupMyGroupNoMemberID) // older broker: accepted as is
+	processKafka(t, groups, consumer, heartbeatMyGroupDef)        // the id first shows up here
+	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders), "the subscription followed the id")
+	processKafka(t, groups, consumer, leaveGroupMyGroupDef)
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "nothing left behind by the leave")
+}
+
+// With an older broker two consumers of one group may both join anonymously before either
+// is named. Each keeps its own subscription, bound to its connection, so one leaving does
+// not drop the other's topics.
+func TestProcessKafkaEventConsumerGroupOverlappingAnonymousJoins(t *testing.T) {
+	groups := newTestConsumerGroups()
+	a, b := consumerOn(40001), consumerOn(40002)
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+
+	processKafka(t, groups, a, joinGroupMyGroupNoMemberID)         // A: orders, audit
+	processKafka(t, groups, b, joinGroupMyGroupNoMemberIDPayments) // B: payments
+	processKafka(t, groups, a, heartbeatMyGroupAbc)                // A named
+	processKafka(t, groups, b, heartbeatMyGroupDef)                // B named
+	processKafka(t, groups, a, joinGroupOtherGroup)                // other-group: payments
+	membership := groupMembers(t, groups, proc, "my-group")
+	assert.Len(t, membership.members, 2)
+	assert.Empty(t, membership.pending)
+	assert.Empty(t, fetchGroup(t, groups, b, fetchPayments), "payments: my-group (B) and other-group")
+
+	processKafka(t, groups, a, leaveGroupMyGroup) // A leaves
+	assert.Empty(t, fetchGroup(t, groups, b, fetchPayments), "B is live: payments stays ambiguous, not other-group's")
+	assert.Empty(t, groups.Lookup(proc, "audit"), "A's topics went with A; two groups, no fallback")
+
+	processKafka(t, groups, b, leaveGroupMyGroupDef)
+	assert.Equal(t, "other-group", fetchGroup(t, groups, b, fetchPayments), "my-group has no member left")
+}
+
+// Nothing orders the named requests of two members that joined anonymously close
+// together: B may be named first. The connection, not the order, decides who is who.
+func TestProcessKafkaEventConsumerGroupNamedOutOfOrder(t *testing.T) {
+	groups := newTestConsumerGroups()
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+	connA := consumerOn(40001).ConnInfo
+	connB := consumerOn(40002).ConnInfo
+	heartbeat := func(conn BpfConnectionInfoT, id string, topics ...string) {
+		req := &kafkaparser.GroupRequest{GroupID: "g", MemberID: id}
+		if len(topics) > 0 {
+			req.Subscription = true
+			for _, topic := range topics {
+				req.Topics = append(req.Topics, &kafkaparser.GroupTopic{Name: topic})
+			}
+		}
+		groups.Join(proc, conn, req, nil)
+	}
+
+	heartbeat(connA, "", "orders")   // KIP-848 before KIP-1082: first heartbeat anonymous
+	heartbeat(connB, "", "payments") //
+	heartbeat(connB, "B")            // B named first, null topic list
+	heartbeat(connA, "A")
+	membership := groupMembers(t, groups, proc, "g")
+	assert.Contains(t, membership.members["A"].topics, "orders")
+	assert.Contains(t, membership.members["B"].topics, "payments")
+	assert.NotContains(t, membership.members["B"].topics, "orders")
+	assert.Empty(t, membership.pending)
+}
+
+// A KIP-848 member before KIP-1082 that closes before its second heartbeat leaves under
+// the id the coordinator assigned, which OBI never saw. Its leave arrives on its own
+// connection, so it still ends the pending member of that connection: its topics must
+// not stay in the group's union until the ttl.
+func TestProcessKafkaEventConsumerGroupPendingMemberLeaves(t *testing.T) {
+	groups := newTestConsumerGroups()
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+	jobConn := consumerOn(40002).ConnInfo
+	longConn := consumerOn(40001).ConnInfo
+	adminConn := consumerOn(40009).ConnInfo
+	join := func(conn BpfConnectionInfoT, group, id string, topics ...string) {
+		req := &kafkaparser.GroupRequest{GroupID: group, MemberID: id, Subscription: true}
+		for _, topic := range topics {
+			req.Topics = append(req.Topics, &kafkaparser.GroupTopic{Name: topic})
+		}
+		groups.Join(proc, conn, req, nil)
+	}
+
+	join(longConn, "other", "O", "payments")
+	join(jobConn, "g", "", "payments") // job's anonymous first heartbeat
+	assert.Empty(t, groups.Lookup(proc, "payments"), "both groups consume payments")
+
+	groups.Leave(proc, adminConn, "g", []string{"J-assigned"}) // an admin removal elsewhere: no effect
+	assert.Empty(t, groups.Lookup(proc, "payments"))
+
+	groups.Leave(proc, jobConn, "g", []string{"J-assigned"}) // the job's own leaving heartbeat
+	assert.Equal(t, "other", groups.Lookup(proc, "payments"), "the job's topic left with it")
+}
+
+// On an older broker a consumer joining a group that already has members in the process
+// starts a rebalance in which those members re-send their subscriptions before the
+// joiner's SyncGroup names it. Their JoinGroups must not touch the joiner's subscription.
+func TestProcessKafkaEventConsumerGroupAnonymousJoinDuringRebalance(t *testing.T) {
+	groups := newTestConsumerGroups()
+	a, c := consumerOn(40001), consumerOn(40003)
+
+	processKafka(t, groups, a, heartbeatMyGroupAbc)                // A, established before OBI attached
+	processKafka(t, groups, c, joinGroupMyGroupNoMemberIDPayments) // C joins anonymously: payments
+	processKafka(t, groups, a, joinGroupMyGroup)                   // A re-sends [orders, audit]
+	processKafka(t, groups, c, heartbeatMyGroupDef)                // C named, no topics
+	processKafka(t, groups, a, joinGroupOtherGroup)                // other-group: payments
+	assert.Empty(t, fetchGroup(t, groups, c, fetchPayments), "C's topic is my-group's: ambiguous, not other-group's")
+}
+
+// Consumers that come and go on a long-lived group must not leave their topics behind:
+// each first JoinGroup is anonymous, and the named repeat on its connection takes it over,
+// so the job's leave removes everything it brought.
+func TestProcessKafkaEventConsumerGroupJobChurn(t *testing.T) {
+	groups := newTestConsumerGroups()
+	long, job := consumerOn(40001), consumerOn(40002)
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+
+	processKafka(t, groups, long, joinGroupMyGroup)                  // L: orders, audit
+	processKafka(t, groups, job, joinGroupMyGroupNoMemberIDPayments) // job: payments, anonymous
+	processKafka(t, groups, job, joinGroupMyGroupPayments)           // repeat under def
+	processKafka(t, groups, long, joinGroupOtherGroup)               // other-group: payments
+	assert.Empty(t, fetchGroup(t, groups, job, fetchPayments), "both groups while the job runs")
+	processKafka(t, groups, job, leaveGroupMyGroupDef)
+	assert.Equal(t, "other-group", fetchGroup(t, groups, long, fetchPayments), "the job's topic left with it")
+	assert.Empty(t, groupMembers(t, groups, proc, "my-group").pending)
+}
+
+// A pending member nobody names, for instance because the connection was re-established
+// before the id came back, expires like any member and keeps nothing alive.
+func TestProcessKafkaEventConsumerGroupPendingExpiry(t *testing.T) {
+	groups, clockAt, ttl := newClockedConsumerGroups()
+	proc := KafkaProcess{Ns: 7, Pid: 42}
+	first, second := consumerOn(40001), consumerOn(40009)
+
+	processKafka(t, groups, first, joinGroupMyGroupNoMemberID) // anonymous on the first connection
+	processKafka(t, groups, second, heartbeatMyGroupAbc)       // named on a new connection: not the same entry
+	membership := groupMembers(t, groups, proc, "my-group")
+	assert.Len(t, membership.pending, 1)
+	assert.Empty(t, membership.members["member-abc-123"].topics)
+
+	clockAt(ttl / 2)
+	processKafka(t, groups, second, heartbeatMyGroupAbc)
+	clockAt(ttl + ttl/4)
+	processKafka(t, groups, second, heartbeatMyGroupAbc)
+	assert.Empty(t, groupMembers(t, groups, proc, "my-group").pending, "the unclaimed entry expired")
+
+	clockAt(3 * ttl)
+	assert.Empty(t, fetchGroup(t, groups, first, fetchOrders))
+	assert.Equal(t, 0, groups.lru.Len())
 }
 
 // A process holds at most maxGroupsPerProcess memberships and maxMembersPerGroup members
@@ -1023,10 +1168,10 @@ func TestKafkaConsumerGroupsMembershipCap(t *testing.T) {
 	groups := newTestConsumerGroups()
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 	for i := range maxGroupsPerProcess + 5 {
-		groups.Join(proc, &kafkaparser.GroupRequest{GroupID: fmt.Sprintf("group-%d", i), MemberID: "member"}, nil)
+		groups.Join(proc, BpfConnectionInfoT{}, &kafkaparser.GroupRequest{GroupID: fmt.Sprintf("group-%d", i), MemberID: "member"}, nil)
 	}
 	for i := range maxMembersPerGroup + 5 {
-		groups.Join(proc, &kafkaparser.GroupRequest{GroupID: "group-0", MemberID: fmt.Sprintf("member-%d", i)}, nil)
+		groups.Join(proc, BpfConnectionInfoT{}, &kafkaparser.GroupRequest{GroupID: "group-0", MemberID: fmt.Sprintf("member-%d", i)}, nil)
 	}
 	state, found := groups.lru.Get(proc)
 	require.True(t, found)
@@ -1059,7 +1204,7 @@ func TestKafkaConsumerGroupsTopicBudget(t *testing.T) {
 
 	members := maxTopicsPerProcess/maxTopicsPerMember + 1
 	for i := range members {
-		groups.Join(proc, &kafkaparser.GroupRequest{GroupID: "group", MemberID: fmt.Sprintf("member-%d", i), Subscription: true, Topics: topics("t", maxTopicsPerMember)}, nil)
+		groups.Join(proc, BpfConnectionInfoT{}, &kafkaparser.GroupRequest{GroupID: "group", MemberID: fmt.Sprintf("member-%d", i), Subscription: true, Topics: topics("t", maxTopicsPerMember)}, nil)
 	}
 	assert.Equal(t, maxTopicsPerProcess, kept(), "the last member's subscription did not fit")
 
@@ -1068,7 +1213,7 @@ func TestKafkaConsumerGroupsTopicBudget(t *testing.T) {
 	assert.Equal(t, "group", groups.Lookup(proc, "t-0"), "what was kept is still looked up")
 
 	// a smaller subscription of one member frees room for the others
-	groups.Join(proc, &kafkaparser.GroupRequest{GroupID: "group", MemberID: "member-0", Subscription: true, Topics: topics("t", 24)}, nil)
+	groups.Join(proc, BpfConnectionInfoT{}, &kafkaparser.GroupRequest{GroupID: "group", MemberID: "member-0", Subscription: true, Topics: topics("t", 24)}, nil)
 	groups.Enrich(proc, &kafkaparser.GroupRequest{GroupID: "group", MemberID: fmt.Sprintf("member-%d", members-1), Topics: topics("commit", 10)}, nil)
 	assert.Equal(t, maxTopicsPerProcess-maxTopicsPerMember+24+10, kept())
 	assert.Equal(t, "group", groups.Lookup(proc, "commit-9"))
