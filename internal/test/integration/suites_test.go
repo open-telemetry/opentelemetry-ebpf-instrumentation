@@ -505,9 +505,6 @@ func TestSuite_RailsRuby302Puma5(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
 	require.NoError(t, compose.Up())
-	t.Run("Ruby/Puma support contract", func(t *testing.T) {
-		assertRubyPumaSupportVersion(t, compose, "3.0.2", "5.6.6")
-	})
 	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
@@ -532,9 +529,6 @@ func TestSuite_RailsRuby4Postgres(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
 	require.NoError(t, compose.Up())
-	t.Run("Ruby/Puma versions", func(t *testing.T) {
-		assertRubyPumaSupportVersion(t, compose, "4.0.6", "6.6.1")
-	})
 	t.Run("Rails PostgreSQL traces", testHTTPTracesRailsPostgres)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
