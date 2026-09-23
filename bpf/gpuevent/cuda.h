@@ -29,12 +29,14 @@ enum { k_cuda_prop_uuid_off = 256 };
 
 // Identifies the device an observed CUDA call ran on. The index is the
 // process-local device number (remapped by CUDA_VISIBLE_DEVICES), while the UUID
-// identifies the physical device across the whole host. An all-zero UUID means
-// the identity of that index has not been observed for the process yet.
+// identifies the physical device across the whole host. known is set only when
+// the calling thread's current device was actually observed via cudaSetDevice or
+// cudaGetDevice; otherwise the index and UUID are not meaningful.
 typedef struct cuda_device {
     u32 index;
     u8 uuid[k_cuda_uuid_len];
-    u32 _pad; // Trailing padding, so the events ending in this struct need none of their own
+    u8 known;
+    u8 _pad[3]; // Trailing padding, so the events ending in this struct need none of their own
 } cuda_device_t;
 
 // Device identity learned from the CUDA introspection APIs. The model name only

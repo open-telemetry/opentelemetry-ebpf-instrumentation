@@ -478,6 +478,11 @@ func (p *Tracer) readGPUCudaDeviceEventIntoSpan(record *ringbuf.Record) (request
 }
 
 func (p *Tracer) applyDeviceIdentity(span *request.Span, device BpfCudaDeviceT) {
+	if device.Known == 0 {
+		return
+	}
+
+	span.CudaDeviceKnown = true
 	span.CudaDeviceIndex = device.Index
 	span.CudaDeviceUUID = cudaUUIDString(device.Uuid)
 	span.CudaDeviceModel = p.deviceModels[span.CudaDeviceUUID]

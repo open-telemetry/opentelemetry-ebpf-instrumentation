@@ -54,3 +54,36 @@ CUresult cuGraphLaunch(CUgraphExec graphExec, CUstream hStream) {
   g_sink += 1;
   return 0;
 }
+
+// Minimal no-op context stubs. They never touch a real GPU; the nonzero device
+// argument is recorded only so tests can prove OBI does not infer a device
+// from these uninstrumented calls.
+static CUcontext g_current_ctx = (CUcontext)0x1;
+
+CUresult cuCtxCreate(CUcontext *pctx, unsigned int flags, int dev) {
+  if (pctx != NULL) {
+    *pctx = (CUcontext)(0x10 + (unsigned long)dev);
+  }
+  (void)flags;
+  g_sink += (unsigned long)dev;
+  return 0;
+}
+
+CUresult cuCtxSetCurrent(CUcontext ctx) {
+  g_current_ctx = ctx;
+  g_sink += (unsigned long)ctx;
+  return 0;
+}
+
+CUresult cuCtxPushCurrent(CUcontext ctx) {
+  g_current_ctx = ctx;
+  g_sink += (unsigned long)ctx;
+  return 0;
+}
+
+CUresult cuCtxPopCurrent(CUcontext *pctx) {
+  if (pctx != NULL) {
+    *pctx = g_current_ctx;
+  }
+  return 0;
+}

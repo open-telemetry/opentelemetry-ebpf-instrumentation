@@ -24,7 +24,9 @@ RUN gcc -O0 -fPIC -shared -Wl,-soname,libcudart.so -o libcudart.so libcudart-stu
     gcc -O0 -fPIC -shared -Wl,-soname,libcuda.so.1 -o libcuda.so.1 libcuda-stub.c && \
     ln -sf libcuda.so.1 libcuda.so && \
     gcc -O0 -o gpu-cuda-tester main.c -L. -lcudart -Wl,-rpath,/app && \
-    gcc -O0 -o gpu-cuda-driver-tester driver_main.c -L. -lcuda -Wl,-rpath,/app
+    gcc -O0 -o gpu-cuda-setdevice-tester setdevice_main.c -L. -lcudart -Wl,-rpath,/app && \
+    gcc -O0 -o gpu-cuda-driver-tester driver_main.c -L. -lcuda -Wl,-rpath,/app && \
+    gcc -O0 -o gpu-cuda-driver-ctx-tester driver_ctx_main.c -L. -lcuda -Wl,-rpath,/app
 
 FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421
 
@@ -32,7 +34,9 @@ WORKDIR /app
 COPY --from=builder /src/libcudart.so /app/libcudart.so
 COPY --from=builder /src/libcuda.so.1 /app/libcuda.so.1
 COPY --from=builder /src/gpu-cuda-tester /app/gpu-cuda-tester
+COPY --from=builder /src/gpu-cuda-setdevice-tester /app/gpu-cuda-setdevice-tester
 COPY --from=builder /src/gpu-cuda-driver-tester /app/gpu-cuda-driver-tester
+COPY --from=builder /src/gpu-cuda-driver-ctx-tester /app/gpu-cuda-driver-ctx-tester
 ENV LD_LIBRARY_PATH=/app
 USER 0:0
 

@@ -150,3 +150,31 @@ cudaError_t cudaHostRegister(void *ptr, size_t size, unsigned int flags) {
   g_sink += size;
   return 0;
 }
+
+static int g_current_device = 0;
+
+cudaError_t cudaSetDevice(int device) {
+  g_current_device = device;
+  g_sink += (unsigned long)device;
+  return 0;
+}
+
+cudaError_t cudaGetDeviceProperties(cudaDeviceProp *prop, int device) {
+  if (prop == NULL) {
+    return 0;
+  }
+
+  // Populate a deterministic name and UUID so integration tests can verify
+  // device identity propagation. Device 0 intentionally differs from device 1.
+  if (device == 1) {
+    __builtin_memcpy(prop->name, "OBI Test GPU A", sizeof("OBI Test GPU A"));
+    __builtin_memset(prop->uuid, 0, sizeof(prop->uuid));
+    prop->uuid[15] = 0x01;
+  } else {
+    __builtin_memcpy(prop->name, "OBI Test GPU 0", sizeof("OBI Test GPU 0"));
+    __builtin_memset(prop->uuid, 0, sizeof(prop->uuid));
+  }
+
+  g_sink += (unsigned long)device;
+  return 0;
+}

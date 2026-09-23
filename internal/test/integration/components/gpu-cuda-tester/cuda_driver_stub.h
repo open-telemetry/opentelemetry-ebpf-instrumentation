@@ -23,6 +23,7 @@ typedef int CUresult;
 typedef void *CUfunction;
 typedef void *CUstream;
 typedef void *CUgraphExec;
+typedef void *CUcontext;
 
 typedef struct CUlaunchConfig {
   unsigned int gridDimX;
@@ -43,5 +44,13 @@ CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
 CUresult cuLaunchKernelEx(const CUlaunchConfig *config, CUfunction f,
                           void **kernelParams, void **extra);
 CUresult cuGraphLaunch(CUgraphExec graphExec, CUstream hStream);
+
+// Context management functions. OBI does not currently instrument these, so a
+// Driver API application that binds a context through them remains an unknown
+// device. The stubs let integration tests cover that case.
+CUresult cuCtxCreate(CUcontext *pctx, unsigned int flags, int dev);
+CUresult cuCtxSetCurrent(CUcontext ctx);
+CUresult cuCtxPushCurrent(CUcontext ctx);
+CUresult cuCtxPopCurrent(CUcontext *pctx);
 
 #endif // CUDA_DRIVER_STUB_H
