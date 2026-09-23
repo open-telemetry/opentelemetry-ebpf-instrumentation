@@ -99,6 +99,66 @@ OBI-emitted dns.lookup.duration
 | `dns.question.name` | string | `opt_in` | development | The name being queried. | www.example.com; opentelemetry.io |
 | `error.type` | string | `conditionally_required`: if the lookup ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
+## `dotnet.assembly.count`
+
+Number of loaded .NET assemblies.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {assembly} | stable |
+
+No attributes.
+
+## `dotnet.gc.last_collection.memory.committed_size`
+
+Committed .NET GC memory observed during the latest collection.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | By | stable |
+
+No attributes.
+
+## `dotnet.process.memory.working_set`
+
+Physical memory mapped to the .NET process.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | By | stable |
+
+No attributes.
+
+## `dotnet.thread_pool.queue.length`
+
+Number of queued .NET thread-pool work items.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {work_item} | stable |
+
+No attributes.
+
+## `dotnet.thread_pool.thread.count`
+
+Number of .NET thread-pool threads that currently exist.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {thread} | stable |
+
+No attributes.
+
+## `dotnet.timer.count`
+
+Number of active .NET timers.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {timer} | stable |
+
+No attributes.
+
 ## `gen_ai.client.operation.duration`
 
 OBI-emitted gen_ai.client.operation.duration
