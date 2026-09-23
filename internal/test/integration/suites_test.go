@@ -22,12 +22,12 @@ import (
 // left the integration suite vulnerable to a compromise of the OBI ghcr
 // publish workflow swapping in a malicious image.
 const (
-	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.3@sha256:127a9c11f5584a61f45bc10e9bd8204f020c697369fee62404f822c0ffab3f4b"
-	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.3@sha256:b7bb4d0037775c18386f697f917d652ba85466404758a7eb08f236285391a0d7"
-	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.3@sha256:b76147c36641b1658231cbf82f5731e73b8c6c8a407c22e853f8c06deda7aebe"
-	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.3@sha256:2dfbacdd71da27dec22c585eac08b60ae4a388802fb6ea9b4dcdfac035e3510d"
-	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.3@sha256:a2a1f3dc2f8588d0f8cb1859a8b88f308f97b8491d581daa5ce833df96c79103"
-	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.3@sha256:eeb4caba1f40561f38387064250d09d370e76f9a481f5b5d3e8da176feeb50ea"
+	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.5@sha256:0cbc4280dcf187a5d33a39dc1f2e8fc3d7cc6ad17533f859f9898292d9fb26c0"
+	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.5@sha256:7918fd747a6a1bd34f1fc1402a30fd6066e5e405296ad2b62070cf1488262cc4"
+	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.5@sha256:bbfe374eae5ac96ef08fda0a8e28401775c7311f3b0d4fe510dec62852c3a58f"
+	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.5@sha256:bba89c0e7d3c1450eb2d7d2aa14bd175cdefe4b13ba736d344b43095d1813ecc"
+	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.5@sha256:daa81133fee2d3882abc3129870baa9b85798537487aef47529c7c144b27f21c"
+	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.5@sha256:00dc66268119e8a965f54e4407e5f20255d4d18ae56aefcdb111ab7aa781232a"
 )
 
 func TestSuite_Go(t *testing.T) {
