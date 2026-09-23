@@ -58,9 +58,26 @@ func TestDecodeRuntimeCounter(t *testing.T) {
 	}
 }
 
+func TestDecodeRuntimePollingCounters(t *testing.T) {
+	for _, name := range []string{
+		"working-set", "gc-committed", "threadpool-thread-count",
+		"threadpool-queue-length", "active-timer-count", "assembly-count",
+	} {
+		t.Run(name, func(t *testing.T) {
+			values := map[string]any{"": map[string]any{"Payload": map[string]any{
+				"Name": name, "CounterType": "Mean", "IntervalSec": float32(1),
+				"Mean": float64(12),
+			}}}
+			got, err := decodeRuntimeCounter(values)
+			require.NoError(t, err)
+			require.Equal(t, runtimeCounter{Name: name, Value: 12, IntervalSec: 1}, got)
+		})
+	}
+}
+
 func TestDecodeRuntimeCounterIgnoresUnusedCounters(t *testing.T) {
 	for _, payload := range []map[string]any{
-		{"Name": "working-set"},
+		{"Name": "gc-fragmentation"},
 		{"Name": "cpu-usage", "CounterType": "unknown", "IntervalSec": float32(0), "Mean": math.NaN()},
 		{"Name": "alloc-rate", "CounterType": "Sum", "IntervalSec": float32(1), "Increment": "invalid"},
 	} {

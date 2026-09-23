@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
@@ -160,6 +161,155 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string)
 		}
 		t.Logf("GC round %d: PID %d, Prometheus %v, OTLP %v", round+1, before.PID, baseline[0], baseline[1])
 	}
+	testDotnetCurrentMetrics(t, client, workload, endpoints)
+}
+
+type dotnetCurrentSnapshot struct {
+	WorkingSet    float64 `json:"workingSet"`
+	GCCommitted   float64 `json:"gcCommitted"`
+	ThreadCount   float64 `json:"threadCount"`
+	QueueLength   float64 `json:"queueLength"`
+	TimerCount    float64 `json:"timerCount"`
+	AssemblyCount float64 `json:"assemblyCount"`
+}
+
+func (s dotnetCurrentSnapshot) values() [6]float64 {
+	return [6]float64{s.WorkingSet, s.GCCommitted, s.ThreadCount, s.QueueLength, s.TimerCount, s.AssemblyCount}
+}
+
+var dotnetCurrentMetricNames = [...]string{
+	attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetGCCommittedMemory.Prom,
+	attributes.DotnetThreadPoolThreadCount.Prom, attributes.DotnetThreadPoolQueueLength.Prom,
+	attributes.DotnetTimerCount.Prom, attributes.DotnetAssemblyCount.Prom,
+}
+
+func testDotnetCurrentMetrics(t *testing.T, client *http.Client, workload string, endpoints []string) {
+	t.Helper()
+	readReference := func(path string) (dotnetCurrentSnapshot, error) {
+		var snapshot dotnetCurrentSnapshot
+		response, err := client.Get(workload + path)
+		if err != nil {
+			return snapshot, err
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			return snapshot, fmt.Errorf("reference endpoint returned %s", response.Status)
+		}
+		err = json.NewDecoder(response.Body).Decode(&snapshot)
+		return snapshot, err
+	}
+	command := func(path string) {
+		t.Helper()
+		response, err := client.Post(workload+path, "application/json", nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		_, err = io.Copy(io.Discard, response.Body)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+	}
+	before, err := readReference("/snapshot")
+	require.NoError(t, err)
+	baseline := before.values()
+	command("/load")
+	peaks := make([][6]float64, len(endpoints))
+	// The controller keeps the pool occupied for 30 seconds, then releases it
+	// without needing an HTTP request on that same pool.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for index, endpoint := range endpoints {
+			values, err := scrapeDotnetCurrent(client, endpoint)
+			require.NoError(ct, err)
+			for metric, increase := range [6]float64{64 * 1024 * 1024, 64 * 1024 * 1024, 1, 8, 30, 16} {
+				require.GreaterOrEqual(ct, values[metric], baseline[metric]+increase, dotnetCurrentMetricNames[metric])
+			}
+			peaks[index] = values
+		}
+	}, 25*time.Second, time.Second)
+	// Wait for the controller's queued work to drain before sending another
+	// HTTP request, since HTTP processing also needs a thread-pool worker.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for _, endpoint := range endpoints {
+			values, err := scrapeDotnetCurrent(client, endpoint)
+			require.NoError(ct, err)
+			require.Less(ct, values[3], float64(8))
+		}
+	}, testTimeout, time.Second)
+	var peak dotnetCurrentSnapshot
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var err error
+		peak, err = readReference("/load-result")
+		require.NoError(ct, err)
+	}, testTimeout, time.Second)
+	// Working set and incidental queued work or timers can vary between runtime
+	// polling and the independent reference snapshot.
+	tolerances := [6]float64{16 * 1024 * 1024, 1, 0, 1, 1, 0}
+	for index, values := range peaks {
+		for metric, expected := range peak.values() {
+			require.InDelta(t, expected, values[metric], tolerances[metric], "%s: %s", endpoints[index], dotnetCurrentMetricNames[metric])
+		}
+	}
+	command("/release")
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		after, err := readReference("/snapshot")
+		require.NoError(ct, err)
+		for metric, value := range after.values() {
+			require.Less(ct, value, peak.values()[metric], dotnetCurrentMetricNames[metric])
+		}
+		for index, endpoint := range endpoints {
+			values, err := scrapeDotnetCurrent(client, endpoint)
+			require.NoError(ct, err)
+			for metric, expected := range after.values() {
+				require.Less(ct, values[metric], peaks[index][metric], dotnetCurrentMetricNames[metric])
+				tolerance := tolerances[metric]
+				if metric == 2 || metric == 3 {
+					tolerance = 1 // HTTP handling can briefly use or queue a worker.
+				}
+				require.InDelta(ct, expected, values[metric], tolerance, dotnetCurrentMetricNames[metric])
+			}
+		}
+	}, testTimeout, time.Second)
+	t.Logf("current metrics: managed peak %v, Prometheus %v, OTLP %v; all six decreased after release", peak.values(), peaks[0], peaks[1])
+}
+
+func scrapeDotnetCurrent(client *http.Client, endpoint string) ([6]float64, error) {
+	var values [6]float64
+	response, err := client.Get(endpoint)
+	if err != nil {
+		return values, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return values, fmt.Errorf("metrics endpoint returned %s", response.Status)
+	}
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, err := parser.TextToMetricFamilies(response.Body)
+	if err != nil {
+		return values, err
+	}
+	for index, name := range dotnetCurrentMetricNames {
+		family := families[name]
+		if family == nil || family.GetType() != dto.MetricType_GAUGE {
+			return values, fmt.Errorf("missing gauge %s", name)
+		}
+		seen := false
+		for _, metric := range family.GetMetric() {
+			labels := make(map[string]string)
+			for _, label := range metric.GetLabel() {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["service_name"] != "dotnet-runtime" || labels["service_namespace"] != "integration-test" {
+				continue
+			}
+			if seen || metric.Gauge == nil || labels["dotnet_gc_heap_generation"] != "" {
+				return values, fmt.Errorf("invalid or duplicate gauge %s", name)
+			}
+			seen = true
+			values[index] = metric.GetGauge().GetValue()
+		}
+		if !seen {
+			return values, fmt.Errorf("missing service identity for %s", name)
+		}
+	}
+	return values, nil
 }
 
 // scrapeDotnetGC requires all three exclusive generation series and the service
