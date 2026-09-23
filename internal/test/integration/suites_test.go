@@ -797,6 +797,7 @@ func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	t.Run("Keep-Alive", testPythonAsyncKeepAlive)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -812,6 +813,7 @@ func TestSuite_PythonAsyncUvicornAsyncio_3_14(t *testing.T) {
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	t.Run("Keep-Alive", testPythonAsyncKeepAlive)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

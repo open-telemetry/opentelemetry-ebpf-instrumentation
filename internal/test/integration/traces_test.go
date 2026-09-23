@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
@@ -1577,14 +1578,48 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 }
 
 func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {
+	testPythonAsyncEndpointConnections(t, endpoint, expectedClientCalls, false)
+}
+
+func testPythonAsyncKeepAlive(t *testing.T) {
+	testPythonAsyncEndpointConnections(t, "/sequential/", 3, true)
+}
+
+func testPythonAsyncEndpointConnections(t *testing.T, endpoint string, expectedClientCalls int, keepAlive bool) {
 	waitForTestComponentsSub(t, "http://localhost:8391", "/health")
 
 	const requests = 20
-	for i := 1; i <= requests; i++ {
-		go ti.DoHTTPGet(t, "http://localhost:8391"+endpoint+strconv.Itoa(i), 200)
+	first := 1
+	if keepAlive {
+		// Use distinct request IDs so earlier subtests cannot satisfy the trace checks.
+		first = 1001
+		transport := &http.Transport{MaxConnsPerHost: 1}
+		defer transport.CloseIdleConnections()
+		client := &http.Client{Transport: transport, Timeout: testTimeout}
+		for i := first; i < first+requests; i++ {
+			reused := false
+			req, err := http.NewRequest(http.MethodGet, "http://localhost:8391"+endpoint+strconv.Itoa(i), nil)
+			require.NoError(t, err)
+			req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+				GotConn: func(info httptrace.GotConnInfo) { reused = info.Reused },
+			}))
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, resp.Body.Close())
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			if i > first {
+				require.True(t, reused, "request %d must reuse the connection", i)
+			}
+		}
+	} else {
+		for i := first; i < first+requests; i++ {
+			go ti.DoHTTPGet(t, "http://localhost:8391"+endpoint+strconv.Itoa(i), 200)
+		}
 	}
 
-	for i := 1; i <= requests; i++ {
+	for i := first; i < first+requests; i++ {
 		slugJg := "%7Breq_id%7D"
 		slug := strconv.Itoa(i)
 		urlPath := endpoint + slug
