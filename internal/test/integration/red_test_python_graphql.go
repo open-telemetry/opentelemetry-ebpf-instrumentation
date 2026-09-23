@@ -37,7 +37,7 @@ func testPythonGraphQL(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL)
+		resp, err = getJaeger(fullJaegerURL)
 		require.NoError(ct, err)
 		if resp == nil {
 			return

@@ -102,7 +102,7 @@ func TestSuite_YamuxGRPC(t *testing.T) {
 	t.Log("waiting for OBI to instrument yamux-client")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		callYamux()
-		r, err := http.Get(jaegerQueryURL + "?service=yamux-client&limit=1&lookback=5m")
+		r, err := getJaeger(jaegerQueryURL + "?service=yamux-client&limit=1&lookback=5m")
 		require.NoError(ct, err)
 		require.NotNil(ct, r)
 		defer r.Body.Close()

@@ -13,9 +13,11 @@ OBI publishes the following release artifacts for supported runtime platforms:
 | Artifact | Supported platforms |
 |:---------|:--------------------|
 | `obi` binary archive | Linux `amd64`, Linux `arm64` |
-| `k8s-cache` binary archive | Linux `amd64`, Linux `arm64` |
 | `otel/ebpf-instrument` container image | Linux `amd64`, Linux `arm64` |
 | `otel/ebpf-instrument-k8s-cache` container image | Linux `amd64`, Linux `arm64` |
+
+`k8s-cache` is an optional Kubernetes service distributed as a container image.
+It is not included in the OBI binary archives or host system packages.
 
 Other operating systems and architectures may compile selected packages or stub implementations, but are not part
 of the supported runtime matrix for OBI.
@@ -102,8 +104,8 @@ The following runtime and server baselines are currently documented or enforced 
 |:------------------|:---------|
 | Go applications | Go `1.17+` for library-level instrumentation |
 | Java applications | JDK `8+`; a JVM started with `-Xrs` or `-XX:+DisableAttachMechanism` is not instrumented by the injected agent unless it also sets `-XX:+StartAttachListener` (see [devdocs/runtimes/jvm.md](devdocs/runtimes/jvm.md)) |
-| Node.js async-hooks context propagation | Node.js `8.0+` |
-| Node.js manual span capture | Opt-in; Node.js inspector must be reachable; the application must not register an OpenTelemetry SDK. See [devdocs/nodejs-manual-spans.md](devdocs/nodejs-manual-spans.md) |
+| Node.js async-hooks context propagation | Node.js `12.17+`, excluding `13.0`–`13.9` |
+| Node.js manual span capture | Opt-in; Node.js `14.0+` because the span bridge uses nullish coalescing; Node.js inspector must be reachable; the application must not register an OpenTelemetry SDK. See [devdocs/nodejs-manual-spans.md](devdocs/nodejs-manual-spans.md) |
 | Python asyncio context propagation | GIL-enabled, 64-bit CPython `3.9` through `3.14`, using the default asyncio loop or `uvloop`; free-threaded builds are unsupported |
 | Ruby applications | Ruby `3.0.2+` when served by Puma `5.0+` |
 | nginx | HTTP server and reverse-proxy tracing validated on nginx `>= 1.27.3` |
@@ -212,7 +214,7 @@ OBI currently documents the following asynchronous or runtime-specific context p
 |:----------|:--------|:---------|:------------|:-------|
 | Go goroutines | Go | Go `1.18+` | Up to 6 nested levels of goroutines | Stable |
 | Go channel span links | Go | Go `1.17+` | Receiver-side links only; supports `runtime.chansend1`, `runtime.chanrecv1`, and `runtime.chanrecv2`; `select` paths are not supported; requires `runtime.hchan` offsets | Experimental |
-| Node.js async hooks | Node.js | Node.js `8.0+` | Custom handling of `SIGUSR1` might interfere | Stable |
+| Node.js async hooks | Node.js | Node.js `12.17+`, excluding `13.0`–`13.9` | The injected agent uses `AsyncLocalStorage`, added in `13.10.0` and backported to `12.17.0`, so the 13.x releases below `13.10` are unsupported; the injector reads the runtime version from the executable and skips anything older without signalling it. Custom handling of `SIGUSR1` might interfere | Stable |
 | Ruby Puma server | Ruby | Ruby applications served by Puma | Only works with Puma server | Stable |
 | Java thread pool | Java | JDK `8+` | Parent lookup walks up to 3 thread-nesting levels | Stable |
 | Java virtual threads | Java | JDK `21+` | Log enrichment is skipped for requests handled on virtual threads | Stable |

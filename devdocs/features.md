@@ -151,10 +151,12 @@ Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,ms
 ## Node.js Manual Spans
 
 Since OBI v0.12.1, OBI can capture spans that a Node.js application creates through `@opentelemetry/api` when no
-OpenTelemetry SDK is registered. Opt-in: `nodejs.manual_spans: true` or `OTEL_EBPF_NODEJS_MANUAL_SPANS=true`. The
+OpenTelemetry SDK is registered. Opt-in: `nodejs.manual_spans: true` or `OTEL_EBPF_NODEJS_MANUAL_SPANS=true`.
+Needs Node.js 14.0 or newer: the span bridge uses nullish coalescing, and it is evaluated together with the
+rest of the agent, so an older runtime rejects the whole payload and the injection is refused. The
 Node.js inspector must be reachable, and OBI must be able to open it: it withholds `SIGUSR1` unless the process is
-provably a Node.js runtime that the signal cannot terminate and that registers no handler of its own (see
-[runtimes/nodejs.md](runtimes/nodejs.md) for the full list of refusal reasons). If the application registers an SDK,
+provably a Node.js runtime, recent enough to run the agent, that the signal cannot terminate and that registers no
+handler of its own (see [runtimes/nodejs.md](runtimes/nodejs.md) for the full list of refusal reasons). If the application registers an SDK,
 OBI leaves span creation to that SDK.
 
 See [nodejs-manual-spans.md](nodejs-manual-spans.md).
@@ -180,7 +182,7 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 |:--------------------|:---------:|-----------------:|:--------------------------------------------------|:-------------
 | Go Routines         |    Go     |       Go >= 1.18 | up to 6 nested levels of goroutines               | Stable
 | Go channel span links |  Go     |       Go >= 1.17 | `select` paths are not supported                  | Experimental
-| Node.js Async Hooks |  Node.js  |   Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
+| Node.js Async Hooks |  Node.js  | Node.js >= 12.17, excluding 13.0-13.9 | The injected agent needs `AsyncLocalStorage`; custom handling of SIGUSR1 might interfere | Stable
 | Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
 | Java Thread pool    |   Java    |           JDK 8+ | Parent lookup walks up to 3 thread-nesting levels; `-Xrs` or `-XX:+DisableAttachMechanism` prevents agent attachment | Stable
 | Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads; `-Xrs` or `-XX:+DisableAttachMechanism` prevents agent attachment | Stable

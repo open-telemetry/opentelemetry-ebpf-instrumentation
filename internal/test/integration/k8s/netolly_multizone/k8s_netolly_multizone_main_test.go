@@ -47,9 +47,9 @@ func TestMain(m *testing.M) {
 		// `otel` zone node), validated at suite teardown (enforcing)
 		kube.WeaverValidation(),
 		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver-multi-node.yml"),
-		kube.Deploy(testpath.Manifests+"/05-uninstrumented-multizone-client-server.yml"),
-		kube.Deploy(testpath.Manifests+"/06-obi-netolly-multizone.yml"),
 		kube.Deploy(testpath.Manifests+"/08-weaver-multi-node.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-uninstrumented-multizone-client-server.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/06-obi-netolly-multizone.yml"),
 	)
 
 	cluster.Run(m)

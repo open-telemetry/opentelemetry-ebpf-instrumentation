@@ -163,7 +163,7 @@ func waitForMemoryBIOMetricsToSettle(t *testing.T, pq promtest.Client) {
 // labels and the span attributes are produced by different exporters, and it is the
 // spans that a user reads.
 func assertMemoryBIOTraces(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s?service=%s&limit=200", jaegerQueryURL, memoryBIOService))
+	resp, err := getJaeger(fmt.Sprintf("%s?service=%s&limit=200", jaegerQueryURL, memoryBIOService))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

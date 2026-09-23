@@ -6,16 +6,22 @@
 package ebpf
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
+	cebpf "github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 type libUnlinkingTracer struct {
@@ -23,6 +29,27 @@ type libUnlinkingTracer struct {
 	mu       sync.Mutex
 	unlinked []uint64
 }
+
+type closeTrackingTracer struct {
+	stubTracer
+	closes int
+}
+
+func (t *closeTrackingTracer) Close() error {
+	t.closes++
+	return nil
+}
+
+type initProbeTracer struct {
+	closeTrackingTracer
+	probes map[string]ebpfcommon.ProbeDesc
+}
+
+func (t *initProbeTracer) KProbes() map[string]ebpfcommon.ProbeDesc {
+	return t.probes
+}
+
+func (t *initProbeTracer) Required() bool { return true }
 
 func (t *libUnlinkingTracer) UnlinkInstrumentedLib(id uint64) {
 	t.mu.Lock()
@@ -72,6 +99,57 @@ func TestCloseInstrumentersWithoutExecutables(t *testing.T) {
 	pt.closeInstrumenters()
 
 	assert.Empty(t, pt.Instrumentables)
+}
+
+func TestCloseReleasesProgramsBeforeRun(t *testing.T) {
+	program := &closeTrackingTracer{}
+	pt := &ProcessTracer{log: slog.Default(), Programs: []Tracer{program}}
+
+	require.NoError(t, pt.Close())
+	assert.Equal(t, 1, program.closes)
+	require.ErrorIs(t, pt.NewExecutable(nil, nil), errTracerStopped)
+
+	require.NoError(t, pt.Close())
+	assert.Equal(t, 1, program.closes)
+}
+
+func TestInitClosesPartialInitProbesOnRequiredProbeFailure(t *testing.T) {
+	originalKprobe := attachKprobe
+	originalKretprobe := attachKretprobe
+	t.Cleanup(func() {
+		attachKprobe = originalKprobe
+		attachKretprobe = originalKretprobe
+	})
+
+	attached := &countingCloser{}
+	attachKprobe = func(string, *cebpf.Program, *link.KprobeOptions) (io.Closer, error) {
+		return attached, nil
+	}
+	attachKretprobe = func(string, *cebpf.Program, *link.KprobeOptions) (io.Closer, error) {
+		return nil, errors.New("required probe failed")
+	}
+
+	program := &initProbeTracer{
+		probes: map[string]ebpfcommon.ProbeDesc{
+			"required_probe": {
+				Start:    &cebpf.Program{},
+				End:      &cebpf.Program{},
+				Required: true,
+			},
+		},
+	}
+	unattemptedProgram := &closeTrackingTracer{}
+	cfg := &obi.Config{}
+	cfg.EBPF.BPFFSPath = t.TempDir()
+	pt := NewProcessTracer(Generic, []Tracer{program, unattemptedProgram}, cfg, imetrics.NoopReporter{})
+
+	err := pt.Init(&ebpfcommon.EBPFEventContext{}, cfg)
+
+	require.Error(t, err)
+	require.NoError(t, pt.Close())
+	assert.Equal(t, int32(1), attached.closes.Load())
+	assert.Equal(t, 1, program.closes)
+	assert.Equal(t, 1, unattemptedProgram.closes)
 }
 
 // an executable that fails to attach is never committed, so its probes and its

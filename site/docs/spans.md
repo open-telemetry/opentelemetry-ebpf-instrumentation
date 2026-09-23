@@ -217,7 +217,7 @@ OBI GenAI embeddings client span.
 | --- | --- | --- | --- | --- |
 | `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.embeddings.dimension.count` | int | development | The number of dimensions the resulting output embeddings should have. | 512; 1024 |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.embedding.input_count` | int | development | Number of inputs submitted to a GenAI embedding request. |  |
 | `gen_ai.request.encoding_formats` | string[] | development | The encoding formats requested in an embeddings operation, if specified. | ["base64"]; ["float","binary"] |
@@ -249,7 +249,7 @@ OBI GenAI inference client span.
 | `gen_ai.embeddings.dimension.count` | int | development | The number of dimensions the resulting output embeddings should have. | 512; 1024 |
 | `gen_ai.input.messages` | any | development | The chat history provided to the model as an input. | [   {     "role": "user",     "parts": [       {         "type": "text",         "content": "Weather in Paris?"       }     ]   },   {     "role": "assistant",     "parts": [       {         "type": "tool_call",         "id": "call_VSPygqKTWdrhaFErNvMV18Yl",         "name": "get_weather",         "arguments": {           "location": "Paris"         }       }     ]   },   {     "role": "tool",     "parts": [       {         "type": "tool_call_response",         "id": " call_VSPygqKTWdrhaFErNvMV18Yl",         "result": "rainy, 57°F"       }     ]   } ] |
 | `gen_ai.metadata` | string | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.output.messages` | any | development | Messages returned by the model where each message represents a specific model response (choice, candidate). | [   {     "role": "assistant",     "parts": [       {         "type": "text",         "content": "The weather in Paris is currently rainy with a temperature of 57°F."       }     ],     "finish_reason": "stop"   } ] |
 | `gen_ai.output.type` | enum | development | Represents the content type requested by the client. | text; json; image; speech |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
@@ -278,7 +278,7 @@ OBI GenAI inference client span.
 | `network.peer.address` | string | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; embeddings |
+| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; embeddings; text_completions |
 | `openai.request.service_tier` | enum | development | The service tier requested. May be a specific tier, default, or auto. | auto; default |
 | `openai.response.service_tier` | string | development | The service tier used for the response. | scale; default |
 | `openai.response.system_fingerprint` | string | development | A fingerprint to track any eventual change in the Generative AI environment. | fp_44709d6fcb |
@@ -299,7 +299,7 @@ OBI GenAI rerank client span.
 | --- | --- | --- | --- | --- |
 | `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.input.messages` | any | development | The chat history provided to the model as an input. | [   {     "role": "user",     "parts": [       {         "type": "text",         "content": "Weather in Paris?"       }     ]   },   {     "role": "assistant",     "parts": [       {         "type": "tool_call",         "id": "call_VSPygqKTWdrhaFErNvMV18Yl",         "name": "get_weather",         "arguments": {           "location": "Paris"         }       }     ]   },   {     "role": "tool",     "parts": [       {         "type": "tool_call_response",         "id": " call_VSPygqKTWdrhaFErNvMV18Yl",         "result": "rainy, 57°F"       }     ]   } ] |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.output.messages` | any | development | Messages returned by the model where each message represents a specific model response (choice, candidate). | [   {     "role": "assistant",     "parts": [       {         "type": "text",         "content": "The weather in Paris is currently rainy with a temperature of 57°F."       }     ],     "finish_reason": "stop"   } ] |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
@@ -329,7 +329,7 @@ OBI GenAI vector-retrieval client span.
 | `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.data_source.id` | string | development | The data source identifier. | H7STPQYOND |
 | `gen_ai.input.messages` | any | development | The chat history provided to the model as an input. | [   {     "role": "user",     "parts": [       {         "type": "text",         "content": "Weather in Paris?"       }     ]   },   {     "role": "assistant",     "parts": [       {         "type": "tool_call",         "id": "call_VSPygqKTWdrhaFErNvMV18Yl",         "name": "get_weather",         "arguments": {           "location": "Paris"         }       }     ]   },   {     "role": "tool",     "parts": [       {         "type": "tool_call_response",         "id": " call_VSPygqKTWdrhaFErNvMV18Yl",         "result": "rainy, 57°F"       }     ]   } ] |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.output.messages` | any | development | Messages returned by the model where each message represents a specific model response (choice, candidate). | [   {     "role": "assistant",     "parts": [       {         "type": "text",         "content": "The weather in Paris is currently rainy with a temperature of 57°F."       }     ],     "finish_reason": "stop"   } ] |
 | `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
@@ -371,6 +371,7 @@ OBI outbound HTTP client span.
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `obi.http.response.observed` | boolean | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
+| `rpc.method_original` | string | release_candidate | The original name of the method used by the client. | com.myservice.EchoService/catchAll; com.myservice.EchoService/unknownMethod; InvalidMethod |
 | `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
 | `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
@@ -395,7 +396,7 @@ OBI inbound HTTP server span.
 | --- | --- | --- | --- | --- |
 | `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.prompt.name` | string | development | The name of the prompt that uniquely identifies it. | analyze-code |
 | `gen_ai.tool.call.arguments` | any | development | Parameters passed to the tool call. | {     "location": "San Francisco?",     "date": "2025-10-01" } |
 | `gen_ai.tool.call.result` | any | development | The result returned by the tool call (if any and if execution was successful). | {   "temperature_range": {     "high": 75,     "low": 60   },   "conditions": "sunny" } |
@@ -424,6 +425,7 @@ OBI inbound HTTP server span.
 | `network.peer.port` | int | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `obi.http.response.observed` | boolean | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
+| `rpc.method_original` | string | release_candidate | The original name of the method used by the client. | com.myservice.EchoService/catchAll; com.myservice.EchoService/unknownMethod; InvalidMethod |
 | `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
 | `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
@@ -446,7 +448,7 @@ OBI Model Context Protocol client span.
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
+| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.prompt.name` | string | development | The name of the prompt that uniquely identifies it. | analyze-code |
 | `gen_ai.tool.call.arguments` | any | development | Parameters passed to the tool call. | {     "location": "San Francisco?",     "date": "2025-10-01" } |
 | `gen_ai.tool.call.result` | any | development | The result returned by the tool call (if any and if execution was successful). | {   "temperature_range": {     "high": 75,     "low": 60   },   "conditions": "sunny" } |

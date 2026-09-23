@@ -120,7 +120,7 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
+		resp, err := getJaeger(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -147,7 +147,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=dicer")
+		resp, err := getJaeger(jaegerQueryURL + "?service=dicer")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -179,7 +179,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 	slug := route[1:]
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
+		resp, err := getJaeger(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -348,7 +348,7 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
-		resp, err := http.Get(jaegerQueryURL + "?service=dicer")
+		resp, err := getJaeger(jaegerQueryURL + "?service=dicer")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

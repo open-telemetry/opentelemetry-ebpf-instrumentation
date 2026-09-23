@@ -2605,6 +2605,18 @@
           }
         ]
       },
+      "goidgen": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.1"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.17.0"
+          }
+        ]
+      },
       "ngsys": {
         "versions": {
           "oldest": "1.17.0",

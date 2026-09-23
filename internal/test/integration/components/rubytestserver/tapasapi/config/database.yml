@@ -1,0 +1,22 @@
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  host: <%= ENV.fetch("DB_HOST") { "tapas-db" } %>
+  port: <%= ENV.fetch("DB_PORT") { 5432 } %>
+  database: <%= ENV.fetch("POSTGRES_DB") { "tapas" } %>
+  username: <%= ENV.fetch("POSTGRES_USER") { "tapas" } %>
+  password: <%= ENV.fetch("POSTGRES_PASSWORD") { "tapas_password" } %>
+
+development:
+  <<: *default
+  host: <%= ENV.fetch("DB_HOST") { "localhost" } %>
+  database: <%= ENV.fetch("POSTGRES_DB") { "tapas" } %>
+
+test:
+  <<: *default
+  host: <%= ENV.fetch("DB_HOST") { "localhost" } %>
+  database: <%= ENV.fetch("POSTGRES_TEST_DB") { "tapas_test" } %>
+
+production:
+  <<: *default

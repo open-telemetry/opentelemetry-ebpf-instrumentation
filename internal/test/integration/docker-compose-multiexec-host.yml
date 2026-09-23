@@ -115,7 +115,7 @@ services:
       - 3044:3043
 
   jtestserver:
-    image: ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.0@sha256:92d325a0a7aadcce2559de70ef66d39fa07075b57d8fa33b4244ada4dde3787e
+    image: ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.5@sha256:7918fd747a6a1bd34f1fc1402a30fd6066e5e405296ad2b62070cf1488262cc4
     ports:
       - "8086:8085"
 
@@ -201,7 +201,7 @@ services:
       - "9090:9090"
 
   jaeger:
-    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    image: jaegertracing/jaeger:2.21.0@sha256:3d0ac795ff98aa04d1be04311d2dac6c25b4bfc8322dc02e53bc5b170c5018c3
     ports:
       - "16686:16686" # Query frontend
       - "4317:4317" # OTEL GRPC traces collector

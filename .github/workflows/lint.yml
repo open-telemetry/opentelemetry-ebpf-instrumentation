@@ -105,6 +105,10 @@ jobs:
         if: matrix.platform.arch == 'amd64'
         run: make check-schema-files
 
+      - name: Check generated OBI telemetry reference docs
+        if: matrix.platform.arch == 'amd64'
+        run: make check-schema-docs
+
   lint-darwin:
     name: Lint on macOS
     needs: generate-bpf

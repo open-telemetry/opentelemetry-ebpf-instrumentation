@@ -104,6 +104,12 @@ section empty once drained.
   flattening OTLP to Prometheus no longer gets `host_id` as a per-series label on the span
   metrics themselves. OBI's own Prometheus exporter is unaffected: its span metrics never
   carried a host id label.
+- OBI's own `OTEL_RESOURCE_ATTRIBUTES` now ranks below the metadata OBI resolved for a
+  target, and merges per key rather than per variable. Deployments that set a key the
+  resolved metadata also provides — `k8s.pod.name`, say — stop seeing the agent's value
+  override the target's, and targets that declare `OTEL_RESOURCE_ATTRIBUTES` of their own
+  no longer discard the whole deployment-wide layer, so they start carrying the agent's
+  other keys. The target's own declaration still wins over both for the keys it declares.
 
 ## Hosting notes
 
