@@ -51,10 +51,11 @@ enum {
 };
 
 // Tracks cudaMalloc arguments from entry to return so the allocated pointer can
-// be correlated with its size for byte-accurate cudaFree metrics. LRU eviction
-// bounds the map if a target exits or is deselected while a call is in flight.
+// be correlated with its size for byte-accurate cudaFree metrics. The return
+// probe consumes and deletes the entry unconditionally, so a regular hashmap
+// is sufficient.
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
     __uint(pinning, OBI_PIN_INTERNAL);
     __type(key, u64);
@@ -62,9 +63,11 @@ struct {
 } cuda_malloc_ctx SEC(".maps");
 
 // Tracks cudaFree arguments from entry to return so the free is only reported
-// once the return code confirms the memory was released.
+// once the return code confirms the memory was released. The return probe
+// consumes and deletes the entry unconditionally, so a regular hashmap is
+// sufficient.
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
     __uint(pinning, OBI_PIN_INTERNAL);
     __type(key, u64);
@@ -86,9 +89,10 @@ struct {
 // by calling into libcuda. Set at the runtime uprobe entry and consumed by the
 // driver API probes, so a launch observed through both libraries (the runtime
 // API is a thin wrapper over the driver API) is reported once. The matching
-// runtime uretprobes clear markers for calls that never reach the driver.
+// runtime uretprobes clear markers for calls that never reach the driver, so a
+// regular hashmap is sufficient.
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
     __uint(pinning, OBI_PIN_INTERNAL);
     __type(key, u64);
@@ -119,8 +123,10 @@ struct {
 
 // Per-thread context captured at the entry of a device introspection call and
 // consumed at its return, once the callee has written into the receiving buffer.
+// The return probe consumes and deletes the entry unconditionally, so a regular
+// hashmap is sufficient.
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
     __uint(pinning, OBI_PIN_INTERNAL);
     __type(key, u64);
@@ -128,9 +134,10 @@ struct {
 } cuda_introspect_ctx SEC(".maps");
 
 // Tracks cudaSetDevice arguments from entry to return so a failed call does not
-// bind the thread to a device it never selected.
+// bind the thread to a device it never selected. The return probe consumes and
+// deletes the entry unconditionally, so a regular hashmap is sufficient.
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
     __uint(pinning, OBI_PIN_INTERNAL);
     __type(key, u64);
