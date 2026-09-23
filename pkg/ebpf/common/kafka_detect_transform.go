@@ -62,11 +62,11 @@ func (k Operation) String() string {
 // reference multiple topics).
 func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string], groups *KafkaConsumerGroups) ([]*KafkaInfo, bool, error) {
 	proc := KafkaProcess{Ns: event.Pid.Ns, Pid: event.Pid.UserPid}
-	k, ok, err := ProcessKafkaEvent(pkt, rpkt, kafkaTopicUUIDToName, clientGroups(groups, event.Direction), proc)
+	k, ok, err := ProcessKafkaEvent(pkt, rpkt, kafkaTopicUUIDToName, clientGroups(groups, event.Direction), proc, event.ConnInfo)
 	if err != nil {
 		// If we are getting the information in the response buffer, the event
 		// must be reversed and that's how we captured it.
-		k, ok, err = ProcessKafkaEvent(rpkt, pkt, kafkaTopicUUIDToName, clientGroups(groups, reverseDirection(event.Direction)), proc)
+		k, ok, err = ProcessKafkaEvent(rpkt, pkt, kafkaTopicUUIDToName, clientGroups(groups, reverseDirection(event.Direction)), proc, event.ConnInfo)
 		if err == nil {
 			reverseTCPEvent(event)
 		}
@@ -84,7 +84,7 @@ func clientGroups(groups *KafkaConsumerGroups, direction uint8) *KafkaConsumerGr
 	return groups
 }
 
-func ProcessKafkaEvent(pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string], groups *KafkaConsumerGroups, proc KafkaProcess) ([]*KafkaInfo, bool, error) {
+func ProcessKafkaEvent(pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string], groups *KafkaConsumerGroups, proc KafkaProcess, conn BpfConnectionInfoT) ([]*KafkaInfo, bool, error) {
 	hdr, err := kafkaparser.NewKafkaRequestHeader(pkt)
 	if err != nil {
 		return nil, true, err
@@ -99,7 +99,7 @@ func ProcessKafkaEvent(pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer, ka
 	case kafkaparser.APIKeyOffsetCommit, kafkaparser.APIKeyOffsetFetch, kafkaparser.APIKeyJoinGroup,
 		kafkaparser.APIKeyHeartbeat, kafkaparser.APIKeyLeaveGroup, kafkaparser.APIKeySyncGroup,
 		kafkaparser.APIKeyConsumerGroupHeartbeat:
-		return processGroupRequest(hdr, kafkaTopicUUIDToName, groups, proc)
+		return processGroupRequest(hdr, kafkaTopicUUIDToName, groups, proc, conn)
 	default:
 		return nil, true, errKafkaUnsupportedAPIKey
 	}
@@ -107,7 +107,7 @@ func ProcessKafkaEvent(pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer, ka
 
 // processGroupRequest updates the consumer group membership of the requesting process.
 // Like Metadata, these requests never produce a span.
-func processGroupRequest(hdr kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string], groups *KafkaConsumerGroups, proc KafkaProcess) ([]*KafkaInfo, bool, error) {
+func processGroupRequest(hdr kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string], groups *KafkaConsumerGroups, proc KafkaProcess, conn BpfConnectionInfoT) ([]*KafkaInfo, bool, error) {
 	r, err := hdr.NewBodyReader()
 	if err != nil {
 		return nil, true, err
@@ -120,15 +120,15 @@ func processGroupRequest(hdr kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToNam
 	case kafkaparser.APIKeyOffsetCommit, kafkaparser.APIKeyOffsetFetch:
 		groups.Enrich(proc, groupReq, kafkaTopicUUIDToName)
 	case kafkaparser.APIKeyLeaveGroup:
-		groups.Leave(proc, groupReq.GroupID, groupReq.Members)
+		groups.Leave(proc, conn, groupReq.GroupID, groupReq.Members)
 	case kafkaparser.APIKeyConsumerGroupHeartbeat:
 		if groupReq.MemberEpoch < 0 {
-			groups.Leave(proc, groupReq.GroupID, []string{groupReq.MemberID})
+			groups.Leave(proc, conn, groupReq.GroupID, []string{groupReq.MemberID})
 		} else {
-			groups.Join(proc, groupReq, kafkaTopicUUIDToName)
+			groups.Join(proc, conn, groupReq, kafkaTopicUUIDToName)
 		}
 	case kafkaparser.APIKeyJoinGroup, kafkaparser.APIKeySyncGroup, kafkaparser.APIKeyHeartbeat:
-		groups.Join(proc, groupReq, kafkaTopicUUIDToName)
+		groups.Join(proc, conn, groupReq, kafkaTopicUUIDToName)
 	default:
 		return nil, true, errKafkaUnsupportedAPIKey
 	}

@@ -86,55 +86,93 @@ type kafkaMembership struct {
 	// but is no consumer group. A Heartbeat seen before that JoinGroup leaves it unset.
 	foreign bool
 	// members are the group's members living in the process, by member id. The group's
-	// subscription is the union of theirs.
+	// subscription is the union of theirs and of the pending ones.
 	members map[string]*kafkaMember
+	// pending are the members the coordinator has not named yet, by connection: a first
+	// JoinGroup carries no member id, and the id comes back only in the response. A broker
+	// since 2.2 answers MEMBER_ID_REQUIRED and the member repeats the JoinGroup with its id
+	// (KIP-394); an older one accepts it, and the id first shows up in the SyncGroup or
+	// Heartbeat; a KIP-848 member before KIP-1082 learns it from its first heartbeat's
+	// response. Each consumer talks to the coordinator on a connection of its own, so the
+	// first named request on a pending member's connection is that member. A pending
+	// member nobody names expires like any other.
+	pending map[BpfConnectionInfoT]*kafkaMember
 }
 
-// member returns the state of the member with id, creating it unless the group already
-// holds maxMembersPerGroup members (nil then). The empty id is a member the coordinator
-// has not named yet: a first JoinGroup, which a broker since 2.2 answers with
-// MEMBER_ID_REQUIRED so the member repeats it with its id (KIP-394), and which an older
-// broker accepts as is, the id then showing up in the following SyncGroup or Heartbeat.
-// The first request of a member unknown so far claims that anonymous state, so it does
-// not outlive the member's leave. Several members may join anonymously before any of
-// them is named (older brokers only): their subscriptions are kept together, see Join.
-func (g *kafkaMembership) member(id string) *kafkaMember {
-	m, found := g.members[id]
-	if found {
+func newKafkaMember() *kafkaMember {
+	return &kafkaMember{topics: map[string]struct{}{}}
+}
+
+// size is the number of members, named and pending, kept for the group.
+func (g *kafkaMembership) size() int {
+	return len(g.members) + len(g.pending)
+}
+
+func (g *kafkaMembership) member(id string, conn BpfConnectionInfoT) *kafkaMember {
+	if id == "" {
+		return g.pendingMember(conn)
+	}
+	if m, found := g.members[id]; found {
 		return m
 	}
-	if id != "" {
-		if pending, found := g.members[""]; found {
-			delete(g.members, "")
-			g.members[id] = pending
-			return pending
-		}
+	if m, found := g.pending[conn]; found {
+		delete(g.pending, conn)
+		g.members[id] = m
+		return m
 	}
-	if len(g.members) >= maxMembersPerGroup {
+	if g.size() >= maxMembersPerGroup {
 		return nil
 	}
-	m = &kafkaMember{topics: map[string]struct{}{}}
+	m := newKafkaMember()
 	g.members[id] = m
 	return m
 }
 
-// dropExpired forgets the members no request renewed before now.
+func (g *kafkaMembership) pendingMember(conn BpfConnectionInfoT) *kafkaMember {
+	if m, found := g.pending[conn]; found {
+		return m
+	}
+	if g.size() >= maxMembersPerGroup {
+		return nil
+	}
+	m := newKafkaMember()
+	g.pending[conn] = m
+	return m
+}
+
+// dropExpired forgets the members, named or pending, no request renewed before now.
 func (g *kafkaMembership) dropExpired(now time.Time) {
 	for id, m := range g.members {
 		if !m.expires.After(now) {
 			delete(g.members, id)
 		}
 	}
+	for conn, m := range g.pending {
+		if !m.expires.After(now) {
+			delete(g.pending, conn)
+		}
+	}
+}
+
+// forEachMember calls fn for every member of the group, named or pending.
+func (g *kafkaMembership) forEachMember(fn func(*kafkaMember)) {
+	for _, m := range g.members {
+		fn(m)
+	}
+	for _, m := range g.pending {
+		fn(m)
+	}
 }
 
 // subscribed reports whether any member of the group subscribes to topic.
 func (g *kafkaMembership) subscribed(topic string) bool {
-	for _, m := range g.members {
-		if _, found := m.topics[topic]; found {
-			return true
+	found := false
+	g.forEachMember(func(m *kafkaMember) {
+		if _, ok := m.topics[topic]; ok {
+			found = true
 		}
-	}
-	return false
+	})
+	return found
 }
 
 // kafkaProcessGroups is the membership state of one process, by group id.
@@ -152,7 +190,7 @@ func (p *kafkaProcessGroups) membership(group string) *kafkaMembership {
 	if len(p.groups) >= maxGroupsPerProcess {
 		return nil
 	}
-	g = &kafkaMembership{members: map[string]*kafkaMember{}}
+	g = &kafkaMembership{members: map[string]*kafkaMember{}, pending: map[BpfConnectionInfoT]*kafkaMember{}}
 	p.groups[group] = g
 	return g
 }
@@ -162,7 +200,7 @@ func (p *kafkaProcessGroups) membership(group string) *kafkaMembership {
 func (p *kafkaProcessGroups) dropExpired(now time.Time) {
 	for group, g := range p.groups {
 		g.dropExpired(now)
-		if len(g.members) == 0 {
+		if g.size() == 0 {
 			delete(p.groups, group)
 		}
 	}
@@ -171,9 +209,7 @@ func (p *kafkaProcessGroups) dropExpired(now time.Time) {
 func (p *kafkaProcessGroups) topicBudget() int {
 	kept := 0
 	for _, g := range p.groups {
-		for _, m := range g.members {
-			kept += len(m.topics)
-		}
+		g.forEachMember(func(m *kafkaMember) { kept += len(m.topics) })
 	}
 	return maxTopicsPerProcess - kept
 }
@@ -252,14 +288,13 @@ func (g *KafkaConsumerGroups) memberships(proc KafkaProcess) *kafkaProcessGroups
 	return state
 }
 
-// Join records that req's member, living in proc, is a member of req's group. A complete
-// subscription (req.Subscription) replaces the topics known for that member, so a
-// rebalance with a changed subscription drops the old topics; anything else adds to
-// them. An anonymous join (empty member id) only adds: another member of the group may
-// have joined anonymously just before, and until the coordinator names them the group's
-// subscription is the union of both. Topics referenced by UUID are resolved through
+// Join records that req's member, living in proc and sending on conn, is a member of
+// req's group; a request without a member id is the pending member of conn, see
+// kafkaMembership.pending. A complete subscription (req.Subscription) replaces the topics
+// known for that member, so a rebalance with a changed subscription drops the old
+// topics; anything else adds to them. Topics referenced by UUID are resolved through
 // kafkaTopicUUIDToName and skipped when unknown.
-func (g *KafkaConsumerGroups) Join(proc KafkaProcess, req *kafkaparser.GroupRequest, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) {
+func (g *KafkaConsumerGroups) Join(proc KafkaProcess, conn BpfConnectionInfoT, req *kafkaparser.GroupRequest, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) {
 	if g == nil {
 		return
 	}
@@ -271,7 +306,8 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, req *kafkaparser.GroupRequ
 	if group == nil {
 		return
 	}
-	m := group.member(req.MemberID)
+	sortConnectionInfo(&conn)
+	m := group.member(req.MemberID, conn)
 	if m == nil {
 		return
 	}
@@ -279,10 +315,10 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, req *kafkaparser.GroupRequ
 	switch {
 	case group.foreign || (req.ProtocolType != "" && req.ProtocolType != kafkaparser.ConsumerProtocolType):
 		group.foreign = true
-		for _, m := range group.members {
+		group.forEachMember(func(m *kafkaMember) {
 			m.topics = nil // whatever was added while the group passed for a consumer group is dead weight
-		}
-	case req.Subscription && req.MemberID != "":
+		})
+	case req.Subscription:
 		m.topics = map[string]struct{}{}
 		m.addTopics(req.Topics, kafkaTopicUUIDToName, state.topicBudget())
 	default:
@@ -292,10 +328,13 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, req *kafkaparser.GroupRequ
 }
 
 // Leave forgets the given members of group in proc (LeaveGroup, or a
-// ConsumerGroupHeartbeat with a negative member epoch); the group itself once none is
-// left. A LeaveGroup naming members proc does not host, as the admin client sends to
-// remove members from any group, changes nothing.
-func (g *KafkaConsumerGroups) Leave(proc KafkaProcess, group string, members []string) {
+// ConsumerGroupHeartbeat with a negative member epoch), the pending member of conn, and
+// the group itself once no member, named or pending, is left. A member that leaves
+// before OBI saw a request carrying its id is still the pending member of the
+// connection its leave arrives on. A LeaveGroup naming members proc does not host, as
+// the admin client sends to remove members from any group, changes nothing: it arrives
+// on the admin client's own connection, which holds no pending member.
+func (g *KafkaConsumerGroups) Leave(proc KafkaProcess, conn BpfConnectionInfoT, group string, members []string) {
 	if g == nil {
 		return
 	}
@@ -310,7 +349,9 @@ func (g *KafkaConsumerGroups) Leave(proc KafkaProcess, group string, members []s
 	for _, id := range members {
 		delete(membership.members, id)
 	}
-	if len(membership.members) > 0 {
+	sortConnectionInfo(&conn)
+	delete(membership.pending, conn)
+	if membership.size() > 0 {
 		return
 	}
 	delete(state.groups, group)

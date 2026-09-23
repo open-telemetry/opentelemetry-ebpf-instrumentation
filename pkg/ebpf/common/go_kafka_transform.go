@@ -27,7 +27,7 @@ func ReadGoSaramaRequestIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Rec
 	}
 
 	proc := KafkaProcess{Ns: event.Pid.Ns, Pid: event.Pid.UserPid}
-	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(event.Buf[:]), nil, nil, parseCtx.kafkaConsumerGroups, proc)
+	infos, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(event.Buf[:]), nil, nil, parseCtx.kafkaConsumerGroups, proc, event.Conn)
 
 	// The Go Sarama uprobe captures one operation at a time, so a single topic is
 	// expected; use the first parsed topic.
