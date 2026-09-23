@@ -44,7 +44,7 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&limit=1000")
 			require.NoError(ct, err, "failed to query jaeger for %s", comm)
 			if resp == nil {
 				return
@@ -62,7 +62,7 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	}, 2*testTimeout, 100*time.Millisecond)
 
 	// Ensure we don't find any HTTP traces, since we filter them out
-	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
+	resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
 	require.NoError(t, err, "failed to query jaeger for HTTP traces")
 	if resp == nil {
 		return

@@ -24,14 +24,14 @@ import (
 func TestRuntimeMetricsPromStripped(t *testing.T) {
 	runRuntimeMetricsStripped(t, "prom", runtimeMetricsPromCompatibilityConfig{
 		goVersion: "current", hostPort: runtimeMetricsHostPort,
-		test: func(t *testing.T) { testRuntimeMetricsGoAtPort(t, runtimeMetricsHostPort, true) },
+		test: func(t *testing.T) { testRuntimeMetricsGoAtPort(t, runtimeMetricsHostPort) },
 	})
 }
 
 func TestRuntimeMetricsOTelStripped(t *testing.T) {
 	runRuntimeMetricsStripped(t, "otel", runtimeMetricsPromCompatibilityConfig{
 		goVersion: "current", hostPort: runtimeMetricsHostPort,
-		test: func(t *testing.T) { testRuntimeMetricsGoAtPort(t, runtimeMetricsHostPort, true) },
+		test: func(t *testing.T) { testRuntimeMetricsGoAtPort(t, runtimeMetricsHostPort) },
 	})
 }
 
@@ -47,7 +47,7 @@ func TestRuntimeMetricsPromGo125Stripped(t *testing.T) {
 	runRuntimeMetricsStripped(t, "prom", runtimeMetricsPromCompatibilityConfig{
 		goVersion: "1.25", hostPort: runtimeMetricsGo125HostPort,
 		builderImage: runtimeMetricsGo125BuilderImage,
-		test:         func(t *testing.T) { testRuntimeMetricsGoAtPort(t, runtimeMetricsGo125HostPort, true) },
+		test:         func(t *testing.T) { testRuntimeMetricsGoAtPort(t, runtimeMetricsGo125HostPort) },
 	})
 }
 

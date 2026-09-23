@@ -44,11 +44,12 @@ public class CallableInst {
   @SuppressWarnings("unused")
   public static final class CallableAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void enter(@Advice.This Callable<?> task) {
+    public static long enter(@Advice.This Callable<?> task) {
       // see RunnableInst, same reasoning
       if (ThreadInfo.loomTaskOrVirtualThread(task)) {
-        return;
+        return SSLStorage.NO_JDK_HTTP_CLIENT_CONTEXT;
       }
+      long previousContext = SSLStorage.enterJdkHttpClientTask(task);
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
         long threadId = Agent.NativeLib.gettid();
@@ -65,7 +66,13 @@ public class CallableInst {
           ThreadInfo.sendTaskParentThreadContext(parentId);
         }
       }
-      SSLStorage.untrackTask(task);
+      SSLStorage.finishTask(task);
+      return previousContext;
+    }
+
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    public static void exit(@Advice.Enter long previousContext) {
+      SSLStorage.restoreJdkHttpClientContext(previousContext);
     }
   }
 }

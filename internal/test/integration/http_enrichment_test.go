@@ -58,7 +58,7 @@ func testGenericHeaderExtraction(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -133,7 +133,7 @@ func testGenericHeaderRuleOrder(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -184,7 +184,7 @@ func testGenericHeaderMultipleValues(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

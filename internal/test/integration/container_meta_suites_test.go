@@ -74,7 +74,7 @@ func testContainerMetaMetrics(t *testing.T, exporter string) {
 func testContainerMetaTraces(t *testing.T) {
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver-as-in-compose&operation=GET%20%2Fsmoke")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver-as-in-compose&operation=GET%20%2Fsmoke")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

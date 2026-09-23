@@ -211,7 +211,7 @@ func assertRequestTraceID(t *testing.T, method, path, traceID string) { //nolint
 	operationName := fmt.Sprintf("%s %s", strings.ToUpper(method), path)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=httpproxyserver&operation=" + url.QueryEscape(operationName))
+		resp, err := getJaeger(jaegerQueryURL + "?service=httpproxyserver&operation=" + url.QueryEscape(operationName))
 		require.NoError(ct, err)
 		if resp == nil {
 			return

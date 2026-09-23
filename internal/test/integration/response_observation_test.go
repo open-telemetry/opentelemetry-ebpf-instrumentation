@@ -73,7 +73,7 @@ func workloadReuseStats(t require.TestingT) map[string]reuseStats {
 // The limit is explicit because the reuse case produces a trace per call: Jaeger returns
 // 20 traces by default, which silently caps the count the assertions are built on.
 func unobservedResponseTraces(t require.TestingT) []jaeger.Trace {
-	resp, err := http.Get(jaegerQueryURL + "?service=responseobservationclient&limit=1000")
+	resp, err := getJaeger(jaegerQueryURL + "?service=responseobservationclient&limit=1000")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

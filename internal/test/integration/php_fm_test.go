@@ -136,7 +136,7 @@ func testHTTPTracesPHP(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		resp, err := getJaeger(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -181,7 +181,7 @@ func testHTTPTracesPHP(t *testing.T) {
 	ti.DoHTTPGet(t, "http://localhost:8080/?obi_urlquery_test=1", 200)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		resp, err := getJaeger(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -207,7 +207,7 @@ func testHTTPTracesPHP(t *testing.T) {
 	ti.DoHTTPGet(t, "http://localhost:8080/?obi_urlquery_test=2&sig=secret123", 200)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		resp, err := getJaeger(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -231,7 +231,7 @@ func testHTTPTracesPHP(t *testing.T) {
 	// carries it only in REQUEST_SCHEME, which nginx sends through the stock
 	// fastcgi_params include.
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		resp, err := getJaeger(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

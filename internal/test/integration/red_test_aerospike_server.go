@@ -64,7 +64,7 @@ func testREDTracesAerospikeServerSide(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range spans {
-			resp, err := http.Get(jaegerQueryURL + "?service=" + aerospikeServerService + "&operation=" + url.QueryEscape(span.Name))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + aerospikeServerService + "&operation=" + url.QueryEscape(span.Name))
 			require.NoError(ct, err, "failed to query jaeger for %s", span.Name)
 			if resp == nil {
 				return
@@ -106,7 +106,7 @@ func waitForAerospikeServerTestComponents(t *testing.T, baseURL string) {
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// a server span reached Jaeger (OBI + collector are healthy)
-		resp, err := http.Get(jaegerQueryURL + "?service=" + aerospikeServerService + "&operation=" + url.QueryEscape("PUT test.demo"))
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + aerospikeServerService + "&operation=" + url.QueryEscape("PUT test.demo"))
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery

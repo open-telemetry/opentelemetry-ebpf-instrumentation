@@ -19,7 +19,7 @@ import (
 )
 
 func vtNestedTraces(ct *assert.CollectT) (total, nested int) {
-	resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fsync-client&limit=1000")
+	resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fsync-client&limit=1000")
 	require.NoError(ct, err)
 	if resp == nil {
 		return 0, 0

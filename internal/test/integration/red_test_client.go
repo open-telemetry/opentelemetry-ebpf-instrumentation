@@ -50,7 +50,7 @@ func testClientWithMethodAndStatusCode(t *testing.T, method string, statusCode i
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + fmt.Sprintf("?service=pingclient&operation=%s%%20/oss/", method))
+		resp, err := getJaeger(jaegerQueryURL + fmt.Sprintf("?service=pingclient&operation=%s%%20/oss/", method))
 		require.NoError(ct, err)
 		if resp == nil {
 			return

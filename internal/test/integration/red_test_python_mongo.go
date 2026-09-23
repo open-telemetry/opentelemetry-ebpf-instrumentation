@@ -58,7 +58,7 @@ func testREDMetricsForPythonMongoLibrary(t *testing.T, testCase TestCase) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
 			require.NoError(ct, err, "failed to query jaeger for %s", command)
 			if resp == nil {
 				return
@@ -76,7 +76,7 @@ func testREDMetricsForPythonMongoLibrary(t *testing.T, testCase TestCase) {
 	}, testTimeout, 100*time.Millisecond)
 
 	// Ensure we don't find any HTTP traces, since we filter them out
-	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
+	resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
 	require.NoError(t, err, "failed to query jaeger for HTTP traces")
 	if resp == nil {
 		return

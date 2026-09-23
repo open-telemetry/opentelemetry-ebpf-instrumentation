@@ -37,7 +37,7 @@ func testSampler(t *testing.T) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
+		resp, err := getJaeger(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
 
 		require.NoError(ct, err)
 
@@ -57,7 +57,7 @@ func testSampler(t *testing.T) {
 
 		require.LessOrEqual(ct, 10, lenA)
 
-		resp, err = http.Get(jaegerQueryURL + "?service=service-c&operation=GET%20%2Fc")
+		resp, err = getJaeger(jaegerQueryURL + "?service=service-c&operation=GET%20%2Fc")
 
 		require.NoError(ct, err)
 

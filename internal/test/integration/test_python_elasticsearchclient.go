@@ -67,7 +67,7 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	t.Log(fullJaegerURL)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullJaegerURL)
+		resp, err := getJaeger(fullJaegerURL)
 		require.NoError(ct, err)
 		if resp == nil {
 			return

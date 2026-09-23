@@ -48,7 +48,7 @@ func assertWrappedClientSpans(t *testing.T, composeFile, service string, minTrac
 
 	var traces []jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + service + "&limit=1500")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + service + "&limit=1500")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 

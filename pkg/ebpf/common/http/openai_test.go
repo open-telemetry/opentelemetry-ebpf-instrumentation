@@ -9,6 +9,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -90,7 +93,6 @@ func gzipBody(t *testing.T, body string) io.ReadCloser {
 	return io.NopCloser(&buf)
 }
 
-//nolint:unparam
 func makeRequest(t *testing.T, method, url, body string) *http.Request {
 	t.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
@@ -433,4 +435,181 @@ func TestOpenAISpan_Embeddings(t *testing.T) {
 	assert.Equal(t, 256, ai.Request.Dimensions)
 	assert.Equal(t, "The food was delicious", ai.Request.Input) // raw field
 	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"The food was delicious"}]}]`, ai.Request.GetInput())
+}
+
+// A gateway or Azure deployment serves the same endpoint under a prefix, which
+// an exact path match missed.
+func TestOpenAISpan_PrefixedPathReportsOperation(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://gw.internal/openai/v1/chat/completions", completionsRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.ChatOperationName, span.GenAI.OpenAI.OperationName)
+}
+
+// /v1/completions had no case at all, so the legacy endpoint reported nothing.
+func TestOpenAISpan_LegacyCompletionsReportsOperation(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/completions", completionsRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.CompletionOperationName, span.GenAI.OpenAI.OperationName)
+	assert.Equal(t, "text_completions", span.GenAI.OpenAI.APIType)
+}
+
+// An endpoint outside the ones the switch names still has to report something:
+// gen_ai.operation.name is required, and header-based detection fires on every
+// OpenAI endpoint, not only the five OBI can classify.
+func TestOpenAISpan_UnknownEndpointReportsOther(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/moderations", completionsRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAI.OperationName)
+}
+
+// The endpoint is matched as a path suffix: a prefix in front of it keeps the
+// operation, a resource id behind it does not.
+func TestOpenAIOperation(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		path          string
+		wantOperation string
+		wantAPIType   string
+	}{
+		{
+			name:          "chat completions",
+			path:          "/v1/chat/completions",
+			wantOperation: request.ChatOperationName,
+			wantAPIType:   openAIAPITypeChatCompletions,
+		},
+		{
+			name:          "azure deployment chat completions",
+			path:          "/openai/deployments/gpt-5-mini/chat/completions",
+			wantOperation: request.ChatOperationName,
+			wantAPIType:   openAIAPITypeChatCompletions,
+		},
+		{
+			name:          "legacy completions",
+			path:          "/v1/completions",
+			wantOperation: request.CompletionOperationName,
+			wantAPIType:   openAIAPITypeTextCompletions,
+		},
+		{
+			name:          "azure deployment legacy completions",
+			path:          "/openai/deployments/gpt-35-turbo-instruct/completions",
+			wantOperation: request.CompletionOperationName,
+			wantAPIType:   openAIAPITypeTextCompletions,
+		},
+		{
+			name:          "embeddings",
+			path:          "/v1/embeddings",
+			wantOperation: request.EmbeddingOperationName,
+			wantAPIType:   openAIAPITypeEmbeddings,
+		},
+		{
+			name:          "responses",
+			path:          "/v1/responses",
+			wantOperation: request.ResponseOperationName,
+			wantAPIType:   openAIAPITypeResponses,
+		},
+		{
+			// Retrieving a stored response runs no model, so naming it after
+			// the endpoint would record an inference duration for it.
+			name:          "stored response retrieval",
+			path:          "/v1/responses/resp_68079a4c",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "stored response cancellation",
+			path:          "/v1/responses/resp_68079a4c/cancel",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "conversations",
+			path:          "/v1/conversations",
+			wantOperation: request.ConversationOperationName,
+		},
+		{
+			name:          "conversation items",
+			path:          "/v1/conversations/conv_680/items",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "chatkit session",
+			path:          "/v1/chatkit/sessions",
+			wantOperation: request.ChatKitSessionOperationName,
+		},
+		{
+			name:          "chatkit session cancellation",
+			path:          "/v1/chatkit/sessions/cksess_68/cancel",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "chatkit threads",
+			path:          "/v1/chatkit/threads",
+			wantOperation: request.ChatKitThreadOperationName,
+		},
+		{
+			name:          "chatkit thread items",
+			path:          "/v1/chatkit/threads/cthr_68/items",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			// Only ChatKit sessions are a GenAI operation: the realtime
+			// sessions endpoint mints a client secret.
+			name:          "realtime session",
+			path:          "/v1/realtime/sessions",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "trailing slash",
+			path:          "/v1/embeddings/",
+			wantOperation: request.EmbeddingOperationName,
+			wantAPIType:   openAIAPITypeEmbeddings,
+		},
+		{
+			name:          "unknown endpoint",
+			path:          "/v1/moderations",
+			wantOperation: request.OtherOperationName,
+		},
+		{
+			name:          "empty path",
+			path:          "",
+			wantOperation: request.OtherOperationName,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation, apiType := openAIOperation(tc.path)
+
+			assert.Equal(t, tc.wantOperation, operation)
+			assert.Equal(t, tc.wantAPIType, apiType)
+		})
+	}
+}
+
+// The Go value space and the declared enum are two copies of the same list, so
+// an API type added to one and not the other would emit a value live-check
+// rejects. This fails the moment they disagree.
+func TestOpenAIAPITypesMatchRegistry(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "schemas", "obi", "groups", "openai", "registry.yaml")
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	declared := map[string]struct{}{}
+	for _, m := range regexp.MustCompile(`(?m)^\s+value: "([^"]+)"$`).FindAllStringSubmatch(string(body), -1) {
+		declared[m[1]] = struct{}{}
+	}
+	require.NotEmpty(t, declared, "no enum members parsed from %s", path)
+
+	assert.Equal(t, declared, openAIAPITypes)
 }

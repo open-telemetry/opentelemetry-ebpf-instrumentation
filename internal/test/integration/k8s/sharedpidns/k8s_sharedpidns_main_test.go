@@ -57,13 +57,13 @@ func TestMain(m *testing.M) {
 		kube.WeaverValidation(kube.WeaverRequireSpans()),
 		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver.yml"),
 		kube.Deploy(testpath.Manifests+"/04-jaeger.yml"),
-		// Deploy a normal Deployment (no hostPID)
-		kube.Deploy(testpath.Manifests+"/05-uninstrumented-service.yml"),
-		// Deploy a DaemonSet with hostPID=true serving HTTP on port 8082
-		kube.Deploy(testpath.Manifests+"/05-hostpid-daemonset.yml"),
-		// Deploy OBI configured to instrument both
-		kube.Deploy(testpath.Manifests+"/06-obi-daemonset-sharedpidns.yml"),
 		kube.Deploy(testpath.Manifests+"/08-weaver.yml"),
+		// Deploy a normal Deployment (no hostPID)
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-uninstrumented-service.yml"),
+		// Deploy a DaemonSet with hostPID=true serving HTTP on port 8082
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-hostpid-daemonset.yml"),
+		// Deploy OBI configured to instrument both
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/06-obi-daemonset-sharedpidns.yml"),
 	)
 
 	cluster.Run(m)

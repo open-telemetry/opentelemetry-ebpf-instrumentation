@@ -639,6 +639,30 @@ func TestGatherGoProbeGroupOffsetsSkipsIncompleteCopy(t *testing.T) {
 	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
 }
 
+func TestGatherGoProbeGroupOffsetsRejectsIncompleteHTTP2OwnershipLayout(t *testing.T) {
+	const (
+		encodeHeaders = "net/http.(*http2ClientConn).encodeHeaders"
+		writeHeader   = "net/http.(*http2ClientConn).writeHeader"
+	)
+	group := ebpfcommon.GoProbeGroup{
+		Name: "go_http2_stdlib_legacy_ownership",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: encodeHeaders, Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: writeHeader, Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		encodeHeaders: {{Symbol: encodeHeaders, Start: 0x10}},
+	}}}
+
+	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
+
+	i.offsets.Funcs[writeHeader] = []goexec.FuncOffsets{{Symbol: writeHeader, Start: 0x20}}
+	resolved := i.gatherGoProbeGroupOffsets(group)
+	require.Len(t, resolved, 1)
+	require.Len(t, resolved[0].group.Probes, 2)
+}
+
 func TestGatherGoProbeGroupOffsetsRejectsUnknownPaddingBoundary(t *testing.T) {
 	const (
 		writeHeaders = "golang.org/x/net/http2.(*Framer).WriteHeaders"
@@ -1425,6 +1449,7 @@ func (s *stubTracer) ProcessBinary(*exec.FileInfo)                           {}
 func (s *stubTracer) Required() bool                                         { return false }
 func (s *stubTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
 func (s *stubTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
+func (s *stubTracer) Close() error                                           { return nil }
 func (s *stubTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
 }
 
