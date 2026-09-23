@@ -9,7 +9,11 @@ discovery:
   instrument:
     - exe_path: "*gpu-cuda-tester"
       namespace: integration-test
+    - exe_path: "*gpu-cuda-setdevice-tester"
+      namespace: integration-test
     - exe_path: "*gpu-cuda-driver-tester"
+      namespace: integration-test
+    - exe_path: "*gpu-cuda-driver-ctx-tester"
       namespace: integration-test
 attributes:
   select:
