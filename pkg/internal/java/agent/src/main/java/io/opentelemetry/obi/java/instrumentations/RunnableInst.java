@@ -33,13 +33,14 @@ public class RunnableInst {
   @SuppressWarnings("unused")
   public static final class RunnableAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void enter(@Advice.This Runnable task) {
+    public static long enter(@Advice.This Runnable task) {
       // VT correlation is handled by the VirtualThread.mount hook; the
       // tracked parent here would be the dispatcher's tid (e.g. Tomcat
       // Poller), which poisons java_tasks under virtual threads.
       if (ThreadInfo.loomTaskOrVirtualThread(task)) {
-        return;
+        return SSLStorage.NO_JDK_HTTP_CLIENT_CONTEXT;
       }
+      long previousContext = SSLStorage.enterJdkHttpClientTask(task);
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
         long threadId = Agent.NativeLib.gettid();
@@ -56,7 +57,13 @@ public class RunnableInst {
           ThreadInfo.sendTaskParentThreadContext(parentId);
         }
       }
-      SSLStorage.untrackTask(task);
+      SSLStorage.finishTask(task);
+      return previousContext;
+    }
+
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    public static void exit(@Advice.Enter long previousContext) {
+      SSLStorage.restoreJdkHttpClientContext(previousContext);
     }
   }
 }

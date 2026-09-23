@@ -53,9 +53,9 @@ func TestMain(m *testing.M) {
 		// teardown (enforcing)
 		kube.WeaverValidation(),
 		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver-multi-node.yml"),
-		kube.Deploy(testpath.Manifests+"/05-uninstrumented-server-client-different-nodes.yml"),
-		kube.Deploy(testpath.Manifests+"/06-obi-netolly.yml"),
 		kube.Deploy(testpath.Manifests+"/08-weaver-multi-node.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-uninstrumented-server-client-different-nodes.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/06-obi-netolly.yml"),
 	)
 
 	cluster.Run(m)

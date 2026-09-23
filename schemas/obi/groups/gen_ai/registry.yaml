@@ -26,6 +26,13 @@ groups:
   #   emits only the upstream-defined 'execute_tool', and nothing at all for
   #   methods that are not tool calls.
   #
+  #   An endpoint OBI cannot identify reports '_OTHER', the same marker
+  #   upstream gives `http.request.method` for a method the instrumentation
+  #   does not know. It is deliberately not `custom`: that marks a value we
+  #   know but have no member for, and since this attribute is an open string
+  #   every operation OBI can read is emitted verbatim, so the only residual
+  #   case is one it could not identify at all.
+  #
   # See ../../README.md for the override mechanics (x.obi.* group id, full
   # upstream member list, lint allowlist).
   - id: x.obi.gen_ai
@@ -201,8 +208,9 @@ groups:
           `openai.*` attributes.
       # Re-typed as string (upstream: enum): OBI emits provider-specific
       # operation vocabularies, so the value space is open-ended. Emitters must
-      # omit the attribute when no operation name is available (never send an
-      # empty string); pinned by
+      # never send an empty string: an operation OBI could not classify reports
+      # `_OTHER`, following the semconv treatment of an unknown
+      # `http.request.method`. Pinned by
       # pkg/appolly/app/request/span_getters_test.go.
       - id: gen_ai.operation.name
         stability: development
@@ -212,9 +220,11 @@ groups:
           OBI reports the provider's own operation vocabulary (e.g.
           'invoke_model' for Bedrock, 'message' for Anthropic, 'generation'
           for Qwen/DashScope, 'conversation'/'response' for the OpenAI APIs,
-          'rerank'). MCP reports 'execute_tool' for a tool call and omits the
-          attribute for every other method.
-        examples: ['chat', 'embeddings', 'response', 'conversation', 'invoke_model', 'rerank', 'execute_tool']
+          'rerank'). A GenAI call OBI recognised but whose operation it could
+          not classify reports `_OTHER`, so the attribute is always present on
+          a GenAI span. MCP reports 'execute_tool' for a tool call and omits
+          the attribute for every other method.
+        examples: ['chat', 'embeddings', 'response', 'conversation', 'invoke_model', 'rerank', 'execute_tool', '_OTHER']
 
   - id: registry.obi.gen_ai
     type: attribute_group

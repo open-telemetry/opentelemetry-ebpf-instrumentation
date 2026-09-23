@@ -56,12 +56,12 @@ func TestMain(m *testing.M) {
 		kube.WeaverValidation(kube.WeaverRequireSpans()),
 		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver.yml"),
 		kube.Deploy(testpath.Manifests+"/04-jaeger.yml"),
-		kube.Deploy(testpath.Manifests+"/05-uninstrumented-statefulset.yml"),
-		kube.Deploy(testpath.Manifests+"/05-uninstrumented-daemonset.yml"),
-		kube.Deploy(testpath.Manifests+"/05-uninstrumented-job.yml"),
-		kube.Deploy(testpath.Manifests+"/05-uninstrumented-cronjob.yml"),
-		kube.Deploy(testpath.Manifests+"/06-obi-daemonset.yml"),
 		kube.Deploy(testpath.Manifests+"/08-weaver.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-uninstrumented-statefulset.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-uninstrumented-daemonset.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-uninstrumented-job.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-uninstrumented-cronjob.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/06-obi-daemonset.yml"),
 	)
 
 	cluster.Run(m)
