@@ -88,6 +88,11 @@ terminate the process, and logs one reason when it does:
   JVM is also briefly in this state between `exec` and `Threads::create_vm`
   installing the handler, so OBI waits for it to settle before giving up;
 - the process status file could not be read;
+- the process is an OpenJ9 VM that has not started its attach listener, for
+  example under `-Dcom.ibm.tools.attach.enable=no`. OpenJ9 attaches through a
+  file and semaphore handshake and never in response to a signal, so an OpenJ9
+  VM whose listener is running is attached that way and is never signalled;
+  one without a listener would only write a javacore;
 - the process runs with `-XX:+DisableAttachMechanism`. The option sources are
   read in the order HotSpot applies them, so a command line turning the
   mechanism back on is honored. Such a JVM catches `SIGQUIT` and survives it,

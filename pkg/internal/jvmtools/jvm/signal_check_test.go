@@ -208,6 +208,22 @@ func TestVMOptionsStopAtTheProgram(t *testing.T) {
 	}
 }
 
+// Lines as they appear in /proc/<pid>/maps: OpenJ9 maps its own VM library next
+// to the libjvm.so redirector, HotSpot maps only libjvm.so.
+func TestMapsOpenJ9(t *testing.T) {
+	const (
+		openJ9Maps = "7f1c2a400000-7f1c2a5f0000 r-xp 00000000 08:01 1234 " +
+			"/opt/java/openjdk/lib/default/libj9vm29.so\n" +
+			"7f1c2b000000-7f1c2b010000 r-xp 00000000 08:01 1235 /opt/java/openjdk/lib/server/libjvm.so\n"
+		hotSpotMaps = "7f1c2b000000-7f1c2b900000 r-xp 00000000 08:01 1235 " +
+			"/opt/java/openjdk/lib/server/libjvm.so\n"
+	)
+
+	require.True(t, mapsOpenJ9([]byte(openJ9Maps)))
+	require.False(t, mapsOpenJ9([]byte(hotSpotMaps)))
+	require.False(t, mapsOpenJ9(nil))
+}
+
 func TestEnvironValue(t *testing.T) {
 	environ := []byte("PATH=/bin\x00JAVA_TOOL_OPTIONS=-Xmx1g\t" + attachDisablingOption + "\x00HOME=/root\x00")
 
@@ -230,12 +246,36 @@ const sleeperSource = `public class Sleeper {
     public static void main(String[] a) throws Exception { Thread.sleep(600000); }
 }`
 
-func startJVM(t *testing.T, env []string, args ...string) *procs.ProcessHandle {
+// javaIsOpenJ9 reports whether the JDK on PATH is OpenJ9, skipping when there is
+// no JDK at all.
+func javaIsOpenJ9(t *testing.T) bool {
 	t.Helper()
 
 	if _, err := exec.LookPath("javac"); err != nil {
 		t.Skip("no JDK on PATH")
 	}
+
+	out, err := exec.Command("java", "-version").CombinedOutput()
+	require.NoError(t, err, "java -version: %s", out)
+
+	return strings.Contains(string(out), "OpenJ9")
+}
+
+// startJVM runs a HotSpot JVM. The attach refusal is exercised directly here,
+// and an OpenJ9 VM reaching it is refused on that ground alone, so these tests
+// need HotSpot.
+func startJVM(t *testing.T, env []string, args ...string) *procs.ProcessHandle {
+	t.Helper()
+
+	if javaIsOpenJ9(t) {
+		t.Skip("the JDK on PATH is OpenJ9; these tests cover HotSpot")
+	}
+
+	return launchJVM(t, env, args...)
+}
+
+func launchJVM(t *testing.T, env []string, args ...string) *procs.ProcessHandle {
+	t.Helper()
 
 	dir := t.TempDir()
 	src := filepath.Join(dir, "Sleeper.java")
@@ -272,7 +312,26 @@ func startJVM(t *testing.T, env []string, args ...string) *procs.ProcessHandle {
 // Covers the startup window too: the wait has to outlast HotSpot installing its
 // handler, or an ordinary JVM is refused for a condition that clears.
 func TestAttachRefusalLiveJVM(t *testing.T) {
-	require.Empty(t, attachRefusal(t.Context(), startJVM(t, nil)))
+	handle := startJVM(t, nil)
+
+	require.False(t, isOpenJ9(handle))
+	require.Empty(t, attachRefusal(t.Context(), handle))
+}
+
+// OpenJ9 with attach disabled creates no attach directory, so it is not
+// recognized as OpenJ9 and lands here. It catches SIGQUIT, so the signal cannot
+// kill it, but OpenJ9 never attaches in response to one: all it would get is a
+// javacore written next to the application.
+func TestAttachRefusalOpenJ9AttachDisabled(t *testing.T) {
+	if !javaIsOpenJ9(t) {
+		t.Skip("the JDK on PATH is not OpenJ9")
+	}
+
+	handle := launchJVM(t, nil, "-Dcom.ibm.tools.attach.enable=no")
+
+	require.Eventually(t, func() bool { return isOpenJ9(handle) },
+		10*time.Second, 50*time.Millisecond, "OpenJ9 never mapped its VM library")
+	require.Equal(t, refusalOpenJ9, attachRefusal(t.Context(), handle))
 }
 
 // A JVM that will not answer the handshake still catches SIGQUIT, so the signal

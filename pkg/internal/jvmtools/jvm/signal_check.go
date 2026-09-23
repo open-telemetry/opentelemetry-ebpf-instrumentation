@@ -55,7 +55,13 @@ var valueOptions = []string{
 // value and everything past it belongs to the application.
 var programOptions = []string{"-jar", "-m", "--module"}
 
+// openJ9Library is mapped by every OpenJ9 VM, next to the libjvm.so redirector
+// that gets it typed as Java.
+const openJ9Library = "/libj9vm"
+
 const (
+	refusalOpenJ9 = "the process is an OpenJ9 VM whose attach listener is not running: " +
+		"OpenJ9 attaches without a signal, so SIGQUIT would only write a javacore"
 	refusalSignalIsFatal = "SIGQUIT is still neither caught nor ignored after " +
 		"waiting for the runtime to install its handler, so it would terminate the process. " +
 		"A JVM that took longer than that to start is not retried"
@@ -70,6 +76,12 @@ const (
 // a JVM either answers the handshake or writes a thread dump to its own stdout.
 // Neither is wanted from a target that cannot complete the handshake.
 func attachRefusal(ctx context.Context, process *procs.ProcessHandle) string {
+	// An OpenJ9 VM with its attach listener running is recognized earlier and
+	// never reaches this path, so one that does has attach off or not yet up.
+	if isOpenJ9(process) {
+		return refusalOpenJ9
+	}
+
 	if attachDisabled(process) {
 		return refusalAttachDisabled
 	}
@@ -83,6 +95,21 @@ func attachRefusal(ctx context.Context, process *procs.ProcessHandle) string {
 	}
 
 	return ""
+}
+
+// isOpenJ9 reports whether the process runs an OpenJ9 VM, read through the
+// pinned handle. An unreadable map says nothing either way.
+func isOpenJ9(process *procs.ProcessHandle) bool {
+	maps, err := readProcFile(process, "maps")
+	if err != nil {
+		return false
+	}
+
+	return mapsOpenJ9(maps)
+}
+
+func mapsOpenJ9(maps []byte) bool {
+	return bytes.Contains(maps, []byte(openJ9Library))
 }
 
 // attachDisabled reports whether the JVM was launched with the attach mechanism
