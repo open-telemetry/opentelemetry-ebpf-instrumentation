@@ -141,13 +141,18 @@ func TestMakeServiceAttrsUsesGlobalServiceIdentityWithDiscoveryRules(t *testing.
 	cfg := &obi.Config{
 		ServiceName:      "checkout",
 		ServiceNamespace: "shop",
+		Discovery: services.DiscoveryConfig{
+			Instrument: services.GlobDefinitionCriteria{
+				{Path: services.NewGlob("/app/*")},
+			},
+		},
 	}
 	ty := typer{cfg: cfg}
 
 	// A capture rule selects the process but does not define a service identity.
 	attrs := ty.makeServiceAttrs(&ProcessMatch{
 		Process:  &pi,
-		Criteria: []services.Selector{services.GlobAttributes{Path: services.NewGlob("/app/*")}},
+		Criteria: FindingCriteria(cfg),
 	})
 	assert.Equal(t, "checkout", attrs.UID.Name)
 	assert.Equal(t, "shop", attrs.UID.Namespace)
