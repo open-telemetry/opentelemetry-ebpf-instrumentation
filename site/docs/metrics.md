@@ -1271,18 +1271,6 @@ OBI-emitted rpc.server.call.duration
 | `telemetry.sdk.name` | string | `required` | stable | The name of the telemetry SDK as defined above. | opentelemetry |
 | `telemetry.sdk.version` | string | `required` | stable | The version string of the telemetry SDK. | 1.2.3 |
 
-## `traces.host.info`
-
-OBI per-host meta-metric carrying the host identifier so dashboards can join trace metrics back to host / instance identity.
-
-| Instrument | Unit | Stability |
-| --- | --- | --- |
-| gauge | 1 | development |
-
-| Attribute | Type | Requirement level | Stability | Description | Examples |
-| --- | --- | --- | --- | --- | --- |
-| `host.id` | string | `recommended` | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-
 ## `traces.span.metrics.calls`
 
 Total number of spans observed, grouped by span name / kind / status.

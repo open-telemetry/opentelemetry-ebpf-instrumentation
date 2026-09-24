@@ -902,17 +902,6 @@ func testPrometheusOBIBuildInfo(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testHostInfo(t *testing.T) {
-	pq := promtest.Client{HostPort: prometheusHostPort}
-	var results []promtest.Result
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		var err error
-		results, err = pq.Query(`traces_host_info{}`)
-		require.NoError(ct, err)
-		require.NotEmpty(ct, results)
-	}, testTimeout, 100*time.Millisecond)
-}
-
 func testPrometheusBPFMetrics(t *testing.T) {
 	t.Skip("BPF metrics are not available in the test environment")
 	pq := promtest.Client{HostPort: prometheusHostPort}

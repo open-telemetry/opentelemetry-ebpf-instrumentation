@@ -106,7 +106,6 @@ func TestPrometheusNames(t *testing.T) {
 		{ServiceGraphTotal, "traces_service_graph_request_total"},
 		{TargetInfo, "target_info"},
 		{TracesTargetInfo, "traces_target_info"},
-		{TracesHostInfo, "traces_host_info"},
 	}...)
 
 	for _, test := range tests {

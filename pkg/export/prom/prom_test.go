@@ -187,7 +187,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		Pid:     1,
 	})
 
-	// Send a process event so we make target_info and traces_host_info
+	// Send a process event so we make target_info
 	processEvents.Send(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: app})
 
 	// WHEN it receives metrics
@@ -206,7 +206,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 	containsTargetInfoCloudAccount := regexp.MustCompile(`\ntarget_info\{[^\n]*cloud_account_id=`)
 	containsTargetInfoK8sPod := regexp.MustCompile(`\ntarget_info\{[^\n]*k8s_pod_name=`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
-	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{host_id="my-host"\}`)
 	containsJob := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*job="default/test-app".*`)
 	containsInstance := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*instance="test-app-1".*"`)
 
@@ -220,7 +219,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.NotRegexp(ct, containsTargetInfoCloudAccount, exported)
 		assert.NotRegexp(ct, containsTargetInfoK8sPod, exported)
 		assert.Regexp(ct, containsTargetInfoSDKVersion, exported)
-		assert.Regexp(ct, containsTracesHostInfo, exported)
 		assert.Regexp(ct, containsJob, exported)
 		assert.Regexp(ct, containsInstance, exported)
 	}, timeout, 100*time.Millisecond)
@@ -281,11 +279,10 @@ func TestAppMetricsExpiration(t *testing.T) {
 		File: app,
 	})
 
-	// THEN traces_host_info and traces_target_info are removed
+	// THEN traces_target_info are removed
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
 		assert.NotRegexp(ct, containsTargetInfo, exported)
-		assert.NotRegexp(ct, containsTracesHostInfo, exported)
 	}, timeout, 100*time.Millisecond)
 }
 
@@ -1575,80 +1572,6 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		assert.Len(t, mockEventsStore.createCalls, 5)
 		assert.Len(t, mockEventsStore.deleteCalls, 4)
 	})
-}
-
-func TestOverridingCloudHostIDKey(t *testing.T) {
-	ctx := t.Context()
-	registry, promURL := newPrometheusTestServer(t)
-
-	var g attributes.AttrGroups
-	g.Add(attributes.GroupKubernetes)
-
-	// GIVEN a "vendored" Prometheus exporter instance that overrides the
-	// CloudHostIDKey value
-	previousCloudHostIDKey := CloudHostIDKey
-	t.Cleanup(func() {
-		CloudHostIDKey = previousCloudHostIDKey
-	})
-	CloudHostIDKey = "vendor_host_id"
-	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
-	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	exporter, err := PrometheusEndpoint(
-		&global.ContextInfo{
-			Prometheus:            &connector.PrometheusManager{},
-			NodeMeta:              meta.NodeMeta{HostID: "my-host"},
-			MetricAttributeGroups: g,
-		},
-		&PrometheusConfig{
-			Registry:                    registry,
-			Path:                        "/metrics",
-			TTL:                         3 * time.Minute,
-			SpanMetricsServiceCacheSize: 10,
-			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-		},
-		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureApplicationHost},
-		&attributes.SelectorConfig{
-			SelectionCfg: attributes.Selection{
-				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
-					Include: []string{"url_path", "k8s.app.version"},
-				},
-			},
-		},
-		request.UnresolvedNames{},
-		promInput,
-		processEvents,
-		nil,
-	)(ctx)
-	require.NoError(t, err)
-
-	go exporter(ctx)
-
-	svcAttrs := svc.Attrs{
-		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureApplicationHost,
-		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
-	}
-	// Send a process event so we make target_info and traces_host_info
-	processEvents.SendCtx(t.Context(), exec.ProcessEvent{Type: exec.ProcessEventCreated, File: exec.New(exec.Init{
-		Service: svcAttrs,
-		Pid:     1,
-	})})
-
-	// WHEN it receives metrics
-	promInput.SendCtx(t.Context(), []request.Span{
-		{
-			Type:    request.EventTypeHTTP,
-			Path:    "/foo",
-			End:     123 * time.Second.Nanoseconds(),
-			Service: svcAttrs,
-		},
-	})
-
-	// THEN the exported traces_host_info metric overrides the default host id label name
-	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*vendor_host_id="my-host"`)
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		exported := getMetrics(ct, promURL)
-		assert.Regexp(ct, containsTracesHostInfo, exported)
-	}, timeout, 10*time.Millisecond)
 }
 
 // A span with no measured duration stays out of the RED series, whose buckets are only
