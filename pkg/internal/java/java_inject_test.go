@@ -8,6 +8,7 @@ package javaagent
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -616,6 +618,56 @@ func (a *blockingResponseAttacher) Attach(
 ) (io.ReadCloser, error) {
 	context.AfterFunc(ctx, func() { _ = a.response.Close() })
 	return a.response, nil
+}
+
+type withheldSignalAttacher struct {
+	attempts int
+}
+
+func (*withheldSignalAttacher) Init()                         {}
+func (*withheldSignalAttacher) Cleanup(context.Context) error { return nil }
+func (*withheldSignalAttacher) Terminate() error              { return nil }
+func (a *withheldSignalAttacher) Attach(
+	context.Context,
+	*procs.ProcessHandle,
+	[]string,
+	bool,
+) (io.ReadCloser, error) {
+	a.attempts++
+	return nil, fmt.Errorf("%w: process 1: withheld", jvm.ErrSignalWithheld)
+}
+
+// A withheld signal is a decision about the JVM, not a failure to reach it, so
+// it must survive to the caller as itself rather than being reported as an
+// unsupported Java version. The attach is not retried afterwards.
+func TestJavaInjector_NewExecutableReportsWithheldSignal(t *testing.T) {
+	pid := app.PID(os.Getpid())
+	startTime, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	process, err := procs.OpenProcessHandle(pid, startTime)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, process.Close()) })
+
+	attacher := &withheldSignalAttacher{}
+	injector := &JavaInjector{
+		log: slog.Default(),
+		cfg: &obi.Config{Java: obi.JavaConfig{Enabled: true, Timeout: time.Hour}},
+		newAttacher: func(*slog.Logger, int64, func(int64, func() error) error) jvmAttacher {
+			return attacher
+		},
+	}
+
+	err = injector.NewExecutable(context.Background(), InjectionTarget{
+		Type:      svc.InstrumentableJava,
+		Pid:       pid,
+		StartTime: startTime,
+		Process:   process,
+	})
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, jvm.ErrSignalWithheld)
+	assert.NotContains(t, err.Error(), "unsupported Java version")
+	assert.Equal(t, 1, attacher.attempts)
 }
 
 // The queue is only serialized if cancellation joins the response reader. A
