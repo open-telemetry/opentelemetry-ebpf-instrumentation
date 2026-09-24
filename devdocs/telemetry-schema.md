@@ -117,11 +117,11 @@ section empty once drained.
   `db.namespace`, `db.collection.name`, `db.query.text`, `elasticsearch.node.name`,
   `graphql.operation.name`, `graphql.document`, `aws.s3.key`, `aws.s3.bucket`,
   `aws.sqs.queue.url`, `aws.request.id`, `aws.extended_request_id`, `cloud.region`,
-  `dns.question.name`, `messaging.message.id`, `messaging.client.id`,
+  `dns.question.name`, `messaging.message.id`, `messaging.client.id` on MQTT and NATS spans,
   `messaging.destination.name` on the AWS SQS and SNS spans, `db.response.status_code`,
-  `rpc.method` on SNS, and the `gen_ai.*` operation, model, response-id, conversation-id,
-  provider-name and message-payload attributes. A consumer
-  selecting on the presence of one of these sees it absent where it previously carried `""`.
+  `rpc.method` on SNS, and the `gen_ai.*` model, response-id, conversation-id, provider-name
+  and message-payload attributes. A consumer selecting on the presence of one of these sees
+  it absent where it previously carried `""`.
   Some are absent far more often than their names suggest: `elasticsearch.node.name` comes
   from a header only Elastic Cloud sets, `aws.s3.key` is empty for every bucket-level call,
   and `aws.extended_request_id` is empty on every SQS span.
