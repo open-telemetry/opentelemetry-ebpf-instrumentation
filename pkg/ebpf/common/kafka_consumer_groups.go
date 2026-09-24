@@ -34,6 +34,15 @@ const (
 	// deployment raising heartbeat.interval.ms above it loses the attribute between
 	// heartbeats rather than keeping stale pids around longer.
 	kafkaConsumerGroupTTL = 2 * time.Minute
+
+	// kafkaConsumerGroupSettle is how long a process must have been observed before any
+	// Fetch is attributed to a group. OBI may attach after the consumers joined, and then
+	// learns each group only from its next heartbeat: until every group of the process has
+	// sent one, neither the single known group nor the one known subscriber of a topic is
+	// evidence that no other group consumes it. The longest heartbeat interval a broker
+	// allows is 15s (group.consumer.max.heartbeat.interval.ms, KIP-848); classic members
+	// heartbeat every 3s by default, and one configured above 15s can still be missed.
+	kafkaConsumerGroupSettle = 15 * time.Second
 )
 
 // KafkaProcess identifies the instrumented process a Kafka request was captured from.
@@ -178,6 +187,10 @@ func (g *kafkaMembership) subscribed(topic string) bool {
 // kafkaProcessGroups is the membership state of one process, by group id.
 type kafkaProcessGroups struct {
 	groups map[string]*kafkaMembership
+	// since is when the first group request of the process was seen. It outlives the
+	// process's memberships: the entry stays until the LRU reclaims it, so a process that
+	// closes its last consumer and opens a new one is not warmed up again.
+	since time.Time
 }
 
 // membership returns the state of group, creating it unless the process already holds
@@ -257,34 +270,34 @@ func (p *kafkaProcessGroups) topicGroup(topic string) (group string, subscribed 
 //
 // Each member expires ttl after the last request asserting it; a Fetch lookup never
 // extends it. A recycled pid inherits the previous process' memberships for at most
-// ttl, and its own heartbeats renew only its own members. The LRU ttl on the whole entry
-// merely reclaims processes that stopped sending anything.
+// ttl, and its own heartbeats renew only its own members; it also inherits the time the
+// previous process was first seen, and so skips the warm-up. The LRU ttl on the whole
+// entry reclaims processes that stopped sending group requests.
 type KafkaConsumerGroups struct {
-	lru *expirable.LRU[KafkaProcess, *kafkaProcessGroups]
-	ttl time.Duration
-	now func() time.Time
+	lru    *expirable.LRU[KafkaProcess, *kafkaProcessGroups]
+	ttl    time.Duration
+	settle time.Duration
+	now    func() time.Time
 }
 
 func NewKafkaConsumerGroups(size int, ttl time.Duration) *KafkaConsumerGroups {
 	return &KafkaConsumerGroups{
-		lru: expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl),
-		ttl: ttl,
-		now: time.Now,
+		lru:    expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl),
+		ttl:    ttl,
+		settle: kafkaConsumerGroupSettle,
+		now:    time.Now,
 	}
 }
 
-// memberships returns proc's memberships still in force, nil when there are none. It
-// drops the expired ones and the process itself once nothing is left.
+// memberships returns proc's state with the expired memberships dropped, nil when the
+// process is unknown. A state without memberships is kept, with its first-seen time,
+// until the LRU's ttl reclaims it.
 func (g *KafkaConsumerGroups) memberships(proc KafkaProcess) *kafkaProcessGroups {
 	state, found := g.lru.Get(proc)
 	if !found {
 		return nil
 	}
 	state.dropExpired(g.now())
-	if len(state.groups) == 0 {
-		g.lru.Remove(proc)
-		return nil
-	}
 	return state
 }
 
@@ -300,7 +313,7 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, conn BpfConnectionInfoT, r
 	}
 	state := g.memberships(proc)
 	if state == nil {
-		state = &kafkaProcessGroups{groups: map[string]*kafkaMembership{}}
+		state = &kafkaProcessGroups{groups: map[string]*kafkaMembership{}, since: g.now()}
 	}
 	group := state.membership(req.GroupID)
 	if group == nil {
@@ -355,9 +368,6 @@ func (g *KafkaConsumerGroups) Leave(proc KafkaProcess, conn BpfConnectionInfoT, 
 		return
 	}
 	delete(state.groups, group)
-	if len(state.groups) == 0 {
-		g.lru.Remove(proc)
-	}
 }
 
 // Enrich adds the topics named by an OffsetCommit or OffsetFetch to the subscription of
@@ -387,13 +397,17 @@ func (g *KafkaConsumerGroups) Enrich(proc KafkaProcess, req *kafkaparser.GroupRe
 // or, when no subscription names it (unknown topic, Heartbeat only after a mid-stream
 // attach, JoinGroup cut by the kernel buffer, list cut by maxGroupTopics or the topic
 // caps), the single consumer group the process is a member of. Empty when several
-// groups qualify or none does.
+// groups qualify or none does, and before the process has been observed for
+// kafkaConsumerGroupSettle.
 func (g *KafkaConsumerGroups) Lookup(proc KafkaProcess, topic string) string {
 	if g == nil {
 		return ""
 	}
 	state := g.memberships(proc)
 	if state == nil {
+		return ""
+	}
+	if g.now().Before(state.since.Add(g.settle)) {
 		return ""
 	}
 	if group, subscribed := state.topicGroup(topic); subscribed {
