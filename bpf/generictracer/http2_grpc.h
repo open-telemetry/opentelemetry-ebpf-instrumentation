@@ -121,12 +121,14 @@ static __always_inline u8 http_grpc_stream_ended(const frame_header_t *frame) {
            ((frame->flags & k_flag_data_end_stream) == k_flag_data_end_stream);
 }
 
+// a DATA frame always belongs to a stream; a failed header read returns zeros, which also match
 static __always_inline u8 is_invalid_frame(const frame_header_t *frame) {
-    return frame->length == 0 && frame->type == FrameData;
+    return frame->type == FrameData && !frame->stream_id;
 }
 
-static __always_inline u8 is_data_frame(const frame_header_t *frame) {
-    return frame->length && frame->type == FrameData;
+static __always_inline u8 http_grpc_data_stream_ended(const frame_header_t *frame) {
+    return frame->type == FrameData &&
+           ((frame->flags & k_flag_data_end_stream) == k_flag_data_end_stream);
 }
 
 static __always_inline u8 is_flags_only_frame(const frame_header_t *frame) {

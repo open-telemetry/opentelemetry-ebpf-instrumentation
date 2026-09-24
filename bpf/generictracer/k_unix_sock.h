@@ -178,6 +178,17 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
         return 0;
     }
 
+    unsigned char *buf = iovec_memory();
+    if (!buf) {
+        bpf_map_delete_elem(&active_recv_args, &id);
+        return 0;
+    }
+
+    // We may read less than copied_len, iovec iterators are limited
+    // to const iterations in our BPF code.
+    // read before args is deleted: iov_ctx points into it
+    const int read_len = read_iovec_ctx(iov_ctx, buf, copied_len);
+
     struct sock *sock_ptr = (struct sock *)args->sock_ptr;
 
     unsigned long inode_number;
@@ -197,17 +208,11 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
 
     bpf_map_delete_elem(&active_recv_args, &id);
 
-    unsigned char *buf = iovec_memory();
-    if (buf) {
-        // We may read less than copied_len, iovec iterators are limited
-        // to const iterations in our BPF code.
-        int read_len = read_iovec_ctx(iov_ctx, buf, copied_len);
-        if (read_len) {
-            // doesn't return must be logically last statement
-            handle_buf_with_connection(ctx, &p_conn, buf, read_len, NO_SSL, TCP_RECV, 0, 0);
-        } else {
-            bpf_dbg_printk("Not copied anything");
-        }
+    if (read_len) {
+        // doesn't return must be logically last statement
+        handle_buf_with_connection(ctx, &p_conn, buf, read_len, NO_SSL, TCP_RECV, 0, 0);
+    } else {
+        bpf_dbg_printk("Not copied anything");
     }
 
     return 0;

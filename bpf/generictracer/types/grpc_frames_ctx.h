@@ -11,9 +11,9 @@
 typedef struct grpc_frames_ctx {
     http2_grpc_request_t prev_info;
     u8 has_prev_info;
-    u8 found_data_frame;
     u8 iterations;
     u8 terminate_search;
+    u8 _pad;
 
     int pos; //FIXME should be size_t equivalent
     int saved_buf_pos;

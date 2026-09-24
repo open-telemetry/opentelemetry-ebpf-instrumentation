@@ -83,6 +83,11 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
         return k_h2_socket_transaction_no_mutation;
     }
 
+    // push_data misplaces the bytes after the insert unless it splits the first piece
+    if (bpf_msg_pull_data(msg, 0, original_size, 0) != 0) {
+        return k_h2_socket_transaction_no_mutation;
+    }
+
     if (bpf_msg_pull_data(msg, frame_offset, frame_offset + k_h2_frame_len_field_size, 0) != 0) {
         return k_h2_socket_transaction_no_mutation;
     }
@@ -129,5 +134,8 @@ h2_write_socket_transaction(struct sk_msg_md *msg,
     }
 
     h2_store_frame_len(data, payload_len + k_h2_tp_hpack_size);
+
+    // push_data's pieces may leave as separate TCP segments, splitting the frame across reads
+    bpf_msg_pull_data(msg, 0, original_size + k_h2_tp_hpack_size, 0);
     return k_h2_socket_transaction_committed;
 }
