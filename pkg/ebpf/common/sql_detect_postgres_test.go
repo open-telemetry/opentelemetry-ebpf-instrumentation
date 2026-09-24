@@ -5,13 +5,151 @@ package ebpfcommon
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
+
+func truncatedPostgresParse(query string) ([]byte, string) {
+	packet := postgresTestPacket(kPostgresParse, postgresParseTestBody("", query))
+	capture := packet[:256]
+
+	return capture, string(capture[pgHeaderLen+1:])
+}
+
+func postgresErrorResponse(sqlState, message string) []byte {
+	body := append([]byte{'C'}, sqlState...)
+	body = append(body, 0, 'M')
+	body = append(body, message...)
+	body = append(body, 0, 0)
+
+	return postgresTestPacket('E', body)
+}
+
+func newPostgresTestContext() *EBPFParseContext {
+	return NewEBPFParseContext(&config.EBPFTracer{
+		CouchbaseDBCacheSize:                16,
+		MySQLPreparedStatementsCacheSize:    16,
+		PostgresPreparedStatementsCacheSize: 16,
+		MSSQLPreparedStatementsCacheSize:    16,
+		KafkaTopicUUIDCacheSize:             16,
+		MongoRequestsCacheSize:              16,
+	}, nil, nil)
+}
+
+func TestHandlePostgresTruncatedParse(t *testing.T) {
+	query := "SELECT * FROM restaurants /*" + strings.Repeat("x", 300) + "*/"
+	parseCapture, capturedQuery := truncatedPostgresParse(query)
+	parseOnlyResponse := postgresTestPacket('1', nil)
+
+	t.Run("caches prepare without creating a span", func(t *testing.T) {
+		ctx := newPostgresTestContext()
+		event := &TCPRequestInfo{}
+
+		span, err := handlePostgres(
+			ctx,
+			event,
+			largebuf.NewLargeBufferFrom(parseCapture),
+			largebuf.NewLargeBufferFrom(parseOnlyResponse),
+		)
+
+		require.ErrorIs(t, err, errIgnore)
+		assert.Empty(t, span)
+		stmt, found := ctx.postgresPreparedStatements.Get(postgresPreparedStatementsKey{
+			connInfo: event.ConnInfo,
+			stmtName: "",
+		})
+		require.True(t, found)
+		assert.Equal(t, capturedQuery, stmt)
+	})
+
+	t.Run("reuses cached statement on later executions", func(t *testing.T) {
+		ctx := newPostgresTestContext()
+		event := &TCPRequestInfo{}
+
+		_, err := handlePostgres(
+			ctx,
+			event,
+			largebuf.NewLargeBufferFrom(parseCapture),
+			largebuf.NewLargeBufferFrom(parseOnlyResponse),
+		)
+		require.ErrorIs(t, err, errIgnore)
+
+		bindAndExecute := append(
+			postgresTestPacket('B', make([]byte, 8)),
+			postgresTestPacket('E', make([]byte, 5))...,
+		)
+		executedResponse := append(
+			postgresTestPacket('2', nil),
+			postgresTestPacket('C', []byte("SELECT 1\x00"))...,
+		)
+
+		span, err := handlePostgres(
+			ctx,
+			event,
+			largebuf.NewLargeBufferFrom(bindAndExecute),
+			largebuf.NewLargeBufferFrom(executedResponse),
+		)
+
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "restaurants", span.Path)
+		assert.Equal(t, capturedQuery, span.Statement)
+		assert.Equal(t, "EXECUTE", span.SQLCommand)
+	})
+
+	t.Run("uses execution error from the reply", func(t *testing.T) {
+		ctx := newPostgresTestContext()
+		event := &TCPRequestInfo{}
+		response := append(postgresTestPacket('1', nil), postgresTestPacket('2', nil)...)
+		response = append(response, postgresErrorResponse("23505", "duplicate key")...)
+
+		span, err := handlePostgres(
+			ctx,
+			event,
+			largebuf.NewLargeBufferFrom(parseCapture),
+			largebuf.NewLargeBufferFrom(response),
+		)
+
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "restaurants", span.Path)
+		assert.Equal(t, capturedQuery, span.Statement)
+		assert.Equal(t, "EXECUTE", span.SQLCommand)
+		assert.Equal(t, 1, span.Status)
+		assert.Equal(t, &request.SQLError{
+			SQLState: "23505",
+			Message:  "duplicate key",
+		}, span.SQLError)
+	})
+
+	t.Run("creates a span when the reply shows successful execution", func(t *testing.T) {
+		ctx := newPostgresTestContext()
+		response := append(postgresTestPacket('1', nil), postgresTestPacket('2', nil)...)
+		response = append(response, postgresTestPacket('C', []byte("SELECT 1\x00"))...)
+
+		span, err := handlePostgres(
+			ctx,
+			&TCPRequestInfo{},
+			largebuf.NewLargeBufferFrom(parseCapture),
+			largebuf.NewLargeBufferFrom(response),
+		)
+
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "restaurants", span.Path)
+		assert.Equal(t, capturedQuery, span.Statement)
+		assert.Equal(t, "EXECUTE", span.SQLCommand)
+		assert.Zero(t, span.Status)
+		assert.Nil(t, span.SQLError)
+	})
+}
 
 func TestPostgresMessagesIterator(t *testing.T) {
 	tests := []struct {
@@ -67,6 +205,18 @@ func TestPostgresMessagesIterator(t *testing.T) {
 			buf:     append([]byte{'Q', 0, 0, 0, 20}, []byte("short")...),
 			want:    nil,
 			wantErr: true,
+		},
+		{
+			name: "truncated Parse message",
+			buf:  append([]byte{'P', 0, 0, 0, 20}, []byte("\x00SELECT")...),
+			want: []postgresMessage{
+				{
+					typ:     "PARSE",
+					data:    []byte("\x00SELECT"),
+					partial: true,
+				},
+			},
+			wantErr: false,
 		},
 		{
 			name: "zero length message",

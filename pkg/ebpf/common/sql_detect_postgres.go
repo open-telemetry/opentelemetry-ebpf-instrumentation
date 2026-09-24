@@ -34,6 +34,13 @@ const (
 	kPostgresCommand = byte('C')
 	kPostgresParse   = byte('P')
 
+	kPostgresBindComplete       = byte('2')
+	kPostgresCommandComplete    = byte('C')
+	kPostgresDataRow            = byte('D')
+	kPostgresEmptyQueryResponse = byte('I')
+	kPostgresErrorResponse      = byte('E')
+	kPostgresPortalSuspended    = byte('s')
+
 	// pgHeaderLen is the size of the Postgres message header:
 	// 1 byte type + 4 bytes length field.
 	pgHeaderLen = 5
@@ -379,8 +386,9 @@ func postgresDBForConn(parseCtx *EBPFParseContext, connInfo BpfConnectionInfoT) 
 }
 
 type postgresMessage struct {
-	typ  string
-	data []byte
+	typ     string
+	data    []byte
+	partial bool
 }
 
 func parsePostgresBindNames(data []byte) (portalName, statementName string, ok bool) {
@@ -433,9 +441,15 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 	}
 
 	payloadSize := size - sqlprune.PostgresHdrSize + 1
+	partial := false
 	if it.r.Remaining() < int(payloadSize) {
-		it.err = errPGRemainingTooShortMessageData
-		return
+		if msgType != "PARSE" {
+			it.err = errPGRemainingTooShortMessageData
+			return
+		}
+
+		payloadSize = int32(it.r.Remaining())
+		partial = true
 	}
 
 	// ReadN is safe: all uses of msg.data convert it to a Go string before the next
@@ -450,8 +464,41 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 		}
 	}
 
-	msg = postgresMessage{typ: msgType, data: data}
+	msg = postgresMessage{typ: msgType, data: data, partial: partial}
 	return
+}
+
+type postgresResponse struct {
+	executed bool
+	sqlError *request.SQLError
+}
+
+func parsePostgresResponse(response []byte) postgresResponse {
+	var result postgresResponse
+	bound := false
+
+	for len(response) >= sqlprune.PostgresHdrSize {
+		size := int(binary.BigEndian.Uint32(response[1:sqlprune.PostgresHdrSize]))
+		messageSize := size + 1
+		if size < sqlprune.PostgresHdrSize-1 || messageSize > len(response) {
+			break
+		}
+
+		message := response[:messageSize]
+		switch message[0] {
+		case kPostgresBindComplete:
+			bound = true
+		case kPostgresCommandComplete, kPostgresDataRow, kPostgresEmptyQueryResponse, kPostgresPortalSuspended:
+			result.executed = true
+		case kPostgresErrorResponse:
+			result.sqlError = sqlprune.SQLParseError(request.DBPostgres, message)
+			result.executed = result.executed || bound
+		}
+
+		response = response[messageSize:]
+	}
+
+	return result
 }
 
 func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, error) {
@@ -469,7 +516,7 @@ func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBu
 		slog.Debug("Postgres request too short")
 		return span, errFallback
 	}
-	if respR.Remaining() < sqlprune.PostgresHdrSize+1 {
+	if respR.Remaining() < sqlprune.PostgresHdrSize {
 		slog.Debug("Postgres response too short")
 		return span, errFallback
 	}
@@ -477,10 +524,11 @@ func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBu
 	// ReadN(remaining) for response — materialized once for sqlprune.SQLParseError.
 	respRaw, _ := respR.ReadN(respR.Remaining())
 
+	response := parsePostgresResponse(respRaw)
 	var (
 		msg      postgresMessage
 		it       = postgresMessageIterator{r: reqR}
-		sqlError = sqlprune.SQLParseError(request.DBPostgres, respRaw)
+		sqlError = response.sqlError
 	)
 
 Loop:
@@ -512,7 +560,14 @@ Loop:
 				stmtName: stmtName,
 			}, stmt)
 
-			continue
+			if !msg.partial || !response.executed {
+				continue
+			}
+
+			op, tables = sqlprune.SQLParseOperationAndTables(stmt)
+			hasSpan = true
+			msg.typ = "EXECUTE"
+			break Loop
 		case "BIND":
 			portal, stmtName, ok := parsePostgresBindNames(msg.data)
 			if !ok {
