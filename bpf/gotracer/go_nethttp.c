@@ -1541,6 +1541,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
                         .stream_id = (u32)stream_id,
                         .s_port = conn_info ? conn_info->s_port : 0,
                         .d_port = conn_info ? conn_info->d_port : 0,
+                        .frame_type = k_h2_frame_headers,
                     };
                     go_addr_key_t f_key = {};
                     go_addr_key_from_id(&f_key, goroutine_addr);
@@ -1609,6 +1610,54 @@ int GUARDED_PROG(obi_uprobe_net_http2FramerWriteHeaders, struct pt_regs *, ctx) 
     return 0;
 }
 
+static __always_inline int on_http2FramerWriteContinuation(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    void *framer = GO_PARAM1(ctx);
+    const u32 stream_id = (u32)(u64)GO_PARAM2(ctx);
+    const bool end_headers = (bool)(u64)GO_PARAM3(ctx);
+    if (!f_info || !f_info->awaiting_continuation || !framer || f_info->framer_ptr != (u64)framer ||
+        f_info->stream_id != stream_id) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    const u64 writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+    if (framer_w_pos == (u64)-1 || writer_n_pos == (u64)-1) {
+        bpf_map_delete_elem(&framer_invocation_map, &g_key);
+        return 0;
+    }
+
+    void *writer = 0;
+    s64 n = -1;
+    long err = bpf_probe_read_user(
+        &writer, sizeof(writer), (unsigned char *)framer + framer_w_pos + k_go_iface_data_offset);
+    if (!err && writer) {
+        err = bpf_probe_read_user(&n, sizeof(n), (unsigned char *)writer + writer_n_pos);
+    }
+    if (err || !writer || n < 0 || n >= MAX_W_PTR_N) {
+        bpf_map_delete_elem(&framer_invocation_map, &g_key);
+        return 0;
+    }
+
+    f_info->initial_n = n;
+    f_info->frame_type = k_h2_frame_continuation;
+    f_info->reserved_padding = false;
+    f_info->awaiting_continuation = !end_headers;
+    return 0;
+}
+
+SEC("uprobe/http2FramerWriteContinuation")
+int GUARDED_PROG(obi_uprobe_http2FramerWriteContinuation, struct pt_regs *, ctx) {
+    return on_http2FramerWriteContinuation(ctx);
+}
+
 static __always_inline void
 make_http2_traceparent_field(unsigned char field[k_h2_tp_hpack_huffman_size], const tp_info_t *tp) {
     field[0] = 0;
@@ -1627,9 +1676,8 @@ http2_frame_stream_id(const unsigned char header[k_h2_frame_header_len]) {
 enum : u32 {
     k_h2_pad_length_to_stream_id_offset = 34,
     k_h2_pad_length_to_fragment_len_offset = 18,
+    k_h2_pad_length_to_end_headers_offset = 1,
     k_h2_pad_length_stack_offset_limit = 512,
-    k_h2_traceparent_append_max_len =
-        k_h2_default_max_frame_size + k_h2_frame_header_len - k_h2_tp_hpack_huffman_size,
 };
 
 static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
@@ -1655,16 +1703,20 @@ static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
     unsigned char *pad_ptr = (unsigned char *)PT_REGS_SP(ctx) + stack_offset;
     u32 stream_id = 0;
     u8 original_pad = 0;
+    bool end_headers = false;
     u64 fragment_len = 0;
     long err = bpf_probe_read_user(
         &stream_id, sizeof(stream_id), pad_ptr - k_h2_pad_length_to_stream_id_offset);
     err |= bpf_probe_read_user(&original_pad, sizeof(original_pad), pad_ptr);
     err |= bpf_probe_read_user(
+        &end_headers, sizeof(end_headers), pad_ptr - k_h2_pad_length_to_end_headers_offset);
+    err |= bpf_probe_read_user(
         &fragment_len, sizeof(fragment_len), pad_ptr - k_h2_pad_length_to_fragment_len_offset);
-    const u64 max_fragment =
-        k_h2_default_max_frame_size - k_h2_tp_hpack_huffman_size - k_h2_priority_prefix_len - 1;
-    if (err || !stream_id || stream_id != f_info->stream_id || original_pad ||
-        fragment_len > max_fragment) {
+    if (err || !stream_id || stream_id != f_info->stream_id || original_pad) {
+        return 0;
+    }
+    if (!end_headers) {
+        f_info->awaiting_continuation = true;
         return 0;
     }
 
@@ -1686,6 +1738,11 @@ static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
     if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != k_h2_frame_headers ||
         http2_frame_stream_id(header) != stream_id || !(header[4] & k_h2_flag_end_headers) ||
         (header[4] & k_h2_flag_padded)) {
+        return 0;
+    }
+    const u64 max_fragment =
+        k_h2_default_max_frame_size - k_h2_tp_hpack_huffman_size - k_h2_priority_prefix_len - 1;
+    if (fragment_len > max_fragment) {
         return 0;
     }
 
@@ -1757,31 +1814,46 @@ commit_http2_reserved_padding(void *buf, s64 n, const framer_func_invocation_t *
     return bpf_probe_write_user(pad_length_ptr, &consumed_padding, sizeof(consumed_padding)) == 0;
 }
 
-static __always_inline bool append_http2_traceparent_to_framer(
-    void *framer, u64 wbuf_pos, void *buf, s64 n, s64 cap, const framer_func_invocation_t *f_info) {
-    if (n < k_h2_frame_header_len || cap < n || (u64)n > k_h2_traceparent_append_max_len ||
-        (u64)cap - (u64)n < k_h2_tp_hpack_huffman_size) {
-        return false;
+static __always_inline u8 append_http2_traceparent_to_framer(
+    void *framer, u64 wbuf_pos, void *buf, s64 n, s64 cap, framer_func_invocation_t *f_info) {
+    if (n < k_h2_frame_header_len || cap < n ||
+        (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len) {
+        return k_go_h2_user_write_bypass;
     }
-    bpf_clamp_umax(n, k_h2_traceparent_append_max_len);
+    bpf_clamp_umax(n, k_h2_default_max_frame_size + k_h2_frame_header_len);
 
     unsigned char header[k_h2_frame_header_len] = {};
-    if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != k_h2_frame_headers ||
-        http2_frame_stream_id(header) != f_info->stream_id ||
-        !(header[4] & k_h2_flag_end_headers) || (header[4] & k_h2_flag_padded)) {
-        return false;
+    if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != f_info->frame_type ||
+        http2_frame_stream_id(header) != f_info->stream_id || (header[4] & k_h2_flag_padded)) {
+        return k_go_h2_user_write_bypass;
     }
+    // endWrite fills the frame length after this probe runs.
+    const u32 payload_len = (u32)n - k_h2_frame_header_len;
+    if (f_info->frame_type != k_h2_frame_headers && f_info->frame_type != k_h2_frame_continuation) {
+        return k_go_h2_user_write_bypass;
+    }
+    if (!(header[4] & k_h2_flag_end_headers)) {
+        return k_go_h2_user_write_deferred;
+    }
+    if (payload_len + k_h2_tp_hpack_huffman_size > k_h2_default_max_frame_size ||
+        (u64)cap - (u64)n < k_h2_tp_hpack_huffman_size) {
+        return k_go_h2_user_write_bypass;
+    }
+    bpf_clamp_umax(
+        n, k_h2_default_max_frame_size + k_h2_frame_header_len - k_h2_tp_hpack_huffman_size);
 
     unsigned char field[k_h2_tp_hpack_huffman_size] = {};
     make_http2_traceparent_field(field, &f_info->tp);
     if (bpf_probe_write_user((unsigned char *)buf + (u64)n, field, sizeof(field)) != 0) {
-        return false;
+        return k_go_h2_user_write_pristine;
     }
 
     const s64 new_n = n + k_h2_tp_hpack_huffman_size;
     return bpf_probe_write_user((unsigned char *)framer + wbuf_pos + k_go_slice_len_offset,
                                 &new_n,
-                                sizeof(new_n)) == 0;
+                                sizeof(new_n)) == 0
+               ? k_go_h2_user_write_committed
+               : k_go_h2_user_write_pristine;
 }
 
 SEC("uprobe/http2FramerEndWrite")
@@ -1816,18 +1888,23 @@ int GUARDED_PROG(obi_uprobe_http2FramerEndWrite, struct pt_regs *, ctx) {
         return 0;
     }
 
-    const bool committed =
-        f_info->reserved_padding
-            ? commit_http2_reserved_padding(buf, n, f_info)
-            : append_http2_traceparent_to_framer(framer, wbuf_pos, buf, n, cap, f_info);
-    if (committed) {
+    u8 result = k_go_h2_user_write_bypass;
+    if (f_info->reserved_padding) {
+        if (commit_http2_reserved_padding(buf, n, f_info)) {
+            result = k_go_h2_user_write_committed;
+        }
+    } else {
+        result = append_http2_traceparent_to_framer(framer, wbuf_pos, buf, n, cap, f_info);
+    }
+    if (result == k_go_h2_user_write_committed) {
         bpf_map_delete_elem(&framer_invocation_map, &g_key);
+    } else if (result == k_go_h2_user_write_deferred) {
+        f_info->awaiting_continuation = true;
     }
     return 0;
 }
 
-SEC("uprobe/http2FramerWriteHeaders_returns")
-int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, ctx) {
+static __always_inline int on_http2FramerWriteHeadersReturns(struct pt_regs *ctx) {
     if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
@@ -1840,6 +1917,10 @@ int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, c
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+
+    if (f_info && f_info->awaiting_continuation) {
+        return 0;
+    }
 
     if (f_info && !f_info->reserved_padding) {
         void *w_ptr = 0;
@@ -1893,7 +1974,12 @@ int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, c
                                                        n,
                                                        cap,
                                                        f_info->stream_id,
+                                                       f_info->frame_type,
                                                        &f_info->tp);
+            if (result == k_go_h2_user_write_deferred) {
+                f_info->awaiting_continuation = true;
+                return 0;
+            }
             if (result == k_go_h2_user_write_uncertain) {
                 bpf_dbg_printk("HTTP/2 traceparent write state is uncertain; failing closed");
             }
@@ -1917,6 +2003,11 @@ int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, c
 done:
     bpf_map_delete_elem(&framer_invocation_map, &g_key);
     return 0;
+}
+
+SEC("uprobe/http2FramerWriteHeaders_returns")
+int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, ctx) {
+    return on_http2FramerWriteHeadersReturns(ctx);
 }
 
 SEC("uprobe/connServe")

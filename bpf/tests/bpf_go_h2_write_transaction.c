@@ -61,7 +61,10 @@ struct writer {
     s64 n;
 };
 
-enum { k_original_n = k_h2_frame_header_len + 1, k_buffer_size = 256 };
+enum {
+    k_original_n = k_h2_frame_header_len + 1,
+    k_buffer_size = 256,
+};
 
 static void expect(bool condition, const char *message) {
     if (!condition) {
@@ -70,8 +73,8 @@ static void expect(bool condition, const char *message) {
     }
 }
 
-static void reset_frame(unsigned char frame[k_buffer_size], struct writer *writer) {
-    memset(frame, 0, k_buffer_size);
+static void reset_sized_frame(unsigned char *frame, u32 size, struct writer *writer) {
+    memset(frame, 0, size);
     frame[2] = 1;
     frame[3] = k_h2_frame_headers;
     frame[4] = k_h2_flag_end_headers;
@@ -83,8 +86,20 @@ static void reset_frame(unsigned char frame[k_buffer_size], struct writer *write
     partial_writes = 0;
 }
 
+static void reset_frame(unsigned char frame[k_buffer_size], struct writer *writer) {
+    reset_sized_frame(frame, k_buffer_size, writer);
+}
+
 static u8 append(unsigned char frame[k_buffer_size], struct writer *writer, const tp_info_t *tp) {
-    return append_go_h2_traceparent(writer, 0, frame, 0, writer->n, k_buffer_size, 1, tp);
+    return append_go_h2_traceparent(
+        writer, 0, frame, 0, writer->n, k_buffer_size, 1, k_h2_frame_headers, tp);
+}
+
+static u8 append_continuation(unsigned char frame[k_buffer_size],
+                              struct writer *writer,
+                              const tp_info_t *tp) {
+    return append_go_h2_traceparent(
+        writer, 0, frame, 0, writer->n, k_buffer_size, 1, k_h2_frame_continuation, tp);
 }
 
 static void expect_pristine(const unsigned char frame[k_buffer_size],
@@ -111,6 +126,12 @@ static void test_success(const tp_info_t *tp) {
     expect(append(frame, &writer, tp) == k_go_h2_user_write_committed,
            "complete transaction reports committed");
     expect_committed(frame, &writer, "complete transaction publishes one complete field");
+
+    reset_frame(frame, &writer);
+    frame[3] = k_h2_frame_continuation;
+    expect(append_continuation(frame, &writer, tp) == k_go_h2_user_write_committed,
+           "terminal CONTINUATION transaction reports committed");
+    expect_committed(frame, &writer, "terminal CONTINUATION publishes one complete field");
 }
 
 static void test_forward_write_failures(const tp_info_t *tp) {
@@ -187,13 +208,15 @@ static void test_preflight(const tp_info_t *tp) {
     struct writer writer;
 
     reset_frame(frame, &writer);
-    expect(append_go_h2_traceparent(&writer, 0, frame, -1, writer.n, k_buffer_size, 1, tp) ==
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, -1, writer.n, k_buffer_size, 1, k_h2_frame_headers, tp) ==
                k_go_h2_user_write_bypass,
            "invalid frame offset bypasses before mutation");
     expect(write_calls == 0, "offset preflight performs no writes");
 
     reset_frame(frame, &writer);
-    expect(append_go_h2_traceparent(&writer, 0, frame, 0, writer.n + 1, k_buffer_size, 1, tp) ==
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, 0, writer.n + 1, k_buffer_size, 1, k_h2_frame_headers, tp) ==
                k_go_h2_user_write_bypass,
            "writer and frame length mismatch bypasses before mutation");
     expect(write_calls == 0, "length-state preflight performs no writes");
@@ -205,22 +228,31 @@ static void test_preflight(const tp_info_t *tp) {
     expect(write_calls == 0, "frame-type preflight performs no writes");
 
     reset_frame(frame, &writer);
-    expect(append_go_h2_traceparent(&writer, 0, frame, 0, writer.n, writer.n, 1, tp) ==
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, 0, writer.n, writer.n, 1, k_h2_frame_headers, tp) ==
                k_go_h2_user_write_bypass,
            "insufficient capacity bypasses before mutation");
     expect(write_calls == 0, "capacity preflight performs no writes");
 
     reset_frame(frame, &writer);
     frame[4] = 0;
-    expect(append(frame, &writer, tp) == k_go_h2_user_write_bypass,
-           "CONTINUATION-dependent headers bypass direct injection");
+    expect(append(frame, &writer, tp) == k_go_h2_user_write_deferred,
+           "fragmented headers defer injection to a CONTINUATION");
     expect(write_calls == 0, "END_HEADERS preflight performs no writes");
 
     reset_frame(frame, &writer);
-    expect(append_go_h2_traceparent(&writer, 0, frame, 0, writer.n, k_buffer_size, 3, tp) ==
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, 0, writer.n, k_buffer_size, 3, k_h2_frame_headers, tp) ==
                k_go_h2_user_write_bypass,
            "stream mismatch bypasses direct injection");
     expect(write_calls == 0, "stream preflight performs no writes");
+
+    reset_frame(frame, &writer);
+    expect(append_go_h2_traceparent(
+               &writer, 0, frame, 0, writer.n, k_buffer_size, 1, k_h2_frame_data, tp) ==
+               k_go_h2_user_write_bypass,
+           "unsupported expected frame type bypasses direct injection");
+    expect(write_calls == 0, "expected frame-type preflight performs no writes");
 }
 
 int main(void) {

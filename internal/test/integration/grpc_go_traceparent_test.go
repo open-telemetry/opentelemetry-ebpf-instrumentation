@@ -133,25 +133,28 @@ func testGRPCGoTraceparentOwnership(
 		logs, err := compose.LogsTail(2000, receiverService)
 		require.NoError(ct, err)
 		observations = parseGRPCOwnershipObservations(ct, logs, runID)
-		require.Len(ct, observations, 13)
+		require.Len(ct, observations, 16)
 	}, 30*time.Second, 250*time.Millisecond)
 
 	ownedCases := map[string]string{
-		"owned-index-1":     grpcOwnedTraceparent,
-		"owned-index-2":     grpcOwnedTraceparent,
-		"owned-index-3":     grpcOwnedTraceparent,
-		"owned-index-4":     grpcOwnedTraceparent,
-		"owned-invalid":     grpcInvalidOwnedTraceparent,
-		"owned-after-many":  grpcOwnedTraceparent,
-		"owned-after-limit": grpcOwnedTraceparent,
-		"mux-owned-1":       grpcOwnedTraceparent,
-		"mux-owned-2":       grpcOwnedTraceparent,
+		"owned-index-1":      grpcOwnedTraceparent,
+		"owned-index-2":      grpcOwnedTraceparent,
+		"owned-index-3":      grpcOwnedTraceparent,
+		"owned-index-4":      grpcOwnedTraceparent,
+		"owned-invalid":      grpcInvalidOwnedTraceparent,
+		"owned-after-many":   grpcOwnedTraceparent,
+		"owned-after-limit":  grpcOwnedTraceparent,
+		"continuation-owned": grpcOwnedTraceparent,
+		"mux-owned-1":        grpcOwnedTraceparent,
+		"mux-owned-2":        grpcOwnedTraceparent,
 	}
 	controlCases := map[string]struct{}{
-		"control-after-index": {},
-		"mux-control-1":       {},
-		"mux-control-2":       {},
-		"control-after-mux":   {},
+		"control-after-index":        {},
+		"continuation-control":       {},
+		"multi-continuation-control": {},
+		"mux-control-1":              {},
+		"mux-control-2":              {},
+		"control-after-mux":          {},
 	}
 	controlSpanIDs := map[string]struct{}{}
 	peerAddr := ""
@@ -180,7 +183,7 @@ func testGRPCGoTraceparentOwnership(
 		require.False(t, duplicate, caseName)
 		controlSpanIDs[parts[2]] = struct{}{}
 	}
-	require.Len(t, controlSpanIDs, 4)
+	require.Len(t, controlSpanIDs, 6)
 	require.True(t, multiplexed, "gRPC receiver did not observe concurrent streams")
 }
 
