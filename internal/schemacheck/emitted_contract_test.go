@@ -190,6 +190,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "grpc client",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.rpc.grpc.client",
 			span: &request.Span{
 				Type:         request.EventTypeGRPCClient,
@@ -211,6 +212,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "onc rpc client",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.rpc.onc_rpc.client",
 			span: &request.Span{
 				Type:         request.EventTypeSunRPCClient,
@@ -237,6 +239,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		{
 			// NATS is the only broker that reports an envelope size.
 			name:    "nats producer",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.nats.producer",
 			span: &request.Span{
 				Type:          request.EventTypeNATSClient,
@@ -259,6 +262,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			// Kafka reports the offset only on a process operation, so the
 			// producer group must not declare it.
 			name:    "kafka producer",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.kafka.producer",
 			span: &request.Span{
 				Type:          request.EventTypeKafkaClient,
@@ -280,6 +284,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		{
 			// MQTT carries neither partition metadata nor an envelope size.
 			name:    "mqtt consumer",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.mqtt.consumer",
 			span: &request.Span{
 				Type:      request.EventTypeMQTTClient,
@@ -299,6 +304,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "jsonrpc client",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.jsonrpc.client",
 			span: &request.Span{
 				Type:                request.EventTypeHTTPClient,
@@ -361,6 +367,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "amqp producer",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.amqp.producer",
 			span: &request.Span{
 				Type:     request.EventTypeAMQPClient,
@@ -381,6 +388,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "kafka consumer",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.kafka.consumer",
 			span: &request.Span{
 				Type:          request.EventTypeKafkaClient,
@@ -430,6 +438,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "kafka client",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.kafka.client",
 			span: &request.Span{
 				Type:          request.EventTypeKafkaClient,
@@ -450,6 +459,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "mqtt producer",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.mqtt.producer",
 			span: &request.Span{
 				Type:      request.EventTypeMQTTClient,
@@ -469,6 +479,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "mqtt client",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.mqtt.client",
 			span: &request.Span{
 				Type:      request.EventTypeMQTTClient,
@@ -488,6 +499,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "nats consumer",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.nats.consumer",
 			span: &request.Span{
 				Type:          request.EventTypeNATSClient,
@@ -508,6 +520,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "nats client",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.nats.client",
 			span: &request.Span{
 				Type:          request.EventTypeNATSClient,
@@ -528,6 +541,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "amqp consumer",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.amqp.consumer",
 			span: &request.Span{
 				Type:     request.EventTypeAMQPClient,
@@ -546,6 +560,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:    "amqp client",
+			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.amqp.client",
 			span: &request.Span{
 				Type:     request.EventTypeAMQPClient,
@@ -576,6 +591,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				// network.peer.* for a hostname, since server.address carries it.
 				Host:         "10.0.0.1",
 				HostPort:     9200,
+				HostName:     "es-1",
 				Peer:         "10.0.0.1",
 				PeerPort:     54321,
 				Status:       500,
@@ -607,6 +623,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				SubType:      request.HTTPSubtypeAWSS3,
 				Host:         "10.0.0.1",
 				HostPort:     443,
+				HostName:     "s3-1",
 				Status:       500,
 				ProtoVersion: request.ProtoVersionHTTP11,
 				AWS: &request.AWS{S3: request.AWSS3{
@@ -636,6 +653,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				SubType:      request.HTTPSubtypeAWSSQS,
 				Host:         "10.0.0.1",
 				HostPort:     443,
+				HostName:     "sqs-1",
 				Status:       500,
 				ProtoVersion: request.ProtoVersionHTTP11,
 				AWS: &request.AWS{SQS: request.AWSSQS{

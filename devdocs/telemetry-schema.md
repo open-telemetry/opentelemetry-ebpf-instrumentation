@@ -122,6 +122,30 @@ section empty once drained.
   No emitted attribute changes, but a link into `site/docs/spans.md` anchored on
   one of the old ids no longer resolves.
 
+- A span attribute OBI parses but could not determine is no longer emitted as an empty
+  string. It covers every such attribute the span exporter appends, among them
+  `server.address`, `client.address`, `service.peer.name`, `url.scheme`, `url.full`,
+  `db.namespace`, `db.collection.name`, `db.query.text`, `elasticsearch.node.name`,
+  `graphql.operation.name`, `graphql.document`, `aws.s3.key`, `aws.s3.bucket`,
+  `aws.sqs.queue.url`, `aws.request.id`, `aws.extended_request_id`, `cloud.region`,
+  `dns.question.name`, `messaging.message.id`, `messaging.client.id` on MQTT and NATS spans,
+  `messaging.destination.name` on the AWS SQS and SNS spans, `db.response.status_code`,
+  `rpc.method` on SNS, and the `gen_ai.*` model, response-id, conversation-id, provider-name
+  and message-payload attributes. A consumer selecting on the presence of one of these sees
+  it absent where it previously carried `""`.
+  Some are absent far more often than their names suggest: `elasticsearch.node.name` comes
+  from a header only Elastic Cloud sets, `aws.s3.key` is empty for every bucket-level call,
+  and `aws.extended_request_id` is empty on every SQS span.
+- `service.peer.name` disappears only where OBI resolved no name for the other end. The name
+  resolver falls back to the peer IP, so this is rare — but a deployment that disables the
+  resolver, or a component vendoring OBI that builds a pipeline without it, loses the
+  attribute on every client span outside Kubernetes.
+- Metric labels are unchanged, so a metric series still carries `server.address=""` where the
+  span now omits it. Anything joining spans to RED metrics on these keys must account for the
+  difference until the metric path follows.
+- Attributes an application sets on a manual span are untouched, including ones it
+  deliberately sets to an empty string. Resource attributes are unchanged.
+
 ## Hosting notes
 
 `site/` is published as static files with no markdown processing, so the generated
