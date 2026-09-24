@@ -75,11 +75,39 @@ func TestDecodeRuntimePollingCounters(t *testing.T) {
 	}
 }
 
+func TestDecodeRuntimeCumulativeCounters(t *testing.T) {
+	for _, source := range []struct {
+		name      string
+		increment bool
+	}{
+		{"alloc-rate", true},
+		{"total-pause-time-by-gc", true},
+		{"il-bytes-jitted", false},
+		{"methods-jitted-count", false},
+		{"time-in-jit", true},
+		{"threadpool-completed-items-count", true},
+		{"monitor-lock-contention-count", true},
+	} {
+		t.Run(source.name, func(t *testing.T) {
+			payload := map[string]any{
+				"Name": source.name, "CounterType": "Mean", "IntervalSec": float32(2), "Mean": float64(12),
+			}
+			if source.increment {
+				payload["CounterType"], payload["Increment"] = "Sum", float64(12)
+				delete(payload, "Mean")
+			}
+			counter, err := decodeRuntimeCounter(map[string]any{"": map[string]any{"Payload": payload}})
+			require.NoError(t, err)
+			require.Equal(t, runtimeCounter{Name: source.name, Value: 12, IntervalSec: 2, Increment: source.increment}, counter)
+		})
+	}
+}
+
 func TestDecodeRuntimeCounterIgnoresUnusedCounters(t *testing.T) {
 	for _, payload := range []map[string]any{
 		{"Name": "gc-fragmentation"},
 		{"Name": "cpu-usage", "CounterType": "unknown", "IntervalSec": float32(0), "Mean": math.NaN()},
-		{"Name": "alloc-rate", "CounterType": "Sum", "IntervalSec": float32(1), "Increment": "invalid"},
+		{"Name": "exception-count", "CounterType": "Sum", "IntervalSec": float32(1), "Increment": "invalid"},
 	} {
 		t.Run(payload["Name"].(string), func(t *testing.T) {
 			counter, err := decodeRuntimeCounter(map[string]any{"": map[string]any{"Payload": payload}})

@@ -64,11 +64,14 @@ func TestSessionManagerReadSessionFinalCollection(t *testing.T) {
 				{Name: "gen-1-gc-count", Increment: true},
 				{Name: "gen-2-gc-count", Increment: true},
 				{Name: "assembly-count", Value: 10},
+				{Name: "il-bytes-jitted", Value: 100},
+				{Name: "methods-jitted-count", Value: 3},
+				{Name: "time-in-jit", Value: 2.5, Increment: true},
 			}
 			if tc.partial {
 				counters = counters[:len(counters)-1]
 			}
-			wire := runtimeCounterStream(t, counters)
+			wire := runtimeCounterStream(t, 15, counters)
 			if tc.truncate {
 				wire = wire[:len(wire)-1]
 			}
@@ -126,6 +129,12 @@ func TestSessionManagerReadSessionFinalCollection(t *testing.T) {
 				require.Equal(t, int64(12_500_000), *snapshots[0].ProcessMemoryWorkingSet)
 				require.NotNil(t, snapshots[0].AssemblyCount)
 				require.Equal(t, int64(10), *snapshots[0].AssemblyCount)
+				require.NotNil(t, snapshots[0].JITCompiledILSize)
+				require.Equal(t, uint64(100), *snapshots[0].JITCompiledILSize)
+				require.NotNil(t, snapshots[0].JITCompiledMethods)
+				require.Equal(t, uint64(3), *snapshots[0].JITCompiledMethods)
+				require.NotNil(t, snapshots[0].JITCompilationTime)
+				require.Zero(t, *snapshots[0].JITCompilationTime)
 			}
 		})
 	}
