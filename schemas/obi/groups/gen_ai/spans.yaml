@@ -133,8 +133,7 @@ groups:
         requirement_level:
           conditionally_required: if `server.address` is set
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -145,8 +144,7 @@ groups:
         requirement_level:
           recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
 
   # The dedicated embeddings subtype, recognised from a provider-agnostic
   # embeddings payload. Sampling and generation parameters have no meaning
@@ -190,8 +188,7 @@ groups:
         requirement_level:
           conditionally_required: if `server.address` is set
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -202,8 +199,7 @@ groups:
         requirement_level:
           recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
 
   # Vector retrieval and rerank share this group: both describe a search over a
   # document set rather than a model invocation, and neither reports the
@@ -250,8 +246,7 @@ groups:
         requirement_level:
           conditionally_required: if `server.address` is set
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -262,8 +257,7 @@ groups:
         requirement_level:
           recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
 
   # Rerank is its own subtype with its own payload and emitter branch, and it
   # reports gen_ai.operation.name as a fixed `rerank`. It carries no data source
@@ -308,8 +302,7 @@ groups:
         requirement_level:
           conditionally_required: if `server.address` is set
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -320,5 +313,4 @@ groups:
         requirement_level:
           recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
