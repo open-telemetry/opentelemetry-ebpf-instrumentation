@@ -55,6 +55,7 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string)
 		"DOTNET_RUNTIME_IMAGE="+runtimeImage,
 		fmt.Sprintf("DOTNET_RUNTIME_USER=%d:%d", os.Getuid(), os.Getgid()))
 	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	t.Cleanup(func() { runWeaverValidation(t) })
 	require.NoError(t, compose.Up())
 
 	client := &http.Client{Timeout: 2 * time.Second}

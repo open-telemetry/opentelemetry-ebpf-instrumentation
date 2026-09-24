@@ -8,8 +8,16 @@ exporters:
     endpoint: 0.0.0.0:9464
     resource_to_telemetry_conversion:
       enabled: true
+  otlp/weaver:
+    endpoint: weaver:4317
+    tls:
+      insecure: true
+    compression: none
 service:
   pipelines:
     metrics:
       receivers: [otlp]
       exporters: [prometheus]
+    metrics/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weaver]

@@ -51,3 +51,13 @@ services:
       - ./configs/otelcol-config-dotnet-runtime-metrics.yml:/etc/otelcol-config.yml:ro
     ports:
       - "${DOTNET_RUNTIME_OTLP_PROM_PORT:-19464}:9464"
+    depends_on:
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
