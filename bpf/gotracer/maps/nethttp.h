@@ -90,7 +90,7 @@ struct {
     __type(key, go_addr_key_t); // key: go routine doing framer write headers
     __type(
         value,
-        framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
+        go_h2_framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } framer_invocation_map SEC(".maps");
 
