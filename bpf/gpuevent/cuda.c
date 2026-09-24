@@ -10,6 +10,7 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_tracing.h>
 
 #include <gpuevent/cuda.h>
@@ -151,7 +152,7 @@ struct {
 static __always_inline void resolve_device(const u64 id, cuda_device_t *dev) {
     dev->index = 0;
     dev->known = 0;
-    __builtin_memset(dev->uuid, 0, sizeof(dev->uuid));
+    bpf_memset(dev->uuid, 0, sizeof(dev->uuid));
 
     const u32 *thread_dev = bpf_map_lookup_elem(&cuda_thread_device, &id);
     if (thread_dev) {
@@ -169,7 +170,7 @@ static __always_inline void resolve_device(const u64 id, cuda_device_t *dev) {
     };
     const cuda_device_info_t *info = bpf_map_lookup_elem(&cuda_device_info, &key);
     if (info) {
-        __builtin_memcpy(dev->uuid, info->uuid, sizeof(dev->uuid));
+        bpf_memcpy(dev->uuid, info->uuid, sizeof(dev->uuid));
     }
 }
 
@@ -259,8 +260,8 @@ static __always_inline void submit_device_event(const u32 index, const cuda_devi
     e->flags = k_event_device_info;
     task_pid(&e->pid_info);
     e->index = index;
-    __builtin_memcpy(e->uuid, info->uuid, sizeof(e->uuid));
-    __builtin_memcpy(e->name, info->name, sizeof(e->name));
+    bpf_memcpy(e->uuid, info->uuid, sizeof(e->uuid));
+    bpf_memcpy(e->name, info->name, sizeof(e->name));
 
     bpf_ringbuf_submit(e, 0);
 }
@@ -283,15 +284,15 @@ static __always_inline void merge_device_info(
     cuda_device_info_t info = {};
     const cuda_device_info_t *stored = bpf_map_lookup_elem(&cuda_device_info, &key);
     if (stored) {
-        __builtin_memcpy(info.uuid, stored->uuid, sizeof(info.uuid));
-        __builtin_memcpy(info.name, stored->name, sizeof(info.name));
+        bpf_memcpy(info.uuid, stored->uuid, sizeof(info.uuid));
+        bpf_memcpy(info.name, stored->name, sizeof(info.name));
     }
 
     if (provided & k_device_has_uuid) {
-        __builtin_memcpy(info.uuid, uuid, sizeof(info.uuid));
+        bpf_memcpy(info.uuid, uuid, sizeof(info.uuid));
     }
     if (provided & k_device_has_name) {
-        __builtin_memcpy(info.name, name, sizeof(info.name));
+        bpf_memcpy(info.name, name, sizeof(info.name));
     }
 
     if (bpf_map_update_elem(&cuda_device_info, &key, &info, BPF_ANY) != 0) {
