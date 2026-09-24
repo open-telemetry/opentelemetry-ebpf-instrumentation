@@ -28,6 +28,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 func TestGoOffsetsMapKey(t *testing.T) {
@@ -134,6 +135,47 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	probes := tracer.GoProbes()
 	for _, symbol := range GoChannelLinkProbeSymbols() {
 		require.Contains(t, probes, symbol)
+	}
+}
+
+// runtime.casgstatus fires on every goroutine status transition and exists only
+// to keep traces_ctx_v1 current, so it must not be attached when nothing reads
+// that map. Built through New so the config predicate is covered too.
+func TestCasgstatusProbeFollowsTraceContextPopulation(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	for _, tc := range []struct {
+		name     string
+		cfg      *obi.Config
+		expected bool
+	}{
+		{name: "default", cfg: &obi.Config{}, expected: false},
+		{
+			name:     "explicit setting",
+			cfg:      &obi.Config{EBPF: config.EBPFTracer{PopulateTraceContext: true}},
+			expected: true,
+		},
+		{
+			name: "log enricher",
+			cfg: &obi.Config{EBPF: config.EBPFTracer{LogEnricher: config.LogEnricherConfig{
+				Services: []config.LogEnricherServiceConfig{{}},
+			}}},
+			expected: true,
+		},
+		{
+			name:     "node.js manual spans",
+			cfg:      &obi.Config{NodeJS: obi.NodeJSConfig{Enabled: true, ManualSpans: true}},
+			expected: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tracer := New(nil, tc.cfg, nil)
+
+			require.Equal(t, tc.expected, tracer.constants()["g_traces_ctx_v1_enabled"])
+
+			_, attached := tracer.GoProbes()["runtime.casgstatus"]
+			require.Equal(t, tc.expected, attached)
+		})
 	}
 }
 

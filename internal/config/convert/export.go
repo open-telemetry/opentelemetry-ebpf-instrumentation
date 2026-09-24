@@ -427,6 +427,7 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 			ContextPropagation:     cfg.EBPF.ContextPropagation,
 			OverrideBPFLoopEnabled: cfg.EBPF.OverrideBPFLoopEnabled,
 			DisableBlackBoxCP:      cfg.EBPF.DisableBlackBoxCP,
+			PopulateTraceContext:   cfg.EBPF.PopulateTraceContext,
 		},
 		Traffic: schema.Traffic{
 			ControlBackend:    cfg.EBPF.TCBackend,

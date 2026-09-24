@@ -235,6 +235,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"

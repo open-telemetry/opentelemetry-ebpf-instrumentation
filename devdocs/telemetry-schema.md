@@ -121,6 +121,15 @@ section empty once drained.
   `span.obi.rpc.{client,server}` become `span.obi.rpc.{grpc,onc_rpc}.{client,server}`.
   No emitted attribute changes, but a link into `site/docs/spans.md` anchored on
   one of the old ids no longer resolves.
+- The pinned `traces_ctx_v1` map is no longer populated by default. It is what an external
+  reader correlates against, so a profiler doing trace-profile correlation stops matching
+  samples to spans until `ebpf.populate_trace_context` (`OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT`)
+  is set to `true`. OBI's own readers, the log enricher and the Node.js manual span bridge,
+  turn population on by themselves and are unaffected.
+- Go channel span links may be emitted less often. Handoff correlation resolves the sender
+  from the per-goroutine protocol maps and falls back to `traces_ctx_v1`, so a handoff that
+  relied on that fallback now emits no link. Handoffs whose sender is covered by a protocol
+  map are unaffected. `ebpf.populate_trace_context: true` restores the fallback.
 
 - A span attribute OBI parses but could not determine is no longer emitted as an empty
   string. It covers every such attribute the span exporter appends, among them
