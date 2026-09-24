@@ -287,6 +287,135 @@ func TestDotnetRuntimeDeleteMatchesExactLabels(t *testing.T) {
 	}
 }
 
+func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
+	now := time.Unix(1000, 0)
+	previousClock := timeNow
+	timeNow = func() time.Time { return now }
+	t.Cleanup(func() { timeNow = previousClock })
+	registry := prometheus.NewRegistry()
+	reporter, err := newReporter(
+		t.Context(),
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+		}},
+		request.UnresolvedNames{}, nil,
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)), nil,
+	)
+	require.NoError(t, err)
+	metrics := []struct {
+		name  string
+		scale float64
+	}{
+		{attributes.DotnetGCHeapTotalAllocated.Prom, 1},
+		{attributes.DotnetJITCompiledILSize.Prom, 2},
+		{attributes.DotnetJITCompiledMethods.Prom, 3},
+		{attributes.DotnetThreadPoolWorkItemCount.Prom, 4},
+		{attributes.DotnetMonitorLockContentions.Prom, 5},
+		{attributes.DotnetGCPauseTime.Prom, 0.125},
+		{attributes.DotnetJITCompilationTime.Prom, 0.25},
+	}
+	sample := func(value uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		il, methods, work, locks := value*2, value*3, value*4, value*5
+		pause, jit := float64(value)*0.125, float64(value)*0.25
+		return &runtimemetrics.DotnetRuntimeMetricSnapshot{
+			GCHeapTotalAllocated: &value, JITCompiledILSize: &il, JITCompiledMethods: &methods,
+			ThreadPoolWorkItemCount: &work, MonitorLockContentions: &locks,
+			GCPauseTime: &pause, JITCompilationTime: &jit,
+		}
+	}
+	first := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 123, Generation: 1,
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
+		Dotnet:  &runtimemetrics.DotnetRuntimeMetricSnapshot{},
+	}
+	publish := func(snapshot runtimemetrics.RuntimeMetricSnapshot) {
+		reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+	}
+	labels := map[string]string{"service_name": "orders"}
+	assertTotal := func(want float64) {
+		t.Helper()
+		for _, metric := range metrics {
+			point := gatheredMetric(t, registry, metric.name, labels)
+			require.NotNil(t, point, metric.name)
+			require.NotNil(t, point.Counter, metric.name)
+			require.Len(t, point.Label, 1, metric.name)
+			require.InDelta(t, want*metric.scale, point.GetCounter().GetValue(), 0, metric.name)
+		}
+	}
+	publish(first)
+	for _, metric := range metrics {
+		require.Nil(t, gatheredMetric(t, registry, metric.name, labels))
+	}
+	first.Dotnet = sample(0)
+	publish(first)
+	assertTotal(0)
+	first.Dotnet = sample(10)
+	publish(first)
+	second := first
+	second.PID = 456
+	second.Dotnet = sample(20)
+	publish(second)
+	publish(first)
+	assertTotal(30)
+	first.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+	publish(first)
+	first.Dotnet = sample(15)
+	publish(first)
+	assertTotal(35)
+	first.Dotnet = sample(0)
+	publish(first)
+	assertTotal(35)
+	first.Dotnet = sample(2)
+	publish(first)
+	assertTotal(37)
+	first.Generation = 2
+	first.Dotnet = sample(1)
+	publish(first)
+	assertTotal(38)
+	staleRemoval := first
+	staleRemoval.Generation = 1
+	staleRemoval.Removed = true
+	publish(staleRemoval)
+	publish(first)
+	assertTotal(38)
+	require.Len(t, reporter.dotnetRuntimeMetrics.values, 10)
+	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 4)
+	// Repeated samples keep the shared series alive beyond its original TTL.
+	for range 3 {
+		now = now.Add(30 * time.Second)
+		publish(second)
+		assertTotal(38)
+	}
+	first.Dotnet = sample(2)
+	publish(first)
+	assertTotal(39)
+	first.Removed = true
+	publish(first)
+	require.Len(t, reporter.dotnetRuntimeMetrics.values, 5)
+	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 2)
+	publish(second)
+	assertTotal(39)
+	second.Removed = true
+	publish(second)
+	require.Empty(t, reporter.dotnetRuntimeMetrics.values)
+	require.Empty(t, reporter.dotnetRuntimeMetrics.durationValues)
+	assertTotal(39)
+	second.Removed = false
+	publish(second)
+	assertTotal(59)
+	reporter.dotnetRuntimeMetrics.delete(reporter.labelValuesTargetInfo(&second.Service))
+	require.Empty(t, reporter.dotnetRuntimeMetrics.values)
+	require.Empty(t, reporter.dotnetRuntimeMetrics.durationValues)
+	for _, metric := range metrics {
+		require.Nil(t, gatheredMetric(t, registry, metric.name, labels))
+	}
+	publish(second)
+	assertTotal(20)
+}
+
 func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 	selection := attributes.Selection{
 		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
