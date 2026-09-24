@@ -1,48 +1,173 @@
 groups:
-  # gRPC and ONC/Sun RPC share one client / server pair (mirroring upstream's
-  # generic span.rpc.client / span.rpc.server), discriminated by
-  # rpc.system.name. The onc_rpc.* attributes only appear on ONC/Sun RPC spans.
-  - id: span.obi.rpc.server
+  # gRPC and ONC/Sun RPC are separate emitter branches with disjoint attribute
+  # sets: only gRPC reports rpc.method, rpc.response.status_code and
+  # client.address, and only ONC/Sun RPC reports onc_rpc.*. One group per system
+  # rather than a union no span satisfies, which is also how upstream models
+  # per-system RPC conventions.
+  - id: span.obi.rpc.grpc.server
     type: span
     span_kind: server
     stability: development
-    brief: OBI inbound RPC server span (gRPC, ONC/Sun RPC).
+    brief: OBI inbound gRPC server span.
     attributes:
       - ref: rpc.system.name
+        requirement_level: required
       - ref: rpc.method
+        requirement_level: required
       - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the status is inside the gRPC enum
       - ref: client.address
+        requirement_level: recommended
       - ref: server.address
+        requirement_level:
+          conditionally_required: if the host address was resolved from the connection
       - ref: server.port
-      - ref: onc_rpc.program.name
-      - ref: onc_rpc.procedure.number
-      - ref: onc_rpc.procedure.name
-      - ref: onc_rpc.version
-      - ref: onc_rpc.auth.flavor
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: error.type
-  - id: span.obi.rpc.client
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+
+  - id: span.obi.rpc.grpc.client
     type: span
     span_kind: client
     stability: development
-    brief: OBI outbound RPC client span (gRPC, ONC/Sun RPC).
+    brief: OBI outbound gRPC client span.
     attributes:
       - ref: rpc.system.name
+        requirement_level: required
       - ref: rpc.method
+        requirement_level: required
       - ref: rpc.response.status_code
-      - ref: server.address
-      - ref: server.port
+        requirement_level:
+          conditionally_required: if the status is inside the gRPC enum
       - ref: service.peer.name
-      - ref: onc_rpc.program.name
-      - ref: onc_rpc.procedure.number
-      - ref: onc_rpc.procedure.name
-      - ref: onc_rpc.version
-      - ref: onc_rpc.auth.flavor
+        requirement_level:
+          recommended: if the peer service name could be resolved
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+
+  - id: span.obi.rpc.onc_rpc.server
+    type: span
+    span_kind: server
+    stability: development
+    brief: OBI inbound ONC/Sun RPC server span.
+    attributes:
+      - ref: rpc.system.name
+        requirement_level: required
+      - ref: onc_rpc.program.name
+        requirement_level:
+          conditionally_required: if the program name was read from the call
+      - ref: onc_rpc.procedure.number
+        requirement_level:
+          conditionally_required: if the procedure number was read from the call
+      - ref: onc_rpc.procedure.name
+        requirement_level:
+          recommended: if the procedure maps to a known name
+      - ref: onc_rpc.version
+        requirement_level:
+          recommended: if the call carried a program version
+      - ref: onc_rpc.auth.flavor
+        requirement_level:
+          conditionally_required: if the call carried an auth flavor
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the host address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
+      - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+
+  - id: span.obi.rpc.onc_rpc.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI outbound ONC/Sun RPC client span.
+    attributes:
+      - ref: rpc.system.name
+        requirement_level: required
+      - ref: onc_rpc.program.name
+        requirement_level:
+          conditionally_required: if the program name was read from the call
+      - ref: onc_rpc.procedure.number
+        requirement_level:
+          conditionally_required: if the procedure number was read from the call
+      - ref: onc_rpc.procedure.name
+        requirement_level:
+          recommended: if the procedure maps to a known name
+      - ref: onc_rpc.version
+        requirement_level:
+          recommended: if the call carried a program version
+      - ref: onc_rpc.auth.flavor
+        requirement_level:
+          conditionally_required: if the call carried an auth flavor
+      - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
+      - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error

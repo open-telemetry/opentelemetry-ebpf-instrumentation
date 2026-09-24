@@ -1047,10 +1047,11 @@ func TestSpanOTELGetters_ErrorTypeOmitted(t *testing.T) {
 	assert.Equal(t, "SERVER_ERROR", kv.Value.AsString())
 }
 
-// TestSpanOTELGetters_GenAIOperationNameOmitted ensures gen_ai.operation.name
-// is omitted — not emitted as an empty string — when the operation could not
-// be derived, while classified operations keep it.
-func TestSpanOTELGetters_GenAIOperationNameOmitted(t *testing.T) {
+// TestSpanOTELGetters_GenAIOperationNameClamped ensures gen_ai.operation.name
+// clamps to _OTHER — not an empty string — on a GenAI span whose operation
+// could not be derived, stays absent on spans that carry no GenAI data, and
+// keeps classified operations.
+func TestSpanOTELGetters_GenAIOperationNameClamped(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.GenAIOperationName)
 	require.True(t, ok, "getter should be found for GenAIOperationName")
 
@@ -1064,7 +1065,8 @@ func TestSpanOTELGetters_GenAIOperationNameOmitted(t *testing.T) {
 		SubType: HTTPSubtypeOpenAI,
 		GenAI:   &GenAI{OpenAI: &VendorOpenAI{}},
 	})
-	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+	require.True(t, kv.Valid())
+	assert.Equal(t, OtherOperationName, kv.Value.AsString())
 
 	// classified GenAI span keeps its operation name
 	kv = getter(&Span{

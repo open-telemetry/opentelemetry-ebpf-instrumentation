@@ -16,3 +16,5 @@ groups:
       # Set by the RecordError uprobe (bpf/gotracer/go_sdk.c) from the error
       # passed to the Go SDK's span.RecordError.
       - ref: exception.message
+        requirement_level:
+          conditionally_required: if the application recorded an error on the span

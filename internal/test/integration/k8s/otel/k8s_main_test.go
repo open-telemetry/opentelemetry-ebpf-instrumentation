@@ -61,8 +61,8 @@ func TestMain(m *testing.M) {
 		kube.WeaverValidation(kube.WeaverRequireSpans()),
 		kube.Deploy(testpath.Manifests+"/03-otelcol-weaver.yml"),
 		kube.Deploy(testpath.Manifests+"/04-jaeger.yml"),
-		kube.Deploy(testpath.Manifests+"/05-instrumented-service-otel.yml"),
 		kube.Deploy(testpath.Manifests+"/08-weaver.yml"),
+		kube.DeployAfterWeaverReady(testpath.Manifests+"/05-instrumented-service-otel.yml"),
 	)
 
 	cluster.Run(m)

@@ -544,6 +544,53 @@ func testHTTPTracesNestedClient(t *testing.T) {
 	testHTTPTracesNestedCalls(t)
 }
 
+func testHTTPTracesNestedBigHeader(t *testing.T) {
+	waitForTestComponents(t, "http://localhost:8080")
+
+	traceID := createTraceID()
+	parentID := createParentID()
+	traceparent := createTraceparent(traceID, parentID)
+	doHTTPGetWithTraceparent(t, "http://localhost:8080/echoBigHeader", 203, traceparent)
+	// Do some requests to make sure we see all events
+	for range 10 {
+		ti.DoHTTPGet(t, "http://localhost:8080/metrics", 200)
+	}
+
+	var trace jaeger.Trace
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2FechoBigHeader")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/echoBigHeader"})
+		require.Len(ct, traces, 1)
+		trace = traces[0]
+	}, testTimeout, 100*time.Millisecond)
+
+	res := trace.FindByOperationName("GET /echoBigHeader", "server")
+	require.Len(t, res, 1)
+	server := res[0]
+	require.Equal(t, traceID, server.TraceID)
+	// Validate that "server" is a CHILD_OF the traceparent's "parent-id"
+	require.Len(t, trace.ChildrenOf(parentID), 1)
+
+	res = trace.FindByOperationName("GET /echoBack", "client")
+	require.Len(t, res, 1)
+	client := res[0]
+	require.Equal(t, traceID, client.TraceID)
+
+	res = trace.FindByOperationName("GET /echoBack", "server")
+	require.Len(t, res, 1)
+	inner := res[0]
+	p, ok := trace.ParentOf(&inner)
+	require.True(t, ok)
+	assert.Equal(t, client.SpanID, p.SpanID)
+}
+
 func testHTTPTracesNestedClientWithContextPropagation(t *testing.T) {
 	testHTTPTracesNestedCalls(t)
 }

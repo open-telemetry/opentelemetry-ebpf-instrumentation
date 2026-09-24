@@ -112,7 +112,14 @@ public class JavaExecutorInst {
       if (ThreadInfo.loomTaskOrVirtualThread(task)) {
         return;
       }
+      task = SSLStorage.wrapJdkHttpClientTask(task);
+      if (SSLStorage.isJdkHttpClientTask(task)) {
+        return;
+      }
       long threadId = Agent.NativeLib.gettid();
+      if (SSLStorage.isUnscopedJdkHttpClientSelectorThread()) {
+        return;
+      }
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
         if (SSLStorage.bootDebugOn().equals(true)) {

@@ -543,6 +543,17 @@ func mcpAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []a
 	return attrs
 }
 
+// genAIOperationName reports the operation a GenAI span describes, falling back
+// to the unknown-operation marker. The attribute is required on every GenAI
+// carrier, and an empty string would satisfy presence while carrying nothing.
+func genAIOperationName(name string) string {
+	if name == "" {
+		return request.OtherOperationName
+	}
+
+	return name
+}
+
 // jsonRPCAttributes returns JSON-RPC span attributes following the OTEL RPC semantic conventions.
 func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
 	if span.SubType != request.HTTPSubtypeJSONRPC || span.JSONRPC == nil {
@@ -862,13 +873,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeOpenAI && span.GenAI != nil && span.GenAI.OpenAI != nil {
 			ai := span.GenAI.OpenAI
 			attrs = append(attrs, semconv.GenAIProviderNameOpenAI)
-			if ai.OperationName != "" {
-				// Omit gen_ai.operation.name when the operation could not be
-				// derived rather than emitting an empty value.
-				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
-			}
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(genAIOperationName(ai.OperationName)))
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
-			if ai.OperationName == "conversation" || ai.OperationName == "chatkit.session" || ai.OperationName == "chatkit.thread" {
+			if ai.OperationName == request.ConversationOperationName ||
+				ai.OperationName == request.ChatKitSessionOperationName ||
+				ai.OperationName == request.ChatKitThreadOperationName {
 				attrs = append(attrs, semconv.GenAIConversationID(ai.ID))
 			}
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
@@ -963,11 +972,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeAnthropic && span.GenAI != nil && span.GenAI.Anthropic != nil {
 			ai := span.GenAI.Anthropic
 			attrs = append(attrs, semconv.GenAIProviderNameAnthropic)
-			if ai.Output.Type != "" {
-				// Omit gen_ai.operation.name when the response type was not
-				// captured rather than emitting an empty value.
-				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.Output.Type))
-			}
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(genAIOperationName(ai.Output.Type)))
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.GenAIResponseID(ai.Output.RequestID))
 			} else {
@@ -1099,12 +1104,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeQwen && span.GenAI != nil && span.GenAI.Qwen != nil {
 			ai := span.GenAI.Qwen
 			attrs = append(attrs, semconv.GenAIProviderNameKey.String(attr.QwenProviderName))
-			if ai.OperationName != "" {
-				// gen_ai.operation.name must not be emitted as an empty
-				// string: omit it when the operation could not be derived
-				// (re-typed to string in schemas/obi/groups/gen_ai/registry.yaml).
-				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
-			}
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(genAIOperationName(ai.OperationName)))
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			if ai.ResponseModel != "" {
@@ -1190,7 +1190,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeOllama && span.GenAI != nil && span.GenAI.Ollama != nil {
 			ai := span.GenAI.Ollama
 			attrs = append(attrs, semconv.GenAIProviderNameKey.String("ollama"))
-			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(genAIOperationName(ai.OperationName)))
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			if ai.ResponseModel != "" {
 				attrs = append(attrs, semconv.GenAIResponseModel(ai.ResponseModel))
@@ -1225,7 +1225,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeOpenAICompatible && span.GenAI != nil && span.GenAI.OpenAICompatible != nil {
 			ai := span.GenAI.OpenAICompatible
 			attrs = append(attrs, semconv.GenAIProviderNameKey.String(span.GenAIProviderName()))
-			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(genAIOperationName(ai.OperationName)))
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			if ai.ResponseModel != "" {

@@ -483,3 +483,53 @@ func TestOpenAICompatibleSpan_SparseReportedUsage(t *testing.T) {
 		})
 	}
 }
+
+// The responses case set only the API type, so every Responses-API call through
+// a gateway reported no operation at all.
+func TestOpenAICompatibleSpan_ResponsesReportsOperation(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/responses", compatibleChatRequestBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+	span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAICompatible)
+	assert.Equal(t, request.ResponseOperationName, span.GenAI.OpenAICompatible.OperationName)
+	assert.Equal(t, "responses", span.GenAI.OpenAICompatible.APIType)
+}
+
+// Retrieving a stored response returns the same shape a generation does, so the
+// path is what keeps it out of the `response` operation and out of the
+// inference duration.
+func TestOpenAICompatibleSpan_StoredResponseRetrievalReportsOther(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+	req := makeRequest(t, http.MethodGet, "http://litellm.local/v1/responses/resp_68079a4c", "")
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+	span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAICompatible)
+	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAICompatible.OperationName)
+	assert.Empty(t, span.GenAI.OpenAICompatible.APIType)
+}
+
+// A gateway is matched by host, so any path on that host reaches the parser.
+func TestOpenAICompatibleSpan_UnknownEndpointReportsOther(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/rerank", compatibleChatRequestBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+	span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAICompatible)
+	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAICompatible.OperationName)
+}

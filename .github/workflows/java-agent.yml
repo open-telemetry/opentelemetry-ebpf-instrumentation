@@ -100,6 +100,23 @@ jobs:
           GRADLE_OPTS: -Dorg.gradle.java.home=${{ steps.gradle-jdk.outputs.path }}
         run: gradle build -x test --no-daemon --stacktrace
 
+      - name: Verify native libraries
+        run: |
+          set -Eeuo pipefail
+
+          agent_jar="build/obi-java-agent.jar"
+          entries_file="${RUNNER_TEMP}/obi-java-agent-entries.txt"
+          unzip -Z1 "${agent_jar}" > "${entries_file}"
+
+          for native_library in \
+            native/linux-amd64/libobijni.so \
+            native/linux-aarch64/libobijni.so; do
+            if ! grep -Fqx "${native_library}" "${entries_file}"; then
+              printf 'Missing %s from %s\n' "${native_library}" "${agent_jar}" >&2
+              exit 1
+            fi
+          done
+
       - name: Run tests on JDK ${{ matrix.test-java }}
         env:
           GRADLE_OPTS: -Dorg.gradle.java.home=${{ steps.gradle-jdk.outputs.path }}

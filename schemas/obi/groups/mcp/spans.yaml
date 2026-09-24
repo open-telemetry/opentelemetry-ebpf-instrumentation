@@ -16,13 +16,13 @@ groups:
         requirement_level: required
       - ref: mcp.protocol.version
         requirement_level:
-          conditionally_required: if the peer reported a protocol version
+          recommended: if the peer reported a protocol version
       - ref: mcp.resource.uri
         requirement_level:
           conditionally_required: if the request named a resource
       - ref: mcp.session.id
         requirement_level:
-          conditionally_required: if the exchange is part of a session
+          recommended: if the exchange is part of a session
       # Set to `execute_tool` for a tool call and left unset otherwise, so it
       # cannot be required here.
       - ref: gen_ai.operation.name
@@ -33,7 +33,7 @@ groups:
           conditionally_required: if the operation executes a tool
       - ref: gen_ai.tool.type
         requirement_level:
-          conditionally_required: if the operation executes a tool
+          recommended: if the operation executes a tool
       - ref: gen_ai.tool.call.arguments
         requirement_level: opt_in
       - ref: gen_ai.tool.call.result
@@ -51,10 +51,23 @@ groups:
         requirement_level:
           conditionally_required: if the operation ended in an error
       - ref: server.address
+        requirement_level:
+          recommended: if the server address could be resolved
       - ref: server.port
+        requirement_level:
+          recommended: when `server.address` is set
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
-        requirement_level: opt_in
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
