@@ -241,7 +241,7 @@ OBI currently documents the following GPU execution instrumentation support:
 
 | Library | Baseline | Instrumented primitives | Limitations |
 |:--------|:---------|:------------------------|:------------|
-| `libcudart` | `>= 7.0` | `cudaLaunchKernel`, `cudaGraphLaunch`, `cudaMalloc`, `cudaFree`, `cudaMemset`, `cudaMemcpy`, `cudaMemcpyAsync`, `cudaStreamCreate`, `cudaStreamCreateWithFlags`, `cudaStreamCreateWithPriority`, `cudaStreamDestroy`, `cudaEventRecord`, `cudaEventRecordWithFlags`, `cudaEventSynchronize`, `cudaStreamSynchronize`, `cudaDeviceSynchronize`, `cudaHostRegister` | None documented |
+| `libcudart` | `>= 7.0` | `cudaLaunchKernel`, `cudaGraphLaunch`, `cudaMalloc`, `cudaFree`, `cudaMemset`, `cudaMemcpy`, `cudaMemcpyAsync`, `cudaStreamCreate`, `cudaStreamCreateWithFlags`, `cudaStreamCreateWithPriority`, `cudaStreamDestroy`, `cudaEventRecord`, `cudaEventRecordWithFlags`, `cudaEventSynchronize`, `cudaStreamSynchronize`, `cudaDeviceSynchronize`, `cudaHostRegister` | Device UUID and model attribution through `cudaGetDeviceProperties` require CUDA 10+, because `cudaDeviceProp.uuid` was added at the offset OBI reads in that release. |
 | `libcuda` | `>= 7.0` | `cuLaunchKernel`, `cuLaunchKernelEx`, `cuGraphLaunch` | None documented |
 
 Since the CUDA runtime implements the driver API, launches in a process that maps both libraries would be observed twice; OBI deduplicates them in the eBPF programs by suppressing the driver API call that a runtime API call on the same thread is still executing.

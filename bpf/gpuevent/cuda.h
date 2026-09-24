@@ -21,9 +21,9 @@ enum { k_cuda_uuid_len = 16 };
 enum { k_cuda_name_len = 64 };
 
 // Offsets of the name and UUID inside the cudaDeviceProp struct that
-// cudaGetDeviceProperties fills in. The struct grows at the end with every CUDA
-// release, but its first members have been stable since CUDA 10: the model name
-// in a char[256], immediately followed by the device UUID.
+// cudaGetDeviceProperties fills in. The model name at offset 0 has been stable
+// since CUDA 7.0. The UUID at offset 256 was introduced in CUDA 10.0, so
+// reading it on earlier releases would interpret unrelated fields.
 enum { k_cuda_prop_name_off = 0 };
 enum { k_cuda_prop_uuid_off = 256 };
 

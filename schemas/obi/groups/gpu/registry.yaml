@@ -37,10 +37,12 @@ groups:
         type: int
         stability: development
         brief: >
-          Index of the CUDA device the call ran on, as the process sees it. It
-          defaults to 0, CUDA's default device, so it is always known.
-          `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat
-          across processes; `cuda.device.uuid` identifies the physical GPU.
+          Index of the CUDA device the call ran on, as the process sees it. The
+          attribute is only present after the calling thread has selected or
+          queried a device through `cudaSetDevice` or `cudaGetDevice`; it is
+          omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES`
+          remaps the index, which is why it may repeat across processes;
+          `cuda.device.uuid` identifies the physical GPU.
       - id: cuda.device.uuid
         type: string
         stability: development

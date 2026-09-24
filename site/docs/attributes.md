@@ -45,7 +45,7 @@ Attributes carried on OBI's CUDA GPU metrics.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `cuda.device.index` | int | development | Index of the CUDA device the call ran on, as the process sees it. It defaults to 0, CUDA's default device, so it is always known. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.index` | int | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
 | `cuda.device.model` | string | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
 | `cuda.device.uuid` | string | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 | `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
