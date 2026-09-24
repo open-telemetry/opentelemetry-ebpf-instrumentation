@@ -42,7 +42,7 @@ services:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/obi/Dockerfile-with-javaagent
     command:
-      - --config=/configs/instrumenter-config-traces.yml
+      - --config=/configs/instrumenter-config-traces-response-observed.yml
     image: hatest-obi-javaagent
     volumes:
       - ./configs:/configs

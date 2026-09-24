@@ -40,12 +40,32 @@ func TestTraceAttributesSelector_UnparsedResponseOmitsStatusCode(t *testing.T) {
 			ResponseObservation: request.ResponseReceived,
 		}
 
-		attrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
+		attrs := TraceAttributesSelector(span, map[attr.Name]struct{}{attr.OBIHTTPResponseObserved: {}})
 
 		assert.False(t, hasAttributeKey(attrs, statusCode),
 			"%s: no status code is reported when none was observed", eventType)
 		assert.Contains(t, attrs, attribute.Bool(string(observed), false),
 			"%s: the span says the response was not observed", eventType)
+	}
+}
+
+func TestTraceAttributesSelector_ResponseObservedOffByDefault(t *testing.T) {
+	observed := attribute.Key(attr.OBIHTTPResponseObserved)
+
+	for _, eventType := range []request.EventType{request.EventTypeHTTPClient, request.EventTypeHTTP} {
+		span := &request.Span{
+			Type:                eventType,
+			Method:              "GET",
+			Path:                "/r",
+			Host:                "relay",
+			HostPort:            9100,
+			ResponseObservation: request.ResponseReceived,
+		}
+
+		attrs := TraceAttributesSelector(span, defaultTraceAttrs(t))
+
+		assert.False(t, hasAttributeKey(attrs, observed),
+			"%s: the observation marker is opt-in", eventType)
 	}
 }
 
@@ -85,7 +105,7 @@ func TestTraceAttributesSelector_ObservedResponseKeepsStatusCode(t *testing.T) {
 			Status:   200,
 		}
 
-		attrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
+		attrs := TraceAttributesSelector(span, map[attr.Name]struct{}{attr.OBIHTTPResponseObserved: {}})
 
 		assert.Contains(t, attrs, request.HTTPResponseStatusCode(200), eventType)
 		assert.False(t, hasAttributeKey(attrs, observed),

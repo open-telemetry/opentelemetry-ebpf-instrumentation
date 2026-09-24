@@ -6,4 +6,19 @@ discovery:
     - namespace: grpc-python
       name: testserver
       open_ports: 8080
-      
+attributes:
+  select:
+    traces:
+      # An include list replaces the default set, so the defaults are listed
+      # alongside the opt-in attribute this suite needs.
+      include:
+      - service.peer.name
+      - error.type
+      - http.request.method_original
+      - url.query
+      - user_agent.original
+      - network.peer.address
+      - network.peer.port
+      - network.protocol.version
+      - dns.question.name
+      - db.query.summary
