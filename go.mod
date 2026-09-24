@@ -78,6 +78,7 @@ require (
 	go.opentelemetry.io/collector/receiver v1.65.0
 	go.opentelemetry.io/collector/receiver/receivertest v0.159.0
 	go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.5.3
+	go.opentelemetry.io/contrib/detectors/aws/ecs v1.46.0
 	go.opentelemetry.io/contrib/detectors/aws/eks v1.46.0
 	go.opentelemetry.io/contrib/detectors/azure/azurevm v0.18.0
 	go.opentelemetry.io/contrib/detectors/gcp v1.46.0
@@ -234,7 +235,6 @@ require (
 	go.opentelemetry.io/collector/pipeline v1.65.0 // indirect
 	go.opentelemetry.io/collector/pipeline/xpipeline v0.158.0 // indirect
 	go.opentelemetry.io/collector/receiver/xreceiver v0.159.0 // indirect
-	go.opentelemetry.io/contrib/detectors/aws/ecs v1.46.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect
 	go.opentelemetry.io/contrib/propagators/autoprop v0.71.0 // indirect

@@ -875,7 +875,7 @@
       "properties": {
         "cluster": {
           "type": "string",
-          "description": "Specifies the ECS cluster whose task private IPs are resolved.",
+          "description": "Specifies the ECS cluster whose task private IPs are resolved. If unset, it defaults to the cluster from OBI's ECS task metadata V4.",
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_CLUSTER"
         },
         "refresh_interval": {
@@ -892,7 +892,7 @@
         },
         "region": {
           "type": "string",
-          "description": "Specifies the AWS region containing the ECS cluster.",
+          "description": "Specifies the AWS region containing the ECS cluster. If unset, it defaults to the region from OBI's ECS task metadata V4.",
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_REGION"
         }
       },

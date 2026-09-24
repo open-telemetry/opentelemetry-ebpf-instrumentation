@@ -5,6 +5,7 @@ package transform
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -113,6 +114,8 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 }
 
 func TestECSInventoryProviderConfiguration(t *testing.T) {
+	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", "")
+	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
 	for _, cfg := range []*NameResolverConfig{nil, {Sources: []Source{SourceDNS}}} {
 		ctxInfo := &global.ContextInfo{}
 		run, err := ECSInventoryProvider(ctxInfo, cfg)(t.Context())
@@ -130,8 +133,75 @@ func TestECSInventoryProviderConfiguration(t *testing.T) {
 		_, err := ECSInventoryProvider(ctxInfo, &NameResolverConfig{
 			Sources: []Source{SourceECS}, ECS: ecsCfg,
 		})(t.Context())
-		require.ErrorContains(t, err, "cluster, region, and a positive refresh interval are required")
+		if ecsCfg.RefreshInterval <= 0 {
+			require.ErrorContains(t, err, "a positive refresh interval is required")
+		} else {
+			require.ErrorContains(t, err, "configure ecs.cluster and ecs.region")
+		}
 		assert.Nil(t, ctxInfo.AppO11y.ECSInventory)
+	}
+}
+
+func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
+	const detectedCluster = "arn:aws:ecs:us-east-1:123456789012:cluster/test"
+	for _, tc := range []struct {
+		name        string
+		cluster     string
+		region      string
+		wantCluster string
+		wantRegion  string
+	}{
+		{"discovered", "", "", detectedCluster, "us-east-1"},
+		{"explicit cluster", "configured", "", "configured", "us-east-1"},
+		{"explicit region", "", "eu-west-1", detectedCluster, "eu-west-1"},
+		{"fully configured", "configured", "eu-west-1", "configured", "eu-west-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var metadataRequests, apiRequests atomic.Int32
+			metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				metadataRequests.Add(1)
+				if r.URL.Path == "/task" {
+					fmt.Fprint(w, `{"Cluster":"test","TaskARN":"arn:aws:ecs:us-east-1:123456789012:task/test/task-1"}`)
+					return
+				}
+				fmt.Fprint(w, "{}")
+			}))
+			defer metadata.Close()
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				apiRequests.Add(1)
+				var input struct{ Cluster string }
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+				assert.Equal(t, tc.wantCluster, input.Cluster)
+				assert.Contains(t, r.Header.Get("Authorization"), "/"+tc.wantRegion+"/ecs/aws4_request")
+				w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+				fmt.Fprint(w, `{"taskArns":[]}`)
+			}))
+			defer api.Close()
+			t.Setenv("ECS_CONTAINER_METADATA_URI_V4", metadata.URL)
+			t.Setenv("ECS_CONTAINER_METADATA_URI", "")
+			t.Setenv("AWS_ENDPOINT_URL_ECS", api.URL)
+			t.Setenv("AWS_ACCESS_KEY_ID", "test")
+			t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+			t.Setenv("AWS_SESSION_TOKEN", "")
+			t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+			t.Setenv("AWS_MAX_ATTEMPTS", "1")
+			cfg := &NameResolverConfig{
+				Sources: []Source{SourceECS},
+				ECS:     ECSNameResolverConfig{Cluster: tc.cluster, Region: tc.region, RefreshInterval: time.Second},
+			}
+			original := cfg.ECS
+			info := &global.ContextInfo{}
+			_, err := ECSInventoryProvider(info, cfg)(t.Context())
+			require.NoError(t, err)
+			require.NotNil(t, info.AppO11y.ECSInventory)
+			assert.Equal(t, original, cfg.ECS)
+			assert.EqualValues(t, 1, apiRequests.Load())
+			if tc.cluster != "" && tc.region != "" {
+				assert.Zero(t, metadataRequests.Load())
+			} else {
+				assert.EqualValues(t, 2, metadataRequests.Load())
+			}
+		})
 	}
 }
 

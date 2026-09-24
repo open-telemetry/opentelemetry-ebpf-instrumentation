@@ -38,6 +38,7 @@ const (
 	imgJaeger      = img.Docker("jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8")
 	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6")
 	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
+	imgECSMetaMock = img.Docker("public.ecr.aws/ecs-local/amazon-ecs-local-container-endpoints:latest@sha256:d0fb4c7d8ab2fde76252ff3bb87422de201a2a7a5494a19f5c72e5e90a1fe064")
 	imgNginx       = img.Docker("library/nginx:1.31.5@sha256:05b8cb60c354a44ab824ea6e7dc69b46d50762cdbe728a347a5b656e6fb3d7c4")
 	// imgWeaver MUST match the digest pinned in
 	// `internal/test/integration/components/weaver/service.yml` so the

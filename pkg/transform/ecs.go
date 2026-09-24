@@ -23,14 +23,30 @@ func ECSInventoryProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig) 
 		if cfg == nil || !resolverSources(cfg.Sources).Has(ResolverECS) {
 			return swarm.EmptyRunFunc()
 		}
-		if cfg.ECS.Cluster == "" || cfg.ECS.Region == "" || cfg.ECS.RefreshInterval <= 0 {
-			return nil, errors.New("initializing ECS name resolver: cluster, region, and a positive refresh interval are required")
+		if cfg.ECS.RefreshInterval <= 0 {
+			return nil, errors.New("initializing ECS name resolver: a positive refresh interval is required")
 		}
-		awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.ECS.Region))
+		cluster, region := cfg.ECS.Cluster, cfg.ECS.Region
+		if cluster == "" || region == "" {
+			metadata, err := ecs.DetectTaskMetadata(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("detecting ECS name resolver defaults from task metadata: %w", err)
+			}
+			if cluster == "" {
+				cluster = metadata.Cluster
+			}
+			if region == "" {
+				region = metadata.Region
+			}
+		}
+		if cluster == "" || region == "" {
+			return nil, errors.New("initializing ECS name resolver: configure ecs.cluster and ecs.region when ECS task metadata does not supply them")
+		}
+		awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 		if err != nil {
 			return nil, fmt.Errorf("loading AWS configuration for ECS name resolver: %w", err)
 		}
-		inventory := ecs.NewInventory(awsecs.NewFromConfig(awsCfg), cfg.ECS.Cluster)
+		inventory := ecs.NewInventory(awsecs.NewFromConfig(awsCfg), cluster)
 		if err := inventory.Refresh(ctx); err != nil {
 			nrlog().Warn("can't load initial ECS task inventory; will retry", "error", err)
 		}

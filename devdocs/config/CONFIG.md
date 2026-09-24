@@ -435,9 +435,9 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `name_resolver.ecs.cluster` | `string` | `OTEL_EBPF_NAME_RESOLVER_ECS_CLUSTER` |  |  |  | Specifies the ECS cluster whose task private IPs are resolved. |
+| `name_resolver.ecs.cluster` | `string` | `OTEL_EBPF_NAME_RESOLVER_ECS_CLUSTER` |  |  |  | Specifies the ECS cluster whose task private IPs are resolved. If unset, it defaults to the cluster from OBI's ECS task metadata V4. |
 | `name_resolver.ecs.refresh_interval` | `duration` | `OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL` | `30s` | `30s`, `5m`, `1ms`, etc |  | Controls how often the ECS task inventory is refreshed. |
-| `name_resolver.ecs.region` | `string` | `OTEL_EBPF_NAME_RESOLVER_ECS_REGION` |  |  |  | Specifies the AWS region containing the ECS cluster. |
+| `name_resolver.ecs.region` | `string` | `OTEL_EBPF_NAME_RESOLVER_ECS_REGION` |  |  |  | Specifies the AWS region containing the ECS cluster. If unset, it defaults to the region from OBI's ECS task metadata V4. |
 
 ## `network`
 
