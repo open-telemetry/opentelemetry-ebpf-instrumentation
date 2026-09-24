@@ -212,23 +212,6 @@ groups:
         requirement_level:
           recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a StatefulSet
 
-  # OBI-invented per-host meta-metric — there is no upstream /
-  # collector-contrib analogue. Carries the upstream `host.id` attribute.
-  # OBI's Prometheus exporter emits the underscore `traces_host_info`
-  # counterpart.
-  - id: metric.obi.traces.host.info
-    type: metric
-    metric_name: traces.host.info
-    instrument: gauge
-    unit: ""
-    stability: development
-    brief: >
-      OBI per-host meta-metric carrying the host identifier so dashboards
-      can join trace metrics back to host / instance identity.
-    attributes:
-      - ref: host.id
-        requirement_level: recommended
-
   # --- OTLP exporter throughput / errors ---------------------------------
   - id: metric.obi.obi.otel.metric.exports
     type: metric

@@ -351,16 +351,6 @@ func promSeries(t *testing.T, query string) []promtest.Result {
 	return results
 }
 
-// A withheld duration must not take unrelated metrics down with it. This gauge reports
-// that the host is running, which no call's duration has a say in.
-//
-// The workload also makes calls that are measured, so this only proves the gauge is
-// exported at all. What proves it survives a service whose every call is unmeasured is
-// TestAppMetrics_TracesHostInfoUnmeasuredSpans, which drives that service directly.
-func testHostInfoIsExported(t *testing.T) {
-	promSeries(t, `traces_host_info{}`)
-}
-
 // The service graph edge to the abandoned peer exists and is counted, because the call
 // was made. Its latency is withheld, because the record's duration runs to the close.
 // Dropping the span whole would erase an edge that a service really does talk to.
@@ -432,7 +422,6 @@ func TestSuite_ResponseObservation(t *testing.T) {
 
 	// What a span reports and what a metric reports are decided in separate code, so
 	// the same calls are checked on both sides.
-	t.Run("the host info gauge is exported", testHostInfoIsExported)
 	t.Run("an unmeasured call counts on its edge without a latency", testUnmeasuredCallCountsOnItsEdgeWithoutLatency)
 	t.Run("an unmeasured call publishes no duration", testUnmeasuredCallPublishesNoDuration)
 	t.Run("an unmeasured call still publishes its request size", testUnmeasuredCallStillPublishesItsRequestSize)

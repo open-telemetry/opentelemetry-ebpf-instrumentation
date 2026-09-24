@@ -93,11 +93,6 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
-- The Prometheus `traces_host_info` metric labels the host id `host_id` instead of
-  `cloud_host_id`, matching the `host.id` the OTLP exporter reports and the `host_id`
-  that `target_info` already carried. Dashboards selecting
-  `traces_host_info{cloud_host_id=...}` must be updated. A component vendoring OBI that
-  assigns to `prom.CloudHostIDKey` keeps its own label name.
 - The OTLP span metrics (`traces.span.metrics.*`, and the `traces_spanmetrics_*` names the
   legacy feature emits over OTLP) no longer carry the `host.id` data point attribute. The
   value is unchanged on the resource, so OTLP consumers reading resource attributes lose
