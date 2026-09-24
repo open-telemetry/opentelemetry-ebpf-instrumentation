@@ -60,7 +60,7 @@ func TestPostgresProtocolLengthField(t *testing.T) {
 		assert.Equal(t, byte('S'), op)
 	})
 
-	for _, op := range []byte{kPostgresQuery, kPostgresCommand, kPostgresBind} {
+	for _, op := range []byte{kPostgresQuery, kPostgresCommand, kPostgresBind, kPostgresParse} {
 		for size := int32(-1); size < pgHeaderLen-1; size++ {
 			t.Run(fmt.Sprintf("%c/%d", op, size), func(t *testing.T) {
 				packet := make([]byte, pgHeaderLen)
@@ -80,6 +80,7 @@ func TestPostgresProtocolLengthField(t *testing.T) {
 		{"query", kPostgresQuery, []byte("SELECT 1\x00")},
 		{"command_complete", kPostgresCommand, []byte("SELECT 1\x00")},
 		{"bind", kPostgresBind, make([]byte, 8)},
+		{"parse", kPostgresParse, postgresParseTestBody("", "SELECT 1")},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			packet := make([]byte, pgHeaderLen+len(tt.body))
@@ -131,18 +132,32 @@ func postgresTestPacket(op byte, body []byte) []byte {
 	return packet
 }
 
+func postgresParseTestBody(statement, query string, paramOIDs ...uint32) []byte {
+	body := append([]byte(statement), 0)
+	body = append(body, query...)
+	body = append(body, 0)
+	body = binary.BigEndian.AppendUint16(body, uint16(len(paramOIDs)))
+	for _, oid := range paramOIDs {
+		body = binary.BigEndian.AppendUint32(body, oid)
+	}
+	return body
+}
+
 func TestPostgresReverseProtocolCollision(t *testing.T) {
-	for _, op := range []byte{kPostgresQuery, kPostgresCommand, kPostgresBind} {
+	for _, op := range []byte{kPostgresQuery, kPostgresCommand, kPostgresBind, kPostgresParse} {
 		for size := 12; size <= 3000; size++ {
 			if byte(size) != kMySQLQuery && byte(size) != kMySQLPrepare && byte(size) != kMySQLExecute {
 				continue
 			}
 			t.Run(fmt.Sprintf("%c/%d", op, size), func(t *testing.T) {
 				var body []byte
-				if op == kPostgresBind {
+				switch op {
+				case kPostgresBind:
 					// Portal name, empty statement name, zero formats/parameters/results.
 					body = append([]byte(strings.Repeat("p", size-4-8)), make([]byte, 8)...)
-				} else {
+				case kPostgresParse:
+					body = postgresParseTestBody("", "SELECT 1"+strings.Repeat(" ", size-16))
+				default:
 					body = append([]byte("SELECT 1"+strings.Repeat(" ", size-4-9)), 0)
 				}
 				packet := postgresTestPacket(op, body)
@@ -177,6 +192,7 @@ func TestPostgresSQLBodyCompleteness(t *testing.T) {
 	for _, packet := range [][]byte{
 		postgresTestPacket(kPostgresQuery, []byte("SELECT 1\x00")),
 		postgresTestPacket(kPostgresBind, make([]byte, 8)),
+		postgresTestPacket(kPostgresParse, postgresParseTestBody("stmt", "SELECT $1", 23)),
 		postgresTestPacket(kPostgresCommand, []byte("SELECT 1\x00")),
 		postgresTestPacket(kPostgresCommand, []byte("Sstatement\x00")),
 		postgresTestPacket(kPostgresCommand, []byte("Pportal\x00")),
@@ -190,6 +206,21 @@ func TestPostgresSQLBodyCompleteness(t *testing.T) {
 		assert.Equal(t, postgresBodyInvalid, postgresSQLBodyStatus(largebuf.NewLargeBufferFrom(postgresTestPacket(kPostgresQuery, []byte(body)))))
 	}
 	assert.Equal(t, postgresBodyInvalid, postgresSQLBodyStatus(largebuf.NewLargeBufferFrom(postgresTestPacket('X', nil))))
+}
+
+func TestPostgresParseBodyValidation(t *testing.T) {
+	valid := postgresParseTestBody("stmt", "SELECT $1", 23)
+	packet := postgresTestPacket(kPostgresParse, valid)
+	buf := largebuf.NewLargeBufferFrom(packet)
+
+	assert.True(t, isPostgres(buf))
+	assert.False(t, isPostgresQueryCommand(buf))
+	assert.Equal(t, postgresBodyValid, postgresSQLBodyStatus(buf))
+
+	badCount := append([]byte(nil), valid...)
+	badCount[len(badCount)-5] = 2
+	assert.Equal(t, postgresBodyInvalid, postgresSQLBodyStatus(largebuf.NewLargeBufferFrom(postgresTestPacket(kPostgresParse, badCount))))
+	assert.Equal(t, postgresBodyInvalid, postgresSQLBodyStatus(largebuf.NewLargeBufferFrom(postgresTestPacket(kPostgresParse, append(valid, 0)))))
 }
 
 func TestMatchSQLTruncatedPostgresCollision(t *testing.T) {
