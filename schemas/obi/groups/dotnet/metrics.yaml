@@ -1,6 +1,83 @@
-# OBI's .NET current-value metrics use the upstream instruments and units.
+# OBI's .NET runtime metrics use the upstream instruments and units.
 # Service and container metadata are carried on the meter resource.
 groups:
+  - id: metric.obi.dotnet.gc.heap.total_allocated
+    type: metric
+    metric_name: dotnet.gc.heap.total_allocated
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Total bytes allocated on the .NET managed heap since the collector baseline.
+    instrument: counter
+    unit: "By"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.gc.pause.time
+    type: metric
+    metric_name: dotnet.gc.pause.time
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Total .NET GC pause time since the collector baseline.
+    instrument: counter
+    unit: "s"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.jit.compiled_il.size
+    type: metric
+    metric_name: dotnet.jit.compiled_il.size
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Total bytes of intermediate language compiled by the .NET JIT compiler.
+    instrument: counter
+    unit: "By"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.jit.compiled_methods
+    type: metric
+    metric_name: dotnet.jit.compiled_methods
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Total methods compiled by the .NET JIT compiler.
+    instrument: counter
+    unit: "{method}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.jit.compilation.time
+    type: metric
+    metric_name: dotnet.jit.compilation.time
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Total .NET JIT compilation time since the collector baseline.
+    instrument: counter
+    unit: "s"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.thread_pool.work_item.count
+    type: metric
+    metric_name: dotnet.thread_pool.work_item.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Total completed .NET thread-pool work items since the collector baseline.
+    instrument: counter
+    unit: "{work_item}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.monitor.lock_contentions
+    type: metric
+    metric_name: dotnet.monitor.lock_contentions
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Total .NET monitor lock contentions since the collector baseline.
+    instrument: counter
+    unit: "{contention}"
+    stability: stable
+    attributes: []
   - id: metric.obi.dotnet.process.memory.working_set
     type: metric
     metric_name: dotnet.process.memory.working_set
