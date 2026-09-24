@@ -16,6 +16,11 @@ used.
 With TRACEPARENTS=1 every request carries its own traceparent, Huffman-coded
 like gRPC libraries send it, and after the first one on a connection its name
 is sent as an index.
+
+With CONTINUATIONS=1 the first gRPC request of each burst sends its header block
+as a HEADERS frame and a CONTINUATION frame, cut inside its last field like
+libraries cut a block too big for one frame. That request carries its own
+traceparent too, since OBI adds none to a block split across frames.
 """
 
 import os
@@ -31,6 +36,7 @@ from wire import (
     FLAG_END_HEADERS,
     FLAG_END_STREAM,
     FLAG_ACK,
+    FRAME_CONTINUATION,
     FRAME_HEADERS,
     FRAME_SETTINGS,
     GRPC_CONTENT_TYPE,
@@ -49,6 +55,7 @@ BURSTS_PER_CONNECTION = 8
 RESPONSE_TIMEOUT = 20
 BURST_INTERVAL = float(os.getenv("BURST_INTERVAL_MS", "500")) / 1000
 TRACEPARENTS = os.getenv("TRACEPARENTS") == "1"
+CONTINUATIONS = os.getenv("CONTINUATIONS") == "1"
 
 
 class Session:
@@ -84,13 +91,16 @@ class Session:
                 (":authority", self.authority),
                 (":path", burst_path(burst_id, stream)),
             ]
-            if TRACEPARENTS:
+            continued = CONTINUATIONS and self.mode == MODE_GRPC and stream == 0
+            if TRACEPARENTS or continued:
                 traceparents[stream_id] = "00-{}-{}-01".format(secrets.token_hex(16), secrets.token_hex(8))
                 fields.append(("traceparent", traceparents[stream_id]))
             fields.append(("content-type", content_type))
-            out += build_frame(
-                FRAME_HEADERS, FLAG_END_HEADERS | FLAG_END_STREAM, stream_id, self.encoder.encode(fields),
-            )
+            block = self.encoder.encode(fields)
+            if continued:
+                out += self.continued_request(stream_id, block, burst_id)
+                continue
+            out += build_frame(FRAME_HEADERS, FLAG_END_HEADERS | FLAG_END_STREAM, stream_id, block)
 
         record = {
             "burst": burst_id,
@@ -115,6 +125,18 @@ class Session:
             for stream_id, stream in sorted(self.open.items())
         ]
         emit("H2MUX_CLIENT", record)
+
+    def continued_request(self, stream_id, block, burst_id):
+        """Returns a HEADERS frame and a CONTINUATION frame that together carry block.
+
+        A filler field ends the block, unique so it is never sent as an index, and
+        the cut falls inside it.
+        """
+        filler = self.encoder.encode([("x-filler", "{}-{}".format(burst_id, "f" * 64))])
+        cut = len(block) + len(filler) // 2
+        block += filler
+        return (build_frame(FRAME_HEADERS, FLAG_END_STREAM, stream_id, block[:cut]) +
+                build_frame(FRAME_CONTINUATION, FLAG_END_HEADERS, stream_id, block[cut:]))
 
     def collect_responses(self):
         """Reads until every stream has ended.

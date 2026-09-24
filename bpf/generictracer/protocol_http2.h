@@ -438,13 +438,17 @@ static __always_inline u8 h2_keeps_cut_frame(const grpc_frames_ctx_t *g_ctx,
                                               frame_size <= k_kprobes_http2_buf_size);
 }
 
+static __always_inline u8 h2_frame_plausible(const frame_header_t *frame) {
+    return frame->type <= FrameContinuation && frame->length <= k_h2_default_max_frame_size;
+}
+
 static __always_inline u8 h2_frame_header_plausible(const void *at) {
     frame_header_t header;
     if (bpf_probe_read(&header, sizeof(header), at) != 0) {
         return 0;
     }
-    return header.type <= FrameContinuation &&
-           bpf_ntohl(header.length << 8) <= k_h2_default_max_frame_size;
+    header.length = bpf_ntohl(header.length << 8);
+    return h2_frame_plausible(&header);
 }
 
 // the next read on this connection starts inside the frame this one ended in
@@ -476,9 +480,8 @@ static __always_inline void h2_save_cut_frame(const grpc_frames_ctx_t *g_ctx) {
             cut->len = len;
         } else {
             const u32 frame_size = frame.length + k_frame_header_len;
-            if (frame_size <= remaining || !frame.stream_id ||
-                frame.length > k_h2_default_max_frame_size ||
-                (frame.type != FrameData && frame.type != FrameHeaders)) {
+            if (frame_size <= remaining || is_invalid_frame(&frame) ||
+                !h2_frame_plausible(&frame)) {
                 return;
             }
             cut->skip = frame_size - remaining;

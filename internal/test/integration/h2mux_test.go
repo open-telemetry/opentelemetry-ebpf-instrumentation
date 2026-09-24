@@ -161,6 +161,11 @@ func TestSuite_HTTP2Multiplexing(t *testing.T) {
 // request HEADERS frame is cut by the end of a read, and OBI must still read it
 // and the frames after it whole. OBI also puts a traceparent in each request,
 // so every server span must name the client span of its stream as its parent.
+//
+// In gRPC mode the first request of each burst splits its header block across
+// a HEADERS and a CONTINUATION frame, which OBI must step over to reach the
+// streams after it. OBI never sees that block whole, so it stops trusting the
+// request HPACK table, which none of the gRPC checks rely on.
 func TestSuite_HTTP2SplitReads(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-h2mux.yml", path.Join(pathOutput, "test-suite-h2mux-split.log"))
 	require.NoError(t, err)
@@ -168,6 +173,7 @@ func TestSuite_HTTP2SplitReads(t *testing.T) {
 	compose.Env = append(compose.Env,
 		"H2MUX_STREAMS="+strconv.Itoa(h2muxStreams),
 		"H2MUX_READ_SIZE="+strconv.Itoa(h2muxSplitReadSize),
+		"H2MUX_CONTINUATIONS=1",
 		"OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers",
 	)
 
@@ -284,7 +290,8 @@ func h2muxAssertBurstCaptured(t *testing.T, burst h2muxBurst) {
 
 // h2muxAssertParents checks that every server span of one burst names the
 // client span of the same stream as its parent: OBI read back the traceparent
-// it put in that request.
+// it put in that request. A request that carried its own traceparent must have
+// it as the parent instead.
 func h2muxAssertParents(t *testing.T, burst h2muxBurst) {
 	t.Helper()
 
@@ -299,8 +306,13 @@ func h2muxAssertParents(t *testing.T, burst h2muxBurst) {
 			require.Truef(ct, found, "h2mux-server: %s was not captured", want.Path)
 
 			parent := jaeger.Reference{RefType: "CHILD_OF", TraceID: client.TraceID, SpanID: client.SpanID}
+			if want.Traceparent != "" {
+				fields := strings.Split(want.Traceparent, "-")
+				require.Lenf(ct, fields, 4, "%s: malformed traceparent %q", want.Path, want.Traceparent)
+				parent = jaeger.Reference{RefType: "CHILD_OF", TraceID: fields[1], SpanID: fields[2]}
+			}
 			require.Containsf(ct, server.References, parent,
-				"%s: the server span does not name the client span as its parent", want.Path)
+				"%s: the server span does not have the expected parent", want.Path)
 		}
 	}, time.Minute, 2*time.Second)
 }

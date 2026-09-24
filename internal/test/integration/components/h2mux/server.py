@@ -22,6 +22,7 @@ from wire import (
     FLAG_END_HEADERS,
     FLAG_END_STREAM,
     FLAG_ACK,
+    FRAME_CONTINUATION,
     FRAME_DATA,
     FRAME_HEADERS,
     FRAME_SETTINGS,
@@ -60,6 +61,8 @@ def serve_connection(conn, batch):
     ready = []
     greeted = False
     arrived = 0
+    # a HEADERS frame whose block still waits for CONTINUATION frames
+    block = None
 
     with conn:
         while True:
@@ -80,6 +83,15 @@ def serve_connection(conn, batch):
             headers_in_read = count_headers(frames)
 
             for position, frame in enumerate(frames):
+                if frame.type == FRAME_CONTINUATION and block is not None:
+                    block.payload += frame.payload
+                    block.flags |= frame.flags & FLAG_END_HEADERS
+                    frame = block
+                if frame.type == FRAME_HEADERS and not frame.flags & FLAG_END_HEADERS:
+                    block = frame
+                    continue
+                block = None
+
                 stream = handle_frame(conn, decoder, frame)
                 if stream is not None:
                     # only the first frame can hold bytes an earlier recv() returned
