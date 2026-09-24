@@ -171,6 +171,48 @@ func TestUnlinkInstrumenterReleasesProbesAndModules(t *testing.T) {
 	assert.Equal(t, []uint64{11}, tracer.unlinked)
 }
 
+// blocks every library unlink until all of them are running at once
+type gatedLibTracer struct {
+	Tracer
+	entered sync.WaitGroup
+	release chan struct{}
+}
+
+func (t *gatedLibTracer) UnlinkInstrumentedLib(uint64) {
+	t.entered.Done()
+	<-t.release
+}
+
+// each released library waits for kernel grace periods, so an executable's libraries are
+// unlinked in parallel with each other and with its own probes
+func TestUnlinkInstrumenterReleasesModulesInParallel(t *testing.T) {
+	modules := map[uint64]struct{}{1: {}, 2: {}, 3: {}}
+	tracer := &gatedLibTracer{release: make(chan struct{})}
+	tracer.entered.Add(len(modules))
+	pt := &ProcessTracer{log: slog.Default(), Programs: []Tracer{tracer}}
+
+	unlinked := make(chan struct{})
+	go func() {
+		pt.unlinkInstrumenter(&instrumenter{closables: []io.Closer{&countingCloser{}}, modules: modules})
+		close(unlinked)
+	}()
+
+	allEntered := make(chan struct{})
+	go func() {
+		tracer.entered.Wait()
+		close(allEntered)
+	}()
+	select {
+	case <-allEntered:
+	case <-time.After(5 * time.Second):
+		close(tracer.release)
+		require.Fail(t, "the libraries of one executable were unlinked one at a time")
+	}
+
+	close(tracer.release)
+	<-unlinked
+}
+
 // shutdown may not clear the committed set while an attachment is between its
 // probe setup and its commit, or those probes are left to the kernel
 func TestCloseInstrumentersWaitsForInFlightAttachment(t *testing.T) {
