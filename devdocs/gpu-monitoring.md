@@ -89,20 +89,21 @@ labelling later events.
 
 ## Device attribution
 
-Every span and metric is labelled with the device the calling thread was bound
-to:
+Spans and metrics are labelled with the device the calling thread was bound to
+when that binding was observed:
 
 | Attribute           | Meaning |
 |:--------------------|:--------|
-| `cuda.device.index` | Process-local device index. Always present; 0 when the thread never selected a device, which is CUDA's default device. |
+| `cuda.device.index` | Process-local device index. Present when the thread selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; omitted when no binding was observed. |
 | `cuda.device.uuid`  | Bare device UUID, the `uuid` column of `nvidia-smi` with its `GPU-` prefix removed. Omitted until the process asked CUDA about the device. |
 | `cuda.device.model` | Device name, for example `NVIDIA H20-3e`. Omitted until observed. |
 
 The thread-to-device binding is learned from `cudaSetDevice` and `cudaGetDevice`
 and kept per host thread, because CUDA's current device is per host thread. A
-failed `cudaSetDevice` does not bind the thread. Identity is cached per process,
-and partial observations merge: an observation that reveals only the UUID or
-only the name does not clear the other part.
+failed `cudaSetDevice` does not bind the thread, and a `cudaGetDevice` query does
+not change it. Identity is cached per process, and partial observations merge:
+an observation that reveals only the UUID or only the name does not clear the
+other part.
 
 Because `CUDA_VISIBLE_DEVICES` remaps indices, the same index can refer to
 different physical GPUs in different processes; the UUID identifies the
@@ -126,20 +127,23 @@ the free.
 
 ## eBPF maps
 
-All maps are LRU hash maps pinned internal to OBI, so entries for processes
-that exit while a call is in flight are evicted rather than growing without
-bound.
+Maps are pinned internal to OBI. The per-thread in-flight context maps are
+regular hash maps: their matching return probes consume and delete entries
+unconditionally, so a deselected or exiting target cannot leak them. The
+long-lived state maps (`cuda_alloc_sizes`, `cuda_thread_device`,
+`cuda_device_info`) are LRU hashes so entries for processes that exit without
+cleaning up are evicted rather than growing without bound.
 
-| Map                       | Key → value                | Entries | Purpose |
-|:--------------------------|:---------------------------|--------:|:--------|
-| `cuda_malloc_ctx`         | thread → malloc arguments  | 1024    | Correlate `cudaMalloc` arguments with its return value. |
-| `cuda_free_ctx`           | thread → free arguments    | 1024    | Report a free only once its return code confirms it. |
-| `cuda_alloc_sizes`        | (process, pointer) → size  | 65536   | Size lookup for `cudaFree`. |
-| `cuda_runtime_launch_ctx` | thread → marker            | 1024    | Suppress driver launches that a runtime call is proxying. |
-| `cuda_thread_device`      | thread → device index      | 8192    | Current device of each host thread. |
-| `cuda_device_info`        | (process, index) → identity | 4096   | UUID and name revealed by introspection. |
-| `cuda_introspect_ctx`     | thread → context           | 1024    | Carry introspection arguments from entry to return. |
-| `cuda_set_device_ctx`     | thread → context           | 1024    | Bind a thread only after `cudaSetDevice` succeeds. |
+| Map                       | Type      | Key → value                | Entries | Purpose |
+|:--------------------------|:----------|:---------------------------|--------:|:--------|
+| `cuda_malloc_ctx`         | hash      | thread → malloc arguments  | 1024    | Correlate `cudaMalloc` arguments with its return value. |
+| `cuda_free_ctx`           | hash      | thread → free arguments    | 1024    | Report a free only once its return code confirms it. |
+| `cuda_alloc_sizes`        | LRU hash  | (process, pointer) → size  | 65536   | Size lookup for `cudaFree`. |
+| `cuda_runtime_launch_ctx` | hash      | thread → marker            | 1024    | Suppress driver launches that a runtime call is proxying. |
+| `cuda_thread_device`      | LRU hash  | thread → device index      | 8192    | Current device of each host thread. |
+| `cuda_device_info`        | LRU hash  | (process, index) → identity | 4096   | UUID and name revealed by introspection. |
+| `cuda_introspect_ctx`     | hash      | thread → context           | 1024    | Carry introspection arguments from entry to return. |
+| `cuda_set_device_ctx`     | hash      | thread → context           | 1024    | Bind a thread only after `cudaSetDevice` succeeds. |
 
 ## Span fields
 
@@ -160,10 +164,11 @@ span attributes, built by `spanAttributes` in
 ## Metrics
 
 GPU metrics are `development` stability and declared in
-`schemas/obi/groups/gpu/metrics.yaml`. All of them carry `cuda.device.index`,
-`cuda.device.uuid`, and `cuda.device.model`; `gpu.cuda.memory.copies` also
-carries `cuda.memcpy.kind`. An em dash in the unit column means the metric is
-declared without a unit, a pure count.
+`schemas/obi/groups/gpu/metrics.yaml`. They carry `cuda.device.index`,
+`cuda.device.uuid`, and `cuda.device.model` when the device binding and identity
+were observed; `gpu.cuda.memory.copies` also carries `cuda.memcpy.kind`. An em
+dash in the unit column means the metric is declared without a unit, a pure
+count.
 
 | Metric                             | Instrument | Unit |
 |:-----------------------------------|:-----------|:-----|
