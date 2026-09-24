@@ -529,8 +529,12 @@ func kafkaEventFromPid(ns, pid uint32) *TCPRequestInfo {
 	return event
 }
 
+// newTestConsumerGroups returns a cache without the warm-up window, so tests exercise
+// the single-group fallback right after the group requests they send.
 func newTestConsumerGroups() *KafkaConsumerGroups {
-	return NewKafkaConsumerGroups(64, time.Minute)
+	groups := NewKafkaConsumerGroups(64, time.Minute)
+	groups.settle = 0
+	return groups
 }
 
 // processKafka runs one request through the same entry point the TCP pipeline uses.
@@ -819,7 +823,7 @@ func TestProcessKafkaEventConsumerGroupExpiry(t *testing.T) {
 	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchOrders))
 	clock = start.Add(ttl + ttl/4)
 	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "lookups must not extend the ttl")
-	assert.Equal(t, 0, groups.lru.Len(), "a process without memberships is dropped")
+	assert.Empty(t, groups.memberships(KafkaProcess{Ns: 7, Pid: 42}).groups, "no membership left")
 
 	// pid reused within the ttl: the previous process joined my-group, the new one
 	// heartbeats for hb-group only
@@ -974,6 +978,7 @@ func TestProcessKafkaEventConsumerGroupMultipleMembers(t *testing.T) {
 func newClockedConsumerGroups() (*KafkaConsumerGroups, func(time.Duration), time.Duration) {
 	const ttl = time.Minute
 	groups := NewKafkaConsumerGroups(64, ttl)
+	groups.settle = 0
 	start := time.Now()
 	clock := start
 	groups.now = func() time.Time { return clock }
@@ -1158,7 +1163,59 @@ func TestProcessKafkaEventConsumerGroupPendingExpiry(t *testing.T) {
 
 	clockAt(3 * ttl)
 	assert.Empty(t, fetchGroup(t, groups, first, fetchOrders))
-	assert.Equal(t, 0, groups.lru.Len())
+	assert.Empty(t, groups.memberships(proc).groups, "no membership left")
+}
+
+// OBI may attach after a process's consumers joined, and then learns each group from its
+// next heartbeat. Until every group had the time to send one, neither the single group
+// seen so far nor the one known subscriber of a topic proves that no other group consumes
+// it: every Fetch gets no group rather than possibly the wrong one.
+func TestProcessKafkaEventConsumerGroupWarmUp(t *testing.T) {
+	groups := NewKafkaConsumerGroups(64, time.Minute)
+	start := time.Now()
+	clock := start
+	groups.now = func() time.Time { return clock }
+	consumer := kafkaEventFromPid(7, 42)
+
+	processKafka(t, groups, consumer, joinGroupMyGroup) // my-group: orders, audit
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "another group may not have heartbeated yet")
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "another group may consume orders too")
+
+	clock = start.Add(kafkaConsumerGroupSettle / 2)
+	processKafka(t, groups, consumer, joinGroupOtherGroupOrders) // other-group: orders, now seen
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "still settling")
+
+	clock = start.Add(kafkaConsumerGroupSettle)
+	processKafka(t, groups, consumer, joinGroupMyGroup)
+	processKafka(t, groups, consumer, joinGroupOtherGroupOrders)
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "settled: both groups consume orders")
+	assert.Equal(t, "my-group", groups.Lookup(KafkaProcess{Ns: 7, Pid: 42}, "audit"), "settled: audit is my-group's alone")
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "settled: two groups, no fallback")
+
+	single := kafkaEventFromPid(7, 43)
+	processKafka(t, groups, single, heartbeatHbGroup)
+	clock = start.Add(2 * kafkaConsumerGroupSettle)
+	processKafka(t, groups, single, heartbeatHbGroup)
+	assert.Equal(t, "hb-group", fetchGroup(t, groups, single, fetchImportant), "settled: the single group is the process's group")
+}
+
+// The warm-up belongs to the process, not to its memberships: a service that closes its
+// only consumer and opens a new one, as a batch job does, is not warmed up again.
+func TestProcessKafkaEventConsumerGroupWarmUpOncePerProcess(t *testing.T) {
+	groups := NewKafkaConsumerGroups(64, time.Minute)
+	start := time.Now()
+	clock := start
+	groups.now = func() time.Time { return clock }
+	consumer := kafkaEventFromPid(7, 42)
+
+	processKafka(t, groups, consumer, joinGroupMyGroup)
+	clock = start.Add(kafkaConsumerGroupSettle + time.Second)
+	processKafka(t, groups, consumer, joinGroupMyGroup)
+	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant))
+
+	processKafka(t, groups, consumer, leaveGroupMyGroup) // the batch's consumer closes
+	processKafka(t, groups, consumer, joinGroupMyGroup)  // the next batch's consumer joins
+	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "no second warm-up")
 }
 
 // A process holds at most maxGroupsPerProcess memberships and maxMembersPerGroup members
