@@ -147,7 +147,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -171,7 +171,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	go exporter(ctx)
 
 	svcAttrs := svc.Attrs{
-		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureApplicationHost,
+		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes,
 		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
 	}
 	svcAttrs001 := svc.Attrs{

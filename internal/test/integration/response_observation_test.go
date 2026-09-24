@@ -422,7 +422,6 @@ func TestSuite_ResponseObservation(t *testing.T) {
 
 	// What a span reports and what a metric reports are decided in separate code, so
 	// the same calls are checked on both sides.
-	t.Run("the host info gauge is exported", testHostInfoIsExported)
 	t.Run("an unmeasured call counts on its edge without a latency", testUnmeasuredCallCountsOnItsEdgeWithoutLatency)
 	t.Run("an unmeasured call publishes no duration", testUnmeasuredCallPublishesNoDuration)
 	t.Run("an unmeasured call still publishes its request size", testUnmeasuredCallStillPublishesItsRequestSize)

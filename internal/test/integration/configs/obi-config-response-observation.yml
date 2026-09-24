@@ -19,7 +19,6 @@ metrics:
     # feature has to be on for the graph series to exist at all.
     - application_span_otel
     - application_service_graph
-    - application_host
 discovery:
   # The workload is a Go binary, and the code under test is in the generic
   # tracer, which is where every non-Go workload lands.

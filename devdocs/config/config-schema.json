@@ -1001,7 +1001,6 @@
               "*",
               "all",
               "application",
-              "application_host",
               "application_red",
               "application_runtime",
               "application_service_graph",

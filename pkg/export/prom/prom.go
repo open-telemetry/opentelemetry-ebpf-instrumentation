@@ -967,14 +967,6 @@ func optionalCounterProvider(enable bool, provider func() *Expirer[prometheus.Co
 	return provider()
 }
 
-func optionalGaugeProvider(enable bool, provider func() *Expirer[prometheus.Gauge]) *Expirer[prometheus.Gauge] {
-	if !enable {
-		return nil
-	}
-
-	return provider()
-}
-
 func optionalDirectGaugeProvider(enable bool, provider func() *prometheus.GaugeVec) *prometheus.GaugeVec {
 	if !enable {
 		return nil
