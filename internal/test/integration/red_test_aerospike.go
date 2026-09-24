@@ -27,7 +27,7 @@ func testREDMetricsForAerospikeLibrary(t *testing.T, testCase TestCase) {
 	namespace := testCase.Namespace
 
 	// Drive the instrumented service a few times so each Aerospike operation runs.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, baseURL+"/"+urlPath, 200)
 	}
 
@@ -57,7 +57,7 @@ func testREDMetricsForAerospikeLibrary(t *testing.T, testCase TestCase) {
 	// span name (jaeger "operation") is "{db.operation.name} {db.namespace}.{db.collection.name}".
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(span.Name))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(span.Name))
 			require.NoError(ct, err, "failed to query jaeger for %s", span.Name)
 			if resp == nil {
 				return
@@ -101,6 +101,7 @@ func testREDMetricsAerospikeOnly(t *testing.T) {
 				{Name: "PUT test.demo", Attributes: []attribute.KeyValue{
 					attribute.String("db.operation.name", "PUT"),
 					attribute.String("db.response.status_code", "KEY_EXISTS_ERROR"),
+					attribute.String("error.type", "KEY_EXISTS_ERROR"),
 				}},
 				{Name: "GET test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "GET")}},
 				{Name: "DELETE test.demo", Attributes: []attribute.KeyValue{attribute.String("db.operation.name", "DELETE")}},

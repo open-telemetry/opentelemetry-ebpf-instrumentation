@@ -69,6 +69,51 @@ func TestFeatureEnv_Separator(t *testing.T) {
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
+// The three names form a bundle: "application" enables both halves, and the individual
+// names select them, mirroring how "stats" bundles the stats_* features.
+func TestFeatureApplicationSizes(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		features []string
+		red      bool
+		sizes    bool
+	}{
+		{name: "application bundles both", features: []string{"application"}, red: true, sizes: true},
+		{name: "application_red alone", features: []string{"application_red"}, red: true},
+		{name: "application_sizes alone", features: []string{"application_sizes"}, sizes: true},
+		{name: "both halves listed", features: []string{"application_red", "application_sizes"}, red: true, sizes: true},
+		{name: "bundle plus a half is idempotent", features: []string{"application", "application_sizes"}, red: true, sizes: true},
+		{name: "bundle plus the other half", features: []string{"application", "application_red"}, red: true, sizes: true},
+		{name: "all", features: []string{"all"}, red: true, sizes: true},
+		{name: "wildcard", features: []string{"*"}, red: true, sizes: true},
+		{name: "unrelated feature only", features: []string{"network"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			features := mustLoadFeatures(t, tt.features...)
+			assert.Equal(t, tt.red, features.AppRED())
+			assert.Equal(t, tt.sizes, features.AppSizes())
+		})
+	}
+}
+
+// The size bit has to reach the masks that decide whether application telemetry is on at
+// all, otherwise a sizes-only list would look like "no application metrics requested".
+func TestFeatureApplicationSizesCountsAsAppO11y(t *testing.T) {
+	sizesOnly := mustLoadFeatures(t, "application_sizes")
+
+	assert.True(t, sizesOnly.AnyAppO11yMetric())
+	assert.True(t, sizesOnly.AppOrSpan())
+	assert.True(t, AppO11yFeatures.has(FeatureApplicationSizes))
+}
+
+// "application" has to keep meaning what it meant before the split, so that existing
+// feature lists are unaffected.
+func TestFeatureApplicationIsBackwardsCompatible(t *testing.T) {
+	assert.Equal(t,
+		FeatureApplicationRED|FeatureApplicationSizes,
+		mustLoadFeatures(t, "application"))
+}
+
 func TestFeatureApplicationAliasDoesNotIncludeRuntime(t *testing.T) {
 	features := mustLoadFeatures(t, "application")
 
@@ -260,4 +305,59 @@ func TestFeatureUndefined(t *testing.T) {
 		require.False(t, doc.Features.Empty())
 		require.True(t, doc.Features.Undefined())
 	})
+}
+
+func TestFeatureMarshalYAML(t *testing.T) {
+	type doc struct {
+		Features Features `yaml:"features"`
+	}
+	for _, tc := range []struct {
+		name     string
+		features Features
+		expected string
+	}{
+		{name: "undefined", features: 0, expected: "features: null\n"},
+		{name: "explicitly empty", features: FeatureEmpty, expected: "features: []\n"},
+		{
+			name:     "single feature",
+			features: FeatureApplicationRuntime,
+			expected: "features:\n    - application_runtime\n",
+		},
+		{
+			name:     "combined features follow the declaration order",
+			features: FeatureApplicationRuntime | FeatureApplicationRED,
+			expected: "features:\n    - application_red\n    - application_runtime\n",
+		},
+		{
+			name:     "the application bundle keeps its name",
+			features: FeatureApplicationRED | FeatureApplicationSizes,
+			expected: "features:\n    - application\n",
+		},
+		{
+			name:     "aggregate feature keeps its name",
+			features: FeatureStats,
+			expected: "features:\n    - stats\n",
+		},
+		{
+			name:     "aggregate name comes before the remaining single features",
+			features: FeatureStats | FeatureNetwork,
+			expected: "features:\n    - stats\n    - network\n",
+		},
+		{
+			name:     "partial aggregate expands to its bits",
+			features: FeatureStatsTCPRtt | FeatureStatsTCPRetransmits,
+			expected: "features:\n    - stats_tcp_rtt\n    - stats_tcp_retransmits\n",
+		},
+		{name: "all features", features: FeatureAll, expected: "features:\n    - all\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := yaml.Marshal(doc{Features: tc.features})
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, string(out))
+
+			var reparsed doc
+			require.NoError(t, yaml.Unmarshal(out, &reparsed))
+			require.Equal(t, tc.features, reparsed.Features)
+		})
+	}
 }

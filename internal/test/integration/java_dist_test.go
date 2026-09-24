@@ -32,7 +32,7 @@ func testJavaNestedTraces(t *testing.T, slug string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:8081/api/"+slug+"?url=https://httpbin.org/get", 200)
 
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2F" + slug)
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2F" + slug)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -59,11 +59,11 @@ func testJavaNestedTraces(t *testing.T, slug string) {
 func testJavaNestedTracesPlainHTTP(t *testing.T, slug string) {
 	t.Log("checking server to client nesting over plain HTTP for [/api/" + slug + "]")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			ti.DoHTTPGet(ct, "http://localhost:8081/api/"+slug+"?url=http://downstream:8086/rolldice/1", 200)
 		}
 
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2F" + slug)
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2F" + slug)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -176,7 +176,7 @@ func latestTraceMatching(service string, predicate func(jaeger.Trace) bool) (jae
 	params.Set("service", service)
 	params.Set("limit", "50")
 
-	resp, err := http.Get(jaegerQueryURL + "?" + params.Encode())
+	resp, err := getJaeger(jaegerQueryURL + "?" + params.Encode())
 	if err != nil {
 		return jaeger.Trace{}, err
 	}

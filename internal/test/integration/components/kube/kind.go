@@ -50,15 +50,16 @@ func log() *slog.Logger {
 
 // Kind cluster deployed by each TestMain function, prepared to run a given test scenario.
 type Kind struct {
-	kindConfigPath  string
-	clusterName     string
-	testEnv         env.Environment
-	timeout         time.Duration
-	deployManifests []string
-	localImages     []string
-	logsDir         string
-	promEndpoint    string
-	jaegerEndpoint  string
+	kindConfigPath         string
+	clusterName            string
+	testEnv                env.Environment
+	timeout                time.Duration
+	deployManifests        []string
+	deployAfterWeaverReady []string
+	localImages            []string
+	logsDir                string
+	promEndpoint           string
+	jaegerEndpoint         string
 
 	weaverValidation bool
 	// weaverRequireSpans additionally fails the suite if the weaver report
@@ -85,6 +86,15 @@ type Option func(k *Kind)
 func Deploy(manifest string) Option {
 	return func(k *Kind) {
 		k.deployManifests = append(k.deployManifests, manifest)
+	}
+}
+
+// DeployAfterWeaverReady deploys telemetry-producing components only after
+// the Weaver tap is reachable and its drop-counter baseline has been captured.
+// It requires WeaverValidation.
+func DeployAfterWeaverReady(manifest string) Option {
+	return func(k *Kind) {
+		k.deployAfterWeaverReady = append(k.deployAfterWeaverReady, manifest)
 	}
 }
 
@@ -137,7 +147,8 @@ func LocalImage(nameTag string) Option {
 // in-cluster weaver pod against the OBI semconv registry, at teardown (after
 // all tests, while the cluster is still up). Enforcing: any actionable
 // advisory makes the suite exit non-zero. Requires the weaver manifests to be
-// deployed (see validateWeaver for the full wiring).
+// deployed and telemetry producers to use DeployAfterWeaverReady (see
+// validateWeaver for the full wiring).
 func WeaverValidation(opts ...WeaverOption) Option {
 	return func(k *Kind) {
 		k.weaverValidation = true
@@ -174,6 +185,9 @@ func NewKind(kindClusterName string, options ...Option) *Kind {
 	for _, option := range options {
 		option(k)
 	}
+	if len(k.deployAfterWeaverReady) > 0 && !k.weaverValidation {
+		panic("DeployAfterWeaverReady requires WeaverValidation")
+	}
 	return k
 }
 
@@ -200,11 +214,15 @@ func (k *Kind) Run(m *testing.M) {
 		funcs = append(funcs, deploy(mf))
 	}
 	if k.weaverValidation {
-		// Gate the tests on the weaver tap being up, so bursty test-time
-		// telemetry (spans) is observed rather than lost while weaver is still
-		// pulling its image.
+		// Gate telemetry-producing deployments on the Weaver tap being up, so
+		// their startup telemetry cannot be lost while Weaver is still pulling
+		// its image.
 		log.Info("adding func: waitForWeaverReady")
 		funcs = append(funcs, k.waitForWeaverReady())
+	}
+	for _, mf := range k.deployAfterWeaverReady {
+		log.Info("adding func: deployAfterWeaverReady", "manifest", mf)
+		funcs = append(funcs, deploy(mf))
 	}
 
 	var finishes []env.Func

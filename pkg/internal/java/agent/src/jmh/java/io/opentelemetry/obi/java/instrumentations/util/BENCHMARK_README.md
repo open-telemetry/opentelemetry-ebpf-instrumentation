@@ -65,6 +65,41 @@ JMH will output results showing:
 
 Lower scores indicate better performance.
 
+## JVM Runtime Metrics Benchmark
+
+`JVMRuntimeMetricsBenchmark` measures management-bean collection and runtime
+metric packet encoding:
+
+```bash
+gradle :agent:jmh \
+  -PjmhIncludes=JVMRuntimeMetricsBenchmark \
+  -PjmhProfilers=gc \
+  -PjmhForks=5
+```
+
+The reference run used JDK 21, one pinned CPU, five JVM forks, three warmup
+iterations, and seven measured iterations per fork. It does not measure initial
+agent attachment, instrumentation, or the JNI `ioctl` call.
+
+| Measurement | Result |
+| --- | ---: |
+| Full collection and packet encoding | 60.253 us/sample |
+| 99.9% confidence interval | 57.306-63.200 us/sample |
+| Allocation | 63.829 KB/sample |
+
+The following cadence costs are derived from the measured per-sample cost:
+
+| Sampling interval | Approximate one-core usage | Allocation rate |
+| --- | ---: | ---: |
+| 10 ms | 0.603% | 6.38 MB/s |
+| 100 ms | 0.060% | 638 KB/s |
+| 1 s (default) | 0.006% | 63.8 KB/s |
+| 5 s | 0.0012% | 12.8 KB/s |
+| 10 s | 0.0006% | 6.4 KB/s |
+
+Results depend on the JVM, operating system, and container configuration. Run
+the benchmark in the target environment before selecting a shorter interval.
+
 ## Example Output
 
 ```

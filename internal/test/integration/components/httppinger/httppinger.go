@@ -43,10 +43,18 @@ func main() {
 }
 
 func httpClient() *http.Client {
-	if os.Getenv("WRAP_TLS_CONN") != "true" {
-		return http.DefaultClient
+	if os.Getenv("WRAP_TLS_CONN") == "true" {
+		return tlsWrappingClient()
 	}
 
+	if os.Getenv("DISABLE_KEEPALIVES") == "true" {
+		return &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	}
+
+	return http.DefaultClient
+}
+
+func tlsWrappingClient() *http.Client {
 	dialer := tls.Dialer{
 		Config: &tls.Config{InsecureSkipVerify: true},
 	}

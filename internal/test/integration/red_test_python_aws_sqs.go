@@ -44,7 +44,7 @@ func testPythonAWSSQS(t *testing.T) {
 		assertSQSOperation(ct, "CreateQueue", qr.QueueURL, "", "")
 		assertSQSOperation(ct, "SendMessage", qr.QueueURL, mr.Messages[0].MessageID, "send")
 		assertSQSOperation(ct, "ReceiveMessage", qr.QueueURL, "", "receive")
-		assertSQSOperation(ct, "DeleteMessage", qr.QueueURL, "", "")
+		assertSQSOperation(ct, "DeleteMessage", qr.QueueURL, "", "settle")
 		assertSQSOperation(ct, "GetQueueAttributes", qr.QueueURL, "", "")
 		assertSQSOperation(ct, "DeleteQueue", qr.QueueURL, "", "")
 	}, testTimeout, time.Second)
@@ -82,8 +82,12 @@ func assertSQSOperation(t require.TestingT, op, expectedQueueURL, expectedMessag
 	require.Equal(t, expectedQueueURL, tag.Value)
 
 	tag, found = jaeger.FindIn(span.Tags, "messaging.message.id")
-	require.True(t, found)
-	require.Equal(t, expectedMessageID, tag.Value)
+	if expectedMessageID == "" {
+		require.False(t, found, "messaging.message.id should be omitted when the operation carries no message")
+	} else {
+		require.True(t, found)
+		require.Equal(t, expectedMessageID, tag.Value)
+	}
 
 	tag, found = jaeger.FindIn(span.Tags, "messaging.destination.name")
 	require.True(t, found)

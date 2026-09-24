@@ -444,7 +444,7 @@ func TestGoRuntimeHistogramProducerSupportsConcurrentUpdateAndProduce(t *testing
 	waitGroup.Add(2)
 	go func() {
 		defer waitGroup.Done()
-		for i := 0; i < iterations; i++ {
+		for i := range iterations {
 			counts := testGoRuntimeHistogramCounts()
 			counts[i%len(counts)] = uint64(i)
 			producer.Update(testGoRuntimeHistogramSnapshot(
@@ -459,7 +459,7 @@ func TestGoRuntimeHistogramProducerSupportsConcurrentUpdateAndProduce(t *testing
 	}()
 	go func() {
 		defer waitGroup.Done()
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			if _, err := producer.Produce(t.Context()); err != nil {
 				errCh <- err
 			}

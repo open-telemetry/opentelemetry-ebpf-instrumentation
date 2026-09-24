@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -74,8 +75,7 @@ func loadConfigReader(file io.Reader) (*obi.Config, string, error) {
 		return config, configVersionV2, nil
 	}
 
-	var notV2 *schema.NotV2Error
-	if !errors.As(err, &notV2) {
+	if _, ok := errors.AsType[*schema.NotV2Error](err); !ok {
 		return nil, "", fmt.Errorf("loading config v2: %w", err)
 	}
 
@@ -128,6 +128,7 @@ func main() {
 		})
 	}
 	slog.SetDefault(slog.New(logHandler))
+	klogbridge.Install()
 
 	slog.Info("OpenTelemetry eBPF Instrumentation", "Version", buildinfo.Version, "Revision", buildinfo.Revision, "OpenTelemetry SDK Version", otelsdk.Version())
 	slog.Info("configuration loaded", "version", configVersion)

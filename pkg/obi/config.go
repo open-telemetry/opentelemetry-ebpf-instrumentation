@@ -37,7 +37,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -228,7 +230,7 @@ var DefaultConfig = Config{
 		CacheTTL: 5 * time.Minute,
 	},
 	Metrics: perapp.GlobalMetricsConfig{
-		Features: export.FeatureApplicationRED,
+		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes,
 	},
 	OTELMetrics: otelcfg.MetricsConfig{
 		Protocol:        otelcfg.ProtocolUnset,
@@ -355,6 +357,10 @@ var DefaultConfig = Config{
 	JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
 		SamplingInterval: time.Second,
 	},
+	DotnetRuntimeMetrics: DotnetRuntimeMetricsConfig{
+		SamplingInterval: time.Second,
+		Timeout:          10 * time.Second,
+	},
 	HealthCheck: HealthCheckConfig{
 		Port:          0,
 		ListenAddress: health.DefaultListenAddress,
@@ -449,7 +455,8 @@ type Config struct {
 	NodeJS NodeJSConfig `yaml:"nodejs"`
 	Java   JavaConfig   `yaml:"javaagent"`
 
-	JVMRuntimeMetrics JVMRuntimeMetricsConfig `yaml:"jvm_runtime_metrics"`
+	JVMRuntimeMetrics    JVMRuntimeMetricsConfig    `yaml:"jvm_runtime_metrics"`
+	DotnetRuntimeMetrics DotnetRuntimeMetricsConfig `yaml:"dotnet_runtime_metrics"`
 
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
 }
@@ -477,6 +484,19 @@ func (c *Config) AppRuntimeMetricsEnabled() bool {
 	return c != nil && c.JoinMetricsConfig().Features.AppRuntime()
 }
 
+// PopulateTraceContext reports whether the pinned traces_ctx_v1 map must be kept
+// populated, which is the case when anything reads it: OBI's own log enricher or
+// Node.js manual span bridge, or a reader outside OBI opted in through
+// ebpf.populate_trace_context.
+//
+// Population costs a refresh on every async context switch of the instrumented
+// runtime, so with no reader it is skipped entirely.
+func (c *Config) PopulateTraceContext() bool {
+	return c != nil && (c.EBPF.PopulateTraceContext ||
+		c.EBPF.LogEnricher.Enabled() ||
+		(c.NodeJS.Enabled && c.NodeJS.ManualSpans))
+}
+
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`
@@ -500,9 +520,13 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 		Result:           c,
 		WeaklyTypedInput: true,
 		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			cidrDefinitionsHookFunc(),
 			mapstructure.StringToTimeDurationHookFunc(),
-			mapstructure.TextUnmarshallerHookFunc(),
+			// ComposeDecodeHookFunc feeds each hook the previous hook's output, so the
+			// slice-joining hook must run before TextUnmarshallerHookFunc, which only
+			// fires on strings.
 			stringSliceToTextUnmarshalerHookFunc(),
+			mapstructure.TextUnmarshallerHookFunc(),
 			inlineMetadataHookFunc(),
 		),
 	})
@@ -511,6 +535,29 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 	}
 
 	return dec.Decode(raw)
+}
+
+func cidrDefinitionsHookFunc() mapstructure.DecodeHookFunc {
+	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
+		if to != reflect.TypeFor[cidr.Definitions]() {
+			return data, nil
+		}
+		from := reflect.TypeOf(data)
+		if from == nil || (from.Kind() != reflect.Slice && from.Kind() != reflect.Array) {
+			return data, nil
+		}
+
+		encoded, err := yaml.Marshal(data)
+		if err != nil {
+			return nil, fmt.Errorf("encoding CIDR definitions: %w", err)
+		}
+
+		var definitions cidr.Definitions
+		if err := yaml.Unmarshal(encoded, &definitions); err != nil {
+			return nil, err
+		}
+		return definitions, nil
+	}
 }
 
 func (c *Config) Log() {
@@ -555,11 +602,11 @@ func (c *Config) Log() {
 func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
 		// Check if target implements TextUnmarshaler
-		if to.Kind() == reflect.Ptr {
+		if to.Kind() == reflect.Pointer {
 			to = to.Elem()
 		}
 		toPtr := reflect.New(to)
-		if _, ok := toPtr.Interface().(encoding.TextUnmarshaler); !ok {
+		if _, ok := reflect.TypeAssert[encoding.TextUnmarshaler](toPtr); !ok {
 			return data, nil
 		}
 
@@ -599,7 +646,7 @@ func inlineMetadataHookFunc() mapstructure.DecodeHookFunc {
 
 		// Check if target type is GlobAttributes or RegexSelector
 		switch to {
-		case reflect.TypeOf(services.GlobAttributes{}), reflect.TypeOf(services.RegexSelector{}):
+		case reflect.TypeFor[services.GlobAttributes](), reflect.TypeFor[services.RegexSelector]():
 			// continue processing
 		default:
 			return data, nil
@@ -678,6 +725,10 @@ type NodeJSConfig struct {
 }
 
 type JavaConfig struct {
+	// Enabled turns on the Java injector agent, used for TLS tracing, virtual thread
+	// correlation, and agent-backed runtime metrics. Setting it to false disables
+	// GC duration, class, thread, and CPU runtime metrics. HotSpot memory metrics
+	// remain available.
 	Enabled              bool          `yaml:"enabled" env:"OTEL_EBPF_JAVAAGENT_ENABLED"`
 	Debug                bool          `yaml:"debug" env:"OTEL_EBPF_JAVAAGENT_DEBUG"`
 	DebugInstrumentation bool          `yaml:"debug_instrumentation" env:"OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"`
@@ -685,7 +736,17 @@ type JavaConfig struct {
 }
 
 type JVMRuntimeMetricsConfig struct {
+	// SamplingInterval controls HotSpot memory event sampling and Java agent
+	// class, thread, and CPU snapshot collection.
 	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
+}
+
+type DotnetRuntimeMetricsConfig struct {
+	// SamplingInterval sets the collection interval requested from System.Runtime EventCounters.
+	// It also sets the delay before reconnecting after a collection session ends.
+	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL"`
+	// Timeout bounds diagnostic IPC setup and EventPipe session shutdown.
+	Timeout time.Duration `yaml:"timeout" env:"OBI_DOTNET_RUNTIME_METRICS_TIMEOUT"`
 }
 
 type ConfigError string
@@ -751,7 +812,12 @@ func (c *Config) validate(context validationContext) error {
 	if c.JVMRuntimeMetrics.SamplingInterval <= 0 {
 		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0")
 	}
-
+	if c.DotnetRuntimeMetrics.SamplingInterval <= 0 {
+		return ConfigError("dotnet_runtime_metrics.sampling_interval must be greater than 0")
+	}
+	if c.DotnetRuntimeMetrics.Timeout <= 0 {
+		return ConfigError("dotnet_runtime_metrics.timeout must be greater than 0")
+	}
 	if err := c.Discovery.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}
@@ -822,6 +888,9 @@ func (c *Config) validate(context validationContext) error {
 		if err := c.resolveSpanMetricsFormats(); err != nil {
 			return err
 		}
+		if err := c.validateAppSizeMetrics(); err != nil {
+			return err
+		}
 		// Per-service sections can enable features the top-level list does not, and they
 		// drive the exporters through JoinMetricsConfig, so report against the same set.
 		c.warnDeprecatedMetricsFeatures()
@@ -837,10 +906,30 @@ func (c *Config) validate(context validationContext) error {
 	return nil
 }
 
-// spanMetricsFeatureMasks returns every feature list that feeds the span-metrics exporters:
-// the top-level one plus each per-service one. JoinMetricsConfig ORs them together, so a
-// format conflict left unresolved in any of them decides the naming for all services.
-func (c *Config) spanMetricsFeatureMasks() []*export.Features {
+// validateAppSizeMetrics rejects application_sizes without the application RED metrics.
+// The body size histograms are emitted from the HTTP application metric pipeline, so on
+// their own they would produce no telemetry at all.
+//
+// Every list is checked on its own: a defined per-service list replaces the global one
+// rather than extending it, so both features have to appear in the same list to have any
+// effect on the services that list applies to.
+func (c *Config) validateAppSizeMetrics() error {
+	for _, features := range c.metricsFeatureMasks() {
+		if features.Undefined() {
+			continue
+		}
+		if features.AppSizes() && !features.AppRED() {
+			return ConfigError("application_sizes needs the application RED metrics enabled in the" +
+				" same features list: use 'application', or add 'application_red' next to" +
+				" 'application_sizes'")
+		}
+	}
+	return nil
+}
+
+// metricsFeatureMasks returns every feature list that reaches the exporters: the top-level
+// one plus each per-service one.
+func (c *Config) metricsFeatureMasks() []*export.Features {
 	masks := make([]*export.Features, 0, 1+len(c.Discovery.Instrument)+len(c.Discovery.Services))
 	masks = append(masks, &c.Metrics.Features)
 	for i := range c.Discovery.Instrument {
@@ -860,7 +949,9 @@ func (c *Config) resolveSpanMetricsFormats() error {
 	resolved := false
 	legacyEnabled := false
 	otelEnabled := false
-	for _, features := range c.spanMetricsFeatureMasks() {
+	// JoinMetricsConfig ORs the lists together, so a format conflict left unresolved in any
+	// of them decides the naming for all services.
+	for _, features := range c.metricsFeatureMasks() {
 		if features.InvalidSpanMetricsConfig() {
 			return ConfigError("you can only enable one format of span metrics," +
 				" application_span or application_span_otel")
@@ -970,6 +1061,7 @@ func (c *Config) SpanMetricsEnabledForTraces() bool {
 // TODO: maybe this method has too many responsibilities, as it affects the global logger.
 func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	slog.SetDefault(slog.New(handler))
+	klogbridge.Install()
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
 		c.EBPF.BpfDebug = true

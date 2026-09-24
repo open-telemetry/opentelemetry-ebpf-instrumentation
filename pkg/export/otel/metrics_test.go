@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -206,6 +208,101 @@ type InstrTest struct {
 	extraColl            int
 }
 
+// The HTTP body size histograms are Opt-In in the semantic conventions, so
+// application_red must set up the RED views without them.
+func TestOtelMetricOptions_BodySizeFeature(t *testing.T) {
+	views := func(features export.Features) int {
+		mr := MetricsReporter{
+			cfg: &otelcfg.MetricsConfig{
+				Buckets:              export.DefaultBuckets,
+				HistogramAggregation: otelcfg.HistogramAggregationExplicit,
+			},
+			jointMetricsCfg: &perapp.GlobalMetricsConfig{Features: features},
+			is: instrumentations.NewInstrumentationSelection(
+				[]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}),
+		}
+		return len(mr.otelMetricOptions())
+	}
+
+	// the four body size histograms, server and client, request and response, are the
+	// only thing the sizes feature adds on top of the RED views
+	red := views(export.FeatureApplicationRED)
+	assert.Positive(t, red)
+	assert.Equal(t, red+4, views(export.FeatureApplicationRED|export.FeatureApplicationSizes))
+	assert.Equal(t, red+4, views(export.FeatureAll))
+	// sizes without the RED metrics set up nothing, which config validation rejects
+	assert.Equal(t, 0, views(export.FeatureApplicationSizes))
+	assert.Equal(t, 0, views(export.FeatureNetwork))
+}
+
+// Counting views only covers the setup side. Drive real spans through the reporter so
+// the record paths are exercised too: with application_red the size instruments are
+// never created, and recording one anyway would dereference a nil expirer.
+func TestAppMetrics_BodySizeFeature(t *testing.T) {
+	sizeMetrics := []string{
+		attributes.HTTPServerRequestSize.OTEL,
+		attributes.HTTPServerResponseSize.OTEL,
+		attributes.HTTPClientRequestSize.OTEL,
+		attributes.HTTPClientResponseSize.OTEL,
+	}
+
+	for _, tc := range []struct {
+		name     string
+		features export.Features
+		emitted  bool
+	}{
+		{name: "application bundle", features: export.FeatureApplicationRED | export.FeatureApplicationSizes, emitted: true},
+		{name: "application_red only", features: export.FeatureApplicationRED, emitted: false},
+		{name: "all features", features: export.FeatureAll, emitted: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			otlp, err := collector.Start(ctx)
+			require.NoError(t, err)
+
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			go makeMetricsReporter(ctx, t,
+				[]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+				tc.features, otlp, metrics, processEvents).reportMetrics(ctx)
+
+			svcAttrs := svc.Attrs{Features: tc.features, UID: svc.UID{Instance: "foo"}}
+			metrics.Send([]request.Span{
+				{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200, ContentLength: 512},
+				{Service: svcAttrs, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175, ContentLength: 512},
+			})
+
+			// The durations always arrive, so wait for both and then drain briefly to give
+			// an instrument that should have stayed out a chance to show up and fail.
+			published := map[string]struct{}{}
+			for _, r := range readNChan(t, otlp.Records(), 2, timeout) {
+				published[r.Name] = struct{}{}
+			}
+			drain := time.After(500 * time.Millisecond)
+			for draining := true; draining; {
+				select {
+				case r := <-otlp.Records():
+					published[r.Name] = struct{}{}
+				case <-drain:
+					draining = false
+				}
+			}
+
+			assert.Contains(t, published, attributes.HTTPServerDuration.OTEL)
+			assert.Contains(t, published, attributes.HTTPClientDuration.OTEL)
+
+			for _, name := range sizeMetrics {
+				if tc.emitted {
+					assert.Contains(t, published, name)
+					continue
+				}
+				assert.NotContains(t, published, name)
+			}
+		})
+	}
+}
+
 func TestAppMetrics_ByInstrumentation(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 
@@ -391,7 +488,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-			otelExporter := makeMetricsReporter(ctx, t, tt.instr, export.FeatureApplicationRED, otlp, metrics, processEvents).reportMetrics
+			otelExporter := makeMetricsReporter(ctx, t, tt.instr, export.FeatureApplicationRED|export.FeatureApplicationSizes, otlp, metrics, processEvents).reportMetrics
 			require.NoError(t, err)
 
 			go otelExporter(ctx)
@@ -411,32 +508,32 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			*/
 			// WHEN it receives metrics
 			metrics.Send([]request.Span{
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Method: "SELECT", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLServer, Method: "SELECT", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedClient, Method: "SET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedServer, Method: "GET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAerospikeClient, Method: "aerospike_get", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: request.MessagingSend, RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSClient, Method: "publish", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
-				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaGraphLaunch},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Method: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLServer, Method: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedClient, Method: "SET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMemcachedServer, Method: "GET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAerospikeClient, Method: "aerospike_get", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: request.MessagingSend, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED | export.FeatureApplicationSizes, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaGraphLaunch},
 			})
 
 			// Read the exported metrics, add +extraColl for HTTP size metrics
@@ -593,6 +690,106 @@ func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_MCPOperationDuration(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		eventType  request.EventType
+		wantMetric string
+	}{
+		{"client side", request.EventTypeHTTPClient, attributes.MCPClientOperationDuration.OTEL},
+		{"server side", request.EventTypeHTTP, attributes.MCPServerOperationDuration.OTEL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			metricRecords := make(chan collector.MetricRecord, 100)
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+			mcfg := &otelcfg.MetricsConfig{
+				Interval:          20 * time.Millisecond,
+				TTL:               30 * time.Minute,
+				ReportersCacheLen: 10,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP, instrumentations.InstrumentationGenAI},
+				MetricsConsumer:   testMetricsConsumer(metricRecords),
+			}
+			reporter, err := newMetricsReporter(
+				ctx,
+				&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+				mcfg,
+				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+				&attributes.SelectorConfig{},
+				request.UnresolvedNames{},
+				metrics,
+				processEvents,
+			)
+			require.NoError(t, err)
+			go reporter.reportMetrics(ctx)
+
+			metrics.Send([]request.Span{{
+				Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "mcp"}},
+				Type:         tc.eventType,
+				SubType:      request.HTTPSubtypeMCP,
+				Method:       "POST",
+				RequestStart: 100,
+				End:          200,
+				GenAI: &request.GenAI{MCP: &request.MCPCall{
+					Method:      "tools/call",
+					ToolName:    "get_weather",
+					SessionID:   "session-1",
+					ProtocolVer: "2025-06-18",
+					ErrorCode:   -32602,
+				}},
+			}})
+
+			seen := map[string]collector.MetricRecord{}
+
+			deadline := time.NewTimer(2 * time.Second)
+			defer deadline.Stop()
+		wait:
+			for {
+				select {
+				case record := <-metricRecords:
+					seen[record.Name] = record
+					if _, ok := seen[tc.wantMetric]; ok {
+						break wait
+					}
+				case <-deadline.C:
+					require.FailNow(t, "timed out waiting for "+tc.wantMetric)
+				}
+			}
+
+			// Keep draining past the first match: the HTTP duration record the
+			// span would otherwise fall through to may arrive in any order
+			// within a cycle, so asserting on it before the queue is quiet
+			// would pass whether or not it was recorded.
+			quiet := time.NewTimer(200 * time.Millisecond)
+			defer quiet.Stop()
+		drain:
+			for {
+				select {
+				case record := <-metricRecords:
+					seen[record.Name] = record
+				case <-quiet.C:
+					break drain
+				}
+			}
+
+			record := seen[tc.wantMetric]
+			assert.Equal(t, "tools/call", record.Attributes["mcp.method.name"])
+			assert.Equal(t, "get_weather", record.Attributes["gen_ai.tool.name"])
+			assert.Equal(t, "2025-06-18", record.Attributes["mcp.protocol.version"])
+			assert.Equal(t, "-32602", record.Attributes["rpc.response.status_code"])
+			assert.Equal(t, "-32602", record.Attributes["error.type"])
+			// High-cardinality identifiers stay off the metric.
+			assert.NotContains(t, record.Attributes, "mcp.session.id")
+			assert.NotContains(t, record.Attributes, "mcp.resource.uri")
+			assert.NotContains(t, seen, attributes.HTTPServerDuration.OTEL)
+			assert.NotContains(t, seen, attributes.HTTPClientDuration.OTEL)
+		})
+	}
+}
+
 func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)
@@ -614,7 +811,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.DBClientDuration.Section: attributes.InclusionLists{
-					Include: []string{string(attr.DBCollectionName), string(attr.ServerPort)},
+					Include: []string{string(attr.DBCollectionName), string(attr.ServerPort), string(attr.DBNamespace)},
 				},
 			},
 		},
@@ -632,6 +829,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 		Path:         "customers",
 		Method:       "SELECT",
 		HostPort:     5432,
+		DBNamespace:  "testdb",
 		RequestStart: 100,
 		End:          200,
 	}})
@@ -639,6 +837,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	records := readMetricsByName(t, metricRecords, timeout, attributes.DBClientDuration.OTEL)
 	require.Len(t, records, 1)
 	assert.Equal(t, "customers", records[0].Attributes[string(attr.DBCollectionName)])
+	assert.Equal(t, "testdb", records[0].Attributes[string(attr.DBNamespace)])
 	// the DBMS default port is still reported because the user explicitly
 	// included server.port in the selection
 	assert.Equal(t, "5432", records[0].Attributes[string(attr.ServerPort)])
@@ -682,16 +881,20 @@ func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 			End:          200,
 		}
 	}
+	failedSpan := postgresSpan("FAILED", 5433, "dbhost")
+	failedSpan.Status = 1
+	failedSpan.SQLError = &request.SQLError{Code: 1146}
 	metrics.Send([]request.Span{
 		postgresSpan("NONDEFAULT", 5433, "dbhost"),
 		postgresSpan("DEFAULTPORT", 5432, "dbhost"),
 		postgresSpan("NOADDRESS", 5433, ""),
 		postgresSpan("UNKNOWNPORT", 0, "dbhost"),
+		failedSpan,
 	})
 
 	records := map[string]collector.MetricRecord{}
 	deadline := time.After(timeout)
-	for len(records) < 4 {
+	for len(records) < 5 {
 		select {
 		case item := <-metricRecords:
 			if item.Name != attributes.DBClientDuration.OTEL {
@@ -707,6 +910,10 @@ func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 	assert.NotContains(t, records["DEFAULTPORT"].Attributes, string(attr.ServerPort))
 	assert.NotContains(t, records["NOADDRESS"].Attributes, string(attr.ServerPort))
 	assert.NotContains(t, records["UNKNOWNPORT"].Attributes, string(attr.ServerPort))
+
+	// db.response.status_code is reported only for failed operations
+	assert.Equal(t, "1146", records["FAILED"].Attributes[string(attr.DBResponseStatusCode)])
+	assert.NotContains(t, records["NONDEFAULT"].Attributes, string(attr.DBResponseStatusCode))
 }
 
 func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
@@ -782,30 +989,135 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 	assert.Empty(t, expected)
 }
 
+// Span metrics are the highest-cardinality family OBI emits, so the base attribute set that
+// spanMetricAttributes builds is pinned here: one added multiplies every series, one removed
+// silently breaks consumers grouping by it. (A user can still append to it through
+// ExtraSpanResourceLabels, which TestSpanMetrics_ExtraResourceAttributes covers; this test
+// constructs the reporter with an empty config so it sees the base set alone.)
+//
+// host.id is deliberately not among them, and the resource assertion below is the other half of
+// that: dropping it from the data points is only correct while the resource still carries it.
+func TestSpanMetrics_EmittedAttributes(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		features         export.Features
+		wantDurationUnit string
+	}{
+		{name: "otel naming", features: export.FeatureSpanOTel, wantDurationUnit: "s"},
+		{name: "legacy naming", features: export.FeatureSpanLegacy, wantDurationUnit: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer otelcfg.RestoreEnvAfterExecution()()
+
+			ctx := t.Context()
+			metricRecords := make(chan collector.MetricRecord, 100)
+
+			now := syncedClock{now: time.Now()}
+			timeNow = now.Now
+
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			mcfg := &otelcfg.MetricsConfig{
+				Interval:          50 * time.Millisecond,
+				MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+				TTL:               30 * time.Minute,
+				ReportersCacheLen: 100,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+				MetricsConsumer:   testMetricsConsumer(metricRecords),
+			}
+
+			reporter, err := newMetricsReporter(
+				ctx,
+				&global.ContextInfo{
+					OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+					NodeMeta:            meta.NodeMeta{HostID: "the-host"},
+				},
+				mcfg,
+				&perapp.GlobalMetricsConfig{Features: tc.features},
+				&attributes.SelectorConfig{},
+				request.UnresolvedNames{},
+				metrics,
+				processEvents,
+			)
+			require.NoError(t, err)
+
+			go reporter.reportMetrics(ctx)
+
+			metrics.Send([]request.Span{{
+				Service: svc.Attrs{
+					Features: tc.features,
+					UID:      svc.UID{Name: "the-service", Namespace: "the-namespace", Instance: "the-instance"},
+				},
+				Type:         request.EventTypeHTTPClient,
+				Method:       "GET",
+				Route:        "/v1/traces",
+				RequestStart: 100,
+				End:          200,
+			}})
+
+			res := readMetricsByName(t, metricRecords, timeout,
+				reporter.spanMetricsLatencyName(),
+				reporter.spanMetricsCallsName(),
+			)
+			require.Len(t, res, 2)
+
+			wantAttrs := []string{
+				string(attr.ServiceName.OTEL()),
+				string(attr.ServiceInstanceID.OTEL()),
+				string(attr.ServiceNamespace.OTEL()),
+				string(attr.SpanKind.OTEL()),
+				string(attr.SpanName.OTEL()),
+				string(attr.StatusCode.OTEL()),
+				string(attr.Source.OTEL()),
+				string(attr.TelemetrySDKLanguage.OTEL()),
+			}
+
+			wantUnits := map[string]string{
+				reporter.spanMetricsLatencyName(): tc.wantDurationUnit,
+				reporter.spanMetricsCallsName():   "",
+			}
+
+			for _, record := range res {
+				got := slices.Collect(maps.Keys(record.Attributes))
+				assert.ElementsMatchf(t, wantAttrs, got, "unexpected attribute set on %q", record.Name)
+				assert.NotContainsf(t, record.Attributes, string(attr.HostID.OTEL()),
+					"%q must not carry the host id per data point", record.Name)
+				assert.Equalf(t, "the-host", record.ResourceAttributes[string(attr.HostID.OTEL())],
+					"%q must still carry the host id on its resource", record.Name)
+				assert.Equalf(t, wantUnits[record.Name], record.Unit, "unexpected unit on %q", record.Name)
+			}
+		})
+	}
+}
+
 func TestSpanMetricsNames(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		features        export.Features
 		expectedLatency string
 		expectedCalls   string
+		expectedUnit    string
 	}{
 		{
 			name:            "otel naming",
 			features:        export.FeatureSpanOTel,
 			expectedLatency: "traces.span.metrics.duration",
 			expectedCalls:   "traces.span.metrics.calls",
+			expectedUnit:    "s",
 		},
 		{
 			name:            "legacy naming",
 			features:        export.FeatureSpanLegacy,
 			expectedLatency: "traces_spanmetrics_latency",
 			expectedCalls:   "traces_spanmetrics_calls_total",
+			expectedUnit:    "",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := &MetricsReporter{jointMetricsCfg: &perapp.GlobalMetricsConfig{Features: tc.features}}
 			assert.Equal(t, tc.expectedLatency, mr.spanMetricsLatencyName())
 			assert.Equal(t, tc.expectedCalls, mr.spanMetricsCallsName())
+			assert.Equal(t, tc.expectedUnit, mr.spanMetricsDuration().Unit)
 		})
 	}
 }
@@ -1151,62 +1463,6 @@ func makeMetricsReporter(
 
 	require.NoError(t, err)
 	return mr
-}
-
-func TestAppMetrics_TracesHostInfo(t *testing.T) {
-	ctx := t.Context()
-
-	otlp, err := collector.Start(ctx)
-	require.NoError(t, err)
-
-	now := syncedClock{now: time.Now()}
-	timeNow = now.Now
-
-	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
-	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	feats := export.FeatureApplicationRED | export.FeatureApplicationHost
-	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, feats, otlp, metrics, processEvents)
-	otelExporter := mr.reportMetrics
-	go otelExporter(ctx)
-
-	assert.Len(t, otlp.Records(), 0, "metric reported before the first span is sent")
-
-	processEvents.Send(exec.ProcessEvent{
-		Type: exec.ProcessEventCreated,
-		File: exec.New(exec.Init{
-			Service: svc.Attrs{
-				Features: feats,
-				UID:      svc.UID{Instance: "foo"},
-			},
-		}),
-	})
-
-	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
-	})
-
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
-			"traces.host.info metric has not been created yet")
-	}, timeout, 100*time.Millisecond)
-
-	// Check expiration logic
-	processEvents.Send(exec.ProcessEvent{
-		Type: exec.ProcessEventTerminated,
-		File: exec.New(exec.Init{
-			Service: svc.Attrs{
-				Features: feats,
-				UID:      svc.UID{Instance: "foo"},
-			},
-		}),
-	})
-
-	now.Advance(50 * time.Minute)
-
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		assert.Empty(ct, mr.hostInfo.entries.All(),
-			"traces.host.info metric has not expired yet") // The entry should be expired
-	}, timeout, 100*time.Millisecond)
 }
 
 func TestMetricResourceAttributes(t *testing.T) {
@@ -1976,4 +2232,58 @@ func resourcesMatch(t *testing.T, one *TargetMetrics, two *TargetMetrics) {
 		assert.True(t, ok)
 		assert.Equal(t, a.Value.AsString(), other.AsString())
 	}
+}
+
+// The OTel counterpart of the Prometheus case: a call whose response was never observed
+// publishes the size of the request it sent, and neither a duration nor a response size,
+// which it does not know.
+func TestAppMetrics_UnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	feats := export.FeatureApplicationRED | export.FeatureApplicationSizes
+	go makeMetricsReporter(ctx, t,
+		[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		feats, otlp, metrics, processEvents).reportMetrics(ctx)
+
+	unmeasured := request.Span{
+		Service:             svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}},
+		Type:                request.EventTypeHTTPClient,
+		Method:              "GET",
+		Route:               "/unmeasured",
+		RequestStart:        100,
+		End:                 6 * time.Second.Nanoseconds(),
+		ContentLength:       512,
+		ResponseObservation: request.ResponseReceived,
+	}
+	request.SetIgnoreDurations(&unmeasured)
+
+	metrics.Send([]request.Span{unmeasured})
+
+	// One record is expected. Drain briefly afterwards so an instrument that should
+	// have stayed out has a chance to show up and fail the assertion.
+	published := map[string]struct{}{}
+	for _, r := range readNChan(t, otlp.Records(), 1, timeout) {
+		published[r.Name] = struct{}{}
+	}
+	drain := time.After(500 * time.Millisecond)
+	for draining := true; draining; {
+		select {
+		case r := <-otlp.Records():
+			published[r.Name] = struct{}{}
+		case <-drain:
+			draining = false
+		}
+	}
+
+	assert.Contains(t, published, "http.client.request.body.size",
+		"the size of the request that was sent is known and must be reported")
+	assert.NotContains(t, published, "http.client.request.duration",
+		"a duration that runs past the request it describes was published")
+	assert.NotContains(t, published, "http.client.response.body.size",
+		"a response nobody saw was reported as having a size")
 }

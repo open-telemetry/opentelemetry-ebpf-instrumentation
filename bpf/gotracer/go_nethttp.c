@@ -33,6 +33,7 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_h2_write.h>
 #include <gotracer/go_large_buffer.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
@@ -47,12 +48,13 @@
 
 #include <maps/go_ongoing_http.h>
 #include <maps/go_ongoing_http_client_requests.h>
+#include <maps/go_h2_owned_streams.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/tp_char_buf_mem.h>
 
 #include <pid/pid_helpers.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
@@ -154,7 +156,7 @@ int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
         bpf_dbg_printk("can't update map element");
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation->tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_http_server, &invocation->tp, go_obi_ctx__stack_off(ctx));
 
 done:
     return 0;
@@ -391,7 +393,7 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
         bpf_memset(minimal_inv, 0, sizeof(*minimal_inv));
         update_traceparent(minimal_inv, traceparent_start);
         bpf_map_update_elem(&ongoing_http_server_requests, g_key, minimal_inv, BPF_ANY);
-        obi_ctx__set(bpf_get_current_pid_tgid(), &minimal_inv->tp);
+        go_obi_ctx__begin(g_key, k_obi_ctx_http_server, &minimal_inv->tp, 0);
     }
 }
 
@@ -577,7 +579,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     }
 
     task_pid(&trace->pid);
-    trace->type = EVENT_HTTP_REQUEST;
+    trace->type = k_event_type_http_request;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
@@ -618,10 +620,10 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    go_obi_ctx__end(&g_key, k_obi_ctx_http_server, invocation ? &invocation->tp : NULL);
     bpf_map_delete_elem(&ongoing_server_bufr, &g_key);
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
 
@@ -743,6 +745,14 @@ int GUARDED_PROG(obi_uprobe_roundTrip, struct pt_regs *, ctx) {
     return 0;
 }
 
+static __always_inline void cleanup_http2_owned_stream(const go_addr_key_t *g_key) {
+    http2_owned_stream_ref_t *ref = bpf_map_lookup_elem(&http2_owned_stream_by_request, g_key);
+    if (ref) {
+        bpf_map_delete_elem(&go_h2_owned_streams, &ref->stream);
+        bpf_map_delete_elem(&http2_owned_stream_by_request, g_key);
+    }
+}
+
 SEC("uprobe/roundTrip_return")
 int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/roundTrip_return ===");
@@ -774,7 +784,7 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     }
 
     task_pid(&trace->pid);
-    trace->type = EVENT_HTTP_CLIENT;
+    trace->type = k_event_type_http_client;
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
@@ -845,6 +855,8 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    cleanup_http2_owned_stream(&g_key);
+    bpf_map_delete_elem(&http2_header_observations, &g_key);
     bpf_map_delete_elem(&go_ongoing_http_client_requests, &g_key);
     bpf_map_delete_elem(&ongoing_http_client_requests_data, &g_key);
     bpf_map_delete_elem(&ongoing_client_connections, &g_key);
@@ -1064,16 +1076,18 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
     unsigned char buf[k_traceparent_len];
     make_tp_string(buf, &inv->tp);
 
-    if (len <
-        (size - TP_MAX_VAL_LENGTH - TP_MAX_KEY_LENGTH - 4)) { // 4 = strlen(":_")+strlen("\r\n")
-        char key[TP_MAX_KEY_LENGTH + 2] = "Traceparent: ";
-        char end[2] = "\r\n";
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), key, sizeof(key));
-        len += TP_MAX_KEY_LENGTH + 2;
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), buf, sizeof(buf));
-        len += TP_MAX_VAL_LENGTH;
-        bpf_probe_write_user(buf_ptr + (len & 0x0ffff), end, sizeof(end));
-        len += 2;
+    char key[TP_MAX_KEY_LENGTH + 2] = "Traceparent: ";
+    char end[2] = "\r\n";
+    const s64 header_len = sizeof(key) + sizeof(buf) + sizeof(end);
+
+    if (len < size - header_len) {
+        unsigned char *dst = (unsigned char *)buf_ptr + len;
+        bpf_probe_write_user(dst, key, sizeof(key));
+        dst += sizeof(key);
+        bpf_probe_write_user(dst, buf, sizeof(buf));
+        dst += sizeof(buf);
+        bpf_probe_write_user(dst, end, sizeof(end));
+        len += header_len;
         bpf_probe_write_user((void *)(io_writer_addr + io_writer_n_pos), &len, sizeof(len));
 
         // For Go we support two types of HTTP context propagation for now.
@@ -1207,7 +1221,8 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
                 __builtin_memcpy(&inv->tp, tp, sizeof(tp_info_t));
                 bpf_dbg_printk("Found traceparent in HTTP2 headers");
                 bpf_map_update_elem(&ongoing_http_server_requests, &g_key, inv, BPF_ANY);
-                obi_ctx__set(bpf_get_current_pid_tgid(), &inv->tp);
+                go_obi_ctx__begin(
+                    &g_key, k_obi_ctx_http_server, &inv->tp, go_obi_ctx__stack_off(ctx));
                 bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
             }
         }
@@ -1216,23 +1231,53 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
     return 0;
 }
 
+static __always_inline bool find_http_client_request_key(const go_addr_key_t *writer_key,
+                                                         go_addr_key_t *request_key) {
+    enum { k_max_parent_depth = 6 };
+    go_addr_key_t candidate = *writer_key;
+
+    for (u8 attempts = 0; attempts < k_max_parent_depth; attempts++) {
+        if (bpf_map_lookup_elem(&go_ongoing_http_client_requests, &candidate)) {
+            *request_key = candidate;
+            return true;
+        }
+
+        goroutine_metadata *metadata = bpf_map_lookup_elem(&ongoing_goroutines, &candidate);
+        if (!metadata) {
+            return false;
+        }
+        candidate = metadata->parent;
+    }
+
+    return false;
+}
+
 static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                                                     void *cc_ptr,
                                                     u32 stream_id,
                                                     go_offset_const off_cc_tconn_pos,
+                                                    go_offset_const off_cc_tls_pos,
                                                     go_offset_const off_cc_framer_pos) {
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+    go_addr_key_t writer_key = {};
+    go_addr_key_from_id(&writer_key, goroutine_addr);
+    const http2_header_observation_t *observation =
+        bpf_map_lookup_elem(&http2_header_observations, &writer_key);
+    const bool app_owned = observation && observation->app_owned;
+    const u64 observed_request_go = observation ? observation->request_go : 0;
+    bpf_map_delete_elem(&http2_header_observations, &writer_key);
 
-    void *parent_go = (void *)find_parent_goroutine_in_chain(&g_key);
+    go_addr_key_t g_key = writer_key;
+    http2_owned_stream_ref_t owned_ref = {};
+    bool owned_ref_published = false;
 
-    bpf_dbg_printk("goroutine_addr=%lx, parent_go=%lx", goroutine_addr, parent_go);
-
-    // We should find a parent always
-    if (parent_go) {
-        goroutine_addr = parent_go;
-        go_addr_key_from_id(&g_key, goroutine_addr);
+    if (observed_request_go) {
+        go_addr_key_from_id(&g_key, (void *)observed_request_go);
+        goroutine_addr = (void *)observed_request_go;
+    } else if (find_http_client_request_key(&writer_key, &g_key)) {
+        goroutine_addr = (void *)g_key.addr;
     }
+
+    bpf_dbg_printk("writer_goroutine=%lx, request_goroutine=%lx", writer_key.addr, goroutine_addr);
 
     off_table_t *ot = get_offsets_table();
 
@@ -1245,16 +1290,38 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
         bpf_dbg_printk("tconn=%llx", tconn);
 
         if (tconn) {
-            void *tconn_conn = 0;
-            bpf_probe_read(
-                &tconn_conn, sizeof(tconn_conn), (void *)(tconn + k_go_iface_data_offset));
-            bpf_dbg_printk("tconn_conn=%llx", tconn_conn);
+            void *tls_state = 0;
+            bpf_probe_read(&tls_state,
+                           sizeof(tls_state),
+                           (void *)(cc_ptr + go_offset_of(ot, (go_offset){.v = off_cc_tls_pos})));
+
+            void *conn_ptr = tconn;
+            if (tls_state) {
+                bpf_probe_read(
+                    &conn_ptr, sizeof(conn_ptr), (void *)(tconn + k_go_iface_data_offset));
+            }
+            bpf_dbg_printk("tls_state=%llx, conn_ptr=%llx", tls_state, conn_ptr);
 
             connection_info_t conn = {0};
-            const u8 ok = get_conn_info(tconn_conn, &conn);
+            const u8 ok = get_conn_info(conn_ptr, &conn);
 
             if (ok) {
                 bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
+
+                if (app_owned && stream_id) {
+                    owned_ref.stream.p_conn.conn = conn;
+                    owned_ref.stream.p_conn.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+                    owned_ref.stream.stream_id = stream_id;
+                    set_go_h2_owned_stream_process_identity(&owned_ref.stream);
+
+                    const u64 now = bpf_ktime_get_ns();
+                    if (bpf_map_update_elem(
+                            &go_h2_owned_streams, &owned_ref.stream, &now, BPF_ANY) == 0) {
+                        owned_ref_published = true;
+                        bpf_map_update_elem(
+                            &http2_owned_stream_by_request, &g_key, &owned_ref, BPF_ANY);
+                    }
+                }
 
                 bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
                 connection_info_t sorted_conn = conn;
@@ -1281,9 +1348,73 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                 s_key.conn_ptr = (u64)framer;
 
                 bpf_map_update_elem(&http2_req_map, &s_key, &goroutine_addr, BPF_ANY);
+                if (owned_ref_published) {
+                    bpf_map_update_elem(&http2_owned_stream_by_framer, &s_key, &owned_ref, BPF_ANY);
+                }
             }
         }
     }
+}
+
+SEC("uprobe/http2ClientStreamEncodeAndWriteHeaders")
+int GUARDED_PROG(obi_uprobe_http2ClientStreamEncodeAndWriteHeaders, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    http2_header_observation_t observation = {};
+
+    void *req = (void *)GO_PARAM2(ctx);
+    off_table_t *ot = get_offsets_table();
+    const u64 header_pos = go_offset_of(ot, (go_offset){.v = _req_header_ptr_pos});
+    void *headers = 0;
+    if (req && header_pos != (u64)-1 &&
+        bpf_probe_read_user(&headers, sizeof(headers), (unsigned char *)req + header_pos) == 0 &&
+        headers) {
+        const u64 *request_go = bpf_map_lookup_elem(&header_req_map, &headers);
+        if (request_go) {
+            observation.request_go = *request_go;
+        }
+    }
+
+    bpf_map_update_elem(&http2_header_observations, &g_key, &observation, BPF_ANY);
+    return 0;
+}
+
+SEC("uprobe/http2ClientStreamEncodeAndWriteHeaders_returns")
+int GUARDED_PROG(obi_uprobe_http2ClientStreamEncodeAndWriteHeaders_returns, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    bpf_map_delete_elem(&http2_header_observations, &g_key);
+    return 0;
+}
+
+SEC("uprobe/http2ClientConnWriteHeader")
+int GUARDED_PROG(obi_uprobe_http2ClientConnWriteHeader, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation || (u64)GO_PARAM3(ctx) != W3C_KEY_LENGTH) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    http2_header_observation_t *observation =
+        bpf_map_lookup_elem(&http2_header_observations, &g_key);
+    if (!observation) {
+        return 0;
+    }
+
+    unsigned char name[W3C_KEY_LENGTH];
+    if (bpf_probe_read_user(name, sizeof(name), (void *)GO_PARAM2(ctx)) == 0 &&
+        stricmp((const char *)name, "traceparent", W3C_KEY_LENGTH)) {
+        observation->app_owned = 1;
+    }
+    return 0;
 }
 
 SEC("uprobe/http2RoundTrip")
@@ -1306,7 +1437,8 @@ int GUARDED_PROG(obi_uprobe_http2WriteHeaders, struct pt_regs *, ctx) {
 
     bpf_dbg_printk("=== uprobe/http2WriteHeaders ===");
 
-    setup_http2_client_conn(goroutine_addr, cc_ptr, (u32)stream_id, _cc_tconn_pos, _cc_framer_pos);
+    setup_http2_client_conn(
+        goroutine_addr, cc_ptr, (u32)stream_id, _cc_tconn_pos, _cc_tls_pos, _cc_framer_pos);
 
     return 0;
 }
@@ -1322,8 +1454,12 @@ int GUARDED_PROG(obi_uprobe_http2WriteHeaders_vendored, struct pt_regs *, ctx) {
 
     bpf_dbg_printk("=== uprobe/http2WriteHeadersVendored ===");
 
-    setup_http2_client_conn(
-        goroutine_addr, cc_ptr, (u32)stream_id, _cc_tconn_vendored_pos, _cc_framer_vendored_pos);
+    setup_http2_client_conn(goroutine_addr,
+                            cc_ptr,
+                            (u32)stream_id,
+                            _cc_tconn_vendored_pos,
+                            _cc_tls_vendored_pos,
+                            _cc_framer_vendored_pos);
 
     return 0;
 }
@@ -1355,6 +1491,16 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
     };
     s_key.conn_ptr = (u64)framer;
 
+    http2_owned_stream_ref_t *owned_ref =
+        bpf_map_lookup_elem(&http2_owned_stream_by_framer, &s_key);
+    const bool app_owned =
+        owned_ref && fresh_go_h2_owned_stream(&owned_ref->stream, bpf_ktime_get_ns());
+    bpf_map_delete_elem(&http2_owned_stream_by_framer, &s_key);
+    if (app_owned) {
+        bpf_map_delete_elem(&http2_req_map, &s_key);
+        return;
+    }
+
     void **go_ptr = bpf_map_lookup_elem(&http2_req_map, &s_key);
 
     if (go_ptr) {
@@ -1365,36 +1511,59 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
 
         http_func_invocation_t *info =
             bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
+        connection_info_t *conn_info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
 
         if (info) {
             bpf_dbg_printk("Found func info: %llx", info);
             void *goroutine_addr = GOROUTINE_PTR(ctx);
 
             void *w_ptr = 0;
-            bpf_probe_read(
+            const long writer_err = bpf_probe_read_user(
                 &w_ptr, sizeof(w_ptr), (void *)(framer + framer_w_pos + k_go_iface_data_offset));
-            if (w_ptr) {
+            if (!writer_err && w_ptr) {
                 s64 n = 0;
-                bpf_probe_read(
-                    &n,
-                    sizeof(n),
-                    (void *)(w_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_n_pos})));
+                const u64 n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+                if (n_pos == (u64)-1 ||
+                    bpf_probe_read_user(&n, sizeof(n), (void *)(w_ptr + n_pos)) != 0) {
+                    goto cleanup;
+                }
 
                 bpf_dbg_printk("Found initial n=%d, framer=%llx", n, framer);
 
                 // The offset is 0 on all connections we've tested with.
                 // If we read some very large offset, we don't do anything since it might be a situation
                 // we can't handle.
-                if (n < MAX_W_PTR_N) {
+                if (n >= 0 && n < MAX_W_PTR_N) {
                     framer_func_invocation_t f_info = {
                         .tp = info->tp,
                         .framer_ptr = (u64)framer,
                         .initial_n = n,
+                        .stream_id = (u32)stream_id,
+                        .s_port = conn_info ? conn_info->s_port : 0,
+                        .d_port = conn_info ? conn_info->d_port : 0,
+                        .frame_type = k_h2_frame_headers,
                     };
                     go_addr_key_t f_key = {};
                     go_addr_key_from_id(&f_key, goroutine_addr);
 
                     bpf_map_update_elem(&framer_invocation_map, &f_key, &f_info, BPF_ANY);
+
+                    if (conn_info && valid_trace(info->tp.trace_id)) {
+                        tp_info_pid_t tp_p = {
+                            .tp = info->tp,
+                            .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
+                            .valid = 1,
+                            .written = 0,
+                            .req_type = k_event_type_http_client,
+                        };
+                        egress_key_t e_key = {
+                            .d_port = conn_info->d_port,
+                            .s_port = conn_info->s_port,
+                            .stream_id = (u32)stream_id,
+                        };
+                        sort_egress_key(&e_key);
+                        bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
+                    }
                 } else {
                     bpf_dbg_printk("N too large, ignoring...");
                 }
@@ -1402,12 +1571,13 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
         }
     }
 
+cleanup:
     bpf_map_delete_elem(&http2_req_map, &s_key);
 }
 
 SEC("uprobe/golang_http2FramerWriteHeaders")
 int GUARDED_PROG(obi_uprobe_golang_http2FramerWriteHeaders, struct pt_regs *, ctx) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_header_propagation || g_go_h2_write_fail_step) {
         return 0;
     }
 
@@ -1426,7 +1596,7 @@ int GUARDED_PROG(obi_uprobe_golang_http2FramerWriteHeaders, struct pt_regs *, ct
 
 SEC("uprobe/net_http2FramerWriteHeaders")
 int GUARDED_PROG(obi_uprobe_net_http2FramerWriteHeaders, struct pt_regs *, ctx) {
-    if (!g_bpf_header_propagation) {
+    if (!g_bpf_header_propagation || g_go_h2_write_fail_step) {
         return 0;
     }
 
@@ -1440,8 +1610,301 @@ int GUARDED_PROG(obi_uprobe_net_http2FramerWriteHeaders, struct pt_regs *, ctx) 
     return 0;
 }
 
-SEC("uprobe/http2FramerWriteHeaders_returns")
-int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, ctx) {
+static __always_inline int on_http2FramerWriteContinuation(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    void *framer = GO_PARAM1(ctx);
+    const u32 stream_id = (u32)(u64)GO_PARAM2(ctx);
+    const bool end_headers = (bool)(u64)GO_PARAM3(ctx);
+    if (!f_info || !f_info->awaiting_continuation || !framer || f_info->framer_ptr != (u64)framer ||
+        f_info->stream_id != stream_id) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    const u64 writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+    if (framer_w_pos == (u64)-1 || writer_n_pos == (u64)-1) {
+        bpf_map_delete_elem(&framer_invocation_map, &g_key);
+        return 0;
+    }
+
+    void *writer = 0;
+    s64 n = -1;
+    long err = bpf_probe_read_user(
+        &writer, sizeof(writer), (unsigned char *)framer + framer_w_pos + k_go_iface_data_offset);
+    if (!err && writer) {
+        err = bpf_probe_read_user(&n, sizeof(n), (unsigned char *)writer + writer_n_pos);
+    }
+    if (err || !writer || n < 0 || n >= MAX_W_PTR_N) {
+        bpf_map_delete_elem(&framer_invocation_map, &g_key);
+        return 0;
+    }
+
+    f_info->initial_n = n;
+    f_info->frame_type = k_h2_frame_continuation;
+    f_info->reserved_padding = false;
+    f_info->awaiting_continuation = !end_headers;
+    return 0;
+}
+
+SEC("uprobe/http2FramerWriteContinuation")
+int GUARDED_PROG(obi_uprobe_http2FramerWriteContinuation, struct pt_regs *, ctx) {
+    return on_http2FramerWriteContinuation(ctx);
+}
+
+static __always_inline void
+make_http2_traceparent_field(unsigned char field[k_h2_tp_hpack_huffman_size], const tp_info_t *tp) {
+    field[0] = 0;
+    field[1] = sizeof(tp_encoded) | 0x80;
+    __builtin_memcpy(field + 2, tp_encoded, sizeof(tp_encoded));
+    field[2 + sizeof(tp_encoded)] = TP_MAX_VAL_LENGTH;
+    make_tp_string(field + 3 + sizeof(tp_encoded), tp);
+}
+
+static __always_inline u32
+http2_frame_stream_id(const unsigned char header[k_h2_frame_header_len]) {
+    return ((u32)(header[5] & 0x7f) << 24) | ((u32)header[6] << 16) | ((u32)header[7] << 8) |
+           header[8];
+}
+
+enum : u32 {
+    k_h2_pad_length_to_stream_id_offset = 34,
+    k_h2_pad_length_to_fragment_len_offset = 18,
+    k_h2_pad_length_to_end_headers_offset = 1,
+    k_h2_pad_length_stack_offset_limit = 512,
+};
+
+static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
+                                                        go_offset_const pad_offset) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    if (!f_info || f_info->reserved_padding) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 stack_offset = go_offset_of(ot, (go_offset){.v = pad_offset});
+    if (stack_offset == (u64)-1 || stack_offset < k_h2_pad_length_to_stream_id_offset ||
+        stack_offset >= k_h2_pad_length_stack_offset_limit) {
+        return 0;
+    }
+
+    unsigned char *pad_ptr = (unsigned char *)PT_REGS_SP(ctx) + stack_offset;
+    u32 stream_id = 0;
+    u8 original_pad = 0;
+    bool end_headers = false;
+    u64 fragment_len = 0;
+    long err = bpf_probe_read_user(
+        &stream_id, sizeof(stream_id), pad_ptr - k_h2_pad_length_to_stream_id_offset);
+    err |= bpf_probe_read_user(&original_pad, sizeof(original_pad), pad_ptr);
+    err |= bpf_probe_read_user(
+        &end_headers, sizeof(end_headers), pad_ptr - k_h2_pad_length_to_end_headers_offset);
+    err |= bpf_probe_read_user(
+        &fragment_len, sizeof(fragment_len), pad_ptr - k_h2_pad_length_to_fragment_len_offset);
+    if (err || !stream_id || stream_id != f_info->stream_id || original_pad) {
+        return 0;
+    }
+    if (!end_headers) {
+        f_info->awaiting_continuation = true;
+        return 0;
+    }
+
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    if (framer_w_pos == (u64)-1) {
+        return 0;
+    }
+    const u64 wbuf_pos = framer_w_pos + 2 * k_go_iface_data_offset;
+    void *buf = 0;
+    s64 n = 0;
+    err = bpf_probe_read_user(&buf, sizeof(buf), (void *)(f_info->framer_ptr + wbuf_pos));
+    err |= bpf_probe_read_user(
+        &n, sizeof(n), (void *)(f_info->framer_ptr + wbuf_pos + k_go_slice_len_offset));
+    if (err || !buf || n != k_h2_frame_header_len) {
+        return 0;
+    }
+
+    unsigned char header[k_h2_frame_header_len] = {};
+    if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != k_h2_frame_headers ||
+        http2_frame_stream_id(header) != stream_id || !(header[4] & k_h2_flag_end_headers) ||
+        (header[4] & k_h2_flag_padded)) {
+        return 0;
+    }
+    const u64 max_fragment =
+        k_h2_default_max_frame_size - k_h2_tp_hpack_huffman_size - k_h2_priority_prefix_len - 1;
+    if (fragment_len > max_fragment) {
+        return 0;
+    }
+
+    const u8 padding = k_h2_tp_hpack_huffman_size;
+    u8 pad_readback = 0;
+    err = bpf_probe_write_user(pad_ptr, &padding, sizeof(padding));
+    err |= bpf_probe_read_user(&pad_readback, sizeof(pad_readback), pad_ptr);
+    if (err || pad_readback != padding) {
+        return 0;
+    }
+
+    unsigned char *flags_ptr = (unsigned char *)buf + 4;
+    const u8 padded_flags = header[4] | k_h2_flag_padded;
+    u8 flags_readback = header[4];
+    err = bpf_probe_write_user(flags_ptr, &padded_flags, sizeof(padded_flags));
+    err |= bpf_probe_read_user(&flags_readback, sizeof(flags_readback), flags_ptr);
+    if (!err && flags_readback == padded_flags) {
+        f_info->reserved_padding = true;
+        return 0;
+    }
+
+    const u8 no_padding = 0;
+    bpf_probe_write_user(pad_ptr, &no_padding, sizeof(no_padding));
+    bpf_probe_write_user(flags_ptr, &header[4], sizeof(header[4]));
+    return 0;
+}
+
+SEC("uprobe/http2FramerReservePadding")
+int GUARDED_PROG(obi_uprobe_http2FramerReservePadding, struct pt_regs *, ctx) {
+    return reserve_http2_framer_padding(ctx, _framer_pad_length_stack_pos);
+}
+
+SEC("uprobe/http2FramerReservePaddingVendored")
+int GUARDED_PROG(obi_uprobe_http2FramerReservePadding_vendored, struct pt_regs *, ctx) {
+    return reserve_http2_framer_padding(ctx, _framer_pad_length_stack_vendored_pos);
+}
+
+static __always_inline bool
+commit_http2_reserved_padding(void *buf, s64 n, const framer_func_invocation_t *f_info) {
+    if (n < k_h2_frame_header_len + 1 + k_h2_tp_hpack_huffman_size ||
+        (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len) {
+        return false;
+    }
+    bpf_clamp_umax(n, k_h2_default_max_frame_size + k_h2_frame_header_len);
+
+    unsigned char header[k_h2_frame_header_len] = {};
+    if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != k_h2_frame_headers ||
+        http2_frame_stream_id(header) != f_info->stream_id ||
+        !(header[4] & k_h2_flag_end_headers) || !(header[4] & k_h2_flag_padded)) {
+        return false;
+    }
+
+    unsigned char *pad_length_ptr = (unsigned char *)buf + k_h2_frame_header_len;
+    u8 pad_length = 0;
+    if (bpf_probe_read_user(&pad_length, sizeof(pad_length), pad_length_ptr) != 0 ||
+        pad_length != k_h2_tp_hpack_huffman_size) {
+        return false;
+    }
+
+    unsigned char field[k_h2_tp_hpack_huffman_size] = {};
+    make_http2_traceparent_field(field, &f_info->tp);
+    if (bpf_probe_write_user((unsigned char *)buf + (u64)n - k_h2_tp_hpack_huffman_size,
+                             field,
+                             sizeof(field)) != 0) {
+        return false;
+    }
+
+    const u8 consumed_padding = 0;
+    return bpf_probe_write_user(pad_length_ptr, &consumed_padding, sizeof(consumed_padding)) == 0;
+}
+
+static __always_inline u8 append_http2_traceparent_to_framer(
+    void *framer, u64 wbuf_pos, void *buf, s64 n, s64 cap, framer_func_invocation_t *f_info) {
+    if (n < k_h2_frame_header_len || cap < n ||
+        (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len) {
+        return k_go_h2_user_write_bypass;
+    }
+    bpf_clamp_umax(n, k_h2_default_max_frame_size + k_h2_frame_header_len);
+
+    unsigned char header[k_h2_frame_header_len] = {};
+    if (bpf_probe_read_user(header, sizeof(header), buf) != 0 || header[3] != f_info->frame_type ||
+        http2_frame_stream_id(header) != f_info->stream_id || (header[4] & k_h2_flag_padded)) {
+        return k_go_h2_user_write_bypass;
+    }
+    // endWrite fills the frame length after this probe runs.
+    const u32 payload_len = (u32)n - k_h2_frame_header_len;
+    if (f_info->frame_type != k_h2_frame_headers && f_info->frame_type != k_h2_frame_continuation) {
+        return k_go_h2_user_write_bypass;
+    }
+    if (!(header[4] & k_h2_flag_end_headers)) {
+        return k_go_h2_user_write_deferred;
+    }
+    if (payload_len + k_h2_tp_hpack_huffman_size > k_h2_default_max_frame_size ||
+        (u64)cap - (u64)n < k_h2_tp_hpack_huffman_size) {
+        return k_go_h2_user_write_bypass;
+    }
+    bpf_clamp_umax(
+        n, k_h2_default_max_frame_size + k_h2_frame_header_len - k_h2_tp_hpack_huffman_size);
+
+    unsigned char field[k_h2_tp_hpack_huffman_size] = {};
+    make_http2_traceparent_field(field, &f_info->tp);
+    if (bpf_probe_write_user((unsigned char *)buf + (u64)n, field, sizeof(field)) != 0) {
+        return k_go_h2_user_write_pristine;
+    }
+
+    const s64 new_n = n + k_h2_tp_hpack_huffman_size;
+    return bpf_probe_write_user((unsigned char *)framer + wbuf_pos + k_go_slice_len_offset,
+                                &new_n,
+                                sizeof(new_n)) == 0
+               ? k_go_h2_user_write_committed
+               : k_go_h2_user_write_pristine;
+}
+
+SEC("uprobe/http2FramerEndWrite")
+int GUARDED_PROG(obi_uprobe_http2FramerEndWrite, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    void *framer = GO_PARAM1(ctx);
+    if (!f_info || !framer || f_info->framer_ptr != (u64)framer) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    if (framer_w_pos == (u64)-1) {
+        return 0;
+    }
+    const u64 wbuf_pos = framer_w_pos + 2 * k_go_iface_data_offset;
+    void *buf = 0;
+    s64 n = 0;
+    s64 cap = 0;
+    long err = bpf_probe_read_user(&buf, sizeof(buf), (unsigned char *)framer + wbuf_pos);
+    err |= bpf_probe_read_user(
+        &n, sizeof(n), (unsigned char *)framer + wbuf_pos + k_go_slice_len_offset);
+    err |= bpf_probe_read_user(
+        &cap, sizeof(cap), (unsigned char *)framer + wbuf_pos + 2 * sizeof(void *));
+    if (err || !buf) {
+        return 0;
+    }
+
+    u8 result = k_go_h2_user_write_bypass;
+    if (f_info->reserved_padding) {
+        if (commit_http2_reserved_padding(buf, n, f_info)) {
+            result = k_go_h2_user_write_committed;
+        }
+    } else {
+        result = append_http2_traceparent_to_framer(framer, wbuf_pos, buf, n, cap, f_info);
+    }
+    if (result == k_go_h2_user_write_committed) {
+        bpf_map_delete_elem(&framer_invocation_map, &g_key);
+    } else if (result == k_go_h2_user_write_deferred) {
+        f_info->awaiting_continuation = true;
+    }
+    return 0;
+}
+
+static __always_inline int on_http2FramerWriteHeadersReturns(struct pt_regs *ctx) {
     if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
@@ -1455,19 +1918,27 @@ int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, c
 
     framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
 
-    if (f_info) {
+    if (f_info && f_info->awaiting_continuation) {
+        return 0;
+    }
+
+    if (f_info && !f_info->reserved_padding) {
         void *w_ptr = 0;
         const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
         const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
 
         // being defensive here if we can't find the offsets
-        if (!framer_w_pos || !io_writer_n_pos) {
+        if (!framer_w_pos || !io_writer_n_pos || framer_w_pos == (u64)-1 ||
+            io_writer_n_pos == (u64)-1) {
             goto done;
         }
 
-        bpf_probe_read(&w_ptr,
-                       sizeof(w_ptr),
-                       (void *)(f_info->framer_ptr + framer_w_pos + k_go_iface_data_offset));
+        if (bpf_probe_read_user(
+                &w_ptr,
+                sizeof(w_ptr),
+                (void *)(f_info->framer_ptr + framer_w_pos + k_go_iface_data_offset)) != 0) {
+            goto done;
+        }
 
         bpf_dbg_printk("framer_ptr=%llx, w_ptr=%llx, framer_w_pos=%d",
                        f_info->framer_ptr,
@@ -1476,81 +1947,54 @@ int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, c
 
         if (w_ptr) {
             void *buf_arr = 0;
-            s64 n = 0;
-            s64 cap = 0;
-            s64 initial_n = f_info->initial_n;
+            s64 n = -1;
+            s64 cap = -1;
+            const u64 buf_pos = go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
+            if (buf_pos == (u64)-1) {
+                goto done;
+            }
 
-            bpf_probe_read(
-                &buf_arr,
-                sizeof(buf_arr),
-                (void *)(w_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos})));
-            bpf_probe_read(&n, sizeof(n), (void *)(w_ptr + io_writer_n_pos));
-            bpf_probe_read(
-                &cap,
-                sizeof(cap),
-                (void *)(w_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos}) + 16));
-
-            bpf_clamp_umax(initial_n, MAX_W_PTR_N);
+            long read_err =
+                bpf_probe_read_user(&buf_arr, sizeof(buf_arr), (void *)(w_ptr + buf_pos));
+            read_err |= bpf_probe_read_user(&n, sizeof(n), (void *)(w_ptr + io_writer_n_pos));
+            read_err |= bpf_probe_read_user(
+                &cap, sizeof(cap), (void *)(w_ptr + buf_pos + 2 * sizeof(void *)));
+            if (read_err) {
+                goto done;
+            }
 
             bpf_dbg_printk("Found f_info, this is the place to write to w_ptr=%llx, buf_arr=%llx",
                            w_ptr,
                            buf_arr);
             bpf_dbg_printk("Found f_info, this is the place to write to n=%lld, cap=%lld", n, cap);
-            if (buf_arr && n < (cap - HTTP2_ENCODED_HEADER_LEN)) {
-                uint8_t tp_str[TP_MAX_VAL_LENGTH];
-
-                // http2 encodes the length of the headers in the first 3 bytes of buf, we need to update those
-                u8 size_1 = 0;
-                u8 size_2 = 0;
-                u8 size_3 = 0;
-
-                bpf_probe_read(&size_1, sizeof(size_1), (void *)(buf_arr + initial_n));
-                bpf_probe_read(&size_2, sizeof(size_2), (void *)(buf_arr + initial_n + 1));
-                bpf_probe_read(&size_3, sizeof(size_3), (void *)(buf_arr + initial_n + 2));
-
-                bpf_dbg_printk("sizes: 1=%x, 2=%x, 3=%x", size_1, size_2, size_3);
-
-                const u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
-                if (original_size > 0) {
-                    u8 type_byte = 0;
-                    const u8 key_len =
-                        sizeof(tp_encoded) | 0x80; // high tagged to signify hpack encoded value
-                    const u8 val_len = TP_MAX_VAL_LENGTH;
-
-                    // We don't hpack encode the value of the traceparent field, because that will require that
-                    // we use bpf_loop, which in turn increases the kernel requirement to 5.17+.
-                    make_tp_string(tp_str, &f_info->tp);
-                    //bpf_dbg_printk("Will write tp_str=[%s], type=%d, key_len=%d, val_len=%d", tp_str, type_byte, key_len, val_len);
-
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &type_byte, sizeof(type_byte));
-                    n++;
-                    // Write the length of the key = 8
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &key_len, sizeof(key_len));
-                    n++;
-                    // Write 'traceparent' encoded as hpack
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_encoded, sizeof(tp_encoded));
-                    ;
-                    n += sizeof(tp_encoded);
-                    // Write the length of the hpack encoded traceparent field
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &val_len, sizeof(val_len));
-                    n++;
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_str, sizeof(tp_str));
-                    n += TP_MAX_VAL_LENGTH;
-                    // Update the value of n in w to reflect the new size
-                    bpf_probe_write_user((void *)(w_ptr + io_writer_n_pos), &n, sizeof(n));
-
-                    const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
-
-                    bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
-                    size_1 = (u8)(new_size >> 16);
-                    size_2 = (u8)(new_size >> 8);
-                    size_3 = (u8)(new_size);
-
-                    bpf_probe_write_user((void *)(buf_arr + initial_n), &size_1, sizeof(size_1));
-                    bpf_probe_write_user(
-                        (void *)(buf_arr + initial_n + 1), &size_2, sizeof(size_2));
-                    bpf_probe_write_user(
-                        (void *)(buf_arr + initial_n + 2), &size_3, sizeof(size_3));
+            const u8 result = append_go_h2_traceparent(w_ptr,
+                                                       io_writer_n_pos,
+                                                       buf_arr,
+                                                       f_info->initial_n,
+                                                       n,
+                                                       cap,
+                                                       f_info->stream_id,
+                                                       f_info->frame_type,
+                                                       &f_info->tp);
+            if (result == k_go_h2_user_write_deferred) {
+                f_info->awaiting_continuation = true;
+                return 0;
+            }
+            if (result == k_go_h2_user_write_uncertain) {
+                bpf_dbg_printk("HTTP/2 traceparent write state is uncertain; failing closed");
+            }
+            if ((result == k_go_h2_user_write_committed ||
+                 result == k_go_h2_user_write_uncertain) &&
+                (f_info->s_port || f_info->d_port)) {
+                egress_key_t e_key = {
+                    .d_port = f_info->d_port,
+                    .s_port = f_info->s_port,
+                    .stream_id = f_info->stream_id,
+                };
+                sort_egress_key(&e_key);
+                tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
+                if (tp_p) {
+                    tp_p->written = 1;
                 }
             }
         }
@@ -1559,6 +2003,11 @@ int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, c
 done:
     bpf_map_delete_elem(&framer_invocation_map, &g_key);
     return 0;
+}
+
+SEC("uprobe/http2FramerWriteHeaders_returns")
+int GUARDED_PROG(obi_uprobe_http2FramerWriteHeaders_returns, struct pt_regs *, ctx) {
+    return on_http2FramerWriteHeadersReturns(ctx);
 }
 
 SEC("uprobe/connServe")
@@ -1699,14 +2148,25 @@ int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
     store_persist_conn_request(&g_key, (u64)pc_ptr);
 
     if (pc_ptr) {
-        void *conn_conn_ptr = pc_ptr + k_go_iface_data_offset +
-                              go_offset_of(ot, (go_offset){.v = _pc_conn_pos}); // embedded struct
+        const u64 conn_pos = go_offset_of(ot, (go_offset){.v = _pc_conn_pos});
+        void *conn_iface = pc_ptr + conn_pos;
+        void *conn_conn_ptr = conn_iface + k_go_iface_data_offset;
         void *tls_state = 0;
         bpf_probe_read(
             &tls_state,
             sizeof(tls_state),
             (void *)(pc_ptr + go_offset_of(ot, (go_offset){.v = _pc_tls_pos}))); // find tlsState
         bpf_dbg_printk("conn_conn_ptr=%llx, tls_state=%llx", conn_conn_ptr, tls_state);
+
+        if (tls_state) {
+            void *conn_type = NULL;
+            bpf_probe_read_user(&conn_type, sizeof(conn_type), conn_iface);
+            const u64 tls_conn_type_addr = go_offset_of(ot, (go_offset){.v = _tls_conn_type_addr});
+            if (tls_conn_type_addr && conn_type != (void *)tls_conn_type_addr) {
+                bpf_dbg_printk("wrapped TLS client connection, waiting for writer handoff");
+                return 0;
+            }
+        }
 
         conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
 
@@ -1734,7 +2194,7 @@ int GUARDED_PROG(obi_uprobe_persistConnRoundTrip, struct pt_regs *, ctx) {
                     .pid = pid,
                     .valid = 1,
                     .written = 0,
-                    .req_type = EVENT_HTTP_CLIENT,
+                    .req_type = k_event_type_http_client,
                 };
 
                 tp_clone(&tp_p.tp, &invocation->tp);

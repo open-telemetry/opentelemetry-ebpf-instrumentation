@@ -24,6 +24,7 @@ const (
 	JVMMetricMemoryCommitted       JVMRuntimeMetricKind = "jvm.memory.committed"
 	JVMMetricMemoryLimit           JVMRuntimeMetricKind = "jvm.memory.limit"
 	JVMMetricMemoryUsedAfterLastGC JVMRuntimeMetricKind = "jvm.memory.used_after_last_gc"
+	JVMMetricGCDuration            JVMRuntimeMetricKind = "jvm.gc.duration"
 )
 
 type JVMMemoryType string
@@ -41,7 +42,7 @@ const (
 	JVMGCPhaseAfter  JVMGCPhase = "after"
 )
 
-type JVMRuntimeEvent struct {
+type JVMGCEvent struct {
 	PID            app.PID
 	PIDNamespaceID uint32
 	Service        svc.Attrs
@@ -51,6 +52,48 @@ type JVMRuntimeEvent struct {
 	MemoryType     JVMMemoryType
 	GCPhase        JVMGCPhase
 	ValueBytes     uint64
+	GCName         string
+	GCAction       string
+	DurationNS     uint64
+}
+
+func ParseJVMGCDurationEvent(
+	timestamp uint64,
+	nsPID uint32,
+	pidNamespaceID uint32,
+	durationNS uint64,
+	collectorName [JVMRawStringLen]byte,
+	action [JVMRawStringLen]byte,
+) JVMGCEvent {
+	return JVMGCEvent{
+		PID:            app.PID(nsPID),
+		PIDNamespaceID: pidNamespaceID,
+		Time:           timing.KernelTime(timestamp),
+		Kind:           JVMMetricGCDuration,
+		GCName:         DecodeJVMRawString(collectorName),
+		GCAction:       DecodeJVMRawString(action),
+		DurationNS:     durationNS,
+	}
+}
+
+type JVMRuntimeValues struct {
+	LoadedClassCount        uint64
+	TotalLoadedClassCount   uint64
+	UnloadedClassCount      uint64
+	ThreadCount             uint64
+	DaemonThreadCount       uint64
+	AvailableProcessorCount uint64
+	ProcessCPUTimeNS        int64
+	RecentCPUUtilization    float64
+}
+
+type JVMRuntimeEvent struct {
+	PID            app.PID
+	PIDNamespaceID uint32
+	Generation     uint64
+	Service        svc.Attrs
+	Time           time.Time
+	Values         JVMRuntimeValues
 }
 
 type RawJVMGCWhenType uint32
@@ -70,7 +113,7 @@ func ParseJVMMemoryPoolEvent(
 	committed uint64,
 	maxSize uint64,
 	pool [JVMRawStringLen]byte,
-) ([]JVMRuntimeEvent, error) {
+) ([]JVMGCEvent, error) {
 	phase, err := parseRawJVMGCPhase(gcWhenType)
 	if err != nil {
 		return nil, err
@@ -78,7 +121,7 @@ func ParseJVMMemoryPoolEvent(
 
 	poolName := DecodeJVMRawString(pool)
 	memoryType := InferJVMMemoryType(poolName)
-	base := JVMRuntimeEvent{
+	base := JVMGCEvent{
 		PID:            app.PID(nsPID),
 		PIDNamespaceID: pidNamespaceID,
 		Time:           timing.KernelTime(timestamp),
@@ -87,7 +130,7 @@ func ParseJVMMemoryPoolEvent(
 		GCPhase:        phase,
 	}
 
-	events := []JVMRuntimeEvent{
+	events := []JVMGCEvent{
 		withJVMMetric(base, JVMMetricMemoryUsed, used),
 		withJVMMetric(base, JVMMetricMemoryCommitted, committed),
 	}
@@ -123,7 +166,7 @@ func InferJVMMemoryType(poolName string) JVMMemoryType {
 	return JVMMemoryTypeUnknown
 }
 
-func withJVMMetric(base JVMRuntimeEvent, kind JVMRuntimeMetricKind, value uint64) JVMRuntimeEvent {
+func withJVMMetric(base JVMGCEvent, kind JVMRuntimeMetricKind, value uint64) JVMGCEvent {
 	base.Kind = kind
 	base.ValueBytes = value
 	return base

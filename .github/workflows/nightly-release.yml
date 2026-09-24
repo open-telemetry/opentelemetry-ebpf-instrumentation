@@ -36,7 +36,7 @@ jobs:
   nightly-obi:
     name: Publish nightly OBI image
     needs: compute-version
-    uses: ./.github/workflows/publish_dockerhub_main.yml
+    uses: $/.github/workflows/publish_dockerhub_main.yml
     permissions:
       contents: read
       id-token: write
@@ -49,7 +49,7 @@ jobs:
   nightly-k8s-cache:
     name: Publish nightly k8s-cache image
     needs: compute-version
-    uses: ./.github/workflows/publish_dockerhub_k8s_cache_main.yml
+    uses: $/.github/workflows/publish_dockerhub_k8s_cache_main.yml
     permissions:
       contents: read
       id-token: write

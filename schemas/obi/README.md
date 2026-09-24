@@ -5,11 +5,64 @@ semantic-conventions registry with the signals and attributes OBI emits in
 addition to — or as overrides of — the standard semconv set. Together with the
 upstream dependency it forms the complete contract of what OBI emits
 
+## Adding telemetry
+
+Every metric, span or attribute OBI starts emitting over OTLP must be declared
+here in the same change:
+
+- **An upstream metric emitted unchanged** (same name, unit, instrument and
+  data-point attributes): import it in the domain's `imports.yaml`, as
+  `groups/nodejs/imports.yaml` and `groups/dotnet/imports.yaml` do.
+- **An upstream metric OBI emits differently**, or one of OBI's own: add a
+  `metric.obi.<metric_name>` group to `groups/<domain>/metrics.yaml` listing
+  every attribute the metric's `attr_defs.go` section can carry, each with a
+  requirement level.
+- **A span**: add its attributes to the `span.obi.*` group of the emitter branch
+  that produces it, or add a group for a new branch, and a case to
+  `internal/schemacheck/emitted_contract_test.go`.
+- **An attribute upstream does not define**: declare it in the domain's
+  `registry.yaml` under `registry.obi.<namespace>`.
+
+Then run `make lint-schema` and `make generate-schema-docs`, and make sure an
+integration suite that runs weaver exercises the new telemetry (see below).
+
+## What validation covers
+
+Checked on every change, without running OBI:
+
+- `make lint-schema`: the registry resolves and is well-formed.
+- `internal/schemacheck`: every signal attribute declares a requirement level;
+  the span attributes the exporter emits for each case in
+  `emitted_contract_test.go` match their `span.obi.*` group exactly; OBI's
+  copies of upstream metrics keep upstream's unit, instrument and stability, and
+  win resolution over the upstream group.
+
+Checked only when an integration suite that runs weaver exercises it:
+
+- Weaver live-check sees what OBI actually sent and fails on an undeclared
+  metric (`missing_metric`), an undeclared attribute (`missing_attribute`), an
+  enum value the registry does not list, or a `required` metric attribute that
+  is missing.
+
+Not enforced today:
+
+- There is no deterministic check that every metric in
+  `pkg/export/attributes/metric.go` is declared; an undeclared metric fails
+  only once a weaver-validated suite emits it.
+- Spans are not matched to a `span.obi.*` group by live-check, which checks each
+  span attribute against the registry as a whole. Group membership, span kind
+  and required span attributes are checked only for the cases in
+  `emitted_contract_test.go`.
+- `conditionally_required` conditions are prose and are not evaluated.
+- Span names, and output specific to the Prometheus exporter, are not described
+  by the registry.
+
 ## Overriding an upstream definition
 
 Weaver has **no precedence or merge semantics** between a local group and the
-groups a dependency contributes to the resolved registry
-(`groups/dns.yaml` imports all upstream groups). When the same attribute id is
+groups a dependency contributes to the resolved registry (OBI's group files
+`import` the definitions they refine and `ref` the attributes they emit, both
+of which pull the upstream groups in). When the same attribute id is
 declared by more than one group, live-check silently resolves
 the duplicate in favor of the group whose id sorts **last lexicographically** —
 including the upstream `span.*` / `metric.*` groups that `ref` an attribute
@@ -39,6 +92,28 @@ Until weaver defines local-wins override semantics, every override in
    (covered by `scripts/lint_schema_filter_test.go`). Anything else still
    fails `make lint-schema`.
 
+## Group ids
+
+A metric group's id is `metric.obi.<metric_name>`, derived from the metric it
+declares so the two cannot drift apart.
+
+Do not rely on that id sorting after the upstream `metric.<metric_name>` group.
+It does for most namespaces, but `obi.` loses to any namespace ordering after
+it: `metric.obi.rpc.client.call.duration` sorts before
+`metric.rpc.client.call.duration`, and the `target.info` / `traces.*` ids lose
+to `metric.t*` the same way. What keeps the local definition authoritative is
+that live-check runs without `--include-unreferenced`, so unreferenced upstream
+groups drop out of resolution and only one group per metric name survives.
+`TestOBIMetricOverridesResolveToLocalNarrowedDefinition` fails closed if that
+stops holding.
+
+Attribute groups declaring OBI-own attributes use `registry.obi.<namespace>`;
+overrides of an upstream attribute use `x.obi.<namespace>` per the rules above.
+An attribute group that declares no attribute of its own and exists only as the
+base a signal's groups `extends` is named after that signal — the messaging span
+groups share `span.obi.messaging.common` — so it stays out of the attribute
+pages, which document what OBI defines.
+
 ## Two override styles
 
 - **Closed enum, extended**: the upstream value space is enumerable and OBI
@@ -46,10 +121,15 @@ Until weaver defines local-wins override semantics, every override in
   `amqp`/`mqtt`/`nats`, `db.system.name` gains `aerospike`). The override
   re-declares the enum with upstream members + OBI's, so weaver still flags
   any value outside the combined list — bug values like an empty string or
-  `unknown` are deliberately NOT declared and keep failing the suites.
+  `unknown` are deliberately NOT declared on these overrides and keep failing
+  the suites. This applies to overrides of upstream enums only. OBI's own
+  attributes (`direction`, `reason`, `network.tcp.handshake.role`) do declare
+  `unknown`, where it is a meaningful classification rather than a bug: OBI
+  genuinely cannot always determine a flow's direction or why a handshake
+  failed.
 - **Open-ended value space, re-typed as string**: upstream declares an enum,
   but the real value space is unbounded by design — domain-specific error
-  codes (`error.type`) or provider/MCP operation vocabularies
+  codes (`error.type`) or provider operation vocabularies
   (`gen_ai.operation.name`). Enumerating these is impossible, so the override
   re-types the attribute as a plain `string` with examples. Weaver then
   validates presence/type but not membership. For these attributes the

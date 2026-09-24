@@ -38,6 +38,7 @@ async def embeddings():
         "input": "The food was delicious",
         "model": "text-embedding-3-small",
         "dimensions": 256,
+        "encoding_format": "float",
     }
     resp = requests.post(f"{OPENAI_BASE_URL}/v1/embeddings", json=payload)
     resp.raise_for_status()
@@ -52,6 +53,12 @@ async def createobject():
         ],
         "model": "gpt-4o-mini",
         "temperature": 0.7,
+        "n": 2,
+        "seed": 42,
+        "frequency_penalty": 0.5,
+        "presence_penalty": 0.25,
+        "stop": ["END", "STOP"],
+        "service_tier": "default",
     }
     resp = requests.post(f"{OPENAI_BASE_URL}/v1/chat/completions", json=payload)
     resp.raise_for_status()

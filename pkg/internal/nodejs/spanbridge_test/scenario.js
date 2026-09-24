@@ -4,7 +4,7 @@
 // @opentelemetry/api global registry and its ProxyTracerProvider are process
 // singletons, so each scenario must run in its own process to avoid bleed.
 //
-// The eBPF transport is stubbed by intercepting the sentinel fs.accessSync
+// The eBPF transport is stubbed by intercepting the sentinel fs.existsSync
 // path the bridge uses (see spanbridge.js), so no eBPF/root is required.
 
 const fs = require('fs');
@@ -16,21 +16,26 @@ const bridgeCaptured = [];
 // Manual-span context override/pop sentinels (-mspan/), captured as a sequence
 // of raw payloads: a 48-hex <traceId><spanId> for an override, or '-' for a pop.
 const mspanCaptured = [];
-const origAccess = fs.accessSync;
-fs.accessSync = (p, ...rest) => {
+// The real fs.existsSync returns false for the sentinel path rather than
+// throwing. It can still throw under Node's permission model, which is what
+// the 'throwing-transport' scenario reproduces.
+let transportThrows = false;
+const origExists = fs.existsSync;
+fs.existsSync = (p, ...rest) => {
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-span/')) {
     bridgeCaptured.push(JSON.parse(p.slice('/dev/null/obi-span/'.length)).name);
-    const err = new Error('ENOTDIR');
-    err.code = 'ENOTDIR';
-    throw err;
+    if (transportThrows) {
+      const err = new Error('permission denied by policy');
+      err.code = 'ERR_ACCESS_DENIED';
+      throw err;
+    }
+    return false;
   }
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-mspan/')) {
     mspanCaptured.push(p.slice('/dev/null/obi-mspan/'.length));
-    const err = new Error('ENOTDIR');
-    err.code = 'ENOTDIR';
-    throw err;
+    return false;
   }
-  return origAccess(p, ...rest);
+  return origExists(p, ...rest);
 };
 
 // Load and run the bridge the same way OBI's injector does: evaluate the file
@@ -88,6 +93,24 @@ async function run() {
       tracer.startSpan('s1').end();
       break;
     }
+    case 'throwing-transport': {
+      // fs.existsSync throwing must not escape span.end(), which applications
+      // idiomatically call from a finally block.
+      const tracer = trace.getTracer('app');
+      injectBridge();
+      transportThrows = true;
+      let threw = null;
+      try {
+        tracer.startSpan('s1').end();
+      } catch (e) {
+        threw = String(e && e.message);
+      }
+      await new Promise((r) => setTimeout(r, 20));
+      transportThrows = false;
+      fs.existsSync = origExists;
+      process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured, threw }));
+      return;
+    }
     case 'hostile-attribute': {
       // An app attribute/name whose toString() throws must NOT escape through
       // span.end() (idiomatically called in a finally block). With no SDK the
@@ -109,7 +132,7 @@ async function run() {
         threw = String(e && e.message);
       }
       await new Promise((r) => setTimeout(r, 20));
-      fs.accessSync = origAccess;
+      fs.existsSync = origExists;
       process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured, threw }));
       return;
     }
@@ -147,7 +170,7 @@ async function run() {
         return label.get(spanId) || 'override:' + spanId;
       });
       await new Promise((r) => setTimeout(r, 20));
-      fs.accessSync = origAccess;
+      fs.existsSync = origExists;
       process.stdout.write(JSON.stringify({ mspan: seq, bridge: bridgeCaptured }));
       return;
     }
@@ -168,7 +191,7 @@ async function run() {
       });
       await new Promise((r) => setTimeout(r, 20));
       const seq = mspanCaptured.map((pl) => (pl === '-' ? 'pop' : 'override'));
-      fs.accessSync = origAccess;
+      fs.existsSync = origExists;
       process.stdout.write(JSON.stringify({ mspan: seq, bridge: bridgeCaptured }));
       return;
     }
@@ -177,7 +200,7 @@ async function run() {
   }
 
   await new Promise((r) => setTimeout(r, 20));
-  fs.accessSync = origAccess;
+  fs.existsSync = origExists;
   process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured }));
 }
 

@@ -32,10 +32,23 @@ public class SSLStorage {
 
   private static final CappedConcurrentHashMap<Integer, Long> tasks =
       new CappedConcurrentHashMap<>(MAX_CONCURRENT);
+  private static final CappedConcurrentHashMap<Integer, Long> jdkHttpClientTasks =
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
+  private static final CappedConcurrentHashMap<Integer, Long> jdkHttpClientEvents =
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
+
+  private static final String JDK_HTTP_CLIENT_SCHEDULABLE_TASK =
+      "jdk.internal.net.http.common.SequentialScheduler$SchedulableTask";
+  private static final String JDK_HTTP_CLIENT_SELECTOR_PREFIX = "HttpClient-";
+  private static final String JDK_HTTP_CLIENT_SELECTOR_SUFFIX = "-SelectorManager";
+
+  public static final long NO_JDK_HTTP_CLIENT_CONTEXT = Long.MIN_VALUE;
 
   public static final ThreadLocal<BytesWithLen> unencrypted = new ThreadLocal<>();
 
   public static final ThreadLocal<Object> nettyConnection = new ThreadLocal<>();
+
+  private static final ThreadLocal<Long> jdkHttpClientContext = new ThreadLocal<>();
 
   public static Connection getConnectionForSession(SSLEngine session) {
     return sslConnections.get(session);
@@ -148,14 +161,108 @@ public class SSLStorage {
     if (task == null) {
       return;
     }
-    tasks.put(System.identityHashCode(task), threadId);
+    int taskId = System.identityHashCode(task);
+    Long requestThreadId = jdkHttpClientContext.get();
+    if (requestThreadId != null) {
+      tasks.put(taskId, requestThreadId);
+      jdkHttpClientTasks.put(taskId, requestThreadId);
+      return;
+    }
+
+    Long retainedRequestThreadId = jdkHttpClientTasks.get(taskId);
+    tasks.put(taskId, retainedRequestThreadId == null ? threadId : retainedRequestThreadId);
   }
 
   public static void untrackTask(Object task) {
     if (task == null) {
       return;
     }
-    tasks.remove(System.identityHashCode(task));
+    int taskId = System.identityHashCode(task);
+    tasks.remove(taskId);
+    jdkHttpClientTasks.remove(taskId);
+  }
+
+  public static void finishTask(Object task) {
+    if (task == null) {
+      return;
+    }
+    int taskId = System.identityHashCode(task);
+    tasks.remove(taskId);
+    if (!JDK_HTTP_CLIENT_SCHEDULABLE_TASK.equals(task.getClass().getName())) {
+      jdkHttpClientTasks.remove(taskId);
+    }
+  }
+
+  public static long enterJdkHttpClientContext(long requestThreadId) {
+    Long previous = jdkHttpClientContext.get();
+    jdkHttpClientContext.set(requestThreadId);
+    return previous == null ? 0 : previous;
+  }
+
+  public static long enterJdkHttpClientTask(Object task) {
+    if (task == null) {
+      return NO_JDK_HTTP_CLIENT_CONTEXT;
+    }
+    Long requestThreadId = jdkHttpClientTasks.get(System.identityHashCode(task));
+    if (requestThreadId == null) {
+      return NO_JDK_HTTP_CLIENT_CONTEXT;
+    }
+    return enterJdkHttpClientContext(requestThreadId);
+  }
+
+  public static void trackJdkHttpClientEvent(Object event) {
+    if (event == null) {
+      return;
+    }
+    Long requestThreadId = jdkHttpClientContext.get();
+    if (requestThreadId == null) {
+      return;
+    }
+    jdkHttpClientEvents.put(System.identityHashCode(event), requestThreadId);
+  }
+
+  public static Runnable wrapJdkHttpClientTask(Runnable task) {
+    if (task == null || task instanceof JdkHttpClientTask) {
+      return task;
+    }
+    Long requestThreadId = jdkHttpClientContext.get();
+    if (requestThreadId == null) {
+      requestThreadId = jdkHttpClientTasks.get(System.identityHashCode(task));
+    }
+    return requestThreadId == null ? task : new JdkHttpClientTask(task, requestThreadId);
+  }
+
+  public static boolean isJdkHttpClientTask(Runnable task) {
+    return task instanceof JdkHttpClientTask;
+  }
+
+  public static long enterJdkHttpClientEvent(Object event) {
+    if (event == null) {
+      return NO_JDK_HTTP_CLIENT_CONTEXT;
+    }
+    Long requestThreadId = jdkHttpClientEvents.get(System.identityHashCode(event));
+    if (requestThreadId == null) {
+      return NO_JDK_HTTP_CLIENT_CONTEXT;
+    }
+    return enterJdkHttpClientContext(requestThreadId);
+  }
+
+  public static void restoreJdkHttpClientContext(long previous) {
+    if (previous == NO_JDK_HTTP_CLIENT_CONTEXT) {
+      return;
+    }
+    if (previous == 0) {
+      jdkHttpClientContext.remove();
+    } else {
+      jdkHttpClientContext.set(previous);
+    }
+  }
+
+  public static boolean isUnscopedJdkHttpClientSelectorThread() {
+    String threadName = Thread.currentThread().getName();
+    return jdkHttpClientContext.get() == null
+        && threadName.startsWith(JDK_HTTP_CLIENT_SELECTOR_PREFIX)
+        && threadName.endsWith(JDK_HTTP_CLIENT_SELECTOR_SUFFIX);
   }
 
   public static Long parentThreadId(Object task) {
@@ -163,6 +270,8 @@ public class SSLStorage {
       return null;
     }
 
-    return tasks.get(System.identityHashCode(task));
+    int taskId = System.identityHashCode(task);
+    Long parentThreadId = tasks.get(taskId);
+    return parentThreadId == null ? jdkHttpClientTasks.get(taskId) : parentThreadId;
   }
 }

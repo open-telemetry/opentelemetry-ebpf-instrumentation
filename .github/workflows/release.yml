@@ -96,7 +96,7 @@ jobs:
 
   pr-checks:
     name: PR checks
-    uses: ./.github/workflows/pull_request.yml
+    uses: $/.github/workflows/pull_request.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -106,7 +106,7 @@ jobs:
 
   lint:
     name: Lint
-    uses: ./.github/workflows/lint.yml
+    uses: $/.github/workflows/lint.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -116,7 +116,7 @@ jobs:
 
   unit-tests:
     name: Unit tests
-    uses: ./.github/workflows/unit_tests.yml
+    uses: $/.github/workflows/unit_tests.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -128,7 +128,7 @@ jobs:
 
   unit-tests-privileged:
     name: Unit tests (privileged)
-    uses: ./.github/workflows/pull_request_privileged.yml
+    uses: $/.github/workflows/pull_request_privileged.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -138,7 +138,7 @@ jobs:
 
   bpf-verifier:
     name: BPF verifier
-    uses: ./.github/workflows/bpf_verifier.yml
+    uses: $/.github/workflows/bpf_verifier.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -148,7 +148,7 @@ jobs:
 
   bpf-unit-tests:
     name: BPF unit tests
-    uses: ./.github/workflows/bpf_unit_tests.yml
+    uses: $/.github/workflows/bpf_unit_tests.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -158,19 +158,7 @@ jobs:
 
   integration-tests:
     name: Integration tests
-    uses: ./.github/workflows/pull_request_integration_tests.yml
-    needs: validate-tag
-    permissions:
-      contents: read
-      checks: write
-      pull-requests: write
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    with:
-      ref: ${{ inputs.tag || github.ref_name }}
-
-  integration-tests-arm:
-    name: Integration tests ARM
-    uses: ./.github/workflows/pull_request_integration_tests_arm.yml
+    uses: $/.github/workflows/pull_request_integration_tests.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -182,7 +170,7 @@ jobs:
 
   k8s-integration-tests:
     name: K8s integration tests
-    uses: ./.github/workflows/pull_request_k8s_integration_tests.yml
+    uses: $/.github/workflows/pull_request_k8s_integration_tests.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -194,7 +182,7 @@ jobs:
 
   oats-tests:
     name: OATS tests
-    uses: ./.github/workflows/pull_request_oats_test.yml
+    uses: $/.github/workflows/pull_request_oats_test.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -206,7 +194,7 @@ jobs:
 
   vm-integration-tests:
     name: VM integration tests
-    uses: ./.github/workflows/workflow_integration_tests_vm.yml
+    uses: $/.github/workflows/workflow_integration_tests_vm.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -218,7 +206,7 @@ jobs:
 
   java-agent-tests:
     name: Java Agent Tests
-    uses: ./.github/workflows/java-agent.yml
+    uses: $/.github/workflows/java-agent.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -227,7 +215,7 @@ jobs:
 
   docker-build-test:
     name: Docker Build Test
-    uses: ./.github/workflows/pull_request_docker_build_test.yml
+    uses: $/.github/workflows/pull_request_docker_build_test.yml
     needs: validate-tag
     permissions:
       contents: read
@@ -286,7 +274,6 @@ jobs:
       - bpf-verifier
       - bpf-unit-tests
       - integration-tests
-      - integration-tests-arm
       - k8s-integration-tests
       - oats-tests
       - vm-integration-tests
@@ -301,7 +288,7 @@ jobs:
 
   docker-publish-main:
     name: Publish Docker Image (main)
-    uses: ./.github/workflows/publish_dockerhub_main.yml
+    uses: $/.github/workflows/publish_dockerhub_main.yml
     needs: [tests-passed, determine-latest]
     permissions:
       contents: read
@@ -315,7 +302,7 @@ jobs:
 
   docker-publish-k8s-cache:
     name: Publish Docker Image (k8s cache)
-    uses: ./.github/workflows/publish_dockerhub_k8s_cache_main.yml
+    uses: $/.github/workflows/publish_dockerhub_k8s_cache_main.yml
     needs: [tests-passed, determine-latest]
     permissions:
       contents: read
@@ -371,7 +358,7 @@ jobs:
 
       - name: Install Syft
         id: syft
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           run: download-syft
           syft-version: v1.42.2

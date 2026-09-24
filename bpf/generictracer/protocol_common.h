@@ -67,15 +67,15 @@ static __always_inline call_protocol_args_t *protocol_args() {
 static __always_inline u8 request_type_by_direction(u8 direction, u8 packet_type) {
     if (packet_type == PACKET_TYPE_RESPONSE) {
         if (direction == TCP_RECV) {
-            return EVENT_HTTP_CLIENT;
+            return k_event_type_http_client;
         } else {
-            return EVENT_HTTP_REQUEST;
+            return k_event_type_http_request;
         }
     } else {
         if (direction == TCP_RECV) {
-            return EVENT_HTTP_REQUEST;
+            return k_event_type_http_request;
         } else {
-            return EVENT_HTTP_CLIENT;
+            return k_event_type_http_client;
         }
     }
 

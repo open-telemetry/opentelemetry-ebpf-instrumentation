@@ -50,9 +50,32 @@ var fixturesWithContainer = map[app.PID]string{
 	910: `0::/k8s.io/40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
 	// Orbstack driver=overlay2 version=28.5.2 cgroupDriver=cgroupfs cgroupVersion=2
 	911: `0::/../40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
+	// CRI-O, systemd driver (OpenShift)
+	912: `0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/crio-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope`,
+	// CRI-O, cgroupfs driver
+	913: `0::/kubepods/burstable/pod44c76ce5-f953-4bd3-bc89-12621681af49/crio-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
+	// cri-dockerd, systemd driver
+	914: `0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/docker-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope`,
+	// Guaranteed QoS: no QoS level in the path
+	915: `0::/kubepods.slice/kubepods-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/cri-containerd-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope`,
+	916: `0::/kubepods/pod44c76ce5-f953-4bd3-bc89-12621681af49/40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
+	// k3d: cgroupfs kubelet nested in a docker container
+	917: `0::/docker/8afe480d66074930353da456a1344caca810fe31c1e31f6e08c95a66887235d6/kubepods/besteffort/pod44c76ce5-f953-4bd3-bc89-12621681af49/40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
+	// kubelet --cgroup-root=/custom
+	918: `0::/custom.slice/custom-kubepods.slice/custom-kubepods-burstable.slice/custom-kubepods-burstable-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/cri-containerd-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope`,
+	// rootless kubelet under the user slice
+	919: `0::/user.slice/user-1000.slice/user@1000.service/kubepods/burstable/pod44c76ce5-f953-4bd3-bc89-12621681af49/40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
+	// cgroup v1 node: controller lines only, no unified entry
+	920: `11:name=systemd:/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/cri-containerd-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope
+10:memory:/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/cri-containerd-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope`,
+	// seen from inside a cgroup namespace: path relative to the reader's root
+	921: `0::/../../../kubepods-burstable-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/cri-containerd-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope`,
+	// systemd running inside the container adds its own scopes below
+	922: `0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/cri-containerd-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope/init.scope`,
 }
 
 var fixturesWithoutContainer = map[app.PID]string{
+	1012: `0::/user.slice/user-963461.slice/session-11909.scope`,
 	1011: `12:rdma:/
 11:perf_event:
 10:freezer:/docker/a2ffe0e97ac22657a2a023ad628e9df837c38a03b1ebc904d3f6d644eb1a1a81
@@ -68,10 +91,17 @@ var fixturesWithoutContainer = map[app.PID]string{
 0::/system.slice/containerd.service`,
 }
 
+// kubelet-managed cgroups whose container ID does not follow any known format
+var fixturesUnknownKubeletCgroup = map[app.PID]string{
+	1020: `0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod44c76ce5_f953_4bd3_bc89_12621681af49.slice/weird-runtime-abcdef.scope`,
+	1021: `0::/k8s.io/abcdef`,
+	1022: `0::/kubepods.slice/kubelet.service`,
+}
+
 func mountFixtures(t *testing.T) string {
 	dir := t.TempDir()
 
-	for _, fixtures := range []map[app.PID]string{fixturesWithContainer, fixturesWithoutContainer} {
+	for _, fixtures := range []map[app.PID]string{fixturesWithContainer, fixturesWithoutContainer, fixturesUnknownKubeletCgroup} {
 		for pid, cgroup := range fixtures {
 			pdir := fmt.Sprintf("%s/%d", dir, pid)
 			require.NoError(t, os.Mkdir(pdir, 0o777))
@@ -96,6 +126,13 @@ func TestContainerID(t *testing.T) {
 		t.Run(fmt.Sprintf("must not find container. PID %d", pid), func(t *testing.T) {
 			_, err := InfoForPID(pid)
 			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrContainerNotFound)
+		})
+	}
+	for pid := range fixturesUnknownKubeletCgroup {
+		t.Run(fmt.Sprintf("must report unknown kubelet cgroup. PID %d", pid), func(t *testing.T) {
+			_, err := InfoForPID(pid)
+			require.ErrorIs(t, err, ErrUnknownKubeletCgroup)
 			assert.ErrorIs(t, err, ErrContainerNotFound)
 		})
 	}

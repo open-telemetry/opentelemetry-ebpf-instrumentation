@@ -16,6 +16,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <gotracer/jump_table_extra.h>
+
 #include <bpfcore/utils.h>
 
 #include <common/pin_internal.h>
@@ -50,6 +52,21 @@ int GUARDED_PROG(obi_capture_go_executable_identity, struct pt_regs *, ctx) {
 #include "go_nethttp.c"
 #include "go_sql.c"
 #include "go_grpc.c"
+
+SEC("uprobe/h2FramerWriteContinuation")
+int GUARDED_PROG(obi_uprobe_h2FramerWriteContinuation, struct pt_regs *, ctx) {
+    on_http2FramerWriteContinuation(ctx);
+    on_grpcFramerWriteContinuation(ctx);
+    return 0;
+}
+
+SEC("uprobe/h2FramerWriteContinuation_returns")
+int GUARDED_PROG(obi_uprobe_h2FramerWriteContinuation_returns, struct pt_regs *, ctx) {
+    on_http2FramerWriteHeadersReturns(ctx);
+    on_grpcFramerWriteHeadersReturns(ctx);
+    return 0;
+}
+
 #include "go_redis.c"
 #include "go_kafka_go.c"
 #include "go_sarama.c"

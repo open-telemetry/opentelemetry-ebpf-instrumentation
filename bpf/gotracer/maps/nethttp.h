@@ -58,6 +58,33 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } http2_req_map SEC(".maps");
 
+typedef struct http2_header_observation {
+    u64 request_go;
+    u8 app_owned;
+    u8 _pad[7];
+} http2_header_observation_t;
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: goroutine serializing request headers
+    __type(value, http2_header_observation_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} http2_header_observations SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, stream_key_t); // key: framer pointer + stream id
+    __type(value, http2_owned_stream_ref_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} http2_owned_stream_by_framer SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: outer RoundTrip goroutine
+    __type(value, http2_owned_stream_ref_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} http2_owned_stream_by_request SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: go routine doing framer write headers

@@ -1,0 +1,323 @@
+groups:
+  - id: metric.obi.obi.network.flow.bytes
+    type: metric
+    metric_name: obi.network.flow.bytes
+    instrument: counter
+    unit: "{bytes}"
+    stability: development
+    brief: >
+      Total bytes observed per network flow, grouped by the configured
+      attribute selection.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: transport
+        requirement_level: opt_in
+      - ref: network.type
+        requirement_level: opt_in
+      - ref: network.protocol.name
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: opt_in
+      - ref: dst.address
+        requirement_level: opt_in
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: iface
+        requirement_level:
+          recommended: if flow deduplication is disabled
+      - ref: iface.direction
+        requirement_level:
+          recommended: if flow deduplication is disabled
+      - ref: direction
+        requirement_level: recommended
+      - ref: client.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level:
+          conditionally_required: if network.cidrs is configured
+      - ref: dst.cidr
+        requirement_level:
+          conditionally_required: if network.cidrs is configured
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: src.asn
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: dst.asn
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: src.country
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: dst.country
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+
+  - id: metric.obi.obi.network.flow.packets
+    type: metric
+    metric_name: obi.network.flow.packets
+    instrument: counter
+    unit: "{packets}"
+    stability: development
+    brief: >
+      Total packets observed per network flow, grouped by the configured
+      attribute selection. Emitted when the `network_flow_packets` feature is
+      enabled.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: transport
+        requirement_level: opt_in
+      - ref: network.type
+        requirement_level: opt_in
+      - ref: network.protocol.name
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: opt_in
+      - ref: dst.address
+        requirement_level: opt_in
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: iface
+        requirement_level:
+          recommended: if flow deduplication is disabled
+      - ref: iface.direction
+        requirement_level:
+          recommended: if flow deduplication is disabled
+      - ref: direction
+        requirement_level: recommended
+      - ref: client.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level:
+          conditionally_required: if network.cidrs is configured
+      - ref: dst.cidr
+        requirement_level:
+          conditionally_required: if network.cidrs is configured
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: src.asn
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: dst.asn
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: src.country
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: dst.country
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+
+  - id: metric.obi.obi.network.inter.zone.bytes
+    type: metric
+    metric_name: obi.network.inter.zone.bytes
+    instrument: counter
+    unit: "{bytes}"
+    stability: development
+    brief: >
+      Total bytes for flows that cross a zone boundary (`src.zone` !=
+      `dst.zone`). Emitted when the `network_inter_zone` feature is enabled.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: opt_in
+      - ref: dst.address
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level:
+          conditionally_required: if availability-zone decoration is enabled
+      - ref: dst.zone
+        requirement_level:
+          conditionally_required: if availability-zone decoration is enabled
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: transport
+        requirement_level: opt_in
+      - ref: network.type
+        requirement_level: opt_in
+      - ref: network.protocol.name
+        requirement_level: opt_in
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: client.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: direction
+        requirement_level: opt_in
+      - ref: iface
+        requirement_level: opt_in
+      - ref: iface.direction
+        requirement_level: opt_in
+      - ref: src.cidr
+        requirement_level: opt_in
+      - ref: dst.cidr
+        requirement_level: opt_in
+      - ref: src.asn
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: dst.asn
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: src.country
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: dst.country
+        requirement_level:
+          conditionally_required: if the GeoIP database is configured
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level: opt_in
+      - ref: k8s.src.owner.type
+        requirement_level: opt_in
+      - ref: k8s.src.namespace
+        requirement_level: opt_in
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.type
+        requirement_level: opt_in
+      - ref: k8s.dst.namespace
+        requirement_level: opt_in
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in

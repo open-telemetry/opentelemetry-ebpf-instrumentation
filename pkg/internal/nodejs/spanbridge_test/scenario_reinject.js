@@ -13,20 +13,16 @@ const path = require('path');
 const { createHook } = require('async_hooks');
 
 let mapState = 'none';
-const origAccess = fs.accessSync;
-fs.accessSync = (p, ...rest) => {
+const origExists = fs.existsSync;
+fs.existsSync = (p, ...rest) => {
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-mspan/')) {
     mapState = p.endsWith('/-') ? 'none' : 'manual';
-    const err = new Error('ENOTDIR');
-    err.code = 'ENOTDIR';
-    throw err;
+    return false;
   }
   if (typeof p === 'string' && p.startsWith('/dev/null/obi-span/')) {
-    const err = new Error('ENOTDIR');
-    err.code = 'ENOTDIR';
-    throw err;
+    return false;
   }
-  return origAccess(p, ...rest);
+  return origExists(p, ...rest);
 };
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'spanbridge.js'), 'utf8');
@@ -58,7 +54,7 @@ async function run() {
     span.end();
   });
 
-  fs.accessSync = origAccess;
+  fs.existsSync = origExists;
   process.stdout.write(JSON.stringify({ stateInContinuation }));
 }
 

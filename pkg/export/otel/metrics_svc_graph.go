@@ -36,13 +36,6 @@ func sglog() *slog.Logger {
 	return slog.With("component", "otel.SvcGraphMetricsReporter")
 }
 
-const (
-	ServiceGraphClient = "traces_service_graph_request_client"
-	ServiceGraphServer = "traces_service_graph_request_server"
-	ServiceGraphFailed = "traces_service_graph_request_failed_total"
-	ServiceGraphTotal  = "traces_service_graph_request_total"
-)
-
 // SvcGraphMetricsReporter implements the graph node that receives request.Span
 // instances and forwards them as OTEL metrics.
 type SvcGraphMetricsReporter struct {
@@ -165,8 +158,8 @@ func newSvcGraphMetricsReporter(
 
 func (mr *SvcGraphMetricsReporter) graphMetricOptions() []metric.Option {
 	return []metric.Option{
-		metric.WithView(mr.otelHistogramConfig(ServiceGraphClient, mr.cfg.Buckets.DurationHistogram)),
-		metric.WithView(mr.otelHistogramConfig(ServiceGraphServer, mr.cfg.Buckets.DurationHistogram)),
+		metric.WithView(mr.otelHistogramConfig(attributes.ServiceGraphClient.OTEL, mr.cfg.Buckets.DurationHistogram)),
+		metric.WithView(mr.otelHistogramConfig(attributes.ServiceGraphServer.OTEL, mr.cfg.Buckets.DurationHistogram)),
 	}
 }
 
@@ -215,28 +208,30 @@ func (mr *SvcGraphMetricsReporter) otelHistogramConfig(metricName string, bucket
 func (mr *SvcGraphMetricsReporter) setupGraphMeters(m *SvcGraphMetrics, meter instrument.Meter) error {
 	var err error
 
-	serviceGraphClient, err := meter.Float64Histogram(ServiceGraphClient, instrument.WithUnit("s"))
+	client := attributes.ServiceGraphClient
+	serviceGraphClient, err := meter.Float64Histogram(client.OTEL, instrument.WithUnit(client.Unit))
 	if err != nil {
 		return fmt.Errorf("creating service graph client histogram: %w", err)
 	}
 	m.serviceGraphClient = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 		m.ctx, serviceGraphClient, mr.metricAttributes, timeNow, mr.cfg.TTL)
 
-	serviceGraphServer, err := meter.Float64Histogram(ServiceGraphServer, instrument.WithUnit("s"))
+	server := attributes.ServiceGraphServer
+	serviceGraphServer, err := meter.Float64Histogram(server.OTEL, instrument.WithUnit(server.Unit))
 	if err != nil {
 		return fmt.Errorf("creating service graph server histogram: %w", err)
 	}
 	m.serviceGraphServer = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 		m.ctx, serviceGraphServer, mr.metricAttributes, timeNow, mr.cfg.TTL)
 
-	serviceGraphFailed, err := meter.Int64Counter(ServiceGraphFailed)
+	serviceGraphFailed, err := meter.Int64Counter(attributes.ServiceGraphFailed.OTEL)
 	if err != nil {
 		return fmt.Errorf("creating service graph failed total: %w", err)
 	}
 	m.serviceGraphFailed = NewExpirer[*request.Span, instrument.Int64Counter, int64](
 		m.ctx, serviceGraphFailed, mr.metricAttributes, timeNow, mr.cfg.TTL)
 
-	serviceGraphTotal, err := meter.Int64Counter(ServiceGraphTotal)
+	serviceGraphTotal, err := meter.Int64Counter(attributes.ServiceGraphTotal.OTEL)
 	if err != nil {
 		return fmt.Errorf("creating service graph total: %w", err)
 	}
@@ -255,7 +250,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, mr.selector)
 	}
 	log.Debug("creating new Metrics reporter")
-	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
+	resources := resource.NewWithAttributes(attr.OBISchemaURL, resourceAttributes...)
 
 	opts := []metric.Option{
 		metric.WithResource(resources),
@@ -312,7 +307,7 @@ func (mr *SvcGraphMetricsReporter) tracesResourceAttributes(service *svc.Attrs) 
 		semconv.TelemetrySDKNameKey.String(attr.VendorSDKName),
 		semconv.TelemetrySDKVersion(attr.VendorSDKVersion),
 		semconv.TelemetryDistroName(attr.TelemetryDistroName),
-		semconv.TelemetryDistroVersion(attr.TelemetryDistroVersion),
+		semconv.TelemetryDistroVersion(attr.TelemetryDistroVersion()),
 		request.SourceMetric(attr.VendorPrefix),
 		semconv.OSTypeKey.String("linux"),
 	}
@@ -353,6 +348,11 @@ func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter
 	t := span.Timings()
 	duration := t.End.Sub(t.RequestStart).Seconds()
 
+	// The request counter is its own instrument, so a span whose duration was never
+	// measured still counts on the edge it traveled. Dropping it would erase an edge
+	// where every call goes unobserved. Only the two histograms are withheld.
+	durationMeasured := !request.IgnoreDurations(span)
+
 	ctx := trace.ContextWithSpanContext(r.ctx, trace.SpanContext{}.WithTraceID(span.TraceID).WithSpanID(span.SpanID).WithTraceFlags(trace.TraceFlags(span.TraceFlags)))
 
 	if !span.IsSelfReferenceSpan() || mr.cfg.AllowServiceGraphSelfReferences {
@@ -365,8 +365,10 @@ func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter
 		}
 
 		if span.IsClientSpan() {
-			sgc, attrs := r.serviceGraphClient.ForRecord(span, connType...)
-			sgc.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			if durationMeasured {
+				sgc, attrs := r.serviceGraphClient.ForRecord(span, connType...)
+				sgc.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
 			// If we managed to resolve the remote name only, we check to see
 			// we are not instrumenting the server service, then and only then,
 			// we generate client span count for service graph total
@@ -375,11 +377,14 @@ func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter
 				sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 			}
 		} else {
-			sgs, attrs := r.serviceGraphServer.ForRecord(span, connType...)
-			sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			if durationMeasured {
+				sgs, attrs := r.serviceGraphServer.ForRecord(span, connType...)
+				sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
 			sgt, attrs := r.serviceGraphTotal.ForRecord(span, connType...)
 			sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 		}
+		// An unmeasured span has status Unset, so it never counts against the edge.
 		if request.SpanStatusCode(span) == request.StatusCodeError {
 			sgf, attrs := r.serviceGraphFailed.ForRecord(span, connType...)
 			sgf.Add(ctx, 1, instrument.WithAttributeSet(attrs))
@@ -445,7 +450,7 @@ func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 }
 
 func (mr *SvcGraphMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
-	snap := pe.File.ServiceAttrs()
+	snap := pe.ServiceFile().ServiceAttrs()
 	pid := pe.File.Pid()
 	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "uid", snap.UID)
 

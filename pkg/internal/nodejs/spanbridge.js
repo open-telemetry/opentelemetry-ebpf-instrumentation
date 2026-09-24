@@ -155,26 +155,26 @@
   // --- transport -----------------------------------------------------------
 
   // The span payload is smuggled to the eBPF layer as the argument of a
-  // deliberately-failing uv_fs_access() call: the obi_uv_fs_access uprobe
-  // reads the path string on syscall entry, then the syscall itself fails
-  // because the path does not exist. So the throw here is the EXPECTED,
-  // every-span outcome (ENOENT/ENOTDIR) — not an error, and not something we
-  // can log per span without flooding the app. It also does not tell us
-  // whether OBI actually consumed the event: an attached uprobe and a
-  // not-attached OBI produce the identical failure. Only a genuinely
-  // unexpected error (e.g. a malformed payload rejected before the syscall)
-  // is worth surfacing, and only under the debug flag.
+  // uv_fs_access() call that cannot succeed: the obi_uv_fs_access uprobe reads
+  // the path string on syscall entry, and the syscall itself then fails
+  // because the path does not exist. fs.existsSync reports that as false
+  // rather than by throwing, which is why it is used here — building the
+  // rejection fs.accessSync throws costs several times the call itself, on
+  // every span. The false says nothing about whether OBI consumed the event:
+  // an attached uprobe and a not-attached OBI produce the identical result.
+  //
+  // The guard remains because existsSync can still throw under Node's
+  // permission model, and an exception escaping span.end() would reach
+  // application code.
   const emit = (payload) => {
     // Stop emitting once the app's SDK owns telemetry: either we yielded via a
     // wrapped setter, or an api copy we could not wrap registered the app
     // provider straight into the global registry (detectRegistryHandoff).
     if (yielded || detectRegistryHandoff()) return;
     try {
-      fs.accessSync(SENTINEL_PREFIX + payload);
+      fs.existsSync(SENTINEL_PREFIX + payload);
     } catch (err) {
-      if (DEBUG && err && err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
-        debug('unexpected error emitting span', err);
-      }
+      debug('unexpected error emitting span', err);
     }
   };
 
@@ -188,17 +188,17 @@
     if (yielded || detectRegistryHandoff()) return;
     const sc = span._spanContext;
     try {
-      fs.accessSync(MSPAN_PREFIX + sc.traceId + sc.spanId);
-    } catch (_) {
-      // expected: the path does not exist; the uprobe already read it
+      fs.existsSync(MSPAN_PREFIX + sc.traceId + sc.spanId);
+    } catch (err) {
+      debug('unexpected error emitting manual-span override', err);
     }
   };
   const emitPop = () => {
     if (yielded) return;
     try {
-      fs.accessSync(MSPAN_PREFIX + '-');
-    } catch (_) {
-      // expected: see emitOverride
+      fs.existsSync(MSPAN_PREFIX + '-');
+    } catch (err) {
+      debug('unexpected error emitting manual-span pop', err);
     }
   };
 
@@ -560,7 +560,7 @@
   // evaluated second, so per callback its 'before' fires after fdextractor's —
   // and re-applies the innermost active manual span's override if one is active
   // in the current async context. Nothing is emitted when no manual span is
-  // active (zero cost outside manual spans). fs.accessSync is safe here:
+  // active (zero cost outside manual spans). fs.existsSync is safe here:
   // synchronous fs ops create no AsyncWrap and cannot re-enter async_hooks.
   // 'after' drops the override again: a callback that starts no further
   // callbacks (a timer in an idle process, any work outside a request) would

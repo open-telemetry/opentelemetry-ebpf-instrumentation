@@ -64,25 +64,24 @@ func TestProcessKafkaRequest(t *testing.T) {
 				},
 			},
 		},
-		// TODO these tests don't seem like valid kafka packets, check that
-		//{
-		//	name:  "Fetch request (v12)",
-		//	request: []byte{0, 0, 0, 52, 0, 1, 0, 12, 0, 0, 1, 3, 0, 12, 99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, 0, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 3, 32, 0, 0, 0, 30, 37, 158, 231, 0, 0, 0, 156, 1, 1, 1, 0, 53, 99, 48, 57, 45, 52, 52, 48, 48, 45, 98, 54, 101, 101, 45, 56, 54, 102, 97, 102, 101, 102, 57, 52, 102, 101, 98, 0, 2, 9, 109, 121, 45, 116, 111, 112, 105, 99, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 1, 0, 0, 0, 101, 121, 12, 118, 97, 108, 117, 101, 51, 0, 30, 0, 0},
-		//	expected: &KafkaInfo{
-		//		ClientID:  "consumer-1-1",
-		//		Operation: Fetch,
-		//		Topic:     "my-topic",
-		//	},
-		// },
-		//{
-		//	name:  "Fetch request (v15)",
-		//	request: []byte{0, 0, 0, 68, 0, 1, 0, 15, 0, 0, 38, 94, 0, 32, 99, 111, 110, 115, 117, 109, 101, 114, 45, 102, 114, 97, 117, 100, 100, 101, 116, 101, 99, 116, 105, 111, 110, 115, 101, 114, 118, 105, 99, 101, 45, 49, 0, 0, 0, 1, 244, 0, 0, 0, 1, 3, 32, 0, 0, 0, 33, 62, 224, 94, 0, 0, 30, 44, 2, 1, 1, 0, 1, 70, 99, 111, 110, 115, 117, 109, 101, 114, 45, 102, 114, 97, 117, 100, 100, 101, 116, 101, 99, 116, 105, 111, 110, 115, 101, 114, 118, 105, 99, 101, 45, 49, 45, 50, 51, 48, 98, 51, 55, 101, 100, 45, 98, 101, 57, 102, 45, 52, 97, 53, 99, 45, 97, 52},
-		//	expected: &KafkaInfo{
-		//		ClientID:    "consumer-frauddetectionservice-1",
-		//		Operation:   Fetch,
-		//		Topic:       "*",
-		//	},
-		// },
+		{
+			// KIP-227 incremental fetch session: the topic list lives in the
+			// broker's session state, so a request with an empty topics array
+			// carries no topic information and cannot produce a KafkaInfo.
+			name: "Fetch request (v12, incremental session, no topics)",
+			request: []byte{
+				0, 0, 0, 52, 0, 1, 0, 12, 0, 0, 1, 3, 0, 12,
+				99, 111, 110, 115, 117, 109, 101, 114, 45, 49, 45, 49, // "consumer-1-1"
+				0, // header tagged fields
+				// replica_id .. session_epoch
+				255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 3, 32, 0, 0, 0, 30, 37, 158, 231, 0, 0, 0, 156,
+				1, // topics: empty compact array
+				1, // forgotten_topics: empty compact array
+				1, // rack_id: empty compact string
+				0, // tagged fields
+			},
+			err: true,
+		},
 		{
 			name: "Fetch request (v17) without metadata",
 			request: []byte{

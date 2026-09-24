@@ -28,7 +28,7 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 	namespace := testCase.Namespace
 
 	// Call 4 times the instrumented service
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, uri+"/"+urlPath, 200)
 	}
 
@@ -53,7 +53,7 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
 			require.NoError(t, err, "failed to query jaeger for %s", command)
 			if resp == nil {
 				return
@@ -81,7 +81,7 @@ func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "couchbase",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -145,7 +145,7 @@ func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
 func assertCouchbaseDBQueryTextContains(t *testing.T, comm, operation, wantPrefix, wantKey string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(operation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(operation))
 		require.NoError(ct, err)
 		if err != nil || resp == nil {
 			return
@@ -189,7 +189,7 @@ func testREDMetricsPythonCouchbaseDefaultCollection(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "couchbase-default",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -244,7 +244,7 @@ func testREDMetricsPythonCouchbaseError(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "couchbase-error",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -254,6 +254,7 @@ func testREDMetricsPythonCouchbaseError(t *testing.T) {
 						attribute.String("db.namespace", "test-bucket"),
 						attribute.String("db.collection.name", "test-scope.test-collection"),
 						attribute.String("db.response.status_code", "1"), // KEY_NOT_FOUND
+						attribute.String("error.type", "1"),
 					},
 				},
 			},
@@ -301,7 +302,7 @@ func testREDMetricsPythonCouchbaseSQLPP(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "sqlpp",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -354,7 +355,7 @@ func testREDMetricsPythonCouchbaseSQLPPError(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "sqlpp-error",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -364,6 +365,7 @@ func testREDMetricsPythonCouchbaseSQLPPError(t *testing.T) {
 						attribute.String("db.namespace", "nonexistent-bucket"),
 						attribute.String("db.collection.name", "nonexistent-scope.nonexistent-collection"),
 						attribute.String("db.response.status_code", "12003"), // Keyspace not found
+						attribute.String("error.type", "12003"),
 					},
 				},
 			},
@@ -392,7 +394,7 @@ func testREDMetricsPythonCouchbaseSQLPPWithContext(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "sqlpp-with-context",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -426,7 +428,7 @@ func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
 	namespace := testCase.Namespace
 
 	// Call 4 times the instrumented service
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, uri+"/"+urlPath, 200)
 	}
 
@@ -452,7 +454,7 @@ func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
 			require.NoError(t, err, "failed to query jaeger for %s", command)
 			if resp == nil {
 				return

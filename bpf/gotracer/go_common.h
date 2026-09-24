@@ -17,6 +17,7 @@
 
 #include <bpfcore/utils.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/bpf_builtins.h>
 
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
@@ -351,10 +352,11 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
 
         if (!found_trace_id) {
             urand_bytes(tp_i->trace_id, TRACE_ID_SIZE_BYTES);
+            bpf_memset(tp_i->parent_id, 0, sizeof(tp_i->parent_id));
         }
-
-        urand_bytes(tp_i->span_id, SPAN_ID_SIZE_BYTES);
     }
+
+    urand_bytes(tp_i->span_id, SPAN_ID_SIZE_BYTES);
 
     return found_trace_id;
 }
@@ -444,6 +446,47 @@ static __always_inline void *fd_ptr_from_conn(void *conn_ptr) {
     }
 
     return 0;
+}
+
+static __always_inline bool socket_cookie_from_go_fd(void *fd_ptr, u64 *cookie) {
+    if (!fd_ptr || !cookie) {
+        return false;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 pfd_pos = go_offset_of(ot, (go_offset){.v = _net_fd_pfd_pos});
+    const u64 sysfd_pos = go_offset_of(ot, (go_offset){.v = _poll_fd_sysfd_pos});
+    if (pfd_pos == (u64)-1 || sysfd_pos == (u64)-1) {
+        return false;
+    }
+
+    s64 fd = -1;
+    if (bpf_probe_read_user(&fd, sizeof(fd), fd_ptr + pfd_pos + sysfd_pos) != 0 || fd < 0 ||
+        fd > 0xffffffffLL) {
+        return false;
+    }
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    struct fdtable *fdt = BPF_CORE_READ(task, files, fdt);
+    if (!fdt || (u32)fd >= BPF_CORE_READ(fdt, max_fds)) {
+        return false;
+    }
+
+    struct file **fd_arr = BPF_CORE_READ(fdt, fd);
+    struct file *file = NULL;
+    bpf_probe_read_kernel(&file, sizeof(file), fd_arr + (u32)fd);
+    if (!file) {
+        return false;
+    }
+
+    struct socket *socket = BPF_CORE_READ(file, private_data);
+    struct sock *sk = socket ? BPF_CORE_READ(socket, sk) : NULL;
+    if (!sk) {
+        return false;
+    }
+
+    *cookie = BPF_CORE_READ(sk, __sk_common.skc_cookie.counter);
+    return *cookie != 0;
 }
 
 // HTTP black-box context propagation

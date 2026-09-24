@@ -47,7 +47,8 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
                                                                 int bytes_len,
                                                                 u8 ssl,
                                                                 u8 direction,
-                                                                u16 orig_dport) {
+                                                                u16 orig_dport,
+                                                                struct sock *sk) {
     if (bytes_len <= 0) {
         return 0;
     }
@@ -61,6 +62,7 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     args->bytes_len = bytes_len;
     args->direction = direction;
     args->orig_dport = orig_dport;
+    args->sock_ptr = (u64)sk;
     args->u_buf = (u64)u_buf;
     args->lw_thread = lw_thread;
     args->protocols = protocols;
@@ -81,7 +83,8 @@ static __always_inline void handle_buf_with_connection(void *ctx,
                                                        int bytes_len,
                                                        u8 ssl,
                                                        u8 direction,
-                                                       u16 orig_dport) {
+                                                       u16 orig_dport,
+                                                       struct sock *sk) {
     call_protocol_args_t *args = make_protocol_args(pid_conn,
                                                     k_lw_thread_none,
                                                     k_protocol_selector_all,
@@ -89,7 +92,8 @@ static __always_inline void handle_buf_with_connection(void *ctx,
                                                     bytes_len,
                                                     ssl,
                                                     direction,
-                                                    orig_dport);
+                                                    orig_dport,
+                                                    sk);
     if (!args) {
         return;
     }
@@ -107,7 +111,7 @@ static __always_inline void handle_light_weight_thread_buf(void *ctx,
                                                            u8 direction,
                                                            u16 orig_dport) {
     call_protocol_args_t *args = make_protocol_args(
-        pid_conn, lw_thread, protocols, u_buf, bytes_len, ssl, direction, orig_dport);
+        pid_conn, lw_thread, protocols, u_buf, bytes_len, ssl, direction, orig_dport, 0);
     if (!args) {
         return;
     }

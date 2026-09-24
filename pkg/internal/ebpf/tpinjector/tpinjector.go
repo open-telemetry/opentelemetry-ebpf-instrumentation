@@ -12,11 +12,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/asm"
+	"github.com/cilium/ebpf/features"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/sys/unix"
 
@@ -33,6 +36,7 @@ import (
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/tpinjector/tpinjector.c -- -I../../../../bpf -I../../../../bpf
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfIter ../../../../bpf/tpinjector/sock_iter.c -- -I../../../../bpf -I../../../../bpf
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfFionreadFixup ../../../../bpf/tpinjector/fionread_fixup.c -- -I../../../../bpf -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -tags privileged_tests -target amd64,arm64 BpfH2MutationProbe ../../../../bpf/tests/testdata/h2_mutation_peer.c -- -I../../../../bpf -I../../../../bpf
 
 type Tracer struct {
 	cfg                     *obi.Config
@@ -53,6 +57,8 @@ type Tracer struct {
 	seenNetns               *expirable.LRU[uint64, struct{}]
 	netnsAttempts           *expirable.LRU[uint64, int]
 	backfillDisabled        bool
+	closerMu                sync.Mutex
+	detached                bool
 }
 
 const (
@@ -138,6 +144,11 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := verifyH2MutationSupport(); err != nil {
+		p.log.Warn("HTTP/2 socket mutation disabled because the rollback helper is unavailable",
+			"error", err)
+		disableH2SocketMutation(spec)
+	}
 
 	bundles := []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
@@ -180,6 +191,32 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	return bundles, nil
 }
 
+func verifyH2MutationSupport() error {
+	if err := features.HaveProgramHelper(ebpf.SkMsg, asm.FnMsgPopData); err != nil {
+		return fmt.Errorf("sk_msg helper %s: %w", asm.FnMsgPopData, err)
+	}
+	return nil
+}
+
+func disableH2SocketMutation(spec *ebpf.CollectionSpec) {
+	fallback, ok := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	if !ok {
+		return
+	}
+
+	fallback.Name = "obi_packet_extender_write_h2_tp"
+	spec.Programs["obi_packet_extender_write_h2_tp"] = fallback
+	spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"] = &ebpf.ProgramSpec{
+		Name: "obi_packet_extender_write_h2_tp_no_rollback",
+		Type: ebpf.SkMsg,
+		Instructions: asm.Instructions{
+			asm.Mov.Imm(asm.R0, 1),
+			asm.Return(),
+		},
+		License: "Dual MIT/GPL",
+	}
+}
+
 func (p *Tracer) constants() map[string]any {
 	flags := uint32(0)
 	if p.cfg.EBPF.ContextPropagation.HasHeaders() {
@@ -208,14 +245,51 @@ func (p *Tracer) iterConstants() map[string]any {
 	}
 }
 
-func (p *Tracer) SetupTailCalls() {}
-
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
+	p.closerMu.Lock()
+	defer p.closerMu.Unlock()
+
+	if p.detached {
+		p.closeAllReverse(c)
+		return
+	}
+
 	p.closers = append(p.closers, c...)
+}
+
+func (p *Tracer) Close() error {
+	p.detach()
+	return nil
+}
+
+func (p *Tracer) closeAllReverse(closers []io.Closer) {
+	for _, c := range slices.Backward(closers) {
+		if err := c.Close(); err != nil {
+			p.log.Warn("error detaching tpinjector resource", "error", err)
+		}
+	}
+}
+
+func (p *Tracer) detach() {
+	p.iterMu.Lock()
+	defer p.iterMu.Unlock()
+	p.backfillDisabled = true
+
+	p.closerMu.Lock()
+	closers := p.closers
+	p.closers = nil
+	p.detached = true
+	p.closerMu.Unlock()
+
+	p.closeAllReverse(closers)
+
+	p.bpfObjects.Close()
+	p.bpfIterObjects.Close()
+	p.bpfFionreadFixupObjects.Close()
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -336,9 +410,7 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 
 	<-ctx.Done()
 
-	p.bpfObjects.Close()
-	p.bpfIterObjects.Close()
-	p.bpfFionreadFixupObjects.Close()
+	p.detach()
 
 	p.log.Debug("tpinjector terminated")
 }

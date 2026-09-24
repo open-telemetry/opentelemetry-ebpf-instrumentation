@@ -9,6 +9,7 @@ attributes:
       - gen_ai.output.messages
       - gen_ai.metadata
       - gen_ai.tool.definitions
+      - error.type
 ebpf:
   buffer_sizes:
     http: 65536
@@ -25,6 +26,8 @@ ebpf:
         qwen:
           enabled: true
         bedrock:
+          enabled: true
+        retrieval:
           enabled: true
 trace_printer: text
 discovery:

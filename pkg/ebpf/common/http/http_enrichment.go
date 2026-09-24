@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/ohler55/ojg/oj"
@@ -17,6 +18,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 )
+
+const userAgentHeader = "user-agent"
 
 // HTTPEnricher applies HTTP enrichment rules to extract headers and body
 // content into spans. Rules are split by type at construction time so that
@@ -127,6 +130,11 @@ func (e *HTTPEnricher) processHeaders(
 	for name, values := range headers {
 		action, rule := e.resolveHeaderAction(name, scope, span)
 		if action == config.HTTPParsingActionExclude {
+			// An excluded header must not resurface through a semconv attribute
+			// derived from the same value.
+			if strings.EqualFold(name, userAgentHeader) {
+				span.UserAgent = ""
+			}
 			continue
 		}
 		if result == nil {
@@ -349,10 +357,5 @@ func methodMatches(methods []config.HTTPMethod, method string) bool {
 		return true
 	}
 	upper := config.HTTPMethod(strings.ToUpper(method))
-	for _, m := range methods {
-		if m == upper {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(methods, upper)
 }

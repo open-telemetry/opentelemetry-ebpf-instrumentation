@@ -4,7 +4,6 @@
 package prom
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
-	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -30,8 +28,7 @@ func TestMetricsExpiration(t *testing.T) {
 
 	ctx := t.Context()
 
-	openPort := testutil.FreeTCPPort(t)
-	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+	registry, promURL := newPrometheusTestServer(t)
 
 	// GIVEN a Prometheus Metrics Exporter with a metrics expire time of 3 minutes
 	metrics := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(20))
@@ -39,7 +36,7 @@ func TestMetricsExpiration(t *testing.T) {
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&NetPrometheusConfig{
 			Config: &PrometheusConfig{
-				Port:                        openPort,
+				Registry:                    registry,
 				Path:                        "/metrics",
 				TTL:                         3 * time.Minute,
 				SpanMetricsServiceCacheSize: 10,
@@ -89,19 +86,27 @@ func TestMetricsExpiration(t *testing.T) {
 			Metrics:     ebpf.NetFlowMetrics{Bytes: 123, Packets: 11},
 		},
 	})
-	now.Advance(2 * time.Minute)
 
-	// THEN THE metrics that have been received during the timeout period are still visible
-	var exported string
+	// THEN the refreshed metrics accumulate while the other metrics are still within their timeout
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		m := getMetrics(ct, promURL)
 		assert.Contains(ct, m, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 246`)
 		assert.Contains(ct, m, `obi_network_flow_packets_total{dst_name="bar",src_name="foo"} 22`)
-		exported = m
+		assert.Contains(ct, m, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
+		assert.Contains(ct, m, `obi_network_flow_packets_total{dst_name="bae",src_name="baz"} 33`)
 	}, timeout, 100*time.Millisecond)
-	// BUT not the metrics that haven't been received during that time
-	assert.NotContains(t, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"}`)
-	assert.NotContains(t, exported, `obi_network_flow_packets_total{dst_name="bae",src_name="baz"}`)
+
+	// AND WHEN enough time passes for the metrics that weren't refreshed to expire
+	now.Advance(2 * time.Minute)
+
+	// THEN the refreshed metrics remain visible but the other metrics do not
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		m := getMetrics(ct, promURL)
+		assert.Contains(ct, m, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 246`)
+		assert.Contains(ct, m, `obi_network_flow_packets_total{dst_name="bar",src_name="foo"} 22`)
+		assert.NotContains(ct, m, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"}`)
+		assert.NotContains(ct, m, `obi_network_flow_packets_total{dst_name="bae",src_name="baz"}`)
+	}, timeout, 100*time.Millisecond)
 	now.Advance(2 * time.Minute)
 
 	// AND WHEN the metrics labels that disappeared are received again
@@ -114,6 +119,7 @@ func TestMetricsExpiration(t *testing.T) {
 	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
+	var exported string
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		m := getMetrics(ct, promURL)
 		assert.Contains(ct, m, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)

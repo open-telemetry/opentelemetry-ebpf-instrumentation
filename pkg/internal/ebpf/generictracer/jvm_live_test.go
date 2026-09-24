@@ -45,14 +45,14 @@ const (
 	jvmLiveTargetClass      = "OBIJvmRuntimeProbeTarget"
 )
 
-func TestJVMRuntimeEventsLiveFromHotSpotProbes(t *testing.T) {
+func TestJVMGCEventsLiveFromHotSpotProbes(t *testing.T) {
 	require.Equal(t, 0, os.Geteuid(), "live eBPF JVM test must run as root")
 	require.NoError(t, rlimit.RemoveMemlock())
 
 	java := startJVMRuntimeProbeTarget(t)
-	events := startJVMRuntimeEventTracer(t, java.pid)
+	events := startJVMGCEventTracer(t, java.pid)
 
-	waitForJVMRuntimeEvents(t, events, java.triggerGC)
+	waitForJVMGCEvents(t, events, java.triggerGC)
 }
 
 type jvmRuntimeProbeTarget struct {
@@ -151,7 +151,7 @@ func waitForProcessLine(t *testing.T, lines <-chan string, want string, timeout 
 	}
 }
 
-func startJVMRuntimeEventTracer(
+func startJVMGCEventTracer(
 	t *testing.T,
 	pid app.PID,
 ) <-chan []runtimemetrics.RuntimeMetricSnapshot {
@@ -247,7 +247,7 @@ func javaProcessFileInfo(t *testing.T, pid app.PID) *discexec.FileInfo {
 	})
 }
 
-func waitForJVMRuntimeEvents(
+func waitForJVMGCEvents(
 	t *testing.T,
 	events <-chan []runtimemetrics.RuntimeMetricSnapshot,
 	triggerGC func(),

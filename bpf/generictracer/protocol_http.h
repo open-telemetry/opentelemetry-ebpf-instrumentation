@@ -5,6 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
+#include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
@@ -55,7 +56,7 @@ static __always_inline http_info_t *empty_http_info() {
 }
 
 static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta) {
-    if (meta->type == EVENT_HTTP_CLIENT) {
+    if (meta->type == k_event_type_http_client) {
         return TRACE_TYPE_CLIENT;
     }
 
@@ -77,18 +78,6 @@ static __always_inline u8 is_http(const unsigned char *p, u32 len, u8 *packet_ty
     }
 
     return 0;
-}
-
-static __always_inline bool still_responding(http_info_t *info) {
-    return info->status != 0;
-}
-
-static __always_inline bool still_reading(http_info_t *info) {
-    return info->status == 0 && info->start_monotime_ns != 0;
-}
-
-static __always_inline u8 http_info_complete(http_info_t *info) {
-    return (info->start_monotime_ns != 0 && info->status != 0 && info->pid.host_pid != 0);
 }
 
 static __always_inline u8 http_will_complete(http_info_t *info, unsigned char *buf, u32 len) {
@@ -138,7 +127,7 @@ static __always_inline void cleanup_http_server_thread_trace(http_info_t *info,
 
 static __always_inline void
 cleanup_incomplete_http_server_thread_trace(http_info_t *info, const trace_key_t *current_key) {
-    if (info->type == EVENT_HTTP_REQUEST && !http_info_complete(info)) {
+    if (info->type == k_event_type_http_request && !http_info_complete(info)) {
         cleanup_http_server_thread_trace(info, current_key);
     }
 }
@@ -159,7 +148,7 @@ static __always_inline void mark_http_server_thread_trace_response_sent(http_inf
 }
 
 static __always_inline void submit_http_event(http_info_t *info, pid_connection_info_t *pid_conn) {
-    if (!http_info_complete(info) || info->submitted) {
+    if (!http_info_emittable(info) || info->submitted) {
         return;
     }
 
@@ -170,7 +159,7 @@ static __always_inline void submit_http_event(http_info_t *info, pid_connection_
         bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
 
         __builtin_memcpy(trace, info, sizeof(http_info_t));
-        trace->flags = EVENT_K_HTTP_REQUEST;
+        trace->flags = k_event_type_k_http_request;
         bpf_ringbuf_submit(trace, get_flags());
     } else {
         bpf_dbg_printk("failed to reserve space in the ringbuf");
@@ -179,13 +168,13 @@ static __always_inline void submit_http_event(http_info_t *info, pid_connection_
 
 static __always_inline void
 finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_t *current_key) {
-    if (!http_info_complete(info)) {
+    if (!http_info_emittable(info)) {
         return;
     }
 
     submit_http_event(info, pid_conn);
 
-    if (info->type == EVENT_HTTP_REQUEST) {
+    if (info->type == k_event_type_http_request) {
         cleanup_http_server_thread_trace(info, current_key);
     }
     // Don't delete the ongoing_http entry for requests that weren't delayed, we might be
@@ -197,18 +186,35 @@ finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_
     bpf_map_delete_elem(&active_ssl_connections, pid_conn);
 }
 
+static __always_inline u64 http_response_bytes_from_sock(struct sock *sk, u8 type) {
+    if (!sk) {
+        return 0;
+    }
+
+    if (type == k_event_type_http_request) {
+        return BPF_CORE_READ((struct tcp_sock *)sk, bytes_sent);
+    }
+
+    return BPF_CORE_READ((struct tcp_sock *)sk, bytes_received);
+}
+
 static __always_inline void force_finish_http(http_info_t *info,
                                               pid_connection_info_t *pid_conn,
-                                              const trace_key_t *current_key) {
+                                              const trace_key_t *current_key,
+                                              u64 response_bytes) {
     if (info->submitted) {
         return;
     }
 
     if (!high_request_volume) {
-        if (!http_info_complete(info)) {
+        // A record that already saw its response unparsed is timed from those bytes, so
+        // the teardown neither ends it nor tells us anything new about it.
+        if (!http_info_complete(info) && info->response_observation == http_response_parsed) {
+            // status stays 0: nothing was parsed, so there is no status to report.
             info->resp_len = 0;
             info->end_monotime_ns = bpf_ktime_get_ns();
-            info->status = 499;
+            info->response_observation =
+                http_response_observation_at_close(info->response_bytes_at_request, response_bytes);
         }
     }
 
@@ -236,10 +242,15 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
         if (old_info && !old_info->submitted) {
             const u8 req_type = request_type_by_direction(direction, packet_type);
             if (!http_info_complete(old_info)) {
-                if (old_info->type == req_type && is_duplicate_info(old_info)) {
+                // A record whose response already arrived is finished, whatever came of
+                // the parse, so a request in the same epoch is the next call on a reused
+                // connection rather than a second sighting of this one.
+                if (old_info->type == req_type && !response_unread(old_info) &&
+                    is_duplicate_info(old_info)) {
                     return 0;
                 }
                 cleanup_incomplete_http_server_thread_trace(old_info, NULL);
+                note_displaced_by_next_request(old_info, bpf_ktime_get_ns());
             }
             // this will delete ongoing_http for this connection info if there's full stale request
             finish_http(old_info, pid_conn, NULL);
@@ -255,7 +266,8 @@ static __always_inline tp_info_t *self_referencing_request(pid_connection_info_t
                                                            u8 packet_type) {
     if (packet_type == PACKET_TYPE_REQUEST) {
         http_info_t *old_info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
-        if (old_info && !http_info_complete(old_info) && old_info->type == EVENT_HTTP_CLIENT) {
+        if (old_info && !http_info_complete(old_info) &&
+            old_info->type == k_event_type_http_client) {
             bpf_dbg_printk("found self referencing request, remembering the old tp info parent_id");
             return &old_info->tp;
         }
@@ -271,9 +283,8 @@ static __always_inline void finish_possible_delayed_http_request(pid_connection_
     }
 }
 
-static __always_inline void
-force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn,
-                                           const trace_key_t *current_key) {
+static __always_inline void force_finish_possible_delayed_http_request(
+    pid_connection_info_t *pid_conn, const trace_key_t *current_key, struct sock *sk) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
         cleanup_incomplete_http_server_thread_trace(info, current_key);
@@ -281,7 +292,8 @@ force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn,
             finish_http(info, pid_conn, current_key);
         } else {
             bpf_dbg_printk("forcing HTTP event finish");
-            force_finish_http(info, pid_conn, current_key);
+            force_finish_http(
+                info, pid_conn, current_key, http_response_bytes_from_sock(sk, info->type));
         }
     }
     cleanup_http_info(pid_conn);
@@ -291,7 +303,7 @@ static __always_inline void terminate_http_request_if_needed(pid_connection_info
                                                              const trace_key_t *current_key) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
-        if (info->type == EVENT_HTTP_REQUEST) {
+        if (info->type == k_event_type_http_request) {
             cleanup_http_server_response_data(pid_conn, info);
             cleanup_http_server_thread_trace(info, current_key);
         } else {
@@ -306,21 +318,22 @@ static __always_inline void process_http_request(http_info_t *info,
                                                  http_connection_metadata_t *meta,
                                                  int direction,
                                                  u16 orig_dport,
-                                                 lw_thread_t lw_thread) {
+                                                 lw_thread_t lw_thread,
+                                                 struct sock *sk) {
     // Set pid and type early as best effort in case the request times out or dies.
     if (meta) {
         info->pid = meta->pid;
         info->type = meta->type;
     } else {
         if (direction == TCP_RECV) {
-            info->type = EVENT_HTTP_REQUEST;
+            info->type = k_event_type_http_request;
         } else {
-            info->type = EVENT_HTTP_CLIENT;
+            info->type = k_event_type_http_client;
         }
         task_pid(&info->pid);
     }
 
-    fixup_connection_info(&info->conn_info, info->type == EVENT_HTTP_CLIENT, orig_dport);
+    fixup_connection_info(&info->conn_info, info->type == k_event_type_http_client, orig_dport);
 
     u64 start_time = bpf_ktime_get_ns();
     u64 req_time = start_time;
@@ -336,7 +349,7 @@ static __always_inline void process_http_request(http_info_t *info,
             // Splitting client calls with in-queue and processing can be noisy in traces.
             // We want to record the earlier time, but we don't want to split them, therefore
             // we set both start_time and req_time to the same earlier value.
-            if (info->type == EVENT_HTTP_CLIENT) {
+            if (info->type == k_event_type_http_client) {
                 start_time = req_time;
             }
         }
@@ -350,6 +363,8 @@ static __always_inline void process_http_request(http_info_t *info,
     info->req_monotime_ns = req_time;
     info->status = 0;
     info->submitted = 0;
+    info->response_observation = http_response_parsed;
+    info->response_bytes_at_request = http_response_bytes_from_sock(sk, info->type);
     info->len = len;
     info->event_source = event_source(lw_thread); // generic events generated from Go
     info->extra_id = extra_runtime_id();          // required for deleting the trace information
@@ -364,6 +379,9 @@ static __always_inline void process_http_request(http_info_t *info,
 static __always_inline void process_http_response(http_info_t *info, const unsigned char *buf) {
     info->resp_len = 0;
     info->end_monotime_ns = bpf_ktime_get_ns();
+    // An earlier buffer on this connection may have been marked as the response arriving
+    // unparsed. This one parsed, so the record carries a status after all.
+    info->response_observation = http_response_parsed;
 
     u16 status = 0;
 
@@ -384,7 +402,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  int orig_len,
                                                  lw_thread_t lw_thread) {
     process_http_response(info, small_buf);
-    if (info->type == EVENT_HTTP_REQUEST) {
+    if (info->type == k_event_type_http_request) {
         cleanup_http_server_response_data(pid_conn, info);
     } else {
         delete_client_trace_info(pid_conn);
@@ -400,7 +418,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
         return;
     }
 
-    if (info->type == EVENT_HTTP_REQUEST) {
+    if (info->type == k_event_type_http_request) {
         info->delayed = 1;
         mark_http_server_thread_trace_response_sent(info);
         if (high_request_volume && !info->ssl) {
@@ -476,8 +494,13 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
     // we copy some small part of the buffer to the info trace event, so that we can process an event even with
     // incomplete trace info in user space.
     read_request_buf(info, args);
-    process_http_request(
-        info, args->bytes_len, meta, args->direction, args->orig_dport, args->lw_thread);
+    process_http_request(info,
+                         args->bytes_len,
+                         meta,
+                         args->direction,
+                         args->orig_dport,
+                         args->lw_thread,
+                         (struct sock *)args->sock_ptr);
 
     // Emit large buffer last: may tail call for continuation batches, so all
     // critical state updates must precede this call.
@@ -562,7 +585,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                 unsigned char *t_id = extract_trace_id(res);
                 unsigned char *s_id = extract_span_id(res);
                 unsigned char *f_id = extract_flags(res);
-                const bool is_client = meta && meta->type == EVENT_HTTP_CLIENT;
+                const bool is_client = meta && meta->type == k_event_type_http_client;
                 unsigned char *previous_trace_id = NULL;
 
                 if (is_client && valid_trace(tp_p->tp.trace_id)) {
@@ -574,7 +597,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
 
                 decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
                 decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
-                if (meta && meta->type != EVENT_HTTP_CLIENT) {
+                if (meta && meta->type != k_event_type_http_client) {
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
                 } else if (previous_trace_id &&
                            bpf_memcmp(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES) !=
@@ -658,7 +681,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
 
     tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
 
-    if (tp_p && tp_p->req_type == EVENT_HTTP_CLIENT && tp_p->written &&
+    if (tp_p && tp_p->req_type == k_event_type_http_client && tp_p->written &&
         tp_p->pid == args->pid_conn.pid) {
         bpf_dbg_printk("found tp info previously set by sock msg");
         // we've already got a tp_info_pid_t setup by the sockmsg program, use
@@ -688,7 +711,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     u8 found_tp = 0;
 
     if (meta) {
-        if (meta->type == EVENT_HTTP_CLIENT) {
+        if (meta->type == k_event_type_http_client) {
             pid_connection_info_t p_conn = {.pid = args->pid_conn.pid};
             __builtin_memcpy(&p_conn.conn, &args->pid_conn.conn, sizeof(connection_info_t));
             found_tp = find_trace_for_client_request(
@@ -699,8 +722,8 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
             //dbg_print_http_connection_info(conn);
 
             // For server requests, we first look for TCP info (setup by TC ingress) and then we fall back to black-box info.
-            found_tp =
-                find_trace_for_server_request(&args->pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
+            found_tp = find_trace_for_server_request(
+                &args->pid_conn.conn, &tp_p->tp, k_event_type_http_request);
         }
     }
 
@@ -726,7 +749,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     // for example can forward headers as-is, which can give us a stale
     // value.
     if (meta) {
-        if (meta->type == EVENT_HTTP_REQUEST && found_tp && args->ssl) {
+        if (meta->type == k_event_type_http_request && found_tp && args->ssl) {
             bpf_dbg_printk("skipping headers parsing because of existing tp info for SSL call");
             args->skip_tp_parsing = 1;
         }
@@ -903,7 +926,7 @@ int GUARDED_PROG(obi_large_buf_emit_continue, struct pt_regs *, ctx) {
         return 0;
     }
 
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
+    large_buf->type = k_event_type_tcp_large_buffer;
     large_buf->packet_type = state->packet_type;
     large_buf->direction = state->direction;
     large_buf->conn_info = info->conn_info;

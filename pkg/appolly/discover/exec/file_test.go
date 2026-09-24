@@ -102,3 +102,10 @@ func TestApplyEnvVariables(t *testing.T) {
 		})
 	}
 }
+
+func TestFileInfoKeepsProcessStartTime(t *testing.T) {
+	info := New(Init{StartTime: 42})
+	if info.StartTime() != 42 {
+		t.Fatalf("StartTime() = %d, want 42", info.StartTime())
+	}
+}

@@ -5,6 +5,7 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	obiconfig "go.opentelemetry.io/obi/pkg/config"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -95,7 +97,10 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 
 	http := protocols[protocolHTTP]
 	httpInstrumentation := schema.HTTPInstrumentation{
-		Enabled:                   http.Enabled,
+		Enabled: schema.HTTPProtocolEnablement{
+			ProtocolEnablement: http.Enabled,
+			BodySizeMetrics:    cfg.Metrics.Features.AppSizes(),
+		},
 		Filters:                   http.Filters,
 		TrackRequestHeaders:       cfg.EBPF.TrackRequestHeaders,
 		RequestTimeout:            schema.Duration(cfg.EBPF.HTTPRequestTimeout),
@@ -233,12 +238,7 @@ func appendMetricInstrumentations(
 }
 
 func containsInstrumentation(list []instrumentations.Instrumentation, needle instrumentations.Instrumentation) bool {
-	for _, item := range list {
-		if item == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, needle)
 }
 
 func protocolEnabled(
@@ -375,10 +375,11 @@ func statsCIDRDefinitions(cfg *obi.Config) schema.CIDRDefinitions {
 }
 
 const (
-	statsFeatureTCPRtt               = "tcp_rtt"
-	statsFeatureTCPFailedConnections = "tcp_failed_connections"
-	statsFeatureTCPRetransmits       = "tcp_retransmits"
-	statsFeatureTCPIo                = "tcp_io"
+	statsFeatureTCPRtt                   = "tcp_rtt"
+	statsFeatureTCPFailedConnections     = "tcp_failed_connections"
+	statsFeatureTCPSuccessfulConnections = "tcp_successful_connections"
+	statsFeatureTCPRetransmits           = "tcp_retransmits"
+	statsFeatureTCPIo                    = "tcp_io"
 )
 
 func statsFeatures(features featureexport.Features) []string {
@@ -388,6 +389,9 @@ func statsFeatures(features featureexport.Features) []string {
 	}
 	if features.StatsTCPFailedConnections() {
 		out = append(out, statsFeatureTCPFailedConnections)
+	}
+	if features.StatsTCPSuccessfulConnections() {
+		out = append(out, statsFeatureTCPSuccessfulConnections)
 	}
 	if features.StatsTCPRetransmits() {
 		out = append(out, statsFeatureTCPRetransmits)
@@ -423,6 +427,7 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 			ContextPropagation:     cfg.EBPF.ContextPropagation,
 			OverrideBPFLoopEnabled: cfg.EBPF.OverrideBPFLoopEnabled,
 			DisableBlackBoxCP:      cfg.EBPF.DisableBlackBoxCP,
+			PopulateTraceContext:   cfg.EBPF.PopulateTraceContext,
 		},
 		Traffic: schema.Traffic{
 			ControlBackend:    cfg.EBPF.TCBackend,
@@ -675,6 +680,7 @@ func correlation(cfg *obi.Config) *schema.Correlation {
 	return &schema.Correlation{
 		LogTraceAnnotation: schema.LogTraceAnnotation{
 			Enabled: cfg.EBPF.LogEnricher.Enabled(),
+			Match:   logEnricherMatches(cfg.EBPF.LogEnricher.Services),
 			FieldNames: schema.FieldNames{
 				TraceID: &cfg.EBPF.LogEnricher.FieldNames.TraceID,
 				SpanID:  &cfg.EBPF.LogEnricher.FieldNames.SpanID,
@@ -694,6 +700,16 @@ func correlation(cfg *obi.Config) *schema.Correlation {
 			},
 		},
 	}
+}
+
+func logEnricherMatches(svcs []obiconfig.LogEnricherServiceConfig) []schema.RuleMatch {
+	var matches []schema.RuleMatch
+	for _, svc := range svcs {
+		for i := range svc.Service {
+			matches = append(matches, globSelectorMatch(&svc.Service[i]))
+		}
+	}
+	return matches
 }
 
 func daemon(cfg *obi.Config) *schema.Daemon {

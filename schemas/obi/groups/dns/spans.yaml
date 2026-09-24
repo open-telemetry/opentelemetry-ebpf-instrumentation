@@ -1,0 +1,27 @@
+groups:
+  - id: span.obi.dns
+    type: span
+    span_kind: internal
+    stability: development
+    brief: OBI DNS resolution span.
+    attributes:
+      - ref: dns.question.name
+        requirement_level:
+          conditionally_required: if the lookup named a question
+      - ref: dns.answers
+        requirement_level:
+          recommended: if the response carried answers
+      - ref: client.address
+        requirement_level: recommended
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error

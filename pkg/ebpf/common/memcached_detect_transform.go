@@ -270,7 +270,8 @@ func emitMemcachedNoreplySpans(parseCtx *EBPFParseContext, trace *TCPRequestInfo
 		spans = append(spans, memcachedNoreplySpan(trace, op.Op, op.Key))
 	}
 
-	parseCtx.emitExtraSpans(spans...)
+	detachExtraSpans(spans)
+	emitTCPExtraSpans(parseCtx, trace, spans...)
 }
 
 func parseMemcachedRequests(r *largebuf.LargeBufferReader) (memcachedParseResult, bool) {
@@ -540,8 +541,8 @@ func memcachedFirstLineFromReader(r *largebuf.LargeBufferReader) ([]byte, bool) 
 }
 
 func memcachedToken(line []byte) []byte {
-	if idx := bytes.IndexByte(line, ' '); idx >= 0 {
-		return line[:idx]
+	if before, _, ok := bytes.Cut(line, []byte{' '}); ok {
+		return before
 	}
 
 	return line

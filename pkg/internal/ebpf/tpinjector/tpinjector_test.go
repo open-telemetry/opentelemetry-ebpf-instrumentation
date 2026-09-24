@@ -6,9 +6,11 @@
 package tpinjector
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -92,7 +94,11 @@ func TestTracer_Constants(t *testing.T) {
 			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
 			require.NoError(t, err)
 
-			bundles, err := New(cfg).LoadSpecs()
+			tracer := New(cfg)
+			// the real probe would add the FIONREAD fixup bundle on affected kernels
+			tracer.fionreadProbe = func(*ebpf.Map) (bool, error) { return false, nil }
+
+			bundles, err := tracer.LoadSpecs()
 			require.NoError(t, err)
 			require.Len(t, bundles, expectedSpecCount, "tpinjector bundle count must match")
 
@@ -120,4 +126,86 @@ func TestTracer_Constants(t *testing.T) {
 			assert.Len(t, iterC, 1, "iter spec should have only g_bpf_debug")
 		})
 	}
+}
+
+func TestDisableH2SocketMutation(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	fallback := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	require.NotNil(t, fallback)
+
+	disableH2SocketMutation(spec)
+
+	assert.Same(t, fallback, spec.Programs["obi_packet_extender_write_h2_tp"])
+	assert.Equal(t, "obi_packet_extender_write_h2_tp", fallback.Name)
+
+	disabledFallback := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
+	require.NotNil(t, disabledFallback)
+	assert.Equal(t, "obi_packet_extender_write_h2_tp_no_rollback", disabledFallback.Name)
+	assert.Len(t, disabledFallback.Instructions, 2)
+}
+
+type recordingCloser struct {
+	name   string
+	closed *[]string
+}
+
+func (c *recordingCloser) Close() error {
+	*c.closed = append(*c.closed, c.name)
+	return nil
+}
+
+func newDetachTestTracer() *Tracer {
+	tr := New(&obi.Config{})
+	tr.sockhashOnce.Do(func() {})
+	return tr
+}
+
+func TestRunDetachesAttachmentsOnShutdown(t *testing.T) {
+	tr := newDetachTestTracer()
+
+	var closed []string
+	tr.AddCloser(
+		&recordingCloser{name: "sockmsg", closed: &closed},
+		&recordingCloser{name: "sockops", closed: &closed},
+		&recordingCloser{name: "iter", closed: &closed},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tr.Run(ctx, nil, nil)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancellation")
+	}
+
+	assert.Equal(t, []string{"iter", "sockops", "sockmsg"}, closed)
+	assert.Empty(t, tr.closers)
+}
+
+func TestDetachStopsSocketBackfill(t *testing.T) {
+	tr := newDetachTestTracer()
+
+	tr.detach()
+
+	assert.True(t, tr.backfillDisabled)
+}
+
+func TestAddCloserAfterDetachClosesImmediately(t *testing.T) {
+	tr := newDetachTestTracer()
+	tr.detach()
+
+	var closed []string
+	tr.AddCloser(&recordingCloser{name: "late", closed: &closed})
+
+	assert.Equal(t, []string{"late"}, closed)
+	assert.Empty(t, tr.closers)
 }

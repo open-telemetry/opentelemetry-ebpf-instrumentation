@@ -9,7 +9,6 @@ on: # zizmor: ignore[dangerous-triggers] checks out only scripts/rerun-flaky.sh 
       - "Unit tests (privileged)"
       - "BPF verifier"
       - "Integration tests"
-      - "Integration tests ARM"
       - "Integration tests K8S"
       - "OATS tests"
       - "Build test"

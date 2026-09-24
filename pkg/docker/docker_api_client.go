@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,8 @@ import (
 
 const (
 	composeServiceLabelKey = "com.docker.compose.service"
+	// Bound repeated procfs scans for non-container PIDs without caching a negative result for the process lifetime.
+	containerNotFoundRetryInterval = time.Second
 	// abbreviationLength defines the length for the short ID form
 	abbreviationLength = 12
 )
@@ -76,9 +79,10 @@ type ContainerStore struct {
 	watcherStarted sync.Once
 	watcherRunning atomic.Bool
 
-	cacheMu       sync.RWMutex
-	byPID         map[app.PID]ContainerMeta
-	byContainerID map[ContainerID]containerEntry // metadata + PIDs keyed by full container ID
+	cacheMu                       sync.RWMutex
+	byPID                         map[app.PID]ContainerMeta
+	byContainerID                 map[ContainerID]containerEntry // metadata + PIDs keyed by full container ID
+	containerNotFoundRetryAtByPID map[app.PID]time.Time
 
 	// lastEventAt is the Unix timestamp (seconds) of the last processed Docker event.
 	// It is seeded to the start time of watchContainerEvents and updated on each event,
@@ -89,9 +93,10 @@ type ContainerStore struct {
 
 func NewStore() *ContainerStore {
 	return &ContainerStore{
-		log:           cmlog(),
-		byPID:         make(map[app.PID]ContainerMeta),
-		byContainerID: make(map[ContainerID]containerEntry),
+		log:                           cmlog(),
+		byPID:                         make(map[app.PID]ContainerMeta),
+		byContainerID:                 make(map[ContainerID]containerEntry),
+		containerNotFoundRetryAtByPID: make(map[app.PID]time.Time),
 	}
 }
 
@@ -110,10 +115,7 @@ func (s *ContainerStore) initialize(ctx context.Context) {
 		return
 	}
 
-	docker, err := client.NewClientWithOpts(
-		client.WithAPIVersionNegotiation(),
-		client.FromEnv,
-	)
+	docker, err := client.New(client.WithAPIVersionNegotiation(), client.FromEnv)
 	if err != nil {
 		s.log.Debug("trying to instantiate docker client", "error", err)
 		return
@@ -139,9 +141,36 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 		s.cacheMu.RUnlock()
 		return ci, true
 	}
+	retryAt, notContainer := s.containerNotFoundRetryAtByPID[pid]
 	s.cacheMu.RUnlock()
+	if notContainer {
+		if time.Now().Before(retryAt) {
+			return ContainerMeta{}, false
+		}
+		s.cacheMu.Lock()
+		if retryAt, ok := s.containerNotFoundRetryAtByPID[pid]; ok {
+			if time.Now().Before(retryAt) {
+				s.cacheMu.Unlock()
+				return ContainerMeta{}, false
+			}
+			delete(s.containerNotFoundRetryAtByPID, pid)
+		}
+		s.cacheMu.Unlock()
+	}
 
 	osCntInfo, err := osInfoForPID(pid)
+	if errors.Is(err, container.ErrContainerNotFound) {
+		s.cacheMu.Lock()
+		retryAt := s.containerNotFoundRetryAtByPID[pid]
+		if _, ok := s.byPID[pid]; !ok && !time.Now().Before(retryAt) {
+			// InvalidatePID may have run while the first lookup was in flight.
+			_, currentErr := osInfoForPID(pid)
+			if errors.Is(currentErr, container.ErrContainerNotFound) {
+				s.containerNotFoundRetryAtByPID[pid] = time.Now().Add(containerNotFoundRetryInterval)
+			}
+		}
+		s.cacheMu.Unlock()
+	}
 	if err != nil {
 		s.log.Debug("failed to get OS container info for pid", "pid", pid, "error", err)
 		return ContainerMeta{}, false
@@ -160,18 +189,13 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 			return ContainerMeta{}, false
 		}
 		meta := entry.meta
-		seen := false
-		for _, cachedPID := range entry.pids {
-			if cachedPID == pid {
-				seen = true
-				break
-			}
-		}
+		seen := slices.Contains(entry.pids, pid)
 		if !seen {
 			entry.pids = append(entry.pids, pid)
 			s.byContainerID[fullContainerID] = entry
 		}
 		s.byPID[pid] = meta
+		delete(s.containerNotFoundRetryAtByPID, pid)
 		s.cacheMu.Unlock()
 		return meta, true
 	}
@@ -216,23 +240,19 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	}
 	if entry, ok := s.byContainerID[meta.FullID]; ok {
 		meta = entry.meta
-		seen := false
-		for _, cachedPID := range entry.pids {
-			if cachedPID == pid {
-				seen = true
-				break
-			}
-		}
+		seen := slices.Contains(entry.pids, pid)
 		if !seen {
 			entry.pids = append(entry.pids, pid)
 		}
 		s.byPID[pid] = meta
 		s.byContainerID[meta.FullID] = entry
+		delete(s.containerNotFoundRetryAtByPID, pid)
 		s.cacheMu.Unlock()
 		return meta, true
 	}
 	s.byPID[pid] = meta
 	s.byContainerID[meta.FullID] = containerEntry{meta: meta, pids: []app.PID{pid}}
+	delete(s.containerNotFoundRetryAtByPID, pid)
 	s.cacheMu.Unlock()
 
 	return meta, true
@@ -371,6 +391,7 @@ func (s *ContainerStore) eventsLoop(ctx context.Context, fltrs client.Filters, s
 func (s *ContainerStore) InvalidatePID(pid app.PID) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
+	delete(s.containerNotFoundRetryAtByPID, pid)
 
 	meta, ok := s.byPID[pid]
 	if !ok {

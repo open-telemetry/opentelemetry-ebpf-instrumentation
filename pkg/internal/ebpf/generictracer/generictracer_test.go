@@ -7,6 +7,8 @@ package generictracer
 
 import (
 	"context"
+	"math"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -246,6 +248,21 @@ func TestJVMBPFMapsAreInternallyPinnedAndUseSharedEventsRingBuffer(t *testing.T)
 	assert.Equal(t, ebpf.LRUHash, spec.Maps["obi_usdt_ip_to_spec_id"].Type)
 }
 
+func TestPythonAsyncMapsScopePointersByProcess(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	const pythonAddrKeySize = uint32(unsafe.Sizeof(struct {
+		PID  uint64
+		Addr uint64
+	}{}))
+
+	for _, name := range []string{"python_context_task", "python_task_state"} {
+		require.Contains(t, spec.Maps, name)
+		assert.Equal(t, pythonAddrKeySize, spec.Maps[name].KeySize)
+	}
+}
+
 func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	tracer := Tracer{cfg: &obi.Config{}}
 	assert.Empty(t, tracer.USDTProbes())
@@ -316,6 +333,97 @@ func TestJVMRuntimeMetricsConstantOverridesUseApplicationRuntimeAsFeatureGate(t 
 
 func TestRawJVMEventLayoutsUseGeneratedBPFStructs(t *testing.T) {
 	assert.Equal(t, 200, int(unsafe.Sizeof(BpfJvmMemPoolGcEvent{})))
+	assert.Equal(t, 104, int(unsafe.Sizeof(BpfJvmRuntimeMetricsEvent{})))
+	assert.Equal(t, 176, int(unsafe.Sizeof(BpfJvmGcDurationEvent{})))
+}
+
+func TestParseJVMGCDurationRecord(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
+	tracer := &Tracer{pidsFilter: fakeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}}
+
+	event, ignore, err := tracer.parseJVMGCDurationRecord(&ringbuf.Record{RawSample: rawPayload(
+		BpfJvmGcDurationEvent{
+			Timestamp:     12345,
+			NsPid:         55,
+			PidNsId:       99,
+			DurationNs:    25_000_000,
+			CollectorName: rawJVMString("G1 Young Generation"),
+			Action:        rawJVMString("end of minor GC"),
+		},
+	)})
+
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, service, event.Service)
+	assert.Equal(t, app.PID(55), event.PID)
+	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, jvmruntime.JVMMetricGCDuration, event.Kind)
+	assert.Equal(t, "G1 Young Generation", event.GCName)
+	assert.Equal(t, "end of minor GC", event.GCAction)
+	assert.Equal(t, uint64(25_000_000), event.DurationNS)
+	assert.False(t, event.Time.IsZero())
+}
+
+func TestParseJVMRuntimeRecordUsesGeneratedBPFStruct(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders", Namespace: "prod"},
+		SDKLanguage: svc.InstrumentableJava,
+	}
+	tracer := &Tracer{pidsFilter: fakeServiceFilter{current: map[uint32]map[app.PID]svc.Attrs{
+		99: {55: service},
+	}}}
+	tracer.jvmGenerations.Store(app.PID(101), uint64(17))
+
+	event, ignore, err := tracer.parseJVMRuntimeRecord(&ringbuf.Record{RawSample: rawPayload(
+		BpfJvmRuntimeMetricsEvent{
+			Timestamp:                12345,
+			GlobalPid:                101,
+			NsPid:                    55,
+			PidNsId:                  99,
+			LoadedClassCount:         11,
+			TotalLoadedClassCount:    12,
+			UnloadedClassCount:       13,
+			ThreadCount:              14,
+			DaemonThreadCount:        15,
+			AvailableProcessorCount:  16,
+			ProcessCpuTimeNs:         ^uint64(0),
+			RecentCpuUtilizationBits: math.Float64bits(0.25),
+		},
+	)})
+
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, service, event.Service)
+	assert.Equal(t, app.PID(55), event.PID)
+	assert.Equal(t, uint32(99), event.PIDNamespaceID)
+	assert.Equal(t, uint64(17), event.Generation)
+	assert.Equal(t, jvmruntime.JVMRuntimeValues{
+		LoadedClassCount:        11,
+		TotalLoadedClassCount:   12,
+		UnloadedClassCount:      13,
+		ThreadCount:             14,
+		DaemonThreadCount:       15,
+		AvailableProcessorCount: 16,
+		ProcessCPUTimeNS:        -1,
+		RecentCPUUtilization:    0.25,
+	}, event.Values)
+	assert.False(t, event.Time.IsZero())
+}
+
+func TestEnsureJVMRuntimeMetricGeneration(t *testing.T) {
+	file := exec.New(exec.Init{
+		Pid:     101,
+		Service: svc.Attrs{SDKLanguage: svc.InstrumentableJava},
+	})
+
+	ensureJVMRuntimeMetricGeneration(file)
+	first := file.RuntimeMetricGeneration(101)
+	second := ensureJVMRuntimeMetricGeneration(file)
+
+	assert.NotZero(t, first)
+	assert.Equal(t, first, second)
 }
 
 // Ties the clang-compiled layout of struct nodejs_eventloop_event (via the
@@ -355,6 +463,21 @@ func readJVMTestBatch(t *testing.T, events <-chan []runtimemetrics.RuntimeMetric
 		t.Fatal("timed out waiting for JVM runtime events")
 		return nil
 	}
+}
+
+// The libruby probes sit on symbols the Ruby runtime exercises as a whole, so
+// each symbol set must carry the Ruby version constraint that gates it.
+func TestRubyUProbesAreVersionGated(t *testing.T) {
+	tracer := &Tracer{}
+
+	var rubyKeys []string
+	for lib := range tracer.UProbes() {
+		if strings.HasPrefix(lib, "libruby") {
+			rubyKeys = append(rubyKeys, lib)
+		}
+	}
+
+	assert.ElementsMatch(t, []string{"libruby[< 4.0]", "libruby[>= 4.0]"}, rubyKeys)
 }
 
 type fakeServiceFilter struct {

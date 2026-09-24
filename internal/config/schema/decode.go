@@ -5,6 +5,7 @@ package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
 	"fmt"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -18,11 +19,9 @@ func unmarshalEnum[T ~string](value *yaml.Node, name string, dst *T, allowed ...
 		return fmt.Errorf("%s must be a scalar, got %v", name, value.Kind)
 	}
 	candidate := T(value.Value)
-	for _, option := range allowed {
-		if candidate == option {
-			*dst = candidate
-			return nil
-		}
+	if slices.Contains(allowed, candidate) {
+		*dst = candidate
+		return nil
 	}
 	return fmt.Errorf("invalid %s %q", name, value.Value)
 }

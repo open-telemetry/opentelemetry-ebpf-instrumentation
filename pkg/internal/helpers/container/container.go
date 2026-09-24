@@ -25,6 +25,14 @@ var (
 // ErrContainerNotFound is returned when a process has no supported container cgroup entry.
 var ErrContainerNotFound = errors.New("container not found")
 
+// ErrUnknownKubeletCgroup is returned when a process runs in a kubelet-managed cgroup
+// whose container ID format is not recognized. It wraps ErrContainerNotFound so callers
+// that only distinguish "not in a container" keep working.
+var ErrUnknownKubeletCgroup = fmt.Errorf("%w: kubelet-managed cgroup with unrecognized container ID format", ErrContainerNotFound)
+
+// path fragments that only appear in cgroups created by the kubelet or its container runtime
+var kubeletCgroupMarkers = [][]byte{[]byte("kubepods"), []byte("/k8s.io/")}
+
 // Info that we need to keep from a container: its ContainerID in Kubernetes and
 // the PIDNamespace of its processes.
 // Many containers in the same pod will have different ContainerID but the same
@@ -37,7 +45,7 @@ type Info struct {
 var cgroupFormats = []*regexp.Regexp{
 	// 0::/docker/<hex...>/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-besteffort.slice/kubelet-kubepods-besteffort-pod<hex...>.slice/cri-containerd-<hex...>.scope
 	// where the last <hex...> chain is the container ID inside its Pod
-	regexp.MustCompile(`^\d+:.*:.*/.*-([\da-fA-F]+)\.scope`),
+	regexp.MustCompile(`^\d+:.*:.*/.*-([\da-fA-F]{64})\.scope`),
 
 	// formats for other Kubernetes distributions
 	// GKE: /kubepods/burstable/pod4a163a05-439d-484b-8e53-2968bc15824f/cde6dfaf5007ed65aad2d6aed72af91b0f3d95813492f773286e29ae145d20f4
@@ -71,6 +79,11 @@ func InfoForPID(pid app.PID) (Info, error) {
 	for cgroupEntry := range bytes.SplitSeq(cgroupBytes, []byte{'\n'}) {
 		if cgroupID, ok := findCgroup(string(cgroupEntry)); ok {
 			return Info{PIDNamespace: ns, ContainerID: cgroupID}, nil
+		}
+	}
+	for _, marker := range kubeletCgroupMarkers {
+		if bytes.Contains(cgroupBytes, marker) {
+			return Info{}, ErrUnknownKubeletCgroup
 		}
 	}
 	return Info{}, ErrContainerNotFound

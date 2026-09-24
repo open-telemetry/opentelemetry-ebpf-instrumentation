@@ -8,8 +8,6 @@
 
 #include <bpfcore/bpf_helpers.h>
 
-enum { BPF_ANY = 0, BPF_NOEXIST = 1 };
-
 struct bpf_test_map {
     int id;
 };
@@ -45,6 +43,7 @@ int test_parser_call_count;
 int test_last_parser_bytes_len;
 u8 test_last_ssl;
 u8 test_last_direction;
+void *test_last_sock;
 u16 test_last_orig_dport;
 int test_finish_http_count;
 u8 test_http_will_complete;
@@ -61,6 +60,13 @@ static int test_mapped_pid_tid_available;
 static void assert_int_eq(int expected, int actual, const char *message) {
     if (expected != actual) {
         fprintf(stderr, "FAIL: %s\n  expected %d, got %d\n", message, expected, actual);
+        exit(1);
+    }
+}
+
+static void assert_null(const void *actual, const char *message) {
+    if (actual != NULL) {
+        fprintf(stderr, "FAIL: %s\n  expected NULL, got %p\n", message, actual);
         exit(1);
     }
 }
@@ -137,6 +143,7 @@ static void reset(void) {
     test_last_parser_bytes_len = 0;
     test_last_ssl = 0;
     test_last_direction = 0;
+    test_last_sock = (void *)1;
     test_last_orig_dport = 0;
     test_finish_http_count = 0;
     test_http_will_complete = 0;
@@ -197,6 +204,8 @@ static void test_successful_read_still_parses(void) {
     assert_int_eq(1, test_last_parser_bytes_len, "successful read forwards the read length");
     assert_int_eq(WITH_SSL, test_last_ssl, "successful read is marked as SSL");
     assert_int_eq(TCP_RECV, test_last_direction, "successful read preserves direction");
+    // A TLS uprobe sees the decrypted buffer and holds no struct sock.
+    assert_null(test_last_sock, "a TLS read passes no socket to the parser");
     assert_u16_eq(443, test_last_orig_dport, "successful read preserves original dport");
 }
 
@@ -225,6 +234,7 @@ static void test_successful_write_still_parses(void) {
     assert_int_eq(32, test_last_parser_bytes_len, "successful write forwards the written length");
     assert_int_eq(WITH_SSL, test_last_ssl, "successful write is marked as SSL");
     assert_int_eq(TCP_SEND, test_last_direction, "successful write preserves direction");
+    assert_null(test_last_sock, "a TLS write passes no socket to the parser");
     assert_u16_eq(443, test_last_orig_dport, "successful write preserves original dport");
 }
 

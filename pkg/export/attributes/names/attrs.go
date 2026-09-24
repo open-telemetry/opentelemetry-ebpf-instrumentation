@@ -53,6 +53,7 @@ const (
 	DBCollectionName       = Name(semconv.DBCollectionNameKey)
 	DBSystemName           = Name(semconv.DBSystemNameKey)
 	ErrorType              = Name(semconv.ErrorTypeKey)
+	ProcessExecutableName  = Name(semconv.ProcessExecutableNameKey)
 	RPCMethod              = Name(semconv.RPCMethodKey)
 	RPCSystem              = Name(semconv.RPCSystemNameKey)
 	HTTPRoute              = Name(semconv.HTTPRouteKey)
@@ -65,6 +66,12 @@ const (
 	GraphQLOperationName   = Name(semconv.GraphQLOperationNameKey)
 	GraphQLOperationType   = Name(semconv.GraphQLOperationTypeKey)
 	DNSAnswers             = Name(semconv.DNSAnswersKey)
+	DBQuerySummary         = Name(semconv.DBQuerySummaryKey)
+	UserAgentOriginal      = Name(semconv.UserAgentOriginalKey)
+	HTTPRequestMethodOrig  = Name(semconv.HTTPRequestMethodOriginalKey)
+	NetworkPeerAddress     = Name(semconv.NetworkPeerAddressKey)
+	NetworkPeerPort        = Name(semconv.NetworkPeerPortKey)
+	NetworkProtocolVersion = Name(semconv.NetworkProtocolVersionKey)
 	TelemetrySDKLanguage   = Name(semconv.TelemetrySDKLanguageKey)
 
 	K8sNamespaceName   = Name(semconv.K8SNamespaceNameKey)
@@ -114,12 +121,18 @@ func HTTPResponseHeaderKey(name string) string {
 // as custom metrics, since at the moment they don't follow any semantic convention for them.
 // This value can be overridden when OBI is vendored as a library (e.g. from the OTEL collector)
 var (
-	VendorPrefix           = "obi"
-	VendorSDKName          = "opentelemetry"
-	VendorSDKVersion       = "unknown"
-	TelemetryDistroName    = "opentelemetry-ebpf-instrumentation"
-	TelemetryDistroVersion = buildinfo.Version
+	VendorPrefix        = "obi"
+	VendorSDKName       = "opentelemetry"
+	VendorSDKVersion    = "unknown"
+	TelemetryDistroName = "opentelemetry-ebpf-instrumentation"
 )
+
+// TelemetryDistroVersion reports the distro version to set on emitted resources. It reads
+// buildinfo.Version on each call because a component that vendors OBI overrides that variable
+// at runtime, after this package is initialized.
+func TelemetryDistroVersion() string {
+	return buildinfo.Version
+}
 
 func init() {
 	if info, ok := debug.ReadBuildInfo(); ok {
@@ -133,6 +146,10 @@ func init() {
 }
 
 var OBIIP = Name("obi.ip")
+
+// OBIHTTPResponseObserved is false on a span whose response was never seen, and absent
+// otherwise.
+var OBIHTTPResponseObserved = Name("obi.http.response.observed")
 
 const (
 	Transport       = Name("transport")
@@ -205,19 +222,67 @@ const (
 	HostName    = Name(semconv.HostNameKey)
 	HostType    = Name(semconv.HostTypeKey)
 
-	ServiceInstanceID = Name(semconv.ServiceInstanceIDKey)
-	SkipSpanMetrics   = Name("span.metrics.skip")
-	JVMMemoryType     = Name("jvm.memory.type")
-	JVMMemoryPoolName = Name("jvm.memory.pool.name")
+	ServiceInstanceID      = Name(semconv.ServiceInstanceIDKey)
+	SkipSpanMetrics        = Name("span.metrics.skip")
+	JVMMemoryType          = Name("jvm.memory.type")
+	JVMMemoryPoolName      = Name("jvm.memory.pool.name")
+	JVMThreadDaemon        = Name("jvm.thread.daemon")
+	JVMGCName              = Name("jvm.gc.name")
+	JVMGCAction            = Name("jvm.gc.action")
+	CPythonGCGeneration    = Name("cpython.gc.generation")
+	DotnetGCHeapGeneration = Name("dotnet.gc.heap.generation")
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")
 
 	V8JSGCType        = Name("v8js.gc.type")
 	V8JSHeapSpaceName = Name("v8js.heap.space.name")
+	V8JSResourceType  = Name("v8js.resource.type")
 
-	VendorVersionSuffix  = Name(".version")
-	VendorRevisionSuffix = Name(".revision")
+	VendorVersionSuffix   = Name(".version")
+	VendorRevisionSuffix  = Name(".revision")
+	VendorGoarchSuffix    = Name(".goarch")
+	VendorGoosSuffix      = Name(".goos")
+	VendorGoversionSuffix = Name(".goversion")
 )
+
+// Attributes carried by OBI's own self-observability metrics: the obi.* internal metrics and
+// the bpf_* Prometheus collector metrics. Declared here so that the Prometheus label name is
+// derived from the OTLP attribute key via Name.Prom(), instead of being written a second time
+// by the exporters.
+const (
+	BpfMapID   = Name("bpf.map.id")
+	BpfMapName = Name("bpf.map.name")
+	BpfMapType = Name("bpf.map.type")
+
+	BpfProbeID   = Name("bpf.probe.id")
+	BpfProbeName = Name("bpf.probe.name")
+	BpfProbeType = Name("bpf.probe.type")
+
+	TelemetryType = Name("telemetry.type")
+	Subscriber    = Name("subscriber")
+)
+
+// InternalAttributes are the vendor-prefixed attributes carried by OBI's own internal metrics.
+// Like the internal metric names, they are built from a prefix at call time rather than declared
+// as package constants, because a component that vendors OBI can override VendorPrefix and
+// package-level initialization would run before it had the chance.
+type InternalAttributes struct {
+	Goarch    Name
+	Goos      Name
+	Goversion Name
+	Version   Name
+	Revision  Name
+}
+
+func NewInternalAttributes(prefix string) InternalAttributes {
+	return InternalAttributes{
+		Goarch:    Name(prefix + string(VendorGoarchSuffix)),
+		Goos:      Name(prefix + string(VendorGoosSuffix)),
+		Goversion: Name(prefix + string(VendorGoversionSuffix)),
+		Version:   Name(prefix + string(VendorVersionSuffix)),
+		Revision:  Name(prefix + string(VendorRevisionSuffix)),
+	}
+}
 
 // traces related attributes
 const (
@@ -241,6 +306,8 @@ const (
 	AWSS3Bucket          = Name(semconv.AWSS3BucketKey)
 	AWSS3Key             = Name(semconv.AWSS3KeyKey)
 	AWSSQSQueueURL       = Name(semconv.AWSSQSQueueURLKey)
+	AWSSNSTopicARN       = Name(semconv.AWSSNSTopicARNKey)
+	MessagingBatchCount  = Name(semconv.MessagingBatchMessageCountKey)
 
 	// Cloud
 	CloudRegion = Name(semconv.CloudRegionKey)

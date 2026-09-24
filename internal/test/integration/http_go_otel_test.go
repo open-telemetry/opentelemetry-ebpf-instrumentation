@@ -86,7 +86,7 @@ func setupGoOTelTestServer(t *testing.T, net dockertest.Network, env []string) {
 }
 
 func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
@@ -120,7 +120,7 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
+		resp, err := getJaeger(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -142,12 +142,12 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 }
 
 func testInstrumentationMissing(t *testing.T, route, svcNs string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=dicer")
+		resp, err := getJaeger(jaegerQueryURL + "?service=dicer")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -179,7 +179,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 	slug := route[1:]
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
+		resp, err := getJaeger(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -322,7 +322,7 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {
@@ -348,7 +348,7 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
-		resp, err := http.Get(jaegerQueryURL + "?service=dicer")
+		resp, err := getJaeger(jaegerQueryURL + "?service=dicer")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -366,7 +366,7 @@ func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4317`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4317`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4317`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4317`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {

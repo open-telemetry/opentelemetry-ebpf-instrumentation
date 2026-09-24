@@ -71,3 +71,15 @@ func TestExpiryMap_NormalExpiration(t *testing.T) {
 	assert.Equal(t, "new_entry1", val1Again)
 	assert.Equal(t, "new_entry2", val2Again)
 }
+
+func TestExpiryMap_Delete(t *testing.T) {
+	em := NewExpiryMap[string](time.Now, time.Minute)
+	em.GetOrCreate([]string{"label", "value"}, func() string { return "entry" })
+
+	value, ok := em.Delete([]string{"label", "value"})
+	assert.Equal(t, "entry", value)
+	assert.True(t, ok)
+	_, ok = em.Delete([]string{"label", "value"})
+	assert.False(t, ok)
+	assert.Empty(t, em.All())
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 )
 
@@ -71,10 +72,16 @@ func TestEnabledShouldReportNodejsV8Metrics(t *testing.T) {
 	require.True(t, Enabled{Runtime: true}.ShouldReport(heap))
 	require.False(t, Enabled{Runtime: false}.ShouldReport(heap))
 
+	resource := RuntimeMetricSnapshot{Service: service, NodejsResource: &NodejsResourceSnapshot{}}
+	require.True(t, Enabled{Runtime: true}.ShouldReport(resource))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(resource))
+
 	gc.Service.Features = export.FeatureApplicationRED
 	require.False(t, Enabled{Runtime: true}.ShouldReport(gc))
 	heap.Service.Features = export.FeatureApplicationRED
 	require.False(t, Enabled{Runtime: true}.ShouldReport(heap))
+	resource.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(resource))
 }
 
 func TestEnabledShouldReportJVMRuntimeMetrics(t *testing.T) {
@@ -88,6 +95,52 @@ func TestEnabledShouldReportJVMRuntimeMetrics(t *testing.T) {
 	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
 
+	snapshot.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+}
+
+func TestEnabledShouldReportDotnetRuntimeMetrics(t *testing.T) {
+	snapshot := RuntimeMetricSnapshot{
+		Service: svc.Attrs{
+			SDKLanguage: svc.InstrumentableDotnet,
+			ExportModes: services.ExportModeUnset,
+			Features:    export.FeatureApplicationRuntime,
+		},
+		Dotnet: &DotnetRuntimeMetricSnapshot{},
+	}
+	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
+	snapshot.Service.SDKLanguage = svc.InstrumentableJava
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	snapshot.Service.SDKLanguage = svc.InstrumentableDotnet
+	snapshot.Service.ExportModes = services.NewExportModes()
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	snapshot.Service.ExportModes = services.ExportModeUnset
+	snapshot.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+}
+
+func TestEnabledShouldReportPythonRuntimeMetrics(t *testing.T) {
+	snapshot := RuntimeMetricSnapshot{
+		Service: svc.Attrs{
+			SDKLanguage: svc.InstrumentablePython,
+			ExportModes: services.ExportModeUnset,
+			Features:    export.FeatureApplicationRuntime,
+		},
+		Python: &PythonRuntimeMetricSnapshot{},
+	}
+
+	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
+
+	snapshot.Service.SDKLanguage = svc.InstrumentableGolang
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+
+	snapshot.Service.SDKLanguage = svc.InstrumentablePython
+	snapshot.Service.ExportModes = services.NewExportModes()
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+
+	snapshot.Service.ExportModes = services.ExportModeUnset
 	snapshot.Service.Features = export.FeatureApplicationRED
 	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 }

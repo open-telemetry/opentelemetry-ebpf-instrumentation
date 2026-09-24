@@ -6,6 +6,17 @@ services without requiring runtime SDK changes in the target process.
 
 ## Supported runtimes
 
+- [.NET](dotnet.md): .NET 8+ GC collection counts through diagnostic IPC and EventPipe.
 - [Go](go.md): BPF-based snapshots for the currently implemented Go runtime metrics.
-- [JVM](jvm.md): HotSpot memory-pool probes for JVM memory metrics.
+- [JVM](jvm.md): HotSpot memory-pool probes and Java agent readings for JVM runtime metrics.
 - [Node.js](nodejs.md): event-loop, GC and heap metrics reported by the injected OBI agent over a BPF side channel.
+- [Python](python.md): eBPF-triggered CPython garbage-collector counters for
+  the main interpreter.
+
+## Adding a runtime metric
+
+A runtime metric follows the application-metric steps in
+[metrics.md](../metrics.md#add-a-new-application-metric), including declaring
+it in the schema registry: runtime metrics OBI reports unchanged from upstream
+semconv are imported (see `schemas/obi/groups/nodejs/imports.yaml`), and the
+suite that exercises the runtime must run weaver so live-check validates it.

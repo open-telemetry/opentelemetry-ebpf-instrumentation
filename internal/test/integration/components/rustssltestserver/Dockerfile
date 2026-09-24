@@ -1,4 +1,4 @@
-FROM rust:1.97.0-bookworm@sha256:a49aec4d4647c73d66a9684df1bd8a73a1eb4c0734b32b94df3f86361dd54ce7 AS rustbuilder
+FROM rust:1.98.0-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS rustbuilder
 
 RUN apt update
 RUN apt install -y build-essential curl pkg-config libssl-dev
@@ -17,7 +17,7 @@ RUN cargo build --locked --release
 FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421
 
 RUN apt update
-RUN apt install libssl3 -y
+RUN apt install libssl3 ca-certificates -y
 #RUN apt install strace -y
 
 EXPOSE 8490

@@ -72,9 +72,6 @@ func TestKindString(t *testing.T) {
 	m := map[*Span]string{
 		{Type: EventTypeHTTP}:                                  "SPAN_KIND_SERVER",
 		{Type: EventTypeGRPC}:                                  "SPAN_KIND_SERVER",
-		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
-		{Type: EventTypeMQTTServer}:                            "SPAN_KIND_SERVER",
-		{Type: EventTypeNATSServer}:                            "SPAN_KIND_SERVER",
 		{Type: EventTypeSunRPCServer}:                          "SPAN_KIND_SERVER",
 		{Type: EventTypeSunRPCClient}:                          "SPAN_KIND_CLIENT",
 		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
@@ -87,19 +84,75 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeMemcachedClient}:                       "SPAN_KIND_CLIENT",
 		{Type: EventTypeMongoClient}:                           "SPAN_KIND_CLIENT",
 		{Type: EventTypeKafkaClient, Method: MessagingSend}:    "SPAN_KIND_PRODUCER",
+		{Type: EventTypeKafkaClient, Method: MessagingReceive}: "SPAN_KIND_CLIENT",
+		{Type: EventTypeKafkaClient, Method: MessagingSettle}:  "SPAN_KIND_CLIENT",
 		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
+		{Type: EventTypeKafkaServer, Method: MessagingSend}:    "SPAN_KIND_PRODUCER",
+		{Type: EventTypeKafkaServer, Method: MessagingReceive}: "SPAN_KIND_CLIENT",
+		{Type: EventTypeKafkaServer, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
 		{Type: EventTypeMQTTClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
+		{Type: EventTypeMQTTClient, Method: MessagingReceive}:  "SPAN_KIND_CLIENT",
 		{Type: EventTypeMQTTClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
+		{Type: EventTypeMQTTServer, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
+		{Type: EventTypeMQTTServer, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
 		{Type: EventTypeNATSClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
+		{Type: EventTypeNATSClient, Method: MessagingReceive}:  "SPAN_KIND_CLIENT",
 		{Type: EventTypeNATSClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
+		{Type: EventTypeNATSServer, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
+		{Type: EventTypeNATSServer, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
 		{Type: EventTypeAMQPClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
+		{Type: EventTypeAMQPClient, Method: MessagingReceive}:  "SPAN_KIND_CLIENT",
 		{Type: EventTypeAMQPClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
-		{}: "SPAN_KIND_INTERNAL",
+		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_INTERNAL",
+		{}:                                                     "SPAN_KIND_INTERNAL",
 	}
 
 	for span, str := range m {
 		assert.Equal(t, span.ServiceGraphKind(), str)
 	}
+}
+
+func TestMessagingSpanKind(t *testing.T) {
+	for _, tc := range []struct {
+		operation string
+		want      trace.SpanKind
+		mapped    bool
+	}{
+		{MessagingSend, trace.SpanKindProducer, true},
+		{MessagingPublish, trace.SpanKindProducer, true},
+		{MessagingReceive, trace.SpanKindClient, true},
+		{MessagingSettle, trace.SpanKindClient, true},
+		{MessagingProcess, trace.SpanKindConsumer, true},
+		{"Metadata", trace.SpanKindUnspecified, false},
+	} {
+		t.Run(tc.operation, func(t *testing.T) {
+			kind, ok := MessagingSpanKind(tc.operation)
+			assert.Equal(t, tc.mapped, ok)
+			assert.Equal(t, tc.want, kind)
+		})
+	}
+}
+
+func TestSQSServiceGraphKindWithoutMessageContext(t *testing.T) {
+	sqsSpan := func(operationType string) *Span {
+		return &Span{
+			Type:    EventTypeHTTPClient,
+			SubType: HTTPSubtypeAWSSQS,
+			AWS:     &AWS{SQS: AWSSQS{OperationType: operationType}},
+		}
+	}
+
+	// OBI does not inject the span context into SQS messages, so the observed
+	// exchanges remain client spans regardless of their messaging operation.
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingSend).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingReceive).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan(MessagingSettle).ServiceGraphKind())
+	assert.Equal(t, "SPAN_KIND_CLIENT", sqsSpan("").ServiceGraphKind())
+
+	assert.Equal(t, "SPAN_KIND_CLIENT", (&Span{
+		Type:    EventTypeHTTPClient,
+		SubType: HTTPSubtypeAWSS3,
+	}).ServiceGraphKind())
 }
 
 func TestServiceGraphConnectionType(t *testing.T) {
@@ -158,6 +211,10 @@ func TestTraceName(t *testing.T) {
 		{name: "HTTP server", span: &Span{Type: EventTypeHTTP, Method: "GET", Route: "/users"}, expected: "GET /users"},
 		{name: "HTTP client", span: &Span{Type: EventTypeHTTPClient, Method: "POST", Route: "/api"}, expected: "POST /api"},
 		{name: "HTTP no route", span: &Span{Type: EventTypeHTTP, Method: "GET"}, expected: "GET"},
+		{name: "HTTP unknown method", span: &Span{Type: EventTypeHTTP, Method: "PURGE", Route: "/users"}, expected: "HTTP /users"},
+		{name: "HTTP unknown method no route", span: &Span{Type: EventTypeHTTP, Method: "PROPFIND"}, expected: "HTTP"},
+		{name: "HTTP lowercase method clamps", span: &Span{Type: EventTypeHTTP, Method: "get", Route: "/users"}, expected: "HTTP /users"},
+		{name: "HTTP empty method", span: &Span{Type: EventTypeHTTP, Route: "/users"}, expected: "HTTP /users"},
 
 		// gRPC spans
 		{name: "gRPC server", span: &Span{Type: EventTypeGRPC, Path: "/service/Method"}, expected: "/service/Method"},
@@ -204,6 +261,8 @@ func TestTraceName(t *testing.T) {
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
 		{name: "JSON-RPC no method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Version: "2.0"}}, expected: "jsonrpc"},
+		{name: "Go net/rpc qualified method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1, ServiceQualified: true}}, expected: "Arith/Traceme"},
+		{name: "JSON-RPC dotted method stays whole", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "inventory.lookup.v2", Version: "2.0"}}, expected: "inventory.lookup.v2"},
 		{name: "JSON-RPC client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "getUser", Version: "2.0"}}, expected: "getUser"},
 
 		// Other spans
@@ -2135,6 +2194,51 @@ func TestMessagingOperationTypeOf(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, MessagingOperationTypeOf(tc.operationName))
+		})
+	}
+}
+
+func TestJSONRPCQualifiedMethod(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		want   string
+	}{
+		{"Arith.Multiply", "Arith/Multiply"},
+		{"Arith.Traceme", "Arith/Traceme"},
+		// A namespaced service keeps its dots; only the method separates.
+		{"com.example.EchoService.Echo", "com.example.EchoService/Echo"},
+		// net/rpc assigns the dot no special meaning beyond the split, so a
+		// service named `rpc` is a service like any other.
+		{"rpc.discover", "rpc/discover"},
+		// Nothing to qualify.
+		{"subtract", "subtract"},
+		{"", ""},
+		// Malformed input is passed through rather than mangled.
+		{".leading", ".leading"},
+		{"trailing.", "trailing."},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			rpc := &JSONRPC{Method: tc.method, Version: JSONRPCVersionV1, ServiceQualified: true}
+			assert.Equal(t, tc.want, rpc.QualifiedMethod())
+		})
+	}
+}
+
+// Only net/rpc names a service with a dot. JSON-RPC takes arbitrary method
+// names, so a payload-extracted method must survive untouched however many
+// dots it carries, whatever protocol version it declares.
+func TestJSONRPCQualifiedMethodLeavesPayloadExtractedMethodsAlone(t *testing.T) {
+	for _, version := range []string{"2.0", JSONRPCVersionV1, ""} {
+		t.Run("version "+version, func(t *testing.T) {
+			for _, method := range []string{
+				"inventory.lookup.v2",
+				"Arith.Multiply",
+				"rpc.discover",
+				"subtract",
+			} {
+				rpc := &JSONRPC{Method: method, Version: version}
+				assert.Equal(t, method, rpc.QualifiedMethod())
+			}
 		})
 	}
 }

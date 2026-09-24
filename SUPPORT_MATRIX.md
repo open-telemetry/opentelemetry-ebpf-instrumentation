@@ -13,9 +13,11 @@ OBI publishes the following release artifacts for supported runtime platforms:
 | Artifact | Supported platforms |
 |:---------|:--------------------|
 | `obi` binary archive | Linux `amd64`, Linux `arm64` |
-| `k8s-cache` binary archive | Linux `amd64`, Linux `arm64` |
 | `otel/ebpf-instrument` container image | Linux `amd64`, Linux `arm64` |
 | `otel/ebpf-instrument-k8s-cache` container image | Linux `amd64`, Linux `arm64` |
+
+`k8s-cache` is an optional Kubernetes service distributed as a container image.
+It is not included in the OBI binary archives or host system packages.
 
 Other operating systems and architectures may compile selected packages or stub implementations, but are not part
 of the supported runtime matrix for OBI.
@@ -83,6 +85,7 @@ through language-specific library instrumentation documented later in this file.
 | Opensearch | `3.0.0+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | Requires HTTP payload capture |
 | AWS S3 | All | `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBuckets`, `ListObjects`, `GetObject` | Yes | No | Requires HTTP payload capture |
 | AWS SQS | All | All | Yes | No | Requires HTTP payload capture |
+| AWS SNS | All | [Supported operations](devdocs/protocols/aws.md#supported-sns-operations) | Yes | No | Requires HTTP payload capture |
 | SQL++ | All | All | Yes | No | Requires HTTP payload capture |
 | GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), and MCP. Requires HTTP payload capture. |
 
@@ -100,10 +103,10 @@ The following runtime and server baselines are currently documented or enforced 
 | Runtime or server | Baseline |
 |:------------------|:---------|
 | Go applications | Go `1.17+` for library-level instrumentation |
-| Java applications | JDK `8+` |
-| Node.js async-hooks context propagation | Node.js `8.0+` |
-| Node.js manual span capture | Opt-in; Node.js inspector must be reachable; the application must not register an OpenTelemetry SDK. See [devdocs/nodejs-manual-spans.md](devdocs/nodejs-manual-spans.md) |
-| Python asyncio context propagation | Python `3.9+` with `uvloop` |
+| Java applications | JDK `8+`; a JVM started with `-Xrs` or `-XX:+DisableAttachMechanism` is not instrumented by the injected agent unless it also sets `-XX:+StartAttachListener` (see [devdocs/runtimes/jvm.md](devdocs/runtimes/jvm.md)) |
+| Node.js async-hooks context propagation | Node.js `12.17+`, excluding `13.0`–`13.9` |
+| Node.js manual span capture | Opt-in; Node.js `14.0+` because the span bridge uses nullish coalescing; Node.js inspector must be reachable; the application must not register an OpenTelemetry SDK. See [devdocs/nodejs-manual-spans.md](devdocs/nodejs-manual-spans.md) |
+| Python asyncio context propagation | GIL-enabled, 64-bit CPython `3.9` through `3.14`, using the default asyncio loop or `uvloop`; free-threaded builds are unsupported |
 | Ruby applications | Ruby `3.0.2+` when served by Puma `5.0+` |
 | nginx | HTTP server and reverse-proxy tracing validated on nginx `>= 1.27.3` |
 
@@ -196,9 +199,12 @@ language-runtime metrics for the following environments:
 
 | Runtime | Metrics | Mechanism | Requirements | Limitations | Status |
 |:--------|:--------|:----------|:-------------|:------------|:-------|
+| .NET | `dotnet.gc.collections` | `System.Runtime` EventCounters read through diagnostic IPC and EventPipe | .NET `8+` on Linux; diagnostic IPC enabled and accessible to OBI | Exclusive gen0, gen1, and gen2 counts since attachment; collections during reconnect gaps are unavailable; details in [devdocs/runtimes/dotnet.md](devdocs/runtimes/dotnet.md) | Experimental |
 | Go | `go.memory.*`, `go.goroutine.*`, `go.processor.limit`, `go.config.gogc` | uretprobe on the Go runtime GC path, reading runtime structures | Go binaries with ELF symbols (or version-table fallback for struct offsets) | Values refresh once per GC cycle | Experimental |
 | Java (HotSpot) | `jvm.memory.used`, `jvm.memory.committed`, `jvm.memory.limit`, `jvm.memory.used_after_last_gc` | USDT probes on the HotSpot DTrace probes in `libjvm.so` | HotSpot-based JVM with compiled-in DTrace probes | Values refresh on GC events, throttled by `jvm_runtime_metrics.sampling_interval` | Experimental |
-| Node.js | `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `nodejs.eventloop.delay.*`, `v8js.gc.duration`, `v8js.memory.heap.*` | in-process readings (`perf_hooks`, `v8`) from the injected OBI agent, delivered over a `uv_fs_access` side channel decoded in eBPF | `application_runtime` (traces not required); `nodejs.enabled: false` disables the injection entirely; Node.js `14.10+`, delay gauges `16.14+` | Main-thread event loop only; inspector must be reachable; heap spaces limited to the well-known semconv values; details in [devdocs/runtimes/nodejs.md](devdocs/runtimes/nodejs.md) | Experimental |
+| Java (agent-backed) | `jvm.gc.duration`, `jvm.class.loaded`, `jvm.class.unloaded`, `jvm.class.count`, `jvm.thread.count`, `jvm.cpu.time`, `jvm.cpu.count`, `jvm.cpu.recent_utilization` | Java management beans and GC notifications read by the injected OBI agent | JDK `8+`; `javaagent.enabled` must be `true` | Class, thread, and CPU values refresh according to `jvm_runtime_metrics.sampling_interval`; GC duration emits one observation per collection; CPU metrics are omitted when the JVM does not expose them; a JVM started with `-Xrs` is not instrumented, because the attach handshake's `SIGQUIT` would terminate it, and one with `-XX:+DisableAttachMechanism` is not instrumented because it never answers the handshake; either becomes instrumentable again with `-XX:+StartAttachListener`, which needs no signal | Experimental |
+| Node.js | `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `nodejs.eventloop.delay.*`, `v8js.gc.duration`, `v8js.memory.heap.*`, `v8js.resource.active` | in-process readings (`perf_hooks`, `v8`) from the injected OBI agent, delivered over a `uv_fs_access` side channel decoded in eBPF | `application_runtime` (traces not required); `nodejs.enabled: false` disables the injection entirely; Node.js `14.10+`, delay and active-resource gauges `16.14+` | Main-thread event loop only; inspector must be reachable; heap spaces and resource types limited to the well-known semconv values; details in [devdocs/runtimes/nodejs.md](devdocs/runtimes/nodejs.md) | Experimental |
+| Python (CPython) | `cpython.gc.collections`, `cpython.gc.collected_objects`, `cpython.gc.uncollectable_objects` | PID-scoped USDT probe or internal GC uretprobe, reading cumulative runtime counters | Non-free-threaded CPython `3.9` through `3.14`; `amd64` supports USDT, recognized internal GC symbols, and validated stripped-ELF derivation; `arm64` requires USDT | Main interpreter only; details in [devdocs/runtimes/python.md](devdocs/runtimes/python.md) | Experimental |
 
 ## Context Propagation Frameworks
 
@@ -208,11 +214,11 @@ OBI currently documents the following asynchronous or runtime-specific context p
 |:----------|:--------|:---------|:------------|:-------|
 | Go goroutines | Go | Go `1.18+` | Up to 6 nested levels of goroutines | Stable |
 | Go channel span links | Go | Go `1.17+` | Receiver-side links only; supports `runtime.chansend1`, `runtime.chanrecv1`, and `runtime.chanrecv2`; `select` paths are not supported; requires `runtime.hchan` offsets | Experimental |
-| Node.js async hooks | Node.js | Node.js `8.0+` | Custom handling of `SIGUSR1` might interfere | Stable |
+| Node.js async hooks | Node.js | Node.js `12.17+`, excluding `13.0`–`13.9` | The injected agent uses `AsyncLocalStorage`, added in `13.10.0` and backported to `12.17.0`, so the 13.x releases below `13.10` are unsupported; the injector reads the runtime version from the executable and skips anything older without signalling it. Custom handling of `SIGUSR1` might interfere | Stable |
 | Ruby Puma server | Ruby | Ruby applications served by Puma | Only works with Puma server | Stable |
 | Java thread pool | Java | JDK `8+` | Parent lookup walks up to 3 thread-nesting levels | Stable |
 | Java virtual threads | Java | JDK `21+` | Log enrichment is skipped for requests handled on virtual threads | Stable |
-| Python asyncio | Python | Python `3.9+` with `uvloop` | Only works with the `uvloop` event loop | Stable |
+| Python asyncio | Python | GIL-enabled, 64-bit CPython `3.9` through `3.14` | Free-threaded builds are unsupported; `asyncio.start_server()` is not correlated under uvloop; mutated contexts and cancelled `to_thread` tasks may lose correlation | Stable |
 
 ## Payload Capture
 

@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -594,6 +595,162 @@ func TestRunMigrateReceiver(t *testing.T) {
 	)
 }
 
+func TestRunMigrateAllowPartial(t *testing.T) {
+	path := writeConfig(t, "partial-v1.yaml", `
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+metrics:
+  features: [application]
+otel_metrics_export:
+  endpoint: http://collector:4318
+otel_traces_export:
+  endpoint: http://collector:4318
+  insecure_skip_verify: true
+  instrumentations: [http]
+ebpf:
+  unknown_debug: true
+bpf_debug: true
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(
+		t,
+		stderr.String(),
+		"partially migrated v1 config to OBI config v2; manual changes are required",
+	)
+	for _, path := range []string{
+		"bpf_debug",
+		"ebpf.unknown_debug",
+		"otel_metrics_export.endpoint",
+		"otel_traces_export.endpoint",
+		"otel_traces_export.insecure_skip_verify",
+		"otel_traces_export.instrumentations",
+	} {
+		require.Contains(t, stderr.String(), "  - "+path+"\n")
+	}
+}
+
+func TestRunMigrateAllowPartialReportsCustomUnmarshalUnknownFields(t *testing.T) {
+	path := writeConfig(t, "custom-unmarshal-unknown-v1.yaml", `
+open_port: "8080"
+trace_printer: text
+ebpf:
+  payload_extraction:
+    http:
+      enrichment:
+        enabled: true
+        policy:
+          default_action:
+            headers: exclude
+            body: exclude
+        rules:
+          - action: include
+            type: headers
+            scope: request
+            match:
+              patterns: [x-*]
+              unknown_match: true
+              response_status_code:
+                greater_equals: 200
+                unknown_range: 300
+`)
+	var strictStdout, strictStderr bytes.Buffer
+
+	strictExitCode := run([]string{"migrate", path}, &strictStdout, &strictStderr)
+
+	require.Equal(t, ExitError, strictExitCode)
+	require.Empty(t, strictStdout.String())
+	for _, path := range []string{
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.unknown_match",
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.response_status_code.unknown_range",
+	} {
+		require.Contains(t, strictStderr.String(), path)
+	}
+
+	var partialStdout, partialStderr bytes.Buffer
+	partialExitCode := run(
+		[]string{"migrate", "--allow-partial", path},
+		&partialStdout,
+		&partialStderr,
+	)
+
+	require.Equal(t, ExitPartial, partialExitCode, partialStderr.String())
+	require.NoError(t, validateConfig(partialStdout.Bytes(), validationModeStandalone))
+	for _, path := range []string{
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.unknown_match",
+		"ebpf.payload_extraction.http.enrichment.rules[0].match.response_status_code.unknown_range",
+	} {
+		require.Contains(t, partialStderr.String(), "  - "+path+"\n")
+	}
+}
+
+func TestRunMigrateAllowPartialReportsFlowMappingUnknownFields(t *testing.T) {
+	path := writeConfig(t, "flow-unknown-v1.yaml", `
+open_port: "8080"
+trace_printer: text
+ebpf: {unknown_one: true, unknown_two: false}
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(t, stderr.String(), "  - ebpf.unknown_one\n")
+	require.Contains(t, stderr.String(), "  - ebpf.unknown_two\n")
+}
+
+func TestRunMigrateAllowPartialReturnsSuccessForCompleteMigration(t *testing.T) {
+	path := writeConfig(t, "v1.yaml", representativeV1)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitSuccess, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeStandalone))
+	require.Contains(t, stderr.String(), "migrated v1 config to OBI config v2\n")
+	require.NotContains(t, stderr.String(), "partially migrated")
+}
+
+func TestRunMigrateAllowPartialReceiver(t *testing.T) {
+	path := writeConfig(t, "receiver-v1.yaml", `
+open_port: "8080"
+otel_traces_export:
+  endpoint: http://collector:4317
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run(
+		[]string{"migrate", "--allow-partial", "--mode=receiver", path},
+		&stdout,
+		&stderr,
+	)
+
+	require.Equal(t, ExitPartial, exitCode, stderr.String())
+	require.NoError(t, validateConfig(stdout.Bytes(), validationModeReceiver))
+	require.Contains(t, stderr.String(), "  - otel_traces_export.endpoint\n")
+}
+
+func TestRunMigrateAllowPartialRejectsInvalidKnownField(t *testing.T) {
+	path := writeConfig(t, "invalid-v1.yaml", `
+ebpf:
+  wakeup_len: invalid
+unknown_field: true
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"migrate", "--allow-partial", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitError, exitCode)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "decode v1 YAML fields")
+}
+
 func TestMigrateConfigReceiverRejectsWrongInputShape(t *testing.T) {
 	_, _, err := migrateConfigForMode(
 		[]byte("version: \"2.0\"\npolicy: {}\n"),
@@ -820,6 +977,50 @@ otel_traces_export:
 `, stderr.String())
 }
 
+// The log enricher's service selection migrates to log_trace_annotation.match
+func TestMigrateConfigLogEnricherServices(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+otel_traces_export:
+  endpoint: http://collector:4317
+ebpf:
+  log_enricher:
+    services:
+      - service:
+          - exe_path: "/srv/frontend"
+          - exe_path: "/srv/backend"
+            containers_only: true
+`))
+	require.NoError(t, err)
+	_, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+
+	annotation := ext.Correlation.LogTraceAnnotation
+	require.True(t, annotation.Enabled)
+	require.Len(t, annotation.Match, 2)
+	require.Equal(t, []string{"/srv/frontend"}, annotation.Match[0].Process.ExePathGlob)
+	require.Equal(t, []string{"/srv/backend"}, annotation.Match[1].Process.ExePathGlob)
+	require.True(t, annotation.Match[1].Process.ContainersOnly)
+
+	// a selector identity has no match clause form, so the selection would change
+	_, _, err = migrateConfig([]byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+otel_traces_export:
+  endpoint: http://collector:4317
+ebpf:
+  log_enricher:
+    services:
+      - service:
+          - name: frontend
+            exe_path: "/srv/frontend"
+`))
+	require.ErrorContains(t, err, "ebpf.log_enricher.services")
+}
+
 func TestMigrateConfigPreservesEscapedEnvironmentVariable(t *testing.T) {
 	t.Setenv("MIGRATION_LITERAL", "expanded")
 	contents := strings.Replace(
@@ -858,6 +1059,49 @@ metrics:
 	require.NoError(t, err)
 	require.False(t, runtimeConfig.Enabled(obi.FeatureAppO11y))
 	require.True(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
+}
+
+// the body size histograms have to survive the v1-to-v2 round trip: without a v2 key for
+// them the migration contract would report metrics.features as changed and refuse the
+// configuration.
+func TestMigrateConfigCarriesApplicationSizes(t *testing.T) {
+	v1 := func(features string) []byte {
+		return []byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+metrics:
+  features: ` + features + `
+prometheus_export:
+  port: 9090
+`)
+	}
+
+	// "application" bundles both, so the size histograms cross to v2 and back
+	output, _, err := migrateConfig(v1("[application]"))
+	require.NoError(t, err)
+
+	doc, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.True(t, ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics)
+
+	roundTripped, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.True(t, roundTripped.Metrics.Features.AppRED())
+	require.True(t, roundTripped.Metrics.Features.AppSizes())
+
+	// application_red drops them, and that has to cross too
+	withoutSizes, _, err := migrateConfig(v1("[application_red]"))
+	require.NoError(t, err)
+
+	plainDoc, plainExt, err := schema.ParseStandaloneYAML(withoutSizes)
+	require.NoError(t, err)
+	require.False(t, plainExt.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics)
+
+	plainRoundTripped, err := convert.DocumentToRuntime(plainDoc)
+	require.NoError(t, err)
+	require.True(t, plainRoundTripped.Metrics.Features.AppRED())
+	require.False(t, plainRoundTripped.Metrics.Features.AppSizes())
 }
 
 func TestMigrateConfigExpandsGlobalRoutes(t *testing.T) {
@@ -1463,8 +1707,6 @@ otel_traces_export:
 }
 
 func TestMigrateIntegrationConfigurations(t *testing.T) {
-	// Docker suites select their target through OTEL_EBPF_OPEN_PORT. Materialize
-	// that setting in the input because config migrate operates on YAML files.
 	tests := []struct {
 		name   string
 		input  func(t *testing.T) []byte
@@ -1473,17 +1715,15 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 		{
 			name: "Docker Go OTEL gRPC",
 			input: func(t *testing.T) []byte {
-				return withV1GRPCProtocol(withV1OpenPort(
-					integrationConfig(t, "internal/test/integration/configs/obi-config-go-otel-grpc.yml"),
-					8080,
-				), "http://jaeger:4318")
+				return integrationConfig(t, "internal/test/integration/configs/obi-config-go-otel-grpc.yml")
 			},
 			verify: func(t *testing.T, cfg *obi.Config) {
 				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
 				require.Len(t, cfg.Discovery.Instrument, 1)
 				require.True(t, cfg.Discovery.Instrument[0].OpenPorts.Matches(8080))
 				require.Equal(t, 8999, cfg.Prometheus.Port)
-				require.Equal(t, "http://jaeger:4318", cfg.Traces.TracesEndpoint)
+				require.Equal(t, "http://jaeger:4317", cfg.Traces.TracesEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.Traces.TracesProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()
 				require.Equal(t, "path", string(routes.Incoming.Unmatch))
@@ -1493,16 +1733,14 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 		{
 			name: "Docker Java",
 			input: func(t *testing.T) []byte {
-				return withV1GRPCProtocol(withV1OpenPort(
-					integrationConfig(t, "internal/test/integration/configs/obi-config-java.yml"),
-					8085,
-				), "http://otelcol:4318")
+				return integrationConfig(t, "internal/test/integration/configs/obi-config-java.yml")
 			},
 			verify: func(t *testing.T, cfg *obi.Config) {
 				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
 				require.Len(t, cfg.Discovery.Instrument, 1)
 				require.True(t, cfg.Discovery.Instrument[0].OpenPorts.Matches(8085))
-				require.Equal(t, "http://otelcol:4318", cfg.OTELMetrics.MetricsEndpoint)
+				require.Equal(t, "http://otelcol:4317", cfg.OTELMetrics.MetricsEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.OTELMetrics.MetricsProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()
 				require.Equal(t, []string{"/greeting"}, routes.Incoming.Patterns)
@@ -1512,18 +1750,21 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 		{
 			name: "Kubernetes daemonset",
 			input: func(t *testing.T) []byte {
-				config := kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset.yml")
-				config = withV1GRPCProtocol(config, "http://otelcol:4318")
-				return withV1GRPCProtocol(config, "http://jaeger:4318")
+				return kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset.yml")
 			},
 			verify: func(t *testing.T, cfg *obi.Config) {
 				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
 				require.Equal(t, obi.LogLevelDebug, cfg.LogLevel)
 				require.Equal(t, "true", string(cfg.Attributes.Kubernetes.Enable))
+				require.Equal(t, []string{"deployment.environment.name"}, cfg.Attributes.Kubernetes.ResourceLabels["deployment.environment.name"])
 				require.Len(t, cfg.Discovery.Instrument, 5)
 				require.GreaterOrEqual(t, len(cfg.Discovery.ExcludeInstrument), 1)
 				require.True(t, cfg.Discovery.Instrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
 				require.True(t, cfg.Discovery.ExcludeInstrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
+				require.Equal(t, "http://otelcol:4317", cfg.OTELMetrics.MetricsEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.OTELMetrics.MetricsProtocol)
+				require.Equal(t, "http://otelcol:4317", cfg.Traces.TracesEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.Traces.TracesProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()
 				require.Equal(t, []string{"/metrics"}, routes.Incoming.IgnorePatterns)
@@ -1533,8 +1774,7 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 		{
 			name: "Kubernetes shared PID namespace daemonset",
 			input: func(t *testing.T) []byte {
-				config := kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset-sharedpidns.yml")
-				return withV1GRPCProtocol(config, "http://otelcol:4318")
+				return kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset-sharedpidns.yml")
 			},
 			verify: func(t *testing.T, cfg *obi.Config) {
 				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
@@ -1543,6 +1783,8 @@ func TestMigrateIntegrationConfigurations(t *testing.T) {
 				require.Len(t, cfg.Discovery.Instrument, 2)
 				require.True(t, cfg.Discovery.Instrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
 				require.True(t, cfg.Discovery.Instrument[1].Metadata["k8s_daemonset_name"].MatchString("hostpid-httpserver"))
+				require.Equal(t, "http://otelcol:4317", cfg.Traces.TracesEndpoint)
+				require.Equal(t, otelcfg.ProtocolGRPC, cfg.Traces.TracesProtocol)
 				require.NotNil(t, cfg.Routes)
 				routes := cfg.Routes.DirectionalPolicies()
 				require.Equal(t, []string{"/pingpong"}, routes.Incoming.Patterns)
@@ -1601,16 +1843,6 @@ func integrationConfig(t *testing.T, relativePath string) []byte {
 	contents, err := os.ReadFile(filepath.Join(repositoryRoot(t), relativePath))
 	require.NoError(t, err)
 	return contents
-}
-
-func withV1OpenPort(config []byte, port int) []byte {
-	return append(config, fmt.Sprintf("\nopen_port: %d\n", port)...)
-}
-
-func withV1GRPCProtocol(config []byte, endpoint string) []byte {
-	oldEndpoint := []byte("  endpoint: " + endpoint)
-	newEndpoint := append(append([]byte{}, oldEndpoint...), []byte("\n  protocol: grpc")...)
-	return bytes.Replace(config, oldEndpoint, newEndpoint, 1)
 }
 
 func kubernetesConfig(t *testing.T, relativePath string) []byte {

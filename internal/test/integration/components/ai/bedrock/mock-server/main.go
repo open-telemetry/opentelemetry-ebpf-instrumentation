@@ -52,21 +52,22 @@ func handleInvoke(w http.ResponseWriter, r *http.Request) {
 	// Extract model ID from path: /model/{modelId}/invoke
 	path := r.URL.Path
 	const prefix = "/model/"
-	idx := strings.Index(path, prefix)
-	if idx < 0 {
+	_, after, ok := strings.Cut(path, prefix)
+	if !ok {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-	remainder := path[idx+len(prefix):]
-	slashIdx := strings.Index(remainder, "/")
+	remainder := after
+	before0, _, ok0 := strings.Cut(remainder, "/")
 	modelID := remainder
-	if slashIdx >= 0 {
-		modelID = remainder[:slashIdx]
+	if ok0 {
+		modelID = before0
 	}
 
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("X-Amzn-Requestid", "mock-request-id-12345678")
+	h.Set("X-Amzn-Bedrock-Guardrail-Id", "gr-mock-12345678")
 
 	// Return error for nonexistent model
 	if strings.Contains(modelID, "nonexistent") {

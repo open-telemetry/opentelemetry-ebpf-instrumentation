@@ -15,6 +15,8 @@ typedef enum {
     _conn_fd_pos = 1, // start at 1, must match what's in structmembers.go
     _fd_laddr_pos,
     _fd_raddr_pos,
+    _net_fd_pfd_pos,
+    _poll_fd_sysfd_pos,
     _tcp_addr_port_ptr_pos,
     _tcp_addr_ip_ptr_pos,
     // http
@@ -41,6 +43,8 @@ typedef enum {
     _net_conn_pos,
     _cc_tconn_pos,
     _cc_tconn_vendored_pos,
+    _cc_tls_pos,
+    _cc_tls_vendored_pos,
     _sc_conn_pos,
     _c_rwc_pos,
     _c_tls_pos,
@@ -157,6 +161,11 @@ typedef enum {
     _runtime_sched_stw_total_time_gc_pos,
     _runtime_time_histogram_underflow_pos,
     _runtime_time_histogram_overflow_pos,
+    _framer_pad_length_stack_pos,
+    _framer_pad_length_stack_vendored_pos,
+    // Go connection interface types
+    _grpc_syscall_conn_type_addr,
+    _tls_conn_type_addr,
     _last_go_offset,
 } go_offset_const;
 

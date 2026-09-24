@@ -43,8 +43,8 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.18.12")
-    implementation("net.bytebuddy:byte-buddy-agent:1.18.12")
+    implementation("net.bytebuddy:byte-buddy:1.18.14-jdk5")
+    implementation("net.bytebuddy:byte-buddy-agent:1.18.14-jdk5")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.4")
     testImplementation("org.junit.platform:junit-platform-launcher:1.14.4")

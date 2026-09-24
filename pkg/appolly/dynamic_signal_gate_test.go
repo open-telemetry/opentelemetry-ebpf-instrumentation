@@ -143,6 +143,36 @@ func TestDynamicSignalProcessEventGate(t *testing.T) {
 	assert.Equal(t, app.PID(200), got.File.Pid())
 }
 
+func TestDynamicSignalProcessEventGateUsesWorkerServiceSource(t *testing.T) {
+	selector := discover.NewDynamicPIDSelector()
+	selector.AppMetrics().AddPIDs(100)
+	output := msg.NewQueue[execpkg.ProcessEvent](msg.ChannelBufferLen(2))
+	events := output.Subscribe()
+	gate := &dynamicSignalProcessEventGate{
+		output:    output,
+		selector:  selector.AppMetrics(),
+		current:   map[app.PID]*execpkg.FileInfo{},
+		forwarded: map[app.PID]bool{},
+	}
+	parent := execpkg.New(execpkg.Init{
+		Pid:     100,
+		Service: svc.Attrs{DynamicSelectorPID: 100},
+	})
+	worker := execpkg.New(execpkg.Init{Pid: 101})
+	worker.SetRuntimeMetricServiceSource(parent)
+
+	gate.handleProcessEvent(execpkg.ProcessEvent{Type: execpkg.ProcessEventCreated, File: worker})
+	created := testutil.ReadChannel(t, events, gateTestTimeout)
+	assert.Equal(t, execpkg.ProcessEventCreated, created.Type)
+	assert.Equal(t, app.PID(101), created.File.Pid())
+	assert.Same(t, parent, created.ServiceFile())
+
+	gate.handleProcessEvent(execpkg.ProcessEvent{Type: execpkg.ProcessEventTerminated, File: worker})
+	terminated := testutil.ReadChannel(t, events, gateTestTimeout)
+	assert.Equal(t, execpkg.ProcessEventTerminated, terminated.Type)
+	assert.Equal(t, app.PID(101), terminated.File.Pid())
+}
+
 func TestDynamicSignalProcessEventGate_SubscribesToSelectorNotificationsOnce(t *testing.T) {
 	selector := newCountingPIDSelector(1)
 	input := msg.NewQueue[execpkg.ProcessEvent](msg.ChannelBufferLen(8))
@@ -237,12 +267,15 @@ func TestDynamicSignalRuntimeMetricsGate(t *testing.T) {
 		{Service: svc.Attrs{ProcPID: 10, DynamicSelectorPID: 1}, PID: 10},
 		{Service: svc.Attrs{ProcPID: 20, DynamicSelectorPID: 2}, PID: 20},
 		{Service: svc.Attrs{ProcPID: 30}, PID: 30},
+		{Service: svc.Attrs{ProcPID: 40}, PID: 40, Removed: true},
 	})
 
 	got := testutil.ReadChannel(t, outCh, gateTestTimeout)
-	require.Len(t, got, 1)
+	require.Len(t, got, 2)
 	assert.Equal(t, app.PID(10), got[0].PID)
 	assert.Equal(t, app.PID(1), runtimeMetricSignalPID(got[0]))
+	assert.Equal(t, app.PID(40), got[1].PID)
+	assert.True(t, got[1].Removed)
 }
 
 func TestDynamicSignalRuntimeMetricsGate_BypassWhenSelectorNil(t *testing.T) {

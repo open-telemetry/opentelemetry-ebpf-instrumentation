@@ -44,21 +44,22 @@ func sortConnectionInfo(info *BpfConnectionInfoT) {
 }
 
 func removeQuery(url string) string {
-	idx := strings.IndexByte(url, '?')
-	if idx >= 0 {
-		return url[:idx]
+	before, _, ok := strings.Cut(url, "?")
+	if ok {
+		return before
 	}
 	return url
 }
 
 type HTTPInfo struct {
 	BPFHTTPInfo
-	Method     string
-	URL        string
-	Host       string
-	Peer       string
-	HeaderHost string
-	Body       string
+	Method       string
+	URL          string
+	Host         string
+	Peer         string
+	HeaderHost   string
+	Body         string
+	ProtoVersion request.ProtoVersion
 }
 
 // misses serviceID
@@ -68,7 +69,7 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 		scheme = "https"
 	}
 
-	return request.Span{
+	span := request.Span{
 		Type:              request.EventType(info.Type),
 		Method:            info.Method,
 		Path:              removeQuery(info.URL),
@@ -93,8 +94,50 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 			UserPID:   app.PID(info.Pid.UserPid),
 			Namespace: info.Pid.Ns,
 		},
-		Statement: scheme + request.SchemeHostSeparator + info.HeaderHost,
+		Statement:    scheme + request.SchemeHostSeparator + info.HeaderHost,
+		ProtoVersion: info.ProtoVersion,
 	}
+
+	markResponseObservation(&span, &info.BPFHTTPInfo)
+
+	return span
+}
+
+// The kernel's enum http_response_observation. Nonzero means no probe read the
+// response, so the record carries no status.
+const (
+	bpfResponseParsed   = 0
+	bpfResponseReceived = 1
+	bpfResponseSilent   = 2
+	bpfResponseUnread   = 3
+)
+
+// markResponseObservation copies the kernel's observation onto the span. Every
+// nonzero value means no response was read, so Status is cleared in each case.
+//
+// They differ in whether the end timestamp is usable. ResponseReceived took it when
+// instrumentation stopped watching, which can be long after the response arrived, so
+// the duration is discarded. ResponseSilent took it from the close that ended the
+// request and ResponseUnread from the response's own bytes, so both durations are
+// preserved.
+func markResponseObservation(span *request.Span, event *BPFHTTPInfo) {
+	switch event.ResponseObservation {
+	case bpfResponseParsed:
+		return
+	case bpfResponseSilent:
+		span.ResponseObservation = request.ResponseSilent
+	case bpfResponseUnread:
+		span.ResponseObservation = request.ResponseUnread
+	// An unrecognized value withholds the duration, which asserts less than publishing
+	// one.
+	case bpfResponseReceived:
+		fallthrough
+	default:
+		span.ResponseObservation = request.ResponseReceived
+		request.SetIgnoreDurations(span)
+	}
+
+	span.Status = 0
 }
 
 func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, req *http.Request, resp *http.Response) request.Span {
@@ -135,6 +178,8 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 	httpSpan := request.Span{
 		Type:              reqType,
 		Method:            req.Method,
+		UserAgent:         req.UserAgent(),
+		ProtoVersion:      request.HTTPProtoVersion(req.ProtoMajor, req.ProtoMinor),
 		Path:              removeQuery(req.URL.String()),
 		FullPath:          req.URL.String(),
 		Peer:              peer,
@@ -160,12 +205,19 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		Statement: scheme + request.SchemeHostSeparator + headerHost,
 	}
 
+	markResponseObservation(&httpSpan, event)
+
 	return postProcessHTTPSpan(parseCtx, &httpSpan, req, resp)
 }
 
 func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req *http.Request, resp *http.Response) request.Span {
 	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.AWS.Enabled {
-		span, ok := ebpfhttp.AWSS3Span(httpSpan, req, resp)
+		span, ok := ebpfhttp.AWSSNSSpan(httpSpan, req, resp)
+		if ok {
+			return span
+		}
+
+		span, ok = ebpfhttp.AWSS3Span(httpSpan, req, resp)
 		if ok {
 			return span
 		}
@@ -324,7 +376,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	slog.Debug("Event", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "buf", event.Buf[:])
 
 	if event.HasLargeBuffers == 1 {
-		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo, ProtocolTypeHTTP)
+		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo, ProtocolTypeHTTP)
 		if ok {
 			requestBuffer = b
 		} else {
@@ -332,7 +384,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			requestBuffer = largebuf.NewLargeBufferFrom(event.Buf[:])
 		}
 
-		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo, ProtocolTypeHTTP)
+		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo, ProtocolTypeHTTP)
 		if ok {
 			responseBuffer = b
 			hasResponse = true
@@ -564,6 +616,7 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) 
 	}
 	result.URL = httpURLFromBuf(raw)
 	result.Method = httpMethodFromBuf(raw)
+	result.ProtoVersion = request.HTTPProtoVersionFromRequestLine(raw)
 
 	if request.EventType(result.Type) == request.EventTypeHTTPClient && !parsedHost {
 		bufHost, _ = httpHostFromBuf(raw)
@@ -595,6 +648,10 @@ func httpURLFromBuf(req []byte) string {
 }
 
 func httpMethodFromBuf(req []byte) string {
+	if end := bytes.IndexByte(req, 0); end >= 0 {
+		req = req[:end]
+	}
+
 	method, _, found := bytes.Cut(req, []byte(" "))
 	if !found {
 		return ""
@@ -609,6 +666,9 @@ func httpHostFromBuf(req []byte) (string, int) {
 	}
 
 	idx := bytes.Index(req, []byte("Host: "))
+	if idx < 0 {
+		idx = bytes.Index(req, []byte("host: "))
+	}
 	if idx < 0 {
 		return "", -1
 	}

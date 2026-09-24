@@ -198,7 +198,7 @@ static __always_inline void ship_large_request(void *buf,
 
     bpf_d_printk("event_type %d, packet_type %d, is_http %d", event_type, packet_type, is_http);
 
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
+    large_buf->type = k_event_type_tcp_large_buffer;
     large_buf->packet_type = packet_type;
     large_buf->direction = direction;
     large_buf->action = (!prev_event || is_http != k_http_not) ? k_large_buf_action_init
@@ -206,9 +206,17 @@ static __always_inline void ship_large_request(void *buf,
     large_buf->kind = k_large_buf_layer_app;
     large_buf->source = k_large_buffer_source_go;
     tp_info_t empty = {0};
-    // If we have a previous event, keep propagating it's traceparent. For HTTP2 client
+    tp_info_pid_t *client_tp = NULL;
+    if (!is_http2_conn && event_type == k_lb_event_type_client) {
+        client_tp = trace_info_for_connection(&large_buf->conn_info, TRACE_TYPE_CLIENT);
+    }
+
+    // A new HTTP/1 client request replaces any state left by prior use of the connection.
+    // Else, if we have a previous event, keep propagating it's traceparent. For HTTP2 client
     // we can only find the trace parent information on the write (outgoing) requests.
-    if (prev_event) {
+    if (client_tp && is_http == k_http_request) {
+        large_buf->tp = client_tp->tp;
+    } else if (prev_event) {
         large_buf->tp = prev_event->tp;
     } else if (invocation) { // HTTP2 client first time with invocation.
         large_buf->tp = invocation->tp;

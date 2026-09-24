@@ -137,6 +137,19 @@ func TestAgentIP_Any(t *testing.T) {
 	}
 }
 
+func TestExternalConnectionClosed(t *testing.T) {
+	originalDial := dial
+	t.Cleanup(func() { dial = originalDial })
+
+	conn := &connMock{ip: externalIP4}
+	dial = func(_, _ string) (net.Conn, error) { return conn, nil }
+
+	ip, err := FetchAgentIP("", IPIfaceExternal, IPTypeAny)
+	require.NoError(t, err)
+	require.True(t, externalIP4.Equal(ip))
+	require.True(t, conn.closed)
+}
+
 func mockIfaces() {
 	// mock local addresses retrieval
 	interfaceAddrs = func() ([]net.Addr, error) {
@@ -181,16 +194,20 @@ func mockIfaces() {
 }
 
 type connMock struct {
-	ip net.IP
+	ip     net.IP
+	closed bool
 }
 
 func (c *connMock) LocalAddr() net.Addr {
 	return &net.UDPAddr{IP: c.ip}
 }
 
-func (c *connMock) Read(_ []byte) (n int, err error)   { panic("unexpected call") }
-func (c *connMock) Write(_ []byte) (n int, err error)  { panic("unexpected call") }
-func (c *connMock) Close() error                       { panic("unexpected call") }
+func (c *connMock) Read(_ []byte) (n int, err error)  { panic("unexpected call") }
+func (c *connMock) Write(_ []byte) (n int, err error) { panic("unexpected call") }
+func (c *connMock) Close() error {
+	c.closed = true
+	return nil
+}
 func (c *connMock) RemoteAddr() net.Addr               { panic("unexpected call") }
 func (c *connMock) SetDeadline(_ time.Time) error      { panic("unexpected call") }
 func (c *connMock) SetReadDeadline(_ time.Time) error  { panic("unexpected call") }

@@ -28,13 +28,16 @@ type ScanRoot struct {
 
 // ScanRoots resolves the application roots from a Java command line inside a process root.
 func ScanRoots(root, cwd string, args []string, env map[string]string) ([]ScanRoot, error) {
-	launch := ParseJavaLaunch(args, env)
+	return scanRootsForLaunch(root, cwd, ParseJavaLaunch(args, env))
+}
+
+func scanRootsForLaunch(root, cwd string, launch JavaLaunch) ([]ScanRoot, error) {
 	if launch.Jar != "" {
-		path, ok := langtools.ResolveProcessPath(root, cwd, launch.Jar)
+		path, info, ok := langtools.StatProcessPath(root, cwd, launch.Jar)
 		if !ok {
 			return nil, fmt.Errorf("invalid Java jar path %q", launch.Jar)
 		}
-		if !isRegularFile(path) {
+		if !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("java jar path %q is not a regular file", launch.Jar)
 		}
 		return []ScanRoot{{Path: path}}, nil
@@ -78,19 +81,8 @@ func ParseJavaLaunch(args []string, env map[string]string) JavaLaunch {
 }
 
 func classpathRoots(root, cwd string, launch JavaLaunch) []ScanRoot {
-	if launch.Jar != "" {
-		path, ok := langtools.ResolveProcessPath(root, cwd, launch.Jar)
-		if ok && isRegularFile(path) {
-			return []ScanRoot{{Path: path}}
-		}
-		return nil
-	}
-
-	classpath := launch.Classpath
-	if classpath == "" {
-		classpath = cwd
-	}
-	return ScanRootsFromClasspath(root, cwd, classpath)
+	roots, _ := scanRootsForLaunch(root, cwd, launch)
+	return roots
 }
 
 func ScanRootsFromClasspath(root, cwd, classpath string) []ScanRoot {
@@ -117,13 +109,8 @@ func ScanRootsFromClasspath(root, cwd, classpath string) []ScanRoot {
 }
 
 func ScanRootFromClasspathEntry(root, cwd, entry string) (ScanRoot, bool) {
-	path, ok := langtools.ResolveProcessPath(root, cwd, entry)
+	path, info, ok := langtools.StatProcessPath(root, cwd, entry)
 	if !ok {
-		return ScanRoot{}, false
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
 		return ScanRoot{}, false
 	}
 	if info.IsDir() {
@@ -176,11 +163,6 @@ func classpathWildcardDir(entry string) (string, bool) {
 		return "", false
 	}
 	return dir, true
-}
-
-func isRegularFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
 }
 
 func isJavaArchive(path string) bool {

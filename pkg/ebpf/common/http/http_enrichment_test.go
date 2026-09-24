@@ -1263,7 +1263,7 @@ func BenchmarkHTTPEnricher_BodyObfuscate_LargeJSON(b *testing.B) {
 
 	// Build a ~4KB JSON body with 50 users
 	var users []string
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		users = append(users, `{"name":"User`+strings.Repeat("x", 10)+`","email":"user@test.com","ssn":"123-45-6789","role":"admin"}`)
 	}
 	body := `{"users":[` + strings.Join(users, ",") + `]}`
@@ -1369,8 +1369,6 @@ func BenchmarkHTTPEnricher_HeadersAndBody(b *testing.B) {
 	}
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func TestGenericParsingSpan_ObfuscateRulePerRuleOverride(t *testing.T) {
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
@@ -1386,7 +1384,7 @@ func TestGenericParsingSpan_ObfuscateRulePerRuleOverride(t *testing.T) {
 				Action:            config.HTTPParsingActionObfuscate,
 				Type:              config.HTTPParsingRuleTypeHeaders,
 				Scope:             config.HTTPParsingScopeAll,
-				ObfuscationString: ptr("[RULE-REDACTED]"),
+				ObfuscationString: new("[RULE-REDACTED]"),
 				Match: config.HTTPParsingMatch{
 					Patterns: []services.GlobAttr{gi("Authorization")},
 				},
@@ -1430,7 +1428,7 @@ func TestBodyExtraction_ObfuscatePerRuleOverride(t *testing.T) {
 				Action:            config.HTTPParsingActionObfuscate,
 				Type:              config.HTTPParsingRuleTypeBody,
 				Scope:             config.HTTPParsingScopeAll,
-				ObfuscationString: ptr("[RULE-REDACTED]"),
+				ObfuscationString: new("[RULE-REDACTED]"),
 				Match: config.HTTPParsingMatch{
 					ObfuscationJSONPaths: []config.JSONPathExpr{jp("$.password")},
 				},
@@ -1474,7 +1472,7 @@ func TestBodyExtraction_MultipleObfuscateRulesDistinctStrings(t *testing.T) {
 				Action:            config.HTTPParsingActionObfuscate,
 				Type:              config.HTTPParsingRuleTypeBody,
 				Scope:             config.HTTPParsingScopeRequest,
-				ObfuscationString: ptr("PCI"),
+				ObfuscationString: new("PCI"),
 				Match: config.HTTPParsingMatch{
 					ObfuscationJSONPaths: []config.JSONPathExpr{jp("$.cc")},
 				},
@@ -1483,7 +1481,7 @@ func TestBodyExtraction_MultipleObfuscateRulesDistinctStrings(t *testing.T) {
 				Action:            config.HTTPParsingActionObfuscate,
 				Type:              config.HTTPParsingRuleTypeBody,
 				Scope:             config.HTTPParsingScopeRequest,
-				ObfuscationString: ptr("PII"),
+				ObfuscationString: new("PII"),
 				Match: config.HTTPParsingMatch{
 					ObfuscationJSONPaths: []config.JSONPathExpr{jp("$.ssn")},
 				},

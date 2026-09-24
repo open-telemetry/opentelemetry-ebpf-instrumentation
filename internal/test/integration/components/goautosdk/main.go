@@ -105,20 +105,20 @@ func emitNestedSpans() {
 		spanName("root"),
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
-			attribute.String("activation.version", version),
-			attribute.Bool("activation.root", true),
+			attribute.String("obitest.activation.version", version),
+			attribute.Bool("obitest.activation.root", true),
 		),
 	)
 	root.AddEvent(
 		"root event",
-		trace.WithAttributes(attribute.String("event.detail", "preserved")),
+		trace.WithAttributes(attribute.String("obitest.event.detail", "preserved")),
 	)
 
 	_, child := tracer.Start(
 		ctx,
 		spanName("child-before-rename"),
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attribute.Int("activation.answer", 42)),
+		trace.WithAttributes(attribute.Int("obitest.activation.answer", 42)),
 	)
 	child.SetName(spanName("child"))
 	child.SetStatus(codes.Error, "expected test status")

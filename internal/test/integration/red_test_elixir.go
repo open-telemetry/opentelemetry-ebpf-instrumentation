@@ -30,7 +30,7 @@ func testREDMetricsForElixirHTTPLibrary(t *testing.T, url string, comm string) {
 	// Call 4 times the instrumented service, forcing it to:
 	// - process multiple calls in a row with, one more than we might need
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		ti.DoHTTPGet(t, fmt.Sprintf("%s%s/%d", url, path, i), 200)
 	}
 

@@ -44,7 +44,7 @@ func assertHTTPRequests(t *testing.T, comm, urlPath string) {
 	params.Add("operation", "GET "+urlPath)
 	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
-	resp, err := http.Get(fullURL)
+	resp, err := getJaeger(fullURL)
 	require.NoError(t, err, "failed to query jaeger for HTTP traces")
 	if resp == nil {
 		return
@@ -69,7 +69,7 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullURL)
+		resp, err := getJaeger(fullURL)
 		require.NoError(ct, err)
 		assert.NotNil(ct, resp)
 		assert.Equal(ct, http.StatusOK, resp.StatusCode)
@@ -90,6 +90,11 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
 		assert.True(ct, found)
 		assert.Equal(ct, db, tag.Value)
+
+		// The summary names the span, so it must match the queried operation.
+		tag, found = jaeger.FindIn(span.Tags, "db.query.summary")
+		assert.True(ct, found, "expected db.query.summary on the SQL span")
+		assert.Equal(ct, dbOperation, tag.Value)
 
 		_, found = jaeger.FindIn(span.Tags, "db.response.status_code")
 		assert.False(ct, found)
@@ -121,7 +126,9 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=1049 sql_state=#42000 message=Unknown database 'obi'",
 		},
 		"postgresql": {
-			"db.response.status_code": "0",
+			// the postgres protocol carries no vendor error code, so the
+			// SQLSTATE is reported (matching error.type, per semconv)
+			"db.response.status_code": "42P01",
 			"error.type":              "42P01",
 			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=NA sql_state=42P01 message=relation \"obi.nonexisting\" does not exist",
 		},
@@ -138,7 +145,7 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullURL)
+		resp, err := getJaeger(fullURL)
 		require.NoError(ct, err)
 		require.NotNil(ct, resp)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
@@ -232,7 +239,7 @@ func testPythonSQLQueryAfterHeaders(t *testing.T, comm, url, table string) {
 	sqlURL := fmt.Sprintf("%s?%s", jaegerQueryURL, sqlParams.Encode())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		sqlResp, err := http.Get(sqlURL)
+		sqlResp, err := getJaeger(sqlURL)
 		require.NoError(ct, err)
 		require.NotNil(ct, sqlResp)
 		defer sqlResp.Body.Close()
@@ -305,7 +312,7 @@ func testPythonSQLPipeline(t *testing.T, comm, url, db string) {
 
 func testPythonPostgres(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
-	comm := "python3.14"
+	comm := "main"
 	table := "accounting.contacts"
 	db := "postgresql"
 
@@ -319,7 +326,7 @@ func testPythonPostgres(t *testing.T) {
 }
 
 func testPythonPostgresAfterHeaders(t *testing.T, testCaseURL string) {
-	comm := "python3.14"
+	comm := "main_sync"
 	table := "accounting.contacts"
 	db := "postgresql"
 
@@ -343,7 +350,7 @@ func testPythonSQLBigQuery(t *testing.T, comm, url, table, db string) {
 	queryPrefix := "SELECT * FROM actor WHERE actor_id IN (1, 2, 3,"
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullURL)
+		resp, err := getJaeger(fullURL)
 		require.NoError(ct, err)
 		assert.NotNil(ct, resp)
 		assert.Equal(ct, http.StatusOK, resp.StatusCode)
@@ -384,7 +391,7 @@ func testPythonSQLBigQuery(t *testing.T, comm, url, table, db string) {
 
 func testPythonMySQL(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
-	comm := "python3.14"
+	comm := "main"
 	table := "actor"
 	db := "mysql"
 
@@ -403,7 +410,7 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
@@ -423,7 +430,7 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 
 	// Look for a trace with SELECT accounting.contacts
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=SELECT%20accounting.contacts")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=SELECT%20accounting.contacts")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -436,7 +443,7 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Fquery")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Fquery")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -459,7 +466,7 @@ func testREDMetricsPythonSQLSSL(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponentsSub(t, testCaseURL, "/query")
-			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
+			testREDMetricsForPythonSQLSSL(t, testCaseURL, "main_ssl", "integration-test")
 		})
 	}
 }
@@ -474,7 +481,7 @@ func testPythonSQLMultiPacketResponse(t *testing.T, comm, url, table, db string)
 
 func testPythonMSSQL(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
-	comm := "python3.14"
+	comm := "main"
 	table := "actor"
 	db := "microsoft.sql_server"
 

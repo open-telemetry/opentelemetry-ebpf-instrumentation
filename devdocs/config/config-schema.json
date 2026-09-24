@@ -211,6 +211,18 @@
             67108864
           ]
         },
+        "jvm_gc_duration_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array",
+          "default": [
+            0.01,
+            0.1,
+            1,
+            10
+          ]
+        },
         "request_size_histogram": {
           "items": {
             "type": "number"
@@ -484,9 +496,13 @@
           "items": {
             "type": "string",
             "enum": [
+              "dotnet",
               "go",
               "java",
-              "nodejs"
+              "nodejs",
+              "php",
+              "python",
+              "ruby"
             ]
           },
           "type": "array"
@@ -594,6 +610,35 @@
       },
       "type": "object",
       "description": "DiscoveryConfig for the discover.ProcessFinder pipeline"
+    },
+    "DotnetRuntimeMetricsConfig": {
+      "properties": {
+        "sampling_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Sets the collection interval requested from System.Runtime EventCounters. It also sets the delay before reconnecting after a collection session ends.",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL"
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Bounds diagnostic IPC setup and EventPipe session shutdown.",
+          "default": "10s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_DOTNET_RUNTIME_METRICS_TIMEOUT"
+        }
+      },
+      "type": "object"
     },
     "EBPFBufferSizes": {
       "properties": {
@@ -808,6 +853,12 @@
           "$ref": "#/$defs/PayloadExtraction",
           "description": "Configure data extraction/parsing based on protocol"
         },
+        "populate_trace_context": {
+          "type": "boolean",
+          "description": "Keeps the pinned `traces_ctx_v1` map -- the trace and span ID of the request each OS thread is currently serving -- populated for readers outside OBI, such as a profiler correlating samples with spans, or another eBPF program reading the pin directly.  Keeping the map aligned with the active request is not free: runtimes that decouple I/O from processing need a refresh on every context switch, which on Node.js means an `async_hooks` before hook running on every callback. OBI therefore only populates the map when something reads it. Its own readers -- the log enricher and the Node.js manual span bridge -- turn population on regardless of this setting; a reader outside OBI has no way to announce itself, so it opts in here.  Go channel span links may be affected: the handoff correlation falls back to this map when it cannot resolve the sending goroutine from the protocol maps, so links that relied on that fallback are lost while population is off.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT"
+        },
         "postgres_prepared_statements_cache_size": {
           "type": "integer",
           "description": "Postgres prepared statements cache size.",
@@ -848,7 +899,7 @@
         },
         "wakeup_len": {
           "type": "integer",
-          "description": "Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0 TODO: see if there is a way to force eBPF to wakeup userspace on timeout",
+          "description": "Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0. The userspace ring buffer reader periodically flushes pending events regardless, so wakeup_len bounds wakeup overhead rather than maximum delivery delay.",
           "default": 500,
           "x-env-var": "OTEL_EBPF_BPF_WAKEUP_LEN"
         }
@@ -956,9 +1007,10 @@
               "*",
               "all",
               "application",
-              "application_host",
+              "application_red",
               "application_runtime",
               "application_service_graph",
+              "application_sizes",
               "application_span_otel",
               "ebpf",
               "network",
@@ -968,7 +1020,8 @@
               "stats_tcp_failed_connections",
               "stats_tcp_io",
               "stats_tcp_retransmits",
-              "stats_tcp_rtt"
+              "stats_tcp_rtt",
+              "stats_tcp_successful_connections"
             ]
           },
           {
@@ -1202,7 +1255,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes",
-          "default": 256,
+          "default": 1536,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         }
       },
@@ -1546,6 +1599,7 @@
         "sampling_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Controls HotSpot memory event sampling and Java agent class, thread, and CPU snapshot collection.",
           "default": "1s",
           "examples": [
             "30s",
@@ -1582,6 +1636,7 @@
         },
         "enabled": {
           "type": "boolean",
+          "description": "Turns on the Java injector agent, used for TLS tracing, virtual thread correlation, and agent-backed runtime metrics. Setting it to false disables GC duration, class, thread, and CPU runtime metrics. HotSpot memory metrics remain available.",
           "default": true,
           "x-env-var": "OTEL_EBPF_JAVAAGENT_ENABLED"
         }
@@ -2348,7 +2403,7 @@
         },
         "provider": {
           "type": "string",
-          "description": "Name reported in the gen_ai.system span attribute"
+          "description": "Name reported in the gen_ai.provider.name span attribute. A name the attribute's enum has no member for is reported as `custom`."
         }
       },
       "type": "object"
@@ -3009,6 +3064,15 @@
           ],
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
         },
+        "compression": {
+          "type": "string",
+          "enum": [
+            "gzip",
+            "none"
+          ],
+          "description": "Sets the compression applied to exported OTLP payloads.",
+          "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"
+        },
         "endpoint": {
           "type": "string",
           "format": "uri",
@@ -3137,6 +3201,9 @@
     "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",
       "description": "Configuration"
+    },
+    "dotnet_runtime_metrics": {
+      "$ref": "#/$defs/DotnetRuntimeMetricsConfig"
     },
     "ebpf": {
       "$ref": "#/$defs/EBPFTracer"

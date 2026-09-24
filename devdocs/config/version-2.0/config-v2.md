@@ -186,7 +186,7 @@ extensions:
       # ...
       instrumentation:
         http:
-          enabled: { traces: true, metrics: true }
+          enabled: { traces: true, metrics: true, body_size_metrics: true }
           filters: { traces: {}, metrics: {} }
         grpc:
           enabled: { traces: true, metrics: true }
@@ -546,7 +546,7 @@ This section is the primary user control for defining how OBI captures and proce
 The current shape separates packet/flow capture from TCP stats capture:
 
 - `capture.network.capture` controls network flow capture and flow-derived telemetry.
-- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_retransmits`, and `tcp_io`.
+- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_successful_connections`, `tcp_retransmits`, and `tcp_io`.
 
 `tcp_io` can produce substantially more events than the other stats families, so users should opt into it deliberately when they need per-send/per-receive I/O stats.
 
@@ -588,7 +588,7 @@ The `mode` field supports: `autodetect` (default — enable if k8s environment i
 The `extensions.obi.correlation` section defines trace-context correlation features that propagate OBI-generated trace context into external streams.
 Unlike telemetry instrumentation (protocol signals), correlation features operate *after* traces are captured to enrich related observability data.
 
-For example, `log_trace_annotation` allows trace context to be injected into application logs from selected services, linking logs to traces through context correlation.
+For example, `log_trace_annotation` allows trace context to be injected into application logs from selected workloads, linking logs to traces through context correlation. `match` lists the workloads to annotate as capture-rule match clauses (glob predicates only) and is required when `enabled` is true; enabling annotation without a selection is a configuration error. Annotation only reaches workloads that the `capture` rules also select, so `match` narrows the captured set and never widens it.
 
 JSON object logs receive structured fields. Plain-text logs receive space-separated `key=value` fields by default. `field_names` configures the literal keys for both representations. `plain_text.enabled` disables only plain-text annotation, while `placement` selects `prefix` or `suffix` and `multiline` selects `first_line`, `last_line`, or `each_line` within each intercepted write.
 
@@ -716,6 +716,7 @@ Important mapping notes:
 | `ebpf.context_propagation` | `extensions.obi.capture.engine.propagation.context_propagation` | Move |
 | `ebpf.couchbase_db_cache_size` | `extensions.obi.capture.instrumentation.couchbase.db_cache_size` | Move |
 | `ebpf.disable_black_box_cp` | `extensions.obi.capture.engine.propagation.disable_black_box_cp` | Move |
+| `ebpf.populate_trace_context` | `extensions.obi.capture.engine.propagation.populate_trace_context` | Move |
 | `ebpf.dns_request_timeout` | `extensions.obi.capture.instrumentation.dns.request_timeout` | Move |
 | `ebpf.force_bpf_map_reader` | `extensions.obi.capture.engine.traffic.force_map_reader` | Move + rename |
 | `ebpf.go_http_client_buffer_timeout` | `extensions.obi.capture.instrumentation.http.go_http_client_buffer_timeout` | Move |
@@ -724,6 +725,7 @@ Important mapping notes:
 | `ebpf.http_request_timeout` | `extensions.obi.capture.instrumentation.http.request_timeout` | Move |
 | `ebpf.instrument_cuda` | `extensions.obi.capture.instrumentation.gpu.enabled_mode` | Move + reshape |
 | `ebpf.kafka_topic_uuid_cache_size` | `extensions.obi.capture.instrumentation.kafka.topic_uuid_cache_size` | Move |
+| `ebpf.log_enricher.services` | `extensions.obi.correlation.log_trace_annotation.match` | Move + reshape: each selector becomes one match clause |
 | `ebpf.log_enricher.cache_size` | `extensions.obi.correlation.log_trace_annotation.cache.size` | Move + rename |
 | `ebpf.log_enricher.cache_ttl` | `extensions.obi.correlation.log_trace_annotation.cache.ttl` | Move + rename |
 | `ebpf.log_enricher.async_writer_workers` | `extensions.obi.correlation.log_trace_annotation.async_writer.workers` | Move + rename |

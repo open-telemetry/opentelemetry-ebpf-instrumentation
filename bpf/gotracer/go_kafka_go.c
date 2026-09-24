@@ -31,7 +31,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 // Code for the produce messages path
 SEC("uprobe/writer_write_messages")
@@ -53,7 +53,7 @@ int GUARDED_PROG(obi_uprobe_writer_write_messages, struct pt_regs *, ctx) {
     bpf_map_update_elem(&produce_traceparents, &p_key, &tp, BPF_ANY);
     bpf_map_update_elem(&produce_traceparents_by_goroutine, &g_key, &tp, BPF_ANY);
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_kafka_produce, &tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -69,8 +69,9 @@ int GUARDED_PROG(obi_uprobe_writer_write_messages_ret, struct pt_regs *, ctx) {
 
     // Drop the goroutine-keyed traceparent so casgstatus can't re-install this
     // produce's context after the request ends (issue #2046).
+    const tp_info_t *tp = bpf_map_lookup_elem(&produce_traceparents_by_goroutine, &g_key);
+    go_obi_ctx__end(&g_key, k_obi_ctx_kafka_produce, tp);
     bpf_map_delete_elem(&produce_traceparents_by_goroutine, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
@@ -209,7 +210,7 @@ int GUARDED_PROG(obi_uprobe_protocol_roundtrip_ret, struct pt_regs *, ctx) {
         if (topic_ptr) {
             kafka_go_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(kafka_go_req_t), 0);
             if (trace) {
-                trace->type = EVENT_GO_KAFKA_SEG;
+                trace->type = k_event_type_go_kafka_seg;
                 trace->op = k_kafka_api_produce;
                 trace->start_monotime_ns = p_ptr->start_monotime_ns;
                 trace->end_monotime_ns = bpf_ktime_get_ns();
@@ -256,7 +257,7 @@ int GUARDED_PROG(obi_uprobe_reader_read, struct pt_regs *, ctx) {
 
     if (r_ptr) {
         kafka_go_req_t r = {
-            .type = EVENT_GO_KAFKA_SEG,
+            .type = k_event_type_go_kafka_seg,
             .op = k_kafka_api_fetch,
             .start_monotime_ns = 0,
         };

@@ -255,10 +255,9 @@ func TestEBPFTracer_CudaInstrumentationEnabled(t *testing.T) {
 }
 
 func TestEBPFBufferSizesValidateTagsMatchMaxCapturedPayloadBytes(t *testing.T) {
-	typ := reflect.TypeOf(EBPFBufferSizes{})
+	typ := reflect.TypeFor[EBPFBufferSizes]()
 
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		got := field.Tag.Get("validate")
 		var expected string
 		if field.Name == "HTTP" {

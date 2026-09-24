@@ -1,0 +1,15 @@
+{
+  "name": "obi/php-harvest-symfony",
+  "version": "2.2.0",
+  "license": "Apache-2.0",
+  "type": "project",
+  "require": {
+    "php": ">=8.2",
+    "symfony/framework-bundle": "8.1.7"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}

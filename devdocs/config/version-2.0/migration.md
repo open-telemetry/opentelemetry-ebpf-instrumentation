@@ -51,7 +51,7 @@ migration directory private and inspect its handling as secret material.
 The exact command shape is:
 
 ```text
-obi config migrate [--mode=standalone|receiver] <path>
+obi config migrate [--allow-partial] [--mode=standalone|receiver] <path>
 ```
 
 It accepts one file path. Standalone is the default; use `--mode=receiver` for
@@ -99,6 +99,34 @@ values are reported with relevant v1 paths, for example:
 ```text
 migration failed: fields are outside the supported v1-to-v2 migration contract: prometheus_export.path
 ```
+
+### Generate a partial migration for manual completion
+
+Use `--allow-partial` to generate a reviewable Config v2 starting point when
+strict migration reports fields outside the supported contract:
+
+```shell
+obi config migrate --allow-partial ./obi-v1.yaml \
+  > "${migration_dir}/obi-v2-partial.yaml" \
+  2> "${migration_dir}/partial-migration-report.txt"
+test "$?" -eq 3
+```
+
+The command writes a Config v2 document that passes `obi config validate`,
+lists every detected v1 field that was not preserved exactly, and exits `3`.
+This mode also reports unknown v1 fields that the normal v1 loader would
+ignore. It does not copy unknown fields into Config v2.
+
+The partial output is a conversion aid, not a behavior-preserving result. A
+reported known field might have contributed to the best-effort v2 structure,
+so do not assume that every reported value is simply absent. Review and edit
+the corresponding v2 sections, validate the completed document, and canary it
+before deployment. Malformed YAML, invalid v1 values or runtime combinations,
+unsafe selector refinement inheritance, conversion failures, and invalid v2
+output remain errors and do not produce partial output.
+
+If `--allow-partial` finds no unsupported fields, it produces the same output
+and exit `0` report as strict migration.
 
 Given the same file and substitution environment, repeated runs produce the
 same YAML and report. Confirm that before editing the result:
@@ -362,7 +390,10 @@ reshaped:
 - `discovery.services` and related regex selectors become regex rules;
 - `discovery.instrument` and related glob selectors become glob rules;
 - deprecated exporter `features` values are normalized through
-  `metrics.features` and then split across protocol and network enablement.
+  `metrics.features` and then split across protocol and network enablement;
+- the HTTP body size histograms carried by `application` and `application_sizes`
+  become `capture.instrumentation.http.enabled.body_size_metrics`, and
+  `application_red` maps to the same key set to false.
 
 Selector naming, per-selector metric features and samplers, and exclusion-rule
 refinements are not part of that reshape; the command rejects them as described
@@ -390,10 +421,9 @@ include:
 | Multiple include selectors that mix explicit and omitted `exports`, or mix explicit and omitted `routes` | V1 layers each refinement field across every matching selector, while v2 applies one winning rule and resets its omitted refinements. Refactor the selectors so each effective selector states its intended refinement, then test both overlapping and selector-only matches. If behavior depends on conditional inheritance from another selector, keep v1. The command rejects the mixed shape rather than broadening telemetry or changing routes. |
 | Non-empty global `routes.patterns` combined with non-empty selector `routes.incoming` or `.outgoing` | V1 uses global-first additive matching while v2 arrays replace inherited patterns. The command rejects the selector route path; keep v1 or redesign and canary-test the policy. |
 | A network feature in `metrics.features` with no active metric exporter and `network.enable` omitted or `false` | V1 leaves network capture disabled, while the current v2 enablement shape would turn it on. Migration rejects the relevant `network.enable` or feature path. Keep v1 or explicitly redesign and canary-test network capture; do not enable it only to make migration pass. |
-| `ebpf.log_enricher.services` | Correlation filtering is not supported in v2. Do not broaden annotation silently; keep v1 or redesign the deployment. |
 | `attributes.sensitive_query_params` | No v2 field exists. Do not remove a redaction setting without an equivalent privacy review. |
 | `discovery.exclude_otel_instrumented_services_span_metrics` | No independent v2 selector exists for this legacy span-metrics exception. |
-| `metrics.features` values other than application RED, basic network flow, and the individual network-stat features | Span metrics, service graphs, application host/runtime metrics, inter-zone/network-packet variants, and eBPF metrics are not represented by current v2 enablement. |
+| `metrics.features` values other than application RED, the HTTP body size histograms, basic network flow, and the individual network-stat features | Span metrics, service graphs, application host/runtime metrics, inter-zone/network-packet variants, and eBPF metrics are not represented by current v2 enablement. |
 | Non-default `otel_traces_export.instrumentations`, `otel_metrics_export.instrumentations`, or `prometheus_export.instrumentations` selections involving protocols not modeled by v2 | The v2 protocol enablement section cannot represent every v1 instrumentation. Keep v1 when the command reports a changed instrumentation list. |
 | OTLP HTTP protocol or an implicitly HTTP endpoint | Automatic migration supports the emitted OTLP/gRPC provider subset only. In a release that includes [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682), map it manually to the signal's `otlp_http` exporter and preserve the effective endpoint and encoding as described above; otherwise keep v1. |
 | `otel_traces_export.protocol: debug` | The v1 debug exporter has no supported declarative provider mapping. `daemon.logging.debug_trace_output` maps `trace_printer`, which is a different output path. Keep v1 when the debug exporter behavior is required. |
@@ -600,6 +630,7 @@ The commands use these exit codes:
 | `0` | Migration or validation succeeded, or help was requested. |
 | `1` | Reading, parsing, validation, or supported-contract migration failed. |
 | `2` | The command, flag, mode, or argument count was invalid. |
+| `3` | `--allow-partial` wrote valid v2 output that requires manual migration. |
 
 Help and usage text are written to standard error. Automation should check the
 exit code instead of parsing success text.

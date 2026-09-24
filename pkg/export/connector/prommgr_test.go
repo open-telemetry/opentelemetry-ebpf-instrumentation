@@ -4,7 +4,6 @@
 package connector
 
 import (
-	"context"
 	"net"
 	"net/http"
 	"strconv"
@@ -51,8 +50,7 @@ func scrapes(t *testing.T, port int, path string) bool {
 // flows exporter registers and starts later when its pipeline is built. Both ports must
 // end up served, whichever order the two components happen to run in.
 func TestStartHTTP_ServesPortRegisteredAfterFirstStart(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pm := &PrometheusManager{}
 
@@ -72,8 +70,7 @@ func TestStartHTTP_ServesPortRegisteredAfterFirstStart(t *testing.T) {
 // Same case one level down: the port is already listening, and a second component
 // registers a different path on it. That path has to reach the running mux.
 func TestStartHTTP_ServesPathRegisteredOnAlreadyServedPort(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pm := &PrometheusManager{}
 	port := freePort(t)
@@ -90,8 +87,7 @@ func TestStartHTTP_ServesPathRegisteredOnAlreadyServedPort(t *testing.T) {
 }
 
 func TestStartHTTP_ServesAllPortsRegisteredBeforeStart(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pm := &PrometheusManager{}
 
@@ -109,8 +105,7 @@ func TestStartHTTP_ServesAllPortsRegisteredBeforeStart(t *testing.T) {
 // Repeated calls with nothing newly registered must not open a second listener, and
 // must not re-register a path on the mux, which http.ServeMux panics on.
 func TestStartHTTP_IsIdempotentPerPortAndPath(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pm := &PrometheusManager{}
 

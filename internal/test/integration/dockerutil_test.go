@@ -36,14 +36,14 @@ import (
 const (
 	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0")
 	imgJaeger      = img.Docker("jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8")
-	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc")
+	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6")
 	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
-	imgNginx       = img.Docker("library/nginx:1.31.4@sha256:0d4374c710a9649200e84f8ef8dbdd4fa76c0c107839cd50f1e42a63916b0f2e")
+	imgNginx       = img.Docker("library/nginx:1.31.5@sha256:05b8cb60c354a44ab824ea6e7dc69b46d50762cdbe728a347a5b656e6fb3d7c4")
 	// imgWeaver MUST match the digest pinned in
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
-	imgWeaver = img.Docker("otel/weaver:v0.25.1@sha256:9ad46ca9cd4fa5974b121f886aa3e9946a8ef8ea905001a96c018d21f9db87ca")
+	imgWeaver = img.Docker("otel/weaver:v0.26.1@sha256:9094862c0ab261bdbcb079bb981f9a573b3659b130a6d2ab8616eca6ba37aaec")
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -205,8 +205,8 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 		dockertest.WithCmd([]string{
 			"registry", "live-check",
 			"--registry", "/obi-registry",
-			"--include-unreferenced",
 			"--inactivity-timeout", "300",
+			"--otlp-grpc-address", "0.0.0.0",
 			"--admin-port", "4320",
 			"--format", "compact",
 			"--templates", "/obi-registry/.live_check_templates",

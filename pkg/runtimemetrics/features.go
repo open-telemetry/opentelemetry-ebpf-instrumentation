@@ -28,8 +28,21 @@ func (e Enabled) ShouldReport(snapshot RuntimeMetricSnapshot) bool {
 		return e.Runtime && snapshot.Service.SDKLanguage == svc.InstrumentableGolang
 	}
 	if snapshot.JVM != nil || snapshot.Nodejs != nil ||
-		snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil {
+		snapshot.NodejsGC != nil || snapshot.NodejsHeapSpace != nil ||
+		snapshot.NodejsResource != nil {
 		return e.Runtime &&
+			snapshot.Service.ExportModes.CanExportMetrics() &&
+			snapshot.Service.Features.AppRuntime()
+	}
+	if snapshot.Python != nil {
+		return e.Runtime &&
+			snapshot.Service.SDKLanguage == svc.InstrumentablePython &&
+			snapshot.Service.ExportModes.CanExportMetrics() &&
+			snapshot.Service.Features.AppRuntime()
+	}
+	if snapshot.Dotnet != nil {
+		return e.Runtime &&
+			snapshot.Service.SDKLanguage == svc.InstrumentableDotnet &&
 			snapshot.Service.ExportModes.CanExportMetrics() &&
 			snapshot.Service.Features.AppRuntime()
 	}

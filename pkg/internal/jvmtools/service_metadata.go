@@ -100,8 +100,8 @@ func ResolveServiceMetadata(fileInfo *exec.FileInfo) error {
 		}
 
 		roots = classpathRoots(root, cwd, launch)
-		if launch.Jar != "" {
-			mainJarPath, _ = langtools.ResolveProcessPath(root, cwd, launch.Jar)
+		if launch.Jar != "" && len(roots) != 0 {
+			mainJarPath = roots[0].Path
 		}
 		if resolveName && name == "" {
 			name = springNameFromClasspath(roots, env)
@@ -151,8 +151,8 @@ func springNameFromSystemProperties(args []string, env map[string]string) string
 	const prefix = "-D" + springApplicationName + "="
 	var value string
 	for _, arg := range args {
-		if strings.HasPrefix(arg, prefix) {
-			value = strings.TrimPrefix(arg, prefix)
+		if after, ok := strings.CutPrefix(arg, prefix); ok {
+			value = after
 		}
 	}
 	name, _ := resolvePlaceholders(value, env)

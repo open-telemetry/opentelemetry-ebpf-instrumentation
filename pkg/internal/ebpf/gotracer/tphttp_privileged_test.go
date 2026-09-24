@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -73,6 +74,47 @@ func TestHTTP1ClientTraceparentNotDuplicated(t *testing.T) {
 		"OBI must not append a second traceparent when the client already wrote one")
 }
 
+func TestHTTP2ClientTraceparentBeforeImmediateFlush(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildHTTP2ClientTarget(t)
+	modes := []string{
+		"PLAINTEXT_BUFFERED",
+		"PLAINTEXT_IMMEDIATE",
+		"TLS_BUFFERED",
+		"TLS_IMMEDIATE",
+	}
+
+	t.Run("enabled", func(t *testing.T) {
+		for _, mode := range modes {
+			t.Run(strings.ToLower(mode), func(t *testing.T) {
+				send := startHTTPClientTargetWithMode(t, targetBin, config.ContextPropagationHeaders, "TP_RESULT=")
+				require.EventuallyWithT(t, func(c *assert.CollectT) {
+					assert.Regexp(c,
+						`^1:00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$`,
+						send(t, mode),
+						"OBI must inject exactly one valid traceparent before the writer consumes the frame")
+				}, 20*time.Second, 200*time.Millisecond)
+			})
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		for _, mode := range modes {
+			t.Run(strings.ToLower(mode), func(t *testing.T) {
+				send := startHTTPClientTargetWithMode(t, targetBin, config.ContextPropagationDisabled, "TP_RESULT=")
+				assert.Equal(t, "0:", send(t, mode),
+					"disabled header propagation must not inject a traceparent")
+			})
+		}
+	})
+}
+
 // buildHTTPClientTarget compiles the self-contained helper binary. Its single
 // source file carries a `//go:build ignore` tag, so it is named explicitly to
 // bypass the constraint.
@@ -86,11 +128,30 @@ func buildHTTPClientTarget(t *testing.T) string {
 	return bin
 }
 
+func buildHTTP2ClientTarget(t *testing.T) string {
+	t.Helper()
+
+	bin := filepath.Join(t.TempDir(), "tphttp2client")
+	cmd := osexec.Command("go", "build", "-tags=http2legacy", "-o", bin, "testdata/tphttp2client/main.go")
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "go build tphttp2client:\n%s", string(out))
+	return bin
+}
+
 // startHTTPClientTarget starts the target, attaches the gotracer, and returns a
 // send function that issues one request in the given mode ("WITH_TP"/"NO_TP")
 // and returns the number of Traceparent headers the receiver reported. The
 // target loops over stdin, so send can be called repeatedly (e.g. for polling).
 func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode string) string {
+	return startHTTPClientTargetWithMode(t, bin, config.ContextPropagationAll, "TP_COUNT=")
+}
+
+func startHTTPClientTargetWithMode(
+	t *testing.T,
+	bin string,
+	mode config.ContextPropagationMode,
+	resultPrefix string,
+) func(t *testing.T, mode string) string {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -103,24 +164,32 @@ func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode str
 	require.NoError(t, err)
 
 	require.NoError(t, cmd.Start())
-	t.Cleanup(func() {
-		_, _ = io.WriteString(stdin, "EXIT\n")
-		cancel()
-		_ = cmd.Wait()
-	})
+	var stopTargetOnce sync.Once
+	stopTarget := func() {
+		stopTargetOnce.Do(func() {
+			_, _ = io.WriteString(stdin, "EXIT\n")
+			cancel()
+			_ = cmd.Wait()
+		})
+	}
+	t.Cleanup(stopTarget)
 
 	stdoutLines := collectClientLines(t, "target stdout", stdout)
 	_ = collectClientLines(t, "target stderr", stderr)
 	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
 
-	attachGoTracer(t, app.PID(cmd.Process.Pid), config.ContextPropagationAll)
+	stopTracer := attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
+	t.Cleanup(func() {
+		stopTarget()
+		stopTracer()
+	})
 
 	return func(t *testing.T, mode string) string {
 		t.Helper()
 		_, err := io.WriteString(stdin, mode+"\n")
 		require.NoError(t, err)
-		line := waitForClientLine(t, stdoutLines, "TP_COUNT=", 30*time.Second)
-		return strings.TrimPrefix(strings.TrimSpace(line), "TP_COUNT=")
+		line := waitForClientLine(t, stdoutLines, resultPrefix, 30*time.Second)
+		return strings.TrimPrefix(strings.TrimSpace(line), resultPrefix)
 	}
 }
 
@@ -146,12 +215,111 @@ func TestGRPCClientTraceparentRespectsPropagationMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			send := startGRPCClientTarget(t, targetBin, tt.mode)
+			send := startGRPCClientTarget(t, targetBin, tt.mode, false)
 
 			for range 4 {
 				assert.True(t, strings.HasPrefix(send(t), tt.wantCount))
 			}
 		})
+	}
+}
+
+func TestGRPCClientTraceparentWriteFailureContinuity(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildGRPCClientTarget(t)
+	// This harness attaches only gotracer, so a rolled-back direct write sends no traceparent.
+	for _, tt := range []struct {
+		name      string
+		tls       bool
+		wantCount string
+	}{
+		{name: "plaintext", wantCount: "0:"},
+		{name: "tls", tls: true, wantCount: "0:"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			goH2WriteFailStepForTest = goH2WriterLengthWriteStep
+			t.Cleanup(func() { goH2WriteFailStepForTest = 0 })
+
+			send := startGRPCClientTarget(t, targetBin, config.ContextPropagationHeaders, tt.tls)
+			for range 4 {
+				assert.True(t, strings.HasPrefix(send(t), tt.wantCount))
+			}
+		})
+	}
+}
+
+const goH2WriterLengthWriteStep = 3
+
+func TestHTTP2ClientTraceparentWriteFailureContinuity(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildHTTP2ClientTarget(t)
+	// This harness attaches only gotracer, so a rolled-back direct write sends no traceparent.
+	for _, tt := range []struct {
+		name      string
+		tls       bool
+		wantCount string
+	}{
+		{name: "plaintext", wantCount: "0:"},
+		{name: "tls", tls: true, wantCount: "0:"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			goH2WriteFailStepForTest = goH2WriterLengthWriteStep
+			t.Cleanup(func() { goH2WriteFailStepForTest = 0 })
+
+			send := startHTTP2ClientTarget(t, targetBin, tt.tls)
+			for range 4 {
+				assert.True(t, strings.HasPrefix(send(t), tt.wantCount))
+			}
+		})
+	}
+}
+
+func startHTTP2ClientTarget(t *testing.T, bin string, useTLS bool) func(t *testing.T) string {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	args := []string{}
+	if useTLS {
+		args = append(args, "-tls")
+	}
+	cmd := osexec.CommandContext(ctx, bin, args...)
+	stdin, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	stderr, err := cmd.StderrPipe()
+	require.NoError(t, err)
+
+	require.NoError(t, cmd.Start())
+	stdoutLines := collectClientLines(t, "target stdout", stdout)
+	_ = collectClientLines(t, "target stderr", stderr)
+	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
+
+	attachGoTracer(t, app.PID(cmd.Process.Pid), config.ContextPropagationHeaders)
+	t.Cleanup(func() {
+		_, _ = io.WriteString(stdin, "EXIT\n")
+		cancel()
+		_ = cmd.Wait()
+	})
+
+	return func(t *testing.T) string {
+		t.Helper()
+		_, err := io.WriteString(stdin, "REQUEST\n")
+		require.NoError(t, err)
+		line := waitForClientLine(t, stdoutLines, "TP_RESULT=", 30*time.Second)
+		return strings.TrimPrefix(strings.TrimSpace(line), "TP_RESULT=")
 	}
 }
 
@@ -169,11 +337,20 @@ func startGRPCClientTarget(
 	t *testing.T,
 	bin string,
 	mode config.ContextPropagationMode,
+	useTLS bool,
 ) func(t *testing.T) string {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := osexec.CommandContext(ctx, bin)
+	args := []string{}
+	if useTLS {
+		cert, err := filepath.Abs("../../../../internal/test/cmd/grpc/x509/server_test_cert.pem")
+		require.NoError(t, err)
+		key, err := filepath.Abs("../../../../internal/test/cmd/grpc/x509/server_test_key.pem")
+		require.NoError(t, err)
+		args = append(args, "-tls", "-cert", cert, "-key", key)
+	}
+	cmd := osexec.CommandContext(ctx, bin, args...)
 	stdin, err := cmd.StdinPipe()
 	require.NoError(t, err)
 	stdout, err := cmd.StdoutPipe()
@@ -187,11 +364,12 @@ func startGRPCClientTarget(
 	_ = collectClientLines(t, "target stderr", stderr)
 	waitForClientLine(t, stdoutLines, "READY", 30*time.Second)
 
-	attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
+	stopTracer := attachGoTracer(t, app.PID(cmd.Process.Pid), mode)
 	t.Cleanup(func() {
 		_, _ = io.WriteString(stdin, "EXIT\n")
 		cancel()
 		_ = cmd.Wait()
+		stopTracer()
 	})
 
 	return func(t *testing.T) string {
@@ -205,7 +383,7 @@ func startGRPCClientTarget(
 
 // attachGoTracer wires up the real ProcessTracer with the gotracer against the
 // given PID, mirroring the production discovery/attach path.
-func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMode) {
+func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMode) func() {
 	t.Helper()
 
 	cfg := obi.DefaultConfig
@@ -242,15 +420,15 @@ func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMod
 		defer close(done)
 		processTracer.Run(runCtx, eventContext, spans)
 	}()
-	t.Cleanup(func() {
+	return func() {
 		cancel()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Log("timed out waiting for gotracer ProcessTracer to stop")
+		case <-time.After(cfg.ShutdownTimeout):
+			t.Error("timed out waiting for gotracer ProcessTracer to stop")
 		}
 		spans.Close()
-	})
+	}
 }
 
 // goFunctionNames returns the union of Go symbols the gotracer probes, matching
@@ -277,6 +455,12 @@ func goFunctionNames(cfg *obi.Config) []string {
 		add(sym)
 	}
 	for _, sym := range GoAutoSDKActivationProbeSymbols() {
+		add(sym)
+	}
+	for _, sym := range GoHTTP2FlushProbeSymbols() {
+		add(sym)
+	}
+	for _, sym := range GoH2OwnershipProbeSymbols() {
 		add(sym)
 	}
 	return funcs

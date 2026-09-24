@@ -24,3 +24,7 @@ spec:
           value: "{{.TargetURL}}"
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: "deployment.environment.name=test,service.version=3.2.1"
+        {{- range $key, $value := .Env }}
+        - name: {{$key}}
+          value: "{{$value}}"
+        {{- end }}

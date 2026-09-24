@@ -48,7 +48,7 @@ func doHTTPGetWithRawHeaders(t *testing.T, url string, status int, headers http.
 func testGenericHeaderExtraction(t *testing.T) {
 	// Send requests to /rolldice/42 with custom request headers.
 	// The test server sets response headers: Content-Type and X-Dice-Roll.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetWithHeaders(t, instrumentedServiceStdURL+"/rolldice/42", 200, map[string]string{
 			"X-Custom-Foo":  "custom-value",
 			"Authorization": "Bearer secret-token",
@@ -58,7 +58,7 @@ func testGenericHeaderExtraction(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -96,6 +96,15 @@ func testGenericHeaderExtraction(t *testing.T) {
 	_, ok = jaeger.FindIn(parent.Tags, "http.request.header.accept")
 	assert.False(t, ok, "Accept header should be excluded")
 
+	// Compared against the header so the client's UA string is not baked in.
+	uaHeader, ok := jaeger.FindIn(parent.Tags, "http.request.header.user-agent")
+	require.True(t, ok, "expected User-Agent request header on span")
+	headerVal, valOk := jaeger.TagFirstStringValue(uaHeader)
+	require.True(t, valOk)
+	uaSemconv, ok := jaeger.FindIn(parent.Tags, "user_agent.original")
+	require.True(t, ok, "expected user_agent.original alongside the captured header")
+	assert.Equal(t, headerVal, uaSemconv.Value)
+
 	// Verify included response headers appear on the span.
 	// The test server sets X-Dice-Roll and Content-Type response headers.
 	tag, ok = jaeger.FindIn(parent.Tags, "http.response.header.x-dice-roll")
@@ -115,7 +124,7 @@ func testGenericHeaderExtraction(t *testing.T) {
 // the obfuscate rule for Authorization fires before the include-all rule.
 func testGenericHeaderRuleOrder(t *testing.T) {
 	// Send a request with both Authorization and a custom header.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetWithHeaders(t, instrumentedServiceStdURL+"/rolldice/99", 200, map[string]string{
 			"Authorization":   "Bearer another-secret",
 			"X-Custom-Header": "should-be-included",
@@ -124,7 +133,7 @@ func testGenericHeaderRuleOrder(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -169,13 +178,13 @@ func testGenericHeaderMultipleValues(t *testing.T) {
 	headers.Add("X-Custom-Triple", "beta")
 	headers.Add("X-Custom-Triple", "gamma")
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetWithRawHeaders(t, instrumentedServiceStdURL+"/rolldice/77", 200, headers.Clone())
 	}
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

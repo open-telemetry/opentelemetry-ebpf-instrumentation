@@ -28,7 +28,7 @@ func testREDMetricsForPythonMongoLibrary(t *testing.T, testCase TestCase) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, uri+"/"+urlPath, 200)
 	}
 
@@ -58,7 +58,7 @@ func testREDMetricsForPythonMongoLibrary(t *testing.T, testCase TestCase) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
 			require.NoError(ct, err, "failed to query jaeger for %s", command)
 			if resp == nil {
 				return
@@ -76,7 +76,7 @@ func testREDMetricsForPythonMongoLibrary(t *testing.T, testCase TestCase) {
 	}, testTimeout, 100*time.Millisecond)
 
 	// Ensure we don't find any HTTP traces, since we filter them out
-	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
+	resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
 	require.NoError(t, err, "failed to query jaeger for HTTP traces")
 	if resp == nil {
 		return
@@ -98,7 +98,7 @@ func testREDMetricsPythonMongoOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "mongo",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{

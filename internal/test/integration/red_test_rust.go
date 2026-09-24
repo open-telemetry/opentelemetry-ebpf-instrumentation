@@ -28,7 +28,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	// Call 4 times the instrumented service, forcing it to:
 	// - take a large JSON body
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPPost(t, url+urlPath, 200, jsonBody)
 	}
 
@@ -66,7 +66,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Ftrace")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Ftrace")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -101,6 +101,9 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(port)},
 		jaeger.Tag{Key: "http.route", Type: "string", Value: "/trace"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		// Read from the request line by the generic tracer. Go services are
+		// instrumented through uprobes and carry no version.
+		jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "1.1"},
 	)
 	assert.Empty(t, sd, sd.String())
 
@@ -153,7 +156,7 @@ func validateLargeDownloadURLSeen(t *testing.T, comm, namespace, urlPath string)
 }
 
 func testREDMetricsForLargeRustDownloads(t *testing.T, tURL, comm, namespace string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetFullResponse(t, tURL+"/large", 200)
 		doHTTPGetFullResponse(t, tURL+"/download1", 200)
 		doHTTPGetFullResponse(t, tURL+"/download2", 200)
@@ -228,7 +231,7 @@ func testREDMetricsForRustHTTP2Library(t *testing.T, url, comm, namespace string
 	// Call 4 times the instrumented service, forcing it to:
 	// - take a large JSON body
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTP2Post(t, url+urlPath, 200, jsonBody)
 	}
 

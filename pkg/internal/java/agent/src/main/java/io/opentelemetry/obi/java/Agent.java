@@ -12,6 +12,7 @@ import io.opentelemetry.obi.java.ebpf.*;
 import io.opentelemetry.obi.java.instrumentations.*;
 import io.opentelemetry.obi.java.instrumentations.data.BytesWithLen;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
+import io.opentelemetry.obi.java.instrumentations.data.JdkHttpClientTask;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor;
 import io.opentelemetry.obi.java.instrumentations.util.CappedConcurrentHashMap;
@@ -22,8 +23,6 @@ import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.*;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import net.bytebuddy.agent.ByteBuddyAgent;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.description.type.TypeDescription;
@@ -35,7 +34,6 @@ public class Agent {
   public static int IOCTL_CMD = 0x0b10b1;
 
   public static volatile boolean debugOn = false;
-  private static final Logger logger = Logger.getLogger("Agent");
   private static volatile boolean agentLoaded = false;
 
   public static class NativeLib {
@@ -73,6 +71,17 @@ public class Agent {
     return builder;
   }
 
+  // OBI reads this property from JVMs that already have an agent attached, to tell whether the
+  // attached agent is the one it would inject.
+  private static void publishVersion() {
+    try {
+      System.setProperty(AgentVersion.PROPERTY, AgentVersion.read());
+    } catch (Exception x) {
+      System.err.println("Failed to publish the agent version");
+      x.printStackTrace(System.err);
+    }
+  }
+
   private static Map<String, String> parseArgs(String agentArgs) {
     Map<String, String> opts = new HashMap<>();
     if (agentArgs != null && !agentArgs.isEmpty()) {
@@ -93,22 +102,34 @@ public class Agent {
     return optVal.toLowerCase(Locale.getDefault()).equals("true");
   }
 
+  static long positiveLongOpt(Map<String, String> opts, String opt, long defaultValue) {
+    try {
+      long value = Long.parseLong(opts.getOrDefault(opt, ""));
+      return value > 0 ? value : defaultValue;
+    } catch (NumberFormatException ignored) {
+      return defaultValue;
+    }
+  }
+
   // Main agent load and instrumentation code, this gets invoked directly with -javaagent on the
   // command line
   public static void premain(String agentArgs, Instrumentation inst) {
     String osName = System.getProperty("os.name").toLowerCase(Locale.getDefault());
     if (!osName.contains("linux")) {
-      logger.info("OpenTelemetry eBPF Java Agent only supports Linux, ignoring load request");
+      System.err.println(
+          "OpenTelemetry eBPF Java Agent only supports Linux, ignoring load request");
       return;
     }
 
     synchronized (Agent.class) {
       // Check if agent is already loaded
       if (agentLoaded) {
-        logger.info("OpenTelemetry eBPF Java Agent already loaded, skipping initialization");
+        System.err.println("OpenTelemetry eBPF Java Agent already loaded, skipping initialization");
       }
       agentLoaded = true;
     }
+
+    publishVersion();
 
     Map<String, String> opts = parseArgs(agentArgs);
 
@@ -123,11 +144,14 @@ public class Agent {
         setupInstrumentationsDebugging();
       }
     } catch (Exception x) {
-      logger.log(Level.SEVERE, "Failed to load agent", x);
+      System.err.println("Failed to load agent");
+      x.printStackTrace(System.err);
       return;
     }
 
     builder(opts, inst)
+        .type(ClassLoaderInst.type())
+        .transform(ClassLoaderInst.transformer())
         .type(SSLSocketInst.type())
         .transform(SSLSocketInst.transformer())
         .type(SSLSocketStreamInst.inputStreamType())
@@ -142,6 +166,8 @@ public class Agent {
         .transform(NettySSLHandlerInst.transformer())
         .type(JavaExecutorInst.type())
         .transform(JavaExecutorInst.transformer())
+        .type(JdkHttpClientInst.type())
+        .transform(JdkHttpClientInst.transformer())
         .type(CallableInst.type())
         .transform(CallableInst.transformer())
         .type(RunnableInst.type())
@@ -151,6 +177,19 @@ public class Agent {
         .type(VirtualThreadInst.type())
         .transform(VirtualThreadInst.transformer())
         .installOn(inst);
+
+    if (optEnabled(opts, "runtimeMetrics")) {
+      try {
+        JVMRuntimeMetrics.start(
+            positiveLongOpt(
+                opts,
+                "runtimeMetricsIntervalNanos",
+                JVMRuntimeMetrics.DEFAULT_SAMPLING_INTERVAL_NANOS));
+      } catch (Throwable error) {
+        System.err.println("Failed to start JVM runtime metrics");
+        error.printStackTrace(System.err);
+      }
+    }
   }
 
   // Needed for Dynamic Agent Injection
@@ -169,25 +208,27 @@ public class Agent {
       if (clazz.getName().contains("$$Lambda$")) {
         continue;
       }
-      if (SSLSocketInst.matches(clazz)
+      if (ClassLoaderInst.matches(clazz)
+          || SSLSocketInst.matches(clazz)
           || SSLSocketStreamInst.matchesInputStream(clazz)
           || SSLSocketStreamInst.matchesOutputStream(clazz)
           || SSLEngineInst.matches(clazz)
           || SocketChannelInst.matches(clazz)
           || JavaExecutorInst.matches(clazz)
+          || JdkHttpClientInst.matches(clazz)
           || CallableInst.matches(clazz)
           || RunnableInst.matches(clazz)
           || JavaForkJoinTaskInst.matches(clazz)
           || NettySSLHandlerInst.matches(clazz)
           || VirtualThreadInst.matches(clazz)) {
         if (Agent.debugOn) {
-          logger.info("Retransforming " + clazz);
+          System.err.println("Retransforming " + clazz);
         }
         try {
           inst.retransformClasses(clazz);
         } catch (Throwable t) { // Failure can be normal if we've retransformed this class before
           if (Agent.debugOn) {
-            logger.severe("Error " + t.getMessage());
+            System.err.println("Error " + t.getMessage());
           }
         }
       }
@@ -210,6 +251,7 @@ public class Agent {
     Class.forName(Agent.class.getName());
     Class.forName(BytesWithLen.class.getName());
     Class.forName(Connection.class.getName());
+    Class.forName(JdkHttpClientTask.class.getName());
     Class.forName(NettyChannelExtractor.class.getName());
     Class.forName(SSLStorage.class.getName());
     Class.forName(ByteBufferExtractor.class.getName());
@@ -263,7 +305,7 @@ public class Agent {
       loadMethod.invoke(null);
 
       if (Agent.debugOn) {
-        logger.info("Successfully loaded native library in bootstrap classloader");
+        System.err.println("Successfully loaded native library in bootstrap classloader");
       }
 
       // Force-initialize the BOOTSTRAP copies of every class on the
@@ -291,11 +333,11 @@ public class Agent {
             Class.forName(io.opentelemetry.obi.java.ebpf.ThreadInfo.class.getName(), true, null);
         bootstrapThreadInfo.getDeclaredMethod("initVtEmitPool").invoke(null);
       } catch (Throwable t) {
-        logger.severe("Failed to arm VT emit buffers, VT correlation disabled: " + t);
+        System.err.println("Failed to arm VT emit buffers, VT correlation disabled: " + t);
       }
     } catch (Exception e) {
       if (Agent.debugOn) {
-        logger.severe("Error initializing the JNI library" + e.getMessage());
+        System.err.println("Error initializing the JNI library" + e.getMessage());
       }
       throw e;
     }
@@ -322,7 +364,7 @@ public class Agent {
     InputStream libStream = Agent.class.getResourceAsStream(nativeLibraryResourcePath());
     if (libStream != null) {
       if (Agent.debugOn) {
-        logger.info("[Agent] Found library in JAR, extracting to temp file...");
+        System.err.println("[Agent] Found library in JAR, extracting to temp file...");
       }
 
       // Extract to temp file
@@ -340,16 +382,16 @@ public class Agent {
       }
 
       if (Agent.debugOn) {
-        logger.info("Extracted to: " + tempLib.getAbsolutePath());
-        logger.info("File size: " + tempLib.length() + " bytes");
-        logger.info("File exists: " + tempLib.exists());
-        logger.info("File readable: " + tempLib.canRead());
+        System.err.println("Extracted to: " + tempLib.getAbsolutePath());
+        System.err.println("File size: " + tempLib.length() + " bytes");
+        System.err.println("File exists: " + tempLib.exists());
+        System.err.println("File readable: " + tempLib.canRead());
       }
 
       // Load from temp file
       System.load(tempLib.getAbsolutePath());
       if (Agent.debugOn) {
-        logger.info("Loaded native library from JAR: " + tempLib.getAbsolutePath());
+        System.err.println("Loaded native library from JAR: " + tempLib.getAbsolutePath());
       }
     } else {
       throw new Exception("agent not found in jar file");
@@ -363,9 +405,10 @@ public class Agent {
           Class.forName("io.opentelemetry.obi.java.instrumentations.data.SSLStorage", true, null);
       Field debugOn = sslStorageClass.getDeclaredField("debugOn");
       debugOn.set(null, true);
-      logger.info("Setting up instrumentations debugging");
+      System.err.println("Setting up instrumentations debugging");
     } catch (Exception x) {
-      logger.log(Level.SEVERE, "Failed to setup instrumentation debugging", x);
+      System.err.println("Failed to setup instrumentation debugging");
+      x.printStackTrace(System.err);
     }
   }
 }

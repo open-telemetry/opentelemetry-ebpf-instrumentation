@@ -75,14 +75,14 @@ func TestIsMemcachedFirstByte(t *testing.T) {
 
 	// Spot-check each allowed character explicitly so a failure points at the
 	// specific missing one.
-	for i := 0; i < len(allowed); i++ {
+	for i := range len(allowed) {
 		b := allowed[i]
 		assert.Truef(t, isMemcachedFirstByte(b), "expected %q (0x%02X) to be accepted", b, b)
 	}
 
 	// Exhaustive sweep across all 256 possible byte values to guarantee the
 	// bitmap doesn't accept anything outside the allowed set.
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		got := isMemcachedFirstByte(byte(b))
 		want := inAllowed(byte(b))
 		assert.Equalf(t, want, got, "byte 0x%02X (%q): want %v", b, byte(b), want)
@@ -682,7 +682,7 @@ func memcachedBenchmarkSetPayload(size int, noreply bool) []byte {
 
 func memcachedBenchmarkCoalescedRequest(noreplyOps int) []byte {
 	buf := bytes.Buffer{}
-	for i := 0; i < noreplyOps; i++ {
+	for i := range noreplyOps {
 		payload := fmt.Sprintf("value-%02d", i)
 		fmt.Fprintf(&buf, "set session-key:%02d 0 300 %d noreply\r\n%s\r\n", i, len(payload), payload)
 	}

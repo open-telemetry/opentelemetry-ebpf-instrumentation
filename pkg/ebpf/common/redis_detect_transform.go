@@ -263,7 +263,7 @@ func parseRedisCommand(buf []byte, pos int) (*redisCommand, int, bool) {
 	var text strings.Builder
 	pos = next
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		lenLine, tokStart, ok := readRESPLine(buf, pos)
 		if !ok || len(lenLine) < 2 || lenLine[0] != '$' {
 			return salvageRedisCommand(op, &text), 0, false
@@ -496,10 +496,7 @@ func ReadGoRedisRequestIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Reco
 		spans = append(spans, goRedisSpan(event, cmds[i].op, cmds[i].text))
 	}
 	if len(spans) > 1 {
-		// clear SpanID on extras so tracesgen assigns fresh IDs
-		for i := 1; i < len(spans); i++ {
-			spans[i].SpanID = trace2.SpanID{}
-		}
+		detachExtraSpans(spans[1:])
 		parseCtx.emitExtraSpans(spans[1:]...)
 	}
 	return spans[0], false, nil

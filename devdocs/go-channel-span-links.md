@@ -48,6 +48,19 @@ The supported handoff shapes are:
 
 `runtime.selectgo` and `select`-based channel paths are not supported yet.
 
+## Relationship to `traces_ctx_v1`
+
+Handoff correlation resolves the sender context from the per-goroutine
+protocol maps, and falls back to `traces_ctx_v1` for the current thread when
+none of them matches.
+
+That fallback is only populated when `ebpf.populate_trace_context` is on, which
+it is not by default. Handoffs whose sender is covered by one of the protocol
+maps are unaffected; any that relied on the fallback emit no link. How much it
+contributes in practice is unmeasured -- there is no channel-link assertion in
+the integration suite. Set `ebpf.populate_trace_context: true` to restore the
+fallback.
+
 ## Limits
 
 Pending links are kept in a bounded userspace cache while OBI waits for the

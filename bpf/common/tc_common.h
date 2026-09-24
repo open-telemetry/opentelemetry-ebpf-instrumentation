@@ -19,7 +19,7 @@ const u32 INVALID_POS = 0xffffffff;
 static __always_inline unsigned char *
 memchar(unsigned char *haystack, char needle, const unsigned char *end, u32 size) {
     for (u32 i = 0; i < size; ++i) {
-        if (&haystack[i] >= end) {
+        if (&haystack[i] + 1 > end) {
             break;
         }
 
@@ -47,7 +47,7 @@ static __always_inline u32 memchar_pos(unsigned char *haystack,
     for (u32 i = 0; i < size; ++i) {
         unsigned char *ptr = haystack + i;
 
-        if (ptr + 1 >= end) {
+        if (ptr + 2 > end) { // `>` not `>=`: pre-5.16 verifiers mark `>=` one byte short
             break;
         } else if (ptr && *ptr == needle) {
             return i;

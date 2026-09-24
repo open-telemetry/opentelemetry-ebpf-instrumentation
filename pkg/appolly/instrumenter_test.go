@@ -779,6 +779,44 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+func TestConditionalParentsSettledBeforeFiltering(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	exportableSpans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	exported := exportableSpans.Subscribe()
+
+	ctxInfo := gctx(0, nil)
+	ctxInfo.OverrideAppExportQueue = exportableSpans
+	cfg := obi.DefaultConfig
+	cfg.Filters = filter.AttributesConfig{
+		Application: map[string]filter.MatchDefinition{
+			string(attr.SpanKind): {Match: "SPAN_KIND_CLIENT"},
+		},
+	}
+
+	gb := newGraphBuilder(&cfg, ctxInfo, tracesInput, processEvents, nil)
+	pipe, err := gb.buildGraph(ctx)
+	require.NoError(t, err)
+	done := pipe.Start(ctx)
+
+	tracesInput.Send([]request.Span{serverSpan(200), conditionalChild(100)})
+
+	select {
+	case spans := <-exported:
+		require.Len(t, spans, 1)
+		assert.Equal(t, request.EventTypeHTTPClient, spans[0].Type)
+		assert.Equal(t, parentSpan, [8]byte(spans[0].ParentSpanID))
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the settled client span")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
 func newRequest(serviceName string, path string, status int) []request.Span {
 	return []request.Span{{
 		Path:         path,
@@ -845,17 +883,18 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 	assert.Equal(t, collector.TraceRecord{
 		Name: name,
 		Attributes: map[string]string{
-			string(attr.HTTPRequestMethod):      "GET",
-			string(attr.HTTPResponseStatusCode): "404",
-			string(attr.HTTPUrlPath):            "/foo/bar",
-			string(attr.ClientAddr):             "1.1.1.1",
-			string(attr.ServerAddr):             getHostname(),
-			string(attr.ServerPort):             "8080",
-			string(attr.HTTPRequestBodySize):    "0",
-			string(attr.HTTPResponseBodySize):   "0",
-			string(attr.HTTPURLScheme):          "http",
-			"span_id":                           event.Attributes["span_id"],
-			"parent_span_id":                    event.Attributes["parent_span_id"],
+			string(attr.HTTPRequestMethod):        "GET",
+			string(attr.HTTPResponseStatusCode):   "404",
+			string(attr.HTTPUrlPath):              "/foo/bar",
+			string(attr.ClientAddr):               "1.1.1.1",
+			string(semconv.NetworkPeerAddressKey): "1.1.1.1",
+			string(attr.ServerAddr):               getHostname(),
+			string(attr.ServerPort):               "8080",
+			string(attr.HTTPRequestBodySize):      "0",
+			string(attr.HTTPResponseBodySize):     "0",
+			string(attr.HTTPURLScheme):            "http",
+			"span_id":                             event.Attributes["span_id"],
+			"parent_span_id":                      event.Attributes["parent_span_id"],
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",
@@ -915,6 +954,7 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 			string(semconv.RPCResponseStatusCodeKey): "INVALID_ARGUMENT",
 			string(semconv.RPCMethodKey):             "foo.bar",
 			string(attr.ClientAddr):                  "1.1.1.1",
+			string(semconv.NetworkPeerAddressKey):    "1.1.1.1",
 			string(attr.ServerAddr):                  "127.0.0.1",
 			string(attr.ServerPort):                  "8080",
 			"span_id":                                event.Attributes["span_id"],
@@ -998,17 +1038,18 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 	assert.Equal(t, collector.TraceRecord{
 		Name: name,
 		Attributes: map[string]string{
-			string(attr.HTTPRequestMethod):      "PATCH",
-			string(attr.HTTPResponseStatusCode): "204",
-			string(attr.HTTPUrlPath):            "/aaa/bbb",
-			string(attr.ClientAddr):             "1.1.1.1",
-			string(attr.ServerAddr):             getHostname(),
-			string(attr.ServerPort):             "8080",
-			string(attr.HTTPRequestBodySize):    "0",
-			string(attr.HTTPResponseBodySize):   "0",
-			string(attr.HTTPURLScheme):          "http",
-			"span_id":                           event.Attributes["span_id"],
-			"parent_span_id":                    "",
+			string(attr.HTTPRequestMethod):        "PATCH",
+			string(attr.HTTPResponseStatusCode):   "204",
+			string(attr.HTTPUrlPath):              "/aaa/bbb",
+			string(attr.ClientAddr):               "1.1.1.1",
+			string(semconv.NetworkPeerAddressKey): "1.1.1.1",
+			string(attr.ServerAddr):               getHostname(),
+			string(attr.ServerPort):               "8080",
+			string(attr.HTTPRequestBodySize):      "0",
+			string(attr.HTTPResponseBodySize):     "0",
+			string(attr.HTTPURLScheme):            "http",
+			"span_id":                             event.Attributes["span_id"],
+			"parent_span_id":                      "",
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",

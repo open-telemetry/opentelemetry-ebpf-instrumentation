@@ -137,6 +137,66 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 	assert.Equal(t, 7, metrics.flushedLen)
 }
 
+// spans are filtered and decorated when parsed, so a process going away before
+// its batch flushes does not strip the attributes of spans already waiting in it
+func TestForwardRingbuf_FiltersBeforeBatching(t *testing.T) {
+	ringBuf := replaceTestRingBuf()
+	forwardedMessagesQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100))
+	forwardedMessages := forwardedMessagesQueue.Subscribe()
+
+	var filtered atomic.Int32
+	var allowed atomic.Bool
+	allowed.Store(true)
+	filter := func(spans []request.Span) []request.Span {
+		defer filtered.Add(int32(len(spans)))
+		if !allowed.Load() {
+			return spans[:0]
+		}
+		for i := range spans {
+			spans[i].Service = svc.Attrs{UID: svc.UID{Name: "myService"}}
+		}
+		return spans
+	}
+	validPIDs := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
+	go ForwardRingbuf(
+		cfg,
+		nil,
+		func(r *ringbuf.Record) (request.Span, bool, error) {
+			return ReadBPFTraceAsSpan(nil, cfg, r, &validPIDs)
+		},
+		filter,
+		slog.With("test", "TestForwardRingbuf_FiltersBeforeBatching"),
+		&metricsReporter{},
+	)(t.Context(), forwardedMessagesQueue)
+
+	get := [7]byte{'G', 'E', 'T', 0, 0, 0, 0}
+	send := func(n int) {
+		for i := range n {
+			tr := HTTPRequestTrace{Type: 1, Method: get, ContentLength: int64(i)}
+			tr.Pid.HostPid = 1
+			ringBuf.events <- tr
+		}
+	}
+
+	// half a batch is parsed while the process is allowed
+	send(5)
+	require.Eventually(t, func() bool { return filtered.Load() == 5 }, testTimeout, time.Millisecond)
+
+	// the process goes away before the batch is full
+	allowed.Store(false)
+	send(5)
+
+	batch := testutil.ReadChannel(t, forwardedMessages, testTimeout)
+	for len(batch) < 5 {
+		batch = append(batch, testutil.ReadChannel(t, forwardedMessages, testTimeout)...)
+	}
+	require.Len(t, batch, 5, "only the spans parsed while the process was allowed are forwarded")
+	for i := range batch {
+		assert.Equal(t, "myService", batch[i].Service.UID.Name, "spans keep the attributes they got when parsed")
+	}
+}
+
 func TestForwardRingbuf_Close(t *testing.T) {
 	// GIVEN a ring buffer forwarder
 	ringBuf := replaceTestRingBuf()

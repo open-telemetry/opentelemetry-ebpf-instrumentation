@@ -59,3 +59,14 @@ func TestSlogExcludesEnvVars(t *testing.T) {
 		assert.Contains(t, out, "ns/svc", name)
 	}
 }
+
+func TestAutoName_SetAndClear(t *testing.T) {
+	var a Attrs
+	assert.False(t, a.AutoName())
+
+	a.SetAutoName()
+	assert.True(t, a.AutoName())
+
+	a.ClearAutoName()
+	assert.False(t, a.AutoName())
+}

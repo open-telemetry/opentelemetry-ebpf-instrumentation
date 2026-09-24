@@ -21,7 +21,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
@@ -35,6 +35,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
+			`service_version="2.3.4-beta.1",` +
 			`url_path="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
@@ -54,7 +55,8 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 			`http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
-			`service_name="` + comm + `"}`)
+			`service_name="` + comm + `",` +
+			`service_version="2.3.4-beta.1"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -69,8 +71,26 @@ func testREDMetricsDotNetHTTP(t *testing.T) {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
 			testREDMetricsForNetHTTPLibrary(t, testCaseURL, "dotnetserver") // reusing what we do for NodeJS
+			testDotnetHarvestedRoute(t, testCaseURL)
 		})
 	}
+}
+
+func testDotnetHarvestedRoute(t *testing.T, url string) {
+	for range 4 {
+		ti.DoHTTPGet(t, url+"/api/customers/42", 200)
+	}
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`http_server_request_duration_seconds_count{` +
+			`http_request_method="GET",` +
+			`service_name="dotnetserver",` +
+			`http_route="/api/customers/{customer_id:int}"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		assert.LessOrEqual(ct, 2, totalPromCount(ct, results))
+	}, testTimeout, 100*time.Millisecond)
 }
 
 // Special test without checks for a peer address. With the async nature of SSL on .NET we can't always get
@@ -81,7 +101,7 @@ func testREDMetricsForNetHTTPSLibrary(t *testing.T, url string, comm string) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
 	// - returning a 204 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+path, 200)
 	}
 
@@ -95,6 +115,7 @@ func testREDMetricsForNetHTTPSLibrary(t *testing.T, url string, comm string) {
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
+			`service_version="2.3.4-beta.1",` +
 			`url_path="` + path + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)

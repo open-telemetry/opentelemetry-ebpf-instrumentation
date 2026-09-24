@@ -10,7 +10,7 @@
   "author": "Jonathan Lui",
   "license": "ISC",
   "dependencies": {
-    "@grpc/grpc-js": "1.14.4",
+    "@grpc/grpc-js": "1.14.5",
     "@grpc/proto-loader": "0.8.1",
     "pino": "10.3.1",
     "simple-card-validator": "^1.1.0",

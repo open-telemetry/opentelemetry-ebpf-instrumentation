@@ -27,7 +27,7 @@ func testREDMetricsRedisServerSide(t *testing.T) {
 	urlPath := "redis"
 	namespace := "integration-test"
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/"+urlPath, 200)
 	}
 
@@ -54,7 +54,7 @@ func testREDMetricsRedisServerSide(t *testing.T) {
 	// Traces: the same operations must be visible as server spans of the
 	// redis-server service.
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=redis-server&operation=GET")
+		resp, err := getJaeger(jaegerQueryURL + "?service=redis-server&operation=GET")
 		require.NoError(ct, err, "failed to query jaeger for GET")
 		if resp == nil {
 			return

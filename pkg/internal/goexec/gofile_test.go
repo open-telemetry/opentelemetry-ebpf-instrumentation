@@ -25,21 +25,22 @@ func TestSupportedGoVersion(t *testing.T) {
 		{input: "1.16", want: false},
 		{input: "1.16.1", want: false},
 		{input: "1.16.15", want: false},
+		{input: "1.17beta1", want: false},
+		{input: "1.17rc1", want: false},
+		{input: "1.17rc2", want: false},
 
 		// Supported versions
 		{input: "1.17", want: true},
-		{input: "1.17beta1", want: true},
-		{input: "1.17rc1", want: true},
-		{input: "1.17rc2", want: true},
 		{input: "1.17.1", want: true},
 		{input: "1.17.13", want: true},
 		{input: "1.18", want: true},
+		{input: "1.18rc1", want: true},
 		{input: "1.18.9", want: true},
 
 		// Uncleaned Go version strings
 		{input: "go1.16.4", want: false},
 		{input: "go1.21.4", want: true},
-		{input: "devel go1.22-098f059 Mon Dec 4 23:03:04 2023 +0000", want: true},
+		{input: "devel go1.22-098f059 Mon Dec 4 23:03:04 2023 +0000", want: false},
 
 		// Invalid versions
 		{input: "devel", want: false},
@@ -64,7 +65,7 @@ func TestGoRuntimeMemoryMetricVersion(t *testing.T) {
 		{version: "go1.22.12"},
 		{version: "go1.23", want: true},
 		{version: "go1.26.3", want: true},
-		{version: "devel go1.27-abcdef", want: true},
+		{version: "devel go1.27-abcdef"},
 		{version: "unknown"},
 	}
 

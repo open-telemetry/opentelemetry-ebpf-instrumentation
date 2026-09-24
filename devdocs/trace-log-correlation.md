@@ -46,6 +46,8 @@ Plain-text annotation is enabled by default for services selected by the log enr
 request failed trace_id=4bf92f3577b34da6a3ce929d0e0e4736 span_id=00f067aa0ba902b7
 ```
 
+The logenricher only intercepts writes of the instrumented processes its own selection matches (`ebpf.log_enricher.services`, or `correlation.log_trace_annotation.match` in configuration version 2). That selection must be a subset of the instrumentation selection: a process only the enricher selection matches is not instrumented, and an instrumented process outside the enricher selection keeps its logs untouched.
+
 Configure the behavior under `ebpf.log_enricher` in the current configuration, or under `extensions.obi.correlation.log_trace_annotation` in configuration version 2:
 
 ```yaml
@@ -72,7 +74,25 @@ Newline-delimited JSON is handled as structured JSON: OBI enriches each JSON obj
 - **Value**: `obi_ctx_info_t` — `trace_id[16]` + `span_id[8]`
 - **Pinning**: `LIBBPF_PIN_BY_NAME` under `<bpf_fs_path>/otel/` (default `bpf_fs_path` is `/sys/fs/bpf`, configurable via `config.ebpf.bpf_fs_path` / `OTEL_EBPF_BPF_FS_PATH`).
 
-The map is **written** by the generic tracer (in `server_or_client_trace()`) whenever an HTTP request or client call is detected on the wire. The map is **read** by the logenricher when intercepting writes.
+The map is **written** by the generic tracer (in `server_or_client_trace()`) whenever an HTTP request or client call is detected on the wire. When a client call ends, `obi_ctx__restore_server()` points the thread back at its enclosing server span (looked up in `server_traces` and matched by parent span id), so logs written after a nested client call keep the server context. The map is **read** by the logenricher when intercepting writes.
+
+### When the map is populated
+
+Population is not free. The per-runtime refresh below runs on every async context switch of the instrumented process — on Node.js an `async_hooks` before hook on every callback. The writers are gated on a single BPF constant, `g_traces_ctx_v1_enabled`, set from `Config.PopulateTraceContext()`: the map is populated only when something reads it.
+
+The Go tracer follows the same constant. Go channel span links may be affected while population is off: handoff correlation falls back to this map when it cannot resolve the sending goroutine from the per-goroutine protocol maps. See [Go channel span links](go-channel-span-links.md).
+
+What the constant removes is the CPU cost, not the memory. `traces_ctx_v1` and the Go tracer's `obi_ctx_stacks` are both `LRU_HASH`, which the kernel preallocates at load and which cannot take `BPF_F_NO_PREALLOC`, so they occupy their full size whether or not anything writes to them.
+
+| Reader | Turns population on |
+|---|---|
+| Log enricher | `ebpf.log_enricher.services` is non-empty |
+| Node.js manual span bridge | `nodejs.manual_spans: true` |
+| Anything outside OBI (a profiler, another eBPF program reading the pin) | `ebpf.populate_trace_context: true` |
+
+A reader outside OBI cannot announce itself, so it opts in explicitly. With no reader, `obi_ctx__set` / `obi_ctx__del` compile away in the generic tracer and Node.js skips the before hook that drives them.
+
+The pin outlives the process, so entries a populating run left behind would sit there unread and unrefreshed while population is off. A non-populating run therefore empties the map once (`ebpfconvenience.DrainTraceContextMap`), and never touches it again. Both tracers call it and only the first call sweeps; that is when the first tracer starts, which is when its first matching executable is discovered rather than at agent start. The pin records nothing about who wrote an entry, so the sweep also removes entries a co-resident writer put there.
 
 ## The context staleness problem
 
@@ -90,19 +110,19 @@ Without correction, `traces_ctx_v1[pid_tgid]` may carry the wrong trace context 
 
 ### Go — uprobe entry + `runtime.casgstatus` uprobe
 
-Go's context refresh has two complementary mechanisms:
+Go keeps a per-goroutine stack of the spans that are still running (`obi_ctx_stacks` in `bpf/gotracer/go_obi_ctx.h`), so logs are attributed to the innermost active span even when spans nest.
 
-**1. Immediate set at uprobe entry**: Each Go protocol uprobe (HTTP `ServeHTTP`, gRPC `server_handleStream`, Redis `redis_process`, etc.) calls `obi_ctx__set(bpf_get_current_pid_tgid(), &tp)` immediately after storing the invocation in its per-goroutine map. This ensures `traces_ctx_v1` is populated from the very start of the handler, so log writes that happen before any goroutine reschedule are enriched.
+**1. Span begin at uprobe entry**: Each Go protocol uprobe (HTTP `ServeHTTP`, gRPC `server_handleStream`, Redis `redis_process`, etc.) calls `go_obi_ctx__begin(g_key, kind, &tp, stack_off)`. This sets `traces_ctx_v1[pid_tgid]` to the new span immediately and pushes a frame onto the goroutine's stack. `stack_off` (how deep the probed call sits in the goroutine stack) distinguishes a nested call of the same kind (deeper, new frame) from Go restarting the same function after a stack growth (same depth, refresh the existing frame). When the stack is full, additional spans are only counted per kind, so their ends stay balanced; the newest of them stays the goroutine's current context until it ends.
 
-**2. Refresh on goroutine status transitions**: The Go runtime calls `runtime.casgstatus` on every goroutine status transition. OBI hooks this function and, when a goroutine transitions to `g_running` (2) or `g_syscall` (3), looks up the goroutine's active operation (HTTP server, gRPC, Kafka, SQL, etc.) and calls `obi_ctx__set(pid_tgid, &tp)`. This fires on every context switch, so `traces_ctx_v1` stays in sync when a goroutine migrates to a different OS thread.
+**2. Span end at return uprobes**: When the handler or client call returns, the return uprobe calls `go_obi_ctx__end(g_key, kind, tp)`. This pops the span's frame (and anything above it) and points `traces_ctx_v1` back at the enclosing span — the frame below — so a log written after a nested client span still carries the server span. When the last frame is popped, the stack and the thread context are deleted.
 
-**3. Cleanup at return uprobes**: When the handler returns, the return uprobe deletes the per-goroutine map entry and calls `obi_ctx__del(pid_tgid)` to remove stale context from `traces_ctx_v1`.
+**3. Refresh on goroutine status transitions**: The Go runtime calls `runtime.casgstatus` on every goroutine status transition. OBI hooks it and, when a goroutine transitions to `g_running`, calls `go_obi_ctx__resume(pid_tgid, g_key)`: the top of the goroutine's stack becomes the thread's context, or the thread's entry is deleted when the goroutine has no spans. This keeps `traces_ctx_v1` in sync when a goroutine migrates to a different OS thread. A transition to `g_dead` deletes the goroutine's stack — Go reuses `g` objects, so a stale stack must not survive to the next goroutine at the same address. Any other transition (the goroutine leaves the thread) deletes the thread's entry.
 
-**Why setting context at uprobe entry is safe**: At the moment the uprobe fires (e.g. `ServeHTTP`), the goroutine is guaranteed to be running on the current OS thread — `bpf_get_current_pid_tgid()` returns the correct `pid_tgid`. The `traces_ctx_v1` map uses `BPF_ANY` semantics, so the write is idempotent: the subsequent `casgstatus` transition will overwrite the entry with the same trace/span IDs. If the goroutine migrates to a different OS thread later, `casgstatus` handles the update for the new `pid_tgid`, and the `default` branch deletes the stale entry for the old one.
+**Why setting context at uprobe entry is safe**: At the moment the uprobe fires (e.g. `ServeHTTP`), the goroutine is guaranteed to be running on the current OS thread — `bpf_get_current_pid_tgid()` returns the correct `pid_tgid`. The `traces_ctx_v1` map uses `BPF_ANY` semantics, so the write is idempotent: the subsequent `casgstatus` transition will overwrite the entry with the same trace/span IDs. If the goroutine migrates to a different OS thread later, `casgstatus` handles the update for the new `pid_tgid`, and the stale entry for the old thread is deleted when it runs something else.
 
 ### Node.js — `async_hooks` before callback + `uv_fs_access` uprobe
 
-The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.accessSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
+The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.existsSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
 
 1. Parses the 4-digit fd from the path.
 2. Looks up `fd_to_connection[pid_tgid, fd]` to get the connection info.
@@ -110,6 +130,10 @@ The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Befor
 4. Calls `obi_ctx__set(pid_tgid, &tp)` or `obi_ctx__del(pid_tgid)`.
 
 This fires before every JS callback, ensuring the correct trace context is active even when multiple requests are interleaved in the event loop.
+
+Because it runs that often, the call must not throw. The sentinel path never resolves, so the call always fails: `fs.existsSync` reports that as `false`, while `fs.accessSync` builds and throws a `UVException` costing several times the call itself. Both reach the same `uv_fs_access` the uprobe is attached to, so the choice is about cost, not transport. Any sentinel added to the agent must use the non-throwing call. `TestAgentScriptsUseNonThrowingSentinel` checks the forms the agents actually use — a throwing call reached some other way, through a destructured import say, would pass it.
+
+The hook is the most expensive of the per-runtime refreshes — a synchronous `fs.existsSync` on every callback, measured at a double-digit share of event-loop CPU on request-heavy services — so the injector installs it only when the map has a reader (`OBI_CTX_HOOK_ENABLED` in `fdextractor.js`, substituted from the same predicate as `g_traces_ctx_v1_enabled`). Client-span parenting does not go through it: that comes from the fd-pair map the `net` prototype wraps maintain, which stays installed whenever traces are on.
 
 ### Java — `k_ioctl_java_threads` in the ioctl kprobe
 

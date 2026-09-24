@@ -38,7 +38,16 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 echo "fetch-upstream-semconv: fetching v$VERSION into $TARGET/model"
-curl -fsSL "https://github.com/open-telemetry/semantic-conventions/archive/refs/tags/v${VERSION}.tar.gz" \
-  | tar -xz -C "$TMPDIR" --strip-components=1 "semantic-conventions-${VERSION}/model"
+TARBALL="$TMPDIR/semantic-conventions-v${VERSION}.tar.gz"
+curl -fsSL \
+  --connect-timeout 15 \
+  --retry 5 \
+  --retry-delay 2 \
+  --retry-all-errors \
+  --retry-max-time 180 \
+  -o "$TARBALL" \
+  "https://github.com/open-telemetry/semantic-conventions/archive/refs/tags/v${VERSION}.tar.gz"
+
+tar -xzf "$TARBALL" -C "$TMPDIR" --strip-components=1 "semantic-conventions-${VERSION}/model"
 
 mv "$TMPDIR/model" "$TARGET/model"

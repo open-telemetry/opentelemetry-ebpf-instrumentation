@@ -1,0 +1,434 @@
+groups:
+  # The instrument and (empty) unit declared here mirror what OBI currently
+  # emits over OTLP rather than the OTel-canonical `gauge` / `unit: "1"`
+  # Prometheus mapping, so weaver validates against the actual contract.
+  # The OTLP name uses OTel dot notation; OBI's Prometheus exporter emits
+  # the OpenMetrics-convention `target_info` counterpart, which weaver does
+  # not see (only the OTLP tap is validated).
+  - id: metric.obi.target.info
+    type: metric
+    metric_name: target.info
+    instrument: updowncounter
+    unit: ""
+    stability: development
+    brief: >
+      `target.info` meta-metric, modeled after the Prometheus / OpenMetrics
+      `target_info` convention. Emitted with value 1 to carry the resource
+      attributes of the originating service.
+    attributes:
+      - ref: instance
+        requirement_level: recommended
+      - ref: job
+        requirement_level: recommended
+      - ref: service.name
+        requirement_level: required
+      - ref: service.namespace
+        requirement_level:
+          recommended: if the workload has a namespace
+      - ref: service.instance.id
+        requirement_level: required
+      - ref: service.version
+        requirement_level:
+          conditionally_required: if the workload reported a version
+      - ref: telemetry.sdk.language
+        requirement_level: required
+      - ref: telemetry.sdk.name
+        requirement_level: required
+      - ref: telemetry.sdk.version
+        requirement_level: required
+      - ref: telemetry.distro.name
+        requirement_level: recommended
+      - ref: telemetry.distro.version
+        requirement_level: recommended
+      - ref: host.name
+        requirement_level:
+          recommended: if host metadata could be resolved
+      - ref: host.id
+        requirement_level: recommended
+      - ref: host.type
+        requirement_level:
+          recommended: if host metadata could be resolved
+      - ref: host.image.id
+        requirement_level:
+          recommended: if host metadata could be resolved
+      - ref: os.type
+        requirement_level: required
+      - ref: os.version
+        requirement_level:
+          recommended: if host metadata could be resolved
+      - ref: container.id
+        requirement_level:
+          recommended: if container metadata is available
+      - ref: container.name
+        requirement_level:
+          recommended: if container metadata is available
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.container.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.cronjob.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a CronJob
+      - ref: k8s.daemonset.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a DaemonSet
+      - ref: k8s.deployment.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a Deployment
+      - ref: k8s.job.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a Job
+      - ref: k8s.kind
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled and the pod has an owner
+      - ref: k8s.namespace.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.node.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled and the pod has an owner
+      - ref: k8s.pod.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.pod.start_time
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.pod.uid
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.replicaset.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a ReplicaSet
+      - ref: k8s.statefulset.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a StatefulSet
+
+  # The trace-pipeline counterpart of `target.info`. Only emitted when any
+  # span-metrics feature is enabled — i.e. one of `application_span`,
+  # `application_span_otel`, or `application_span_sizes` (the
+  # `application_service_graph` feature does NOT trigger it). OBI's
+  # Prometheus exporter emits the underscore `traces_target_info`
+  # counterpart.
+  - id: metric.obi.traces.target.info
+    type: metric
+    metric_name: traces.target.info
+    instrument: updowncounter
+    unit: ""
+    stability: development
+    brief: >
+      OBI counterpart of `target.info` for the traces pipeline. Carries the
+      resource attribute set of every traced service so dashboards can
+      join trace metrics back to service identity.
+    attributes:
+      - ref: source
+        requirement_level: recommended
+      - ref: service.name
+        requirement_level: required
+      - ref: service.namespace
+        requirement_level:
+          recommended: if the workload has a namespace
+      - ref: service.instance.id
+        requirement_level: required
+      - ref: service.version
+        requirement_level:
+          conditionally_required: if the workload reported a version
+      - ref: telemetry.sdk.language
+        requirement_level: required
+      - ref: telemetry.sdk.name
+        requirement_level: required
+      - ref: telemetry.sdk.version
+        requirement_level: required
+      - ref: telemetry.distro.name
+        requirement_level: recommended
+      - ref: telemetry.distro.version
+        requirement_level: recommended
+      - ref: host.id
+        requirement_level: recommended
+      - ref: host.type
+        requirement_level:
+          recommended: if host metadata could be resolved
+      - ref: host.image.id
+        requirement_level:
+          recommended: if host metadata could be resolved
+      - ref: os.type
+        requirement_level: required
+      - ref: os.version
+        requirement_level:
+          recommended: if host metadata could be resolved
+      - ref: container.id
+        requirement_level:
+          recommended: if container metadata is available
+      - ref: container.name
+        requirement_level:
+          recommended: if container metadata is available
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.container.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.cronjob.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a CronJob
+      - ref: k8s.daemonset.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a DaemonSet
+      - ref: k8s.deployment.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a Deployment
+      - ref: k8s.job.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a Job
+      - ref: k8s.kind
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled and the pod has an owner
+      - ref: k8s.namespace.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.node.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled and the pod has an owner
+      - ref: k8s.pod.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.pod.start_time
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.pod.uid
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.replicaset.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a ReplicaSet
+      - ref: k8s.statefulset.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a StatefulSet
+
+  # --- OTLP exporter throughput / errors ---------------------------------
+  - id: metric.obi.obi.otel.metric.exports
+    type: metric
+    metric_name: obi.otel.metric.exports
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: Length of the metric batches submitted to the remote OTEL collector.
+
+  - id: metric.obi.obi.otel.metric.export.errors
+    type: metric
+    metric_name: obi.otel.metric.export.errors
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: Error count on each failed OTEL metric export.
+    attributes:
+      - ref: error.type
+        requirement_level: required
+
+  - id: metric.obi.obi.otel.trace.exports
+    type: metric
+    metric_name: obi.otel.trace.exports
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: Length of the trace batches submitted to the remote OTEL collector.
+
+  - id: metric.obi.obi.otel.trace.export.errors
+    type: metric
+    metric_name: obi.otel.trace.export.errors
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: Error count on each failed OTEL trace export.
+    attributes:
+      - ref: error.type
+        requirement_level: required
+
+  # --- Instrumentation accounting ----------------------------------------
+  - id: metric.obi.obi.instrumented.processes
+    type: metric
+    metric_name: obi.instrumented.processes
+    instrument: updowncounter
+    unit: ""
+    stability: development
+    brief: Total number of instrumented processes, by process name.
+    attributes:
+      - ref: process.executable.name
+        requirement_level:
+          conditionally_required: if the executable name could be resolved
+
+  - id: metric.obi.obi.instrumentation.errors
+    type: metric
+    metric_name: obi.instrumentation.errors
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Total number of instrumentation errors, by process name and error type.
+    attributes:
+      - ref: process.executable.name
+        requirement_level:
+          conditionally_required: if the executable name could be resolved
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+
+  - id: metric.obi.obi.avoided.services
+    type: metric
+    metric_name: obi.avoided.services
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: >
+      Services OBI avoided instrumenting because they already carry
+      OpenTelemetry instrumentation. Only emitted when the avoided-services
+      internal metric is enabled.
+    attributes:
+      - ref: service.name
+        requirement_level:
+          conditionally_required: if the cardinality limit was not exceeded
+      - ref: service.namespace
+        requirement_level:
+          conditionally_required: if the cardinality limit was not exceeded
+      - ref: telemetry.type
+        requirement_level:
+          conditionally_required: if the cardinality limit was not exceeded
+      - ref: otel.metric.overflow
+        requirement_level:
+          conditionally_required: if the metric exceeded its cardinality limit
+
+  # --- Build info --------------------------------------------------------
+  - id: metric.obi.obi.internal.build.info
+    type: metric
+    metric_name: obi.internal.build.info
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: >
+      Constant '1' gauge labelled with build metadata (version, revision,
+      goversion, goos, goarch), in the style of Prometheus `*_build_info`.
+    attributes:
+      - ref: obi.goarch
+        requirement_level: required
+      - ref: obi.goos
+        requirement_level: required
+      - ref: obi.goversion
+        requirement_level: required
+      - ref: obi.version
+        requirement_level: required
+      - ref: obi.revision
+        requirement_level: required
+
+  # --- eBPF tracer / probe / map stats -----------------------------------
+  - id: metric.obi.obi.ebpf.tracer.flushes
+    type: metric
+    metric_name: obi.ebpf.tracer.flushes
+    instrument: histogram
+    unit: "1"
+    stability: development
+    brief: >
+      Length of the groups of traces flushed from the eBPF tracer to the next
+      pipeline stage.
+
+  # Pre-aggregated: emitted through the SDK Producer interface rather than a
+  # Float64Histogram, because the kernel exposes only cumulative run_time_ns /
+  # run_cnt and bucket counts are derived from those rather than observed
+  # individually. Supersedes the former obi.bpf.probe.executions and
+  # obi.bpf.probe.latency_seconds_total, whose values are this histogram's
+  # count and sum.
+  - id: metric.obi.obi.bpf.probe.latency
+    type: metric
+    metric_name: obi.bpf.probe.latency
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: Latency distribution of the eBPF probe in seconds.
+    attributes:
+      - ref: bpf.probe.id
+        requirement_level: required
+      - ref: bpf.probe.type
+        requirement_level: required
+      - ref: bpf.probe.name
+        requirement_level: required
+
+  - id: metric.obi.obi.bpf.map.entries
+    type: metric
+    metric_name: obi.bpf.map.entries
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: Number of entries in the eBPF map.
+    attributes:
+      - ref: bpf.map.id
+        requirement_level: required
+      - ref: bpf.map.type
+        requirement_level: required
+      - ref: bpf.map.name
+        requirement_level: required
+
+  - id: metric.obi.obi.bpf.map.max_entries
+    type: metric
+    metric_name: obi.bpf.map.max_entries
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: Maximum number of entries the eBPF map can hold.
+    attributes:
+      - ref: bpf.map.id
+        requirement_level: required
+      - ref: bpf.map.type
+        requirement_level: required
+      - ref: bpf.map.name
+        requirement_level: required
+
+  # --- Network packet accounting (netolly) -------------------------------
+  - id: metric.obi.obi.bpf.network.packets
+    type: metric
+    metric_name: obi.bpf.network.packets
+    instrument: counter
+    unit: "{packet}"
+    stability: development
+    brief: How many network packets have been internally accounted.
+
+  - id: metric.obi.obi.bpf.network.ignored.packets
+    type: metric
+    metric_name: obi.bpf.network.ignored.packets
+    instrument: counter
+    unit: "{packet}"
+    stability: development
+    brief: >
+      How many network packets have been internally ignored due to collisions
+      in the internal eBPF cache.
+
+  # --- Kubernetes informer ------------------------------------------------
+  - id: metric.obi.obi.kube.cache.forward.lag
+    type: metric
+    metric_name: obi.kube.cache.forward.lag
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      How long, in seconds, it takes from a Kubernetes event happening until
+      it is forwarded to the subscribers.
+
+  # --- Pipeline queues ----------------------------------------------------
+  - id: metric.obi.obi.queue.capacity.ratio
+    type: metric
+    metric_name: obi.queue.capacity.ratio
+    instrument: gauge
+    unit: "1"
+    stability: development
+    brief: >
+      Ratio [0-1] between the unread messages of an internal Go channel and its
+      total capacity, sampled on every send to each subscriber. A sustained
+      value near 1 means the consuming stage cannot keep up with the producer.
+    attributes:
+      - ref: subscriber
+        requirement_level: required

@@ -28,7 +28,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 #define MONGO_OP_DEF(name, str)                                                                    \
     static const char name[] = str;                                                                \
@@ -54,7 +54,7 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
     off_table_t *ot = get_offsets_table();
 
     mongo_go_client_req_t req = {0};
-    req.type = EVENT_GO_MONGO;
+    req.type = k_event_type_go_mongo;
     req.start_monotime_ns = bpf_ktime_get_ns();
 
     if (!read_go_str("name",
@@ -77,7 +77,7 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, &req, BPF_ANY);
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &req.tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req.tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -144,13 +144,15 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
     off_table_t *ot = get_offsets_table();
 
     mongo_go_client_req_t fresh_req = {0};
-    fresh_req.type = EVENT_GO_MONGO;
+    fresh_req.type = k_event_type_go_mongo;
     fresh_req.start_monotime_ns = bpf_ktime_get_ns();
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     mongo_go_client_req_t *req = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
+    // the collection op already began this span
+    const u8 begun = req != NULL;
 
     if (!req) {
         client_trace_parent(goroutine_addr, &fresh_req.tp);
@@ -188,7 +190,9 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, req, BPF_ANY);
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &req->tp);
+    if (!begun) {
+        go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req->tp, go_obi_ctx__stack_off(ctx));
+    }
 
     return 0;
 }
@@ -223,8 +227,8 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute_ret, struct pt_regs *, ctx) {
         }
     }
 
+    go_obi_ctx__end(&g_key, k_obi_ctx_mongo, req ? &req->tp : NULL);
     bpf_map_delete_elem(&ongoing_mongo_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }

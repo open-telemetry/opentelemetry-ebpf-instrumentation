@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/buildinfo"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
@@ -45,6 +46,9 @@ func main() {
 		slog.Error("unknown log level specified, choices are [DEBUG, INFO, WARN, ERROR]", "error", err)
 		os.Exit(-1)
 	}
+	// Install after the configured log level is applied so the bridge
+	// captures the final slog default (klog logger setup is not thread-safe).
+	klogbridge.Install()
 
 	if config.ProfilePort != 0 {
 		go func() {

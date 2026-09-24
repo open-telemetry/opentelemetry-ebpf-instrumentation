@@ -269,7 +269,7 @@ typedef struct otel_span {
 #define NODE_SPAN_PAYLOAD_MAX_LEN (2048)
 
 typedef struct node_span_event {
-    u8 type; // Must be first, EVENT_NODE_SPAN
+    u8 type; // Must be first, k_event_type_node_span
     u8 has_parent_ctx;
     u8 _pad[2];
     u32 payload_len; // bytes of payload actually written (excluding NUL)

@@ -4,54 +4,77 @@
 package langtools // import "go.opentelemetry.io/obi/pkg/internal/langtools"
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
+// StatProcessPath resolves a process path and returns its file information.
+func StatProcessPath(root, cwd, path string) (string, fs.FileInfo, bool) {
+	return resolveProcessPath(root, cwd, path, true)
+}
+
 func ResolveProcessPath(root, cwd, path string) (string, bool) {
-	if root == "" || path == "" {
-		return "", false
+	resolved, _, ok := resolveProcessPath(root, cwd, path, false)
+	return resolved, ok
+}
+
+// AbsoluteProcessPath resolves path against the process working directory.
+func AbsoluteProcessPath(cwd, path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
 	}
 
-	var containerPath string
-	if filepath.IsAbs(path) {
-		containerPath = filepath.Clean(path)
-	} else {
-		containerPath = filepath.Clean(filepath.Join(cwd, path))
+	return filepath.Clean(filepath.Join(cwd, path))
+}
+
+func resolveProcessPath(root, cwd, path string, withFileInfo bool) (string, fs.FileInfo, bool) {
+	if root == "" || path == "" {
+		return "", nil, false
 	}
+
+	containerPath := AbsoluteProcessPath(cwd, path)
 	if !filepath.IsAbs(containerPath) {
-		return "", false
+		return "", nil, false
 	}
 
 	hostPath := filepath.Join(root, strings.TrimPrefix(containerPath, string(filepath.Separator)))
-	if !pathInRoot(root, hostPath) {
-		return "", false
+	if !PathWithinBoundary(root, hostPath) {
+		return "", nil, false
 	}
 
 	if procRootPath(root) {
 		if pathHasSymlink(root, containerPath) {
-			return "", false
+			return "", nil, false
 		}
-		if _, err := os.Stat(hostPath); err != nil {
-			return "", false
+		info, err := os.Stat(hostPath)
+		if err != nil {
+			return "", nil, false
 		}
-		return hostPath, true
+		return hostPath, info, true
 	}
 
 	rootEval, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return "", false
+		return "", nil, false
 	}
 	hostEval, err := filepath.EvalSymlinks(hostPath)
 	if err != nil {
-		return "", false
+		return "", nil, false
 	}
-	if !pathInRoot(rootEval, hostEval) {
-		return "", false
+	if !PathWithinBoundary(rootEval, hostEval) {
+		return "", nil, false
+	}
+	if !withFileInfo {
+		return hostEval, nil, true
 	}
 
-	return hostEval, true
+	info, err := os.Stat(hostEval)
+	if err != nil {
+		return "", nil, false
+	}
+	return hostEval, info, true
 }
 
 var procRootPath = IsProcRoot
@@ -94,8 +117,9 @@ func IsProcRoot(root string) bool {
 	return true
 }
 
-func pathInRoot(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
+// PathWithinBoundary reports whether path is the boundary or one of its descendants.
+func PathWithinBoundary(boundary, path string) bool {
+	rel, err := filepath.Rel(boundary, path)
 	if err != nil {
 		return false
 	}

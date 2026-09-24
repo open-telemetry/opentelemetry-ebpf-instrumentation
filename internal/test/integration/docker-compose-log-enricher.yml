@@ -99,7 +99,7 @@ services:
       - shared
 
   multisegwritev_otelcol:
-    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
     user: "0:0"
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -141,7 +141,7 @@ services:
       - shared
     pid: "host"
     environment:
-      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-log-enricher.yml"
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-log-enricher${INSTRUMENTER_CONFIG_SUFFIX}.yml"
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"

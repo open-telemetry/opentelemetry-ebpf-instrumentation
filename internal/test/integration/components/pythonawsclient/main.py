@@ -20,6 +20,7 @@ def new_aws_client(service):
 
 s3 = new_aws_client("s3")
 sqs = new_aws_client("sqs")
+sns = new_aws_client("sns")
 
 app = FastAPI()
 
@@ -97,6 +98,35 @@ async def getqueueattributes(request: Request):
 async def deletequeue(request: Request):
     queue_url = request.query_params.get("queue_url")
     return sqs.delete_queue(QueueUrl=queue_url)
+
+
+### SNS Operations ###
+
+@app.get("/createtopic")
+async def createtopic():
+    return sns.create_topic(Name="obi-topic")
+
+@app.get("/publish")
+async def publish(topic_arn: str):
+    return sns.publish(TopicArn=topic_arn, Message="Hello from OBI!")
+
+@app.get("/publishbatch")
+async def publishbatch(topic_arn: str):
+    return sns.publish_batch(
+        TopicArn=topic_arn,
+        PublishBatchRequestEntries=[
+            {"Id": "first", "Message": "First message"},
+            {"Id": "second", "Message": "Second message"},
+        ],
+    )
+
+@app.get("/gettopicattributes")
+async def gettopicattributes(topic_arn: str):
+    return sns.get_topic_attributes(TopicArn=topic_arn)
+
+@app.get("/deletetopic")
+async def deletetopic(topic_arn: str):
+    return sns.delete_topic(TopicArn=topic_arn)
 
 
 if __name__ == "__main__":

@@ -195,7 +195,7 @@ static __always_inline void mssql_send_large_buffer(tcp_req_t *req,
             return;
         }
 
-        large_buf->type = EVENT_TCP_LARGE_BUFFER;
+        large_buf->type = k_event_type_tcp_large_buffer;
         large_buf->packet_type = packet_type;
         large_buf->action = action;
         large_buf->kind = k_large_buf_layer_app;

@@ -224,6 +224,18 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	MCPClientOperationDuration = metric(Name{
+		Section: "mcp.client.operation.duration",
+		OTEL:    "mcp.client.operation.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
+	MCPServerOperationDuration = metric(Name{
+		Section: "mcp.server.operation.duration",
+		OTEL:    "mcp.server.operation.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
 	GoRuntimeMemoryLimit = metric(Name{
 		Section: "go.memory.limit",
 		OTEL:    "go.memory.limit",
@@ -296,6 +308,30 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	DotnetGCCollections = metric(Name{
+		Section: "dotnet.gc.collections",
+		OTEL:    "dotnet.gc.collections",
+		Unit:    "{collection}",
+		Type:    InstrumentCounter,
+	})
+	CPythonGCCollections = metric(Name{
+		Section: "cpython.gc.collections",
+		OTEL:    "cpython.gc.collections",
+		Unit:    "{collection}",
+		Type:    InstrumentCounter,
+	})
+	CPythonGCCollectedObjects = metric(Name{
+		Section: "cpython.gc.collected_objects",
+		OTEL:    "cpython.gc.collected_objects",
+		Unit:    "{object}",
+		Type:    InstrumentCounter,
+	})
+	CPythonGCUncollectableObjects = metric(Name{
+		Section: "cpython.gc.uncollectable_objects",
+		OTEL:    "cpython.gc.uncollectable_objects",
+		Unit:    "{object}",
+		Type:    InstrumentCounter,
+	})
 	JVMMemoryUsed = metric(Name{
 		Section: "jvm.memory.used",
 		OTEL:    "jvm.memory.used",
@@ -319,6 +355,54 @@ var (
 		OTEL:    "jvm.memory.used_after_last_gc",
 		Unit:    "By",
 		Type:    InstrumentUpDownCounter,
+	})
+	JVMClassLoaded = metric(Name{
+		Section: "jvm.class.loaded",
+		OTEL:    "jvm.class.loaded",
+		Unit:    "{class}",
+		Type:    InstrumentCounter,
+	})
+	JVMClassUnloaded = metric(Name{
+		Section: "jvm.class.unloaded",
+		OTEL:    "jvm.class.unloaded",
+		Unit:    "{class}",
+		Type:    InstrumentCounter,
+	})
+	JVMClassCount = metric(Name{
+		Section: "jvm.class.count",
+		OTEL:    "jvm.class.count",
+		Unit:    "{class}",
+		Type:    InstrumentUpDownCounter,
+	})
+	JVMThreadCount = metric(Name{
+		Section: "jvm.thread.count",
+		OTEL:    "jvm.thread.count",
+		Unit:    "{thread}",
+		Type:    InstrumentUpDownCounter,
+	})
+	JVMCPUTime = metric(Name{
+		Section: "jvm.cpu.time",
+		OTEL:    "jvm.cpu.time",
+		Unit:    "s",
+		Type:    InstrumentCounter,
+	})
+	JVMCPUCount = metric(Name{
+		Section: "jvm.cpu.count",
+		OTEL:    "jvm.cpu.count",
+		Unit:    "{cpu}",
+		Type:    InstrumentUpDownCounter,
+	})
+	JVMCPURecentUtilization = metric(Name{
+		Section: "jvm.cpu.recent_utilization",
+		OTEL:    "jvm.cpu.recent_utilization",
+		Unit:    "1",
+		Type:    InstrumentGauge,
+	})
+	JVMGCDuration = metric(Name{
+		Section: "jvm.gc.duration",
+		OTEL:    "jvm.gc.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
 	})
 	NodejsEventLoopTime = metric(Name{
 		Section: "nodejs.eventloop.time",
@@ -404,6 +488,12 @@ var (
 		Unit:    "By",
 		Type:    InstrumentUpDownCounter,
 	})
+	V8JSResourceActive = metric(Name{
+		Section: "v8js.resource.active",
+		OTEL:    "v8js.resource.active",
+		Unit:    "{resource}",
+		Type:    InstrumentGauge,
+	})
 	// Resource is not an instrument: it only names the attributes.select section
 	// that selects resource attributes. It still goes through metric() so its
 	// Prom and OTEL forms stay populated like every other entry.
@@ -431,6 +521,11 @@ var (
 		Section: "obi.stat.tcp.io",
 		OTEL:    "obi.stat.tcp.io",
 		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
+	StatTCPSuccessfulConnections = metric(Name{
+		Section: "obi.stat.tcp.successful.connections",
+		OTEL:    "obi.stat.tcp.successful.connections",
 		Type:    InstrumentCounter,
 	})
 )

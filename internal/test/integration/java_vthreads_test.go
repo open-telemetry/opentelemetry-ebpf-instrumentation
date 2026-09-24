@@ -19,7 +19,7 @@ import (
 )
 
 func vtNestedTraces(ct *assert.CollectT) (total, nested int) {
-	resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fsync-client&limit=1000")
+	resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fsync-client&limit=1000")
 	require.NoError(ct, err)
 	if resp == nil {
 		return 0, 0
@@ -66,17 +66,15 @@ func TestJavaVirtualThreads(t *testing.T) {
 	var total, nested int
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var wg sync.WaitGroup
-		for w := 0; w < 40; w++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for i := 0; i < 3; i++ {
+		for range 40 {
+			wg.Go(func() {
+				for range 3 {
 					resp, err := http.Get("http://localhost:8085/sync-client?url=http://downstream:8086/rolldice/1")
 					if err == nil {
 						_ = resp.Body.Close()
 					}
 				}
-			}()
+			})
 		}
 		wg.Wait()
 

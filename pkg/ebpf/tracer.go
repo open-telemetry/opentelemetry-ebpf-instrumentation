@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/logenricher"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -28,7 +27,7 @@ type Instrumentable struct {
 	InstrumentationError error
 
 	// in some runtimes, like python gunicorn, we need to allow
-	// tracing both the parent pid and all of its children pid
+	// tracing both the parent PID and all of its child PIDs
 	ChildPids []app.PID
 
 	FileInfo *exec.FileInfo
@@ -54,6 +53,12 @@ type PIDsAccounter interface {
 	BlockPID(app.PID, uint32)
 }
 
+// LifecyclePIDBlocker receives the exact process identity when PID-only removal
+// could remove state belonging to a reused PID.
+type LifecyclePIDBlocker interface {
+	BlockPIDLifecycle(app.PID, uint32, *exec.FileInfo)
+}
+
 type CommonTracer interface {
 	// LoadSpecs returns one SpecBundle per BPF collection. Each bundle contains
 	// the collection spec, the object pointer to populate, and the constants to rewrite.
@@ -61,8 +66,6 @@ type CommonTracer interface {
 	// AddCloser adds io.Closer instances that need to be invoked when the
 	// Run function ends.
 	AddCloser(c ...io.Closer)
-	// SetupTailCalls sets up any tail call jump tables after all specs are loaded.
-	SetupTailCalls()
 }
 
 type KprobesTracer interface {
@@ -118,6 +121,8 @@ type Tracer interface {
 	SetEventContext(*ebpfcommon.EBPFEventContext)
 	Required() bool
 	Capabilities() ebpfcommon.TracerCapability
+	// Close releases resources when a loaded tracer cannot be started.
+	Close() error
 	// Run will do the action of listening for eBPF traces and forward them
 	// periodically to the output channel.
 	Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span])
@@ -145,15 +150,17 @@ type ExecutableKey struct {
 
 // ProcessTracer instruments an executable with eBPF and provides the eBPF readers
 // that will forward the traces to later stages in the pipeline
-// TODO: We need to pass the ELFInfo from this ProcessTracker to inside a Tracer
-// so that the GPU kernel event listener can find symbols names from addresses
-// in the ELF file.
 type ProcessTracer struct {
-	log                       *slog.Logger
-	metrics                   imetrics.Reporter
-	shutdownTimeout           time.Duration
-	bpffsPath                 string
+	log             *slog.Logger
+	metrics         imetrics.Reporter
+	shutdownTimeout time.Duration
+	bpffsPath       string
+	// instrumentablesMu guards the instrumentable maps and serializes
+	// attachment against shutdown
 	instrumentablesMu         sync.Mutex
+	stopped                   bool
+	closeOnce                 sync.Once
+	closeErr                  error
 	nextExecutableGeneration  uint64
 	instrumentableGenerations map[ExecutableKey]uint64
 
@@ -163,11 +170,7 @@ type ProcessTracer struct {
 }
 
 func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
-	logEnricherEnabled := fi.LogEnricherEnabled()
 	for i := range pt.Programs {
-		if _, ok := pt.Programs[i].(*logenricher.Tracer); ok && !logEnricherEnabled {
-			continue
-		}
 		pt.Programs[i].AllowPID(pid, ns, fi)
 	}
 }
@@ -175,5 +178,19 @@ func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 func (pt *ProcessTracer) BlockPID(pid app.PID, ns uint32) {
 	for i := range pt.Programs {
 		pt.Programs[i].BlockPID(pid, ns)
+	}
+}
+
+func (pt *ProcessTracer) BlockPIDLifecycle(
+	pid app.PID,
+	ns uint32,
+	lifecycle *exec.FileInfo,
+) {
+	for i := range pt.Programs {
+		if lifecycleTracer, ok := pt.Programs[i].(LifecyclePIDBlocker); ok {
+			lifecycleTracer.BlockPIDLifecycle(pid, ns, lifecycle)
+		} else {
+			pt.Programs[i].BlockPID(pid, ns)
+		}
 	}
 }

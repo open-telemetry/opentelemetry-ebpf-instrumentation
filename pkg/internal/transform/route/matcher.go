@@ -4,15 +4,8 @@
 package route // import "go.opentelemetry.io/obi/pkg/internal/transform/route"
 
 import (
-	"regexp"
 	"strings"
 )
-
-// wildcard format. By now, we will suppport wildcards in the form:
-// - /user/:userId/details (Gin)
-// - /user/{userId}/details (Gorilla)
-// More formats will be appended at some point
-var wildcard = regexp.MustCompile(`^((:\w*)|(\{\w*}))$`)
 
 type Matcher interface {
 	Find(string) string
@@ -80,7 +73,8 @@ func (w *partialPattern) matches(folder string) bool {
 func NewMatcher(routes []string) *CompleteRouteMatcher {
 	m := CompleteRouteMatcher{root: &node{Child: map[string]*node{}}}
 	for _, route := range routes {
-		appendRoute(route, tokenize(route), m.root)
+		parts := tokenize(route)
+		appendRoute(route, parts, m.root)
 	}
 	return &m
 }
@@ -95,12 +89,20 @@ func find(path []string, pathNode *node) string {
 	// if we walked all the path tokens and this node resolves to a full route, it matched a path
 	// (if FullRoute is empty, it means it didn't match)
 	if len(path) == 0 {
+		if pathNode.FullRoute == "" && pathNode.AnyPath != nil {
+			return pathNode.AnyPath.FullRoute
+		}
 		return pathNode.FullRoute
 	}
 	// if the current path resolved to an explicit path folder, keep searching through the
 	// child node
 	if child, ok := pathNode.Child[path[0]]; ok {
-		return find(path[1:], child)
+		if fullRoute := find(path[1:], child); fullRoute != "" {
+			return fullRoute
+		}
+		if pathNode.AnyPath == nil {
+			return ""
+		}
 	}
 	// otherwise, try the pattern children in definition order; the first match wins,
 	// so more specific patterns (e.g. "@:username") must be declared before a catch-all
@@ -112,7 +114,15 @@ func find(path []string, pathNode *node) string {
 		}
 	}
 	if pathNode.AnyPath != nil {
-		return pathNode.FullRoute
+		// For /<path:parameter>/suffix, try the longest non-empty parameter
+		// value first and check whether the remaining segments match the suffix.
+		// Use the terminal catch-all only if no suffix matches.
+		for consumed := len(path) - 1; consumed >= 1; consumed-- {
+			if fullRoute := find(path[consumed:], pathNode.AnyPath); fullRoute != "" {
+				return fullRoute
+			}
+		}
+		return pathNode.AnyPath.FullRoute
 	}
 	return ""
 }
@@ -124,16 +134,15 @@ func appendRoute(fullRoute string, path []string, pathNode *node) {
 		return
 	}
 	currentName := path[0]
-	// if the current token is a full-folder wildcard (":id"/"{id}"), register it as a
-	// catch-all pattern (empty prefix)
-	if wildcard.MatchString(currentName) {
+	if tail, ok := routeParam(currentName); ok {
+		if tail {
+			if pathNode.AnyPath == nil {
+				pathNode.AnyPath = &node{Child: map[string]*node{}}
+			}
+			appendRoute(fullRoute, path[1:], pathNode.AnyPath)
+			return
+		}
 		appendRoute(fullRoute, path[1:], pathNode.pattern(""))
-		return
-	}
-
-	if currentName == "*" {
-		pathNode.FullRoute = fullRoute
-		pathNode.AnyPath = &node{Child: map[string]*node{}}
 		return
 	}
 

@@ -11,18 +11,19 @@
  *                                                 u64 len,
  *                                                 u8 *kind,
  *                                                 u64 *duration_ns);
- *   static __always_inline int nodejs_v8_parse_heap(const unsigned char *payload,
- *                                                   u64 len,
- *                                                   u64 *vals,
- *                                                   u8 *name_len);
+ *   static __always_inline int nodejs_v8_parse_numbers_name(
+ *       const unsigned char *payload, u64 len, u64 *vals, u8 num_fields,
+ *       u8 *name_len);
  *
  * The payload is what bpf_probe_read_user_str() returns for the path bytes
  * after "/dev/null/obi-v8/<kind char>": len includes the terminating NUL.
  *
- * These tests pin the wire format of the two v8js record kinds:
+ * These tests pin the wire format of the v8js record kinds:
  *   g: <kind:1 hex><duration_ns:16 hex>                       (exact length)
  *   h: <4 x u64 as 16 hex><space name, 1..32 bytes, to NUL>   (name LAST)
- * Any non-hex digit, wrong length, empty name or missing NUL must reject.
+ *   a: <count:16 hex><resource type, 1..32 bytes, to NUL>     (name LAST)
+ * Any non-hex digit, wrong length, empty name or missing NUL must reject;
+ * a zero count is valid (the vanished-type explicit zero).
  */
 
 #include <stdint.h>
@@ -40,6 +41,7 @@ typedef uint64_t u64;
 enum {
     k_rt_field_hex_len = 16,
     k_nodejs_heap_space_name_max = 32,
+    k_nodejs_resource_type_max = 32,
 };
 
 enum {
@@ -47,9 +49,16 @@ enum {
     k_v8_gc_payload_len = 1 + k_rt_field_hex_len,
     k_v8_heap_num_fields = 4,
     k_v8_heap_numbers_len = k_v8_heap_num_fields * k_rt_field_hex_len,
-    // h payload upper bound: numbers + name + NUL
+    k_v8_resource_num_fields = 1,
+    k_v8_resource_numbers_len = k_v8_resource_num_fields * k_rt_field_hex_len,
+    // shared trailing-name cap of the numbers+name records ('h', 'a')
+    k_v8_name_max = k_nodejs_heap_space_name_max,
+    // h payload upper bound: numbers + name + NUL (the longest v8 record)
     k_v8_heap_payload_read_len = k_v8_heap_numbers_len + k_nodejs_heap_space_name_max + 1,
 };
+
+_Static_assert(k_nodejs_heap_space_name_max == k_nodejs_resource_type_max,
+               "v8 records with a trailing name share one parser and one name cap");
 
 // --- code under test (keep in sync with bpf/generictracer/nodejs.c) ---
 
@@ -88,18 +97,22 @@ nodejs_v8_parse_gc(const unsigned char *payload, u64 len, u8 *kind, u64 *duratio
     return nodejs_parse_hex_u64(payload + 1, duration_ns);
 }
 
-static __always_inline int
-nodejs_v8_parse_heap(const unsigned char *payload, u64 len, u64 *vals, u8 *name_len) {
+// Parses the numbers+name records ('h': 4 numbers, 'a': 1): num_fields
+// fixed-width u64s at fixed offsets, then a 1..k_v8_name_max byte name ended
+// by the NUL that len counts.
+static __always_inline int nodejs_v8_parse_numbers_name(
+    const unsigned char *payload, u64 len, u64 *vals, u8 num_fields, u8 *name_len) {
+    const u32 numbers_len = (u32)num_fields * k_rt_field_hex_len;
     // len counts the NUL: at least one name byte, at most the name cap
-    if (len < k_v8_heap_numbers_len + 1 + 1 || len > k_v8_heap_payload_read_len) {
+    if (len < numbers_len + 1 + 1 || len > numbers_len + k_v8_name_max + 1) {
         return -1;
     }
-    for (u8 f = 0; f < k_v8_heap_num_fields; ++f) {
+    for (u8 f = 0; f < num_fields; ++f) {
         if (nodejs_parse_hex_u64(payload + (u32)f * k_rt_field_hex_len, &vals[f]) != 0) {
             return -1;
         }
     }
-    *name_len = (u8)(len - 1 - k_v8_heap_numbers_len);
+    *name_len = (u8)(len - 1 - numbers_len);
     return 0;
 }
 
@@ -197,7 +210,9 @@ static void test_heap_valid(void) {
     const u64 len = put_heap(buf, in, "old_space");
     u64 out[4] = {0};
     u8 name_len = 0;
-    check("valid heap record parses", 0, nodejs_v8_parse_heap(buf, len, out, &name_len));
+    check("valid heap record parses",
+          0,
+          nodejs_v8_parse_numbers_name(buf, len, out, k_v8_heap_num_fields, &name_len));
     check_u64("heap space_size", in[0], out[0]);
     check_u64("heap space_used_size", in[1], out[1]);
     check_u64("heap space_available_size", in[2], out[2]);
@@ -212,7 +227,9 @@ static void test_heap_max_name_accepted(void) {
     const u64 len = put_heap(buf, in, name);
     u64 out[4];
     u8 name_len;
-    check("32-byte name accepted", 0, nodejs_v8_parse_heap(buf, len, out, &name_len));
+    check("32-byte name accepted",
+          0,
+          nodejs_v8_parse_numbers_name(buf, len, out, k_v8_heap_num_fields, &name_len));
     check("32-byte name length", k_nodejs_heap_space_name_max, name_len);
 }
 
@@ -222,7 +239,9 @@ static void test_heap_empty_name_rejected(void) {
     const u64 len = put_heap(buf, in, "");
     u64 out[4];
     u8 name_len;
-    check("empty heap space name", -1, nodejs_v8_parse_heap(buf, len, out, &name_len));
+    check("empty heap space name",
+          -1,
+          nodejs_v8_parse_numbers_name(buf, len, out, k_v8_heap_num_fields, &name_len));
 }
 
 static void test_heap_name_over_cap_rejected(void) {
@@ -232,7 +251,9 @@ static void test_heap_name_over_cap_rejected(void) {
     const u64 len = put_heap(buf, in, name);
     u64 out[4];
     u8 name_len;
-    check("33-byte heap space name", -1, nodejs_v8_parse_heap(buf, len, out, &name_len));
+    check("33-byte heap space name",
+          -1,
+          nodejs_v8_parse_numbers_name(buf, len, out, k_v8_heap_num_fields, &name_len));
 }
 
 static void test_heap_non_hex_number_rejected(void) {
@@ -242,7 +263,9 @@ static void test_heap_non_hex_number_rejected(void) {
     buf[40] = 'g'; // inside the third number
     u64 out[4];
     u8 name_len;
-    check("non-hex heap number digit", -1, nodejs_v8_parse_heap(buf, len, out, &name_len));
+    check("non-hex heap number digit",
+          -1,
+          nodejs_v8_parse_numbers_name(buf, len, out, k_v8_heap_num_fields, &name_len));
 }
 
 static void test_heap_numbers_only_rejected(void) {
@@ -255,7 +278,73 @@ static void test_heap_numbers_only_rejected(void) {
     u8 name_len;
     check("numbers-only heap payload",
           -1,
-          nodejs_v8_parse_heap(buf, k_v8_heap_numbers_len + 1, out, &name_len));
+          nodejs_v8_parse_numbers_name(
+              buf, k_v8_heap_numbers_len + 1, out, k_v8_heap_num_fields, &name_len));
+}
+
+// builds an a payload; returns len including the NUL
+static u64 put_resource(unsigned char *dst, u64 count, const char *name) {
+    put_hex16(dst, count);
+    const u64 name_len = strlen(name);
+    memcpy(dst + k_v8_resource_numbers_len, name, name_len);
+    dst[k_v8_resource_numbers_len + name_len] = '\0';
+    return k_v8_resource_numbers_len + name_len + 1;
+}
+
+static void test_resource_valid(void) {
+    unsigned char buf[64];
+    const u64 len = put_resource(buf, 5, "Timeout");
+    u64 count = 0;
+    u8 name_len = 0;
+    check("valid resource record parses",
+          0,
+          nodejs_v8_parse_numbers_name(buf, len, &count, k_v8_resource_num_fields, &name_len));
+    check_u64("resource count decodes", 5, count);
+    check("resource type length", (int)strlen("Timeout"), name_len);
+}
+
+static void test_resource_zero_count_accepted(void) {
+    // count 0 is the vanished-type explicit zero, not a malformed record
+    unsigned char buf[64];
+    const u64 len = put_resource(buf, 0, "Timeout");
+    u64 count = 1;
+    u8 name_len = 0;
+    check("zero-count resource record parses",
+          0,
+          nodejs_v8_parse_numbers_name(buf, len, &count, k_v8_resource_num_fields, &name_len));
+    check_u64("resource zero count decodes", 0, count);
+}
+
+static void test_resource_empty_name_rejected(void) {
+    unsigned char buf[64];
+    const u64 len = put_resource(buf, 1, "");
+    u64 count;
+    u8 name_len;
+    check("empty resource type name",
+          -1,
+          nodejs_v8_parse_numbers_name(buf, len, &count, k_v8_resource_num_fields, &name_len));
+}
+
+static void test_resource_name_over_cap_rejected(void) {
+    unsigned char buf[64];
+    const char name[] = "abcdefghijklmnopqrstuvwxyz_012345"; // 33 bytes
+    const u64 len = put_resource(buf, 1, name);
+    u64 count;
+    u8 name_len;
+    check("33-byte resource type name",
+          -1,
+          nodejs_v8_parse_numbers_name(buf, len, &count, k_v8_resource_num_fields, &name_len));
+}
+
+static void test_resource_non_hex_count_rejected(void) {
+    unsigned char buf[64];
+    const u64 len = put_resource(buf, 1, "Timeout");
+    buf[7] = 'T'; // inside the count
+    u64 count;
+    u8 name_len;
+    check("non-hex resource count digit",
+          -1,
+          nodejs_v8_parse_numbers_name(buf, len, &count, k_v8_resource_num_fields, &name_len));
 }
 
 int main(void) {
@@ -269,6 +358,11 @@ int main(void) {
     test_heap_name_over_cap_rejected();
     test_heap_non_hex_number_rejected();
     test_heap_numbers_only_rejected();
+    test_resource_valid();
+    test_resource_zero_count_accepted();
+    test_resource_empty_name_rejected();
+    test_resource_name_over_cap_rejected();
+    test_resource_non_hex_count_rejected();
 
     if (failures) {
         fprintf(stderr, "%d test(s) failed\n", failures);

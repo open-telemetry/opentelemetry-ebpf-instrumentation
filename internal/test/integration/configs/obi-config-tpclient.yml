@@ -7,7 +7,7 @@ attributes:
 otel_metrics_export:
   endpoint: http://otelcol:4018
 otel_traces_export:
-  endpoint: http://jaeger:4318
+  endpoint: http://otelcol:4018
 discovery:
   services:
     - name: tpclient-a

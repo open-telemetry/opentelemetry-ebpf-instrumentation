@@ -22,12 +22,12 @@ import (
 // left the integration suite vulnerable to a compromise of the OBI ghcr
 // publish workflow swapping in a malicious image.
 const (
-	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.1@sha256:063c5013cc4cccfd015a054d2595a4a09105eba549cb96e1a2aac7456f831b5b"
-	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.1@sha256:474c4c5a836c99aa023ca8fb16693cd5f9edb5c22501c17069992fd4e87aaf48"
-	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.1@sha256:c818c207ff40f474e8f7cd183f58d47a0dce8030c89cf1b44bfc18a7f625da28"
-	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.1@sha256:52868bb841454f657a3797c4d7cd255d5fa25e84e1d97be0c9ef6c59502a0a9b"
-	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.1@sha256:d51943f3b10e73a8e924c4cf2f06815172a7332ecfa4618765b2ba342dd7c10f"
-	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.1@sha256:770361b1480c2301829951c83230caa268a0761de255cdd2ef79885180f3245f"
+	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.5@sha256:0cbc4280dcf187a5d33a39dc1f2e8fc3d7cc6ad17533f859f9898292d9fb26c0"
+	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.5@sha256:7918fd747a6a1bd34f1fc1402a30fd6066e5e405296ad2b62070cf1488262cc4"
+	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.5@sha256:bbfe374eae5ac96ef08fda0a8e28401775c7311f3b0d4fe510dec62852c3a58f"
+	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.5@sha256:bba89c0e7d3c1450eb2d7d2aa14bd175cdefe4b13ba736d344b43095d1813ecc"
+	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.5@sha256:daa81133fee2d3882abc3129870baa9b85798537487aef47529c7c144b27f21c"
+	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.5@sha256:00dc66268119e8a965f54e4407e5f20255d4d18ae56aefcdb111ab7aa781232a"
 )
 
 func TestSuite_Go(t *testing.T) {
@@ -70,11 +70,28 @@ func TestSuite_Go(t *testing.T) {
 			t.Run("GRPC TLS RED metrics", testREDMetricsGRPCTLS)
 			t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 			t.Run("Exemplars exist", testExemplarsExist)
-			t.Run("Testing Host Info metric", testHostInfo)
 			t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
 			t.Run("Harvested auto routes", testREDMetricsHTTPAutoRoutes)
 		})
 	}
+}
+
+func TestSuite_GoTraceFSUprobes(t *testing.T) {
+	compose, err := docker.ComposeSuite(
+		"docker-compose-go-tracefs-uprobes.yml",
+		path.Join(pathOutput, "test-suite-go-tracefs-uprobes.log"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, compose.Close())
+	})
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=testserver`)
+	require.NoError(t, compose.Up())
+
+	t.Run("RED metrics", func(t *testing.T) {
+		waitForTestComponents(t, instrumentedServiceStdURL)
+		testREDMetricsForHTTPLibrary(t, instrumentedServiceStdURL, "testserver", "integration-test")
+	})
 }
 
 func TestSuiteNestedTraces(t *testing.T) {
@@ -94,6 +111,7 @@ func TestSuiteNestedTraces(t *testing.T) {
 	require.NoError(t, compose.Up())
 	if !lockdown {
 		t.Run("HTTP traces (all spans nested)", testHTTPTracesNestedClientWithContextPropagation)
+		t.Run("HTTP traces (big header, all spans nested)", testHTTPTracesNestedBigHeader)
 		t.Run("HTTP -> gRPC traces (all spans nested)", testHTTP2GRPCTracesNestedCallsWithContextPropagation)
 	} else {
 		t.Run("HTTP traces (nested client span)", testHTTPTracesNestedClient)
@@ -182,7 +200,6 @@ func TestSuiteClientPromScrape(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Client RED metrics", testREDMetricsForClientHTTPLibraryNoTraces)
 	t.Run("Testing OBI Build Info metric", testPrometheusOBIBuildInfo)
-	t.Run("Testing Host Info metric", testHostInfo)
 
 	require.NoError(t, compose.Close())
 }
@@ -200,6 +217,7 @@ func TestSuite_NoDebugInfo(t *testing.T) {
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("HTTP traces (url.query redaction)", testHTTPTracesURLQuery)
+	t.Run("HTTP traces (unknown method clamped to _OTHER)", testHTTPTracesUnknownMethod)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
@@ -352,7 +370,7 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
+	compose.Env = append(compose.Env, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
 
@@ -415,8 +433,8 @@ func TestSuite_NodeJS(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
-	t.Run("NodeJS RED metrics", testREDMetricsJSHTTP)
-	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("NodeJS RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "testserver") })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "testserver", true, "nodejs") })
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
 	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	t.Run("HTTP manual spans (background span isolation)", testHTTPTracesNodeManualBackgroundSpan)
@@ -446,8 +464,8 @@ func TestSuite_Deno(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
 	require.NoError(t, compose.Up())
-	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
-	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("Deno RED metrics", func(t *testing.T) { testREDMetricsJSHTTP(t, "denoserver") })
+	t.Run("HTTP traces (kprobes)", func(t *testing.T) { testHTTPTracesKProbes(t, "denoserver", false, "deno-rust") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -469,7 +487,8 @@ func TestSuite_Rails(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`, `TESTSERVER_IMAGE=`+obiTestImgRails)
 	require.NoError(t, compose.Up())
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "testapi") })
+	t.Run("Rails harvested routes", func(t *testing.T) { testRailsHarvestedRoutes(t, "testapi") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -489,7 +508,7 @@ func TestSuite_RailsNginxSupportFloor(t *testing.T) {
 	)
 	require.NoError(t, compose.Up())
 
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "testapi") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -501,10 +520,7 @@ func TestSuite_RailsRuby302Puma5(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
 	require.NoError(t, compose.Up())
-	t.Run("Ruby/Puma support contract", func(t *testing.T) {
-		assertRubyPumaSupportVersion(t, compose, "3.0.2", "5.6.6")
-	})
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -516,8 +532,19 @@ func TestSuite_RailsNginxSQL(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, compose.Up())
-	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails RED metrics", func(t *testing.T) { testREDMetricsRailsHTTP(t, "my-ruby-app") })
 	t.Run("Rails NGINX SQL traces nested", testHTTPTracesNestedNginxSQL)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_RailsRuby4Postgres(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-ruby-postgres.yml", path.Join(pathOutput, "test-suite-ruby-postgres.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
+	require.NoError(t, compose.Up())
+	t.Run("Rails PostgreSQL traces", testHTTPTracesRailsPostgres)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -526,9 +553,11 @@ func TestSuite_RailsTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby-tls.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgRailsSSL, `TEST_SERVICE_PORTS=3044:3043`)
+	// TODO: remove TESTSERVER_DOCKERFILE_SUFFIX once docker-compose-ruby.yml uses again an "image" clause
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgRailsSSL, `TEST_SERVICE_PORTS=3044:3043`,
+		`TESTSERVER_DOCKERFILE_SUFFIX=_tls`)
 	require.NoError(t, compose.Up())
-	t.Run("Rails SSL RED metrics", testREDMetricsRailsHTTPS)
+	t.Run("Rails SSL RED metrics", func(t *testing.T) { testREDMetricsRailsHTTPS(t, "testapi") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -794,6 +823,7 @@ func TestSuite_PythonAsyncUvloop_3_9(t *testing.T) {
 	t.Run("Sequential", testPythonAsyncSequential)
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Cancelled To Thread", testPythonAsyncCancelledToThread)
 	t.Run("Nested", testPythonAsyncNested)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
@@ -808,6 +838,52 @@ func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	t.Run("Keep-Alive", testPythonAsyncKeepAlive)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// Uvicorn on the standard asyncio event loop (uvloop replaced via UVICORN_LOOP)
+func TestSuite_PythonAsyncUvicornAsyncio_3_14(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop-3.14.yml", path.Join(pathOutput, "test-suite-python-async-uvicorn-asyncio-3_14.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env, `UVICORN_LOOP=asyncio`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncSequential)
+	t.Run("Concurrent", testPythonAsyncConcurrent)
+	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Nested", testPythonAsyncNested)
+	t.Run("Keep-Alive", testPythonAsyncKeepAlive)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAsyncGeneric_3_9(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-generic-3.9.yml", path.Join(pathOutput, "test-suite-python-async-generic-3_9.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncGenericSequential)
+	t.Run("Concurrent", testPythonAsyncGenericConcurrent)
+	t.Run("To Thread", testPythonAsyncGenericToThread)
+	t.Run("Cancelled To Thread", testPythonAsyncGenericCancelledToThread)
+	t.Run("Nested", testPythonAsyncGenericNested)
+	t.Run("Keep-Alive", testPythonAsyncGenericKeepAlive)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAsyncGeneric_3_14(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-generic-3.14.yml", path.Join(pathOutput, "test-suite-python-async-generic-3_14.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncGenericSequential)
+	t.Run("Concurrent", testPythonAsyncGenericConcurrent)
+	t.Run("To Thread", testPythonAsyncGenericToThread)
+	t.Run("Nested", testPythonAsyncGenericNested)
+	t.Run("Keep-Alive", testPythonAsyncGenericKeepAlive)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -819,6 +895,18 @@ func TestSuite_PythonRedis(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Redis metrics", testREDMetricsPythonRedisOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonRedisPipeline(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-redis-pipeline.yml", path.Join(pathOutput, "test-suite-python-redis-pipeline.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Redis pipeline traces", testTracesRedisPipeline)
+	t.Run("Redis pipeline traces without a parent", testTracesRedisPipelineNoParent)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -858,6 +946,20 @@ func TestSuite_Aerospike(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8390:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Aerospike RED metrics and traces", testREDMetricsAerospikeOnly)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_AerospikeServerSide(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-aerospike-server.yml", path.Join(pathOutput, "test-suite-aerospike-server.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3000`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8392:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Aerospike server-side traces", func(t *testing.T) {
+		waitForAerospikeServerTestComponents(t, "http://localhost:8392")
+		testREDTracesAerospikeServerSide(t)
+	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -974,6 +1076,9 @@ func TestSuite_PythonMCP(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python MCP server span", testPythonMCPServer)
 	t.Run("Python MCP initialize", testPythonMCPInitialize)
+	t.Run("Python MCP client span", testPythonMCPClient)
+	t.Run("Python MCP client resource span", testPythonMCPClientResource)
+	t.Run("Python MCP operation metrics", testPythonMCPMetrics)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1014,6 +1119,17 @@ func TestSuite_PythonAWSSQS(t *testing.T) {
 	t.Run("Python AWS SQS", testPythonAWSSQS)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAWSSNS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-aws.yml", path.Join(pathOutput, "test-suite-python-aws-sns.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	t.Cleanup(func() { runWeaverValidation(t) })
+	t.Run("Python AWS SNS", testPythonAWSSNS)
 }
 
 func TestSuite_NodeJSDist(t *testing.T) {
@@ -1187,139 +1303,229 @@ func TestSuite_Elixir(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-func TestSuite_LogEnricherHTTP(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-http.log"))
+// logEnricherConfigV2 selects the config v2 twin of the log enricher OBI configuration
+const logEnricherConfigV2 = "-v2"
+
+// logEnricherConfigUnselected selects the log enricher OBI configuration whose log
+// enricher selection matches none of the instrumented processes
+const logEnricherConfigUnselected = "-unselected"
+
+// logEnricherSuite starts the log enricher compose with the OBI configuration variant
+// named by configSuffix ("" is the v1 file) and runs the suite's subtests against it
+func logEnricherSuite(t *testing.T, name, configSuffix string, env []string, subtests func(t *testing.T)) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-"+name+configSuffix+".log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	compose.Env = append(compose.Env, `INSTRUMENTER_CONFIG_SUFFIX=`+configSuffix)
+	compose.Env = append(compose.Env, env...)
 	require.NoError(t, compose.Up())
 
-	t.Run("Log Enricher HTTP", func(t *testing.T) {
-		testLogEnricher(t, logEnricherHTTPConstants)
-	})
+	subtests(t)
 	require.NoError(t, compose.Close())
+}
+
+func logEnricherHTTPSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "http", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher HTTP", func(t *testing.T) {
+			testLogEnricher(t, logEnricherHTTPConstants)
+		})
+		t.Run("Log Enricher nested spans python", func(t *testing.T) {
+			testLogEnricherNestedSpansPython(t, logEnricherHTTPConstants)
+		})
+	})
+}
+
+func TestSuite_LogEnricherHTTP(t *testing.T) {
+	logEnricherHTTPSuite(t, "")
+}
+
+func TestSuite_LogEnricherHTTPConfigV2(t *testing.T) {
+	logEnricherHTTPSuite(t, logEnricherConfigV2)
+}
+
+func logEnricherGoGRPCSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "go-grpc", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=50051`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher Go gRPC", func(t *testing.T) {
+			testLogEnricher(t, logEnricherGoGRPCConstants)
+		})
+		t.Run("Log Enricher Go writev clamp", func(t *testing.T) {
+			testLogEnricherWritevClamp(t, logEnricherGoWritevRegressionConstants)
+		})
+		t.Run("Log Enricher plain text", func(t *testing.T) {
+			testLogEnricherPlainText(t, logEnricherGoGRPCConstants)
+		})
+		t.Run("Log Enricher nested spans", func(t *testing.T) {
+			testLogEnricherNestedSpans(t, logEnricherGoGRPCConstants)
+		})
+		t.Run("Log Enricher nested spans goroutine", func(t *testing.T) {
+			testLogEnricherNestedSpansGoroutine(t, logEnricherGoGRPCConstants)
+		})
+		t.Run("Log Enricher nested spans deep", func(t *testing.T) {
+			testLogEnricherNestedSpansDeep(t, logEnricherGoGRPCConstants)
+		})
+		t.Run("Log Enricher nested spans same kind", func(t *testing.T) {
+			testLogEnricherNestedSpansSameKind(t, logEnricherGoGRPCConstants)
+		})
+		t.Run("Log Enricher nested spans close goroutine", func(t *testing.T) {
+			testLogEnricherNestedSpansCloseGoroutine(t, logEnricherGoGRPCConstants)
+		})
+		t.Run("Log Enricher nested spans close A/B", func(t *testing.T) {
+			testLogEnricherNestedSpansCloseAB(t, logEnricherGoGRPCConstants, 0, "abreq")
+		})
+		t.Run("Log Enricher nested spans close A/B overflowed", func(t *testing.T) {
+			// the stack holds k_obi_ctx_max_depth (4) frames: the HTTP server span
+			// plus three SQL spans fill it, so A's gRPC client span is only counted
+			testLogEnricherNestedSpansCloseAB(t, logEnricherGoGRPCConstants, 3, "abdeep")
+		})
+	})
 }
 
 func TestSuite_LogEnricherGoGRPC(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-go-grpc.log"))
-	require.NoError(t, err)
+	logEnricherGoGRPCSuite(t, "")
+}
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=50051`, `OTEL_EBPF_EXECUTABLE_PATH=`)
-	require.NoError(t, compose.Up())
+func TestSuite_LogEnricherGoGRPCConfigV2(t *testing.T) {
+	logEnricherGoGRPCSuite(t, logEnricherConfigV2)
+}
 
-	t.Run("Log Enricher Go gRPC", func(t *testing.T) {
-		testLogEnricher(t, logEnricherGoGRPCConstants)
+func logEnricherNodeJSSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "nodejs", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher Node.js", func(t *testing.T) {
+			testLogEnricherNodeJS(t)
+		})
 	})
-	t.Run("Log Enricher Go writev clamp", func(t *testing.T) {
-		testLogEnricherWritevClamp(t, logEnricherGoWritevRegressionConstants)
-	})
-	t.Run("Log Enricher plain text", func(t *testing.T) {
-		testLogEnricherPlainText(t, logEnricherGoGRPCConstants)
-	})
-	require.NoError(t, compose.Close())
 }
 
 func TestSuite_LogEnricherNodeJS(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-nodejs.log"))
-	require.NoError(t, err)
+	logEnricherNodeJSSuite(t, "")
+}
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`)
-	require.NoError(t, compose.Up())
+func TestSuite_LogEnricherNodeJSConfigV2(t *testing.T) {
+	logEnricherNodeJSSuite(t, logEnricherConfigV2)
+}
 
-	t.Run("Log Enricher Node.js", func(t *testing.T) {
-		testLogEnricherNodeJS(t)
+func logEnricherJavaSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "java", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=8085`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher Java", func(t *testing.T) {
+			testLogEnricherJava(t)
+		})
 	})
-	require.NoError(t, compose.Close())
 }
 
 func TestSuite_LogEnricherJava(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-java.log"))
-	require.NoError(t, err)
+	logEnricherJavaSuite(t, "")
+}
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8085`, `OTEL_EBPF_EXECUTABLE_PATH=`)
-	require.NoError(t, compose.Up())
+func TestSuite_LogEnricherJavaConfigV2(t *testing.T) {
+	logEnricherJavaSuite(t, logEnricherConfigV2)
+}
 
-	t.Run("Log Enricher Java", func(t *testing.T) {
-		testLogEnricherJava(t)
+func logEnricherRubySuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "ruby", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher Ruby puts (writev)", func(t *testing.T) {
+			testLogEnricherRuby(t, logEnricherRubyWritevConstants)
+		})
+		t.Run("Log Enricher Ruby syswrite (write)", func(t *testing.T) {
+			testLogEnricherRuby(t, logEnricherRubyWriteConstants)
+		})
 	})
-	require.NoError(t, compose.Close())
 }
 
 func TestSuite_LogEnricherRuby(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-ruby.log"))
-	require.NoError(t, err)
+	logEnricherRubySuite(t, "")
+}
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`)
-	require.NoError(t, compose.Up())
+func TestSuite_LogEnricherRubyConfigV2(t *testing.T) {
+	logEnricherRubySuite(t, logEnricherConfigV2)
+}
 
-	t.Run("Log Enricher Ruby puts (writev)", func(t *testing.T) {
-		testLogEnricherRuby(t, logEnricherRubyWritevConstants)
+func logEnricherDotNetSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "dotnet", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=5266`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher .NET", func(t *testing.T) {
+			testLogEnricherDotNet(t)
+		})
 	})
-	t.Run("Log Enricher Ruby syswrite (write)", func(t *testing.T) {
-		testLogEnricherRuby(t, logEnricherRubyWriteConstants)
-	})
-	require.NoError(t, compose.Close())
 }
 
 func TestSuite_LogEnricherDotNet(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-dotnet.log"))
-	require.NoError(t, err)
+	logEnricherDotNetSuite(t, "")
+}
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=5266`, `OTEL_EBPF_EXECUTABLE_PATH=`)
-	require.NoError(t, compose.Up())
+func TestSuite_LogEnricherDotNetConfigV2(t *testing.T) {
+	logEnricherDotNetSuite(t, logEnricherConfigV2)
+}
 
-	t.Run("Log Enricher .NET", func(t *testing.T) {
-		testLogEnricherDotNet(t)
+func logEnricherPythonAsyncSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "pythonasync", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=8391`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher Python async", func(t *testing.T) {
+			testLogEnricherPythonAsync(t)
+		})
+		// Must run after the regular Python async test: this subtest causes OBI to
+		// flag the service as OTel-exporting, which persists for the rest of the
+		// container's lifetime.
+		t.Run("Log Enricher Python async OTel-instrumented", func(t *testing.T) {
+			testLogEnricherPythonAsyncOTelInstrumented(t)
+		})
 	})
-	require.NoError(t, compose.Close())
 }
 
 func TestSuite_LogEnricherPythonAsync(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-pythonasync.log"))
-	require.NoError(t, err)
+	logEnricherPythonAsyncSuite(t, "")
+}
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8391`, `OTEL_EBPF_EXECUTABLE_PATH=`)
-	require.NoError(t, compose.Up())
+func TestSuite_LogEnricherPythonAsyncConfigV2(t *testing.T) {
+	logEnricherPythonAsyncSuite(t, logEnricherConfigV2)
+}
 
-	t.Run("Log Enricher Python async", func(t *testing.T) {
-		testLogEnricherPythonAsync(t)
+func logEnricherShellSubstitutionSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "shellsubst", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=substsh`}, func(t *testing.T) {
+		t.Run("Log Enricher shell command substitution", func(t *testing.T) {
+			testLogEnricherShellSubstitution(t)
+		})
 	})
-	// Must run after the regular Python async test: this subtest causes OBI to
-	// flag the service as OTel-exporting, which persists for the rest of the
-	// container's lifetime.
-	t.Run("Log Enricher Python async OTel-instrumented", func(t *testing.T) {
-		testLogEnricherPythonAsyncOTelInstrumented(t)
-	})
-	require.NoError(t, compose.Close())
 }
 
 func TestSuite_LogEnricherShellSubstitution(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-shellsubst.log"))
-	require.NoError(t, err)
+	logEnricherShellSubstitutionSuite(t, "")
+}
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=substsh`)
-	require.NoError(t, compose.Up())
+func TestSuite_LogEnricherShellSubstitutionConfigV2(t *testing.T) {
+	logEnricherShellSubstitutionSuite(t, logEnricherConfigV2)
+}
 
-	t.Run("Log Enricher shell command substitution", func(t *testing.T) {
-		testLogEnricherShellSubstitution(t)
+func logEnricherMultiSegWritevSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "multiseg-writev", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=8388`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher multi-seg writev", func(t *testing.T) {
+			testLogEnricherMultiSegWritev(t)
+		})
+		t.Run("Log Enricher shipper filters", func(t *testing.T) {
+			testLogEnricherShipperFilters(t)
+		})
 	})
-	require.NoError(t, compose.Close())
 }
 
 func TestSuite_LogEnricherMultiSegWritev(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-multiseg-writev.log"))
-	require.NoError(t, err)
+	logEnricherMultiSegWritevSuite(t, "")
+}
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8388`, `OTEL_EBPF_EXECUTABLE_PATH=`)
-	require.NoError(t, compose.Up())
+func TestSuite_LogEnricherMultiSegWritevConfigV2(t *testing.T) {
+	logEnricherMultiSegWritevSuite(t, logEnricherConfigV2)
+}
 
-	t.Run("Log Enricher multi-seg writev", func(t *testing.T) {
-		testLogEnricherMultiSegWritev(t)
+func logEnricherUnselectedServiceSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "http", logEnricherConfigUnselected+configSuffix, []string{`OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher unselected service", func(t *testing.T) {
+			testLogEnricherUnselectedService(t, logEnricherHTTPConstants)
+		})
 	})
-	t.Run("Log Enricher shipper filters", func(t *testing.T) {
-		testLogEnricherShipperFilters(t)
-	})
-	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricherUnselectedService(t *testing.T) {
+	logEnricherUnselectedServiceSuite(t, "")
+}
+
+func TestSuite_LogEnricherUnselectedServiceConfigV2(t *testing.T) {
+	logEnricherUnselectedServiceSuite(t, logEnricherConfigV2)
 }
 
 // The idea behind this test suite is to make sure that when an HTTP request is bigger than 1KB,

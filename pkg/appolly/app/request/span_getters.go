@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
-	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -53,8 +52,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.HTTPRequestMethod:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Method == "" {
-				return attribute.KeyValue{}
+			if !IsKnownHTTPMethod(s.Method) {
+				return HTTPRequestMethod(HTTPMethodOther)
 			}
 			return HTTPRequestMethod(s.Method)
 		}
@@ -86,7 +85,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return semconv.RPCMethod(s.Method)
 			}
 			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
-				return semconv.RPCMethod(s.JSONRPC.Method)
+				return semconv.RPCMethod(s.JSONRPC.QualifiedMethod())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
 				return semconv.RPCMethod(S3RPCMethod(s.AWS.S3.Method))
@@ -194,19 +193,29 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return attribute.KeyValue{}
 		}
 	case attr.DBNamespace:
-		getter = func(span *Span) attribute.KeyValue { return DBNamespace(span.DBNamespace) }
+		getter = func(span *Span) attribute.KeyValue {
+			// db.namespace is Conditionally Required "if available": omit it
+			// instead of emitting an empty value
+			if span.DBNamespace == "" {
+				return attribute.KeyValue{}
+			}
+			return DBNamespace(span.DBNamespace)
+		}
+	case attr.DBResponseStatusCode:
+		getter = func(span *Span) attribute.KeyValue {
+			// db.response.status_code is Conditionally Required "if the
+			// operation failed and status code is available": omit it when no
+			// code was captured (for Elasticsearch semconv defines it as the
+			// HTTP response code, reported also on success)
+			if code := dbResponseStatusCode(span); code != "" {
+				return DBResponseStatusCode(code)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
-			if span.Type == EventTypeDNS && span.Status != int(dnsparser.RCodeSuccess) {
-				return ErrorType(dnsparser.RCode(span.Status).String())
-			} else if SpanStatusCode(span) == StatusCodeError {
-				switch span.Type {
-				case EventTypeMemcachedClient, EventTypeMemcachedServer:
-					if span.DBError.ErrorCode != "" {
-						return ErrorType(span.DBError.ErrorCode)
-					}
-				}
-				return ErrorType("error")
+			if errType := SpanErrorType(span); errType != "" {
+				return ErrorType(errType)
 			}
 			// error.type only applies to failed requests: return an invalid
 			// KeyValue so the attribute is omitted instead of emitted empty.
@@ -227,6 +236,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return semconv.MessagingSystemAWSSQS
 			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil {
+				return semconv.MessagingSystemAWSSNS
+			}
 			return attribute.KeyValue{}
 		}
 	case attr.MessagingDestination:
@@ -243,6 +255,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return semconv.MessagingDestinationName(span.AWS.SQS.Destination)
 			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil {
+				return semconv.MessagingDestinationName(span.AWS.SNS.Destination)
+			}
 			return semconv.MessagingDestinationName("")
 		}
 	case attr.MessagingOpName:
@@ -250,6 +265,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			switch {
 			case span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil:
 				return MessagingOperationName(span.AWS.SQS.OperationName)
+			case span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil:
+				return MessagingOperationName(span.AWS.SNS.OperationName)
 			case span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer ||
 				span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer ||
 				span.Type == EventTypeNATSClient || span.Type == EventTypeNATSServer ||
@@ -272,6 +289,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				opType = span.AWS.SQS.OperationType
 			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil {
+				opType = span.AWS.SNS.OperationType
+			}
 			if opType == "" {
 				// messaging.operation.type is a semconv enum: omit the
 				// attribute rather than emitting an empty (invalid) variant.
@@ -283,6 +303,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(span *Span) attribute.KeyValue {
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return MessagingMessageID(span.AWS.SQS.MessageID)
+			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil {
+				return MessagingMessageID(span.AWS.SNS.MessageID)
 			}
 			return MessagingMessageID("")
 		}
@@ -329,7 +352,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				} else if s.SubType == HTTPSubtypeSQLPP {
 					return DBCollectionName(s.Route)
 				}
-			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient:
+			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient, EventTypeAerospikeServer:
 				return DBCollectionName(s.Path)
 			}
 			return DBCollectionName("")
@@ -356,6 +379,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
 				return AWSRequestID(s.AWS.SQS.Meta.RequestID)
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
+				return AWSRequestID(s.AWS.SNS.Meta.RequestID)
 			}
 			return AWSRequestID("")
 		}
@@ -387,6 +413,21 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return AWSSQSQueueURL("")
 		}
+	case attr.AWSSNSTopicARN:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil && s.AWS.SNS.TopicARN != "" {
+				return semconv.AWSSNSTopicARN(s.AWS.SNS.TopicARN)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.MessagingBatchCount:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil &&
+				s.AWS.SNS.OperationName == "PublishBatch" && s.AWS.SNS.BatchCount > 0 {
+				return semconv.MessagingBatchMessageCount(s.AWS.SNS.BatchCount)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.CloudRegion:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
@@ -394,6 +435,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
 				return CloudRegion(s.AWS.SQS.Meta.Region)
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
+				return CloudRegion(s.AWS.SNS.Meta.Region)
 			}
 			return CloudRegion("")
 		}
@@ -504,10 +548,12 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if op := s.GenAIOperationName(); op != "" {
 				return semconv.GenAIOperationNameKey.String(op)
 			}
-			// Omit gen_ai.operation.name rather than emitting an empty value
-			// (required on the gen_ai client metrics when present, and an
-			// empty string carries no information).
-			return attribute.KeyValue{}
+
+			if s.GenAI == nil {
+				return attribute.KeyValue{}
+			}
+
+			return semconv.GenAIOperationNameKey.String(OtherOperationName)
 		}
 	case attr.GenAIProviderName:
 		getter = func(s *Span) attribute.KeyValue {
@@ -548,10 +594,48 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return attribute.String(string(attr.JSONRPCRequestID), "")
 		}
+	case attr.MCPMethodName:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.Method != "" {
+				return attribute.String(string(attr.MCPMethodName), mcp.Method)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.MCPProtocolVersion:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.ProtocolVer != "" {
+				return attribute.String(string(attr.MCPProtocolVersion), mcp.ProtocolVer)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.MCPResourceURI:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.ResourceURI != "" {
+				return attribute.String(string(attr.MCPResourceURI), mcp.ResourceURI)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.GenAIToolName:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.ToolName != "" {
+				return attribute.String(string(attr.GenAIToolName), mcp.ToolName)
+			}
+			return attribute.KeyValue{}
+		}
+	case attr.GenAIPromptName:
+		getter = func(s *Span) attribute.KeyValue {
+			if mcp := s.MCP(); mcp != nil && mcp.PromptName != "" {
+				return attribute.String(string(attr.GenAIPromptName), mcp.PromptName)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.RPCResponseStatusCode:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
 				return semconv.RPCResponseStatusCode(SunRPCResponseStatusCode(s.Status))
+			}
+			if mcp := s.MCP(); mcp != nil && mcp.ErrorCode != 0 {
+				return semconv.RPCResponseStatusCode(strconv.Itoa(mcp.ErrorCode))
 			}
 			if s.Type == EventTypeGRPC || s.Type == EventTypeGRPCClient {
 				// GRPCStatusCodeString returns "" for statuses outside the
@@ -599,6 +683,24 @@ func spanPromGetters(attrName attr.Name) attributes.Getter[*Span, string] {
 	return func(s *Span) string { return s.Service.Metadata[attrName] }
 }
 
+func dbResponseStatusCode(span *Span) string {
+	// semconv defines db.response.status_code for Elasticsearch as the HTTP
+	// response code, reported whenever a response was received
+	if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeElasticsearch {
+		if span.Status != 0 {
+			return strconv.Itoa(span.Status)
+		}
+		return ""
+	}
+	if span.DBError.ErrorCode != "" {
+		return span.DBError.ErrorCode
+	}
+	if span.Status == 1 && span.SQLError != nil {
+		return span.SQLError.ResponseStatusCode()
+	}
+	return ""
+}
+
 func dbSystemNameForSpan(span *Span) string {
 	switch span.Type {
 	case EventTypeSQLClient, EventTypeSQLServer:
@@ -611,7 +713,7 @@ func dbSystemNameForSpan(span *Span) string {
 		return semconv.DBSystemNameMongoDB.Value.AsString()
 	case EventTypeCouchbaseClient:
 		return semconv.DBSystemNameCouchbase.Value.AsString()
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return "aerospike"
 	case EventTypeHTTPClient:
 		if span.SubType == HTTPSubtypeElasticsearch && span.Elasticsearch != nil {

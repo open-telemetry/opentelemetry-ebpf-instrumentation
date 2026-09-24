@@ -7,9 +7,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	containerTypes "github.com/moby/moby/api/types/container"
@@ -76,13 +79,7 @@ func requireConsistency(t *testing.T, s *ContainerStore) {
 		entry, ok := s.byContainerID[meta.FullID]
 		require.Truef(t, ok,
 			"byPID[%d] references fullID %q but byContainerID has no entry for it", pid, meta.FullID)
-		found := false
-		for _, p := range entry.pids {
-			if p == pid {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(entry.pids, pid)
 		require.Truef(t, found,
 			"byPID[%d] references fullID %q but that pid is not listed in byContainerID[%q].pids", pid, meta.FullID, meta.FullID)
 	}
@@ -140,14 +137,169 @@ func TestContainerInfo(t *testing.T) {
 		s := NewStore()
 		s.docker = eofMock()
 
+		calls := 0
 		orig := osInfoForPID
 		osInfoForPID = func(_ app.PID) (container.Info, error) {
+			calls++
 			return container.Info{}, errors.New("no cgroup")
 		}
 		defer func() { osInfoForPID = orig }()
 
-		_, ok := s.ContainerInfo(context.Background(), app.PID(1))
+		_, firstOK := s.ContainerInfo(context.Background(), app.PID(1))
+		_, secondOK := s.ContainerInfo(context.Background(), app.PID(1))
+		assert.False(t, firstOK)
+		assert.False(t, secondOK)
+		assert.Equal(t, 2, calls, "errors other than ErrContainerNotFound must not be cached")
+	})
+
+	t.Run("container_not_found_is_cached_until_retry_interval", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			s := NewStore()
+			s.docker = &mockDockerClient{
+				inspectResult: client.ContainerInspectResult{
+					Container: containerTypes.InspectResponse{ID: fullID, Name: "/my-container"},
+				},
+			}
+
+			calls := 0
+			found := false
+			orig := osInfoForPID
+			osInfoForPID = func(_ app.PID) (container.Info, error) {
+				calls++
+				if !found {
+					return container.Info{}, container.ErrContainerNotFound
+				}
+				return container.Info{ContainerID: fullID}, nil
+			}
+			defer func() { osInfoForPID = orig }()
+
+			pid := app.PID(1)
+			_, firstOK := s.ContainerInfo(context.Background(), pid)
+			_, cachedOK := s.ContainerInfo(context.Background(), pid)
+			assert.False(t, firstOK)
+			assert.False(t, cachedOK)
+			assert.Equal(t, 2, calls)
+
+			time.Sleep(containerNotFoundRetryInterval / 2)
+			_, laterCachedOK := s.ContainerInfo(context.Background(), pid)
+			assert.False(t, laterCachedOK)
+			assert.Equal(t, 2, calls)
+
+			found = true
+			time.Sleep(containerNotFoundRetryInterval / 2)
+
+			got, retriedOK := s.ContainerInfo(context.Background(), pid)
+			require.True(t, retriedOK)
+			assert.Equal(t, ContainerID(fullID), got.FullID)
+			assert.Equal(t, 4, calls)
+			s.cacheMu.RLock()
+			_, negativelyCached := s.containerNotFoundRetryAtByPID[pid]
+			s.cacheMu.RUnlock()
+			assert.False(t, negativelyCached)
+		})
+	})
+
+	t.Run("expired_container_not_found_entry_is_removed_when_retry_fails", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			s := NewStore()
+			s.docker = eofMock()
+
+			lookupErr := container.ErrContainerNotFound
+			orig := osInfoForPID
+			osInfoForPID = func(_ app.PID) (container.Info, error) {
+				return container.Info{}, lookupErr
+			}
+			defer func() { osInfoForPID = orig }()
+
+			pid := app.PID(1)
+			_, ok := s.ContainerInfo(context.Background(), pid)
+			assert.False(t, ok)
+			s.cacheMu.RLock()
+			_, negativelyCached := s.containerNotFoundRetryAtByPID[pid]
+			s.cacheMu.RUnlock()
+			require.True(t, negativelyCached)
+
+			time.Sleep(containerNotFoundRetryInterval)
+			lookupErr = errors.New("no cgroup")
+			_, ok = s.ContainerInfo(context.Background(), pid)
+			assert.False(t, ok)
+
+			s.cacheMu.RLock()
+			_, negativelyCached = s.containerNotFoundRetryAtByPID[pid]
+			s.cacheMu.RUnlock()
+			assert.False(t, negativelyCached)
+		})
+	})
+
+	t.Run("invalidate_pid_clears_container_not_found_cache", func(t *testing.T) {
+		s := NewStore()
+		s.docker = &mockDockerClient{
+			inspectResult: client.ContainerInspectResult{
+				Container: containerTypes.InspectResponse{ID: fullID, Name: "/my-container"},
+			},
+		}
+
+		found := false
+		orig := osInfoForPID
+		osInfoForPID = func(_ app.PID) (container.Info, error) {
+			if !found {
+				return container.Info{}, container.ErrContainerNotFound
+			}
+			return container.Info{ContainerID: fullID}, nil
+		}
+		defer func() { osInfoForPID = orig }()
+
+		pid := app.PID(1)
+		_, ok := s.ContainerInfo(context.Background(), pid)
 		assert.False(t, ok)
+
+		found = true
+		s.InvalidatePID(pid)
+
+		got, ok := s.ContainerInfo(context.Background(), pid)
+		require.True(t, ok)
+		assert.Equal(t, ContainerID(fullID), got.FullID)
+	})
+
+	t.Run("invalidation_during_lookup_does_not_restore_container_not_found_cache", func(t *testing.T) {
+		s := NewStore()
+		s.docker = &mockDockerClient{
+			inspectResult: client.ContainerInspectResult{
+				Container: containerTypes.InspectResponse{ID: fullID, Name: "/my-container"},
+			},
+		}
+
+		pid := app.PID(1)
+		lookupStarted := make(chan struct{})
+		releaseLookup := make(chan struct{})
+		var calls atomic.Int32
+
+		orig := osInfoForPID
+		osInfoForPID = func(_ app.PID) (container.Info, error) {
+			if calls.Add(1) == 1 {
+				close(lookupStarted)
+				<-releaseLookup
+				return container.Info{}, container.ErrContainerNotFound
+			}
+
+			return container.Info{ContainerID: fullID}, nil
+		}
+		defer func() { osInfoForPID = orig }()
+
+		firstLookupResult := make(chan bool, 1)
+		go func() {
+			_, ok := s.ContainerInfo(context.Background(), pid)
+			firstLookupResult <- ok
+		}()
+
+		<-lookupStarted
+		s.InvalidatePID(pid)
+		close(releaseLookup)
+		assert.False(t, <-firstLookupResult)
+
+		got, ok := s.ContainerInfo(context.Background(), pid)
+		require.True(t, ok)
+		assert.Equal(t, ContainerID(fullID), got.FullID)
 	})
 
 	t.Run("inspect_error_returns_false", func(t *testing.T) {
@@ -332,8 +484,7 @@ func TestContainerMetadata(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	t.Run("starts_watcher_goroutine_and_processes_events", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		const fullID = "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
 		pid := app.PID(99)
@@ -375,8 +526,7 @@ func TestStart(t *testing.T) {
 // arrive during the 1-second backoff gap are not silently dropped.
 func TestStartSinceCheckpoint(t *testing.T) {
 	t.Run("initial_since_covers_gap_between_start_and_first_events_call", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		before := time.Now().Unix()
 

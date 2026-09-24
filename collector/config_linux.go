@@ -35,8 +35,7 @@ func (c *receiverConfig) Unmarshal(component *confmap.Conf) error {
 
 	extension, err := schema.ParseReceiverYAML(data)
 	if err != nil {
-		var notV2 *schema.NotV2Error
-		if !errors.As(err, &notV2) {
+		if _, ok := errors.AsType[*schema.NotV2Error](err); !ok {
 			return fmt.Errorf("parse OBI receiver config v2: %w", err)
 		}
 

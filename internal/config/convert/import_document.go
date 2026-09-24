@@ -684,7 +684,7 @@ func parseKeyValueList(raw string, dst map[string]string) error {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
-	for _, item := range strings.Split(raw, ",") {
+	for item := range strings.SplitSeq(raw, ",") {
 		key, value, found := strings.Cut(item, "=")
 		if !found || strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
 			return fmt.Errorf("invalid key-value pair %q", strings.TrimSpace(item))

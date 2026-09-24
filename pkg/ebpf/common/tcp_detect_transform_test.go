@@ -47,6 +47,41 @@ func TestTCPReqSQLParsing(t *testing.T) {
 	assert.Equal(t, request.EventTypeSQLClient, s.Type)
 }
 
+func TestEmitTCPExtraSpansSetsConditionalParent(t *testing.T) {
+	tests := []struct {
+		name              string
+		event             TCPRequestInfo
+		parentConditional bool
+	}{
+		{
+			name:              "conditional",
+			event:             TCPRequestInfo{ParentStatus: parentStatusConditional},
+			parentConditional: true,
+		},
+		{name: "not conditional"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parseCtx := NewEBPFParseContext(nil, nil, nil)
+			var emitted []request.Span
+			parseCtx.emitSpans = func(spans []request.Span) {
+				emitted = append(emitted, spans...)
+			}
+
+			emitTCPExtraSpans(parseCtx, &test.event,
+				request.Span{},
+				request.Span{ParentConditional: !test.parentConditional},
+			)
+
+			require.Len(t, emitted, 2)
+			for _, span := range emitted {
+				assert.Equal(t, test.parentConditional, span.ParentConditional)
+			}
+		})
+	}
+}
+
 func TestReadTCPRequestIntoSpan_SQLServerTrafficIsServerSpan(t *testing.T) {
 	r := makeTCPReq("SELECT * FROM accounts", 3306)
 	r.Direction = directionRecv

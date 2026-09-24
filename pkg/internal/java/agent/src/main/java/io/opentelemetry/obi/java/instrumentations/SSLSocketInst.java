@@ -16,6 +16,7 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
 
+// Delegating SSLSockets may return JSSE App streams, which SSLSocketStreamInst handles directly.
 public class SSLSocketInst {
   public static ElementMatcher<? super TypeDescription> type() {
     // sun.security.ssl.SSLSocketImpl is handled by SSLSocketStreamInst, so that
@@ -44,7 +45,10 @@ public class SSLSocketInst {
     public static void getOutputStream(
         @Advice.This final SSLSocket socket,
         @Advice.Return(readOnly = false) OutputStream returnValue) {
-      returnValue = new ProxyOutputStream(returnValue, socket);
+      if (returnValue != null
+          && ProxyOutputStream.requiresProxy(returnValue.getClass().getName())) {
+        returnValue = new ProxyOutputStream(returnValue, socket);
+      }
     }
   }
 
@@ -53,7 +57,9 @@ public class SSLSocketInst {
     public static void getInputStream(
         @Advice.This final SSLSocket socket,
         @Advice.Return(readOnly = false) InputStream returnValue) {
-      returnValue = new ProxyInputStream(returnValue, socket);
+      if (returnValue != null && ProxyInputStream.requiresProxy(returnValue.getClass().getName())) {
+        returnValue = new ProxyInputStream(returnValue, socket);
+      }
     }
   }
 }

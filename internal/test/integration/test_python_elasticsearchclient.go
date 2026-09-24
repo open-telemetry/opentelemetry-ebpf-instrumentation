@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	comm          = "python3.14"
+	comm          = "main"
 	testIndex     = "test_index"
 	testServerURL = "http://localhost:8381"
 )
@@ -57,16 +57,17 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	if index != "" {
 		operationName = op + " " + index
 		params.Add("operation", operationName)
+		params.Add("tags", fmt.Sprintf("{\"db.system.name\":\"%s\"}", dbSystemName))
 	} else {
 		operationName = op
-		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\"}", op))
+		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\",\"db.system.name\":\"%s\"}", op, dbSystemName))
 	}
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
 	t.Log(fullJaegerURL)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullJaegerURL)
+		resp, err := getJaeger(fullJaegerURL)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -75,7 +76,15 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
+		// Both backends run against the same Jaeger under the same service and
+		// operation name, so the trace must be selected by the backend under
+		// test. Picking positionally would return whichever trace happens to
+		// land last, which is not the emission order once a collector batches
+		// the spans on their way to Jaeger.
+		traces := tq.FindBySpan(
+			jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op},
+			jaeger.Tag{Key: "db.system.name", Type: "string", Value: dbSystemName},
+		)
 		require.GreaterOrEqual(ct, len(traces), 1, resp.Body)
 		lastTrace := traces[len(traces)-1]
 		require.GreaterOrEqual(ct, len(lastTrace.Spans), 1)
@@ -91,25 +100,43 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 
 			assert.Contains(ct, span.OperationName, operationName)
 
+			// An operation that carries no body or names no index reports
+			// neither attribute rather than emitting it empty.
 			tag, found = jaeger.FindIn(span.Tags, "db.query.text")
-			assert.True(ct, found)
-			assert.Equal(ct, queryText, tag.Value.(string))
+			if queryText == "" {
+				assert.False(ct, found)
+			} else {
+				assert.True(ct, found)
+				assert.Equal(ct, queryText, tag.Value.(string))
+			}
 
 			tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
-			assert.True(ct, found)
-			assert.Equal(ct, index, tag.Value)
+			if index == "" {
+				assert.False(ct, found)
+			} else {
+				assert.True(ct, found)
+				assert.Equal(ct, index, tag.Value)
+			}
 
-			tag, found = jaeger.FindIn(span.Tags, "db.namespace")
-			assert.True(ct, found)
-			assert.Empty(ct, tag.Value)
+			// Elasticsearch reports no namespace, so the attribute is omitted
+			// rather than emitted empty.
+			_, found = jaeger.FindIn(span.Tags, "db.namespace")
+			assert.False(ct, found)
 
 			tag, found = jaeger.FindIn(span.Tags, "db.system.name")
 			assert.True(ct, found)
 			assert.Equal(ct, dbSystemName, tag.Value)
 
-			tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
+			// for Elasticsearch, db.response.status_code is the HTTP response
+			// code, reported whenever a response was received
+			tag, found = jaeger.FindIn(span.Tags, "db.response.status_code")
 			assert.True(ct, found)
-			assert.Empty(ct, tag.Value)
+			assert.NotEmpty(ct, tag.Value)
+
+			// Only Elastic Cloud reports the handling instance, so a local
+			// Elasticsearch omits the attribute rather than emitting it empty.
+			_, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
+			assert.False(ct, found)
 		}
 	}, testTimeout, 100*time.Millisecond)
 }

@@ -80,6 +80,14 @@ func errorNodeExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 	return errorExtractRoutes(context.Background(), pid)
 }
 
+func successfulPythonExtractRoutes(fi *exec.FileInfo) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(context.Background(), fi.Pid())
+}
+
+func successfulPHPExtractRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(ctx, fi.Pid())
+}
+
 func createTestFileInfo(language svc.InstrumentableType) *exec.FileInfo {
 	return exec.New(exec.Init{
 		Pid: 12345,
@@ -262,9 +270,13 @@ func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 	assert.Equal(t, CompleteRoutes, result.Kind)
 }
 
-func TestHarvestDenoRoutes_UsesJavaScriptExtractor(t *testing.T) {
+func TestHarvestDenoRoutes_UsesDenoExtractor(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, time.Second)
-	harvester.nodeExtractRoutes = successfulNodeExtractRoutes
+	harvester.nodeExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+		t.Fatal("Deno route harvesting should not use the Node.js launch parser")
+		return nil, nil
+	}
+	harvester.denoExtractRoutes = successfulNodeExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableDeno)
 
@@ -282,12 +294,100 @@ func TestHarvestDenoRoutes_DisabledWithNodejs(t *testing.T) {
 		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguageNodejs},
 		time.Second,
 	)
-	harvester.nodeExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+	harvester.denoExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
 		t.Fatal("Deno route harvesting should be disabled with Node.js route harvesting")
 		return nil, nil
 	}
 
 	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentableDeno))
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestHarvestPythonRoutes(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, time.Second)
+	harvester.pythonExtractRoutes = successfulPythonExtractRoutes
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePython))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"/api/users", "/api/orders"}, result.Routes)
+}
+
+func TestHarvestPythonRoutesDisabled(t *testing.T) {
+	harvester := NewRouteHarvester(
+		&services.RouteHarvestingConfig{},
+		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguagePython},
+		time.Second,
+	)
+	harvester.pythonExtractRoutes = func(*exec.FileInfo) (*RouteHarvesterResult, error) {
+		t.Fatal("disabled Python harvester was called")
+		return nil, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePython))
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestHarvestPHPRoutes(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, time.Second)
+	harvester.phpExtractRoutes = successfulPHPExtractRoutes
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePHP))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"/api/users", "/api/orders"}, result.Routes)
+	assert.Equal(t, CompleteRoutes, result.Kind)
+}
+
+func TestHarvestPHPRoutesDisabled(t *testing.T) {
+	harvester := NewRouteHarvester(
+		&services.RouteHarvestingConfig{},
+		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguagePHP},
+		time.Second,
+	)
+	harvester.phpExtractRoutes = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
+		t.Fatal("disabled PHP route harvester was called")
+		return nil, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePHP))
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestHarvestDotnetRoutes(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, time.Second)
+	harvester.dotnetExtract = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
+		return &RouteHarvesterResult{Routes: []string{"/api/{id:int}"}, Kind: PartialRoutes}, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentableDotnet))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"/api/{id:int}"}, result.Routes)
+	assert.Equal(t, PartialRoutes, result.Kind)
+}
+
+func TestHarvestDotnetRoutesDisabled(t *testing.T) {
+	harvester := NewRouteHarvester(
+		&services.RouteHarvestingConfig{},
+		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguageDotnet},
+		time.Second,
+	)
+	harvester.dotnetExtract = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
+		t.Fatal("disabled .NET route harvester was called")
+		return nil, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentableDotnet))
 
 	require.NoError(t, err)
 	assert.Nil(t, result)
@@ -308,7 +408,8 @@ func TestHarvestNodejsRoutes_Error(t *testing.T) {
 
 func TestFindScriptDirectory(t *testing.T) {
 	// Create a temporary directory structure for testing
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 
 	isDirFunc = func(path string) bool {
 		return !strings.HasSuffix(path, ".js")
@@ -323,9 +424,13 @@ func TestFindScriptDirectory(t *testing.T) {
 	//   workdir/
 
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app", "nested", "deep"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "outside"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "src"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "server.js"), []byte(""), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "nested", "deep", "file.js"), []byte(""), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "outside", "server.js"), []byte(""), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "src", "index.js"), []byte(""), 0o644))
 
 	tests := []struct {
@@ -392,6 +497,13 @@ func TestFindScriptDirectory(t *testing.T) {
 			expected: filepath.Join(tempDir, "/app/nested/deep") + "/",
 		},
 		{
+			name:     "parent traversal stays inside process root",
+			root:     tempDir,
+			firstArg: "/../../../outside/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "outside") + "/",
+		},
+		{
 			name:     "cwd is root",
 			root:     tempDir,
 			firstArg: "index.js",
@@ -409,7 +521,10 @@ func TestFindScriptDirectory(t *testing.T) {
 }
 
 func TestFindScriptDirectory_EdgeCases(t *testing.T) {
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "some", "deep", "path"), 0o755))
 
 	isDirFunc = func(path string) bool {
 		return !strings.HasSuffix(path, ".js")
@@ -423,11 +538,11 @@ func TestFindScriptDirectory_EdgeCases(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "empty root with absolute firstArg",
+			name:     "empty root is rejected",
 			root:     "",
 			firstArg: "/app/server.js",
 			cwd:      "/workdir",
-			expected: "/app/",
+			expected: "",
 		},
 		{
 			name:     "all parameters empty",

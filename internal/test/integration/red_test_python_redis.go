@@ -6,6 +6,7 @@ package integration // import "go.opentelemetry.io/obi/internal/test/integration
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	// Call 3 times the instrumented service, forcing it to:
 	// - take a large JSON file
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+"/"+urlPath, 200)
 	}
 
@@ -36,12 +37,24 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	var results []promtest.Result
 	var err error
 	for _, span := range testCase.Spans {
+		// spans expected to carry db.namespace or db.response.status_code
+		// must also split the metric series by those labels
+		var extraMatchers strings.Builder
+		for _, a := range span.Attributes {
+			switch string(a.Key) {
+			case "db.namespace":
+				extraMatchers.WriteString(`db_namespace="` + a.Value.AsString() + `",`)
+			case "db.response.status_code":
+				extraMatchers.WriteString(`db_response_status_code="` + a.Value.AsString() + `",`)
+			}
+		}
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			// server_port is present despite being the redis default port because
 			// the suite config explicitly includes all attributes (include: ["*"])
 			results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
 				`db_operation_name="` + span.Name + `",` +
+				extraMatchers.String() +
 				`server_port="6379",` +
 				`service_namespace="` + namespace + `"}`)
 			require.NoError(ct, err, "failed to query prometheus for %s", span.Name)
@@ -58,7 +71,7 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + command)
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + command)
 			require.NoError(ct, err, "failed to query jaeger for %s", command)
 			if resp == nil {
 				return
@@ -76,7 +89,7 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	}, testTimeout, 100*time.Millisecond)
 
 	// Ensure we don't find any HTTP traces, since we filter them out
-	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
+	resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
 	require.NoError(t, err, "failed to query jaeger for HTTP traces")
 	if resp == nil {
 		return
@@ -98,7 +111,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "redis",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -134,7 +147,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "redis-error",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -144,6 +157,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 						attribute.String("db.query.text", "INVALID_COMMAND"),
 						attribute.Bool("error", true),
 						attribute.String("db.response.status_code", "ERR"),
+						attribute.String("error.type", "ERR"),
 						attribute.String("otel.status_description", "ERR unknown command 'INVALID_COMMAND', with args beginning with: "),
 					},
 				},
@@ -161,6 +175,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 						attribute.String("db.query.text", "LPUSH obi-error rocks more"),
 						attribute.Bool("error", true),
 						attribute.String("db.response.status_code", "WRONGTYPE"),
+						attribute.String("error.type", "WRONGTYPE"),
 						attribute.String("otel.status_description", "WRONGTYPE Operation against a key holding the wrong kind of value"),
 					},
 				},
@@ -171,6 +186,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 						attribute.String("db.query.text", "EVALSHA INVALID_SHA 0"),
 						attribute.Bool("error", true),
 						attribute.String("db.response.status_code", "NOSCRIPT"),
+						attribute.String("error.type", "NOSCRIPT"),
 						attribute.String("otel.status_description", "NOSCRIPT No matching script. Please use EVAL."),
 					},
 				},
@@ -181,7 +197,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 			// frames, which the generic tracer must still detect and pair
 			Route:     "http://localhost:8381",
 			Subpath:   "redis-resp3",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
@@ -224,7 +240,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 		{
 			Route:     "http://localhost:8381",
 			Subpath:   "redis-db",
-			Comm:      "python3.14",
+			Comm:      "main",
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{

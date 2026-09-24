@@ -116,6 +116,10 @@ func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
 }
 
+func (p *Tracer) Close() error {
+	return ebpfcommon.CloseResources(append(p.closers, &p.bpfObjects)...)
+}
+
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	return nil
 }
@@ -153,8 +157,6 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
 	return nil
 }
-
-func (p *Tracer) SetupTailCalls() {}
 
 func (p *Tracer) SocketFilters() []*ebpf.Program { return nil }
 

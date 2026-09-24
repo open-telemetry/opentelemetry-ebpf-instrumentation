@@ -25,7 +25,7 @@ func testREDMetricsTracesForOldGRPCLibrary(t *testing.T, svcNs string) {
 
 	path := "/factorial/2"
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetIgnoreStatus(t, url+path)
 	}
 
@@ -72,7 +72,7 @@ func testREDMetricsTracesForOldGRPCLibrary(t *testing.T, svcNs string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=backend&operation=GET%20%2Ffactorial%2F")
+		resp, err := getJaeger(jaegerQueryURL + "?service=backend&operation=GET%20%2Ffactorial%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

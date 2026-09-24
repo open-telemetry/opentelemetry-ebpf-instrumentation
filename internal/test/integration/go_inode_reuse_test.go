@@ -114,7 +114,7 @@ func hasHTTPSpan(service, requestPath string) bool {
 		"operation": {"GET " + requestPath},
 		"lookback":  {"5m"},
 	}
-	resp, err := http.Get(jaegerQueryURL + "?" + query.Encode())
+	resp, err := getJaeger(jaegerQueryURL + "?" + query.Encode())
 	if err != nil {
 		return false
 	}

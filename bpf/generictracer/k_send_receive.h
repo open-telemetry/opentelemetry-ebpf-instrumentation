@@ -20,8 +20,8 @@
 static __always_inline u8 same_direction(pid_connection_info_t *p_conn, u8 direction) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, p_conn);
     if (info && !info->submitted) {
-        return ((info->type == EVENT_HTTP_REQUEST) && (direction == TCP_SEND)) ||
-               ((info->type == EVENT_HTTP_CLIENT) && (direction == TCP_RECV));
+        return ((info->type == k_event_type_http_request) && (direction == TCP_SEND)) ||
+               ((info->type == k_event_type_http_client) && (direction == TCP_RECV));
     }
     return false;
 }
@@ -68,7 +68,8 @@ static __always_inline void force_sent_event(u64 id,
                                              u64 *sock_p,
                                              pid_connection_info_t *p_conn,
                                              const bool unreadable,
-                                             const trace_key_t *current_key) {
+                                             const trace_key_t *current_key,
+                                             struct sock *sk) {
     send_args_t *s_args = (send_args_t *)bpf_map_lookup_elem(&active_send_args, &id);
     if (s_args) {
         if (should_ignore_unreadable(&s_args->p_conn, unreadable)) {
@@ -76,7 +77,7 @@ static __always_inline void force_sent_event(u64 id,
             return;
         }
         bpf_dbg_printk("Checking if we need to finish the request per thread id");
-        force_finish_possible_delayed_http_request(&s_args->p_conn, current_key);
+        force_finish_possible_delayed_http_request(&s_args->p_conn, current_key, sk);
     } // see if we match on another thread, but same sock *
     s_args = (send_args_t *)bpf_map_lookup_elem(&active_send_sock_args, sock_p);
     if (s_args) {
@@ -85,7 +86,7 @@ static __always_inline void force_sent_event(u64 id,
             return;
         }
         bpf_dbg_printk("Checking if we need to finish the request per socket");
-        force_finish_possible_delayed_http_request(&s_args->p_conn, current_key);
+        force_finish_possible_delayed_http_request(&s_args->p_conn, current_key, sk);
     }
 
     if (!is_empty_connection_info(&p_conn->conn)) {
@@ -94,6 +95,6 @@ static __always_inline void force_sent_event(u64 id,
             return;
         }
         bpf_dbg_printk("Checking if we need to finish the request per connection info");
-        force_finish_possible_delayed_http_request(p_conn, current_key);
+        force_finish_possible_delayed_http_request(p_conn, current_key, sk);
     }
 }

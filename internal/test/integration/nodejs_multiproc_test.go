@@ -33,7 +33,7 @@ func testNestedTraces(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:5000/a", 200)
 
-		resp, err := http.Get(jaegerQueryURL + "?service=service-a&limit=1")
+		resp, err := getJaeger(jaegerQueryURL + "?service=service-a&limit=1")
 		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
 			return
 		}
@@ -49,14 +49,14 @@ func testNestedTraces(t *testing.T) {
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
 	}
 
 	// Get the first 5 traces
 	var multipleTraces []jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
+		resp, err := getJaeger(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -112,6 +112,22 @@ func TestNodeJSMultiProc(t *testing.T) {
 
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Nested traces", testNestedTraces)
+
+	runWeaverValidation(t)
+
+	require.NoError(t, compose.Close())
+}
+
+func TestNodeJSMultiProcNode12(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-nodemultiproc.yml", path.Join(pathOutput, "test-suite-node-multiproc-node12.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`,
+		`NODEMULTIPROC_DOCKERFILE=internal/test/integration/components/nodemultiproc/Dockerfile_node12`,
+		`NODEMULTIPROC_IMAGE=nodemultiproc-node12`)
 	require.NoError(t, compose.Up())
 
 	t.Run("Nested traces", testNestedTraces)

@@ -5,6 +5,7 @@ package obi
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,9 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/collector/confmap"
 
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -62,6 +66,32 @@ func TestJoinMetricsConfigIncludesPerServiceFeatures(t *testing.T) {
 	joint := cfg.JoinMetricsConfig()
 
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureApplicationRuntime|export.FeatureNetwork, joint.Features)
+}
+
+// traces_ctx_v1 is only populated when something reads it. The default config
+// must not populate it: the upkeep costs a refresh on every async context
+// switch of the instrumented runtime.
+func TestPopulateTraceContext(t *testing.T) {
+	assert.False(t, DefaultConfig.PopulateTraceContext())
+
+	explicit := DefaultConfig
+	explicit.EBPF.PopulateTraceContext = true
+	assert.True(t, explicit.PopulateTraceContext())
+
+	logEnricher := DefaultConfig
+	logEnricher.EBPF.LogEnricher.Services = []config.LogEnricherServiceConfig{{}}
+	assert.True(t, logEnricher.PopulateTraceContext())
+
+	manualSpans := DefaultConfig
+	manualSpans.NodeJS.ManualSpans = true
+	assert.True(t, manualSpans.PopulateTraceContext())
+
+	// nodejs.enabled is the global opt-out: with it off the injector is never
+	// installed, so the span bridge that would read the map does not exist.
+	injectorOff := DefaultConfig
+	injectorOff.NodeJS.Enabled = false
+	injectorOff.NodeJS.ManualSpans = true
+	assert.False(t, injectorOff.PopulateTraceContext())
 }
 
 func TestConfig_Overrides(t *testing.T) {
@@ -245,7 +275,7 @@ discovery:
 		Stats:        sc,
 		Metrics: perapp.GlobalMetricsConfig{
 			// after normalization, network feature is added from network > enable: true
-			Features: export.FeatureApplicationRED | export.FeatureNetwork,
+			Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureNetwork,
 		},
 		OTELMetrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
@@ -261,6 +291,7 @@ discovery:
 				GenAIClientDurationHistogram: export.DefaultBuckets.GenAIClientDurationHistogram,
 				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
 				V8JSGCDurationHistogram:      export.DefaultBuckets.V8JSGCDurationHistogram,
+				JVMGCDurationHistogram:       export.DefaultBuckets.JVMGCDurationHistogram,
 			},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
@@ -313,6 +344,7 @@ discovery:
 				GenAIClientDurationHistogram: []float64{5, 6, 7, 8},
 				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
 				V8JSGCDurationHistogram:      export.DefaultBuckets.V8JSGCDurationHistogram,
+				JVMGCDurationHistogram:       export.DefaultBuckets.JVMGCDurationHistogram,
 			},
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
@@ -404,6 +436,10 @@ discovery:
 		JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
 			SamplingInterval: time.Second,
 		},
+		DotnetRuntimeMetrics: DotnetRuntimeMetricsConfig{
+			SamplingInterval: time.Second,
+			Timeout:          10 * time.Second,
+		},
 		HealthCheck: HealthCheckConfig{
 			Port:          0,
 			ListenAddress: health.DefaultListenAddress,
@@ -449,9 +485,8 @@ func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
 			return
 		}
 		seen[typ] = true
-		for i := 0; i < typ.NumField(); i++ {
-			f := typ.Field(i)
-			yamlTag := strings.Split(f.Tag.Get("yaml"), ",")[0]
+		for f := range typ.Fields() {
+			yamlTag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
 			envDefault := f.Tag.Get("envDefault")
 			if yamlTag != "" && yamlTag != "-" && envDefault != "" && !strings.HasPrefix(envDefault, "${") {
 				violations = append(violations, path+"."+f.Name)
@@ -459,7 +494,7 @@ func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
 			walk(f.Type, path+"."+f.Name)
 		}
 	}
-	walk(reflect.TypeOf(Config{}), "Config")
+	walk(reflect.TypeFor[Config](), "Config")
 	assert.Empty(t, violations, "literal envDefault on yaml-configurable fields; move the default to DefaultConfig")
 }
 
@@ -493,6 +528,64 @@ func TestConfig_JVMRuntimeMetricsDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfig_DotnetRuntimeMetricsSamplingInterval(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		want time.Duration
+	}{
+		{name: "default", want: time.Second},
+		{name: "YAML", yaml: "dotnet_runtime_metrics:\n  sampling_interval: 12s\n", want: 12 * time.Second},
+		{name: "environment", env: "8s", want: 8 * time.Second},
+		{name: "environment overrides YAML", yaml: "dotnet_runtime_metrics:\n  sampling_interval: 12s\n", env: "8s", want: 8 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL", tc.env)
+			cfg, err := LoadConfig(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.DotnetRuntimeMetrics.SamplingInterval)
+		})
+	}
+}
+
+func TestConfigValidate_DotnetRuntimeMetricsSamplingInterval(t *testing.T) {
+	for _, interval := range []string{"0s", "-1s"} {
+		t.Run(interval, func(t *testing.T) {
+			cfg, err := LoadConfig(bytes.NewBufferString("trace_printer: text\nexecutable_path: dotnet\ndotnet_runtime_metrics:\n  sampling_interval: " + interval + "\n"))
+			require.NoError(t, err)
+			require.ErrorContains(t, cfg.Validate(), "dotnet_runtime_metrics.sampling_interval must be greater than 0")
+		})
+	}
+}
+
+func TestConfig_DotnetRuntimeMetricsTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		want time.Duration
+	}{
+		{name: "default", want: 10 * time.Second},
+		{name: "YAML", yaml: "dotnet_runtime_metrics:\n  timeout: 3s\n", want: 3 * time.Second},
+		{name: "environment", env: "2s", want: 2 * time.Second},
+		{name: "environment overrides YAML", yaml: "dotnet_runtime_metrics:\n  timeout: 3s\n", env: "2s", want: 2 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OBI_DOTNET_RUNTIME_METRICS_TIMEOUT", tc.env)
+			cfg, err := LoadConfig(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.DotnetRuntimeMetrics.Timeout)
+			require.Equal(t, time.Second, cfg.DotnetRuntimeMetrics.SamplingInterval)
+		})
+	}
+	for _, timeout := range []string{"0s", "-1s"} {
+		cfg, err := LoadConfig(bytes.NewBufferString("trace_printer: text\nexecutable_path: dotnet\ndotnet_runtime_metrics:\n  timeout: " + timeout + "\n"))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(), "dotnet_runtime_metrics.timeout must be greater than 0")
+	}
 }
 
 func TestConfig_JVMRuntimeMetricsFromEnv(t *testing.T) {
@@ -599,6 +692,88 @@ func TestConfigValidate(t *testing.T) {
 			require.NoError(t, loadConfig(t, tc).Validate())
 		})
 	}
+}
+
+func TestConfigValidate_ApplicationSizes(t *testing.T) {
+	validateFeatures := func(t *testing.T, features string) error {
+		t.Helper()
+		return loadConfig(t, envMap{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234",
+			"OTEL_EBPF_EXECUTABLE_PATH":           "foo",
+			"OTEL_EBPF_METRICS_FEATURES":          features,
+		}).Validate()
+	}
+
+	// the size histograms are emitted from the HTTP application metric pipeline, so a
+	// list that asks for them without the RED metrics would emit nothing at all
+	for _, tt := range []struct {
+		name     string
+		features string
+		rejected bool
+	}{
+		{name: "application bundles both", features: "application"},
+		{name: "application_red alone", features: "application_red"},
+		{name: "application_red with sizes", features: "application_red,application_sizes"},
+		{name: "bundle with sizes is idempotent", features: "application,application_sizes"},
+		{name: "all", features: "all"},
+		{name: "sizes alone", features: "application_sizes", rejected: true},
+		{name: "sizes with an unrelated feature", features: "application_sizes,network", rejected: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateFeatures(t, tt.features)
+			if !tt.rejected {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err,
+				"application_sizes needs the application RED metrics enabled in the same features list")
+		})
+	}
+
+	// a defined per-service list replaces the global one instead of extending it, so the
+	// two features have to meet inside the same list
+	perService := func(t *testing.T, global, service string) error {
+		t.Helper()
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: [` + global + `]
+discovery:
+  instrument:
+    - exe_path: foo
+      metrics:
+        features: [` + service + `]
+`))
+		require.NoError(t, err)
+		return cfg.Validate()
+	}
+
+	t.Run("sizes per service without RED is rejected", func(t *testing.T) {
+		require.ErrorContains(t, perService(t, "application", "application_sizes"),
+			"application_sizes needs the application RED metrics enabled in the same features list")
+	})
+
+	t.Run("sizes per service alongside application_red", func(t *testing.T) {
+		require.NoError(t, perService(t, "application", "application_red, application_sizes"))
+	})
+
+	t.Run("bundle per service", func(t *testing.T) {
+		require.NoError(t, perService(t, "application_red", "application"))
+	})
+
+	// an omitted per-service list inherits the global one, which is validated on its own
+	t.Run("per service without features inherits the global list", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "localhost:1234")
+		cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: ["application"]
+discovery:
+  instrument:
+    - exe_path: foo
+`))
+		require.NoError(t, err)
+		require.NoError(t, cfg.Validate())
+	})
 }
 
 func TestConfigValidate_DeprecatedMetricsFeatureWarning(t *testing.T) {
@@ -1440,9 +1615,7 @@ func loadConfig(t *testing.T, env envMap) *Config {
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
 		"OTEL_EBPF_PROMETHEUS_PORT":           "0",
 	}
-	for k, v := range env {
-		isolatedEnv[k] = v
-	}
+	maps.Copy(isolatedEnv, env)
 	for k, v := range isolatedEnv {
 		t.Setenv(k, v)
 	}
@@ -1515,4 +1688,173 @@ func TestNormalizeConfig_Network(t *testing.T) {
 	obi.normalize()
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork,
 		obi.Metrics.Features)
+}
+
+// stringSliceToTextUnmarshalerHookFunc exists so that Features and ExportModes accept a
+// YAML sequence as well as the comma-separated text their UnmarshalText parses. Both shapes
+// have to decode through confmap, which is how the collector receiver loads the
+// configuration; plain YAML loading only ever reaches UnmarshalYAML.
+func TestUnmarshalConfmapSequences(t *testing.T) {
+	unmarshal := func(t *testing.T, raw map[string]any) *Config {
+		t.Helper()
+		cfg := DefaultConfig
+		require.NoError(t, cfg.Unmarshal(confmap.NewFromStringMap(raw)))
+		return &cfg
+	}
+
+	t.Run("metrics features", func(t *testing.T) {
+		expected := export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureSpanOTel
+
+		for _, tc := range []struct {
+			name  string
+			value any
+		}{
+			{name: "sequence", value: []any{"application", "application_span_otel"}},
+			{name: "comma separated", value: "application,application_span_otel"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := unmarshal(t, map[string]any{
+					"metrics": map[string]any{"features": tc.value},
+				})
+				assert.Equal(t, expected, cfg.Metrics.Features)
+			})
+		}
+	})
+
+	t.Run("discovery export modes", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			value any
+		}{
+			{name: "sequence", value: []any{"metrics", "traces"}},
+			{name: "comma separated", value: "metrics,traces"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := unmarshal(t, map[string]any{
+					"discovery": map[string]any{"instrument": []any{
+						map[string]any{"k8s_namespace": "demo", "exports": tc.value},
+					}},
+				})
+				require.Len(t, cfg.Discovery.Instrument, 1)
+
+				modes := cfg.Discovery.Instrument[0].ExportModes
+				assert.True(t, modes.CanExportMetrics())
+				assert.True(t, modes.CanExportTraces())
+				assert.False(t, modes.CanExportLogs())
+			})
+		}
+	})
+
+	t.Run("comma-separated network CIDRs", func(t *testing.T) {
+		cfg := unmarshal(t, map[string]any{
+			"network": map[string]any{"cidrs": "10.0.0.0/8,192.168.0.0/16"},
+		})
+		assert.Equal(t, cidr.Definitions{
+			{CIDR: "10.0.0.0/8"},
+			{CIDR: "192.168.0.0/16"},
+		}, cfg.NetworkFlows.CIDRs)
+	})
+}
+
+func TestConfigCIDRShapePreserved(t *testing.T) {
+	expected := []any{
+		"10.0.0.0/8",
+		map[string]any{"cidr": "192.168.0.0/16", "name": "private"},
+		map[string]any{"cidr": "172.16.0.0/12"},
+	}
+
+	loaders := []struct {
+		name string
+		load func(t *testing.T) *Config
+	}{
+		{
+			name: "LoadConfig",
+			load: func(t *testing.T) *Config {
+				cfg, err := LoadConfig(strings.NewReader(`network:
+  cidrs:
+    - 10.0.0.0/8
+    - cidr: 192.168.0.0/16
+      name: private
+    - cidr: 172.16.0.0/12
+`))
+				require.NoError(t, err)
+				return cfg
+			},
+		},
+		{
+			name: "Config.Unmarshal",
+			load: func(t *testing.T) *Config {
+				cfg := DefaultConfig
+				err := cfg.Unmarshal(confmap.NewFromStringMap(map[string]any{
+					"network": map[string]any{
+						"cidrs": expected,
+					},
+				}))
+				require.NoError(t, err)
+				return &cfg
+			},
+		},
+	}
+
+	for _, loader := range loaders {
+		t.Run(loader.name, func(t *testing.T) {
+			cfg := loader.load(t)
+			configYAML, err := yaml.Marshal(cfg)
+			require.NoError(t, err)
+
+			t.Run("YAML", func(t *testing.T) {
+				assertConfigCIDRs(t, configYAML, expected, yaml.Unmarshal)
+			})
+
+			t.Run("JSON", func(t *testing.T) {
+				var configMap map[string]any
+				require.NoError(t, yaml.Unmarshal(configYAML, &configMap))
+				configJSON, err := json.Marshal(configMap)
+				require.NoError(t, err)
+				assertConfigCIDRs(t, configJSON, expected, json.Unmarshal)
+			})
+		})
+	}
+}
+
+func assertConfigCIDRs(
+	t *testing.T,
+	data []byte,
+	expected []any,
+	unmarshal func([]byte, any) error,
+) {
+	t.Helper()
+	var configMap map[string]any
+	require.NoError(t, unmarshal(data, &configMap))
+	network, ok := configMap["network"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, expected, network["cidrs"])
+}
+
+func TestConfigValidate_TracesCompression(t *testing.T) {
+	base := func(protocol, compression string) envMap {
+		return envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":             "foo",
+			"OTEL_EBPF_TRACE_PRINTER":               "text",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":    "http://localhost:4317",
+			"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL":    protocol,
+			"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION": compression,
+		}
+	}
+
+	t.Run("gzip over grpc", func(t *testing.T) {
+		require.NoError(t, loadConfig(t, base("grpc", "gzip")).Validate())
+	})
+
+	t.Run("none over http", func(t *testing.T) {
+		require.NoError(t, loadConfig(t, base("http/protobuf", "none")).Validate())
+	})
+
+	t.Run("a codec receivers need not support is rejected", func(t *testing.T) {
+		require.Error(t, loadConfig(t, base("grpc", "zstd")).Validate())
+	})
+
+	t.Run("unknown codec is rejected", func(t *testing.T) {
+		require.Error(t, loadConfig(t, base("http/protobuf", "not-a-codec")).Validate())
+	})
 }

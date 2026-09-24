@@ -14,7 +14,7 @@ import (
 	"os"
 )
 
-// This program is used to generate an executable that can be inspected by the go-offsets-tracker tool
+// This program is used to generate an executable inspected by the Go offset generation tools.
 
 // Args defines the arguments for the RPC methods.
 type Args struct {

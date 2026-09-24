@@ -51,6 +51,9 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 
 	// Start OBI to instrument the test server
 	o := obi{
+		// avoided-service detection reads the OTLP export spans, so its log is
+		// the only way to tell a detection failure from a missing metric
+		Logs: createLogOutput(t, "avoided-services"),
 		Env: []string{
 			"OTEL_EBPF_OPEN_PORT=8080",
 			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
@@ -69,7 +72,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 		time.Sleep(15 * time.Second)
 
 		// Make additional requests to ensure OTLP endpoints are hit
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			ti.DoHTTPGet(t, "http://localhost:8080/rolldice", 200)
 			time.Sleep(1 * time.Second)
 		}
@@ -91,7 +94,7 @@ func checkInstrumentationErrorMetrics(t *testing.T) {
 		totalErrors := 0
 		for _, result := range results {
 			labels := result.Metric
-			require.Contains(ct, labels, "process_name", "process_name label should be present")
+			require.Contains(ct, labels, "process_executable_name", "process_executable_name label should be present")
 			require.Contains(ct, labels, "error_type", "error_type label should be present")
 
 			value, err := strconv.Atoi(result.Value[1].(string))

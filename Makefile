@@ -28,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.15
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.16
 
 OCI_BIN ?= docker
 
@@ -164,6 +164,39 @@ lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
+# The schemacheck provenance tests resolve the registry through the pinned
+# weaver image, so they cannot run under the `-short` unit-test targets. They
+# run here instead, alongside lint-schema, which already provides both the
+# container runtime and the pre-fetched upstream semconv registry.
+.PHONY: test-schema
+test-schema: fetch-upstream-semconv
+	@echo "### Testing OBI semantic-convention registry provenance"
+	go test -race -count=1 ./internal/schemacheck/...
+
+.PHONY: check-schema-files
+check-schema-files:
+	@echo "### Checking published OBI telemetry schema files"
+	@./scripts/check-schema-files.sh "$(CURDIR)/site/schemas/obi"
+
+.PHONY: generate-schema-next
+generate-schema-next:
+	@echo "### Cutting the OBI telemetry schema for the versions.yaml version"
+	@./scripts/generate-schema-next.sh
+
+.PHONY: generate-schema-docs
+generate-schema-docs: fetch-upstream-semconv
+	@echo "### Generating the OBI telemetry reference docs"
+	@./scripts/generate-schema-docs.sh $(OCI_BIN) $(WEAVERIMAGE)
+
+.PHONY: check-schema-docs
+check-schema-docs: generate-schema-docs
+	@echo "### Checking the OBI telemetry reference docs are up to date"
+	@if [ -n "$$(git status --porcelain -- site/docs)" ]; then \
+		echo "site/docs is stale: run 'make generate-schema-docs' and commit the result" >&2; \
+		git --no-pager diff -- site/docs; \
+		exit 1; \
+	fi
+
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
 	@echo "### Linting dependency integrity policy"
@@ -195,17 +228,23 @@ MARKDOWNIMAGE = $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERF
 .PHONY: lint-markdown
 lint-markdown:
 	@echo "### Linting markdown"
-	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml **/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml "**/*.md"
 
 .PHONY: lint-markdown-fix
 lint-markdown-fix:
 	@echo "### Formatting markdown"
-	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml --fix **/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml --fix "**/*.md"
 
 .PHONY: update-offsets
 update-offsets:
 	@echo "### Updating pkg/internal/goexec/offsets.json"
-	go tool $(TOOLS_MODFILE) go-offsets-tracker -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
+	go run ./internal/gooffsets -i configs/offsets/tracker_input.json \
+		-abi configs/offsets/go_abi_input.json pkg/internal/goexec/offsets.json
+
+.PHONY: update-python-offsets
+update-python-offsets:
+	@echo "### Updating pkg/internal/cpython/runtime/offsets.json"
+	go run ./scripts/python-offsets
 
 ### eBPF Code Generation ###########################################################
 #
@@ -378,7 +417,7 @@ JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAV
 .PHONY: java-build
 java-build:
 	@echo "### Building Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build -PnativeOnly=true
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) $(JAVA_AGENT_EMBED_PATH)
 
@@ -511,12 +550,6 @@ run-integration-test-vm:
 			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
 
-.PHONY: run-integration-test-arm
-run-integration-test-arm:
-	@echo "### Running integration tests"
-	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
-
 .PHONY: unit-test-matrix-json
 unit-test-matrix-json:
 	@go list ./... | go tool $(TOOLS_MODFILE) gotestsum tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
@@ -559,12 +592,6 @@ integration-test: prereqs prepare-integration-test
 .PHONY: integration-test-k8s
 integration-test-k8s: prereqs prepare-integration-test
 	$(MAKE) run-integration-test-k8s || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
-	$(MAKE) itest-coverage-data
-	$(MAKE) cleanup-integration-test
-
-.PHONY: integration-test-arm
-integration-test-arm: prereqs prepare-integration-test
-	$(MAKE) run-integration-test-arm || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
 
@@ -794,14 +821,18 @@ go-notices-update:
 	@$(OCI_BIN) run --rm \
 		$(if $(findstring podman,$(OCI_BIN)),,-u "$(DOCKER_USER)") \
 		-v "$(CURDIR):/src:z" \
-		-e HOME=/tmp -e GOTOOLCHAIN=local -e GOMODCACHE=/tmp/gomod \
+		-e HOME=/tmp -e GOTOOLCHAIN=local -e GOMODCACHE=/tmp/gomod -e GOFLAGS=-mod=mod \
 		-w /src \
 		$(GOLANG_IMAGE) \
 		sh -c 'set -e; \
 			go build -modfile=internal/tools/go.mod -o /tmp/go-licenses github.com/google/go-licenses/v2; \
 			for arch in $(GO_NOTICES_ARCHES); do \
 				echo "### linux/$$arch"; \
-				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=$(NOTICES_DIR)/$$arch --force; \
+				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=/tmp/notices-$$arch --force; \
+			done; \
+			for arch in $(GO_NOTICES_ARCHES); do \
+				rm -rf $(NOTICES_DIR)/$$arch; \
+				mv /tmp/notices-$$arch $(NOTICES_DIR)/$$arch; \
 			done'
 
 # Guarded with test -d: the directory is absent in build contexts that only
@@ -896,6 +927,8 @@ verify-mods:
 .PHONY: prerelease
 prerelease: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
+	@$(MAKE) generate-schema-next
+	@$(MAKE) generate-schema-docs
 	go tool $(TOOLS_MODFILE) multimod prerelease -m ${MODSET}
 
 COMMIT ?= "HEAD"

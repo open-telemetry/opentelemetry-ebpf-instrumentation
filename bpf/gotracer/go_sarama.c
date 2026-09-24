@@ -90,7 +90,7 @@ int GUARDED_PROG(obi_uprobe_sarama_broker_write, struct pt_regs *, ctx) {
         if (api_key == k_kafka_api_fetch || api_key == k_kafka_api_produce) {
             u32 correlation_id = invocation->correlation_id;
             kafka_client_req_t req = {
-                .type = EVENT_GO_KAFKA,
+                .type = k_event_type_go_kafka,
                 .start_monotime_ns = invocation->start_monotime_ns,
             };
 

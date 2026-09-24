@@ -120,9 +120,7 @@ func driveMemoryBIOLoad(_ *testing.T) {
 	close(requests)
 
 	for range memoryBIOConcurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			client := &http.Client{Timeout: 10 * time.Second}
 			for range requests {
 				resp, err := client.Get(memoryBIOAppURL)
@@ -132,7 +130,7 @@ func driveMemoryBIOLoad(_ *testing.T) {
 				_, _ = io.Copy(io.Discard, resp.Body)
 				resp.Body.Close()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -165,7 +163,7 @@ func waitForMemoryBIOMetricsToSettle(t *testing.T, pq promtest.Client) {
 // labels and the span attributes are produced by different exporters, and it is the
 // spans that a user reads.
 func assertMemoryBIOTraces(t *testing.T) {
-	resp, err := http.Get(fmt.Sprintf("%s?service=%s&limit=200", jaegerQueryURL, memoryBIOService))
+	resp, err := getJaeger(fmt.Sprintf("%s?service=%s&limit=200", jaegerQueryURL, memoryBIOService))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

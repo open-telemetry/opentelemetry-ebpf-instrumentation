@@ -117,17 +117,14 @@ func TestProcessAgeFuncConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for range iterations {
 				if age := processAge(pid); age <= 0 {
 					errCh <- fmt.Errorf("expected positive process age for pid %d", pid)
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

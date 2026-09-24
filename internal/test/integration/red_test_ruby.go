@@ -7,14 +7,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
@@ -80,7 +78,7 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 	// Call 4 times the instrumented service, forcing it to:
 	// - process multiple calls in a row with, one more than we might need
 	// - returning a 200 code
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		ti.DoHTTPGet(t, url+path+"/1", 200)
 	}
 
@@ -92,6 +90,7 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
+			`http_route="/users/:id",` +
 			`url_path="` + path + `/1"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
@@ -105,53 +104,26 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsRailsHTTP(t *testing.T) {
+func testREDMetricsRailsHTTP(t *testing.T, serviceName string) {
 	for _, testCaseURL := range []string{
 		"http://localhost:3041",
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForRubyTestComponents(t, testCaseURL)
-			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, "my-ruby-app")
+			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, serviceName)
 		})
 	}
 }
 
-func testREDMetricsRailsHTTPS(t *testing.T) {
+func testREDMetricsRailsHTTPS(t *testing.T, serviceName string) {
 	for _, testCaseURL := range []string{
 		"https://localhost:3044",
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForRubyTestComponents(t, testCaseURL)
-			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, "my-ruby-app")
+			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, serviceName)
 		})
 	}
-}
-
-func assertRubyPumaSupportVersion(t *testing.T, compose *docker.Compose, expectedRuby, expectedPuma string) {
-	t.Helper()
-
-	output, err := compose.ExecOutput(
-		"testserver",
-		"bundle",
-		"exec",
-		"ruby",
-		"-e",
-		`require "bundler/setup"; require "puma"; puts RUBY_VERSION; puts Puma::Const::PUMA_VERSION`,
-	)
-	require.NoError(t, err, "bundle exec ruby output:\n%s", output)
-
-	var versionLines []string
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "time=") {
-			continue
-		}
-		versionLines = append(versionLines, trimmed)
-	}
-
-	require.Lenf(t, versionLines, 2, "unexpected ruby/puma version output: raw output=%q, collected lines=%v", output, versionLines)
-	assert.Equal(t, expectedRuby, versionLines[0])
-	assert.Equal(t, expectedPuma, versionLines[1])
 }
 
 // Assumes we've run the metrics tests
@@ -164,7 +136,7 @@ func testHTTPTracesNestedNginx(t *testing.T) {
 		slug := strconv.Itoa(i)
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
+			resp, err := getJaeger(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -204,7 +176,7 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 		slug := strconv.Itoa(i)
 		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
+			resp, err := getJaeger(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -239,5 +211,94 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 			require.Equal(ct, server.TraceID, client.TraceID)
 			require.NotEmpty(ct, client.SpanID)
 		}, testTimeout, 100*time.Millisecond)
+	}
+}
+
+func testHTTPTracesRailsPostgres(t *testing.T) {
+	const (
+		serviceName = "my-ruby-app"
+		urlPath     = "/restaurants"
+	)
+
+	waitForTestComponentsSub(t, "http://localhost:3041", "/healthz")
+	for range 4 {
+		ti.DoHTTPGet(t, "http://localhost:3041"+urlPath, http.StatusOK)
+	}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName + "&tags=%7B%22url.path%22%3A%22%2Frestaurants%22%7D")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var query jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&query))
+		traces := query.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
+		require.NotEmpty(ct, traces)
+
+		serverSpans := traces[0].FindByOperationName("GET /restaurants", "server")
+		require.NotEmpty(ct, serverSpans)
+		require.NotEmpty(ct, serverSpans[0].TraceID)
+
+		var postgresClients []jaeger.Span
+		for _, span := range traces[0].Spans {
+			dbSystem, isDBSpan := jaeger.FindIn(span.Tags, "db.system.name")
+			spanKind, isClientSpan := jaeger.FindIn(span.Tags, "span.kind")
+			if isDBSpan && isClientSpan && dbSystem.Value == "postgresql" && spanKind.Value == "client" {
+				postgresClients = append(postgresClients, span)
+			}
+		}
+		require.Greater(ct, len(postgresClients), 1)
+
+		var postgresParentID string
+		for _, client := range postgresClients {
+			parent, found := traces[0].ParentOf(&client)
+			require.True(ct, found, "PostgreSQL client span %s has no parent", client.SpanID)
+			if postgresParentID == "" {
+				postgresParentID = parent.SpanID
+			}
+			assert.Equal(ct, postgresParentID, parent.SpanID,
+				"PostgreSQL client span %s does not share the common parent", client.SpanID)
+		}
+	}, testTimeout, 100*time.Millisecond)
+}
+
+func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, tc := range []struct {
+		path  string
+		route string
+	}{
+		{"/harvest/orders/alpha", "/harvest/orders/:order_id"},
+		{"/harvest/orders/beta", "/harvest/orders/:order_id"},
+		{"/harvest/api/widgets/first", "/harvest/api/widgets/:widget_id"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			for range 4 {
+				ti.DoHTTPGet(t, "http://localhost:3041"+tc.path, http.StatusOK)
+			}
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="` + serviceName + `",http_request_method="GET",http_route="` + tc.route + `",url_path="` + tc.path + `"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, results)
+			}, testTimeout, 100*time.Millisecond)
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				resp, err := getJaeger(jaegerQueryURL + "?service=" + serviceName)
+				require.NoError(ct, err)
+				defer resp.Body.Close()
+				require.Equal(ct, http.StatusOK, resp.StatusCode)
+				var query jaeger.TracesQuery
+				require.NoError(ct, json.NewDecoder(resp.Body).Decode(&query))
+				traces := query.FindBySpan(
+					jaeger.Tag{Key: "url.path", Type: "string", Value: tc.path},
+					jaeger.Tag{Key: "http.route", Type: "string", Value: tc.route},
+				)
+				require.NotEmpty(ct, traces)
+				require.NotEmpty(ct, traces[0].FindByOperationName("GET "+tc.route, "server"))
+			}, testTimeout, 100*time.Millisecond)
+		})
 	}
 }

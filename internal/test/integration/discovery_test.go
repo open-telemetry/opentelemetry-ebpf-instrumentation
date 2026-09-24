@@ -25,7 +25,7 @@ func testSelectiveExports(t *testing.T) {
 
 	getTraces := func(service string, path string) []jaeger.Trace {
 		query := "http://localhost:16686/api/traces?service=" + service
-		resp, err := http.Get(query)
+		resp, err := getJaeger(query)
 		require.NoError(t, err)
 
 		if resp == nil {
@@ -54,7 +54,7 @@ func testSelectiveExports(t *testing.T) {
 
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
 		ti.DoHTTPGet(t, "http://localhost:5001/b", 200)
 	}

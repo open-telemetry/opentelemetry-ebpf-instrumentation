@@ -25,13 +25,13 @@ import (
 // under OBI's "processing" sub-span, which carries the in-flight request
 // context that the bridge spans inherit).
 func testHTTPTracesNodeManualSpans(t *testing.T) {
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		ti.DoHTTPGet(t, "http://localhost:3031/manual", 200)
 	}
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -78,7 +78,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 	assert.Equal(t, processing.SpanID, p.SpanID,
 		"checkout must be re-anchored under OBI's automatic processing sub-span")
 	sd := checkout.Diff(
-		jaeger.Tag{Key: "cart.items", Type: "int64", Value: float64(3)},
+		jaeger.Tag{Key: "obitest.cart.items", Type: "int64", Value: float64(3)},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
 	)
 	assert.Empty(t, sd, sd.String())
@@ -91,7 +91,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, checkout.SpanID, p.SpanID, "validate-cart must be a child of checkout")
 	sd = validate.Diff(
-		jaeger.Tag{Key: "valid", Type: "bool", Value: bool(true)},
+		jaeger.Tag{Key: "obitest.valid", Type: "bool", Value: bool(true)},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
 	)
 	assert.Empty(t, sd, sd.String())
@@ -105,7 +105,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, checkout.SpanID, p.SpanID, "charge-card must be a child of checkout")
 	sd = charge.Diff(
-		jaeger.Tag{Key: "amount.cents", Type: "int64", Value: float64(4999)},
+		jaeger.Tag{Key: "obitest.amount.cents", Type: "int64", Value: float64(4999)},
 		jaeger.Tag{Key: "otel.status_code", Type: "string", Value: "ERROR"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
 	)
@@ -119,7 +119,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, charge.SpanID, p.SpanID, "ledger-commit must be a child of charge-card")
 	sd = ledger.Diff(
-		jaeger.Tag{Key: "account", Type: "string", Value: "acct-1"},
+		jaeger.Tag{Key: "obitest.account", Type: "string", Value: "acct-1"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
 	)
 	assert.Empty(t, sd, sd.String())
@@ -155,13 +155,13 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 // background span ends, mis-parenting it into that trace. The request's own
 // manual span ("slow-op") must still re-anchor correctly afterwards.
 func testHTTPTracesNodeManualBackgroundSpan(t *testing.T) {
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		ti.DoHTTPGet(t, "http://localhost:3031/manual-slow", 200)
 	}
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual-slow")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual-slow")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -193,7 +193,7 @@ func testHTTPTracesNodeManualBackgroundSpan(t *testing.T) {
 
 	// The background spans are still captured, on their own traces.
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=bg-tick")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=bg-tick")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

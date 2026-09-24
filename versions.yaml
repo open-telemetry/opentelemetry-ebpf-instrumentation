@@ -3,7 +3,7 @@
 
 module-sets:
   obi:
-    version: v0.12.2
+    version: v0.13.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
@@ -35,6 +35,8 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-server
   - go.opentelemetry.io/obi/internal/test/integration/components/go_grpc_server_mux
   - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/client
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/client_stdlib_legacy
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/client_xnet_legacy
   - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/server
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
@@ -57,6 +59,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/gosql
   - go.opentelemetry.io/obi/internal/test/integration/components/gosunrpc
   - go.opentelemetry.io/obi/internal/test/integration/components/grpc-relay/go
+  - go.opentelemetry.io/obi/internal/test/integration/components/grpc-relay/go-legacy
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker
   - go.opentelemetry.io/obi/internal/test/integration/components/sqlclient

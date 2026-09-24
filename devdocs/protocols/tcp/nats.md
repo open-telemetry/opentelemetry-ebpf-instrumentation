@@ -21,7 +21,7 @@ Control traffic such as `INFO`, `CONNECT`, `SUB`, `UNSUB`, `PING`, `PONG`, `+OK`
 NATS traffic is detected in `ReadTCPRequestIntoSpan` in [pkg/ebpf/common/tcp_detect_transform.go](../../../pkg/ebpf/common/tcp_detect_transform.go).
 The parser itself lives in [pkg/ebpf/common/nats_detect_transform.go](../../../pkg/ebpf/common/nats_detect_transform.go).
 
-Unlike request/response protocols, NATS mixes control frames and message frames on the same connection. OBI scans the buffered traffic in both directions, skipping control-only traffic when possible. When one TCP event contains both a client publish and a server-delivered message, OBI emits the publish span as the main span and a second server span for the delivered message.
+Unlike request/response protocols, NATS mixes control frames and message frames on the same connection. OBI scans the buffered traffic in both directions, skipping control-only traffic when possible. When one TCP event contains both a client publish and a server-delivered message, OBI emits the publish span as the main span and a second `EventTypeNATSServer` span (consumer kind) for the delivered message.
 
 ### Header-Aware Frames
 

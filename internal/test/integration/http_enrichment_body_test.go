@@ -24,14 +24,14 @@ func bodyExtractionObfuscate(t *testing.T, postOperation string) {
 	// Send POST requests with a JSON body containing sensitive fields.
 	// The config obfuscates $.password and $.secret with "***", credit-card
 	// fields with "PCI", and social/insurance numbers with "PII" on POST requests.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPPost(t, instrumentedServiceStdURL+"/rolldice/50", 200,
 			[]byte(`{"username":"alice","password":"secret123","secret":"my-api-key","email":"alice@test.com","credit-card":"4111-1111-1111-1111","creditcard":"5555555555554444","cc":"378282246310005","sin":"046454286","ssn":"123-45-6789"}`))
 	}
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -81,14 +81,14 @@ func bodyExtractionInclude(t *testing.T, postOperation string) {
 	// to the included body.
 
 	// Send a POST without the sensitive fields to test pure include behavior.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPPost(t, instrumentedServiceStdURL+"/rolldice/51", 200,
 			[]byte(`{"action":"roll","sides":6}`))
 	}
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -125,13 +125,13 @@ func bodyExtractionInclude(t *testing.T, postOperation string) {
 // bodyExtractionExcludedByDefault verifies that GET requests (which don't match
 // any body rules) have no body content on the span.
 func bodyExtractionExcludedByDefault(t *testing.T, getOperation string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPGetWithHeaders(t, instrumentedServiceStdURL+"/rolldice/52", 200, nil)
 	}
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(getOperation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(getOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -159,14 +159,14 @@ func bodyExtractionExcludedByDefault(t *testing.T, getOperation string) {
 // bodyExtractionContentTypeHeader verifies that the Content-Type header
 // is also included on the span (configured via a header include rule).
 func bodyExtractionContentTypeHeader(t *testing.T, postOperation string) {
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		doHTTPPost(t, instrumentedServiceStdURL+"/rolldice/53", 200,
 			[]byte(`{"test":"header-check"}`))
 	}
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(postOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return

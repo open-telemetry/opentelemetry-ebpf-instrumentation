@@ -6,17 +6,32 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 
 	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
+var nextRuntimeMetricGeneration atomic.Uint64
+
+// NewRuntimeMetricGeneration returns a process-lifetime identifier shared by runtime tracers.
+func NewRuntimeMetricGeneration() uint64 {
+	for {
+		if generation := nextRuntimeMetricGeneration.Add(1); generation != 0 {
+			return generation
+		}
+	}
+}
+
 type RuntimeMetricSender interface {
 	SendGoRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
+	SendPythonRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
+	SendJVMGCMetrics(context.Context, []appruntime.JVMGCEvent)
 	SendJVMRuntimeMetrics(context.Context, []appruntime.JVMRuntimeEvent)
 	SendNodejsRuntimeMetrics(context.Context, []appruntime.NodejsRuntimeEvent)
 	SendNodejsGCMetrics(context.Context, []appruntime.NodejsGCEvent)
 	SendNodejsHeapSpaceMetrics(context.Context, []appruntime.NodejsHeapSpaceEvent)
+	SendNodejsResourceMetrics(context.Context, []appruntime.NodejsResourceEvent)
 }
 
 // RuntimeMetricRecordHandler lets tracers decode runtime metric records whose
@@ -49,7 +64,12 @@ func HandleRuntimeMetricsRecord(
 			return true, nil
 		}
 		return true, eventContext.RuntimeMetrics.SendGoRuntimeMetricRecord(ctx, record, filter)
-	case EventTypeJVMMemoryPoolGC:
+	case EventTypePythonRuntimeMetric:
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
+			return true, nil
+		}
+		return true, eventContext.RuntimeMetrics.SendPythonRuntimeMetricRecord(ctx, record, filter)
+	case EventTypeJVMMemoryPoolGC, EventTypeJVMRuntimeMetrics, EventTypeJVMGCDuration:
 		for _, handler := range handlers {
 			if handler == nil {
 				continue
@@ -113,6 +133,25 @@ func HandleRuntimeMetricsRecord(
 			return true, nil
 		}
 		eventContext.RuntimeMetrics.SendNodejsHeapSpaceMetrics(ctx, []appruntime.NodejsHeapSpaceEvent{event})
+		return true, nil
+	case EventTypeNodejsResource:
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
+			return true, nil
+		}
+		event, err := ParseNodejsResourceRecord(record)
+		if err != nil {
+			return true, err
+		}
+		if !appruntime.IsSemconvResourceType(event.ResourceType) {
+			if log != nil {
+				log.Debug("dropping nodejs resource event outside the semconv enum", "type", event.ResourceType)
+			}
+			return true, nil
+		}
+		if !DecorateNodejsResourceEvent(filter, &event) {
+			return true, nil
+		}
+		eventContext.RuntimeMetrics.SendNodejsResourceMetrics(ctx, []appruntime.NodejsResourceEvent{event})
 		return true, nil
 	default:
 		return false, nil

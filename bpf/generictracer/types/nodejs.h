@@ -83,3 +83,27 @@ struct nodejs_heap_space_event {
     u64 physical_space_size;
     unsigned char space_name[k_nodejs_heap_space_name_max];
 };
+
+enum {
+    // longest wrap-class MemoryInfoName() today is 19 (TraceSigintWatchdog)
+    k_nodejs_resource_type_max = 32,
+};
+
+// One active-resource census entry (one event per resource type per sampling
+// interval; count 0 marks a type that vanished since the previous interval).
+// The type name travels verbatim (name_len bytes, not NUL-terminated).
+// Mirrored in Go by nodejsResourceRawEvent (pkg/ebpf/common/nodejs.go).
+struct nodejs_resource_event {
+    u8 type;
+    u8 name_len;
+    u8 _pad[6];
+    u64 timestamp;
+    u32 global_pid;
+    u32 global_tid;
+    u32 ns_pid;
+    u32 ns_tid;
+    u32 pid_ns_id;
+    u32 _pad2;
+    u64 count;
+    unsigned char resource_type[k_nodejs_resource_type_max];
+};

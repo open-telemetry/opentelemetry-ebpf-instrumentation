@@ -87,6 +87,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
+	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "traces"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "metrics"))
 	require.ElementsMatch(t, []string{
@@ -234,6 +235,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
@@ -433,6 +435,8 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, schema.Duration(47*time.Second), value(t, ext.Enrich, "attributes", "metadata_retry", "max_interval"))
 
 	require.Equal(t, true, value(t, ext.Correlation, "log_trace_annotation", "enabled"))
+	require.Len(t, ext.Correlation.LogTraceAnnotation.Match, 1)
+	require.Equal(t, []string{"/srv/*"}, ext.Correlation.LogTraceAnnotation.Match[0].Process.ExePathGlob)
 	require.Equal(t, schema.Duration(903*time.Second), value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
 	require.Equal(t, 904, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 905, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
@@ -925,6 +929,44 @@ func TestGlobPatternsRegexMatchesGlobSemantics(t *testing.T) {
 	}
 }
 
+func TestRuntimeToV2HTTPBodySizeMetrics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("application_red alone leaves them off", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Metrics.Features = export.FeatureApplicationRED
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, false, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
+	})
+
+	t.Run("application_sizes turns them on", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Metrics.Features = export.FeatureApplicationRED | export.FeatureApplicationSizes
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
+	})
+
+	// the default configuration uses the "application" bundle, so the key has to come out
+	// enabled for a deployment that never touched metrics.features
+	t.Run("default configuration keeps them on", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "body_size_metrics"))
+	})
+}
+
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
 	t.Parallel()
 
@@ -981,6 +1023,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 		require.ElementsMatch(t, []string{
 			"tcp_rtt",
 			"tcp_failed_connections",
+			"tcp_successful_connections",
 			"tcp_retransmits",
 			"tcp_io",
 		}, value(t, ext.Capture.Network, "stats", "features"))
@@ -999,6 +1042,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 		require.ElementsMatch(t, []string{
 			"tcp_rtt",
 			"tcp_failed_connections",
+			"tcp_successful_connections",
 			"tcp_retransmits",
 			"tcp_io",
 		}, value(t, ext.Capture.Network, "stats", "features"))
@@ -1102,6 +1146,12 @@ func fieldByYAMLName(value reflect.Value, name string) (reflect.Value, bool) {
 	for i := range value.NumField() {
 		field := valueType.Field(i)
 		if field.PkgPath != "" {
+			continue
+		}
+		if field.Anonymous && strings.Contains(field.Tag.Get("yaml"), ",inline") {
+			if inlined, ok := fieldByYAMLName(value.Field(i), name); ok {
+				return inlined, true
+			}
 			continue
 		}
 		if yamlName(field) == name {

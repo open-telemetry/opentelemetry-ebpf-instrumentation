@@ -8,7 +8,10 @@
     // the following components are used to test the behavior of OBI with legacy versions of libraries
     // so we don't want to get them updated
     "internal/test/integration/components/testserver_1.17",
+    "internal/test/integration/components/gohttp2/client_stdlib_legacy",
+    "internal/test/integration/components/gohttp2/client_xnet_legacy",
     "internal/test/integration/components/old_grpc",
+    "internal/test/integration/components/grpc_relay/go_legacy",
     "internal/test/integration/components/goautosdk/v1.33",
     // github.com/Shopify/sarama has been moved to github.com/IBM/sarama
     // but we keep supporting the go-offsets for the outdated library, which must not
@@ -205,14 +208,14 @@
       "enabled": false
     },
     {
-      "description": "Block golang Docker image major upgrades (these require coordinated manual changes)",
+      "description": "Block golang Docker image minor and major upgrades (these require coordinated manual changes)",
       "matchDatasources": ["docker"],
       "matchPackageNames": [
         "golang",
         "docker.io/library/golang",
         "library/golang"
       ],
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": ["minor", "major"],
       "enabled": false
     },
     {
@@ -302,9 +305,13 @@
       "schedule": ["before 6am on Thursday"]
     },
     {
-      "description": "Disable raw pip_requirements handling for integration component requirements files",
+      "description": "Disable raw pip_requirements handling for pip-compile lockfiles",
       "matchManagers": ["pip_requirements"],
-      "matchFileNames": ["internal/test/integration/components/**"],
+      "matchFileNames": [
+        "internal/test/integration/components/**",
+        ".github/*-requirements.txt",
+        "examples/store-demo/app/src/**/requirements.txt"
+      ],
       "enabled": false
     },
     {
@@ -339,6 +346,17 @@
       "matchDatasources": ["docker"],
       "enabled": true,
       "groupName": "integration test pinned images",
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Re-enable digest/patch bumps for digest-pinned obi-testimg references in compose files so multi-arch republishes are picked up",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "ghcr.io/open-telemetry/obi-testimg",
+        "open-telemetry/obi-testimg"
+      ],
+      "enabled": true,
+      "groupName": "obi-testimg pinned images",
       "schedule": ["before 6am on Tuesday"]
     },
     {

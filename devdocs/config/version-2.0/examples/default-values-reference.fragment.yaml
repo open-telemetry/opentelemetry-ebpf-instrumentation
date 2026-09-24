@@ -208,6 +208,8 @@ extensions:
           enabled:
             traces: true
             metrics: true
+            # Set to false to keep the RED metrics without the size histograms.
+            body_size_metrics: true
           # The target adapter imports one shared application filter. Every
           # application protocol's trace and metric maps must equal this trace
           # map.
@@ -482,7 +484,7 @@ extensions:
         stats:
           # Master switch for TCP stats observability.
           enabled: false
-          # Supported values: tcp_rtt, tcp_failed_connections, tcp_retransmits, tcp_io.
+          # Supported values: tcp_rtt, tcp_failed_connections, tcp_successful_connections, tcp_retransmits, tcp_io.
           features: []
           endpoint_identity:
             agent_ip: ""
@@ -534,6 +536,7 @@ extensions:
           context_propagation: disabled
           override_bpfloop_enabled: false
           disable_black_box_cp: false
+          populate_trace_context: false
         traffic:
           control_backend: auto
           high_request_volume: false
@@ -624,6 +627,8 @@ extensions:
     correlation:
       log_trace_annotation:
         enabled: false
+        # Workloads to annotate, as capture-rule match clauses; required when enabled.
+        # match: []
         # Reserved; keep empty.
         filter: {}
         field_names:

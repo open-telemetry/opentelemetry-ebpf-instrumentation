@@ -38,7 +38,7 @@ func jsonRPCCall(url, method string, id int, params any) (*http.Response, error)
 
 func testPythonJSONRPCServer(t *testing.T) {
 	const (
-		comm    = "python3.14"
+		comm    = "main"
 		address = "http://localhost:8381/rpc"
 	)
 
@@ -52,7 +52,7 @@ func testPythonJSONRPCServer(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -92,7 +92,7 @@ func testPythonJSONRPCServer(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return

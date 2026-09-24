@@ -1,0 +1,28 @@
+{
+  "series": {
+    "3.10": {
+      "tag": "v3.10.20",
+      "commit": "842e987df856a5d4db37933c62a3456930a19092"
+    },
+    "3.11": {
+      "tag": "v3.11.15",
+      "commit": "2340a037f7450e70fccfe411e6531afb4d57a312"
+    },
+    "3.12": {
+      "tag": "v3.12.14",
+      "commit": "2abcf904b8dac8c999d2b3aac76681abb333798a"
+    },
+    "3.13": {
+      "tag": "v3.13.15",
+      "commit": "4061bc4c35f7c26f25264666d4ba083b93d2f6f9"
+    },
+    "3.14": {
+      "tag": "v3.14.7",
+      "commit": "823f0323ee6ec1402088b73bce1a38473cac36dc"
+    },
+    "3.9": {
+      "tag": "v3.9.25",
+      "commit": "0bbaf5de9744ae1acea3e2c9ad2257d1cc68e847"
+    }
+  }
+}

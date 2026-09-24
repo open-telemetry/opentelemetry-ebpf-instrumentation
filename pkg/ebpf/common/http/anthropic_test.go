@@ -515,3 +515,98 @@ data: {"type":"message_stop"}
 	assert.Empty(t, toolCalls)
 	assert.Equal(t, "msg_02", resp.ID)
 }
+
+// The request path names the operation for every outcome, so one endpoint keeps
+// one operation name across a success, an error and a truncated capture. An
+// unrecognized path reports _OTHER rather than being grouped with the Messages
+// API.
+func TestAnthropicSpan_OperationComesFromTheRequestPath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		body string
+		want string
+	}{
+		{
+			name: "messages success",
+			path: "http://api.anthropic.com/v1/messages",
+			body: anthropicResponseBody,
+			want: request.MessageOperationName,
+		},
+		{
+			name: "messages error",
+			path: "http://api.anthropic.com/v1/messages",
+			body: anthropicErrorResponseBody,
+			want: request.MessageOperationName,
+		},
+		{
+			// Anthropic reports `type: completion` here, which would split the
+			// endpoint across two operation names if the body were read.
+			name: "legacy complete success",
+			path: "http://api.anthropic.com/v1/complete",
+			body: `{"type":"completion","model":"claude-2.1","completion":"hi","stop_reason":"stop_sequence"}`,
+			want: request.CompletionOperationName,
+		},
+		{
+			name: "legacy complete error",
+			path: "http://api.anthropic.com/v1/complete",
+			body: anthropicErrorResponseBody,
+			want: request.CompletionOperationName,
+		},
+		{
+			name: "messages through a gateway prefix",
+			path: "http://gw.internal/anthropic/v1/messages",
+			body: anthropicResponseBody,
+			want: request.MessageOperationName,
+		},
+		{
+			name: "messages with a trailing slash",
+			path: "http://api.anthropic.com/v1/messages/",
+			body: anthropicResponseBody,
+			want: request.MessageOperationName,
+		},
+		{
+			// Sub-resources of the Messages API are endpoints of their own,
+			// so they are not folded into `message`.
+			name: "token counting",
+			path: "http://api.anthropic.com/v1/messages/count_tokens",
+			body: `{"input_tokens":2095}`,
+			want: request.OtherOperationName,
+		},
+		{
+			name: "message batch creation",
+			path: "http://api.anthropic.com/v1/messages/batches",
+			body: `{"type":"message_batch","id":"msgbatch_01"}`,
+			want: request.OtherOperationName,
+		},
+		{
+			name: "message batch sub-resource",
+			path: "http://api.anthropic.com/v1/messages/batches/msgbatch_01/cancel",
+			body: `{"type":"message_batch","id":"msgbatch_01"}`,
+			want: request.OtherOperationName,
+		},
+		{
+			name: "unknown endpoint",
+			path: "http://api.anthropic.com/v1/models",
+			body: `{"type":"model","id":"claude-sonnet-4-6"}`,
+			want: request.OtherOperationName,
+		},
+		{
+			name: "unknown endpoint truncated",
+			path: "http://api.anthropic.com/v1/models",
+			body: `{"type":`,
+			want: request.OtherOperationName,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, tc.path, anthropicRequestBody)
+			resp := makeGzipResponse(t, http.StatusOK, anthropicHeaders(), tc.body)
+
+			span, ok := AnthropicSpan(&request.Span{}, req, resp)
+
+			require.True(t, ok)
+			require.NotNil(t, span.GenAI.Anthropic)
+			assert.Equal(t, tc.want, span.GenAI.Anthropic.Output.Type)
+		})
+	}
+}

@@ -44,6 +44,9 @@ extensions:
     correlation:
       log_trace_annotation:
         enabled: true
+        match:
+          - process:
+              exe_path_glob: ["/usr/bin/checkout"]
     daemon:
       logging:
         format: json
@@ -63,6 +66,7 @@ extensions:
 	require.Equal(t, 12*time.Second, cfg.ShutdownTimeout)
 	require.Equal(t, "false", string(cfg.Attributes.Kubernetes.Enable))
 	require.True(t, cfg.EBPF.LogEnricher.Enabled())
+	require.Len(t, cfg.EBPF.LogEnricher.Services, 1)
 }
 
 func TestLoadConfigV2ReplacesEnvironmentVariables(t *testing.T) {

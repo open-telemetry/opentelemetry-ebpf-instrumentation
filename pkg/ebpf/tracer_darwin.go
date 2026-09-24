@@ -41,8 +41,16 @@ func (pt *ProcessTracer) Init(_ *ebpfcommon.EBPFEventContext, _ *obi.Config) err
 	pt.log.Debug("avoiding linter complaints for fields only used by the Linux tracer",
 		"v", pt.shutdownTimeout, "bpffsPath", pt.bpffsPath,
 		"executableGeneration", pt.nextExecutableGeneration,
-		"instrumentableGenerations", pt.instrumentableGenerations)
+		"instrumentableGenerations", pt.instrumentableGenerations,
+		"stopped", pt.stopped)
 	return nil
+}
+
+func (pt *ProcessTracer) Close() error {
+	pt.closeOnce.Do(func() {
+		pt.closeErr = nil
+	})
+	return pt.closeErr
 }
 
 func (pt *ProcessTracer) NewExecutable(_ *link.Executable, _ *Instrumentable) error {

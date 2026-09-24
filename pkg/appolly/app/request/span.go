@@ -30,7 +30,8 @@ import (
 type EventType uint8
 
 // The following consts need to coincide with some C identifiers:
-// EVENT_HTTP_REQUEST, EVENT_GRPC_REQUEST, EVENT_HTTP_CLIENT, EVENT_GRPC_CLIENT, EVENT_SQL_CLIENT
+// k_event_type_http_request, k_event_type_grpc_request, k_event_type_http_client,
+// k_event_type_grpc_client, k_event_type_sql_client
 const (
 	// EventTypeProcessAlive is an internal signal. It will be ignored by the metrics exporters.
 	EventTypeProcessAlive EventType = iota
@@ -63,6 +64,7 @@ const (
 	EventTypeSunRPCClient
 	EventTypeSunRPCServer
 	EventTypeAerospikeClient
+	EventTypeAerospikeServer
 )
 
 const (
@@ -114,15 +116,20 @@ const (
 	HTTPSubtypeRetrieval        = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
 	HTTPSubtypeOpenAICompatible = 16 // http + OpenAI-compatible API (custom provider)
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
+	HTTPSubtypeAWSSNS           = 18 // http + aws sns
 )
 
+// IsGenAISubtype reports whether a subtype is recorded on the GenAI client
+// metrics. MCP is deliberately absent: it is a tool and resource protocol
+// rather than a model provider, so it has no `gen_ai.provider.name` to report,
+// and semantic conventions give it its own `mcp.client.*` / `mcp.server.*`
+// metrics. Its spans still carry the GenAI attributes it does define.
 func IsGenAISubtype(subtype int) bool {
 	return subtype == HTTPSubtypeOpenAI ||
 		subtype == HTTPSubtypeAnthropic ||
 		subtype == HTTPSubtypeGemini ||
 		subtype == HTTPSubtypeQwen ||
 		subtype == HTTPSubtypeAWSBedrock ||
-		subtype == HTTPSubtypeMCP ||
 		subtype == HTTPSubtypeEmbedding ||
 		subtype == HTTPSubtypeRerank ||
 		subtype == HTTPSubtypeRetrieval ||
@@ -193,6 +200,8 @@ func (t EventType) String() string {
 		return "MemcachedServer"
 	case EventTypeAerospikeClient:
 		return "AerospikeClient"
+	case EventTypeAerospikeServer:
+		return "AerospikeServer"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -207,6 +216,7 @@ const (
 	MessagingReceive = "receive"
 	MessagingPublish = "publish"
 	MessagingProcess = "process"
+	MessagingSettle  = "settle"
 )
 
 func MessagingOperationTypeOf(operationName string) string {
@@ -214,6 +224,62 @@ func MessagingOperationTypeOf(operationName string) string {
 		return MessagingSend
 	}
 	return operationName
+}
+
+// IsAWSMessagingClientOperation reports whether an AWS span describes a
+// producer or consumer operation. Administration calls carry no
+// messaging.operation.type and are not messaging client operations.
+func IsAWSMessagingClientOperation(span *Span) bool {
+	if span.AWS == nil {
+		return false
+	}
+
+	var operationType string
+	switch span.SubType {
+	case HTTPSubtypeAWSSQS:
+		operationType = span.AWS.SQS.OperationType
+	case HTTPSubtypeAWSSNS:
+		operationType = span.AWS.SNS.OperationType
+	default:
+		return false
+	}
+
+	switch operationType {
+	case MessagingSend, MessagingReceive, MessagingSettle:
+		return true
+	default:
+		return false
+	}
+}
+
+// MessagingSpanKind maps a messaging operation to its span kind. A receive or a
+// settle is a client operation rather than a consumer one: OBI observes the
+// exchange with the broker, not what the application afterwards does with the
+// message, which is what a consumer span describes.
+func MessagingSpanKind(operationName string) (trace.SpanKind, bool) {
+	switch MessagingOperationTypeOf(operationName) {
+	case MessagingSend:
+		return trace.SpanKindProducer, true
+	case MessagingProcess:
+		return trace.SpanKindConsumer, true
+	case MessagingReceive, MessagingSettle:
+		return trace.SpanKindClient, true
+	}
+	return trace.SpanKindUnspecified, false
+}
+
+func spanKindString(kind trace.SpanKind) string {
+	switch kind {
+	case trace.SpanKindServer:
+		return "SPAN_KIND_SERVER"
+	case trace.SpanKindClient:
+		return "SPAN_KIND_CLIENT"
+	case trace.SpanKindProducer:
+		return "SPAN_KIND_PRODUCER"
+	case trace.SpanKindConsumer:
+		return "SPAN_KIND_CONSUMER"
+	}
+	return "SPAN_KIND_INTERNAL"
 }
 
 type converter struct {
@@ -245,6 +311,16 @@ type SQLError struct {
 	Message  string `json:"message"`
 }
 
+// ResponseStatusCode returns the db.response.status_code value for the error:
+// the vendor error code when the protocol provides one (MySQL, SQL Server),
+// else the SQLSTATE (PostgreSQL, whose protocol carries no vendor code).
+func (e *SQLError) ResponseStatusCode() string {
+	if e.Code != 0 {
+		return strconv.Itoa(int(e.Code))
+	}
+	return e.SQLState
+}
+
 type MessagingInfo struct {
 	Offset    int64 `json:"offset"`
 	Partition int   `json:"partition"`
@@ -269,6 +345,8 @@ type AWS struct {
 	S3 AWSS3 `json:"s3"`
 	// https://opentelemetry.io/docs/specs/semconv/messaging/sqs/
 	SQS AWSSQS `json:"sqs"`
+	// https://opentelemetry.io/docs/specs/semconv/messaging/sns/
+	SNS AWSSNS `json:"sns"`
 }
 
 type AWSMeta struct {
@@ -293,6 +371,17 @@ type AWSSQS struct {
 	MessageID     string  `json:"messageId"`
 }
 
+type AWSSNS struct {
+	Meta          AWSMeta `json:"meta"`
+	OperationName string  `json:"operationName"`
+	OperationType string  `json:"operationType"`
+	Destination   string  `json:"destination"`
+	TopicARN      string  `json:"topicArn"`
+	MessageID     string  `json:"messageId"`
+	BatchCount    int     `json:"batchCount"`
+	ErrorCode     string  `json:"errorCode"`
+}
+
 type GenAI struct {
 	OpenAI    *VendorOpenAI
 	Anthropic *VendorAnthropic
@@ -315,9 +404,9 @@ type GenAI struct {
 }
 
 type OpenAIInputTokensDetails struct {
-	CachedTokens        TokenCount `json:"cached_tokens,omitempty"`
-	CacheCreationTokens TokenCount `json:"cache_creation_tokens,omitempty"`
-	AudioTokens         TokenCount `json:"audio_tokens,omitempty"`
+	CachedTokens        TokenCount `json:"cached_tokens"`
+	CacheCreationTokens TokenCount `json:"cache_creation_tokens"`
+	AudioTokens         TokenCount `json:"audio_tokens"`
 }
 
 type OpenAIUsage struct {
@@ -331,10 +420,10 @@ type OpenAIUsage struct {
 }
 
 type OpenAIOutputTokensDetails struct {
-	ReasoningTokens          TokenCount `json:"reasoning_tokens,omitempty"`
-	AudioTokens              TokenCount `json:"audio_tokens,omitempty"`
-	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens,omitempty"`
-	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens,omitempty"`
+	ReasoningTokens          TokenCount `json:"reasoning_tokens"`
+	AudioTokens              TokenCount `json:"audio_tokens"`
+	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens"`
+	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens"`
 }
 
 type OpenAIError struct {
@@ -617,17 +706,17 @@ type AnthropicResponse struct {
 type AnthropicUsage struct {
 	InputTokens              TokenCount              `json:"input_tokens"`
 	OutputTokens             TokenCount              `json:"output_tokens"`
-	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens,omitempty"`
-	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens,omitempty"`
+	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens"`
+	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens"`
 	CacheCreation            *AnthropicCacheCreation `json:"cache_creation,omitempty"`
 	ServiceTier              string                  `json:"service_tier"`
 	InferenceGeo             string                  `json:"inference_geo"`
 }
 
 type AnthropicCacheCreation struct {
-	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens,omitempty"`
-	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens,omitempty"`
+	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens"`
 }
 
 type AnthropicError struct {
@@ -693,9 +782,9 @@ type GeminiUsage struct {
 	PromptTokenCount           TokenCount                 `json:"promptTokenCount"`
 	CandidatesTokenCount       TokenCount                 `json:"candidatesTokenCount"`
 	TotalTokenCount            TokenCount                 `json:"totalTokenCount"`
-	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount,omitempty"`
-	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount,omitempty"`
-	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount,omitempty"`
+	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount"`
+	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount"`
+	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount"`
 	PromptTokensDetails        []GeminiModalityTokenCount `json:"promptTokensDetails,omitempty"`
 	CacheTokensDetails         []GeminiModalityTokenCount `json:"cacheTokensDetails,omitempty"`
 	CandidatesTokensDetails    []GeminiModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
@@ -792,14 +881,14 @@ type BedrockResponse struct {
 	// Anthropic Claude format
 	Content    json.RawMessage `json:"content,omitempty"`
 	StopReason string          `json:"stop_reason,omitempty"`
-	Usage      BedrockUsage    `json:"usage,omitempty"`
+	Usage      BedrockUsage    `json:"usage"`
 	// Amazon Nova format
 	Output         *NovaOutput `json:"output,omitempty"`
 	StopReasonNova string      `json:"stopReason,omitempty"`
 	// Meta Llama format
 	Generation           string     `json:"generation,omitempty"`
-	PromptTokenCount     TokenCount `json:"prompt_token_count,omitempty"`
-	GenerationTokenCount TokenCount `json:"generation_token_count,omitempty"`
+	PromptTokenCount     TokenCount `json:"prompt_token_count"`
+	GenerationTokenCount TokenCount `json:"generation_token_count"`
 	// Amazon Titan format
 	Results []TitanResult `json:"results,omitempty"`
 	// Error fields appear at the top level of the Bedrock error response body
@@ -811,11 +900,11 @@ type BedrockResponse struct {
 }
 
 type BedrockUsage struct {
-	InputTokens           TokenCount              `json:"inputTokens,omitempty"`
-	OutputTokens          TokenCount              `json:"outputTokens,omitempty"`
-	TotalTokens           TokenCount              `json:"totalTokens,omitempty"`
-	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens,omitempty"`
-	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens,omitempty"`
+	InputTokens           TokenCount              `json:"inputTokens"`
+	OutputTokens          TokenCount              `json:"outputTokens"`
+	TotalTokens           TokenCount              `json:"totalTokens"`
+	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens"`
+	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens"`
 	CacheDetails          []BedrockCacheDetail    `json:"cacheDetails,omitempty"`
 	CacheCreation         *AnthropicCacheCreation `json:"cache_creation,omitempty"`
 }
@@ -906,13 +995,44 @@ type MCPCall struct {
 	ErrorMessage      string `json:"errorMessage,omitempty"`
 }
 
-// OperationName returns the GenAI operation name for the MCP method.
-// tools/call maps to execute_tool; other methods return the method name as-is.
-func (m *MCPCall) OperationName() string {
-	if m.Method == "tools/call" {
-		return "execute_tool"
+// MCP returns the MCP call this span describes, or nil when it describes
+// something else.
+func (s *Span) MCP() *MCPCall {
+	if s.SubType != HTTPSubtypeMCP || s.GenAI == nil {
+		return nil
+	}
+	return s.GenAI.MCP
+}
+
+// MCPMethodToolsCall is the MCP method name for a tool call, the one method
+// that carries a GenAI operation name.
+const MCPMethodToolsCall = "tools/call"
+
+// GenAIOperationName returns the GenAI operation name for the MCP method.
+// Semantic conventions set it to execute_tool for a tool call and leave it
+// unset for every other method, so that consumers can treat MCP tool calls
+// like any other tool call.
+func (m *MCPCall) GenAIOperationName() string {
+	if m.Method == MCPMethodToolsCall {
+		return ExecuteToolOperationName
+	}
+	return ""
+}
+
+// SpanName is the MCP method name, followed by a target when a
+// low-cardinality one is available.
+func (m *MCPCall) SpanName() string {
+	if target := m.lowCardinalityTarget(); target != "" {
+		return m.Method + " " + target
 	}
 	return m.Method
+}
+
+func (m *MCPCall) lowCardinalityTarget() string {
+	if m.ToolName != "" {
+		return m.ToolName
+	}
+	return m.PromptName
 }
 
 type JSONRPC struct {
@@ -921,19 +1041,55 @@ type JSONRPC struct {
 	RequestID    string `json:"requestId"`
 	ErrorCode    int    `json:"errorCode,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
+	// ServiceQualified marks a method read out of a header that names a
+	// service, which only the Go net/rpc uprobe observes. It survives payload
+	// extraction, which overwrites everything else it parses off the wire.
+	ServiceQualified bool `json:"-"`
+}
+
+// JSONRPCVersionV1 is the version Go's net/rpc/jsonrpc speaks, and the only
+// one the Go uprobes report.
+const JSONRPCVersionV1 = "1.0"
+
+// QualifiedMethod returns the method in the shape `rpc.method` is defined as:
+// the fully-qualified name from the RPC interface perspective, whose semconv
+// examples separate the service from the method with a slash
+// ('EchoService/Echo').
+//
+// Only net/rpc names a service, and it does so with a dot, so the last dot
+// becomes the separator there. JSON-RPC itself assigns the dot no meaning and
+// takes arbitrary method names, so a method nothing qualified is returned as
+// it came off the wire: splitting 'inventory.lookup.v2' would claim a service
+// boundary nothing observed.
+func (j *JSONRPC) QualifiedMethod() string {
+	if !j.ServiceQualified {
+		return j.Method
+	}
+
+	i := strings.LastIndexByte(j.Method, '.')
+	if i <= 0 || i == len(j.Method)-1 {
+		return j.Method
+	}
+
+	return j.Method[:i] + "/" + j.Method[i+1:]
 }
 
 // Generic embedding provider types (Voyage AI, Cohere, Jina AI)
 
 // GenAI operation name constants aligned with OTel semantic conventions.
 const (
-	ChatOperationName         = "chat"
-	CompletionOperationName   = "text_completion"
-	GenerationOperationName   = "generation"
-	InvokeModelOperationName  = "invoke_model"
-	EmbeddingOperationName    = "embeddings"
-	ResponseOperationName     = "response"
-	ConversationOperationName = "conversation"
+	ChatOperationName           = "chat"
+	CompletionOperationName     = "text_completion"
+	GenerationOperationName     = "generation"
+	InvokeModelOperationName    = "invoke_model"
+	EmbeddingOperationName      = "embeddings"
+	ResponseOperationName       = "response"
+	ConversationOperationName   = "conversation"
+	ExecuteToolOperationName    = "execute_tool"
+	MessageOperationName        = "message"
+	ChatKitSessionOperationName = "chatkit.session"
+	ChatKitThreadOperationName  = "chatkit.thread"
+	OtherOperationName          = "_OTHER"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as
@@ -1289,14 +1445,14 @@ func (r *RetrievalRequest) GetTopK() int {
 type RetrievalResponse struct {
 	ID    string         `json:"id,omitempty"`
 	Model string         `json:"model,omitempty"`
-	Usage RetrievalUsage `json:"usage,omitempty"`
+	Usage RetrievalUsage `json:"usage"`
 }
 
 // RetrievalUsage captures optional token usage information returned by
 // embedding-aware vector stores.
 type RetrievalUsage struct {
-	TotalTokens  TokenCount `json:"total_tokens,omitempty"`
-	PromptTokens TokenCount `json:"prompt_tokens,omitempty"`
+	TotalTokens  TokenCount `json:"total_tokens"`
+	PromptTokens TokenCount `json:"prompt_tokens"`
 }
 
 type SpanLink struct {
@@ -1304,6 +1460,25 @@ type SpanLink struct {
 	SpanID     trace.SpanID  `json:"spanID"`
 	TraceFlags uint8         `json:"traceFlags,string"`
 }
+
+// ResponseObservation mirrors the kernel's enum http_response_observation: how much of
+// the response instrumentation saw.
+type ResponseObservation uint8
+
+const (
+	// ResponseParsed is the ordinary case: a response was read and Status carries it.
+	// It is the zero value, so spans built outside the eBPF path need not set it.
+	ResponseParsed ResponseObservation = iota
+	// ResponseReceived means the peer answered and no probe parsed the response. The
+	// end timestamp is when watching stopped, so the duration overstates the request.
+	ResponseReceived
+	// ResponseSilent means nothing came back and the local process closed the socket.
+	// The close ended the request, so the duration is a measurement.
+	ResponseSilent
+	// ResponseUnread means the response arrived and no probe could parse it. The end
+	// timestamp came from the response's own bytes, so the duration is a measurement.
+	ResponseUnread
+)
 
 // Span contains the information being submitted by the following nodes in the graph.
 // It enables comfortable handling of data from Go.
@@ -1314,6 +1489,8 @@ type Span struct {
 	Type           EventType      `json:"type"`
 	SpanKind       trace.SpanKind `json:"-"`
 	Flags          uint8          `json:"-"`
+	ProtoVersion   ProtoVersion   `json:"-"`
+	UserAgent      string         `json:"-"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	FullPath       string         `json:"-"`
@@ -1358,6 +1535,10 @@ type Span struct {
 	AWS               *AWS           `json:"-"`
 	GenAI             *GenAI         `json:"-"`
 	JSONRPC           *JSONRPC       `json:"-"`
+
+	// Anything but ResponseParsed means Status holds no observation. Whether the
+	// duration is a measurement is recorded separately, by ignoreDurations.
+	ResponseObservation ResponseObservation `json:"-"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
@@ -1456,6 +1637,22 @@ func spanAttributes(s *Span) SpanAttributes {
 			attrs["awsSQSDestination"] = sqs.Destination
 			attrs["awsSQSQueueURL"] = sqs.QueueURL
 			attrs["awsSQSMessageID"] = sqs.MessageID
+		}
+		if s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
+			sns := s.AWS.SNS
+			attrs["awsRequestID"] = sns.Meta.RequestID
+			attrs["awsRegion"] = sns.Meta.Region
+			attrs["awsSNSOperationName"] = sns.OperationName
+			attrs["awsSNSOperationType"] = sns.OperationType
+			attrs["awsSNSDestination"] = sns.Destination
+			attrs["awsSNSTopicARN"] = sns.TopicARN
+			attrs["awsSNSMessageID"] = sns.MessageID
+			if sns.OperationName == "PublishBatch" {
+				attrs["awsSNSBatchCount"] = strconv.Itoa(sns.BatchCount)
+			}
+			if sns.ErrorCode != "" {
+				attrs["errorType"] = sns.ErrorCode
+			}
 		}
 		if s.SubType == HTTPSubtypeSQLPP {
 			attrs["dbCollectionName"] = s.Route
@@ -1577,7 +1774,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"operation":  s.Method,
 			"table":      s.Path,
 		}
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		attrs := SpanAttributes{
 			"serverAddr":      SpanHost(s),
 			"serverPort":      strconv.Itoa(s.HostPort),
@@ -1730,7 +1927,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient:
+	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient, EventTypeAerospikeServer:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -1758,7 +1955,7 @@ func SpanDBStatusMessage(span *Span, dbError string) string {
 
 func (s *Span) IsDBSpan() bool {
 	switch s.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient:
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient, EventTypeAerospikeServer:
 		return true
 	case EventTypeHTTPClient:
 		if s.SubType == HTTPSubtypeSQLPP {
@@ -1777,8 +1974,8 @@ func SpanStatusMessage(span *Span) string {
 		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
 			return span.JSONRPC.ErrorMessage
 		}
-		if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorMessage != "" {
-			return span.GenAI.MCP.ErrorMessage
+		if mcp := span.MCP(); mcp != nil && mcp.ErrorMessage != "" {
+			return mcp.ErrorMessage
 		}
 	case EventTypeDNS:
 		if span.Status != 0 {
@@ -1790,7 +1987,19 @@ func SpanStatusMessage(span *Span) string {
 
 // HTTPSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/http/#status
 func HTTPSpanStatusCode(span *Span) string {
+	// No response was read, so there is nothing to judge. Not even a reset: sock_error()
+	// clears sk_err on the application's read, which precedes the close, so a peer that
+	// failed and a client that gave up are indistinguishable by then.
+	if span.ResponseObservation != ResponseParsed {
+		return StatusCodeUnset
+	}
+
 	if span.Status == 0 {
+		return StatusCodeError
+	}
+
+	// SNS batches can fail individual entries while returning HTTP 200.
+	if span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil && span.AWS.SNS.ErrorCode != "" {
 		return StatusCodeError
 	}
 
@@ -1800,34 +2009,16 @@ func HTTPSpanStatusCode(span *Span) string {
 	}
 
 	// MCP errors are signaled in the JSON-RPC response body.
-	if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorCode != 0 {
+	if mcp := span.MCP(); mcp != nil && mcp.ErrorCode != 0 {
 		return StatusCodeError
 	}
 
 	if span.Type == EventTypeHTTPClient {
 		if span.Status < 400 {
-			// this is possibly not needed, because in my experiments they
-			// respond with 429, but just to be correct according to the OTel
+			// A provider can report a failure inside a 2xx response, per the OTel
 			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
-			if span.GenAI != nil {
-				if span.GenAI.OpenAI != nil && span.GenAI.OpenAI.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Qwen != nil && span.GenAI.Qwen.Error.Type != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
-					return StatusCodeError
-				}
-				if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil && span.GenAI.Rerank.Output.Error.Type != "" {
-					return StatusCodeError
-				}
+			if span.GenAIFailed() {
+				return StatusCodeError
 			}
 
 			return StatusCodeUnset
@@ -1886,29 +2077,20 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	if s.Type == EventTypeManualSpan {
-		switch s.SpanKind {
-		case trace.SpanKindServer:
-			return "SPAN_KIND_SERVER"
-		case trace.SpanKindClient:
-			return "SPAN_KIND_CLIENT"
-		case trace.SpanKindProducer:
-			return "SPAN_KIND_PRODUCER"
-		case trace.SpanKindConsumer:
-			return "SPAN_KIND_CONSUMER"
-		}
+		return spanKindString(s.SpanKind)
 	}
 
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer, EventTypeAerospikeServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient, EventTypeAerospikeClient:
 		return "SPAN_KIND_CLIENT"
-	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
-		switch MessagingOperationTypeOf(s.Method) {
-		case MessagingSend:
-			return "SPAN_KIND_PRODUCER"
-		case MessagingProcess:
-			return "SPAN_KIND_CONSUMER"
+	case EventTypeKafkaClient, EventTypeKafkaServer,
+		EventTypeMQTTClient, EventTypeMQTTServer,
+		EventTypeNATSClient, EventTypeNATSServer,
+		EventTypeAMQPClient:
+		if kind, ok := MessagingSpanKind(s.Method); ok {
+			return spanKindString(kind)
 		}
 	}
 	return "SPAN_KIND_INTERNAL"
@@ -1923,7 +2105,7 @@ func (s *Span) ServiceGraphConnectionType() string {
 	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
 		return "messaging_system"
 	case EventTypeHTTPClient:
-		if s.SubType == HTTPSubtypeAWSSQS {
+		if s.SubType == HTTPSubtypeAWSSQS || s.SubType == HTTPSubtypeAWSSNS {
 			return "messaging_system"
 		}
 		if s.SubType == HTTPSubtypeElasticsearch || s.SubType == HTTPSubtypeSQLPP {
@@ -1978,6 +2160,10 @@ func (s *Span) TraceName() string {
 			} else {
 				return "sqs.Operation"
 			}
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
+			return "SNS." + s.AWS.SNS.OperationName
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeSQLPP {
@@ -2055,12 +2241,8 @@ func (s *Span) TraceName() string {
 			return InvokeModelOperationName
 		}
 
-		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
-			op := s.GenAI.MCP.OperationName()
-			if s.GenAI.MCP.ToolName != "" {
-				return op + " " + s.GenAI.MCP.ToolName
-			}
-			return op
+		if mcp := s.MCP(); mcp != nil {
+			return mcp.SpanName()
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeEmbedding && s.GenAI != nil && s.GenAI.Embedding != nil {
@@ -2112,12 +2294,17 @@ func (s *Span) TraceName() string {
 
 		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
 			if s.JSONRPC.Method != "" {
-				return s.JSONRPC.Method
+				return s.JSONRPC.QualifiedMethod()
 			}
 			return "jsonrpc"
 		}
 
+		// Semconv prescribes "HTTP {route}" when the method is outside the
+		// enum, so span.name stays bounded like http.request.method.
 		name := s.Method
+		if !IsKnownHTTPMethod(name) {
+			name = "HTTP"
+		}
 		if s.Route != "" {
 			name += " " + s.Route
 		}
@@ -2192,7 +2379,7 @@ func (s *Span) TraceName() string {
 			return s.Method + " " + s.Path
 		}
 		return s.Method
-	case EventTypeAerospikeClient:
+	case EventTypeAerospikeClient, EventTypeAerospikeServer:
 		if s.Method == "" {
 			return "AEROSPIKE"
 		}
@@ -2503,6 +2690,30 @@ func (s *Span) GenAIOperationName() string {
 	return ""
 }
 
+// genAIProviderNames is the value space of `gen_ai.provider.name`, mirroring the
+// enum declared in schemas/obi/groups/gen_ai/registry.yaml. Adding a provider
+// requires adding its member there too; a test asserts the two agree.
+var genAIProviderNames = map[string]struct{}{
+	"openai": {}, "gcp.gen_ai": {}, "gcp.vertex_ai": {}, "gcp.gemini": {},
+	"anthropic": {}, "cohere": {}, "azure.ai.inference": {}, "azure.ai.openai": {},
+	"ibm.watsonx.ai": {}, "aws.bedrock": {}, "perplexity": {}, "x_ai": {},
+	"deepseek": {}, "groq": {}, "mistral_ai": {}, "qwen": {}, "voyage": {},
+	"jina": {}, "pinecone": {}, "qdrant": {}, "milvus": {}, "zilliz": {},
+	"chroma": {}, "weaviate": {}, "generic": {}, "ollama": {}, "litellm": {},
+	"vllm": {}, "localai": {}, "openrouter": {}, "custom": {},
+}
+
+// openAICompatibleProviderName maps a configured gateway provider onto the
+// attribute's value space. The name is free-form configuration and the
+// attribute is a closed enum, so a gateway with no member reports as `custom`;
+// the gateway itself stays identifiable through `server.address`.
+func openAICompatibleProviderName(configured string) string {
+	if _, ok := genAIProviderNames[configured]; ok {
+		return configured
+	}
+	return "custom"
+}
+
 func (s *Span) GenAIProviderName() string {
 	if s.GenAI == nil {
 		return ""
@@ -2523,10 +2734,7 @@ func (s *Span) GenAIProviderName() string {
 		return "ollama"
 	}
 	if s.GenAI.OpenAICompatible != nil {
-		if s.GenAI.OpenAICompatible.ProviderName != "" {
-			return s.GenAI.OpenAICompatible.ProviderName
-		}
-		return "custom"
+		return openAICompatibleProviderName(s.GenAI.OpenAICompatible.ProviderName)
 	}
 	if s.GenAI.Bedrock != nil {
 		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()
@@ -2540,6 +2748,40 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Retrieval != nil {
 		return s.GenAI.Retrieval.Provider
 	}
+	return ""
+}
+
+// GenAIFailed reports whether a GenAI provider returned an error in its
+// response payload, which can happen inside a 2xx.
+func (s *Span) GenAIFailed() bool {
+	return s.GenAIErrorType() != ""
+}
+
+// GenAIErrorType returns the provider-reported error, mirroring the per-provider
+// shapes the trace exporter reads. Providers that carry no error field yield "".
+func (s *Span) GenAIErrorType() string {
+	if s.GenAI == nil {
+		return ""
+	}
+
+	for _, ai := range []*VendorOpenAI{s.GenAI.OpenAI, s.GenAI.Qwen, s.GenAI.OpenAICompatible} {
+		if ai != nil && ai.Error.Type != "" {
+			return ai.Error.Type
+		}
+	}
+	if ai := s.GenAI.Anthropic; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+	if ai := s.GenAI.Gemini; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Status
+	}
+	if ai := s.GenAI.Bedrock; ai != nil && ai.Output.ErrorType != "" {
+		return ai.Output.ErrorType
+	}
+	if ai := s.GenAI.Rerank; ai != nil && ai.Output.Error != nil {
+		return ai.Output.Error.Type
+	}
+
 	return ""
 }
 

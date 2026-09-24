@@ -27,7 +27,7 @@ const (
 )
 
 func failedConnectTraces(t require.TestingT) []jaeger.Trace {
-	resp, err := http.Get(jaegerQueryURL + "?service=failedconnectclient")
+	resp, err := getJaeger(jaegerQueryURL + "?service=failedconnectclient")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

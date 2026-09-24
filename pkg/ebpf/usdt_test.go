@@ -75,6 +75,13 @@ func TestReadSDTHeaderUsesELFByteOrder(t *testing.T) {
 	assert.Equal(t, uint32(obiUSDTNoteType), header.Type)
 }
 
+func TestAdjustedUSDTAddressAllowsLocationBelowNoteBase(t *testing.T) {
+	addr, err := adjustedUSDTAddress(0x7f0000000000, 0x100000, 0x2000)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint64(0x7efffff02000), addr)
+}
+
 func TestParseUSDTArgSpecX8664(t *testing.T) {
 	spec, err := parseUSDTArgSpec(elf.EM_X86_64, "-8@%rdi 4@%esi 8@-0x10(%rsp) 8@$0x7")
 	require.NoError(t, err)
@@ -145,7 +152,7 @@ func TestParseUSDTArgSpecHotSpotArm64MemoryPoolGC(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, uint16(8), spec.ArgCount)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		assert.Equal(t, obiUSDTArgReg, spec.Args[i].ArgType)
 	}
 	assert.Equal(t, int16(22*8), spec.Args[0].RegOff)

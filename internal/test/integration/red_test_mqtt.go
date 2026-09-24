@@ -37,7 +37,7 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode, "unexpected status code")
 
 		for _, span := range testCase.Spans {
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&limit=1000")
 			require.NoError(ct, err, "failed to query jaeger for %s", comm)
 			if resp == nil {
 				return
@@ -56,7 +56,7 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 }
 
 func testREDMetricsPythonMQTT(t *testing.T) {
-	testREDMetricsMQTTPublish(t, "python3.14", true)
+	testREDMetricsMQTTPublish(t, "pythonmqtt", true)
 }
 
 func testREDMetricsGoMQTT(t *testing.T) {
@@ -113,7 +113,7 @@ func testREDMetricsPythonMQTTSubscribe(t *testing.T) {
 		{
 			Route:   "http://localhost:8381",
 			Subpath: "mqtt/subscribe",
-			Comm:    "python3.14",
+			Comm:    "pythonmqtt",
 			Spans: []TestCaseSpan{
 				{
 					Name: "process test/topic",

@@ -273,7 +273,7 @@ func TestCustomMapper(t *testing.T) {
 	t.Run("maps time.Duration to string schema", func(t *testing.T) {
 		g := NewSchemaGenerator()
 		mapper := g.customMapper()
-		durationType := reflect.TypeOf(time.Duration(0))
+		durationType := reflect.TypeFor[time.Duration]()
 		schema := mapper(durationType)
 
 		require.NotNil(t, schema)
@@ -286,7 +286,7 @@ func TestCustomMapper(t *testing.T) {
 	t.Run("returns nil for regular types", func(t *testing.T) {
 		g := NewSchemaGenerator()
 		mapper := g.customMapper()
-		stringType := reflect.TypeOf("")
+		stringType := reflect.TypeFor[string]()
 		schema := mapper(stringType)
 		assert.Nil(t, schema)
 	})
@@ -308,7 +308,7 @@ func TestCustomMapper(t *testing.T) {
 
 		// Create a named type for testing
 		type TestEnum string
-		testType := reflect.TypeOf(TestEnum(""))
+		testType := reflect.TypeFor[TestEnum]()
 
 		schema := mapper(testType)
 
@@ -531,7 +531,7 @@ func TestSortSchemaProperties(t *testing.T) {
 
 func TestBuildInlineTypeSchemas(t *testing.T) {
 	t.Run("finds MetadataGlobMap and MetadataRegexMap from obi.Config", func(t *testing.T) {
-		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeOf(obi.Config{}))
+		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeFor[obi.Config]())
 
 		// Should find MetadataGlobMap
 		schemaFunc, found := result["MetadataGlobMap"]
@@ -556,12 +556,12 @@ func TestBuildInlineTypeSchemas(t *testing.T) {
 		type SimpleStruct struct {
 			Name string `yaml:"name"`
 		}
-		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeOf(SimpleStruct{}))
+		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeFor[SimpleStruct]())
 		assert.Empty(t, result)
 	})
 
 	t.Run("handles pointer types", func(t *testing.T) {
-		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeOf(&obi.Config{}))
+		result := NewSchemaGenerator().buildInlineTypeSchemas(reflect.TypeFor[*obi.Config]())
 
 		// Should still find inline types
 		_, found := result["MetadataGlobMap"]
@@ -581,26 +581,26 @@ func (testJSONSchemaType) JSONSchema() *jsonschema.Schema {
 
 func TestHasJSONSchemaMethod(t *testing.T) {
 	t.Run("returns true for type implementing JSONSchema", func(t *testing.T) {
-		result := hasJSONSchemaMethod(reflect.TypeOf(testJSONSchemaType{}))
+		result := hasJSONSchemaMethod(reflect.TypeFor[testJSONSchemaType]())
 		assert.True(t, result)
 	})
 
 	t.Run("returns false for type not implementing JSONSchema", func(t *testing.T) {
 		type noSchema struct{}
-		result := hasJSONSchemaMethod(reflect.TypeOf(noSchema{}))
+		result := hasJSONSchemaMethod(reflect.TypeFor[noSchema]())
 		assert.False(t, result)
 	})
 
 	t.Run("returns true for string type", func(t *testing.T) {
 		// Plain string doesn't implement JSONSchema
-		result := hasJSONSchemaMethod(reflect.TypeOf(""))
+		result := hasJSONSchemaMethod(reflect.TypeFor[string]())
 		assert.False(t, result)
 	})
 }
 
 func TestCallJSONSchemaMethod(t *testing.T) {
 	t.Run("calls JSONSchema on type with value receiver", func(t *testing.T) {
-		schema := callJSONSchemaMethod(reflect.TypeOf(testJSONSchemaType{}))
+		schema := callJSONSchemaMethod(reflect.TypeFor[testJSONSchemaType]())
 		require.NotNil(t, schema)
 		assert.Equal(t, "string", schema.Type)
 		assert.Equal(t, "test schema", schema.Description)
@@ -608,7 +608,7 @@ func TestCallJSONSchemaMethod(t *testing.T) {
 
 	t.Run("returns nil for type without JSONSchema", func(t *testing.T) {
 		type noSchema struct{}
-		schema := callJSONSchemaMethod(reflect.TypeOf(noSchema{}))
+		schema := callJSONSchemaMethod(reflect.TypeFor[noSchema]())
 		assert.Nil(t, schema)
 	})
 }

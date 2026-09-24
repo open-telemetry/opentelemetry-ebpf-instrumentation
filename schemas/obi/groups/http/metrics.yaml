@@ -1,0 +1,179 @@
+groups:
+  # --- Metrics ----------------------------------------------------------
+  - id: metric.obi.http.client.request.body.size
+    type: metric
+    metric_name: http.client.request.body.size
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted http.client.request.body.size
+    instrument: histogram
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: http.request.method
+        requirement_level: required
+      - ref: http.response.status_code
+        requirement_level:
+          recommended: if a response was observed
+      - ref: http.route
+        requirement_level:
+          recommended: if route collection is enabled and the route was matched
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: url.scheme
+        requirement_level: recommended
+  - id: metric.obi.http.client.request.duration
+    type: metric
+    metric_name: http.client.request.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted http.client.request.duration
+    instrument: histogram
+    unit: "s"
+    stability: stable
+    attributes:
+      - ref: http.request.method
+        requirement_level: required
+      - ref: http.response.status_code
+        requirement_level:
+          recommended: if a response was observed
+      - ref: http.route
+        requirement_level:
+          recommended: if route collection is enabled and the route was matched
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: url.scheme
+        requirement_level: recommended
+  - id: metric.obi.http.client.response.body.size
+    type: metric
+    metric_name: http.client.response.body.size
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted http.client.response.body.size
+    instrument: histogram
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: http.request.method
+        requirement_level: required
+      - ref: http.response.status_code
+        requirement_level:
+          recommended: if a response was observed
+      - ref: http.route
+        requirement_level:
+          recommended: if route collection is enabled and the route was matched
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: url.scheme
+        requirement_level: recommended
+  - id: metric.obi.http.server.request.body.size
+    type: metric
+    metric_name: http.server.request.body.size
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted http.server.request.body.size
+    instrument: histogram
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: client.address
+        requirement_level: opt_in
+      - ref: http.request.method
+        requirement_level: required
+      - ref: http.response.status_code
+        requirement_level:
+          recommended: if a response was observed
+      - ref: http.route
+        requirement_level:
+          recommended: if route collection is enabled and the route was matched
+      - ref: server.address
+        requirement_level: recommended
+      - ref: server.port
+        requirement_level: recommended
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: url.scheme
+        requirement_level:
+          conditionally_required: if the front end reported a scheme, and the params frame carrying it was captured whole
+  - id: metric.obi.http.server.request.duration
+    type: metric
+    metric_name: http.server.request.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted http.server.request.duration
+    instrument: histogram
+    unit: "s"
+    stability: stable
+    attributes:
+      - ref: client.address
+        requirement_level: opt_in
+      - ref: http.request.method
+        requirement_level: required
+      - ref: http.response.status_code
+        requirement_level:
+          recommended: if a response was observed
+      - ref: http.route
+        requirement_level:
+          recommended: if route collection is enabled and the route was matched
+      - ref: server.address
+        requirement_level: recommended
+      - ref: server.port
+        requirement_level: recommended
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: url.scheme
+        requirement_level:
+          conditionally_required: if the front end reported a scheme, and the params frame carrying it was captured whole
+  - id: metric.obi.http.server.response.body.size
+    type: metric
+    metric_name: http.server.response.body.size
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted http.server.response.body.size
+    instrument: histogram
+    unit: "By"
+    stability: development
+    attributes:
+      - ref: client.address
+        requirement_level: opt_in
+      - ref: http.request.method
+        requirement_level: required
+      - ref: http.response.status_code
+        requirement_level:
+          recommended: if a response was observed
+      - ref: http.route
+        requirement_level:
+          recommended: if route collection is enabled and the route was matched
+      - ref: server.address
+        requirement_level: recommended
+      - ref: server.port
+        requirement_level: recommended
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: url.scheme
+        requirement_level:
+          conditionally_required: if the front end reported a scheme, and the params frame carrying it was captured whole

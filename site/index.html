@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenTelemetry eBPF Instrumentation telemetry schema</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0 auto; padding: 2rem 1.25rem; max-width: 44rem;
+         font: 16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  ul { padding-left: 1.2rem; }
+</style>
+</head>
+<body>
+<h1>OpenTelemetry eBPF Instrumentation telemetry schema</h1>
+
+<p>OpenTelemetry eBPF Instrumentation (OBI) publishes the telemetry schema it stamps
+on its telemetry as <code>schema_url</code>, plus a generated reference of the
+attributes and metrics it defines.</p>
+
+<h2>Telemetry schema</h2>
+<p>Schema files are served per OBI release version at:</p>
+<p><code>/schemas/obi/&lt;version&gt;</code></p>
+<p>Each file is immutable once published and records the attribute and metric
+renames between versions, in the
+<a href="https://opentelemetry.io/docs/specs/otel/schemas/">OpenTelemetry telemetry
+schema</a> file format.</p>
+
+<h2>Reference</h2>
+<p>The attributes and metrics OBI defines, generated from its semantic-convention registry.
+These are markdown files, best read rendered on GitHub:</p>
+<ul>
+  <li><a href="docs/attributes.md">Attributes</a></li>
+  <li><a href="docs/metrics.md">Metrics</a></li>
+  <li><a href="https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation">Source repository</a></li>
+</ul>
+</body>
+</html>

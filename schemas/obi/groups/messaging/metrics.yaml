@@ -1,0 +1,59 @@
+groups:
+  - id: metric.obi.messaging.client.operation.duration
+    type: metric
+    metric_name: messaging.client.operation.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted messaging.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      # Reachable only through the AWS SQS and SNS clients, which are HTTP
+      # client spans where parsedErrorType applies. A broker span reaches
+      # SpanErrorType through neither SpanStatusCode nor parsedErrorType, so it
+      # never carries one.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error, which OBI can determine only for the AWS SQS and SNS clients
+      - ref: messaging.destination.name
+        requirement_level:
+          conditionally_required: if the exchange named a destination
+      - ref: messaging.operation.name
+        requirement_level: required
+      - ref: messaging.system
+        requirement_level: required
+      - ref: server.address
+        requirement_level:
+          recommended: if the server address could be resolved
+
+  - id: metric.obi.messaging.process.duration
+    type: metric
+    metric_name: messaging.process.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted messaging.process.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      # Declared but not yet populated: SpanStatusCode has no case for the
+      # broker event types and no parsedErrorType branch applies to them, so
+      # SpanErrorType is always empty on a consume span. The label is part of
+      # the metric's shape and the attribute keeps its name here, so a
+      # consumer reads the same contract once OBI can classify these failures.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error, which OBI cannot yet determine for a consume operation
+      - ref: messaging.destination.name
+        requirement_level:
+          conditionally_required: if the exchange named a destination
+      - ref: messaging.operation.name
+        requirement_level: required
+      - ref: messaging.system
+        requirement_level: required
+      - ref: server.address
+        requirement_level:
+          recommended: if the server address could be resolved

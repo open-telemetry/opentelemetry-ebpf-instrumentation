@@ -46,6 +46,28 @@
         }
       }
     },
+    "HttpSignalEnabled": {
+      "type": "object",
+      "description": "Enable/disable each signal explicitly for HTTP, including the Opt-In body size histograms.",
+      "additionalProperties": false,
+      "properties": {
+        "traces": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable trace signal generation for this scope.\nIf omitted, true is used.\n"
+        },
+        "metrics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable metric signal generation for this scope.\nIf omitted, true is used.\n"
+        },
+        "body_size_metrics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the HTTP request and response body size histograms.\nRequires `metrics`. Set it to false to keep the RED metrics without them.\nIf omitted, true is used.\n"
+        }
+      }
+    },
     "MatchDefinition": {
       "type": "object",
       "description": "Match expression using either an include (`match`) or exclude (`not_match`) wildcard pattern.",
@@ -760,6 +782,11 @@
                   "type": "boolean",
                   "default": false,
                   "description": "Disable black-box context propagation.\nIf omitted, false is used.\n"
+                },
+                "populate_trace_context": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Keep the pinned `traces_ctx_v1` map populated for readers outside OBI, such as a profiler doing trace-profile correlation. OBI's own readers turn population on by themselves.\nIf omitted, false is used.\n"
                 }
               }
             },
@@ -1085,8 +1112,8 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "$ref": "#/$defs/SignalEnabled",
-          "description": "Enable HTTP traces/metrics.\nIf omitted, signal defaults are used.\n"
+          "$ref": "#/$defs/HttpSignalEnabled",
+          "description": "Enable HTTP traces/metrics and the Opt-In body size histograms.\nIf omitted, signal defaults are used.\n"
         },
         "filters": {
           "$ref": "#/$defs/SignalFilters",
@@ -1267,7 +1294,14 @@
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable trace-context annotation on log streams for selected workloads.\nIf omitted, false is used.\n"
+          "description": "Enable trace-context annotation on log streams for the workloads selected by `match`.\nIf omitted, false is used.\n"
+        },
+        "match": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SelectionRuleMatch"
+          },
+          "description": "Workloads whose logs are annotated, as capture-rule match clauses with glob predicates.\nAnnotation only reaches workloads that the capture rules also select.\nRequired and non-empty when `enabled` is true.\n"
         },
         "filter": {
           "$ref": "#/$defs/FilterMap",
@@ -2058,6 +2092,7 @@
                 "enum": [
                   "tcp_rtt",
                   "tcp_failed_connections",
+                  "tcp_successful_connections",
                   "tcp_retransmits",
                   "tcp_io"
                 ]

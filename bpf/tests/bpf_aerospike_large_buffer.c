@@ -41,7 +41,7 @@ typedef int64_t s64;
 #define PACKET_TYPE_REQUEST 1
 #define PACKET_TYPE_RESPONSE 2
 #define TCP_SEND 1
-#define EVENT_TCP_LARGE_BUFFER 12
+#define k_event_type_tcp_large_buffer 12
 
 #define bpf_dbg_printk(...) ((void)0)
 #define bpf_clamp_umax(v, max)                                                                     \
@@ -219,7 +219,7 @@ static __always_inline u32 aerospike_emit_chunks(tcp_req_t *req,
         return 0;
     }
 
-    lb->type = EVENT_TCP_LARGE_BUFFER;
+    lb->type = k_event_type_tcp_large_buffer;
     lb->packet_type = packet_type;
     lb->action = action;
     lb->kind = k_large_buf_layer_app;

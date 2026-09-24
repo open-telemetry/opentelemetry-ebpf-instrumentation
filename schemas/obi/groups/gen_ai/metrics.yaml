@@ -1,0 +1,59 @@
+groups:
+  - id: metric.obi.gen_ai.client.operation.duration
+    type: metric
+    metric_name: gen_ai.client.operation.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted gen_ai.client.operation.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+      - ref: gen_ai.operation.name
+        requirement_level: required
+      - ref: gen_ai.provider.name
+        requirement_level: required
+      - ref: gen_ai.request.model
+        requirement_level:
+          recommended: if the request named a model
+      - ref: gen_ai.response.model
+        requirement_level:
+          recommended: if the provider returned it
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the server address could be resolved
+      - ref: server.port
+        requirement_level: recommended
+
+  - id: metric.obi.gen_ai.client.token.usage
+    type: metric
+    metric_name: gen_ai.client.token.usage
+    annotations:
+      obi:
+        upstream_override: true
+    brief: OBI-emitted gen_ai.client.token.usage
+    instrument: histogram
+    unit: "{token}"
+    stability: development
+    attributes:
+      - ref: gen_ai.operation.name
+        requirement_level: required
+      - ref: gen_ai.provider.name
+        requirement_level: required
+      - ref: gen_ai.request.model
+        requirement_level:
+          recommended: if the request named a model
+      - ref: gen_ai.response.model
+        requirement_level:
+          recommended: if the provider returned it
+      - ref: gen_ai.token.type
+        requirement_level: required
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the server address could be resolved
+      - ref: server.port
+        requirement_level: recommended

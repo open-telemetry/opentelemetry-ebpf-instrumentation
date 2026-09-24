@@ -5,6 +5,7 @@ services:
       dockerfile: ${RUNTIME_METRICS_TESTSERVER_DOCKERFILE:-./internal/test/integration/components/go-runtime-metrics-server/Dockerfile}
       args:
         - RUNTIME_METRICS_TESTSERVER_GO_IMAGE
+        - RUNTIME_METRICS_TESTSERVER_LDFLAGS
     image: ${RUNTIME_METRICS_TESTSERVER_IMAGE:-hatest-testserver-go-runtime-metrics}
     ports:
       - "${TEST_SERVICE_PORTS}"
@@ -32,7 +33,7 @@ services:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
@@ -60,14 +61,16 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
     container_name: otel-col
     deploy:
       resources:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    command:
+      - --config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml
+      - --config=/etc/otelcol-config/otelcol-runtime-metrics-telemetry.yml
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:

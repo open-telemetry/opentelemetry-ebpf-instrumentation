@@ -28,6 +28,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 K8S = HERE / "k8s"
 APP_SRC = HERE / "app" / "src"
+# OBI-authored services live outside the vendored app/ tree; see PROVENANCE.md.
+SERVICES_SRC = HERE / "services"
 DOC = HERE / "ARCHITECTURE.md"
 
 # name: SOMETHING_ADDR  then  value: "callee:port" on the following line.
@@ -37,7 +39,12 @@ ADDR_RE = re.compile(
 )
 
 # Kubernetes `appProtocol` value -> the label shown in the doc.
-PROTOCOL_DISPLAY = {"grpc": "gRPC", "http": "HTTP", "redis": "Redis"}
+PROTOCOL_DISPLAY = {
+    "grpc": "gRPC",
+    "http": "HTTP",
+    "redis": "Redis",
+    "aerospike": "Aerospike",
+}
 
 # Language -> (mermaid classDef name, fill, stroke, text) in legend/classDef order.
 LANGUAGES = [
@@ -47,6 +54,7 @@ LANGUAGES = [
     ("C# / .NET", "dotnet", "rebeccapurple", "indigo", "white"),
     ("Java", "java", "darkorange", "chocolate", "black"),
     ("Redis (datastore)", "datastore", "firebrick", "darkred", "white"),
+    ("Aerospike (datastore)", "datastore_aerospike", "indianred", "brown", "white"),
 ]
 
 
@@ -126,25 +134,40 @@ def manifest_protocols() -> dict[str, str]:
     return protocols
 
 
-def detect_language(service: str) -> tuple[str, str]:
-    """(language, source-marker) for a service, detected from app/src/<service>/.
+# Services with no source tree of their own: they run an upstream image.
+DATASTORE_IMAGES = [
+    ("redis", "Redis (datastore)", "upstream `redis:alpine` image"),
+    ("aerospike", "Aerospike (datastore)", "upstream `aerospike/aerospike-server` image"),
+]
 
-    Heuristic: the source tree is searched for build/manifest markers in priority
+
+def detect_language(service: str) -> tuple[str, str]:
+    """(language, source-marker) for a service, from its source tree.
+
+    Two source roots are searched, in order: `app/src/<service>/` for the
+    vendored Online Boutique services, then `services/<service>/` for
+    OBI-authored ones (kept outside the vendored tree, see PROVENANCE.md).
+
+    Heuristic: the tree is searched for build/manifest markers in priority
     order and the FIRST match wins, so a service shipping more than one marker
     (e.g. a Go service that also has a `package.json` for assets) is classified
     by the highest-priority one. Priority:
 
         go.mod (Go) > *.csproj (C#/.NET) > build.gradle (Java) >
-        package.json (Node.js) > requirements.txt (Python) > *.py (Python)
+        pom.xml (Java) > package.json (Node.js) > requirements.txt (Python) >
+        *.py (Python)
 
-    A service with no `app/src/<service>/` directory falls back to the Redis
-    datastore label (redis-cart runs the upstream redis:alpine image, so it has
-    no vendored source).
+    A service with no source tree in either root is matched against
+    DATASTORE_IMAGES by name, since datastores run upstream images and have no
+    vendored source.
     """
     base = APP_SRC / service
     if not base.is_dir():
-        if "redis" in service:
-            return "Redis (datastore)", "upstream `redis:alpine` image"
+        base = SERVICES_SRC / service
+    if not base.is_dir():
+        for token, label, marker in DATASTORE_IMAGES:
+            if token in service:
+                return label, marker
         return "Unknown", ""
 
     def first(pattern: str):
@@ -157,6 +180,8 @@ def detect_language(service: str) -> tuple[str, str]:
         return "C# / .NET", f"`{csproj.name}`"
     if first("build.gradle"):
         return "Java", "`build.gradle`"
+    if first("pom.xml"):
+        return "Java", "`pom.xml`"
     if first("package.json"):
         return "Node.js", "`package.json`"
     if first("requirements.txt"):
@@ -228,7 +253,7 @@ def render_regions() -> dict[str, str]:
     if missing:
         sys.exit(
             f"ERROR: Service(s) missing 'appProtocol': {', '.join(missing)}. "
-            "Add 'appProtocol: <grpc|http|redis>' to the Service port in k8s/."
+            "Add 'appProtocol: <grpc|http|redis|aerospike>' to the Service port in k8s/."
         )
     proto_of = {svc: PROTOCOL_DISPLAY.get(p, p) for svc, p in raw_proto.items()}
 

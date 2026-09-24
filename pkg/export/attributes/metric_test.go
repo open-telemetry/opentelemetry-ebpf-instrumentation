@@ -43,6 +43,8 @@ func TestPrometheusNames(t *testing.T) {
 		{GenAIClientInputTokenUsage, "gen_ai_client_token_usage"},
 		{GenAIClientOutputTokenUsage, "gen_ai_client_token_usage"},
 		{GenAIClientOperationDuration, "gen_ai_client_operation_duration_seconds"},
+		{MCPClientOperationDuration, "mcp_client_operation_duration_seconds"},
+		{MCPServerOperationDuration, "mcp_server_operation_duration_seconds"},
 		{GoRuntimeMemoryLimit, "go_memory_limit_bytes"},
 		{GoRuntimeMemoryGCGoal, "go_memory_gc_goal_bytes"},
 		{GoRuntimeMemoryGCCycles, "go_memory_gc_cycles_total"},
@@ -55,13 +57,22 @@ func TestPrometheusNames(t *testing.T) {
 		{GoRuntimeProcessorLimit, "go_processor_limit"},
 		{GoRuntimeConfigGOGC, "go_config_gogc_percent"},
 		{GoRuntimeScheduleDuration, "go_schedule_duration_seconds"},
+		{DotnetGCCollections, "dotnet_gc_collections_total"},
 		{JVMMemoryUsed, "jvm_memory_used_bytes"},
 		{JVMMemoryCommitted, "jvm_memory_committed_bytes"},
 		{JVMMemoryLimit, "jvm_memory_limit_bytes"},
 		{JVMMemoryUsedAfterLastGC, "jvm_memory_used_after_last_gc_bytes"},
+		{JVMClassLoaded, "jvm_class_loaded_total"},
+		{JVMClassUnloaded, "jvm_class_unloaded_total"},
+		{JVMClassCount, "jvm_class_count"},
+		{JVMThreadCount, "jvm_thread_count"},
+		{JVMCPUTime, "jvm_cpu_time_seconds_total"},
+		{JVMCPUCount, "jvm_cpu_count"},
+		{JVMCPURecentUtilization, "jvm_cpu_recent_utilization_ratio"},
 		{Resource, "resource"},
 		{StatTCPRtt, "obi_stat_tcp_rtt_seconds"},
 		{StatTCPFailedConnections, "obi_stat_tcp_failed_connections_total"},
+		{StatTCPSuccessfulConnections, "obi_stat_tcp_successful_connections_total"},
 		{StatTCPRetransmits, "obi_stat_tcp_retransmits_total"},
 		{StatTCPIo, "obi_stat_tcp_io_bytes_total"},
 		{V8JSGCDuration, "v8js_gc_duration_seconds"},
@@ -69,10 +80,40 @@ func TestPrometheusNames(t *testing.T) {
 		{V8JSMemoryHeapUsed, "v8js_memory_heap_used_bytes"},
 		{V8JSMemoryHeapSpaceAvailableSize, "v8js_memory_heap_space_available_size_bytes"},
 		{V8JSMemoryHeapSpacePhysicalSize, "v8js_memory_heap_space_physical_size_bytes"},
+		// the {resource} annotation unit adds no suffix
+		{V8JSResourceActive, "v8js_resource_active"},
 	}
 
+	// Span metrics, service graph metrics and the info metrics carry no Section, so they are
+	// keyed by their OTEL name below. Every expectation is the name OBI's Prometheus exporter
+	// published before these metrics were declared: the consolidation renames nothing.
+	tests = append(tests, []struct {
+		metric Name
+		prom   string
+	}{
+		// Grafana-convention names, matched literally by Tempo: the absent unit is what keeps
+		// the derivation from appending _seconds.
+		{SpanMetricsLatencyLegacy, "traces_spanmetrics_latency"},
+		{SpanMetricsCallsLegacy, "traces_spanmetrics_calls_total"},
+		{SpanMetricsRequestSize, "traces_spanmetrics_size_total"},
+		{SpanMetricsResponseSize, "traces_spanmetrics_response_size_total"},
+		{SpanMetricsDurationOTel, "traces_span_metrics_duration_seconds"},
+		{SpanMetricsCallsOTel, "traces_span_metrics_calls_total"},
+		// The servicegraph connector emits these underscore-shaped names itself.
+		{ServiceGraphClient, "traces_service_graph_request_client_seconds"},
+		{ServiceGraphServer, "traces_service_graph_request_server_seconds"},
+		{ServiceGraphFailed, "traces_service_graph_request_failed_total"},
+		{ServiceGraphTotal, "traces_service_graph_request_total"},
+		{TargetInfo, "target_info"},
+		{TracesTargetInfo, "traces_target_info"},
+	}...)
+
 	for _, test := range tests {
-		t.Run(string(test.metric.Section), func(t *testing.T) {
+		name := string(test.metric.Section)
+		if name == "" {
+			name = test.metric.OTEL
+		}
+		t.Run(name, func(t *testing.T) {
 			require.NotEmpty(t, test.metric.Prom)
 			assert.Equal(t, test.prom, test.metric.Prom)
 		})

@@ -80,7 +80,7 @@ func testGoKafkaTraceparent(t *testing.T) {
 	// Contamination is timing-dependent, so drive a batch to give a buggy build
 	// many opportunities to leak the produce trace context into the worker line.
 	const batch = 60
-	for i := 0; i < batch; i++ {
+	for range batch {
 		fire()
 		time.Sleep(30 * time.Millisecond)
 	}

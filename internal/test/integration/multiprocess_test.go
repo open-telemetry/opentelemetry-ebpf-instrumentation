@@ -172,7 +172,7 @@ func TestMultiProcessAppCPTCPOnly(t *testing.T) {
 // Prevents that two instances of the same process report traces or metrics by duplicate
 func checkReportedOnlyOnce(t *testing.T, baseURL, serviceName string) {
 	const path = "/check-only-once"
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		resp, err := http.Get(baseURL + path)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -209,7 +209,7 @@ func checkInstrumentedProcessesMetric(t *testing.T) {
 		}
 
 		for processName, expectedCount := range processes {
-			results, err := pq.Query(fmt.Sprintf(`obi_instrumented_processes{process_name="%s"}`, processName))
+			results, err := pq.Query(fmt.Sprintf(`obi_instrumented_processes{process_executable_name="%s"}`, processName))
 			require.NoError(ct, err)
 			require.NotEmpty(ct, results, "Expected to find instrumented processes metric for %s", processName)
 			value, err := strconv.Atoi(results[0].Value[1].(string))
@@ -223,13 +223,13 @@ func checkInstrumentedProcessesMetric(t *testing.T) {
 func testPartialLanguageHTTPProbes(t *testing.T) {
 	waitForTestComponentsSub(t, "http://localhost:8091", "/dist") // rust
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		ti.DoHTTPGet(t, "http://localhost:8091/dist", 200)
 	}
 
 	// check the rust service, it will not have any nested spans
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=greetings&operation=GET%20%2Fdist")
+		resp, err := getJaeger(jaegerQueryURL + "?service=greetings&operation=GET%20%2Fdist")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -282,7 +282,7 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=ruby&operation=GET%20%2Fusers")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testapi&operation=GET%20%2Fusers")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -300,7 +300,7 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fgotracemetoo")
+		resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fgotracemetoo")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

@@ -523,8 +523,7 @@ func (g *SchemaGenerator) buildInlineTypeSchemas(rootType reflect.Type) map[stri
 		}
 		visited[t] = true
 
-		for i := 0; i < t.NumField(); i++ {
-			field := t.Field(i)
+		for field := range t.Fields() {
 			if !reflectsField(field) {
 				continue
 			}
@@ -572,7 +571,7 @@ func callJSONSchemaMethod(t reflect.Type) *jsonschema.Schema {
 		zero := reflect.Zero(t)
 		results := method.Func.Call([]reflect.Value{zero})
 		if len(results) == 1 {
-			if schema, ok := results[0].Interface().(*jsonschema.Schema); ok {
+			if schema, ok := reflect.TypeAssert[*jsonschema.Schema](results[0]); ok {
 				return schema
 			}
 		}
@@ -584,7 +583,7 @@ func callJSONSchemaMethod(t reflect.Type) *jsonschema.Schema {
 		zero := reflect.New(t)
 		results := method.Func.Call([]reflect.Value{zero})
 		if len(results) == 1 {
-			if schema, ok := results[0].Interface().(*jsonschema.Schema); ok {
+			if schema, ok := reflect.TypeAssert[*jsonschema.Schema](results[0]); ok {
 				return schema
 			}
 		}
