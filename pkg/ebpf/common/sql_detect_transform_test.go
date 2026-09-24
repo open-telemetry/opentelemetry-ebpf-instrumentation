@@ -239,7 +239,6 @@ func TestPostgresParseQueryParsing(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 type asciiSQLTest struct {
