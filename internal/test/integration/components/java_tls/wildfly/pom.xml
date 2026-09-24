@@ -12,7 +12,7 @@
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <jakarta.ee.version>10.0.0</jakarta.ee.version>
+        <jakarta.ee.version>11.0.0</jakarta.ee.version>
         <aws.sdk.version>2.25.70</aws.sdk.version>
         <maven.compiler-plugin.version>3.13.0</maven.compiler-plugin.version>
         <maven.ejb-plugin.version>3.2.1</maven.ejb-plugin.version>
