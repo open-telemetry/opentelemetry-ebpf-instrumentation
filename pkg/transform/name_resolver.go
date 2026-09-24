@@ -303,12 +303,6 @@ func (nr *NameResolver) dnsResolve(svc *svc.Attrs, ip string) (string, string, s
 		return "", "", ""
 	}
 
-	if nr.sources.Has(ResolverECS) && nr.ecs != nil {
-		if name, ok := nr.ecs.ServiceNameForIP(ip); ok {
-			return name, "", ""
-		}
-	}
-
 	if nr.sources.Has(ResolverK8s) && nr.store != nil {
 		ipAddr := net.ParseIP(ip)
 
@@ -318,6 +312,12 @@ func (nr *NameResolver) dnsResolve(svc *svc.Attrs, ip string) (string, string, s
 			if n != "" {
 				return n, ns, k8sNs
 			}
+		}
+	}
+
+	if nr.sources.Has(ResolverECS) && nr.ecs != nil {
+		if name, ok := nr.ecs.ServiceNameForIP(ip); ok {
+			return name, "", ""
 		}
 	}
 
