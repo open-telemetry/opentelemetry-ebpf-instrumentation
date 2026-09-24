@@ -86,9 +86,10 @@ all:
 
 ### Pending release notes
 
-Breaking changes to emitted telemetry the schema cannot express: the format describes the
-OTLP output only, and has no operation for dropping something. Keep them out of the block
-above — copying them into a `<version>` file would corrupt a published, immutable schema.
+Breaking changes the schema cannot express: the format describes the OTLP output only, has
+no operation for dropping something, and says nothing about the published reference docs.
+Keep them out of the block above — copying them into a `<version>` file would corrupt a
+published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
@@ -110,6 +111,16 @@ section empty once drained.
   override the target's, and targets that declare `OTEL_RESOURCE_ATTRIBUTES` of their own
   no longer discard the whole deployment-wide layer, so they start carrying the agent's
   other keys. The target's own declaration still wins over both for the keys it declares.
+- `span.obi.http.client` keeps its id but no longer declares the JSON-RPC attributes
+  (`rpc.system.name`, `rpc.method`, `rpc.method_original`, `rpc.response.status_code`,
+  `jsonrpc.protocol.version`, `jsonrpc.request.id`); they move to the new
+  `span.obi.jsonrpc.client`. Nothing changes in the emitted telemetry.
+- Five span group ids are replaced by per-system ones:
+  `span.obi.messaging.{producer,consumer,client}` become
+  `span.obi.messaging.<broker>.{producer,consumer,client}`, and
+  `span.obi.rpc.{client,server}` become `span.obi.rpc.{grpc,onc_rpc}.{client,server}`.
+  No emitted attribute changes, but a link into `site/docs/spans.md` anchored on
+  one of the old ids no longer resolves.
 
 - A span attribute OBI parses but could not determine is no longer emitted as an empty
   string. It covers every such attribute the span exporter appends, among them

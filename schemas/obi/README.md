@@ -57,6 +57,10 @@ stops holding.
 
 Attribute groups declaring OBI-own attributes use `registry.obi.<namespace>`;
 overrides of an upstream attribute use `x.obi.<namespace>` per the rules above.
+An attribute group that declares no attribute of its own and exists only as the
+base a signal's groups `extends` is named after that signal — the messaging span
+groups share `span.obi.messaging.common` — so it stays out of the attribute
+pages, which document what OBI defines.
 
 ## Two override styles
 

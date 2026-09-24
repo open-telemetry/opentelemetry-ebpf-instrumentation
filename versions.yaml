@@ -59,6 +59,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/gosql
   - go.opentelemetry.io/obi/internal/test/integration/components/gosunrpc
   - go.opentelemetry.io/obi/internal/test/integration/components/grpc-relay/go
+  - go.opentelemetry.io/obi/internal/test/integration/components/grpc-relay/go-legacy
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker
   - go.opentelemetry.io/obi/internal/test/integration/components/sqlclient

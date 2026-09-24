@@ -26,50 +26,127 @@ groups:
     brief: OBI GenAI inference client span.
     attributes:
       - ref: gen_ai.provider.name
+        requirement_level: required
       - ref: gen_ai.operation.name
+        requirement_level: required
       - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: if the request named a model
       - ref: gen_ai.response.model
+        requirement_level: recommended
       - ref: gen_ai.response.id
+        requirement_level:
+          recommended: if the response carried an id
       - ref: gen_ai.conversation.id
+        requirement_level:
+          conditionally_required: if the request carried a conversation id
       - ref: gen_ai.request.temperature
+        requirement_level:
+          recommended: if the request set it
       - ref: gen_ai.request.top_p
+        requirement_level:
+          recommended: if the request set it
       - ref: gen_ai.request.top_k
+        requirement_level:
+          recommended: if the request set it
       - ref: gen_ai.request.max_tokens
+        requirement_level:
+          recommended: if the request set it
       - ref: gen_ai.request.frequency_penalty
+        requirement_level:
+          recommended: if the request set it
       - ref: gen_ai.request.presence_penalty
+        requirement_level:
+          recommended: if the request set it
       - ref: gen_ai.request.choice.count
+        requirement_level:
+          conditionally_required: if the request asked for more than one choice
       - ref: gen_ai.request.seed
+        requirement_level:
+          conditionally_required: if the request set it
       - ref: gen_ai.request.stop_sequences
+        requirement_level:
+          recommended: if the request set stop sequences
       # Anthropic, Gemini and Bedrock always report the flag; the OpenAI-shaped
       # providers and Ollama report it only when the request asked to stream.
       - ref: gen_ai.request.stream
+        requirement_level:
+          conditionally_required: if the provider reports the streaming flag
       - ref: gen_ai.usage.input_tokens
+        requirement_level:
+          recommended: if the provider reported token usage
       - ref: gen_ai.usage.output_tokens
+        requirement_level:
+          recommended: if the provider reported token usage
       - ref: gen_ai.usage.cache_read.input_tokens
+        requirement_level:
+          recommended: if the provider reported cache-read token usage
       - ref: gen_ai.usage.cache_creation.input_tokens
+        requirement_level:
+          recommended: if the provider reported cache-creation token usage
       - ref: gen_ai.usage.reasoning.output_tokens
+        requirement_level:
+          recommended: if the provider reported reasoning token usage
       - ref: gen_ai.response.finish_reasons
+        requirement_level:
+          recommended: if the response reported finish reasons
       - ref: gen_ai.output.type
+        requirement_level:
+          conditionally_required: if the request set a response format
       - ref: gen_ai.embeddings.dimension.count
+        requirement_level:
+          recommended: if the operation is an embeddings call on an OpenAI-shaped provider and the provider reported the dimension count
       - ref: gen_ai.request.encoding_formats
+        requirement_level:
+          recommended: if the operation is an embeddings call on an OpenAI-shaped provider and the request set encoding formats
       - ref: gen_ai.input.messages
+        requirement_level: opt_in
       - ref: gen_ai.output.messages
+        requirement_level: opt_in
       - ref: gen_ai.system_instructions
+        requirement_level: opt_in
       - ref: gen_ai.tool.definitions
+        requirement_level: opt_in
       - ref: gen_ai.metadata
+        requirement_level: opt_in
       - ref: openai.request.service_tier
+        requirement_level:
+          conditionally_required: if the provider is OpenAI and the request set a service tier
       - ref: openai.response.service_tier
+        requirement_level:
+          conditionally_required: if the provider is OpenAI and the response reported a service tier
       - ref: openai.response.system_fingerprint
+        requirement_level:
+          recommended: if the provider is OpenAI and the response reported a system fingerprint
       - ref: openai.api.type
+        requirement_level:
+          recommended: if the provider is OpenAI
       - ref: aws.bedrock.guardrail.id
+        requirement_level:
+          conditionally_required: if the provider is AWS Bedrock and the request configured a guardrail
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: server.address
+        requirement_level: recommended
       - ref: server.port
+        requirement_level:
+          conditionally_required: if `server.address` is set
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
 
   # The dedicated embeddings subtype, recognised from a provider-agnostic
   # embeddings payload. Sampling and generation parameters have no meaning
@@ -81,22 +158,52 @@ groups:
     brief: OBI GenAI embeddings client span.
     attributes:
       - ref: gen_ai.provider.name
+        requirement_level: required
       - ref: gen_ai.operation.name
+        requirement_level: required
       - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: if the request named a model
       - ref: gen_ai.response.model
+        requirement_level: recommended
       - ref: gen_ai.usage.input_tokens
+        requirement_level:
+          recommended: if the provider reported token usage
       - ref: gen_ai.usage.output_tokens
+        requirement_level:
+          recommended: if the provider reported token usage
       - ref: gen_ai.embeddings.dimension.count
+        requirement_level:
+          recommended: if the provider reported the dimension count
       - ref: gen_ai.request.encoding_formats
+        requirement_level:
+          recommended: if the request set encoding formats
       - ref: gen_ai.request.embedding.input_count
+        requirement_level:
+          conditionally_required: if the input count could be determined
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: server.address
+        requirement_level: recommended
       - ref: server.port
+        requirement_level:
+          conditionally_required: if `server.address` is set
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
 
   # Vector retrieval and rerank share this group: both describe a search over a
   # document set rather than a model invocation, and neither reports the
@@ -109,23 +216,54 @@ groups:
     brief: OBI GenAI vector-retrieval client span.
     attributes:
       - ref: gen_ai.provider.name
+        requirement_level: required
       - ref: gen_ai.operation.name
+        requirement_level: required
       - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: if the request named a model
       - ref: gen_ai.response.model
+        requirement_level:
+          recommended: if the request or the response named a model
       - ref: gen_ai.response.id
+        requirement_level:
+          recommended: if the response carried an id
       - ref: gen_ai.usage.input_tokens
+        requirement_level:
+          recommended: if the provider reported token usage
       - ref: gen_ai.usage.output_tokens
+        requirement_level:
+          recommended: if the provider reported token usage
       - ref: gen_ai.data_source.id
+        requirement_level:
+          conditionally_required: if the request named a collection
       - ref: gen_ai.input.messages
+        requirement_level: opt_in
       - ref: gen_ai.output.messages
+        requirement_level: opt_in
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: server.address
+        requirement_level: recommended
       - ref: server.port
+        requirement_level:
+          conditionally_required: if `server.address` is set
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
 
   # Rerank is its own subtype with its own payload and emitter branch, and it
   # reports gen_ai.operation.name as a fixed `rerank`. It carries no data source
@@ -137,20 +275,50 @@ groups:
     brief: OBI GenAI rerank client span.
     attributes:
       - ref: gen_ai.provider.name
+        requirement_level: required
       - ref: gen_ai.operation.name
+        requirement_level: required
       - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: if the request named a model
       - ref: gen_ai.response.model
+        requirement_level: recommended
       - ref: gen_ai.response.id
+        requirement_level:
+          recommended: if the response carried an id
       - ref: gen_ai.usage.input_tokens
+        requirement_level:
+          recommended: if the provider reported token usage
       - ref: gen_ai.usage.output_tokens
+        requirement_level:
+          recommended: if the provider reported token usage
       - ref: gen_ai.rerank.top_n
+        requirement_level:
+          conditionally_required: if the request set a result count
       - ref: gen_ai.input.messages
+        requirement_level: opt_in
       - ref: gen_ai.output.messages
+        requirement_level: opt_in
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: server.address
+        requirement_level: recommended
       - ref: server.port
+        requirement_level:
+          conditionally_required: if `server.address` is set
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
