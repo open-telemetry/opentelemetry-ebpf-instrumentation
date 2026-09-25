@@ -34,9 +34,9 @@ func TestDotnetRuntimeMetrics(t *testing.T) {
 		version string
 		image   string
 	}{
-		{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:9d94ecf60a21c6e7a784cf0761fbd4a8391646617a0ff2f39621443d580cc2c3"},
-		{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:647b8b6d4f4570270c763a200514241ca54f8d70dc314000412fbd8ec594724b"},
-		{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:399e54a8a7e35c3aba78398b2840455d45185cba20b831b8a2b46f849f4f5001"},
+		{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:37466ea190f696105c1c3ae67c15e32d4e199face9a0b2ad5b9a37c464db8f30"},
+		{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:8922cef0719da00335c6e3356007362b7015de9d2b15fb6e9d790f2e6e729c9a"},
+		{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:ff17a18b639a0327e52c7c296fa2e1abe6e03eb61d8121a8ef67cc6aa430a27e"},
 	} {
 		t.Run(runtime.version, func(t *testing.T) {
 			testDotnetRuntimeMetrics(t, runtime.version, runtime.image)
