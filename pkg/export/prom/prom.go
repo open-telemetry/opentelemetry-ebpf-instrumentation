@@ -1021,6 +1021,9 @@ func (r *metricsReporter) reportMetrics(ctx context.Context) {
 
 func (r *metricsReporter) collectMetrics(ctx context.Context) {
 	defer r.closeAllMCPSessions()
+	if r.mcpSessions != nil {
+		go r.mcpSessions.Start(ctx, r.cfg.TTL, r.closeMCPSession)
+	}
 	go r.watchForProcessEvents(ctx)
 	if r.runtimeInput != nil {
 		go r.watchForRuntimeMetrics(ctx)
@@ -1662,6 +1665,15 @@ func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
 	r.deleteTracesTargetInfoMetric(service)
 }
 
+func (r *metricsReporter) closeMCPSession(sess *mcpsession.Session, client bool) {
+	synth := sess.SyntheticSpan()
+	if client {
+		r.observeHistogram(r.mcpClientSessionDuration.WithLabelValues(labelValues(synth, r.attrMCPClientSessionDuration)...).Metric, sess.Duration().Seconds(), synth)
+		return
+	}
+	r.observeHistogram(r.mcpServerSessionDuration.WithLabelValues(labelValues(synth, r.attrMCPServerSessionDuration)...).Metric, sess.Duration().Seconds(), synth)
+}
+
 func (r *metricsReporter) recordMCPSession(span *request.Span, t request.Timings) {
 	if r.mcpSessions == nil {
 		return
@@ -1672,16 +1684,6 @@ func (r *metricsReporter) recordMCPSession(span *request.Span, t request.Timings
 	}
 
 	isClient := span.Type == request.EventTypeHTTPClient
-	closeFn := func(sess *mcpsession.Session, client bool) {
-		synth := sess.SyntheticSpan()
-		if client {
-			r.observeHistogram(r.mcpClientSessionDuration.WithLabelValues(labelValues(synth, r.attrMCPClientSessionDuration)...).Metric, sess.Duration().Seconds(), synth)
-			return
-		}
-		r.observeHistogram(r.mcpServerSessionDuration.WithLabelValues(labelValues(synth, r.attrMCPServerSessionDuration)...).Metric, sess.Duration().Seconds(), synth)
-	}
-
-	r.mcpSessions.Expire(r.cfg.TTL, closeFn)
 
 	uid := span.Service.UID
 	key := uid.Namespace + "\x00" + uid.Name + "\x00" + uid.Instance + "\x00" + mcp.SessionID
@@ -1692,15 +1694,7 @@ func (r *metricsReporter) closeAllMCPSessions() {
 	if r.mcpSessions == nil {
 		return
 	}
-	closeFn := func(sess *mcpsession.Session, client bool) {
-		synth := sess.SyntheticSpan()
-		if client {
-			r.observeHistogram(r.mcpClientSessionDuration.WithLabelValues(labelValues(synth, r.attrMCPClientSessionDuration)...).Metric, sess.Duration().Seconds(), synth)
-			return
-		}
-		r.observeHistogram(r.mcpServerSessionDuration.WithLabelValues(labelValues(synth, r.attrMCPServerSessionDuration)...).Metric, sess.Duration().Seconds(), synth)
-	}
-	r.mcpSessions.CloseAll(closeFn)
+	r.mcpSessions.CloseAll(r.closeMCPSession)
 }
 
 func (r *metricsReporter) deleteMetricsForService(service *svc.Attrs) {

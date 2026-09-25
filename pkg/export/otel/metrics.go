@@ -118,6 +118,7 @@ type MetricsReporter struct {
 // There is a Metrics instance for each service/process instrumented by OBI.
 type Metrics struct {
 	ctx      context.Context
+	cancel   context.CancelFunc
 	service  *svc.Attrs
 	provider *metric.MeterProvider
 
@@ -775,8 +776,11 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	opts = append(opts, mr.otelMetricOptions()...)
 	opts = append(opts, mr.spanMetricOptions()...)
 
+	mctx, cancel := context.WithCancel(mr.ctx)
+
 	return Metrics{
-		ctx:         mr.ctx,
+		ctx:         mctx,
+		cancel:      cancel,
 		service:     service,
 		mcpSessions: mcpsession.NewStore(),
 		provider: metric.NewMeterProvider(
@@ -798,6 +802,11 @@ func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Sessions are expired in the background: idle ones must be closed and
+	// their duration histogram recorded even when no further MCP traffic
+	// arrives for the service.
+	go m.mcpSessions.Start(m.ctx, mr.cfg.TTL, m.closeMCPSession)
 
 	return &m, nil
 }
@@ -991,7 +1000,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 					mcpServerOperationDuration, attrs := r.mcpServerOperationDuration.ForRecord(span)
 					mcpServerOperationDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				}
-				r.recordMCPSession(span, mr, t, ctx)
+				r.recordMCPSession(span, t)
 			} else if mr.is.HTTPEnabled() {
 				if measured {
 					httpDuration, attrs := r.httpDuration.ForRecord(span)
@@ -1059,7 +1068,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 					mcpClientOperationDuration, attrs := r.mcpClientOperationDuration.ForRecord(span)
 					mcpClientOperationDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				}
-				r.recordMCPSession(span, mr, t, ctx)
+				r.recordMCPSession(span, t)
 			} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {
 				if measured {
 					genAIClientDuration, attrs := r.genAIClientDuration.ForRecord(span)
@@ -1475,7 +1484,7 @@ func cleanupFloatCounterMetrics(ctx context.Context, m *Expirer[*request.Span, i
 	}
 }
 
-func (r *Metrics) recordMCPSession(span *request.Span, mr *MetricsReporter, t request.Timings, ctx context.Context) {
+func (r *Metrics) recordMCPSession(span *request.Span, t request.Timings) {
 	if r.mcpSessions == nil {
 		return
 	}
@@ -1485,40 +1494,33 @@ func (r *Metrics) recordMCPSession(span *request.Span, mr *MetricsReporter, t re
 	}
 
 	isClient := span.Type == request.EventTypeHTTPClient
-	closeFn := func(sess *mcpsession.Session, client bool) {
-		synth := sess.SyntheticSpan()
-		if client {
-			hist, attrs := r.mcpClientSessionDuration.ForRecord(synth)
-			hist.Record(ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
-			return
-		}
-		hist, attrs := r.mcpServerSessionDuration.ForRecord(synth)
-		hist.Record(ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
-	}
-
-	r.mcpSessions.Expire(mr.cfg.TTL, closeFn)
 	r.mcpSessions.Record(mcp.SessionID, isClient, span, t)
 }
 
-func (r *Metrics) closeAllMCPSessions(ctx context.Context) {
+func (r *Metrics) closeMCPSession(sess *mcpsession.Session, client bool) {
+	synth := sess.SyntheticSpan()
+	if client {
+		hist, attrs := r.mcpClientSessionDuration.ForRecord(synth)
+		hist.Record(r.ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
+		return
+	}
+	hist, attrs := r.mcpServerSessionDuration.ForRecord(synth)
+	hist.Record(r.ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
+}
+
+func (r *Metrics) closeAllMCPSessions() {
 	if r.mcpSessions == nil {
 		return
 	}
-	closeFn := func(sess *mcpsession.Session, client bool) {
-		synth := sess.SyntheticSpan()
-		if client {
-			hist, attrs := r.mcpClientSessionDuration.ForRecord(synth)
-			hist.Record(ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
-			return
-		}
-		hist, attrs := r.mcpServerSessionDuration.ForRecord(synth)
-		hist.Record(ctx, sess.Duration().Seconds(), instrument.WithAttributeSet(attrs))
-	}
-	r.mcpSessions.CloseAll(closeFn)
+	r.mcpSessions.CloseAll(r.closeMCPSession)
 }
 
 func (r *Metrics) cleanupAllMetricsInstances() {
-	r.closeAllMCPSessions(r.ctx)
+	r.closeAllMCPSessions()
+	if r.cancel != nil {
+		// stops the background MCP session expiry of this metric set
+		r.cancel()
+	}
 	cleanupMetrics(r.ctx, r.httpDuration)
 	cleanupMetrics(r.ctx, r.httpClientDuration)
 	cleanupMetrics(r.ctx, r.grpcDuration)
