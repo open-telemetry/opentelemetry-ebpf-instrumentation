@@ -83,3 +83,14 @@ func TestExpiryMap_Delete(t *testing.T) {
 	assert.False(t, ok)
 	assert.Empty(t, em.All())
 }
+
+func TestExpiryMap_DistinctLabelsWithColons(t *testing.T) {
+	em := NewExpiryMap[string](time.Now, time.Minute)
+
+	first := em.GetOrCreate([]string{"checkout:blue", "prod"}, func() string { return "first" })
+	second := em.GetOrCreate([]string{"checkout", "blue:prod"}, func() string { return "second" })
+
+	assert.Equal(t, "first", first)
+	assert.Equal(t, "second", second)
+	assert.Len(t, em.All(), 2)
+}
