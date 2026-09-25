@@ -2100,7 +2100,7 @@
             ]
           },
           "type": "array",
-          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns",
+          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The \"ecs\" source requires ecs:ListTasks and ecs:DescribeTasks permissions.",
           "default": [
             "k8s"
           ],

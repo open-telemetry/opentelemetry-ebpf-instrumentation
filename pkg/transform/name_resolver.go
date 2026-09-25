@@ -61,7 +61,7 @@ func resolverSources(src []Source) maps.Bits {
 }
 
 type NameResolverConfig struct {
-	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns
+	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns.
 	// The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions.
 	Sources []Source              `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
 	ECS     ECSNameResolverConfig `yaml:"ecs"`
