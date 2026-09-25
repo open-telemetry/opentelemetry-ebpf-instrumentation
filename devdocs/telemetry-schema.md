@@ -149,6 +149,32 @@ section empty once drained.
   difference until the metric path follows.
 - Attributes an application sets on a manual span are untouched, including ones it
   deliberately sets to an empty string. Resource attributes are unchanged.
+- Spans no longer carry `service.peer.name`, `http.request.body.size`,
+  `http.response.body.size` or `obi.http.response.observed` by default. All four are
+  now `opt_in` and are emitted again when named in `attributes.select.traces.include`.
+  OBI's own service-graph and span metrics are computed before trace export and are
+  unaffected, but tools that build service graphs from spans downstream — the collector
+  `servicegraph` connector's `virtual_node_peer_attributes`, or Tempo's metrics-generator
+  `peer_attributes` — stop naming uninstrumented peers such as databases and external
+  hosts unless `service.peer.name` is included. A collector embedding OBI that passes its
+  own attribute set to `TraceAttributesSelector` stops receiving all four the same way.
+- `span.obi.http.server` keeps its id but no longer declares the GraphQL, MCP, GenAI
+  tool and JSON-RPC attributes. They move to the new `span.obi.graphql.server`,
+  `span.obi.mcp.server` and `span.obi.jsonrpc.server`, which extend it. Likewise
+  `span.obi.db.client` no longer covers SQL clients, which move to the new
+  `span.obi.db.sql.client`, together with `db.query.summary`, which only the SQL client
+  emits. Nothing else changes in the emitted telemetry.
+- `span.obi.http.server`, `span.obi.http.client` and `span.obi.db.sql.client` are now
+  `stable`, and `span.obi.rpc.grpc.client` and `span.obi.rpc.grpc.server` are now
+  `release_candidate`. `span.metrics.skip` is declared `opt_in` instead of
+  `conditionally_required` on every span group; it is still emitted only when a
+  span-metrics feature is enabled.
+- In the new protocol server groups, attributes that the old `span.obi.http.server`
+  declared as conditional on the protocol being identified are now `required`
+  (`mcp.method.name`, `rpc.system.name`, `rpc.method`), since group membership already
+  implies it, and `gen_ai.operation.name` on MCP spans is conditional on a tool call,
+  the only MCP operation that sets it. These correct the declarations; the emitted
+  telemetry is unchanged.
 
 ## Hosting notes
 

@@ -662,12 +662,40 @@ func appendIfSet(attrs []attribute.KeyValue, f func(string) attribute.KeyValue, 
 
 // appendHTTPResponseStatus reports the status only when one was seen: semconv requires
 // http.response.status_code "if and only if one was received/sent".
-func appendHTTPResponseStatus(attrs []attribute.KeyValue, span *request.Span) []attribute.KeyValue {
+func appendHTTPResponseStatus(attrs []attribute.KeyValue, span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	if span.ResponseObservation == request.ResponseParsed {
 		return append(attrs, request.HTTPResponseStatusCode(span.Status))
 	}
 
+	if _, ok := optionalAttrs[attr.OBIHTTPResponseObserved]; !ok {
+		return attrs
+	}
+
 	return append(attrs, attribute.Bool(string(attr.OBIHTTPResponseObserved), false))
+}
+
+func appendHTTPRequestBodySize(attrs []attribute.KeyValue, span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+	if _, ok := optionalAttrs[attr.HTTPRequestBodySize]; !ok {
+		return attrs
+	}
+
+	return append(attrs, request.HTTPRequestBodySize(int(span.RequestBodyLength())))
+}
+
+func appendHTTPResponseBodySize(attrs []attribute.KeyValue, span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+	if _, ok := optionalAttrs[attr.HTTPResponseBodySize]; !ok {
+		return attrs
+	}
+
+	return append(attrs, request.HTTPResponseBodySize(span.ResponseBodyLength()))
+}
+
+func appendPeerService(attrs []attribute.KeyValue, span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+	if _, ok := optionalAttrs[attr.ServicePeerName]; !ok {
+		return attrs
+	}
+
+	return appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
 }
 
 //nolint:cyclop
@@ -678,12 +706,12 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 	case request.EventTypeHTTP:
 		attrs = []attribute.KeyValue{
 			request.ServerPort(span.HostPort),
-			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
-			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 		attrs = appendIfSet(attrs, request.ClientAddr, request.PeerAsClient(span))
 		attrs = appendIfSet(attrs, request.ServerAddr, request.SpanHost(span))
-		attrs = appendHTTPResponseStatus(attrs, span)
+		attrs = appendHTTPRequestBodySize(attrs, span, optionalAttrs)
+		attrs = appendHTTPResponseBodySize(attrs, span, optionalAttrs)
+		attrs = appendHTTPResponseStatus(attrs, span, optionalAttrs)
 		attrs = append(attrs, httpMethodAttributes(span.Method, optionalAttrs)...)
 		attrs = appendIfSet(attrs, request.HTTPUrlPath, span.Path)
 		scheme := request.HTTPScheme(span)
@@ -723,7 +751,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				request.ServerPort(span.HostPort),
 				request.DBSystemName(span.DBSystem),
 			}
-			attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+			attrs = appendPeerService(attrs, span, optionalAttrs)
 			attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 			attrs = appendIfSet(attrs, request.DBCollectionName, span.Route)
 			attrs = appendIfSet(attrs, request.DBNamespace, span.DBNamespace)
@@ -766,7 +794,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 		}
 		attrs = appendIfSet(attrs, request.ServerAddr, host)
-		attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+		attrs = appendPeerService(attrs, span, optionalAttrs)
 
 		if transport != httpTransportNone {
 			attrs = appendIfSet(attrs, request.HTTPUrlFull, url)
@@ -774,12 +802,10 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 
 		if transport == httpTransportAll {
-			attrs = appendHTTPResponseStatus(attrs, span)
+			attrs = appendHTTPResponseStatus(attrs, span, optionalAttrs)
 			attrs = appendIfSet(attrs, semconv.URLScheme, scheme)
-			attrs = append(attrs,
-				request.HTTPRequestBodySize(int(span.RequestBodyLength())),
-				request.HTTPResponseBodySize(span.ResponseBodyLength()),
-			)
+			attrs = appendHTTPRequestBodySize(attrs, span, optionalAttrs)
+			attrs = appendHTTPResponseBodySize(attrs, span, optionalAttrs)
 			if scrubbedQS != "" {
 				if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
 					attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
@@ -796,7 +822,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			attrs = appendIfSet(attrs, request.DBOperationName, span.Elasticsearch.DBOperationName)
 			attrs = appendIfSet(attrs, request.DBSystemName, span.Elasticsearch.DBSystemName)
-			attrs = append(attrs, request.HTTPResponseBodySize(span.ResponseBodyLength()))
+			attrs = appendHTTPResponseBodySize(attrs, span, optionalAttrs)
 			// Semconv defines this as the HTTP code the cluster returned, and
 			// requires it only when a response was received.
 			if span.Status != 0 {
@@ -1415,7 +1441,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 		}
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
-		attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+		attrs = appendPeerService(attrs, span, optionalAttrs)
 		// See the EventTypeGRPC case: omit the status code attribute when the
 		// span status is not a valid gRPC code.
 		attrs = appendIfSet(attrs, semconv.RPCResponseStatusCode, request.GRPCStatusCodeString(span.Status))
@@ -1426,7 +1452,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		if span.Type == request.EventTypeSQLClient {
-			attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+			attrs = appendPeerService(attrs, span, optionalAttrs)
 		}
 		if _, ok := optionalAttrs[attr.DBQueryText]; ok {
 			attrs = appendIfSet(attrs, request.DBQueryText, span.Statement)
@@ -1452,7 +1478,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		if span.Type == request.EventTypeRedisClient {
-			attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+			attrs = appendPeerService(attrs, span, optionalAttrs)
 		}
 		operation := span.Method
 		if operation != "" {
@@ -1478,7 +1504,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeKafkaClient {
-			attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+			attrs = appendPeerService(attrs, span, optionalAttrs)
 		}
 
 		if span.MessagingInfo != nil {
@@ -1498,7 +1524,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeMQTTClient {
-			attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+			attrs = appendPeerService(attrs, span, optionalAttrs)
 		}
 	case request.EventTypeNATSServer, request.EventTypeNATSClient:
 		attrs = []attribute.KeyValue{
@@ -1512,7 +1538,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
 		if span.Type == request.EventTypeNATSClient {
-			attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+			attrs = appendPeerService(attrs, span, optionalAttrs)
 		}
 	case request.EventTypeAMQPClient:
 		attrs = []attribute.KeyValue{
@@ -1522,7 +1548,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
 
-		attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+		attrs = appendPeerService(attrs, span, optionalAttrs)
 	case request.EventTypeSunRPCServer, request.EventTypeSunRPCClient:
 		// https://opentelemetry.io/docs/specs/semconv/registry/attributes/onc-rpc/
 		attrs = []attribute.KeyValue{
@@ -1544,14 +1570,14 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = append(attrs, attribute.String(string(attr.OncRPCAuthFlavor), span.Statement))
 		}
 		if span.Type == request.EventTypeSunRPCClient {
-			attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+			attrs = appendPeerService(attrs, span, optionalAttrs)
 		}
 	case request.EventTypeMongoClient:
 		attrs = []attribute.KeyValue{
 			request.ServerPort(span.HostPort),
 			semconv.DBSystemNameMongoDB,
 		}
-		attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+		attrs = appendPeerService(attrs, span, optionalAttrs)
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		operation := span.Method
 		attrs = appendIfSet(attrs, request.DBOperationName, operation)
@@ -1566,7 +1592,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 			semconv.DBSystemNameCouchbase,
 		}
-		attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+		attrs = appendPeerService(attrs, span, optionalAttrs)
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		operation := span.Method
 		if operation != "" {
@@ -1586,7 +1612,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 			request.DBSystemName("aerospike"),
 		}
-		attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+		attrs = appendPeerService(attrs, span, optionalAttrs)
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		attrs = appendIfSet(attrs, request.DBOperationName, span.Method)
 		attrs = appendIfSet(attrs, request.DBCollectionName, span.Path)
@@ -1608,7 +1634,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		if span.Type == request.EventTypeMemcachedClient {
-			attrs = appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
+			attrs = appendPeerService(attrs, span, optionalAttrs)
 		}
 		if span.Method != "" {
 			attrs = append(attrs, request.DBOperationName(span.Method))

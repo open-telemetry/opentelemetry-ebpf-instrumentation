@@ -1,13 +1,11 @@
 groups:
   # --- Spans ------------------------------------------------------------
-  # OBI enriches HTTP spans in place with GraphQL, MCP and JSON-RPC payload
-  # attributes when it detects those protocols, and with captured request /
-  # response bodies when body capture is enabled, so those attributes appear
-  # on the HTTP span rather than a dedicated one.
+  # Captured request / response bodies and headers appear on the HTTP span
+  # itself, behind their own opt-in selectors.
   - id: span.obi.http.server
     type: span
     span_kind: server
-    stability: development
+    stability: stable
     brief: OBI inbound HTTP server span.
     attributes:
       - ref: http.request.method
@@ -38,9 +36,9 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: http.request.body.size
-        requirement_level: recommended
+        requirement_level: opt_in
       - ref: http.response.body.size
-        requirement_level: recommended
+        requirement_level: opt_in
       - ref: http.request.body.content
         requirement_level: opt_in
       - ref: http.response.body.content
@@ -50,62 +48,7 @@ groups:
       - ref: http.response.header
         requirement_level: opt_in
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
-      - ref: graphql.operation.name
-        requirement_level:
-          conditionally_required: if the request was identified as GraphQL
-      - ref: graphql.operation.type
-        requirement_level:
-          conditionally_required: if the request was identified as GraphQL
-      - ref: graphql.document
         requirement_level: opt_in
-      - ref: mcp.method.name
-        requirement_level:
-          conditionally_required: if the request was identified as MCP
-      - ref: mcp.resource.uri
-        requirement_level:
-          conditionally_required: if the request was identified as MCP
-      - ref: mcp.session.id
-        requirement_level:
-          recommended: if the request was identified as MCP
-      - ref: mcp.protocol.version
-        requirement_level:
-          recommended: if the request was identified as MCP
-      - ref: gen_ai.operation.name
-        requirement_level:
-          conditionally_required: if the request was identified as a GenAI or MCP operation
-      - ref: gen_ai.tool.name
-        requirement_level:
-          conditionally_required: if the operation executes a tool
-      - ref: gen_ai.tool.type
-        requirement_level:
-          recommended: if the operation executes a tool
-      - ref: gen_ai.tool.call.arguments
-        requirement_level: opt_in
-      - ref: gen_ai.tool.call.result
-        requirement_level: opt_in
-      - ref: gen_ai.prompt.name
-        requirement_level:
-          conditionally_required: if the request named a prompt template
-      - ref: jsonrpc.request.id
-        requirement_level:
-          conditionally_required: if the request was identified as JSON-RPC or MCP
-      - ref: jsonrpc.protocol.version
-        requirement_level:
-          conditionally_required: if the request was identified as JSON-RPC or MCP
-      - ref: rpc.system.name
-        requirement_level:
-          conditionally_required: if the call was identified as an RPC protocol
-      - ref: rpc.method
-        requirement_level:
-          conditionally_required: if the call was identified as an RPC protocol
-      - ref: rpc.method_original
-        requirement_level:
-          conditionally_required: if the qualified method differs from the raw one
-      - ref: rpc.response.status_code
-        requirement_level:
-          conditionally_required: if the RPC protocol reported a status code
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -125,12 +68,11 @@ groups:
         requirement_level:
           recommended: if the request carried a user agent header
       - ref: obi.http.response.observed
-        requirement_level:
-          conditionally_required: if no response was observed
+        requirement_level: opt_in
   - id: span.obi.http.client
     type: span
     span_kind: client
-    stability: development
+    stability: stable
     brief: OBI outbound HTTP client span.
     attributes:
       - ref: http.request.method
@@ -154,12 +96,11 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: http.request.body.size
-        requirement_level: recommended
+        requirement_level: opt_in
       - ref: http.response.body.size
-        requirement_level: recommended
+        requirement_level: opt_in
       - ref: http.request.body.content
         requirement_level: opt_in
       - ref: http.response.body.content
@@ -169,8 +110,7 @@ groups:
       - ref: http.response.header
         requirement_level: opt_in
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -189,8 +129,7 @@ groups:
       - ref: user_agent.original
         requirement_level: opt_in
       - ref: obi.http.response.observed
-        requirement_level:
-          conditionally_required: if no response was observed
+        requirement_level: opt_in
 
   # JSON-RPC over HTTP takes the default-deny transport scope, so the span
   # reports the RPC convention alone and none of the HTTP request or response
@@ -226,8 +165,7 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: http.request.header
         requirement_level: opt_in
       - ref: http.response.header
@@ -237,8 +175,7 @@ groups:
       - ref: http.response.body.content
         requirement_level: opt_in
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -253,3 +190,46 @@ groups:
           conditionally_required: if the operation ended in an error
       - ref: user_agent.original
         requirement_level: opt_in
+
+  # The server branch emits the full HTTP server set for every subtype, so the
+  # protocols OBI identifies inside an inbound request extend the HTTP server
+  # group with their own attributes rather than replacing it.
+  - id: span.obi.graphql.server
+    type: span
+    span_kind: server
+    extends: span.obi.http.server
+    stability: development
+    brief: OBI inbound GraphQL over HTTP server span.
+    attributes:
+      - ref: graphql.operation.name
+        requirement_level:
+          conditionally_required: if the GraphQL document was parsed
+      - ref: graphql.operation.type
+        requirement_level:
+          conditionally_required: if the GraphQL document was parsed
+      - ref: graphql.document
+        requirement_level: opt_in
+
+  - id: span.obi.jsonrpc.server
+    type: span
+    span_kind: server
+    extends: span.obi.http.server
+    stability: development
+    brief: OBI inbound JSON-RPC over HTTP server span.
+    attributes:
+      - ref: rpc.system.name
+        requirement_level: required
+      - ref: rpc.method
+        requirement_level: required
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: if the qualified method differs from the raw one
+      - ref: jsonrpc.protocol.version
+        requirement_level:
+          conditionally_required: upstream declares it conditional; OBI always emits it, since it recognises only JSON-RPC 2.0
+      - ref: jsonrpc.request.id
+        requirement_level:
+          conditionally_required: if the request carried a JSON-RPC id
+      - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the response carried a JSON-RPC error code

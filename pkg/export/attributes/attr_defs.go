@@ -491,6 +491,13 @@ func getDefinitions(
 				attr.NetworkPeerAddress:     true,
 				attr.NetworkPeerPort:        true,
 				attr.NetworkProtocolVersion: true,
+
+				// Development-stability attributes, off by default so they do not hold
+				// back the stability of the span conventions that carry them.
+				attr.ServicePeerName:         false,
+				attr.HTTPRequestBodySize:     false,
+				attr.HTTPResponseBodySize:    false,
+				attr.OBIHTTPResponseObserved: false,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {

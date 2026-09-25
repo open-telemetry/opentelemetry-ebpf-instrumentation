@@ -130,8 +130,6 @@ Once the collector is running, you can generate some test traces:
         -> client.address: Str(127.0.0.1)
         -> server.address: Str(python3.12)
         -> server.port: Int(8000)
-        -> http.request.body.size: Int(77)
-        -> http.response.body.size: Int(11187)
         -> http.route: Str(/)
            {"resource": {"service.instance.id": "7e92d7ee-5866-4d53-8025-75c0d250e8cf", "service.name": "otelcol-dev", "service.version": ""}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "traces"}
    
