@@ -33,6 +33,7 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_h2_continuation.h>
 #include <gotracer/go_h2_write.h>
 #include <gotracer/go_large_buffer.h>
 #include <gotracer/go_offsets.h>
@@ -1534,10 +1535,10 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
                 // If we read some very large offset, we don't do anything since it might be a situation
                 // we can't handle.
                 if (n >= 0 && n < MAX_W_PTR_N) {
-                    framer_func_invocation_t f_info = {
+                    go_h2_framer_func_invocation_t f_info = {
                         .tp = info->tp,
                         .framer_ptr = (u64)framer,
-                        .initial_n = n,
+                        .frame_offset = n,
                         .stream_id = (u32)stream_id,
                         .s_port = conn_info ? conn_info->s_port : 0,
                         .d_port = conn_info ? conn_info->d_port : 0,
@@ -1617,39 +1618,11 @@ static __always_inline int on_http2FramerWriteContinuation(struct pt_regs *ctx) 
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
-    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
-    void *framer = GO_PARAM1(ctx);
-    const u32 stream_id = (u32)(u64)GO_PARAM2(ctx);
-    const bool end_headers = (bool)(u64)GO_PARAM3(ctx);
-    if (!f_info || !f_info->awaiting_continuation || !framer || f_info->framer_ptr != (u64)framer ||
-        f_info->stream_id != stream_id) {
-        return 0;
-    }
-
-    off_table_t *ot = get_offsets_table();
-    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
-    const u64 writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
-    if (framer_w_pos == (u64)-1 || writer_n_pos == (u64)-1) {
+    go_h2_framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    const u8 result = prepare_go_h2_continuation(ctx, f_info, _io_writer_n_pos, MAX_W_PTR_N);
+    if (result == k_go_h2_continuation_invalid) {
         bpf_map_delete_elem(&framer_invocation_map, &g_key);
-        return 0;
     }
-
-    void *writer = 0;
-    s64 n = -1;
-    long err = bpf_probe_read_user(
-        &writer, sizeof(writer), (unsigned char *)framer + framer_w_pos + k_go_iface_data_offset);
-    if (!err && writer) {
-        err = bpf_probe_read_user(&n, sizeof(n), (unsigned char *)writer + writer_n_pos);
-    }
-    if (err || !writer || n < 0 || n >= MAX_W_PTR_N) {
-        bpf_map_delete_elem(&framer_invocation_map, &g_key);
-        return 0;
-    }
-
-    f_info->initial_n = n;
-    f_info->frame_type = k_h2_frame_continuation;
-    f_info->reserved_padding = false;
-    f_info->awaiting_continuation = !end_headers;
     return 0;
 }
 
@@ -1688,7 +1661,7 @@ static __always_inline int reserve_http2_framer_padding(struct pt_regs *ctx,
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
-    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    go_h2_framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
     if (!f_info || f_info->reserved_padding) {
         return 0;
     }
@@ -1781,7 +1754,7 @@ int GUARDED_PROG(obi_uprobe_http2FramerReservePadding_vendored, struct pt_regs *
 }
 
 static __always_inline bool
-commit_http2_reserved_padding(void *buf, s64 n, const framer_func_invocation_t *f_info) {
+commit_http2_reserved_padding(void *buf, s64 n, const go_h2_framer_func_invocation_t *f_info) {
     if (n < k_h2_frame_header_len + 1 + k_h2_tp_hpack_huffman_size ||
         (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len) {
         return false;
@@ -1815,7 +1788,7 @@ commit_http2_reserved_padding(void *buf, s64 n, const framer_func_invocation_t *
 }
 
 static __always_inline u8 append_http2_traceparent_to_framer(
-    void *framer, u64 wbuf_pos, void *buf, s64 n, s64 cap, framer_func_invocation_t *f_info) {
+    void *framer, u64 wbuf_pos, void *buf, s64 n, s64 cap, go_h2_framer_func_invocation_t *f_info) {
     if (n < k_h2_frame_header_len || cap < n ||
         (u64)n > k_h2_default_max_frame_size + k_h2_frame_header_len) {
         return k_go_h2_user_write_bypass;
@@ -1864,7 +1837,7 @@ int GUARDED_PROG(obi_uprobe_http2FramerEndWrite, struct pt_regs *, ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
-    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    go_h2_framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
     void *framer = GO_PARAM1(ctx);
     if (!f_info || !framer || f_info->framer_ptr != (u64)framer) {
         return 0;
@@ -1916,7 +1889,7 @@ static __always_inline int on_http2FramerWriteHeadersReturns(struct pt_regs *ctx
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
+    go_h2_framer_func_invocation_t *f_info = bpf_map_lookup_elem(&framer_invocation_map, &g_key);
 
     if (f_info && f_info->awaiting_continuation) {
         return 0;
@@ -1970,7 +1943,7 @@ static __always_inline int on_http2FramerWriteHeadersReturns(struct pt_regs *ctx
             const u8 result = append_go_h2_traceparent(w_ptr,
                                                        io_writer_n_pos,
                                                        buf_arr,
-                                                       f_info->initial_n,
+                                                       f_info->frame_offset,
                                                        n,
                                                        cap,
                                                        f_info->stream_id,
